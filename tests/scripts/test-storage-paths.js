@@ -51,10 +51,26 @@ function run() {
       assertTrue(settingsPath.endsWith(path.join('Settings', 'settings.json')), 'settings path should end with Settings/settings.json');
     });
 
-    test('bundled aircraft profiles dir uses the app-data tree', () => {
-      const officialDir = storagePaths.getBundledProfilesDir(env);
-      assertTrue(officialDir.includes('Flight Fabric'), 'bundled aircraft profiles dir should include the Flight Fabric folder');
-      assertTrue(officialDir.endsWith(path.join('Profiles', 'Aircraft', 'Bundled')), 'bundled aircraft profiles dir should end with Profiles/Aircraft/Bundled');
+    test('retired aircraft profile directory APIs are not exposed', () => {
+      const retiredProfilePathApis = [
+        'PROFILES_DIR_NAME',
+        'AIRCRAFT_PROFILES_DIR_NAME',
+        'BUNDLED_PROFILES_DIR_NAME',
+        'LOCAL_PROFILES_DIR_NAME',
+        'getProfilesRootDir',
+        'getAircraftProfilesDir',
+        'resolveAircraftProfilesDir',
+        'getBundledProfilesDir',
+        'resolveBundledProfilesDir',
+        'getLocalProfilesDir',
+        'resolveLocalProfilesDir',
+        'getAircraftProfilesNamespaceDir',
+        'getAircraftProfilesSimulatorDir',
+      ];
+      assertTrue(
+        retiredProfilePathApis.every((apiName) => storagePaths[apiName] === undefined),
+        'storage path API should not advertise retired aircraft profile directories'
+      );
     });
 
     test('cabin announcement audio dir uses the app-data tree', () => {

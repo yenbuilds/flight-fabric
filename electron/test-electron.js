@@ -41,6 +41,7 @@ const {
 } = require('./session-permission-policy');
 const { resolveBackendEntry } = require('../scripts/backend-runtime-paths');
 const {
+  copySharedRuntimeAssets,
   shouldExcludeRuntimeModuleEntry,
 } = require('./after-pack');
 const {
@@ -100,6 +101,10 @@ test('session-permission-policy.js exists', fs.existsSync(path.join(electronDir,
 test(
   'packaged lifecycle probe exists',
   fs.existsSync(path.join(projectRoot, 'tests', 'scripts', 'test-electron-packaged-lifecycle.js')),
+);
+test(
+  'virgin installer payload probe exists',
+  fs.existsSync(path.join(projectRoot, 'tests', 'scripts', 'test-electron-installer-payload.js')),
 );
 
 section('IPC Sender Policy');
@@ -669,6 +674,12 @@ const settingsStore = createSettingsStore({ settingsFile: tempSettingsFile });
 const initialSettings = settingsStore.getSettings();
 test('settings store returns defaults when file is missing', initialSettings.wsPort === 8099 && initialSettings.httpPort === 8100);
 
+fs.writeFileSync(tempSettingsFile, JSON.stringify({
+  aircraft: { profile: ' local/msfs/legacy-private-profile ' },
+}, null, 2));
+const retiredLocalProfileSettings = settingsStore.getSettings();
+test('settings store displays retired local profile overrides as auto', retiredLocalProfileSettings.aircraft === 'auto');
+
 const saveResult = settingsStore.saveSettings({
   aircraft: 'fbw-a32nx',
   debug: true,
@@ -686,6 +697,7 @@ test('persists nested network.wsPort', persisted.network?.wsPort === 9200);
 test('persists nested network.httpPort', persisted.network?.httpPort === 9300);
 test('ignores retired backend debug setting', !Object.hasOwn(persisted.advanced || {}, 'debugMode'));
 test('persists nested simulator.protocol', persisted.simulator?.protocol === 'XPLANE_WEB');
+test('preserves supported aircraft profile selections', persisted.aircraft?.profile === 'fbw-a32nx');
 test('ignores retired poll-rate input', !Object.hasOwn(persisted.performance || {}, 'pollRateMs'));
 test('does not expose poll rate through launcher settings', !Object.hasOwn(saveResult.settings || {}, 'pollRateMs'));
 test('does not expose backend debug through launcher settings', !Object.hasOwn(saveResult.settings || {}, 'debug'));
@@ -713,6 +725,20 @@ const invalidEnvRuntime = settingsStore.refreshRuntimeNetworkFromSettings(
   { SIMBRIDGE_WS_PORT: 'invalid' },
 );
 test('invalid explicit environment ports remain invalid for fail-closed startup', Number.isNaN(invalidEnvRuntime.backendWsPort));
+
+const retiredLocalProfileSave = settingsStore.saveSettings({
+  aircraft: 'local/msfs/legacy-private-profile',
+  simconnect: 'XPLANE_WEB',
+  wsPort: 9200,
+  httpPort: 9300,
+  remoteAccess: false,
+});
+const persistedRetiredLocalProfileSave = JSON.parse(fs.readFileSync(tempSettingsFile, 'utf8'));
+test('settings store refuses to re-save retired local profile overrides', (
+  retiredLocalProfileSave.success === true
+  && retiredLocalProfileSave.settings.aircraft === 'auto'
+  && persistedRetiredLocalProfileSave.aircraft?.profile === 'auto'
+));
 
 const resetResult = settingsStore.resetSettings();
 test('settings reset succeeds', resetResult.success === true);
@@ -959,6 +985,12 @@ test('handles settings-get', mainSource.includes("registerTrustedIpcHandler('set
 test('handles settings-save', mainSource.includes("registerTrustedIpcHandler('settings-save'"));
 test('handles settings-reset', mainSource.includes("registerTrustedIpcHandler('settings-reset'"));
 test('handles storage-locations-get', mainSource.includes("registerTrustedIpcHandler('storage-locations-get'"));
+test('storage locations omit retired local aircraft profile folders', (
+  !mainSource.includes("id: 'profiles'")
+  && !mainSource.includes('getProfilesRootDir')
+  && !mainSource.includes('Editable local aircraft profile overrides')
+  && !mainSource.includes('Settings, aircraft profiles')
+));
 
 // Check for graceful shutdown
 test('uses SIGTERM for graceful shutdown', mainSource.includes('SIGTERM'));
@@ -1472,6 +1504,108 @@ test('Electron build bundles SimConnect DLL for Windows telemetry', buildScript.
 test('afterPack fails when backend node_modules is missing', afterPackScript.includes('throw new Error') && afterPackScript.includes('Missing backend runtime node_modules'));
 test('afterPack verifies required backend dependencies after copying', afterPackScript.includes('missing required backend runtime dependencies') && afterPackScript.includes('packaged backend'));
 test('afterPack removes stale destination node_modules before copying', afterPackScript.includes('fs.rmSync(backendModulesDest'));
+function probesSharedRuntimeCopy() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-shared-runtime-copy-'));
+  const sourceDir = path.join(tempRoot, 'source');
+  const destinationDir = path.join(tempRoot, 'destination');
+  const requiredFiles = [
+    'app-settings-shared.js',
+    'flight-phases.js',
+    'rust-sidecar-artifact.js',
+    'violation-rules.js',
+  ];
+  try {
+    fs.mkdirSync(sourceDir);
+    fs.mkdirSync(destinationDir);
+    for (const fileName of requiredFiles) {
+      fs.writeFileSync(path.join(sourceDir, fileName), `module.exports = ${JSON.stringify(fileName)};\n`);
+    }
+    fs.writeFileSync(path.join(sourceDir, 'types.d.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(destinationDir, 'stale-leftover.js'), 'stale\n');
+
+    copySharedRuntimeAssets(sourceDir, destinationDir, tempRoot);
+    return requiredFiles.every((fileName) => fs.existsSync(path.join(destinationDir, fileName)))
+      && !fs.existsSync(path.join(destinationDir, 'types.d.ts'))
+      && fs.existsSync(path.join(destinationDir, 'stale-leftover.js'));
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+test(
+  'afterPack copies only the required shared runtime without deleting unrelated files',
+  probesSharedRuntimeCopy(),
+);
+function probesSharedRuntimeDestinationGuards() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-shared-runtime-guard-'));
+  const sourceDir = path.join(tempRoot, 'source');
+  const appOutDir = path.join(tempRoot, 'app-out');
+  const resourcesDir = path.join(appOutDir, 'resources');
+  const outsideDir = path.join(tempRoot, 'outside');
+  const redirectedDestination = path.join(resourcesDir, 'shared');
+  const sentinelPath = path.join(outsideDir, 'sentinel.txt');
+  let redirected = false;
+  try {
+    fs.mkdirSync(sourceDir);
+    fs.mkdirSync(resourcesDir, { recursive: true });
+    fs.mkdirSync(outsideDir);
+    for (const fileName of [
+      'app-settings-shared.js',
+      'flight-phases.js',
+      'rust-sidecar-artifact.js',
+      'violation-rules.js',
+    ]) {
+      fs.writeFileSync(path.join(sourceDir, fileName), 'module.exports = {};\n');
+    }
+    fs.writeFileSync(sentinelPath, 'outside\n');
+
+    let escapeRejected = false;
+    try {
+      copySharedRuntimeAssets(sourceDir, outsideDir, appOutDir);
+    } catch (error) {
+      escapeRejected = /destination escapes/.test(error.message);
+    }
+    if (!escapeRejected || fs.readFileSync(sentinelPath, 'utf8') !== 'outside\n') return false;
+
+    try {
+      fs.symlinkSync(
+        outsideDir,
+        redirectedDestination,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+      redirected = true;
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error?.code)) return true;
+      throw error;
+    }
+
+    let redirectRejected = false;
+    try {
+      copySharedRuntimeAssets(sourceDir, redirectedDestination, appOutDir);
+    } catch (error) {
+      redirectRejected = /not a regular directory|link, junction, or reparse point/.test(error.message);
+    }
+    return redirectRejected && fs.readFileSync(sentinelPath, 'utf8') === 'outside\n';
+  } catch {
+    return false;
+  } finally {
+    if (redirected && fs.existsSync(redirectedDestination)) {
+      try { fs.unlinkSync(redirectedDestination); } catch {}
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+test(
+  'afterPack refuses escaping or redirected shared-runtime write targets',
+  probesSharedRuntimeDestinationGuards(),
+);
+test(
+  'Electron builds launch a freshly extracted installer payload before succeeding',
+  buildScript.includes('verifyVirginInstallerPayload')
+    && buildScript.includes('test-electron-installer-payload.js')
+    && buildScript.includes('  verifyVirginInstallerPayload();'),
+);
 test(
   'afterPack prunes dependency docs, tests, source, and repository metadata',
   afterPackScript.includes("'spec'") &&

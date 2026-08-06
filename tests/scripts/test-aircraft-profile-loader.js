@@ -173,6 +173,10 @@ const profileModel = require(resolveBackendRuntimeFile('aircraft', 'aircraft-pro
 const profileRegistry = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-registry.js'));
 const { defaultAircraftIntegrationRegistry } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-integrations', 'index.js'));
 const storagePaths = require(resolveBackendRuntimeFile('utils', 'storage-paths.js'));
+const retiredProfilesRootDir = path.join(storagePaths.getAppDataRoot(), 'Profiles');
+const retiredAircraftProfilesDir = path.join(retiredProfilesRootDir, 'Aircraft');
+const retiredBundledProfilesDir = path.join(retiredAircraftProfilesDir, 'Bundled');
+const retiredLocalProfilesDir = path.join(retiredAircraftProfilesDir, 'Local');
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -190,10 +194,11 @@ test('Module exports getAircraftSpecificConfig', typeof loader.getAircraftSpecif
 
 section('Constants');
 test('BUILTIN_BUNDLED_DIR is defined', typeof loader.BUILTIN_BUNDLED_DIR === 'string');
-test('BUNDLED_DIR is defined', typeof loader.BUNDLED_DIR === 'string');
+test('Legacy AppData BUNDLED_DIR is not exposed', typeof loader.BUNDLED_DIR === 'undefined');
 test('LOCAL_DIR is not exposed by the release-owned profile loader', typeof loader.LOCAL_DIR === 'undefined');
 test('GENERIC_ID is "generic"', loader.GENERIC_ID === 'generic');
 test('Profile JSON size budget is exported', Number.isFinite(loader.MAX_PROFILE_JSON_BYTES) && loader.MAX_PROFILE_JSON_BYTES > 0);
+test('Loading profile modules does not create a retired AppData Profiles folder', !fs.existsSync(retiredProfilesRootDir));
 
 section('Aircraft-Specific Provider Contracts');
 const futureProviderProfile = {
@@ -344,7 +349,7 @@ test('Generic profile is loaded from built-in bundled profiles', typeof generic?
 test('MSFS generic does not assert flap notches', generic?.flaps == null && generic?.aircraft?.flaps == null);
 
 const builtinGenericPath = path.join(loader.BUILTIN_BUNDLED_DIR, 'msfs', 'generic.json');
-const legacyBundledGenericDir = path.join(loader.BUNDLED_DIR, 'msfs');
+const legacyBundledGenericDir = path.join(retiredBundledProfilesDir, 'msfs');
 const legacyBundledGenericPath = path.join(legacyBundledGenericDir, 'generic.json');
 fs.mkdirSync(legacyBundledGenericDir, { recursive: true });
 fs.writeFileSync(legacyBundledGenericPath, JSON.stringify({ id: 'generic', name: 'Stale Generic', simulator: 'msfs' }, null, 2));
@@ -587,6 +592,14 @@ test('List includes airbus-base', profileIds.includes('airbus-base'));
 test('List excludes the deferred Microsoft C408 profile', !profileIds.includes('microsoft-c408-skycourier'));
 test('List excludes the deferred Microsoft DHC-6 profile', !profileIds.includes('microsoft-dhc6-twin-otter'));
 test('List excludes the obsolete Asobo E175 compatibility shim', !profileIds.includes('asobo-e175'));
+test(
+  'Profile summaries retain null legacy administration fields for client compatibility',
+  profiles.every(profile => (
+    profile.remoteInstall === null &&
+    profile.bundledProfileKey === null &&
+    profile.localOverrideUpdateStatus === null
+  )),
+);
 
 const abstractProfiles = profiles.filter(p => p.abstract);
 test('airbus-base is marked abstract', abstractProfiles.some(p => p.id === 'airbus-base'));
@@ -962,9 +975,9 @@ const detectedPmdg737FromLoadedPath = loader.detectProfile(pmdg737LogConfigPath,
 });
 test('Deferred PMDG 737 loaded path falls back to generic', detectedPmdg737FromLoadedPath?.id === 'generic');
 
-const legacyCommunityRootDir = path.join(storagePaths.getAircraftProfilesDir(), 'Community');
+const legacyCommunityRootDir = path.join(retiredAircraftProfilesDir, 'Community');
 const legacyCommunityPmdg737Path = path.join(legacyCommunityRootDir, 'pmdg-737.json');
-const migratedLocalPmdg737Path = path.join(storagePaths.getLocalProfilesDir(), 'msfs', 'pmdg-737.json');
+const migratedLocalPmdg737Path = path.join(retiredLocalProfilesDir, 'msfs', 'pmdg-737.json');
 fs.mkdirSync(legacyCommunityRootDir, { recursive: true });
 
 fs.writeFileSync(legacyCommunityPmdg737Path, JSON.stringify({ notAProfile: true }, null, 2), 'utf8');
@@ -1554,7 +1567,7 @@ try {
 }
 
 const xplaneProfileId = `test-xplane-${Date.now()}`;
-const xplaneProfileDir = path.join(storagePaths.getLocalProfilesDir(), 'xplane');
+const xplaneProfileDir = path.join(retiredLocalProfilesDir, 'xplane');
 const xplaneProfilePath = path.join(xplaneProfileDir, `${xplaneProfileId}.json`);
 fs.mkdirSync(xplaneProfileDir, { recursive: true });
 fs.writeFileSync(xplaneProfilePath, JSON.stringify({
@@ -2310,7 +2323,7 @@ test('setActiveProfile(generic) resolves configured simulator despite X-Plane ca
 
 section('Release-owned Profile Isolation');
 
-const userDir = storagePaths.getLocalProfilesDir();
+const userDir = retiredLocalProfilesDir;
 test('getCommunityProfilesDir is no longer exported', typeof storagePaths.getCommunityProfilesDir === 'undefined');
 test('Legacy Community dir is different from user dir', legacyCommunityRootDir !== userDir);
 test('Legacy Community dir ends with Community', legacyCommunityRootDir.endsWith(path.join('Aircraft', 'Community')));
@@ -2406,7 +2419,7 @@ try {
 section('Profile Size Guards');
 
 const oversizedProfileId = `test-oversized-profile-${Date.now()}`;
-const oversizedProfileDir = path.join(storagePaths.getLocalProfilesDir(), 'msfs');
+const oversizedProfileDir = path.join(retiredLocalProfilesDir, 'msfs');
 const oversizedProfilePath = path.join(oversizedProfileDir, `${oversizedProfileId}.json`);
 fs.mkdirSync(oversizedProfileDir, { recursive: true });
 try {

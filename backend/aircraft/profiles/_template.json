@@ -4,7 +4,7 @@
   "id": "my-aircraft",
   "name": "My Aircraft Display Name",
   "simulator": "msfs",
-  "namespace": "local",
+  "namespace": "bundled",
   "author": null,
   "authorAccount": null,
   "createdAt": null,

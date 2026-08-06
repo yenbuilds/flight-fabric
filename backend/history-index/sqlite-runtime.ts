@@ -248,7 +248,33 @@ function readUserVersion(db: AnyRecord): number | null {
 }
 
 function runHistoryIndexSqliteSmoke(options: OpenDatabaseOptions = {}): SmokeResult {
-  const opened = openHistoryIndexDatabase(options);
+  const requestedDbPath = typeof options.dbPath === 'string' ? options.dbPath.trim() : '';
+  const dbPath = requestedDbPath ? resolveHistoryIndexDatabasePath({ ...options, dbPath: requestedDbPath }) : '';
+  const productionDbPath = resolveHistoryIndexDatabasePath({
+    appDataRoot: options.appDataRoot,
+    env: options.env,
+  });
+  const comparablePath = (value: string): string => (
+    process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
+  );
+  const targetsProductionDatabase = dbPath !== ':memory:'
+    && dbPath !== ''
+    && comparablePath(dbPath) === comparablePath(productionDbPath);
+
+  if (!requestedDbPath || targetsProductionDatabase) {
+    const probe = loadNodeSqlite();
+    return {
+      success: false,
+      available: probe.available,
+      runtime: 'node:sqlite',
+      dbPath,
+      error: !requestedDbPath
+        ? 'SQLite smoke test requires an explicit temporary dbPath'
+        : 'SQLite smoke test refuses to use the production history-index database',
+    };
+  }
+
+  const opened = openHistoryIndexDatabase({ ...options, dbPath });
   if (opened.success !== true) {
     return {
       success: false,
@@ -259,11 +285,17 @@ function runHistoryIndexSqliteSmoke(options: OpenDatabaseOptions = {}): SmokeRes
     };
   }
 
+  let transactionStarted = false;
   try {
-    opened.db.exec('PRAGMA user_version = 0');
+    // Exercise a real write against the target database without leaving test
+    // schema or rows behind if an existing non-production database is used.
+    opened.db.exec('BEGIN IMMEDIATE');
+    transactionStarted = true;
     opened.db.exec('CREATE TABLE IF NOT EXISTS history_index_smoke (id INTEGER PRIMARY KEY, checked_at_ms INTEGER NOT NULL)');
     opened.db.prepare('INSERT INTO history_index_smoke (checked_at_ms) VALUES (?)').run(Date.now());
     const userVersion = readUserVersion(opened.db);
+    opened.db.exec('ROLLBACK');
+    transactionStarted = false;
     return {
       success: true,
       available: true,
@@ -272,6 +304,12 @@ function runHistoryIndexSqliteSmoke(options: OpenDatabaseOptions = {}): SmokeRes
       userVersion,
     };
   } catch (err) {
+    if (transactionStarted) {
+      try {
+        opened.db.exec('ROLLBACK');
+      } catch {}
+      transactionStarted = false;
+    }
     return {
       success: false,
       available: true,

@@ -271,7 +271,6 @@ function loadFlightLogsDir() {
 const {
   getAppDataRoot,
   getCabinAnnouncementAudioDir,
-  getProfilesRootDir,
   getSettingsDir,
   getSettingsFilePath,
   getThemesDir,
@@ -1503,7 +1502,7 @@ function scheduleLifecycleSmokeQuit(proc) {
   setTimeout(() => {
     recordLifecycleSmokeEvent('quit-requested');
     app.quit();
-  }, 2000);
+  }, 5000);
 }
 
 function tryCompleteBackendStartup(proc) {
@@ -2638,7 +2637,7 @@ registerTrustedIpcHandler('storage-locations-get', () => ({
       id: 'appData',
       label: 'App Data',
       path: getAppDataRoot(),
-      description: 'Settings, aircraft profiles, logbook metadata, local SDK connectors, and app-owned runtime state.',
+      description: 'Settings, logbook metadata, local SDK connectors, and app-owned runtime state.',
     },
     {
       id: 'settings',
@@ -2657,12 +2656,6 @@ registerTrustedIpcHandler('storage-locations-get', () => ({
       label: 'Flight Logs',
       path: resolveFlightLogsDir({ createIfMissing: false }),
       description: 'User-visible CSV flight recordings saved under your Documents folder.',
-    },
-    {
-      id: 'profiles',
-      label: 'Aircraft Profiles',
-      path: getProfilesRootDir(),
-      description: 'Editable local aircraft profile overrides. Bundled defaults ship with the app.',
     },
     {
       id: 'settingsDir',

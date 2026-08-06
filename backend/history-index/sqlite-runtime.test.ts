@@ -54,6 +54,72 @@ test('history index sqlite smoke opens a temp database when node:sqlite is avail
   }
 });
 
+test('history index sqlite smoke refuses an implicit or explicit production database path', (t) => {
+  const probe = loadNodeSqlite();
+  if (!probe.available) {
+    t.skip(`node:sqlite unavailable in this runtime: ${probe.error}`);
+    return;
+  }
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-index-smoke-guard-'));
+  const appDataRoot = path.join(tmpRoot, 'Flight Fabric');
+  const productionDbPath = path.join(appDataRoot, HISTORY_INDEX_DB_FILE_NAME);
+  try {
+    const implicit = runHistoryIndexSqliteSmoke({ appDataRoot });
+    assert.equal(implicit.success, false);
+    assert.match(implicit.error, /explicit temporary dbPath/i);
+    assert.equal(fs.existsSync(productionDbPath), false);
+
+    const explicit = runHistoryIndexSqliteSmoke({ appDataRoot, dbPath: productionDbPath });
+    assert.equal(explicit.success, false);
+    assert.match(explicit.error, /refuses to use the production/i);
+    assert.equal(fs.existsSync(productionDbPath), false);
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('history index sqlite smoke rolls back its write probe and preserves schema metadata', (t) => {
+  const probe = loadNodeSqlite();
+  if (!probe.available) {
+    t.skip(`node:sqlite unavailable in this runtime: ${probe.error}`);
+    return;
+  }
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-index-smoke-rollback-'));
+  const dbPath = path.join(tmpRoot, 'history.sqlite');
+  try {
+    const seeded = openHistoryIndexDatabase({ dbPath });
+    assert.equal(seeded.success, true, seeded.error);
+    try {
+      seeded.db.exec('PRAGMA user_version = 7');
+      seeded.db.exec('CREATE TABLE durable_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
+      seeded.db.prepare('INSERT INTO durable_probe (value) VALUES (?)').run('preserved');
+    } finally {
+      seeded.db.close();
+    }
+
+    const result = runHistoryIndexSqliteSmoke({ dbPath });
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.userVersion, 7);
+
+    const reopened = openHistoryIndexDatabase({ dbPath });
+    assert.equal(reopened.success, true, reopened.error);
+    try {
+      assert.equal(reopened.db.prepare('PRAGMA user_version').get().user_version, 7);
+      assert.equal(reopened.db.prepare('SELECT value FROM durable_probe').get().value, 'preserved');
+      assert.equal(
+        reopened.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'history_index_smoke'").get().count,
+        0,
+      );
+    } finally {
+      reopened.db.close();
+    }
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
 test('history index sqlite smoke reports unavailable runtime without throwing', () => {
   const result = runHistoryIndexSqliteSmoke({ dbPath: ':memory:' });
   if (loadNodeSqlite().available) {

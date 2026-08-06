@@ -699,13 +699,12 @@ async function main() {
           id: 'pmdg-737',
           namespace: 'local',
           simulator: 'msfs',
-          localOverrideUpdateStatus: 'changed',
         }];
       },
     );
 
     assert.doesNotMatch(html, /data-tab="profiles"/, 'Profiles should not render as a primary workspace tab');
-    assert.doesNotMatch(html, /id="profiles-update-badge"/, 'stale local profiles should be reviewed from advanced Settings instead');
+    assert.doesNotMatch(html, /id="profiles-update-badge"/, 'retired profile administration badges should remain absent');
   });
 
   console.log('\n--- main content shell ---\n');

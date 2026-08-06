@@ -81,12 +81,6 @@ const {
 } = require('./aircraft-profile-resolution.js') as {
   resolveLoadedProfile: (params: Record<string, any>) => { resolved: ResolvedProfilePath; finalized: LoadedProfile } | null;
 };
-const {
-  getBundledProfilesDir,
-} = require('../utils/storage-paths.js') as {
-  getBundledProfilesDir: () => string;
-};
-
 const MAX_PROFILE_JSON_BYTES = 1024 * 1024;
 
 type GenericRecord = Record<string, any>;
@@ -167,7 +161,6 @@ type ProfileSummary = {
 
 const BUILTIN_ROOT_DIR = path.join(__dirname, 'profiles');
 const BUILTIN_BUNDLED_DIR = path.join(BUILTIN_ROOT_DIR, 'bundled');
-const BUNDLED_DIR = getBundledProfilesDir();
 const GENERIC_ID = 'generic';
 const AIRCRAFT_CFG_MAX_BYTES = 256 * 1024;
 const INTERNAL_PROFILE_KEYS = new Set([
@@ -1796,7 +1789,6 @@ const aircraftProfileLoaderApi = {
 
   BUILTIN_ROOT_DIR,
   BUILTIN_BUNDLED_DIR,
-  BUNDLED_DIR,
   GENERIC_ID,
   MAX_PROFILE_JSON_BYTES,
 

@@ -3,18 +3,18 @@
   "version": 2,
   "_instructions": [
     "=== QUICK START PROFILE ===",
-    "1. Save this as '<aircraft-name>.json' in your Local aircraft profile namespace.",
-    "2. Set simulator to 'msfs' or 'xplane'.",
+    "1. Copy this into backend/aircraft/profiles/bundled/<simulator>/<aircraft-name>.json in the source tree.",
+    "2. Set simulator to 'msfs' or 'xplane' and keep namespace as 'bundled'.",
     "3. Change id and name.",
     "4. Put aircraft semantics under aircraft.* and simulator bindings under integration.*.",
-    "5. Restart the backend or reload profiles.",
+    "5. Run the profile validators and rebuild the backend runtime.",
     "",
     "Delete these _instructions when done."
   ],
   "id": "example-aircraft",
   "name": "Example Aircraft Name",
   "simulator": "msfs",
-  "namespace": "local",
+  "namespace": "bundled",
   "visibility": "private",
   "aircraft": {
     "category": "C",

@@ -43,6 +43,7 @@
     "test:electron:backend-launch": "node tests/scripts/test-electron-packaged-backend-launch.js",
     "test:electron:lifecycle": "node tests/scripts/test-electron-packaged-lifecycle.js",
     "test:electron:packaged": "node tests/scripts/test-electron-packaged-smoke.js",
+    "test:electron:installer-payload": "node tests/scripts/test-electron-installer-payload.js",
     "test:profiles": "node tests/scripts/test-aircraft-profile-loader.js",
     "test:profile-completeness": "node scripts/validate-profile-completeness.js",
     "test:aircraft-profile-provenance": "node tests/scripts/test-aircraft-profile-provenance.js",

@@ -71,12 +71,14 @@ function run() {
     const cabinDir = storagePaths.getCabinAnnouncementAudioDir(process.env);
     const themesDir = storagePaths.getThemesDir(process.env);
     const markerPath = storagePaths.getAppDataMarkerFilePath(process.env);
+    const retiredProfilesRootDir = path.join(storagePaths.getAppDataRoot(process.env), 'Profiles');
 
     // Defaults should be present and template should be created.
     assertTrue(fs.existsSync(settingsPath), 'settings.json template should be created on first load');
     assertTrue(fs.existsSync(markerPath), 'app-data marker should be created on first load');
     assertTrue(fs.existsSync(cabinDir), 'cabin announcement audio directory should be created on first load');
     assertTrue(fs.existsSync(themesDir), 'themes directory should be created on first load');
+    assertTrue(!fs.existsSync(retiredProfilesRootDir), 'first load should not create the retired Profiles folder');
     assertTrue(!settingsPath.includes('.msfs-telemetry'), 'settings.json should use the new Flight Fabric path');
     assertEqual(mod.settings.network.remoteAccess, false, 'network.remoteAccess default');
     assertEqual(mod.settings.network.remoteAircraftControl, false, 'network.remoteAircraftControl default');
@@ -102,6 +104,100 @@ function run() {
     const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
     assertEqual(marker.app, 'Flight Fabric', 'app-data marker app name');
     assertEqual(marker.version, 1, 'app-data marker version');
+
+    // Retired local profile overrides must be repaired without touching any
+    // unrelated setting or leaving a silent generic-profile fallback behind.
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        _version: 3,
+        aircraft: { profile: ' local/msfs/legacy-private-profile ' },
+        network: { remoteAccess: true },
+      }, null, 2),
+      'utf8'
+    );
+
+    const localProfileWarnings = [];
+    const originalConsoleWarn = console.warn;
+    let repairedLocalProfile;
+    try {
+      console.warn = (...args) => localProfileWarnings.push(args.join(' '));
+      repairedLocalProfile = loadFreshUserSettingsModule();
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+
+    assertEqual(repairedLocalProfile.settings.aircraft.profile, 'auto', 'retired local profile switches to auto');
+    assertEqual(repairedLocalProfile.settings.network.remoteAccess, true, 'local profile migration preserves unrelated settings');
+    const persistedLocalProfileRepair = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    assertEqual(persistedLocalProfileRepair.aircraft.profile, 'auto', 'retired local profile repair is persisted');
+    assertTrue(
+      localProfileWarnings.some((message) => (
+        message.includes('local aircraft profile override is no longer supported')
+        && message.includes('switched to auto-detection')
+        && message.includes('profile file was not deleted')
+      )),
+      'retired local profile repair should emit a clear non-destructive warning'
+    );
+
+    const repeatRepairWarnings = [];
+    try {
+      console.warn = (...args) => repeatRepairWarnings.push(args.join(' '));
+      const repairedAgain = loadFreshUserSettingsModule();
+      assertEqual(repairedAgain.settings.aircraft.profile, 'auto', 'retired local profile repair is idempotent');
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+    assertEqual(repeatRepairWarnings.length, 0, 'persisted local profile repair should not warn again');
+
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        _version: 3,
+        aircraft: { profile: 'bundled/msfs/fbw-a32nx' },
+      }, null, 2),
+      'utf8'
+    );
+    const validBundledProfile = loadFreshUserSettingsModule();
+    assertEqual(
+      validBundledProfile.settings.aircraft.profile,
+      'bundled/msfs/fbw-a32nx',
+      'bundled profile override remains unchanged'
+    );
+
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        _version: 3,
+        aircraft: { profile: 'custom-profile-id' },
+      }, null, 2),
+      'utf8'
+    );
+    const validUnqualifiedProfile = loadFreshUserSettingsModule();
+    assertEqual(
+      validUnqualifiedProfile.settings.aircraft.profile,
+      'custom-profile-id',
+      'unqualified profile override remains unchanged'
+    );
+
+    const localProfileSaveWarnings = [];
+    let repairedLocalProfileSave;
+    try {
+      console.warn = (...args) => localProfileSaveWarnings.push(args.join(' '));
+      repairedLocalProfileSave = validUnqualifiedProfile.saveUserSettings({
+        ...validUnqualifiedProfile.settings,
+        aircraft: { profile: 'local/legacy-private-profile' },
+      });
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+    assertEqual(repairedLocalProfileSave.aircraft.profile, 'auto', 'save path refuses retired local profile overrides');
+    assertEqual(
+      JSON.parse(fs.readFileSync(settingsPath, 'utf8')).aircraft.profile,
+      'auto',
+      'save path persists the repaired automatic profile selection'
+    );
+    assertEqual(localProfileSaveWarnings.length, 1, 'save path logs the retired local profile repair once');
 
     // Explicit migration fixture: older settings get the current schema version
     // and retired network-feature connection details are removed.

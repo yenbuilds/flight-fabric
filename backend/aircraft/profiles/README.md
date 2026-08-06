@@ -365,7 +365,8 @@ X-Plane profiles use:
 
 ## Creation
 
-Start from:
+Add release-owned profiles to
+`backend/aircraft/profiles/bundled/<simulator>/`. Start from:
 
 - `_template.json` for MSFS
 - `_template-xplane.json` for X-Plane
@@ -379,7 +380,7 @@ Minimum practical fields for a new profile:
   "id": "my-aircraft",
   "name": "My Aircraft",
   "simulator": "msfs",
-  "namespace": "local",
+  "namespace": "bundled",
   "aircraft": {
     "category": "C"
   },

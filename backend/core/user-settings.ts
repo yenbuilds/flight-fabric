@@ -15,6 +15,9 @@
 
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
+const { parseProfileLocator } = require('../aircraft/aircraft-profile-identity.js') as {
+  parseProfileLocator: (value: unknown) => { namespace?: string | null } | null;
+};
 const { APP_SETTINGS_DEFAULTS } = require('../../shared/app-settings-shared.js') as {
   APP_SETTINGS_DEFAULTS: {
     cabinAnnouncementsEnabled: boolean;
@@ -62,6 +65,7 @@ const CABIN_ANNOUNCEMENTS_DIR = getCabinAnnouncementAudioDir();
 const THEMES_DIR = getThemesDir();
 const APP_DATA_MARKER_FILE = resolveAppDataMarkerFilePath();
 const SETTINGS_FILE = resolveSettingsFilePath();
+let retiredLocalProfileWarningEmitted = false;
 
 // Default settings with documentation
 const DEFAULT_SETTINGS: SettingsObject = {
@@ -263,6 +267,10 @@ function hasRetiredDebugMode(settings: SettingsObject): boolean {
   );
 }
 
+function hasRetiredLocalAircraftProfile(settings: SettingsObject): boolean {
+  return parseProfileLocator(settings.aircraft?.profile)?.namespace === 'local';
+}
+
 function migrateUserSettings(settings: SettingsObject): SettingsObject {
   const currentVersion = Number(settings._version);
   if (!Number.isFinite(currentVersion) || currentVersion < CURRENT_SETTINGS_VERSION) {
@@ -310,6 +318,20 @@ function migrateUserSettings(settings: SettingsObject): SettingsObject {
     if (Object.keys(settings.advanced).length === 0) delete settings.advanced;
   }
 
+  // Local/imported profiles are no longer executable configuration sources.
+  // Repair only the retired qualified namespace; keep bundled and auto values
+  // untouched, and never delete the user's old profile files.
+  if (hasRetiredLocalAircraftProfile(settings)) {
+    settings.aircraft.profile = 'auto';
+    if (!retiredLocalProfileWarningEmitted) {
+      retiredLocalProfileWarningEmitted = true;
+      console.warn(
+        '[settings] A saved local aircraft profile override is no longer supported; '
+        + 'switched to auto-detection. The profile file was not deleted.',
+      );
+    }
+  }
+
   return settings;
 }
 
@@ -325,6 +347,7 @@ function loadUserSettings(): SettingsObject {
   let removeRetiredRecordingLimitsFromDisk = false;
   let removeRetiredPollRateFromDisk = false;
   let removeRetiredDebugModeFromDisk = false;
+  let removeRetiredLocalAircraftProfileFromDisk = false;
 
   if (fs.existsSync(SETTINGS_FILE)) {
     try {
@@ -333,6 +356,7 @@ function loadUserSettings(): SettingsObject {
       removeRetiredRecordingLimitsFromDisk = hasRetiredRecordingLimits(userSettings);
       removeRetiredPollRateFromDisk = hasRetiredPollRate(userSettings);
       removeRetiredDebugModeFromDisk = hasRetiredDebugMode(userSettings);
+      removeRetiredLocalAircraftProfileFromDisk = hasRetiredLocalAircraftProfile(userSettings);
     } catch (error) {
       const err = error as { message?: string };
       console.warn(`[settings] Could not parse ${SETTINGS_FILE}: ${err.message}`);
@@ -362,6 +386,7 @@ function loadUserSettings(): SettingsObject {
     removeRetiredRecordingLimitsFromDisk
     || removeRetiredPollRateFromDisk
     || removeRetiredDebugModeFromDisk
+    || removeRetiredLocalAircraftProfileFromDisk
   ) {
     try {
       safeReplaceTextFileSync({

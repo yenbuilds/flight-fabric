@@ -1412,6 +1412,29 @@ function verifyReleaseOutput() {
   log('Private release verifier is not included in the public source mirror; skipping private release verification.');
 }
 
+/**
+ * Extract the NSIS payload into an empty scratch directory and launch its
+ * backend. This catches resources that only appear to work because an older
+ * installation left files behind.
+ */
+function verifyVirginInstallerPayload() {
+  if (process.platform !== 'win32') {
+    log('Virgin installer payload launch probe skipped (Windows only).');
+    return;
+  }
+  log('Running virgin installer payload launch probe...');
+  try {
+    execFileSync(process.execPath, ['tests/scripts/test-electron-installer-payload.js'], {
+      cwd: ROOT,
+      stdio: 'inherit',
+    });
+    log('Virgin installer payload launch probe passed.');
+  } catch (err) {
+    error('Virgin installer payload is incomplete or not launchable. Refusing the build.');
+    process.exit(1);
+  }
+}
+
 function logSigningMode() {
   const hasSigningMaterial = !!(process.env.CSC_LINK || process.env.WIN_CSC_LINK);
   if (hasSigningMaterial) {
@@ -1453,6 +1476,7 @@ async function main() {
   verifyPackagedLegalNotices();
   verifyPackagedRustSidecar();
   verifyReleaseOutput();
+  verifyVirginInstallerPayload();
   
   log('');
   log('=== Build Complete ===');

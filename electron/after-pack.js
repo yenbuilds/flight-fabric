@@ -10,6 +10,13 @@ const fs = require('fs');
 const path = require('path');
 const rcedit = require('rcedit');
 
+const REQUIRED_SHARED_RUNTIME_FILES = [
+  'app-settings-shared.js',
+  'flight-phases.js',
+  'rust-sidecar-artifact.js',
+  'violation-rules.js',
+];
+
 const RUNTIME_MODULE_EXCLUDED_DIRECTORIES = new Set([
   '.github',
   '.husky',
@@ -151,6 +158,54 @@ function isPathInside(parentPath, childPath) {
     && !path.isAbsolute(relative);
 }
 
+function assertSafeRegularDirectory(dirPath, label) {
+  const stat = fs.lstatSync(dirPath);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`[afterPack] ${label} is not a regular directory: ${dirPath}`);
+  }
+  if (normalizedPathKey(dirPath) !== normalizedPathKey(fs.realpathSync(dirPath))) {
+    throw new Error(`[afterPack] ${label} is a link, junction, or reparse point: ${dirPath}`);
+  }
+}
+
+function assertSafeRegularFile(filePath, label) {
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`[afterPack] ${label} is not a regular file: ${filePath}`);
+  }
+  if (normalizedPathKey(filePath) !== normalizedPathKey(fs.realpathSync(filePath))) {
+    throw new Error(`[afterPack] ${label} is a link or reparse-point entry: ${filePath}`);
+  }
+}
+
+function assertSafeCopyDestination(destinationDir, destinationRoot) {
+  if (!destinationRoot) {
+    throw new Error('[afterPack] Shared runtime destination root is required');
+  }
+  const resolvedRoot = path.resolve(destinationRoot);
+  const resolvedDestination = path.resolve(destinationDir);
+  if (!isPathInside(resolvedRoot, resolvedDestination)) {
+    throw new Error(
+      `[afterPack] Shared runtime destination escapes the packaged app output: ${destinationDir}`
+    );
+  }
+
+  assertSafeRegularDirectory(resolvedRoot, 'Packaged app output directory');
+  const parentRelative = path.relative(resolvedRoot, path.dirname(resolvedDestination));
+  let currentParent = resolvedRoot;
+  for (const segment of parentRelative.split(path.sep).filter(Boolean)) {
+    currentParent = path.join(currentParent, segment);
+    if (!fs.existsSync(currentParent)) {
+      throw new Error(`[afterPack] Shared runtime destination parent is missing: ${currentParent}`);
+    }
+    assertSafeRegularDirectory(currentParent, 'Shared runtime destination parent');
+  }
+
+  if (fs.existsSync(resolvedDestination)) {
+    assertSafeRegularDirectory(resolvedDestination, 'Shared runtime destination');
+  }
+}
+
 function copyDirSync(src, dest, sourceRoot = src) {
   const resolvedSourceRoot = path.resolve(sourceRoot);
   const realSourceRoot = fs.realpathSync(sourceRoot);
@@ -223,6 +278,54 @@ function assertRuntimeModules({ label, modulesRoot, packageJsonPath }) {
   return { optionalInstalled, required };
 }
 
+function copySharedRuntimeAssets(sourceDir, destinationDir, destinationRoot) {
+  if (!fs.existsSync(sourceDir)) {
+    throw new Error(`[afterPack] Missing compiled shared runtime directory: ${sourceDir}`);
+  }
+
+  assertSafeRegularDirectory(sourceDir, 'Compiled shared runtime directory');
+  assertSafeCopyDestination(destinationDir, destinationRoot);
+
+  const missingSourceFiles = REQUIRED_SHARED_RUNTIME_FILES.filter((fileName) => {
+    const filePath = path.join(sourceDir, fileName);
+    if (!fs.existsSync(filePath)) return true;
+    assertSafeRegularFile(filePath, 'Required compiled shared runtime file');
+    return false;
+  });
+  if (missingSourceFiles.length > 0) {
+    throw new Error(
+      `[afterPack] Compiled shared runtime is incomplete: ${missingSourceFiles.join(', ')}`
+    );
+  }
+
+  // Do this explicitly in afterPack. A source beneath the configured output
+  // tree can be skipped by electron-builder's extraResources staging, which
+  // previously made upgrades work only when resources/shared survived from an
+  // older installation.
+  fs.mkdirSync(destinationDir, { recursive: true });
+  assertSafeRegularDirectory(destinationDir, 'Shared runtime destination');
+  for (const fileName of REQUIRED_SHARED_RUNTIME_FILES) {
+    const sourcePath = path.join(sourceDir, fileName);
+    const destinationPath = path.join(destinationDir, fileName);
+    if (fs.existsSync(destinationPath)) {
+      assertSafeRegularFile(destinationPath, 'Existing packaged shared runtime file');
+    }
+    fs.copyFileSync(sourcePath, destinationPath);
+  }
+
+  const missingPackagedFiles = REQUIRED_SHARED_RUNTIME_FILES.filter((fileName) => {
+    const filePath = path.join(destinationDir, fileName);
+    if (!fs.existsSync(filePath)) return true;
+    assertSafeRegularFile(filePath, 'Required packaged shared runtime file');
+    return false;
+  });
+  if (missingPackagedFiles.length > 0) {
+    throw new Error(
+      `[afterPack] Packaged shared runtime is incomplete: ${missingPackagedFiles.join(', ')}`
+    );
+  }
+}
+
 async function finalizeWindowsExecutables(context) {
   if (context.electronPlatformName !== 'win32') return;
 
@@ -287,8 +390,10 @@ async function finalizeWindowsExecutables(context) {
 async function afterPack(context) {
   const backendPackageSrc = path.resolve(__dirname, '..', 'backend-build', 'package.json');
   const backendModulesSrc = path.resolve(__dirname, '..', 'backend-build', 'node_modules');
+  const sharedRuntimeSrc = path.resolve(__dirname, '..', 'dist', 'shared');
   const backendPackageDest = path.join(context.appOutDir, 'resources', 'backend', 'package.json');
   const backendModulesDest = path.join(context.appOutDir, 'resources', 'backend', 'node_modules');
+  const sharedRuntimeDest = path.join(context.appOutDir, 'resources', 'shared');
 
   const sourceDeps = assertRuntimeModules({
     label: 'backend-build',
@@ -317,9 +422,16 @@ async function afterPack(context) {
     + `(${packagedDeps.required.length} required, ${sourceDeps.optionalInstalled.length} optional installed)`
   );
 
+  console.log(`[afterPack] Copying compiled shared runtime -> ${sharedRuntimeDest}`);
+  copySharedRuntimeAssets(sharedRuntimeSrc, sharedRuntimeDest, context.appOutDir);
+  console.log(
+    `[afterPack] Copied ${REQUIRED_SHARED_RUNTIME_FILES.length} required shared runtime files`
+  );
+
   await finalizeWindowsExecutables(context);
 }
 
 module.exports = afterPack;
+module.exports.copySharedRuntimeAssets = copySharedRuntimeAssets;
 module.exports.isRuntimeLegalNotice = isRuntimeLegalNotice;
 module.exports.shouldExcludeRuntimeModuleEntry = shouldExcludeRuntimeModuleEntry;

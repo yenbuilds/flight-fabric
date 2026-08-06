@@ -1340,7 +1340,7 @@ test('runway lookup is deferred until rollout finalization and preserves referen
     }
 
     assert.strictEqual(positionLookups, 1, 'Expected one runway lookup after rollout capture freezes');
-    assert.deepStrictEqual(positionLookupRadii, [5], 'Final runway lookup should preserve the prior scoring radius');
+    assert.deepStrictEqual(positionLookupRadii, [2], 'Final runway lookup should preserve the runway scoring radius');
     assert.strictEqual(nearbyAirportLookups, 0, 'Runway hit must not trigger the airport-only fallback');
     assert.strictEqual(idLookups, 0, 'Position hit must not trigger a second runway-id lookup');
 
@@ -1373,14 +1373,18 @@ test('runway miss preserves nearby airport elevation for retrospective scoring',
   let positionLookups = 0;
   let nearbyAirportLookups = 0;
   let idLookups = 0;
+  const positionLookupRadii = [];
+  const nearbyAirportLookupRadii = [];
 
   withMockRunwayProvider({
-    findRunwayByPosition: () => {
+    findRunwayByPosition: (_lat, _lon, radiusNm) => {
       positionLookups += 1;
+      positionLookupRadii.push(radiusNm);
       return null;
     },
-    findNearbyAirport: () => {
+    findNearbyAirport: (_lat, _lon, radiusNm) => {
       nearbyAirportLookups += 1;
+      nearbyAirportLookupRadii.push(radiusNm);
       return {
         icao: 'TEST',
         elevation_ft: 1886,
@@ -1406,7 +1410,9 @@ test('runway miss preserves nearby airport elevation for retrospective scoring',
     }
 
     assert.strictEqual(positionLookups, 1, 'Expected one heading-filtered runway lookup at finalization');
+    assert.deepStrictEqual(positionLookupRadii, [2], 'Runway identity matching should stay within 2 NM');
     assert.strictEqual(nearbyAirportLookups, 1, 'Runway miss should retain the nearby-airport scoring fallback');
+    assert.deepStrictEqual(nearbyAirportLookupRadii, [5], 'Airport reference fallback should retain its 5 NM radius');
     assert.strictEqual(idLookups, 0, 'Missing live runway hints must not trigger an id lookup');
 
     const finalPayload = finalPayloads.find((payload) => payload?.landing_final === true);

@@ -15,10 +15,6 @@ const DOCUMENTS_APP_DIR_NAME = 'Flight Fabric';
 const FLIGHT_LOGS_DIR_NAME = 'Flight Logs';
 const SETTINGS_DIR_NAME = 'Settings';
 const SETTINGS_FILE_NAME = 'settings.json';
-const PROFILES_DIR_NAME = 'Profiles';
-const AIRCRAFT_PROFILES_DIR_NAME = 'Aircraft';
-const BUNDLED_PROFILES_DIR_NAME = 'Bundled';
-const LOCAL_PROFILES_DIR_NAME = 'Local';
 const SDK_CONNECTORS_DIR_NAME = 'SDK Connectors';
 const LOCAL_SDK_CONNECTORS_DIR_NAME = 'Local';
 const COMMUNITY_SDK_CONNECTORS_DIR_NAME = 'Community';
@@ -110,56 +106,6 @@ function getSettingsFilePath(env: EnvLike = process.env): string {
 function resolveSettingsFilePath(options: ResolveOptions = {}): string {
   const env = options.env || process.env;
   return getSettingsFilePath(env);
-}
-
-function getProfilesRootDir(env: EnvLike = process.env): string {
-  return path.join(getAppDataRoot(env), PROFILES_DIR_NAME);
-}
-
-function getAircraftProfilesDir(env: EnvLike = process.env): string {
-  return path.join(getProfilesRootDir(env), AIRCRAFT_PROFILES_DIR_NAME);
-}
-
-function resolveAircraftProfilesDir(options: ResolveOptions = {}): string {
-  const env = options.env || process.env;
-  return getAircraftProfilesDir(env);
-}
-
-function getBundledProfilesDir(env: EnvLike = process.env): string {
-  return path.join(getProfilesRootDir(env), AIRCRAFT_PROFILES_DIR_NAME, BUNDLED_PROFILES_DIR_NAME);
-}
-
-function resolveBundledProfilesDir(options: ResolveOptions = {}): string {
-  const env = options.env || process.env;
-  return getBundledProfilesDir(env);
-}
-
-function getLocalProfilesDir(env: EnvLike = process.env): string {
-  return path.join(getProfilesRootDir(env), AIRCRAFT_PROFILES_DIR_NAME, LOCAL_PROFILES_DIR_NAME);
-}
-
-function resolveLocalProfilesDir(options: ResolveOptions = {}): string {
-  const env = options.env || process.env;
-  return getLocalProfilesDir(env);
-}
-
-function getAircraftProfilesNamespaceDir(namespace: unknown, env: EnvLike = process.env): string {
-  switch (String(namespace || '').trim().toLowerCase()) {
-    case 'bundled':
-      return getBundledProfilesDir(env);
-    case 'local':
-      return getLocalProfilesDir(env);
-    default:
-      return getAircraftProfilesDir(env);
-  }
-}
-
-function getAircraftProfilesSimulatorDir(namespace: unknown, simulator: unknown, env: EnvLike = process.env): string {
-  const namespaceDir = getAircraftProfilesNamespaceDir(namespace, env);
-  if (!namespaceDir) return namespaceDir;
-  const normalizedSimulator = String(simulator || '').trim().toLowerCase();
-  if (!normalizedSimulator) return namespaceDir;
-  return path.join(namespaceDir, normalizedSimulator);
 }
 
 function getSdkConnectorsRootDir(env: EnvLike = process.env): string {
@@ -308,7 +254,6 @@ function getDocumentsDirCandidates(env: EnvLike = process.env): string[] {
 }
 
 const storagePathsApi = {
-  AIRCRAFT_PROFILES_DIR_NAME,
   APP_DATA_MARKER_FILE_NAME,
   APP_NAME,
   AUDIO_DIR_NAME,
@@ -318,12 +263,9 @@ const storagePathsApi = {
   DESTINATION_TARGET_FILE_NAME,
   DOCUMENTS_APP_DIR_NAME,
   FLIGHT_LOGS_DIR_NAME,
-  LOCAL_PROFILES_DIR_NAME,
   LOCAL_SDK_CONNECTORS_DIR_NAME,
   LOGBOOK_FILE_NAME,
-  BUNDLED_PROFILES_DIR_NAME,
   ORIGIN_TARGET_FILE_NAME,
-  PROFILES_DIR_NAME,
   SETTINGS_DIR_NAME,
   SETTINGS_FILE_NAME,
   SDK_CONNECTORS_DIR_NAME,
@@ -331,9 +273,6 @@ const storagePathsApi = {
   USER_ID_FILE_NAME,
   dedupePaths,
   ensureDirExists,
-  getAircraftProfilesDir,
-  getAircraftProfilesNamespaceDir,
-  getAircraftProfilesSimulatorDir,
   getAppDataBaseDir,
   getAppDataMarkerFilePath,
   getAppDataRoot,
@@ -344,12 +283,9 @@ const storagePathsApi = {
   getDestinationTargetFilePath,
   getDocumentsDirCandidates,
   getHomeDir,
-  getLocalProfilesDir,
   getLocalSdkConnectorsDir,
   getLogbookFilePath,
-  getBundledProfilesDir,
   getOriginTargetFilePath,
-  getProfilesRootDir,
   getSettingsDir,
   getSettingsFilePath,
   getSdkConnectorsRootDir,
@@ -359,11 +295,8 @@ const storagePathsApi = {
   isFile,
   pathsEqual,
   resolveAppDataMarkerFilePath,
-  resolveAircraftProfilesDir,
   resolveDestinationTargetFilePath,
-  resolveLocalProfilesDir,
   resolveLogbookFilePath,
-  resolveBundledProfilesDir,
   resolveOriginTargetFilePath,
   resolveSettingsFilePath,
   resolveThemesDir,

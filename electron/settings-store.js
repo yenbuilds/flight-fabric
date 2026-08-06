@@ -36,6 +36,9 @@ const {
 const {
   safeReplaceTextFileSync,
 } = loadBackendRuntimeModule(path.join('utils', 'safe-fs.js'));
+const {
+  parseProfileLocator,
+} = loadBackendRuntimeModule(path.join('aircraft', 'aircraft-profile-identity.js'));
 
 const APP_DATA_DIR = getAppDataRoot();
 const USER_SETTINGS_FILE = resolveSettingsFilePath();
@@ -54,13 +57,22 @@ function sanitizeSimulatorProtocol(value) {
     : LAUNCHER_SETTINGS_DEFAULTS.simconnect;
 }
 
+function sanitizeAircraftProfile(value) {
+  const normalized = typeof value === 'string' && value.trim()
+    ? value.trim()
+    : LAUNCHER_SETTINGS_DEFAULTS.aircraft;
+  return parseProfileLocator(normalized)?.namespace === 'local'
+    ? LAUNCHER_SETTINGS_DEFAULTS.aircraft
+    : normalized;
+}
+
 function mapUserSettingsToLauncherSettings(userSettings) {
   const network = userSettings?.network || {};
   const aircraft = userSettings?.aircraft || {};
   const simulator = userSettings?.simulator || {};
 
   return {
-    aircraft: typeof aircraft.profile === 'string' ? aircraft.profile : LAUNCHER_SETTINGS_DEFAULTS.aircraft,
+    aircraft: sanitizeAircraftProfile(aircraft.profile),
     simconnect: sanitizeSimulatorProtocol(simulator.protocol),
     wsPort: Number.isFinite(Number(network.wsPort))
       ? Number(network.wsPort)
@@ -116,7 +128,7 @@ function sanitizeLauncherSettings(payload) {
   const rawWsPort = Number(input.wsPort);
   const rawHttpPort = Number(input.httpPort);
   return {
-    aircraft: typeof input.aircraft === 'string' && input.aircraft.trim() ? input.aircraft.trim() : LAUNCHER_SETTINGS_DEFAULTS.aircraft,
+    aircraft: sanitizeAircraftProfile(input.aircraft),
     simconnect: sanitizeSimulatorProtocol(input.simconnect),
     // Clamp ports to unprivileged range
     wsPort: Number.isFinite(rawWsPort) && rawWsPort >= 1024 && rawWsPort <= 65535 ? Math.round(rawWsPort) : LAUNCHER_SETTINGS_DEFAULTS.wsPort,

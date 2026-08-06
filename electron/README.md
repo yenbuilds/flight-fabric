@@ -74,8 +74,10 @@ build script. It:
 4. builds and copies the Rust SimConnect sidecar;
 5. copies production backend dependencies;
 6. builds the frontend into `frontend-dist/`;
-7. packages installer, portable, and unpacked Windows builds; and
-8. verifies the packaged contents.
+7. packages installer, portable, and unpacked Windows builds;
+8. verifies the packaged contents; and
+9. extracts the installer into an empty scratch directory and launches that
+   payload's backend, so a build cannot rely on files left by an older install.
 
 For the first build on a clean machine, run:
 
@@ -95,6 +97,7 @@ npm run electron:build -- --profile=user
 npm run electron:release
 npm run test:electron
 npm run test:electron:packaged
+npm run test:electron:installer-payload
 ```
 
 Build output goes to `dist/electron/`.

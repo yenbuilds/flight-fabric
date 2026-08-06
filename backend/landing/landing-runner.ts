@@ -763,7 +763,7 @@ function resolveTouchdownGeometry(touchdownSummary: AnyRecord, ctx: LandingRunne
 
   if (lat != null && lon != null) {
     const acftHeading = getRunwayComparisonHeading(touchdownSummary);
-    runwayData = findRunwayByPosition(lat, lon, 5, acftHeading, airportGeometryContext);
+    runwayData = findRunwayByPosition(lat, lon, 2, acftHeading, airportGeometryContext);
   }
   if (!runwayData && ctx.icao && ctx.runway) {
     runwayData = getRunway(ctx.icao, ctx.runway, airportGeometryContext);

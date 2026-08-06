@@ -20,8 +20,12 @@ Current protections:
 - Active recording streams and route recording renames use
   `backend/flight-recording/recording-path-guard.ts`; flight CSV and automation
   JSONL files must be direct children of the selected flight log folder.
-- Flight deletion can remove only the selected CSV and its matching automation
-  sidecar. It must not recursively remove the flight log folder.
+- Flight deletion can remove only the selected Flight Fabric recording bundle:
+  its authoritative CSV, verified automation and aircraft-specific JSONL
+  companions, completion status, history summary, and derived timeline. The
+  delete transaction validates the bundle directory, exact member names, and
+  recording identity before staging that one bundle for removal. It never
+  recursively deletes the flight-log root.
 
 ## Automated security checks
 

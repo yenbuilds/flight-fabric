@@ -4,7 +4,7 @@
   "id": "xplane-aircraft-template",
   "name": "X-Plane Aircraft Template",
   "simulator": "xplane",
-  "namespace": "local",
+  "namespace": "bundled",
   "visibility": "private",
   "abstract": true,
   "aircraft": {
