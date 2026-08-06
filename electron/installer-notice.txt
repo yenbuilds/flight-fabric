@@ -1,0 +1,37 @@
+Flight Fabric Installer Notice
+
+Flight Fabric is unsigned experimental alpha software designed for use with
+consumer flight simulators. It is not certified, approved, or intended for
+real-world aviation or any other safety-critical use.
+
+Do not rely on Flight Fabric or any data, analysis, score, alert,
+recommendation, or other output it produces for real-world flight operations,
+navigation, dispatch, pilot training, certification, or decisions affecting
+the safety of any person or property.
+
+Flight Fabric is free software licensed under the GNU Affero General Public
+License version 3. The full license text is included with the application as
+LICENSE.md, and corresponding source code for each released version is
+available from the Flight Fabric releases page. Select the release matching
+the version shown in the application:
+
+https://github.com/yenbuilds/flight-fabric/releases
+
+The software is provided "as is" and "as available." To the maximum extent
+permitted by applicable law, the authors, copyright holders, contributors, and
+distributors disclaim all warranties and liability for loss, damage, or injury
+arising from or related to the software, its outputs, their use, inability to
+use them, or reliance on them.
+
+Nothing in this notice excludes, restricts, or modifies any guarantee, right,
+remedy, or liability that cannot lawfully be excluded, restricted, or modified.
+This notice describes intended use and safety limitations; it does not impose
+an additional restriction on rights granted by the GNU Affero General Public
+License.
+
+The app stores per-user settings and runtime state under the operating system's
+application-data directory, and stores user-visible flight logs under the user's
+Documents folder. Uninstalling the app should not delete those user data files.
+
+Third-party notices, the safety notice, and the OurAirports data license are
+included with the installed application in the legal notices folder.

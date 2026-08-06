@@ -1,0 +1,169 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "justflight-146",
+  "name": "Just Flight 146 Professional",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-04T00:00:00Z",
+  "updatedAt": "2026-06-05T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/regional-jet",
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "_comment": "Just Flight's 146 manual documents five gated flap positions: UP, 18, 24, 30, and 33. Their simulator handle-index order needs in-sim confirmation.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 18,
+          "label": "18"
+        },
+        {
+          "value": 24,
+          "label": "24"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        },
+        {
+          "value": 33,
+          "label": "33"
+        }
+      ],
+      "landingNotches": [
+        30,
+        33
+      ]
+    },
+    "engines": {
+      "count": 4,
+      "type": "jet"
+    },
+    "throttle": {
+      "type": "manual"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 92,
+      "titleContains": [
+        "Just Flight 146",
+        "JustFlight 146",
+        "Just Flight BAe 146",
+        "JustFlight BAe 146",
+        "JF 146",
+        "JF BAe 146",
+        "JFA 146",
+        "JFA BAe 146"
+      ],
+      "titleRegex": "(just\\s*flight|justflight|\\bjf\\b|\\bjfa\\b).*146|146.*(just\\s*flight|justflight|\\bjf\\b|\\bjfa\\b)",
+      "configPathContains": [
+        "justflight-146",
+        "justflight_bae146",
+        "justflight-aircraft-146",
+        "jf-146",
+        "jf_bae146"
+      ],
+      "configPathRegex": "(just\\s*flight|justflight|\\bjf\\b|\\bjfa\\b).*(146|bae)|146.*(just\\s*flight|justflight|\\bjf\\b|\\bjfa\\b)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "Only documented standard SimVars are active. Aircraft-specific telemetry routes remain disabled pending a vendor-documented interface and independent in-sim verification."
+      },
+      "spoilers": {
+        "_comment": "Use standard SimConnect spoiler percent. Armed and tail-airbrake nuance may need aircraft-specific verification.",
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "auto",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only narrow MSFS gear/flaps fallback is enabled. Broad autopilot, TMS, selector, spoiler, FMS, and custom LVAR writes are blocked until Just Flight 146-specific control behavior is sim-tested."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "wing",
+          "logo"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "wing": "WING",
+          "logo": "LOGO"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Just Flight",
+    "icaoType": "B461/B462/B463",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-06-05",
+    "status": "experimental",
+    "notes": "Specific compatibility profile for the Just Flight 146 Professional MSFS package. It supersedes the generic regional-jet fallback for clearly identified Just Flight aircraft and uses documented flap gates, four-engine configuration, standard SimConnect telemetry, and a conservative gear/flap-only control fallback. Vendor-published aircraft-specific interface examples remain inactive until their exact semantics and independent readbacks are verified in-sim."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Just Flight 146 Professional (MSFS) product page",
+        "url": "https://www.justflight.com/product/146-professional-microsoft-flight-simulator",
+        "retrievedAt": "2026-06-05",
+        "notes": "Confirms Just Flight's 146 Professional MSFS package, MSFS 2020/2024 compatibility, 100/200/300 series package scope, four-engine regional jet positioning, TMS/FMS/EFB systems, animated flaps/spoilers/airbrake/landing gear, and exterior light families including navigation, beacon, landing, taxi, wing, strobe, and logo lights."
+      },
+      {
+        "type": "official-docs",
+        "name": "Just Flight 146 Professional (MSFS) changelog",
+        "url": "https://support.justflight.com/support/solutions/articles/17000124987-146-professional-msfs-changelog",
+        "retrievedAt": "2026-06-05",
+        "notes": "Documents product versions, MSFS 2024-native package support, and updated operations, EFB, and UNS-1 manuals."
+      },
+      {
+        "type": "official-docs",
+        "name": "Just Flight 146 Professional (MSFS) Operations Manual v2.4",
+        "url": "https://downloads.justflight.com/products/JFF003642/146_Professional_MSFS_manual_v2.4.pdf",
+        "retrievedAt": "2026-06-05",
+        "notes": "Documents the 146 flap selector gates used by this profile: UP, 18, 24, 30, and 33."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-06-05",
+      "knownIssues": [
+        "Exact runtime titles remain unverified in-sim; matching requires clear Just Flight/JF/JFA or 146 Professional identity to avoid misclassifying other BAe 146 add-ons.",
+        "The cited vendor material does not define a complete 146 external telemetry and control contract.",
+        "Vendor-published examples remain inactive because they do not provide the complete read/write semantics and independent readbacks required by this profile.",
+        "Gear and flap controls use Flight Fabric's narrow standard MSFS surface fallback and must be tested in the Just Flight 146 before promotion beyond experimental.",
+        "Autopilot, TMS, airbrake/spoiler set/arm commands, and selector writes remain blocked until aircraft-specific behavior is verified.",
+        "The documented flap gates need cross-checking against FLAPS HANDLE INDEX in the target add-on."
+      ]
+    }
+  },
+  "_comment": "Just Flight 146 Professional for MSFS. Conservative profile with documented product identity and flap gates, standard SimConnect telemetry, and gear/flaps-only surface controls. Aircraft-specific routes remain disabled pending vendor documentation and in-sim verification."
+}

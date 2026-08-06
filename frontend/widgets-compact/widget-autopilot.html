@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0e14" />
+  <title>Flight Fabric Airline Strip Left (Autopilot / MCP)</title>
+  <script type="module" src="widget-theme-bootstrap.js"></script>
+  <script src="../flight-phases.js"></script>
+
+  <!-- Packaged-app safe: use local/system fonts only. -->
+
+  <style>
+    :root {
+      --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: rgba(0, 0, 0, 0) !important;
+      background-color: rgba(0, 0, 0, 0) !important;
+    }
+    body {
+      overflow: hidden;
+      width: 200px;
+      font-family: var(--font-ui);
+    }
+
+    /* ===== PANEL ===== */
+    .panel {
+      width: 200px;
+      background: linear-gradient(90deg, rgba(10, 12, 18, 0.97) 0%, rgba(8, 10, 16, 0.95) 100%);
+      border-right: 1px solid rgba(255, 255, 255, 0.07);
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* ===== HEADER ===== */
+    .panel-header {
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 5px 10px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-title {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.10em;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #374151;
+      flex-shrink: 0;
+    }
+    .status-dot.on {
+      background: #34d399;
+      box-shadow: 0 0 5px rgba(52, 211, 153, 0.5);
+    }
+
+    /* ===== DATA SECTIONS ===== */
+    .data-section {
+      padding: 7px 10px 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .section-label {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+    .section-row {
+      display: flex;
+      align-items: baseline;
+      gap: 3px;
+    }
+
+    /* ===== MODE BADGES ===== */
+    .mode-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 4px;
+      border-radius: 3px;
+      /* Hidden by default — only shown when active/armed/appr */
+      display: none;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    .mode-badge.active {
+      display: inline-block;
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    .mode-badge.armed {
+      display: inline-block;
+      background: rgba(234, 179, 8, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(234, 179, 8, 0.3);
+    }
+    .mode-badge.appr {
+      display: inline-block;
+      background: rgba(249, 115, 22, 0.2);
+      color: #fb923c;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+    }
+
+    /* ===== TARGET VALUES ===== */
+    .target-value {
+      font-family: var(--font-mono);
+      font-size: 26px;
+      font-weight: 700;
+      color: #e5e7eb;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .target-value.dim { color: #374151; }
+    .target-unit {
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 500;
+      color: #6b7280;
+    }
+
+    /* ===== AP ENGAGEMENT ROW ===== */
+    .engagement-row {
+      padding: 6px 10px 5px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    /* ===== MODES INLINE ROW ===== */
+    .modes-inline {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex-wrap: nowrap;
+    }
+
+    /* ===== VS SECTION (conditional) ===== */
+    #vs-section { display: none; }
+
+    /* ===== RUNWAY CONTEXT ===== */
+    .rwy-context {
+      display: none;
+      padding: 6px 10px;
+      background: rgba(249, 115, 22, 0.07);
+      border-bottom: 1px solid rgba(249, 115, 22, 0.14);
+      align-items: center;
+      gap: 6px;
+    }
+    .rwy-context.visible { display: flex; }
+    .rwy-label {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      flex-shrink: 0;
+    }
+    .rwy-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: #fb923c;
+      letter-spacing: 0.02em;
+    }
+    .rwy-type {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 600;
+      color: #f97316;
+      margin-left: auto;
+      letter-spacing: 0.04em;
+    }
+
+    /* ===== IN-MENU OVERLAY ===== */
+    .menu-overlay {
+      display: none;
+      position: absolute; inset: 0; z-index: 20;
+      background: rgba(10, 10, 10, 0.82);
+      backdrop-filter: blur(3px);
+      align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+    body.sim-in-menu .menu-overlay { display: flex; }
+    .menu-overlay span {
+      font-family: var(--font-mono);
+      font-size: 10px; font-weight: 600;
+      color: #fbbf24; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+  </style>
+  <link rel="stylesheet" href="widget-theme.css" />
+  <link rel="stylesheet" href="compact-widget-theme.css" />
+</head>
+
+<body>
+  <div class="panel">
+    <div class="menu-overlay"><span>In Menus</span></div>
+
+    <!-- Header: title + AP status dot -->
+    <div class="panel-header">
+      <span class="panel-title">Autopilot</span>
+      <div id="ap-dot" class="status-dot"></div>
+    </div>
+
+    <!-- Row 1: AP / FD / A-THR engagement badges -->
+    <div class="engagement-row">
+      <span id="badge-ap"   class="mode-badge">AP</span>
+      <span id="badge-fd"   class="mode-badge">FD</span>
+      <span id="badge-athr" class="mode-badge">A/THR</span>
+    </div>
+
+    <!-- Row 2: Lateral mode + selected heading -->
+    <div class="data-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span class="section-label" style="margin-bottom:0;">Lateral</span>
+        <div class="modes-inline">
+          <span id="mode-hdg"      class="mode-badge">HDG</span>
+          <span id="mode-lnav"     class="mode-badge">LNAV</span>
+          <span id="mode-loc"      class="mode-badge">LOC</span>
+          <span id="mode-appr-lat" class="mode-badge">APPR</span>
+        </div>
+      </div>
+      <div class="section-row">
+        <span id="hdg-target" class="target-value dim">---</span>
+        <span class="target-unit">°</span>
+      </div>
+    </div>
+
+    <!-- Row 3: Vertical mode + selected altitude -->
+    <div class="data-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span class="section-label" style="margin-bottom:0;">Vertical</span>
+        <div class="modes-inline">
+          <span id="mode-alt"       class="mode-badge">ALT</span>
+          <span id="mode-vs-badge"  class="mode-badge">V/S</span>
+          <span id="mode-flch"      class="mode-badge">FLCH</span>
+          <span id="mode-exped"     class="mode-badge">EXPED</span>
+          <span id="mode-vnav"      class="mode-badge">VNAV</span>
+          <span id="mode-appr-vert" class="mode-badge">GS</span>
+        </div>
+      </div>
+      <div class="section-row">
+        <span id="alt-target" class="target-value dim">-----</span>
+        <span class="target-unit">ft</span>
+      </div>
+    </div>
+
+    <!-- Row 4: VS target (only shown when V/S hold is active) -->
+    <div class="data-section" id="vs-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="section-label" style="margin-bottom:0;">V/S Target</span>
+        <div class="section-row">
+          <span id="vs-target" class="target-value dim" style="font-size:20px;">----</span>
+          <span class="target-unit">fpm</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 5: Speed mode + selected speed -->
+    <div class="data-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span class="section-label" style="margin-bottom:0;">Speed</span>
+        <span id="mode-spd" class="mode-badge">SPD</span>
+      </div>
+      <div class="section-row">
+        <span id="spd-target" class="target-value dim">---</span>
+        <span id="spd-unit" class="target-unit">kt</span>
+      </div>
+    </div>
+
+    <!-- Row 6: Runway context (appears during approach) -->
+    <div class="rwy-context" id="rwy-ctx">
+      <span class="rwy-label">RWY</span>
+      <span id="rwy-value" class="rwy-value">--</span>
+      <span id="rwy-type"  class="rwy-type"></span>
+    </div>
+  </div>
+
+  <script src="../telemetry-ui.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const { PHASES } = window.FlightPhases;
+    const APPROACH_PHASES = new Set([PHASES.APPROACH, PHASES.LANDING, PHASES.GO_AROUND]);
+    let wasConnected = false;
+
+    function setBadge(id, on, variant) {
+      const el = $(id);
+      if (!el) return;
+      el.classList.remove('active', 'armed', 'appr');
+      if (on) el.classList.add(variant || 'active');
+    }
+
+    function setTarget(id, value, fallback) {
+      const el = $(id);
+      if (!el) return;
+      if (value != null) {
+        el.textContent = typeof value === 'number' ? value.toLocaleString() : value;
+        el.classList.remove('dim');
+      } else {
+        el.textContent = fallback;
+        el.classList.add('dim');
+      }
+    }
+
+    function resetAP() {
+      ['badge-ap', 'badge-fd', 'badge-athr',
+       'mode-hdg', 'mode-lnav', 'mode-loc', 'mode-appr-lat',
+       'mode-alt', 'mode-vs-badge', 'mode-flch', 'mode-exped', 'mode-vnav', 'mode-appr-vert', 'mode-spd'].forEach(id => setBadge(id, false));
+      setTarget('hdg-target', null, '---');
+      setTarget('alt-target', null, '-----');
+      setTarget('vs-target',  null, '----');
+      setTarget('spd-target', null, '---');
+      const vsSection = $('vs-section');
+      if (vsSection) vsSection.style.display = 'none';
+      const dot = $('ap-dot');
+      if (dot) dot.classList.remove('on');
+      const rwyCtx = $('rwy-ctx');
+      if (rwyCtx) rwyCtx.classList.remove('visible');
+      document.body.classList.remove('sim-in-menu');
+    }
+
+    function handleMessage(msg) {
+      const t = msg.type;
+
+      if (t === 'autopilot') {
+        const apReliable   = msg.apReliable   !== false;
+        const athrReliable = msg.athrReliable !== false;
+
+        // AP status dot — lit when master is engaged and data is reliable
+        const dot = $('ap-dot');
+        if (dot) dot.classList.toggle('on', msg.master === true && apReliable);
+
+        // Engagement badges
+        setBadge('badge-ap',   apReliable   && msg.master     === true);
+        setBadge('badge-fd',                   msg.fdActive   === true);
+        const athrOn = msg.athrActive || msg.athrArmed;
+        setBadge('badge-athr', athrReliable && !!athrOn,
+          msg.athrActive ? 'active' : 'armed');
+
+        // Lateral modes — priority: APPR > LOC > LNAV/NAV > HDG
+        // lnavHold is LVAR-sourced (non-null only with sidecar + profile).
+        // When null, fall back to SimConnect navHold so generic aircraft still show NAV.
+        const apprLat  = msg.apprHold === true;
+        const locActive = !apprLat && msg.locHold  === true;
+        const lnavActive = !apprLat && !locActive &&
+                           (msg.lnavHold != null ? msg.lnavHold === true : msg.navHold === true);
+        const hdg      = !apprLat && !locActive && !lnavActive && msg.hdgHold === true;
+        setBadge('mode-hdg',      hdg);
+        setBadge('mode-lnav',     lnavActive);
+        setBadge('mode-loc',      locActive,  'appr');
+        setBadge('mode-appr-lat', apprLat,    'appr');
+
+        // Heading target — show only when HDG hold is active
+        setTarget('hdg-target',
+          hdg && msg.hdgTarget != null ? String(msg.hdgTarget).padStart(3, '0') : null,
+          '---');
+
+        // Vertical modes — priority: GS > VNAV > FLCH > EXPED > V/S > ALT
+        // FLCH (LVL CHANGE): LVAR when 737 sidecar connected; falls back to AUTOPILOT FLIGHT LEVEL CHANGE SimVar for generic aircraft.
+        // EXPED is A320-only (LVAR). VNAV is 737-only (LVAR).
+        const apprVert  = msg.apprHold   === true;
+        const vnavActive = !apprVert && msg.vnavHold   === true;
+        const flchActive = !apprVert && !vnavActive && msg.lvlChgHold === true;
+        const expedActive = !apprVert && !vnavActive && !flchActive && msg.expedHold === true;
+        const vsHold     = !apprVert && !vnavActive && !flchActive && !expedActive && msg.vsHold === true;
+        const altHold    = !apprVert && !vnavActive && !flchActive && !expedActive && !vsHold && msg.altHold === true;
+        setBadge('mode-alt',       altHold);
+        setBadge('mode-vs-badge',  vsHold);
+        setBadge('mode-flch',      flchActive);
+        setBadge('mode-exped',     expedActive);
+        setBadge('mode-vnav',      vnavActive);
+        setBadge('mode-appr-vert', apprVert, 'appr');
+
+        // Altitude target — always show when available
+        setTarget('alt-target', msg.altTarget, '-----');
+
+        // V/S section — visible only when V/S hold active
+        const vsSection = $('vs-section');
+        if (vsSection) vsSection.style.display = vsHold ? '' : 'none';
+        if (vsHold && msg.vsTarget != null) {
+          const sign = msg.vsTarget >= 0 ? '+' : '';
+          setTarget('vs-target', sign + msg.vsTarget, '----');
+        } else {
+          setTarget('vs-target', null, '----');
+        }
+
+        // Speed — Mach vs. kt
+        // machTarget is 0 when not set; valid Mach range is <1.5, so use that as the guard.
+        // Do NOT check spdTarget == null — AUTOPILOT AIRSPEED HOLD VAR always returns a
+        // non-null value from SimConnect even when the AP is in Mach speed mode.
+        const isMach = msg.machTarget != null && msg.machTarget > 0 && msg.machTarget < 1.5;
+        const spdUnit = $('spd-unit');
+        if (isMach) {
+          setTarget('spd-target', msg.machTarget.toFixed(2), '--.-');
+          if (spdUnit) spdUnit.textContent = 'M';
+        } else {
+          setTarget('spd-target', msg.spdTarget, '---');
+          if (spdUnit) spdUnit.textContent = 'kt';
+        }
+        setBadge('mode-spd', msg.spdHold === true);
+      }
+
+      if (t === 'runwayContext') {
+        const rwyCtx = $('rwy-ctx');
+        const rwyVal = $('rwy-value');
+        const rwyType = $('rwy-type');
+        if (msg.icao) {
+          if (rwyVal)  rwyVal.textContent  = [msg.icao, msg.runway].filter(Boolean).join(' ');
+          if (rwyType) rwyType.textContent = msg.approachType || '';
+          if (rwyCtx)  rwyCtx.classList.add('visible');
+        } else {
+          if (rwyCtx) rwyCtx.classList.remove('visible');
+        }
+      }
+
+      // Clear runway context when phase leaves approach territory.
+      // The backend only broadcasts runwayContext when a runway IS detected,
+      // so we must clear proactively on phase change.
+      if (t === 'phase') {
+        if (!APPROACH_PHASES.has(msg.value)) {
+          const rwyCtx = $('rwy-ctx');
+          if (rwyCtx) rwyCtx.classList.remove('visible');
+        }
+      }
+
+      if (t === 'aircraftChanged') {
+        // Aircraft swapped in-sim — reset to a clean slate before new profile arrives.
+        resetAP();
+        return;
+      }
+
+      if (t === 'simState') {
+        const connected = msg.simconnectConnected === true;
+        if (wasConnected && !connected) {
+          resetAP();
+          wasConnected = false;
+          return;
+        }
+        wasConnected = connected;
+        document.body.classList.toggle('sim-in-menu', connected && msg.inMenu === true);
+      }
+    }
+
+    resetAP();
+    TelemetryUI.onConnectionChange(
+      () => { TelemetryUI.send({ type: 'requestState' }); },
+      () => { resetAP(); }
+    );
+    TelemetryUI.onMessage(handleMessage);
+    TelemetryUI.connect();
+  </script>
+</body>
+</html>

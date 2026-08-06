@@ -1,0 +1,897 @@
+{
+  "$schema": "./simvar-manifest.schema.json",
+  "_comment": "SimConnect SimVar unit manifest - verified against MSFS SDK documentation",
+  "_lastVerified": "2026-07-18",
+  "_sdkVersion": "MSFS 2024 SDK",
+  "_docUrl": "https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Simulation_Variables.htm",
+  "simvars": [
+    {
+      "name": "AIRSPEED INDICATED",
+      "sdkNativeUnit": "knots",
+      "ourRequestedUnit": "knots",
+      "conversion": "none"
+    },
+    {
+      "name": "VERTICAL SPEED",
+      "sdkNativeUnit": "feet per second",
+      "ourRequestedUnit": "feet per second",
+      "conversion": "none"
+    },
+    {
+      "name": "RADIO HEIGHT",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "SIM ON GROUND",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "FLAPS HANDLE PERCENT",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect"
+    },
+    {
+      "name": "FLAPS HANDLE INDEX",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "TRAILING EDGE FLAPS LEFT ANGLE",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians; SimConnect converts to degrees for display and scoring."
+    },
+    {
+      "name": "SPOILERS HANDLE POSITION",
+      "sdkNativeUnit": "percent over 100 or position",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect",
+      "notes": "SDK allows Percent Over 100 or Position; the provider requests percent for normalized 0-100 speedbrake handling."
+    },
+    {
+      "name": "SPOILERS ARMED",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "SPOILERS LEFT POSITION",
+      "sdkNativeUnit": "percent over 100 or position",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect",
+      "notes": "SDK allows Percent Over 100 or Position; the provider requests percent to compare left/right roll spoiler activity."
+    },
+    {
+      "name": "SPOILERS RIGHT POSITION",
+      "sdkNativeUnit": "percent over 100 or position",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect",
+      "notes": "SDK allows Percent Over 100 or Position; the provider requests percent to compare left/right roll spoiler activity."
+    },
+    {
+      "name": "GEAR HANDLE POSITION",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "bool",
+      "conversion": "simconnect",
+      "notes": "SDK value is effectively 0/1; the provider requests bool because downstream only needs handle up/down."
+    },
+    {
+      "name": "GEAR CENTER POSITION",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect"
+    },
+    {
+      "name": "GEAR LEFT POSITION",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect"
+    },
+    {
+      "name": "GEAR RIGHT POSITION",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "percent",
+      "conversion": "simconnect"
+    },
+    {
+      "name": "GROUND VELOCITY",
+      "sdkNativeUnit": "knots",
+      "ourRequestedUnit": "knots",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE HEADING DEGREES TRUE",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians despite the name; SimConnect converts to degrees."
+    },
+    {
+      "name": "PLANE HEADING DEGREES MAGNETIC",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians despite the name; SimConnect converts to degrees."
+    },
+    {
+      "name": "MAGVAR",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE LATITUDE",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians; SimConnect converts to degrees."
+    },
+    {
+      "name": "PLANE LONGITUDE",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians; SimConnect converts to degrees."
+    },
+    {
+      "name": "INDICATED ALTITUDE",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "INDICATED ALTITUDE CALIBRATED",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none",
+      "notes": "Calibrated to current sea-level pressure; compatibility fallback for runway-relative profiles when PLANE ALTITUDE is unavailable."
+    },
+    {
+      "name": "PLANE ALTITUDE",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none",
+      "notes": "Geometric/world-position aircraft altitude; preferred source for runway-relative approach geometry."
+    },
+    {
+      "name": "AIRCRAFT AGL",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "AIRCRAFT ALTITUDE ABOVE OBSTACLES",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE ALT ABOVE GROUND",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE ALT ABOVE GROUND MINUS CG",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "KOHLSMAN SETTING MB",
+      "sdkNativeUnit": "millibars",
+      "ourRequestedUnit": "millibars",
+      "conversion": "none"
+    },
+    {
+      "name": "KOHLSMAN SETTING MB EX1",
+      "sdkNativeUnit": "millibars",
+      "ourRequestedUnit": "millibars",
+      "conversion": "none"
+    },
+    {
+      "name": "KOHLSMAN SETTING STD",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE PITCH DEGREES",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians despite the name; SimConnect converts to degrees."
+    },
+    {
+      "name": "PLANE BANK DEGREES",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians despite the name; SimConnect converts to degrees."
+    },
+    {
+      "name": "PLANE TOUCHDOWN BANK DEGREES",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE TOUCHDOWN HEADING DEGREES MAGNETIC",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE TOUCHDOWN HEADING DEGREES TRUE",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "PLANE TOUCHDOWN LATITUDE",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "radians",
+      "conversion": "manual",
+      "notes": "Requested in SDK-native radians and normalized to degrees by simconnect-frame-builder."
+    },
+    {
+      "name": "PLANE TOUCHDOWN LONGITUDE",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "radians",
+      "conversion": "manual",
+      "notes": "Requested in SDK-native radians and normalized to degrees by simconnect-frame-builder."
+    },
+    {
+      "name": "PLANE TOUCHDOWN NORMAL VELOCITY",
+      "sdkNativeUnit": "feet per second",
+      "ourRequestedUnit": "feet per second",
+      "conversion": "manual",
+      "notes": "Converted to fpm and negative landing VS only after touchdown freshness/proximity validation."
+    },
+    {
+      "name": "PLANE TOUCHDOWN PITCH DEGREES",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT WIND VELOCITY",
+      "sdkNativeUnit": "knots",
+      "ourRequestedUnit": "knots",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT WIND DIRECTION",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT TEMPERATURE",
+      "sdkNativeUnit": "celsius",
+      "ourRequestedUnit": "celsius",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT PRECIP RATE",
+      "sdkNativeUnit": "millimeters of water",
+      "ourRequestedUnit": "millimeters of water",
+      "conversion": "none",
+      "notes": "Provider keeps the SDK-documented unit string; downstream treats the value as nullable precipitation-rate telemetry."
+    },
+    {
+      "name": "AMBIENT PRECIP STATE",
+      "sdkNativeUnit": "mask",
+      "ourRequestedUnit": "mask",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT IN CLOUD",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "DENSITY ALTITUDE",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "G FORCE",
+      "sdkNativeUnit": "GForce",
+      "ourRequestedUnit": "GForce",
+      "conversion": "none"
+    },
+    {
+      "name": "DESIGN SPEED VS0",
+      "sdkNativeUnit": "kias",
+      "ourRequestedUnit": "knots",
+      "conversion": "none",
+      "notes": "Native is kias; requested knots is equivalent for our Vref/category inference."
+    },
+    {
+      "name": "DESIGN SPEED VS1",
+      "sdkNativeUnit": "kias",
+      "ourRequestedUnit": "knots",
+      "conversion": "none",
+      "notes": "Native is kias; requested knots is equivalent for fallback aircraft-category inference."
+    },
+    {
+      "name": "INCIDENCE ALPHA",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians; SimConnect converts to degrees for frame.fdm."
+    },
+    {
+      "name": "INCIDENCE BETA",
+      "sdkNativeUnit": "radians",
+      "ourRequestedUnit": "degrees",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is radians; SimConnect converts to degrees for frame.fdm."
+    },
+    {
+      "name": "ACCELERATION BODY X",
+      "sdkNativeUnit": "feet per second squared",
+      "ourRequestedUnit": "feet per second squared",
+      "conversion": "none"
+    },
+    {
+      "name": "ACCELERATION BODY Z",
+      "sdkNativeUnit": "feet per second squared",
+      "ourRequestedUnit": "feet per second squared",
+      "conversion": "none"
+    },
+    {
+      "name": "ROTATION VELOCITY BODY X",
+      "sdkNativeUnit": "radians per second",
+      "ourRequestedUnit": "radians per second",
+      "conversion": "none",
+      "notes": "Individual SDK rows are mislabeled in the docs; STRUCT BODY ROTATION VELOCITY documents radians per second."
+    },
+    {
+      "name": "ROTATION VELOCITY BODY Y",
+      "sdkNativeUnit": "radians per second",
+      "ourRequestedUnit": "radians per second",
+      "conversion": "none",
+      "notes": "Individual SDK rows are mislabeled in the docs; STRUCT BODY ROTATION VELOCITY documents radians per second."
+    },
+    {
+      "name": "ROTATION VELOCITY BODY Z",
+      "sdkNativeUnit": "radians per second",
+      "ourRequestedUnit": "radians per second",
+      "conversion": "none",
+      "notes": "Individual SDK rows are mislabeled in the docs; STRUCT BODY ROTATION VELOCITY documents radians per second."
+    },
+    {
+      "name": "YOKE X POSITION",
+      "sdkNativeUnit": "position",
+      "ourRequestedUnit": "position",
+      "conversion": "none"
+    },
+    {
+      "name": "YOKE Y POSITION",
+      "sdkNativeUnit": "position",
+      "ourRequestedUnit": "position",
+      "conversion": "none"
+    },
+    {
+      "name": "AIRSPEED TRUE",
+      "sdkNativeUnit": "knots",
+      "ourRequestedUnit": "knots",
+      "conversion": "none"
+    },
+    {
+      "name": "AIRSPEED MACH",
+      "sdkNativeUnit": "mach",
+      "ourRequestedUnit": "mach",
+      "conversion": "none"
+    },
+    {
+      "name": "TURB ENG N1",
+      "sdkNativeUnit": "percent",
+      "ourRequestedUnit": "percent",
+      "conversion": "none"
+    },
+    {
+      "name": "TURB ENG N2",
+      "sdkNativeUnit": "percent",
+      "ourRequestedUnit": "percent",
+      "conversion": "none"
+    },
+    {
+      "name": "GENERAL ENG THROTTLE LEVER POSITION",
+      "sdkNativeUnit": "percent",
+      "ourRequestedUnit": "percent",
+      "conversion": "none"
+    },
+    {
+      "name": "ENG COMBUSTION",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "FUEL TOTAL QUANTITY",
+      "sdkNativeUnit": "gallons",
+      "ourRequestedUnit": "gallons",
+      "conversion": "none"
+    },
+    {
+      "name": "FUEL TOTAL QUANTITY EX1",
+      "sdkNativeUnit": "gallons",
+      "ourRequestedUnit": "gallons",
+      "conversion": "none",
+      "sdkDoc": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_Fuel_Variables.htm#FUEL%20TOTAL%20QUANTITY%20EX1"
+    },
+    {
+      "name": "FUEL SELECTED QUANTITY PERCENT",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "percent over 100",
+      "conversion": "none"
+    },
+    {
+      "name": "FUEL TOTAL QUANTITY WEIGHT",
+      "sdkNativeUnit": "pounds",
+      "ourRequestedUnit": "pounds",
+      "conversion": "none"
+    },
+    {
+      "name": "FUEL TOTAL QUANTITY WEIGHT EX1",
+      "sdkNativeUnit": "pounds",
+      "ourRequestedUnit": "pounds",
+      "conversion": "none",
+      "sdkDoc": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_Fuel_Variables.htm#FUEL%20TOTAL%20QUANTITY%20WEIGHT%20EX1"
+    },
+    {
+      "name": "FUEL WEIGHT PER GALLON",
+      "sdkNativeUnit": "pounds",
+      "ourRequestedUnit": "pounds",
+      "conversion": "none"
+    },
+    {
+      "name": "TOTAL WEIGHT",
+      "sdkNativeUnit": "pounds",
+      "ourRequestedUnit": "pounds",
+      "conversion": "none"
+    },
+    {
+      "name": "BRAKE PARKING POSITION",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "SIM DISABLED",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "USER INPUT ENABLED",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "CAMERA STATE",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "CRASH FLAG",
+      "sdkNativeUnit": "enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none",
+      "notes": "SDK returns a crash-cause enum; any non-zero value is treated as crash active."
+    },
+    {
+      "name": "CRASH SEQUENCE",
+      "sdkNativeUnit": "enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none",
+      "notes": "SDK returns a crash-sequence enum; any non-zero value blocks in-flight context."
+    },
+    {
+      "name": "ABSOLUTE TIME",
+      "sdkNativeUnit": "seconds",
+      "ourRequestedUnit": "seconds",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU TIME",
+      "sdkNativeUnit": "seconds",
+      "ourRequestedUnit": "seconds",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU DAY OF WEEK",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU DAY OF MONTH",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU MONTH OF YEAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU DAY OF YEAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU YEAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU SUNRISE TIME",
+      "sdkNativeUnit": "seconds",
+      "ourRequestedUnit": "seconds",
+      "conversion": "none"
+    },
+    {
+      "name": "ZULU SUNSET TIME",
+      "sdkNativeUnit": "seconds",
+      "ourRequestedUnit": "seconds",
+      "conversion": "none"
+    },
+    {
+      "name": "LOCAL TIME",
+      "sdkNativeUnit": "seconds",
+      "ourRequestedUnit": "seconds",
+      "conversion": "none"
+    },
+    {
+      "name": "LOCAL DAY OF WEEK",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "LOCAL DAY OF MONTH",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "LOCAL MONTH OF YEAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "LOCAL DAY OF YEAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "LOCAL YEAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "TIME ZONE OFFSET",
+      "sdkNativeUnit": "seconds",
+      "ourRequestedUnit": "seconds",
+      "conversion": "none"
+    },
+    {
+      "name": "TIME OF DAY",
+      "sdkNativeUnit": "enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none"
+    },
+    {
+      "name": "UNLIMITED FUEL",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "ASSISTANCE LANDING ENABLED",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "ASSISTANCE TAKEOFF ENABLED",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AI CONTROLS",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AI AUTOTRIM ACTIVE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "DELEGATE CONTROLS TO AI",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AI ANTISTALL STATE",
+      "sdkNativeUnit": "enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none"
+    },
+    {
+      "name": "REALISM",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none"
+    },
+    {
+      "name": "IS SLEW ACTIVE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "PRESSURE ALTITUDE",
+      "sdkNativeUnit": "meters",
+      "ourRequestedUnit": "feet",
+      "conversion": "simconnect",
+      "notes": "SDK native unit is meters; the provider requests feet for altitude comparisons."
+    },
+    {
+      "name": "OVERSPEED WARNING",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "STALL WARNING",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AIRSPEED BARBER POLE",
+      "sdkNativeUnit": "knots",
+      "ourRequestedUnit": "knots",
+      "conversion": "none"
+    },
+    {
+      "name": "LIGHT STATES",
+      "sdkNativeUnit": "mask",
+      "ourRequestedUnit": "mask",
+      "conversion": "none"
+    },
+    {
+      "name": "SURFACE TYPE",
+      "sdkNativeUnit": "enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none"
+    },
+    {
+      "name": "ON ANY RUNWAY",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "RUDDER PEDAL POSITION",
+      "sdkNativeUnit": "position",
+      "ourRequestedUnit": "position",
+      "conversion": "none"
+    },
+    {
+      "name": "TOTAL AIR TEMPERATURE",
+      "sdkNativeUnit": "celsius",
+      "ourRequestedUnit": "celsius",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT PRESSURE",
+      "sdkNativeUnit": "inches of mercury",
+      "ourRequestedUnit": "millibars",
+      "conversion": "simconnect",
+      "notes": "SDK detailed docs list inHg; the provider requests millibars and relies on SimConnect conversion."
+    },
+    {
+      "name": "PRESSURIZATION CABIN ALTITUDE",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "PRESSURIZATION CABIN ALTITUDE RATE",
+      "sdkNativeUnit": "feet per second",
+      "ourRequestedUnit": "feet per second",
+      "conversion": "none"
+    },
+    {
+      "name": "PRESSURIZATION PRESSURE DIFFERENTIAL",
+      "sdkNativeUnit": "pounds per square foot",
+      "ourRequestedUnit": "pounds per square foot",
+      "conversion": "none"
+    },
+    {
+      "name": "AMBIENT VISIBILITY",
+      "sdkNativeUnit": "meters",
+      "ourRequestedUnit": "meters",
+      "conversion": "none"
+    },
+    {
+      "name": "SEA LEVEL PRESSURE",
+      "sdkNativeUnit": "millibars",
+      "ourRequestedUnit": "millibars",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT MASTER",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT ALTITUDE LOCK",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT HEADING LOCK",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT NAV1 LOCK",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "NAV CDI",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none",
+      "notes": "CDI needle deflection; provider reads NAV CDI:1 and the validator normalizes indexed SimVars to the base name."
+    },
+    {
+      "name": "NAV GSI",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none",
+      "notes": "Glideslope needle deflection; provider reads NAV GSI:1 and the validator normalizes indexed SimVars to the base name."
+    },
+    {
+      "name": "NAV HAS GLIDE SLOPE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none",
+      "notes": "True when the tuned NAV station has a glideslope; provider reads NAV HAS GLIDE SLOPE:1."
+    },
+    {
+      "name": "NAV HAS LOCALIZER",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none",
+      "notes": "True when the tuned NAV station is a localizer; provider reads NAV HAS LOCALIZER:1."
+    },
+    {
+      "name": "NAV SIGNAL",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none",
+      "notes": "NAV signal strength for the tuned station; provider reads NAV SIGNAL:1."
+    },
+    {
+      "name": "AUTOPILOT APPROACH HOLD",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT VERTICAL HOLD",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT FLIGHT LEVEL CHANGE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT AIRSPEED HOLD",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT FLIGHT DIRECTOR ACTIVE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOTHROTTLE ACTIVE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT ALTITUDE LOCK VAR",
+      "sdkNativeUnit": "feet",
+      "ourRequestedUnit": "feet",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT HEADING LOCK DIR",
+      "sdkNativeUnit": "degrees",
+      "ourRequestedUnit": "degrees",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT VERTICAL HOLD VAR",
+      "sdkNativeUnit": "feet per minute",
+      "ourRequestedUnit": "feet per minute",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT AIRSPEED HOLD VAR",
+      "sdkNativeUnit": "knots",
+      "ourRequestedUnit": "knots",
+      "conversion": "none"
+    },
+    {
+      "name": "AUTOPILOT MACH HOLD VAR",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "mach",
+      "conversion": "none",
+      "notes": "SDK documents Number; the provider requests mach to match AIRSPEED MACH semantics."
+    },
+    {
+      "name": "AUTOPILOT THROTTLE ARM",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none"
+    },
+    {
+      "name": "NAV ACTIVE FREQUENCY",
+      "sdkNativeUnit": "MHz",
+      "ourRequestedUnit": "MHz",
+      "conversion": "none"
+    },
+    {
+      "name": "NAV STANDBY FREQUENCY",
+      "sdkNativeUnit": "MHz",
+      "ourRequestedUnit": "MHz",
+      "conversion": "none"
+    }
+  ]
+}

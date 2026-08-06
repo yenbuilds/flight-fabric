@@ -1,0 +1,464 @@
+rules:
+  - id: ff.electron.node-integration-enabled
+    message: Electron renderer windows must not enable Node.js integration.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: |
+          new $WINDOW({
+            ...,
+            webPreferences: {
+              ...,
+              nodeIntegration: true,
+              ...
+            },
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $WINDOW
+          regex: ^(BrowserWindow|BrowserView|WebContentsView)$
+
+  - id: ff.electron.context-isolation-disabled
+    message: Electron renderer windows must keep context isolation enabled.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: |
+          new $WINDOW({
+            ...,
+            webPreferences: {
+              ...,
+              contextIsolation: false,
+              ...
+            },
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $WINDOW
+          regex: ^(BrowserWindow|BrowserView|WebContentsView)$
+
+  - id: ff.electron.renderer-sandbox-disabled
+    message: Electron renderer windows must remain sandboxed.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: |
+          new $WINDOW({
+            ...,
+            webPreferences: {
+              ...,
+              sandbox: false,
+              ...
+            },
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $WINDOW
+          regex: ^(BrowserWindow|BrowserView|WebContentsView)$
+
+  - id: ff.electron.web-security-disabled
+    message: Electron renderer windows must not disable Chromium web security.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: |
+          new $WINDOW({
+            ...,
+            webPreferences: {
+              ...,
+              webSecurity: false,
+              ...
+            },
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $WINDOW
+          regex: ^(BrowserWindow|BrowserView|WebContentsView)$
+
+  - id: ff.electron.dangerous-renderer-feature-enabled
+    message: Do not enable insecure content, Node.js workers, webviews, or experimental Chromium features.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: |
+          new $WINDOW({
+            ...,
+            webPreferences: {
+              ...,
+              $SETTING: true,
+              ...
+            },
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $WINDOW
+          regex: ^(BrowserWindow|BrowserView|WebContentsView)$
+      - metavariable-regex:
+          metavariable: $SETTING
+          regex: ^(allowRunningInsecureContent|experimentalFeatures|nodeIntegrationInWorker|webviewTag)$
+
+  - id: ff.electron.blink-features-enabled
+    message: Enabling non-default Blink features expands the Electron renderer attack surface.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: |
+          new $WINDOW({
+            ...,
+            webPreferences: {
+              ...,
+              enableBlinkFeatures: $FEATURES,
+              ...
+            },
+            ...
+          })
+      - metavariable-regex:
+          metavariable: $WINDOW
+          regex: ^(BrowserWindow|BrowserView|WebContentsView)$
+
+  - id: ff.electron.security-warnings-disabled
+    message: Do not disable Electron security warnings in application code.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    pattern-either:
+      - pattern: process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = $VALUE
+      - pattern: window.ELECTRON_DISABLE_SECURITY_WARNINGS = $VALUE
+
+  - id: ff.electron.remote-module-used
+    message: The Electron remote module bypasses an explicit, least-privilege preload bridge.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    pattern-either:
+      - pattern: require('@electron/remote')
+      - pattern: require('electron').remote
+      - pattern: const { ..., remote, ... } = require('electron')
+
+  - id: ff.electron.ipc-renderer-exposed
+    message: Do not expose ipcRenderer itself through contextBridge; expose one narrow method per capability.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    pattern-either:
+      - pattern: contextBridge.exposeInMainWorld($KEY, ipcRenderer)
+      - pattern: |
+          contextBridge.exposeInMainWorld($KEY, {
+            ...,
+            ipcRenderer: ipcRenderer,
+            ...
+          })
+      - pattern: |
+          contextBridge.exposeInMainWorld($KEY, {
+            ...,
+            send: ipcRenderer.send,
+            ...
+          })
+
+  - id: ff.electron.direct-ipc-handler-registration
+    message: Register incoming IPC only through registerTrustedIpcHandler so every sender is validated.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern-either:
+          - pattern: ipcMain.handle(...)
+          - pattern: ipcMain.on(...)
+          - pattern: ipcMain.once(...)
+      - pattern-not-inside: |
+          function registerTrustedIpcHandler(...) {
+            ...
+          }
+
+  - id: ff.electron.open-external-outside-policy
+    message: Open external URLs only through openExternalBrowserUrl and its strict URL allowlist.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern: shell.openExternal(...)
+      - pattern-not-inside: |
+          function openExternalBrowserUrl(...) {
+            ...
+          }
+
+  - id: ff.electron.execute-javascript
+    message: webContents.executeJavaScript requires explicit security review and must not receive dynamic content.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+      exclude:
+        - /electron/test-electron.js
+    pattern: $CONTENTS.executeJavaScript(...)
+
+  - id: ff.electron.permission-handler-unconditional-allow
+    message: Electron permission handlers must not unconditionally grant requests.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern-inside: $SESSION.setPermissionRequestHandler(...)
+      - pattern: $CALLBACK(true)
+
+  - id: ff.electron.window-open-unconditional-allow
+    message: New Electron windows must be denied by default and opened only through an explicit policy.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include: ["/electron/**"]
+    patterns:
+      - pattern-inside: $CONTENTS.setWindowOpenHandler(...)
+      - pattern: |
+          return { action: 'allow' }
+
+  - id: ff.javascript.dynamic-code-execution
+    message: Dynamic JavaScript evaluation can turn untrusted input into code execution.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      exclude:
+        - /tests/**
+        - "**/*.test.js"
+        - "**/*.test.ts"
+        - /frontend/vendor/**
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: ff.javascript.child-process-shell-enabled
+    message: child_process with shell=true can turn argument data into command injection.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      exclude:
+        - /tests/**
+        - "**/*.test.js"
+        - "**/*.test.ts"
+        - /frontend/vendor/**
+    pattern-either:
+      - pattern: |
+          spawn(..., { ..., shell: true, ... })
+      - pattern: |
+          spawnSync(..., { ..., shell: true, ... })
+      - pattern: |
+          execFile(..., { ..., shell: true, ... })
+      - pattern: |
+          execFileSync(..., { ..., shell: true, ... })
+      - pattern: |
+          $CHILD.spawn(..., { ..., shell: true, ... })
+      - pattern: |
+          $CHILD.spawnSync(..., { ..., shell: true, ... })
+      - pattern: |
+          $CHILD.execFile(..., { ..., shell: true, ... })
+      - pattern: |
+          $CHILD.execFileSync(..., { ..., shell: true, ... })
+
+  - id: ff.javascript.tls-verification-disabled
+    message: TLS certificate verification must not be disabled.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      exclude:
+        - /tests/**
+        - "**/*.test.js"
+        - "**/*.test.ts"
+        - /frontend/vendor/**
+    pattern-either:
+      - pattern: $OPTIONS.rejectUnauthorized = false
+      - pattern: |
+          $CALL({ ..., rejectUnauthorized: false, ... })
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
+  - id: ff.javascript.document-write
+    message: document.write can introduce DOM XSS and should not be used in application code.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      exclude:
+        - /tests/**
+        - "**/*.test.js"
+        - "**/*.test.ts"
+        - /frontend/vendor/**
+    pattern-either:
+      - pattern: document.write(...)
+      - pattern: document.writeln(...)
+
+  - id: ff.javascript.request-controlled-filesystem-path
+    message: Request-derived paths must pass through an explicit containment guard before reaching filesystem APIs.
+    severity: ERROR
+    languages: [javascript, typescript]
+    mode: taint
+    paths:
+      exclude:
+        - /tests/**
+        - "**/*.test.js"
+        - "**/*.test.ts"
+        - /frontend/vendor/**
+        - /electron/launcher/vendor/**
+    pattern-sources:
+      - patterns:
+          - pattern: $REQUEST.url
+          - metavariable-regex:
+              metavariable: $REQUEST
+              regex: (?i)^(req|request|httpRequest)$
+      - patterns:
+          - pattern: $REQUEST.headers[$HEADER]
+          - metavariable-regex:
+              metavariable: $REQUEST
+              regex: (?i)^(req|request|httpRequest)$
+      - pattern: $URL.searchParams.get(...)
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: assertSafeFileTarget(...)
+          - pattern: resolveSafeStaticPath(...)
+          - pattern: resolveRepoSourcePath(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FS.$OP(..., $PATH, ...)
+              - pattern: $FS.promises.$OP(..., $PATH, ...)
+          - metavariable-regex:
+              metavariable: $OP
+              regex: ^(appendFile|appendFileSync|copyFile|copyFileSync|createReadStream|createWriteStream|open|openSync|readFile|readFileSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|truncate|truncateSync|unlink|unlinkSync|writeFile|writeFileSync)$
+
+  - id: ff.javascript.request-controlled-resource-size
+    message: Request-derived values must be capped before controlling allocations, repetition, or dynamic regular expressions.
+    severity: ERROR
+    languages: [javascript, typescript]
+    mode: taint
+    paths:
+      exclude:
+        - /tests/**
+        - "**/*.test.js"
+        - "**/*.test.ts"
+        - /frontend/vendor/**
+        - /electron/launcher/vendor/**
+    pattern-sources:
+      - patterns:
+          - pattern: $REQUEST.url
+          - metavariable-regex:
+              metavariable: $REQUEST
+              regex: (?i)^(req|request|httpRequest)$
+      - patterns:
+          - pattern: $REQUEST.headers[$HEADER]
+          - metavariable-regex:
+              metavariable: $REQUEST
+              regex: (?i)^(req|request|httpRequest)$
+      - pattern: $URL.searchParams.get(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern: Math.min($VALUE, $LIMIT)
+          - metavariable-regex:
+              metavariable: $LIMIT
+              regex: ^(?:[0-9][0-9_]*|[A-Z][A-Z0-9_]*)$
+      - patterns:
+          - pattern: Math.min($LIMIT, $VALUE)
+          - metavariable-regex:
+              metavariable: $LIMIT
+              regex: ^(?:[0-9][0-9_]*|[A-Z][A-Z0-9_]*)$
+    pattern-sinks:
+      - pattern-either:
+          - pattern: Buffer.alloc($SIZE, ...)
+          - pattern: Buffer.allocUnsafe($SIZE, ...)
+          - pattern: new Array($SIZE)
+          - pattern: |
+              Array.from({ ..., length: $SIZE, ... }, ...)
+          - pattern: $VALUE.repeat($SIZE)
+          - pattern: new RegExp($PATTERN, ...)
+          - pattern: RegExp($PATTERN, ...)
+
+  - id: ff.sqlite.dynamic-sql-construction
+    message: Bind values as SQLite parameters; dynamic SQL fragments require a fixed allowlist and an explicit reviewed suppression.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include:
+        - /backend/**
+      exclude:
+        - "**/*.test.js"
+        - "**/*.test.ts"
+    pattern-either:
+      - pattern: |
+          $DB.prepare(`...${$VALUE}...`)
+      - pattern: |
+          $DB.exec(`...${$VALUE}...`)
+      - pattern: $DB.prepare($LEFT + $RIGHT)
+      - pattern: $DB.exec($LEFT + $RIGHT)
+
+  - id: ff.sqlite.connection-hardening-disabled
+    message: SQLite connections must keep foreign keys, defensive mode, trusted schemas, DQS, and extension loading in their hardened state.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include:
+        - /backend/**
+      exclude:
+        - "**/*.test.js"
+        - "**/*.test.ts"
+    pattern-either:
+      - pattern: |
+          new $DATABASE(..., { ..., allowExtension: true, ... })
+      - pattern: |
+          new $DATABASE(..., { ..., defensive: false, ... })
+      - pattern: |
+          new $DATABASE(..., { ..., enableDoubleQuotedStringLiterals: true, ... })
+      - pattern: |
+          new $DATABASE(..., { ..., enableForeignKeyConstraints: false, ... })
+      - pattern: $DB.enableDefensive(false)
+      - pattern: $DB.enableLoadExtension(true)
+      - pattern: $DB.exec('PRAGMA foreign_keys = OFF')
+      - pattern: $DB.exec('PRAGMA foreign_keys=OFF')
+      - pattern: $DB.exec('PRAGMA trusted_schema = ON')
+      - pattern: $DB.exec('PRAGMA trusted_schema=ON')
+      - pattern: $DB.exec('PRAGMA writable_schema = ON')
+      - pattern: $DB.exec('PRAGMA writable_schema=ON')
+      - pattern: $DB.exec('PRAGMA journal_mode = OFF')
+      - pattern: $DB.exec('PRAGMA journal_mode=OFF')
+
+  - id: ff.javascript.runtime-recursive-filesystem-delete
+    message: Recursive runtime deletion requires a dedicated, root-contained safe-filesystem helper and focused review.
+    severity: ERROR
+    languages: [javascript, typescript]
+    paths:
+      include:
+        - /backend/**
+        - /electron/**
+      exclude:
+        - /electron/after-pack.js
+        - /electron/build-electron.js
+        - /electron/test-electron.js
+        - "**/*.test.js"
+        - "**/*.test.ts"
+    pattern-either:
+      - pattern: |
+          $FS.rm(..., { ..., recursive: true, ... }, ...)
+      - pattern: |
+          $FS.rmSync(..., { ..., recursive: true, ... }, ...)
+      - pattern: |
+          $FS.promises.rm(..., { ..., recursive: true, ... }, ...)
+      - pattern: |
+          $FS.rmdir(..., { ..., recursive: true, ... }, ...)
+      - pattern: |
+          $FS.rmdirSync(..., { ..., recursive: true, ... }, ...)
+      - pattern: |
+          $FS.promises.rmdir(..., { ..., recursive: true, ... }, ...)

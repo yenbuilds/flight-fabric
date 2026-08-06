@@ -1,0 +1,104 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "horizon-787-9",
+  "name": "Horizon Simulations Boeing 787-9",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-05T00:00:00Z",
+  "updatedAt": "2026-07-19T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/asobo-787",
+  "abstract": false,
+  "aircraft": {},
+  "integration": {
+    "matching": {
+      "priority": 96,
+      "titleContains": [
+        "Horizon Simulations Boeing 787-9",
+        "Horizon 787-9",
+        "Horizon B787-9"
+      ],
+      "titleExcludes": [],
+      "titleRegex": "horizon.*(787|b789)|(787|b789).*horizon",
+      "configPathContains": [
+        "horizon-787-9",
+        "horizon-b787-9",
+        "horizon_b787-9",
+        "horizon-aircraft-b787-9"
+      ],
+      "configPathExcludes": [],
+      "configPathRegex": "horizon.*(787|b789)|(787|b789).*horizon",
+      "aircraftCfg": {
+        "_comment": "Use aircraft.cfg as high-confidence fallback only when the B789 type designator is paired with Horizon variation evidence.",
+        "equals": {
+          "icao_type_designator": "B789"
+        },
+        "containsAll": {
+          "ui_createdby": "Horizon Simulations"
+        },
+        "containsAny": {
+          "title": [
+            "Horizon Simulations Boeing 787-9",
+            "Horizon 787-9",
+            "Horizon B787-9"
+          ],
+          "ui_manufacturer": "Horizon",
+          "ui_createdby": "Horizon Simulations",
+          "ui_type": [
+            "787-9",
+            "787-9 Dreamliner"
+          ]
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "The cited Horizon sources do not define a 787-9 custom integration table. This profile inherits the Asobo 787 family profile and keeps SimConnect as the active telemetry path."
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "_comment": "No active Horizon 787-9 custom controls are mapped because the cited Horizon sources do not define an external-control interface."
+    }
+  },
+  "meta": {
+    "developer": "Horizon Simulations",
+    "platforms": [
+      "msfs2020"
+    ],
+    "updated": "2026-07-19",
+    "status": "experimental",
+    "notes": "Horizon Simulations Boeing 787-9 profile for the Orbx-distributed freeware add-on. Product identity is based on the official distribution listing. No vendor-documented custom interface is active, so telemetry and controls remain on standard SimConnect and inherited 787-family behavior."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "title": "Horizon Simulations Boeing 787-9 - Microsoft Flight Simulator",
+        "url": "https://orbxdirect.com/product/horizon-simulations-b789",
+        "type": "official-docs",
+        "retrievedAt": "2026-06-05T00:00:00Z",
+        "notes": "Orbx product page identifies the add-on as the Horizon Simulations Boeing 787-9 freeware package for Microsoft Flight Simulator. It supports product identity only and does not define custom telemetry or controls."
+      },
+      {
+        "title": "Installer - Headwind Simulations",
+        "url": "https://headwindsim.net/installer.html",
+        "type": "official-docs",
+        "retrievedAt": "2026-06-05T00:00:00Z",
+        "notes": "Headwind's installer page describes installation for Headwind Simulations add-ons. The page did not publish a Boeing 787 custom-variable map, so no Headwind-specific 787 variables were activated."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "simVersion": "MSFS 2020",
+      "verifiedAt": "2026-06-05T00:00:00Z",
+      "notes": "Product identity is documented by the Orbx product page. Active mappings are limited to inherited SimConnect behavior pending a vendor-documented interface and in-sim verification."
+    }
+  }
+}

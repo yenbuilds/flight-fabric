@@ -1,0 +1,110 @@
+{
+  "$schema": "./aircraft-profile.schema.json",
+  "version": 2,
+  "id": "my-aircraft",
+  "name": "My Aircraft Display Name",
+  "simulator": "msfs",
+  "namespace": "local",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": null,
+  "updatedAt": null,
+  "visibility": "private",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 20,
+          "label": "20"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        },
+        {
+          "value": 40,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        30,
+        40
+      ]
+    },
+    "stability": {
+      "vref": {
+        "minKts": 120,
+        "maxKts": 160,
+        "source": "proxy"
+      },
+      "vappAddKts": 5,
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 10
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 20,
+      "pitch": {
+        "minDeg": -5,
+        "maxDeg": 15
+      },
+      "glideslopeDeg": 3,
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 100,
+      "aliases": [
+        "alias1",
+        "alias2"
+      ],
+      "titleContains": [
+        "Aircraft Name In Sim"
+      ],
+      "titleRegex": "aircraft.*name"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "Developer Name",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "contributor": "Your Name",
+    "updated": "2026-05-22",
+    "status": "experimental",
+    "notes": "Template - fill in aircraft-specific values"
+  }
+}

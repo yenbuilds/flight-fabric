@@ -1,0 +1,140 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "laminar-737-800",
+  "name": "Laminar Research Boeing 737-800",
+  "simulator": "xplane",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-19T00:00:00Z",
+  "updatedAt": "2026-06-19T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "_commentFlaps": "X-Plane flap_handle_deploy_ratio reports normalized handle travel. These 737 labels map the nine Boeing handle detents across that 0-1 range so raw 0.875 displays as Flaps 30, not 88%.",
+    "flaps": {
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        },
+        {
+          "value": 40,
+          "label": "40"
+        }
+      ],
+      "landingNotches": [
+        30,
+        40
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 20
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -500,
+        "hardMinFpm": -600,
+        "_comment": "Conservative 737-family landing bands aligned with existing 737 profiles."
+      }
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 130,
+      "titleContains": [
+        "Boeing 737-800",
+        "Laminar 737",
+        "Laminar Research 737"
+      ],
+      "xplane": {
+        "acfPaths": [
+          "Aircraft/Laminar Research/Boeing 737-800/b738.acf"
+        ],
+        "aliases": [
+          "laminar-737-800",
+          "laminar-b738",
+          "boeing-737-800"
+        ]
+      }
+    },
+    "telemetry": {
+      "preferred": "xplane-web",
+      "_comment": "Uses built-in X-Plane Web API telemetry. The profile maps normalized flap handle ratio to display labels; it does not use a separate notch dataref.",
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "Laminar Research",
+    "platforms": [
+      "xplane12"
+    ],
+    "status": "production",
+    "notes": "Default X-Plane Boeing 737-800 profile. X-Plane's public Web API documentation uses the Laminar 737-800 acf path as its aircraft example. Flap display maps the normalized handle travel ratio to standard 737 handle labels."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "X-Plane local Web API",
+        "url": "https://developer.x-plane.com/article/x-plane-web-api/",
+        "retrievedAt": "2026-06-19",
+        "notes": "Documents X-Plane Web API aircraft initialization and uses Aircraft/Laminar Research/Boeing 737-800/b738.acf as the aircraft path example."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": null,
+      "knownIssues": [
+        "Flap label mapping remains pending in-sim verification against each Laminar 737 detent."
+      ]
+    }
+  }
+}

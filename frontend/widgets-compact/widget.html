@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0e14" />
+  <title>Flight Fabric Airline Overlay</title>
+  <script type="module" src="widget-theme-bootstrap.js"></script>
+  <link rel="stylesheet" href="../tailwind.css" />
+  
+  <!-- Modern fonts: JetBrains Mono for data, Inter for UI -->
+  <!-- Packaged-app safe: use local/system fonts only. -->
+  
+  <style>
+    :root {
+      --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    }
+    * { 
+      scroll-behavior: smooth;
+      margin: 0;
+      padding: 0;
+    }
+    html {
+      background: rgba(0, 0, 0, 0) !important;
+      background-color: rgba(0, 0, 0, 0) !important;
+    }
+    body {
+      background: rgba(0, 0, 0, 0) !important;
+      background-color: rgba(0, 0, 0, 0) !important;
+      min-height: auto;
+      overflow: hidden;
+      font-family: var(--font-ui);
+    }
+    .mono { font-family: var(--font-mono); }
+    .tabular { 
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+    
+    /* Strip container */
+    .strip-container {
+      background: linear-gradient(180deg, rgba(12, 12, 12, 0.96) 0%, rgba(8, 8, 8, 0.98) 100%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(12px);
+    }
+    
+    /* Header bar */
+    .strip-header {
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* Tab navigation - compact */
+    .strip-tab {
+      font-family: var(--font-ui);
+      padding: 6px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b7280;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .strip-tab:hover { color: #9ca3af; }
+    .strip-tab.active {
+      color: #10b981;
+      border-bottom-color: #10b981;
+    }
+    
+    /* Status indicators */
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #6b7280;
+      box-shadow: 0 0 4px rgba(107, 114, 128, 0.5);
+    }
+    .status-dot.connected { 
+      background: #00e070; 
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+    }
+    .status-dot.disconnected { 
+      background: #ef4444; 
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+    }
+    
+    /* Gear dots */
+    .gear-dot-mini {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #262626;
+      border: 1px solid #3d3d3d;
+    }
+    .gear-dot-mini.down { 
+      background: #00e070; 
+      border-color: #16a34a;
+      box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+    }
+    .gear-dot-mini.transit { 
+      background: #f59e0b; 
+      border-color: #d97706;
+      animation: pulse-transit 1s ease-in-out infinite;
+    }
+    @keyframes pulse-transit {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    /* Value colors */
+    .val-normal { color: #f3f4f6; }
+    .val-caution { color: #fbbf24; }
+    .val-warning { color: #f87171; }
+    .val-good { color: #4ade80; }
+    .val-dim { color: #9ca3af; }
+    
+    /* Phase badge */
+    .phase-badge {
+      font-family: var(--font-mono);
+      padding: 5px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #9ca3af;
+    }
+    .phase-badge.PARKED { background: rgba(75, 85, 99, 0.4); color: #d1d5db; }
+    .phase-badge.TAXI { background: rgba(234, 179, 8, 0.25); color: #fcd34d; }
+    .phase-badge.TAKEOFF { background: rgba(34, 197, 94, 0.25); color: #86efac; }
+    .phase-badge.CLIMB { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
+    .phase-badge.CRUISE { background: rgba(139, 92, 246, 0.25); color: #c4b5fd; }
+    .phase-badge.DESCENT { background: rgba(236, 72, 153, 0.25); color: #f9a8d4; }
+    .phase-badge.APPROACH { background: rgba(249, 115, 22, 0.25); color: #fdba74; }
+    .phase-badge.LANDING { background: rgba(16, 163, 127, 0.25); color: #6ee7b7; }
+    
+    /* Light indicators - mini */
+    .light-mini {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 3px;
+      background: #111923;
+      color: #404040;
+      border: 1px solid #262626;
+      letter-spacing: 0.02em;
+    }
+    .light-mini.on {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+    
+    /* AP/AT badges */
+    .ap-badge {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 5px 11px;
+      border-radius: 3px;
+      background: #111923;
+      color: #404040;
+      border: 1px solid #262626;
+    }
+    .ap-badge.engaged {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+    
+    /* Parking brake */
+    .brake-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 3px;
+      background: #111923;
+      color: #404040;
+      border: 1px solid #262626;
+    }
+    .brake-badge.set {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    
+    /* Section content */
+    .strip-section { display: none; position: relative; }
+    .strip-section.active { display: flex; }
+
+    /* In-menu overlay */
+    .strip-menu-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      background: rgba(10, 10, 10, 0.82);
+      backdrop-filter: blur(3px);
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    body.sim-in-menu .strip-menu-overlay { display: flex; }
+    .strip-menu-overlay span {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: #fbbf24;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    
+    /* Data group */
+    .data-group {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .data-label {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 600;
+      color: #888888;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      min-width: 28px;
+    }
+    .data-value {
+      font-family: var(--font-mono);
+      font-size: 24px;
+      font-weight: 600;
+      color: #f3f4f6;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .data-value.secondary {
+      font-size: 19px;
+      font-weight: 500;
+      color: #d1d5db;
+    }
+    .data-unit {
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 500;
+      color: #888888;
+      margin-left: 2px;
+      text-transform: lowercase;
+    }
+    
+    /* Section divider */
+    .section-divider {
+      width: 1px;
+      height: 30px;
+      background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%);
+      margin: 0 12px;
+    }
+    
+    /* Bar divider - subtle separator within sections */
+    .bar-divider {
+      width: 1px;
+      height: 24px;
+      background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+      margin: 0 12px;
+    }
+    
+    /* Landing grade */
+    .grade-badge {
+      font-family: var(--font-mono);
+      padding: 6px 16px;
+      font-size: 15px;
+      font-weight: 700;
+      border-radius: 4px;
+      letter-spacing: 0.01em;
+    }
+    .grade-PERFECT { background: rgba(34, 197, 94, 0.25); color: #86efac; }
+    .grade-GOOD { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
+    .grade-FIRM { background: rgba(234, 179, 8, 0.25); color: #fcd34d; }
+    .grade-HARD { background: rgba(249, 115, 22, 0.25); color: #fdba74; }
+    .grade-VERY-HARD { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+    .grade-badge { background: rgba(107, 114, 128, 0.25); color: #d1d5db; }
+    
+    /* Stability score */
+    .stability-value {
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .stability-value.high { color: #4ade80; }
+    .stability-value.medium { color: #fbbf24; }
+    .stability-value.low { color: #f87171; }
+    .stability-mini {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: #9ca3af;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    /* Compact system indicator */
+    .sys-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sys-label {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 600;
+      color: #888888;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .sys-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: #e5e7eb;
+      letter-spacing: -0.01em;
+    }
+    
+    /* Aircraft name */
+    .aircraft-name {
+      font-size: 10px;
+      font-weight: 500;
+      color: #6b7280;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Destination progress (strip header) */
+    .dest-strip-wrap {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px 7px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .dest-strip-wrap.visible {
+      display: flex;
+    }
+    .dest-strip-label {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 600;
+      color: #9ca3af;
+      min-width: 68px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .dest-strip-bar {
+      flex: 1;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .dest-strip-fill {
+      height: 100%;
+      width: 0%;
+      background: #00d4ff;
+      border-radius: 999px;
+      transition: width 0.2s ease;
+    }
+    .dest-strip-text {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: #9ca3af;
+      white-space: nowrap;
+      min-width: 130px;
+      text-align: right;
+    }
+  </style>
+  <link rel="stylesheet" href="widget-theme.css" />
+  <link rel="stylesheet" href="compact-widget-theme.css" />
+</head>
+
+<body class="text-white">
+  <div class="strip-container">
+    <!-- Row 1: Header bar with tabs, status, phase -->
+    <div class="strip-header flex items-center justify-between px-4 pt-1 pb-0.5">
+      <!-- Left: Tabs -->
+      <div class="flex items-center gap-0.5">
+        <button class="strip-tab active" data-tab="flight">Flight</button>
+        <button class="strip-tab" data-tab="systems">Systems</button>
+        <button class="strip-tab" data-tab="landing">Landing</button>
+        <button class="strip-tab" data-tab="lvars">LVARs</button>
+      </div>
+      
+      <!-- Right: Flight info + status -->
+      <div class="flex items-center gap-4">
+        <span id="aircraft-name" class="aircraft-name"></span>
+        <span id="flight-time" class="text-[11px] text-gray-500 tabular font-medium">--:--:--</span>
+        <span id="phase-badge" class="phase-badge">--</span>
+        <div class="flex items-center gap-2">
+          <div id="status-dot" class="status-dot disconnected"></div>
+          <span id="status-text" class="text-[10px] text-gray-600 font-medium">Offline</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Row 2: Content (changes based on tab) -->
+    <div class="px-4 py-1.5">
+      
+      <!-- FLIGHT TAB -->
+      <div id="section-flight" class="strip-section active items-center">
+        <div class="strip-menu-overlay"><span>Sim in menus</span></div>
+        <!-- Primary flight data -->
+        <div class="flex items-center">
+          <div class="data-group">
+            <span class="data-label">IAS</span>
+            <span id="ias-value" class="data-value tabular val-normal">---</span>
+            <span class="data-unit">kt</span>
+          </div>
+          <div class="bar-divider"></div>
+          <div class="data-group">
+            <span class="data-label">V/S</span>
+            <span id="vs-value" class="data-value tabular val-normal">----</span>
+            <span class="data-unit">fpm</span>
+          </div>
+          <div class="bar-divider"></div>
+          <div class="data-group">
+            <span class="data-label">ALT</span>
+            <span id="alt-value" class="data-value tabular val-normal">-----</span>
+            <span class="data-unit">ft</span>
+          </div>
+          <div id="ra-divider" class="bar-divider" style="display: none;"></div>
+          <div id="ra-group" class="data-group" style="display: none;">
+            <span class="data-label">RA</span>
+            <span id="ra-value" class="data-value tabular val-normal">----</span>
+            <span class="data-unit">ft</span>
+          </div>
+        </div>
+        
+        <div class="section-divider"></div>
+        
+        <!-- Secondary flight data -->
+        <div class="flex items-center">
+          <div class="data-group">
+            <span class="data-label">GS</span>
+            <span id="gs-value" class="data-value secondary tabular">---</span>
+            <span class="data-unit">kt</span>
+          </div>
+          <div class="bar-divider"></div>
+          <div class="data-group">
+            <span class="data-label">HDG</span>
+            <span id="hdg-value" class="data-value secondary tabular">---</span>
+            <span class="data-unit">°</span>
+          </div>
+          <div class="bar-divider"></div>
+          <div class="data-group">
+            <span id="xwind-arrow" class="text-base text-gray-400 font-bold">◂</span>
+            <span id="xwind-value" class="data-value secondary tabular">--</span>
+            <span class="data-unit">kt</span>
+          </div>
+        </div>
+        
+        <div class="section-divider"></div>
+        
+        <!-- AP/AT status + Fuel -->
+        <div class="flex items-center gap-3">
+          <span id="ap-badge" class="ap-badge" style="display:none;">AP</span>
+          <span id="at-badge" class="ap-badge" style="display:none;">A/T</span>
+          <div class="data-group">
+            <span class="data-label">FUEL</span>
+            <span id="fuel-value" class="data-value secondary tabular val-dim">----</span>
+            <span id="fuel-unit-label" class="data-unit">gal</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- SYSTEMS TAB -->
+      <div id="section-systems" class="strip-section items-center" style="gap: 24px;">
+        <div class="strip-menu-overlay"><span>Sim in menus</span></div>
+        <!-- Gear -->
+        <div class="sys-item">
+          <span class="sys-label">GEAR</span>
+          <span id="gear-state" class="sys-value">UP</span>
+          <div class="flex items-center gap-1" style="margin-left: 4px;">
+            <div id="gear-n" class="gear-dot-mini" aria-label="Nose"></div>
+            <div id="gear-l" class="gear-dot-mini" aria-label="Left"></div>
+            <div id="gear-r" class="gear-dot-mini" aria-label="Right"></div>
+          </div>
+          <span id="parking-brake" class="brake-badge" style="margin-left: 8px;">P/BRK</span>
+        </div>
+        
+        <!-- Flaps -->
+        <div class="sys-item">
+          <span class="sys-label">FLAPS</span>
+          <span id="flaps-value" class="sys-value">UP</span>
+        </div>
+        
+        <!-- Spoilers -->
+        <div class="sys-item">
+          <span class="sys-label">SPLR</span>
+          <span id="spoilers-value" class="sys-value">RET</span>
+        </div>
+        
+        <div class="section-divider"></div>
+        
+        <!-- Lights -->
+        <div id="lights-group" class="flex items-center gap-1">
+          <span id="light-land" class="light-mini">LAND</span>
+          <span id="light-taxi" class="light-mini">TAXI</span>
+          <span id="light-strobe" class="light-mini">STRB</span>
+          <span id="light-beacon" class="light-mini">BCN</span>
+          <span id="light-nav" class="light-mini">NAV</span>
+        </div>
+        <span id="lights-na" class="hidden text-xs text-gray-500 italic">Lights N/A</span>
+        
+        <div class="section-divider"></div>
+        
+        <!-- Engines -->
+        <div class="flex items-center gap-3">
+          <span class="sys-label">N1</span>
+          <div class="flex items-center gap-2">
+            <span id="eng1-n1" class="sys-value tabular">--</span>
+            <span class="text-gray-600">/</span>
+            <span id="eng2-n1" class="sys-value tabular">--</span>
+            <span id="eng3-sep" class="text-gray-600" style="display:none;">/</span>
+            <span id="eng3-n1" class="sys-value tabular" style="display:none;">--</span>
+            <span id="eng4-sep" class="text-gray-600" style="display:none;">/</span>
+            <span id="eng4-n1" class="sys-value tabular" style="display:none;">--</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- LANDING TAB -->
+      <div id="section-landing" class="strip-section items-center">
+        <!-- Grade -->
+        <div class="flex items-center gap-3">
+          <span class="sys-label">GRADE</span>
+          <span id="landing-grade" class="grade-badge">--</span>
+        </div>
+        
+        <div class="section-divider"></div>
+        
+        <!-- V/S -->
+        <div class="data-group">
+          <span class="data-label">V/S</span>
+          <span id="landing-vs" class="data-value tabular">---</span>
+          <span class="data-unit">fpm</span>
+        </div>
+        
+        <div class="bar-divider"></div>
+        
+        <!-- G-load -->
+        <div class="data-group">
+          <span class="data-label">G</span>
+          <span id="landing-g" class="data-value tabular">-.-</span>
+        </div>
+        
+        <div class="section-divider"></div>
+        
+        <!-- TDZ -->
+        <div class="data-group">
+          <span class="data-label">TDZ</span>
+          <span id="landing-tdz" class="data-value secondary tabular">----</span>
+          <span class="data-unit">ft</span>
+        </div>
+        
+        <div class="section-divider"></div>
+        
+        <!-- Stability -->
+        <div class="flex items-center gap-3">
+          <span class="sys-label">STABILITY</span>
+          <span id="stability-score" class="stability-value high tabular">--</span>
+          <span class="data-unit">%</span>
+        </div>
+
+        <div class="bar-divider"></div>
+
+        <div class="flex items-center gap-2">
+          <span class="sys-label">CHECKS</span>
+          <span class="text-[10px] text-gray-600" aria-label="SPD=Speed, STR=Speed Trend, VS=Vertical Speed, GP=Glidepath, THR=Thrust, THR MOV=Throttle Movement">ⓘ</span>
+          <span id="stability-breakdown-mini" class="stability-mini tabular">--</span>
+        </div>
+      </div>
+
+      <!-- LVARS TAB -->
+      <div id="section-lvars" class="strip-section items-center justify-between w-full" style="gap: 16px;">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="sys-label">STATUS</span>
+          <span id="lvars-strip-status" class="sys-value truncate">LVAR source not enabled.</span>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap" id="lvars-strip-values-wrap">
+          <span id="lvars-strip-empty" class="sys-value val-dim">No values</span>
+          <div id="lvars-strip-values" class="flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap"></div>
+        </div>
+      </div>
+      
+    </div>
+
+    <!-- Row 3: Destination progress (below telemetry) -->
+    <div id="dest-strip-wrap" class="dest-strip-wrap">
+      <span id="dest-strip-label" class="dest-strip-label">Destination</span>
+      <div class="dest-strip-bar">
+        <div id="dest-strip-fill" class="dest-strip-fill"></div>
+      </div>
+      <span id="dest-strip-text" class="dest-strip-text">--</span>
+    </div>
+  </div>
+
+  <!-- Shared telemetry client (provides WebSocket connection management) -->
+  <script src="../telemetry-ui.js"></script>
+  
+  <script>
+    // ===== Setup =====
+    const $ = id => document.getElementById(id);
+    let wasSimconnectConnected = false;
+    
+    // ===== Fuel Unit Preference =====
+    const FUEL_UNITS = ['gal', 'lbs', 'kg'];
+    const LBS_TO_KG = 0.453592;
+    let currentFuelUnit = 'gal';
+    let lastFuelGal = null;
+    let lastFuelWeightLbs = null;
+
+    function convertFuel(gal, weightLbs) {
+      if (currentFuelUnit === 'lbs') return Number.isFinite(weightLbs) ? Math.round(weightLbs) : null;
+      if (currentFuelUnit === 'kg') return Number.isFinite(weightLbs) ? Math.round(weightLbs * LBS_TO_KG) : null;
+      return Number.isFinite(gal) ? Math.round(gal) : null;
+    }
+
+    function renderFuelValue() {
+      const val = convertFuel(lastFuelGal, lastFuelWeightLbs);
+      const el = $('fuel-value');
+      if (el) {
+        el.textContent = val != null ? val.toLocaleString() : '----';
+        el.className = 'data-value secondary tabular ' +
+          (lastFuelGal < 100 ? 'val-warning' : lastFuelGal < 500 ? 'val-caution' : 'val-dim');
+      }
+      const unitEl = $('fuel-unit-label');
+      if (unitEl) unitEl.textContent = currentFuelUnit;
+    }
+    
+    // ===== Message Handlers =====
+    let currentLvarSource = null;
+    let stripTargetAirport = null;
+    let stripOriginAirport = null;
+    let stripTargetInitialDistanceNm = null;
+    let stripLastPosition = null;
+
+    function toRad(deg) {
+      return (deg * Math.PI) / 180;
+    }
+
+    function getDistanceNm(lat1, lon1, lat2, lon2) {
+      const rNm = 3440.065;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return rNm * c;
+    }
+
+    function isValidCoord(lat, lon) {
+      return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    }
+
+    function applyDestinationTargetPayload(target) {
+      if (!target) {
+        stripTargetAirport = null;
+        stripTargetInitialDistanceNm = null;
+        return;
+      }
+
+      const icao = String(target?.icao || '').toUpperCase();
+      const name = String(target?.name || icao || '');
+      const lat = Number(target?.lat);
+      const lon = Number(target?.lon);
+      const initialDistanceNm = Number(target?.initialDistanceNm);
+
+      if (!icao || !isValidCoord(lat, lon)) {
+        stripTargetAirport = null;
+        stripTargetInitialDistanceNm = null;
+        return;
+      }
+
+      stripTargetAirport = { icao, name, lat, lon };
+      stripTargetInitialDistanceNm = Number.isFinite(initialDistanceNm) && initialDistanceNm > 0
+        ? initialDistanceNm
+        : null;
+    }
+
+    function requestSharedDestinationTarget() {
+      if (!TelemetryUI.isConnected()) return;
+      TelemetryUI.send({ type: 'requestDestinationTarget' });
+    }
+
+    function applyOriginTargetPayload(target) {
+      if (!target) {
+        stripOriginAirport = null;
+        return;
+      }
+
+      const icao = String(target?.icao || '').toUpperCase();
+      const name = String(target?.name || icao || '');
+      const lat = Number(target?.lat);
+      const lon = Number(target?.lon);
+
+      if (!icao || !isValidCoord(lat, lon)) {
+        stripOriginAirport = null;
+        return;
+      }
+
+      stripOriginAirport = { icao, name, lat, lon };
+    }
+
+    function requestSharedOriginTarget() {
+      if (!TelemetryUI.isConnected()) return;
+      TelemetryUI.send({ type: 'requestOriginTarget' });
+    }
+
+    function updateStripDestinationProgress() {
+      const wrap = $('dest-strip-wrap');
+      const label = $('dest-strip-label');
+      const text = $('dest-strip-text');
+      const fill = $('dest-strip-fill');
+      if (!wrap || !label || !text || !fill) return;
+
+      if (!stripTargetAirport) {
+        wrap.classList.remove('visible');
+        fill.style.width = '0%';
+        text.textContent = '--';
+        return;
+      }
+
+      label.textContent = stripOriginAirport
+        ? `From ${stripOriginAirport.icao} → To ${stripTargetAirport.icao}`
+        : `To ${stripTargetAirport.icao}`;
+      wrap.classList.add('visible');
+
+      if (!stripLastPosition) {
+        fill.style.width = '0%';
+        text.textContent = 'Awaiting position';
+        return;
+      }
+
+      const remainingNm = getDistanceNm(
+        stripLastPosition.lat,
+        stripLastPosition.lon,
+        stripTargetAirport.lat,
+        stripTargetAirport.lon
+      );
+
+      let baselineDistanceNm = stripTargetInitialDistanceNm;
+      if (stripOriginAirport) {
+        baselineDistanceNm = getDistanceNm(
+          stripOriginAirport.lat,
+          stripOriginAirport.lon,
+          stripTargetAirport.lat,
+          stripTargetAirport.lon
+        );
+      }
+      if (!Number.isFinite(baselineDistanceNm) || baselineDistanceNm <= 0) {
+        baselineDistanceNm = Math.max(remainingNm, 0.01);
+      }
+      if (!stripOriginAirport) {
+        stripTargetInitialDistanceNm = baselineDistanceNm;
+      }
+
+      const rawProgress = ((baselineDistanceNm - remainingNm) / baselineDistanceNm) * 100;
+      const progressPct = Math.max(0, Math.min(100, rawProgress));
+      const remText = remainingNm >= 100 ? `${Math.round(remainingNm)} NM` : `${remainingNm.toFixed(1)} NM`;
+
+      fill.style.width = `${progressPct.toFixed(1)}%`;
+      text.textContent = `${progressPct.toFixed(0)}% · ${remText}`;
+    }
+
+    function formatLvarValue(value) {
+      if (value == null) return '--';
+      if (typeof value === 'number') return String(Math.round(value * 1000) / 1000);
+      if (typeof value === 'boolean') return value ? '1' : '0';
+      return String(value);
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderStripLvars(source) {
+      currentLvarSource = source || null;
+      const statusEl = $('lvars-strip-status');
+      const emptyEl = $('lvars-strip-empty');
+      const valuesEl = $('lvars-strip-values');
+      if (!statusEl || !emptyEl || !valuesEl) return;
+
+      if (!source) {
+        statusEl.textContent = 'LVAR source not enabled.';
+        emptyEl.style.display = '';
+        valuesEl.innerHTML = '';
+        return;
+      }
+
+      statusEl.textContent = source.description || (source.connected ? 'Running' : 'Disconnected');
+      const preview = (Array.isArray(source.preview) ? source.preview : []).slice(0, 6);
+      if (preview.length === 0) {
+        emptyEl.style.display = '';
+        valuesEl.innerHTML = '';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+      valuesEl.innerHTML = preview.map((item) => {
+        const key = String(item?.key || '--');
+        const value = formatLvarValue(item?.value);
+        return `<span class="sys-value tabular" aria-label="${escapeHtml(key)}"><span class="text-gray-400">${escapeHtml(key)}</span> <span class="text-gray-100">${escapeHtml(value)}</span></span>`;
+      }).join('<span class="text-gray-700">|</span>');
+    }
+
+    // === Default text values — single source of truth for initial / disconnected state ===
+    const TEXT_DEFAULTS = {
+      'ias-value': '---',  'gs-value': '---',  'vs-value': '----',
+      'alt-value': '-----', 'hdg-value': '---', 'xwind-value': '--',
+      'xwind-arrow': '\u25C2', 'fuel-value': '----',
+      'phase-badge': '--', 'flight-time': '--:--:--', 'aircraft-name': '',
+      'gear-state': 'UP', 'flaps-value': 'UP', 'spoilers-value': 'RET',
+      'eng1-n1': '--', 'eng2-n1': '--', 'eng3-n1': '--', 'eng4-n1': '--',
+      'landing-grade': '--', 'landing-vs': '---', 'landing-g': '-.-',
+      'landing-tdz': '----', 'stability-score': '--', 'stability-breakdown-mini': '--',
+      'dest-strip-text': '--',
+    };
+
+    // === Reset strip telemetry to initial state (SimConnect disconnected) ===
+    function resetStripTelemetry() {
+      // Reset all text values from the defaults map
+      Object.entries(TEXT_DEFAULTS).forEach(([id, val]) => {
+        const el = $(id); if (el) el.textContent = val;
+      });
+
+      // Class resets that aren't just text
+      $('vs-value').className = 'data-value tabular val-normal';
+      $('fuel-value').className = 'data-value secondary tabular val-dim';
+      $('phase-badge').className = 'phase-badge';
+      $('landing-grade').className = 'grade-badge';
+      $('stability-score').className = 'stability-value high tabular';
+      $('aircraft-name').title = '';
+
+      // Hide RA
+      $('ra-group').style.display = 'none';
+      $('ra-divider').style.display = 'none';
+
+      // Gear dots & parking brake
+      ['gear-n', 'gear-l', 'gear-r'].forEach(id => { const el = $(id); if (el) el.classList.remove('down', 'transit'); });
+      const brakeEl = $('parking-brake');
+      if (brakeEl) brakeEl.classList.remove('set');
+
+      // Lights off
+      ['light-land', 'light-taxi', 'light-strobe', 'light-beacon', 'light-nav'].forEach(id => {
+        const el = $(id); if (el) el.classList.remove('on');
+      });
+      const lgEl = $('lights-group'); if (lgEl) lgEl.classList.remove('hidden');
+      const lnaEl = $('lights-na'); if (lnaEl) lnaEl.classList.add('hidden');
+
+      // LVARs tab
+      renderStripLvars(null);
+
+      // Hide extra engines on reset (engine count unknown until connected)
+      ['eng3-sep', 'eng4-sep', 'eng3-n1', 'eng4-n1'].forEach(id => {
+        const el = $(id); if (el) el.style.display = 'none';
+      });
+
+      // Destination progress bar
+      const fill = $('dest-strip-fill');
+      if (fill) fill.style.width = '0%';
+
+      document.body.classList.remove('sim-in-menu');
+
+      console.log('[Strip] Telemetry display reset \u2014 SimConnect disconnected');
+    }
+
+    function handleMessage(msg) {
+      const t = msg.type;
+      
+      // Flight data - IAS uses msg.value (number)
+      if (t === 'ias') $('ias-value').textContent = msg.value != null ? Math.round(msg.value) : '---';
+      
+      // VS uses msg.value (number in fpm)
+      if (t === 'vs') {
+        const fpm = msg.value;
+        $('vs-value').textContent = fpm != null ? (fpm >= 0 ? '+' : '') + Math.round(fpm) : '----';
+        $('vs-value').className = 'data-value tabular ' + 
+          (fpm < -1000 ? 'val-warning' : fpm < -500 ? 'val-caution' : 'val-normal');
+      }
+      
+      // Altitude uses msg.msl and msg.ra
+      if (t === 'altitude') {
+        $('alt-value').textContent = msg.msl != null ? Math.round(msg.msl) : '-----';
+        const ra = msg.ra;
+        const RA_DISPLAY_THRESHOLD = 2500;
+        const showRa = ra != null && ra < RA_DISPLAY_THRESHOLD;
+        $('ra-group').style.display = showRa ? 'flex' : 'none';
+        $('ra-divider').style.display = showRa ? 'block' : 'none';
+        if (showRa) {
+          $('ra-value').textContent = Math.round(ra);
+          $('ra-value').className = 'data-value tabular ' + 
+            (ra < 200 ? 'val-caution' : 'val-normal');
+        }
+      }
+      
+      // Heading uses msg.mag or msg.true
+      if (t === 'heading') $('hdg-value').textContent = Math.round(msg.mag || msg.true || 0).toString().padStart(3, '0');
+
+      if (t === 'position') {
+        const lat = Number(msg.lat);
+        const lon = Number(msg.lon);
+        if (isValidCoord(lat, lon)) {
+          stripLastPosition = { lat, lon };
+          updateStripDestinationProgress();
+        }
+      }
+
+      if (t === 'destinationTarget') {
+        applyDestinationTargetPayload(msg.target || null);
+        updateStripDestinationProgress();
+      }
+
+      if (t === 'originTarget') {
+        applyOriginTargetPayload(msg.target || null);
+        updateStripDestinationProgress();
+      }
+      
+      // GS uses msg.value
+      if (t === 'gs') $('gs-value').textContent = msg.value != null ? Math.round(msg.value) : '---';
+      
+      // Crosswind is type 'xwind', uses msg.value (+ = from right, - = from left)
+      if (t === 'xwind') {
+        const xw = msg.value;
+        $('xwind-value').textContent = xw != null ? Math.abs(Math.round(xw)) : '--';
+        // Arrow shows wind push direction: + (from right) = ◂, - (from left) = ▸
+        $('xwind-arrow').textContent = xw > 0 ? '◂' : xw < 0 ? '▸' : '·';
+      }
+      
+      // Fuel mass is only displayed when telemetry provides authoritative weight.
+      if (t === 'fuel') {
+        lastFuelGal = msg.totalGal;
+        lastFuelWeightLbs = msg.totalWeightLbs;
+        renderFuelValue();
+      }
+
+      if (t === 'fuelUnit') {
+        if (FUEL_UNITS.includes(msg.unit)) {
+          currentFuelUnit = msg.unit;
+          renderFuelValue();
+        }
+      }
+      
+      // Autopilot — badges only appear when engaged (reliable + on). Off = hidden.
+      // Philosophy: badge presence means active. Absence means off or unknown — both
+      // have the same meaning to the viewer: AP/AT is not flying the plane right now.
+      if (t === 'autopilot') {
+        const apBadge = $('ap-badge');
+        const atBadge = $('at-badge');
+        if (apBadge) {
+          const apEngaged = msg.apReliable !== false && msg.master === true;
+          apBadge.style.display = apEngaged ? '' : 'none';
+          apBadge.classList.toggle('engaged', apEngaged);
+        }
+        if (atBadge) {
+          const atEngaged = msg.athrReliable !== false && (msg.athrActive || msg.athrArmed) === true;
+          atBadge.style.display = atEngaged ? '' : 'none';
+          atBadge.classList.toggle('engaged', atEngaged);
+        }
+      }
+      
+      // Aircraft display - prefer the live simulator title over the matched profile name.
+      if (t === 'aircraftProfile') {
+        const profile = msg.profile || {};
+        const name = profile.aircraftTitle || msg.displayName || profile.name || '';
+        $('aircraft-name').textContent = name;
+        $('aircraft-name').title = name;
+      }
+      
+      // Phase uses msg.value (not msg.phase)
+      if (t === 'phase') {
+        const badge = $('phase-badge');
+        const phase = msg.value || '--';
+        badge.textContent = phase;
+        badge.className = 'phase-badge ' + phase;
+      }
+      
+      // Flight time uses msg.elapsedSec
+      if (t === 'flightTime') {
+        const s = msg.elapsedSec || 0;
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        $('flight-time').textContent = `${h}:${String(m).padStart(2,'0')}:${String(Math.floor(sec)).padStart(2,'0')}`;
+      }
+      
+      // Gear - data is in msg.data, positions are 0-1 fractions
+      if (t === 'gear') {
+        const data = msg.data || msg;
+        // Prefer backend gearState when vendor gear leg simvars are unreliable.
+        const state = resolveGearState(data);
+        $('gear-state').textContent = state;
+        updateGearDot('gear-n', gearDotFractionForState(data, 'nose', state));
+        updateGearDot('gear-l', gearDotFractionForState(data, 'left', state));
+        updateGearDot('gear-r', gearDotFractionForState(data, 'right', state));
+        // Parking brake
+        const brakeEl = $('parking-brake');
+        if (brakeEl) {
+          const brakeSet = data.parkingBrake === true;
+          brakeEl.classList.toggle('set', brakeSet);
+        }
+      }
+      
+      // Flaps - data is in msg.value
+      if (t === 'flaps') {
+        const fv = msg.value || msg;
+        // Display notch/label if available, otherwise percent
+        if (fv.notch != null && fv.label) {
+          $('flaps-value').textContent = fv.label === 0 || fv.label === '0' ? 'UP' : fv.label;
+        } else if (fv.notch != null) {
+          $('flaps-value').textContent = fv.notch === 0 ? 'UP' : fv.notch + '%';
+        } else {
+          const pct = fv.percent ?? (fv.fraction != null ? Math.round(fv.fraction * 100) : 0);
+          $('flaps-value').textContent = pct < 1 ? 'UP' : Math.round(pct) + '%';
+        }
+      }
+      
+      // Spoilers - data is in msg.value
+      if (t === 'spoilers') {
+        const sv = msg.value || msg;
+        const state = sv.state != null ? sv.state : null;
+        // Shorten display for strip
+        const display = state === null ? 'N/A' : state === 'STOWED' ? 'RET' : state === 'ARMED' ? 'ARM' : state === 'EXTENDED' ? 'DEP' : state;
+        $('spoilers-value').textContent = display;
+      }
+      
+      // Lights - data is in msg.data
+      if (t === 'lights') {
+        const ld = msg.data || msg;
+        const lightsGroup = $('lights-group');
+        const lightsNa = $('lights-na');
+        if (ld.available === false) {
+          if (lightsGroup) lightsGroup.classList.add('hidden');
+          if (lightsNa) lightsNa.classList.remove('hidden');
+        } else {
+          if (lightsGroup) lightsGroup.classList.remove('hidden');
+          if (lightsNa) lightsNa.classList.add('hidden');
+          setLight('light-land', ld.landing);
+          setLight('light-taxi', ld.taxi);
+          setLight('light-strobe', ld.strobe);
+          setLight('light-beacon', ld.beacon);
+          setLight('light-nav', ld.nav);
+        }
+      }
+      
+      // Engines - data is in msg.data, eng1/eng2/eng3/eng4 are raw numbers (percent)
+      if (t === 'engines') {
+        const ed = msg.data || msg;
+        const count = ed.count || 2;
+        // Use eng{n}Text if available, otherwise format the raw number
+        const e1 = ed.eng1Text || (ed.eng1 != null ? Math.round(ed.eng1) : '--');
+        const e2 = ed.eng2Text || (ed.eng2 != null ? Math.round(ed.eng2) : '--');
+        $('eng1-n1').textContent = e1;
+        $('eng2-n1').textContent = e2;
+        const show3 = count >= 3;
+        const show4 = count >= 4;
+        const sep3El = $('eng3-sep'); if (sep3El) sep3El.style.display = show3 ? '' : 'none';
+        const eng3El = $('eng3-n1');
+        if (eng3El) {
+          eng3El.style.display = show3 ? '' : 'none';
+          if (show3) eng3El.textContent = ed.eng3Text || (ed.eng3 != null ? Math.round(ed.eng3) : '--');
+        }
+        const sep4El = $('eng4-sep'); if (sep4El) sep4El.style.display = show4 ? '' : 'none';
+        const eng4El = $('eng4-n1');
+        if (eng4El) {
+          eng4El.style.display = show4 ? '' : 'none';
+          if (show4) eng4El.textContent = ed.eng4Text || (ed.eng4 != null ? Math.round(ed.eng4) : '--');
+        }
+      }
+      
+      // Landing
+      if (t === 'landing') {
+        $('landing-grade').textContent = msg.grade || '--';
+        $('landing-grade').className = 'grade-badge grade-' + (msg.grade || '').replace(/\s+/g, '-');
+        $('landing-vs').textContent = msg.vs != null ? msg.vs.toFixed(0) : '---';
+        $('landing-g').textContent = msg.gforce != null ? msg.gforce.toFixed(1) : '-.-';
+        // TDZ is nested under touchdownDistance
+        const tdzObj = msg.touchdownDistance;
+        const tdz = tdzObj?.distanceFt;
+        $('landing-tdz').textContent = tdz != null ? tdz.toFixed(0) : '----';
+        const tdzGrade = tdzObj?.grade;
+        $('landing-tdz').className = 'data-value tabular ' +
+          (tdzGrade === 'Outstanding' || tdzGrade === 'Good' ? 'val-normal' :
+           tdzGrade === 'Marginal' ? 'val-caution' :
+           tdzGrade ? 'val-warning' : 'val-dim');
+        // Also show stability if included in landing message
+        const stabScore = msg.ultimateStability?.score;
+        if (stabScore != null) {
+          $('stability-score').textContent = stabScore;
+          $('stability-score').className = 'stability-value ' + 
+            (stabScore >= 80 ? 'high' : stabScore >= 60 ? 'medium' : 'low');
+        }
+        updateStabilityBreakdownMini(msg.ultimateStability);
+        
+        // Auto-switch to Landing tab on touchdown
+        if (msg.final) {
+          switchToTab('landing');
+          clearTimeout(autoSwitchTimer);
+          autoSwitchTimer = setTimeout(() => switchToTab('flight'), 15000);
+        }
+      }
+      
+      // Stability - uses msg.score (not msg.overall)
+      if (t === 'ultimateStabilityScore') {
+        const score = msg.score;
+        $('stability-score').textContent = score != null ? score : '--';
+        $('stability-score').className = 'stability-value ' + 
+          (score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low');
+        updateStabilityBreakdownMini(msg);
+      }
+
+      if (t === 'dataSources') {
+        const secondary = Array.isArray(msg.secondary) ? msg.secondary : [];
+        const lvarSource = secondary.find(src => src && src.type === 'lvar-sidecar') || null;
+        renderStripLvars(lvarSource);
+      }
+
+      if (t === 'aircraftChanged') {
+        // Aircraft swapped in-sim — reset to a clean slate before new profile arrives.
+        resetStripTelemetry();
+        return;
+      }
+
+      if (t === 'simState') {
+        // Detect SimConnect disconnect and reset strip telemetry
+        const simconnectedNow = msg.simconnectConnected === true;
+        if (wasSimconnectConnected && !simconnectedNow) {
+          resetStripTelemetry();
+          wasSimconnectConnected = false;
+          return;
+        }
+        wasSimconnectConnected = simconnectedNow;
+        document.body.classList.toggle('sim-in-menu', simconnectedNow && msg.inMenu === true);
+      }
+    }
+    
+    // Gear positions are 0-1 fractions
+    function updateGearDot(id, fraction) {
+      const dot = $(id);
+      if (!dot) return;
+      dot.classList.remove('down', 'transit');
+      if (fraction >= 0.99) dot.classList.add('down');
+      else if (fraction > 0.05) dot.classList.add('transit');
+    }
+
+    function normalizeGearState(value) {
+      const state = String(value || '').trim().toUpperCase();
+      if (state === 'DOWN' || state === 'UP' || state === 'TRANSIT') return state;
+      if (state === 'TRANS') return 'TRANSIT';
+      return null;
+    }
+
+    function resolveGearState(data) {
+      const backendState = normalizeGearState(data && data.gearState);
+      if (backendState) return backendState;
+      if (data && data.locked === true) return 'DOWN';
+      const left = Number(data && data.left);
+      const right = Number(data && data.right);
+      const nose = Number(data && data.nose);
+      const hasNose = !data || data.nose == null || Number.isFinite(nose);
+      const noseDown = !data || data.nose == null || nose >= 0.99;
+      const noseUp = !data || data.nose == null || nose <= 0.05;
+      const allDown = Number.isFinite(left) && Number.isFinite(right) && hasNose && left >= 0.99 && right >= 0.99 && noseDown;
+      const allUp = Number.isFinite(left) && Number.isFinite(right) && hasNose && left <= 0.05 && right <= 0.05 && noseUp;
+      return allDown ? 'DOWN' : allUp ? 'UP' : 'TRANSIT';
+    }
+
+    function gearDotFractionForState(data, key, state) {
+      if (state === 'DOWN') return 1;
+      if (state === 'UP') return 0;
+      const value = Number(data && data[key]);
+      return Number.isFinite(value) ? value : 0;
+    }
+    
+    function setLight(id, on) {
+      const el = $(id);
+      if (el) el.classList.toggle('on', !!on);
+    }
+
+    function updateStabilityBreakdownMini(ultimateStability) {
+      const el = $('stability-breakdown-mini');
+      if (!el) return;
+
+      const breakdown = ultimateStability?.breakdown;
+      if (!breakdown) {
+        el.textContent = '--';
+        el.title = '';
+        return;
+      }
+
+      const formatPct = (value) => value == null ? '--' : `${Math.round(value)}%`;
+      const speedProxy = breakdown.speed_ok;
+      const speedTrend = breakdown.speed_trend_ok;
+      const vs = breakdown.vs_ok;
+      const glidepath = breakdown.glidepath_ok;
+      const thrust = breakdown.thrust_not_idle_ok;
+      const thrustStable = breakdown.thrust_stable_ok;
+
+      el.textContent = [
+        `SPD ${formatPct(speedProxy)}`,
+        `STR ${formatPct(speedTrend)}`,
+        `VS ${formatPct(vs)}`,
+        `GP ${formatPct(glidepath)}`,
+        `THR ${formatPct(thrust)}`,
+        `THR MOV ${formatPct(thrustStable)}`
+      ].join(' · ');
+
+      el.title = `Speed ${formatPct(speedProxy)}, Speed Trend ${formatPct(speedTrend)}, V/S ${formatPct(vs)}, Glidepath ${formatPct(glidepath)}, Thrust ${formatPct(thrust)}, Throttle Movement ${formatPct(thrustStable)}`;
+    }
+    
+    // ===== Tab Navigation =====
+    let autoSwitchTimer = null;
+    
+    function switchToTab(tabName) {
+      document.querySelectorAll('.strip-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector(`[data-tab="${tabName}"]`)?.classList.add('active');
+      document.querySelectorAll('.strip-section').forEach(s => s.classList.remove('active'));
+      $('section-' + tabName)?.classList.add('active');
+    }
+    
+    document.querySelectorAll('.strip-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        clearTimeout(autoSwitchTimer);
+        switchToTab(tab.dataset.tab);
+      });
+    });
+    
+    // URL parameter support: widget.html?tab=systems
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialTab = urlParams.get('tab') || 'flight';
+    switchToTab(initialTab);
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '1') document.querySelector('[data-tab="flight"]').click();
+      if (e.key === '2') document.querySelector('[data-tab="systems"]').click();
+      if (e.key === '3') document.querySelector('[data-tab="landing"]').click();
+      if (e.key === '4') document.querySelector('[data-tab="lvars"]').click();
+    });
+    
+    // Start connection using shared module
+    updateStripDestinationProgress();
+
+    TelemetryUI.onConnectionChange(
+      () => {
+        $('status-dot').classList.remove('disconnected');
+        $('status-dot').classList.add('connected');
+        $('status-text').textContent = 'Live';
+        TelemetryUI.send({ type: 'requestState' });
+        requestSharedDestinationTarget();
+        requestSharedOriginTarget();
+      },
+      () => {
+        $('status-dot').classList.remove('connected');
+        $('status-dot').classList.add('disconnected');
+        $('status-text').textContent = 'Offline';
+        renderStripLvars(null);
+      }
+    );
+    TelemetryUI.onMessage(handleMessage);
+    TelemetryUI.connect();
+  </script>
+</body>
+</html>

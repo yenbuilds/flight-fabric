@@ -1,0 +1,206 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a310",
+  "name": "Microsoft / iniBuilds Airbus A310-300",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-15T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "A310-300 slat/flap system uses combined slat/flap configurations: CONF 0/0, CONF 15/0, CONF 15/15, CONF 30/20, and CONF 30/40. Speed values are provisional A300/A310-family compatibility values pending add-on-specific verification.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "15/0"
+        },
+        {
+          "value": 2,
+          "label": "15/15"
+        },
+        {
+          "value": 3,
+          "label": "30/20"
+        },
+        {
+          "value": 4,
+          "label": "30/40"
+        }
+      ],
+      "landingNotches": [
+        3,
+        4
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 25,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 12
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -250,
+        "firmMinFpm": -400,
+        "hardMinFpm": -600,
+        "_comment": "A310 narrowbody-widebody hybrid. Structural limits similar to A300-600 family."
+      }
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "inibuilds-a310"
+    },
+    "matching": {
+      "priority": 93,
+      "titleContains": [
+        "Airbus A310-300",
+        "A310-300",
+        "Microsoft Airbus A310-300",
+        "Microsoft A310-300",
+        "iniBuilds A310",
+        "iniBuilds Airbus A310",
+        "iniBuilds A310-300",
+        "Microsoft_Airbus_A310_300"
+      ],
+      "titleRegex": "(?:(?:microsoft|inibuilds)[\\s_/-]*(?:airbus[\\s_/-]*)?a310(?:[\\s_/-]*300)?\\b|\\bairbus[\\s_/-]*a310[\\s_/-]*300\\b|\\ba310[-_ ]300\\b)",
+      "configPathContains": [
+        "microsoft-aircraft-a310-300",
+        "microsoft-aircraft-a310",
+        "asobo-aircraft-a310-300",
+        "inibuilds-a310",
+        "inibuilds_a310",
+        "inibuilds-aircraft-a310",
+        "inibuilds-aircraft-a310-300"
+      ],
+      "configPathRegex": "(?:microsoft|inibuilds|asobo).*(?:a310[-_ ]?300|a310)|(?:a310[-_ ]?300|a310).*(?:microsoft|inibuilds|asobo)",
+      "aircraftCfg": {
+        "_comment": "Use the A310 designator only when the title or creator also identifies the included Microsoft/iniBuilds A310-300 package.",
+        "equals": {
+          "icao_type_designator": "A310"
+        },
+        "containsAny": {
+          "title": [
+            "Airbus A310-300",
+            "Microsoft Airbus A310-300",
+            "iniBuilds Airbus A310-300"
+          ],
+          "ui_createdby": [
+            "Microsoft",
+            "iniBuilds"
+          ]
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "_comment": "No A310-specific LVAR is active. Official iniBuilds support publishes several control inputs, but exact readback semantics remain unverified; the dedicated page therefore uses standard SimConnect fields.",
+      "spoilers": {
+        "scale": "percent"
+      },
+      "lights": {}
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "The dedicated page is monitoring-only. No A310-specific cockpit writes are active; only Flight Fabric's narrow standard gear/flaps surface fallback is allowed."
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "Microsoft / iniBuilds",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "partial",
+    "notes": "Dedicated monitoring-first page and identity profile for the Microsoft / iniBuilds Airbus A310-300. Approach category D follows the referenced A310 range. Standard SimConnect is the only active telemetry source; unverified aircraft-specific FCP and parking-brake readbacks are inactive, and aircraft-specific cockpit writes remain disabled. Flap labels retain the documented slat/flap configurations for pilot reference."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-07-19",
+        "notes": "Lists the Airbus A310-300 and confirms it is included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - October 3, 2024 Development Update",
+        "url": "https://www.flightsimulator.com/october-3rd-2024-development-update/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Official Marketplace material identifies the product as Airbus A310-300 Enhanced by Microsoft / iniBuilds and marks it as free."
+      },
+      {
+        "type": "official-docs",
+        "name": "iniBuilds A310 MSFS Manual",
+        "url": "https://flightsimulator.azureedge.net/wp-content/uploads/2023/02/A310_MSFS_Manual.pdf",
+        "retrievedAt": "2026-05-15",
+        "notes": "Documents the aircraft as Airbus A310-300 and provides operating guidance used by the profile."
+      },
+      {
+        "type": "official-docs",
+        "name": "Public A300-600 speed-limit docket material",
+        "url": "https://data.ntsb.gov/Docket/Document/docBLOB?FileExtension=.PDF&ID=40167051",
+        "retrievedAt": "2026-05-15",
+        "notes": "VFE: 15/0=250, 15/15=215, 30/20=205, 30/40=175 kt. VLO extension=270, retraction=240, VLE=270 kt."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "testedTitles": [],
+      "knownIssues": [
+        "The exact native MSFS 2024 A310-300 TITLE remains unverified in-sim; matching covers documented Microsoft, iniBuilds, and Asobo product variants.",
+        "Speed values are provisional A300/A310-family compatibility values and have not been verified directly in the target add-on",
+        "Flap lever values (0-4 MSFS indices) remain unverified in-sim.",
+        "Undocumented A310 readbacks remain absent from the active profile and adapter.",
+        "The dedicated page is monitoring-only and exposes no aircraft-specific writes.",
+        "A310 uses slat/flap handle, not pure flap handle — MSFS implementation may differ"
+      ]
+    },
+    "dataQuality": {
+      "flaps": "estimated",
+      "gear": "documented",
+      "spoilers": "unknown",
+      "lights": "unknown"
+    }
+  }
+}

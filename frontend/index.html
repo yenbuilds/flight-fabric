@@ -1,0 +1,42 @@
+﻿<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#09111a" />
+  <meta name="description" content="Airline flying telemetry, debrief, profiles, and overlays for Microsoft Flight Simulator." />
+  <link rel="icon" type="image/png" href="./assets/app-icon.png" />
+  <title>Flight Fabric</title>
+
+  <script>
+    (function() {
+      var theme = 'dark';
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.themeMode = theme;
+      document.documentElement.classList.add('dark');
+
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) {
+        meta.setAttribute('content', '#09111a');
+      }
+    })();
+  </script>
+
+  <!-- V1 strict-local: Tailwind is compiled at build time into tailwind.css -->
+  <link rel="stylesheet" href="tailwind.css" />
+  <!-- Leaflet 1.9.4 - vendored locally (BSD-2-Clause). -->
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <!-- Packaged-app safe: use locally available fonts with system fallbacks. -->
+
+  <link rel="stylesheet" href="index.css" />
+</head>
+
+<body class="ff-app-shell bg-bg text-fg font-sans antialiased min-h-screen flex flex-col">
+  <div id="vue-app-root" class="contents"></div>
+
+  <!-- Classic globals used by shared/runtime modules. Dashboard boot is owned by src/app/bootstrap.js. -->
+  <script src="flight-phases.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="src/app/bootstrap.js"></script>
+</body>
+</html>

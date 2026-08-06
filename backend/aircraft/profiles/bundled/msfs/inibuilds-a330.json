@@ -1,0 +1,149 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a330",
+  "name": "iniBuilds Airbus A330 Family (MSFS 2024)",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-07-14T22:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "_commentFlaps": "Aircraft-specific flap detents are not defined: airbus-base intentionally does not assert shared Airbus flap notches. Add A330-specific detents only with documented sources and in-simulator verification.",
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -250,
+        "firmMinFpm": -450,
+        "hardMinFpm": -600,
+        "_comment": "Provisional wide-body Airbus landing bands pending MSFS 2024 A330-family verification."
+      }
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "inibuilds-a330"
+    },
+    "matching": {
+      "priority": 88,
+      "titleContains": [
+        "iniBuilds A330",
+        "iniBuilds Airbus A330",
+        "iniBuilds A330-200",
+        "iniBuilds A330-300",
+        "iniBuilds A330-300P2F",
+        "Microsoft A330"
+      ],
+      "titleRegex": "(inibuilds|microsoft).*(a330|a332|a333|a33f)|(a330|a332|a333|a33f).*(inibuilds|microsoft)",
+      "configPathContains": [
+        "inibuilds-a330",
+        "inibuilds_a330",
+        "inibuilds-aircraft-a330",
+        "microsoft-aircraft-a330"
+      ],
+      "configPathRegex": "(inibuilds|microsoft).*(a330|a332|a333|a33f)|(a330|a332|a333|a33f).*(inibuilds|microsoft)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses documented standard SimVars only; no iniBuilds-specific telemetry routes are enabled."
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. FCU, managed/selected-mode, light, autothrust, cargo-door, and system writes remain unavailable pending vendor documentation and independent in-sim effect readbacks."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iniBuilds / Microsoft",
+    "platforms": [
+      "msfs2024"
+    ],
+    "updated": "2026-07-14",
+    "status": "partial",
+    "notes": "Dedicated monitoring-first aircraft page for the included MSFS 2024 Airbus A330-200, A330-300, and A330-300P2F family. A trusted A330 adapter exposes an explicit standard-SimVar field set for modes, lights, configuration, gear and brakes, engines, fuel, weight, and pressurization. It is intentionally separate from the Headwind A330-900neo and exposes no aircraft-specific writes or vendor-specific telemetry routes."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-07-15",
+        "notes": "Lists Airbus A330 (-200, -300, 300P2F) as included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-07-15",
+        "notes": "Provides an Airbus A330 Version 1 manual from iniBuilds, supporting product identity and a source-backed partial profile. The page does not publish an external telemetry/control variable map."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-07-15",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted A330 adapter exposes only an explicit allowlist already normalized by Flight Fabric and activates no aircraft-specific L: or B: variables."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - Key Events",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
+        "retrievedAt": "2026-07-15",
+        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-15",
+      "knownIssues": [
+        "Exact MSFS 2024 aircraft title strings for each A330 variant remain unverified in-sim.",
+        "The cited sources do not define an A330-specific LVAR, B-var, or input-event integration map.",
+        "The dedicated page is monitoring-only. Its 44 standard-SimVar fields are source-backed but still require live A330 verification; complex-aircraft FCU and mode mirrors may be unavailable or incomplete.",
+        "No aircraft-specific control is exposed until a vendor-documented route and independent in-sim effect readback are available.",
+        "Flap detents are intentionally absent; do not inherit or reintroduce broad Airbus base detents without A330-specific evidence.",
+        "This profile intentionally does not cover the Headwind A330-900neo, which has its own profile."
+      ]
+    }
+  }
+}

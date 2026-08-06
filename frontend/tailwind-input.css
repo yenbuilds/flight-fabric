@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: rgb(var(--background, 8 14 24));
+    color: rgb(var(--foreground, 241 245 249));
+  }
+
+  body {
+    background-color: rgb(var(--background, 8 14 24));
+    color: rgb(var(--foreground, 241 245 249));
+    font-family: var(--ff-font-ui, 'Avenir Next', 'Segoe UI Variable Text', 'Segoe UI', sans-serif);
+  }
+
+  ::selection {
+    background: rgb(var(--primary, 56 189 248) / 0.26);
+    color: rgb(var(--primary-foreground, 8 14 24));
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgb(var(--primary, 56 189 248) / 0.35);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .ff-card {
+    @apply border border-border/80 bg-card text-card-fg backdrop-blur-xl;
+    border-radius: var(--ff-radius-card, 1.125rem);
+    box-shadow: var(--ff-shadow-card, 0 18px 40px rgba(15, 23, 42, 0.18));
+  }
+
+  .ff-card-subtle {
+    @apply border border-border/70 bg-panel-subtle/85 text-fg backdrop-blur-xl;
+    border-radius: var(--ff-radius-card, 1.125rem);
+    box-shadow: var(--ff-shadow-soft, 0 12px 30px rgba(15, 23, 42, 0.12));
+  }
+
+  .ff-button {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors duration-150;
+    border-radius: var(--ff-radius-pill, 9999px);
+    border: 1px solid transparent;
+  }
+
+  .ff-button-primary {
+    @apply ff-button bg-primary text-primary-fg hover:bg-primary/90;
+    box-shadow: var(--ff-shadow-accent, 0 14px 28px rgba(56, 189, 248, 0.18));
+  }
+
+  .ff-button-secondary {
+    @apply ff-button border-border/80 bg-panel text-gray-300 hover:bg-panel-elevated hover:text-fg;
+  }
+
+  .ff-button-ghost {
+    @apply ff-button text-muted-fg hover:bg-panel-elevated/80 hover:text-fg;
+  }
+
+  .ff-icon-button {
+    @apply inline-flex items-center justify-center rounded-full border border-border/75 bg-panel/90 text-muted-fg transition-colors duration-150 hover:bg-panel-elevated hover:text-fg;
+    width: 2.25rem;
+    height: 2.25rem;
+    box-shadow: var(--ff-shadow-soft, 0 12px 30px rgba(15, 23, 42, 0.12));
+  }
+
+  .ff-toolbar-button {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium text-muted-fg transition-colors duration-150 hover:bg-panel-elevated/80 hover:text-fg;
+  }
+
+  .ff-status-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[0.68rem] font-semibold uppercase;
+    font-family: var(--ff-font-mono, 'IBM Plex Mono', 'B612 Mono', monospace);
+    letter-spacing: 0.18em;
+  }
+
+  .ff-status-chip-primary {
+    @apply ff-status-chip border-primary/25 bg-primary/10 text-primary;
+  }
+
+  .ff-status-chip-success {
+    @apply ff-status-chip border-success/30 bg-success/15 text-success;
+  }
+
+  .ff-status-chip-warning {
+    @apply ff-status-chip border-warning/35 bg-warning/15 text-warning;
+  }
+
+  .ff-status-chip-danger {
+    @apply ff-status-chip border-danger/30 bg-danger/15 text-danger;
+  }
+
+  .ff-popover {
+    @apply border border-border/80 bg-card/95 text-card-fg backdrop-blur-xl;
+    border-radius: var(--ff-radius-card, 1.125rem);
+    box-shadow: var(--ff-shadow-card, 0 18px 40px rgba(15, 23, 42, 0.18));
+  }
+
+  .ff-kicker {
+    @apply text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-primary;
+    font-family: var(--ff-font-mono, 'IBM Plex Mono', 'B612 Mono', monospace);
+  }
+
+  .ff-input {
+    @apply w-full rounded-xl border border-border bg-panel px-3 py-2.5 text-sm text-gray-100 placeholder:text-gray-500 focus:border-primary/45 focus:outline-none focus:ring-2 focus:ring-primary/15;
+  }
+}

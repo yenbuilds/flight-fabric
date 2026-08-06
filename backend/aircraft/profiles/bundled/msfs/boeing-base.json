@@ -1,0 +1,76 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "boeing-base",
+  "name": "Boeing Base Profile",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2024-12-20T00:00:00Z",
+  "updatedAt": "2024-12-21T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": true,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "No shared flap detents: Boeing-family base matching spans aircraft with different flap gates. Specific aircraft profiles must supply source-backed detents when needed.",
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 20
+      }
+    },
+    "phaseThresholds": {
+      "_comment": "Jet aircraft phase detection thresholds",
+      "taxiMaxKts": 80,
+      "parkedMaxKts": 2,
+      "takeoffRollMinIasKts": 60,
+      "takeoffMinIasKts": 120,
+      "takeoffMinVsFpm": 600,
+      "takeoffMaxRaFt": 200,
+      "climbMinVsFpm": 700,
+      "climbMinRaFt": 200,
+      "cruiseMinRaFt": 5000,
+      "cruiseMaxVsAbsFpm": 800,
+      "descentMinRaFt": 1500,
+      "descentMinVsFpm": 450,
+      "approachMaxRaFt": 1000,
+      "approachMinVsFpm": 200,
+      "maxApproachKts": 165,
+      "landingMaxRaFt": 50,
+      "landingMinVsFpm": 100,
+      "taxiInMaxKts": 60
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 0,
+      "titleRegex": "boeing"
+    },
+    "telemetry": {
+      "spoilers": {
+        "_comment": "Boeing default: auto-detect scale. Override in specific profiles when a documented aircraft uses another range.",
+        "scale": "auto",
+        "maxValue": null,
+        "armedValue": null
+      },
+      "lights": {}
+    },
+    "presentation": {}
+  },
+  "meta": {
+    "notes": "Base profile for Boeing aircraft. Extend this for specific types.",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ]
+  },
+  "provenance": {}
+}

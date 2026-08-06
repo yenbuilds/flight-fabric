@@ -1,0 +1,166 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "virtualcol-a220",
+  "name": "Virtualcol Airbus A220-300",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-15T00:00:00Z",
+  "updatedAt": "2026-06-13T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "A220-300 has 6 handle positions (0-5). Position 1 extends slats only, positions 2-4 are combined slat/flap takeoff/approach configs, and position 5 is full landing config. Speed values are provisional A220-family compatibility values pending redistributable public-source or vendor verification. The handle-index order needs in-sim verification against the target add-on lever detents.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 4,
+          "label": "4"
+        },
+        {
+          "value": 5,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        4,
+        5
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 20,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 10
+      }
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 90,
+      "titleContains": [
+        "Virtualcol A220",
+        "Virtualcol A220-300",
+        "Virtualcol CS300",
+        "Virtualcol BD-500"
+      ],
+      "titleRegex": "virtualcol.*(a220|cs300|bd.?500)|(a220|cs300|bd.?500).*virtualcol",
+      "configPathContains": [
+        "virtualcol-a220",
+        "virtualcol_a220",
+        "virtualcol-aircraft-a220",
+        "virtualcol-cs300"
+      ],
+      "configPathRegex": "virtualcol.*(a220|cs300|bd.?500)|(a220|cs300|bd.?500).*virtualcol"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "No vendor-published autopilot or MCP interface is available for this add-on, so the profile uses standard SimConnect fallback."
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Virtualcol",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-06-13",
+    "status": "experimental",
+    "notes": "Virtualcol Airbus A220-300 compatibility profile. Powered by Pratt & Whitney PW1524G geared turbofan engines. Approach category D is used because the A220-300 reference Vref range reaches 148 kt. Weight data uses conservative BD-500-1A11 base values from EASA/UK CAA material; newer Airbus product material lists higher A220-300 maximum weights. LVARs are not confirmed - SimConnect fallback used. Flap handle indexes and some speed limits require in-sim verification against the target add-on."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Airbus A220-300 product page",
+        "url": "https://www.aircraft.airbus.com/fr/aircraft/a220/a220-300",
+        "retrievedAt": "2026-06-03",
+        "notes": "Current Airbus public A220-300 product data, including the higher 70.9 t / 156.3k lb MTOW family figure noted as a known variant gap for this conservative profile."
+      },
+      {
+        "type": "official-docs",
+        "name": "Airbus A220 Airport Characteristics Publication",
+        "url": "https://aircraft.airbus.com/sites/g/files/jlcbta126/files/2023-11/A220-ACP-Issue001-00-19Oct2023.pdf",
+        "retrievedAt": "2026-06-03",
+        "notes": "Airbus airport-characteristics reference used for A220-300 operating-envelope context."
+      },
+      {
+        "type": "community",
+        "name": "MSFS Addons aircraft availability list",
+        "url": "https://msfsaddons.com/2026/04/11/our-updated-list-of-aircraft-currently-available-for-microsoft-flight-simulator/",
+        "retrievedAt": "2026-06-05",
+        "notes": "Identifies the Virtualcol A220 add-on. This source supports product identity only and does not support telemetry or control mappings."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "knownIssues": [
+        "Target add-on lever detent indexes need in-sim verification",
+        "Gear retraction speed limit is intentionally omitted pending a reviewable primary source.",
+        "Target add-on autopilot and MCP LVARs are not yet confirmed - profile falls back to SimConnect",
+        "Flap 5 maxKts is intentionally omitted pending a reviewable primary source.",
+        "Profile keeps older/base 149,000 lb MTOW until the add-on's specific A220-300 weight variant is verified against current Airbus 156.3k lb public product data"
+      ]
+    }
+  }
+}

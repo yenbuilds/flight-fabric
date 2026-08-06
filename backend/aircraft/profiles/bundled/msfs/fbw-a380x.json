@@ -1,0 +1,188 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fbw-a380x",
+  "name": "FlyByWire A380X",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-15T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "A380 has five lever positions: 0, 1, 2, 3, FULL. Config 1+F extends automatically from Config 1 at low speed; there is no dedicated lever notch. Speed values are based on public FlyByWire material and remain pending in-sim verification.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 4,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        3,
+        4
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 20,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 10
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -200,
+        "firmMinFpm": -350,
+        "hardMinFpm": -500,
+        "_comment": "Provisional A380 landing-rate bands pending aircraft-specific source verification."
+      }
+    },
+    "throttle": {
+      "type": "detent"
+    },
+    "engines": {
+      "count": 4,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 90,
+      "titleContains": [
+        "FlyByWire A380X",
+        "FBW A380X",
+        "A380X"
+      ],
+      "titleRegex": "FlyByWire.*A380|A380X|FBW.*A380",
+      "configPathContains": [
+        "flybywire-aircraft-a380-842",
+        "flybywire-aircraft-a380x",
+        "fbw-a380x",
+        "a380x"
+      ],
+      "configPathRegex": "(flybywire|fbw|a380x).*a380|a380.*(flybywire|fbw|a380x)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, and the FCU selected-value LVARs below are documented for the A380X in the FlyByWire A380X Flight Deck API. The A32NX_ prefix is expected on this aircraft.",
+        "autopilot": "A32NX_AUTOPILOT_1_ACTIVE",
+        "autothrottle": "A32NX_AUTOTHRUST_STATUS",
+        "flaps": "A32NX_FLAPS_HANDLE_INDEX",
+        "_commentFlaps": "A32NX_FLAPS_HANDLE_INDEX is documented for A380X as a read-only custom LVAR with 0=UP and 4=FULL. Flight Fabric uses profile flap LVARs before SimConnect flap mapping.",
+        "spoilers": {
+          "_comment": "The cited FlyByWire interface supplies the intended armed state through A32NX_SPOILERS_ARMED and a 0-1 handle fraction through A32NX_SPOILERS_HANDLE_POSITION; the standard SimConnect armed field is not used for this profile.",
+          "armed": "A32NX_SPOILERS_ARMED",
+          "handlePosition": "A32NX_SPOILERS_HANDLE_POSITION"
+        },
+        "parkingBrake": "A32NX_PARK_BRAKE_LEVER_POS",
+        "_commentParkingBrake": "The cited FlyByWire interface supplies the intended parking-brake lever state through A32NX_PARK_BRAKE_LEVER_POS (0=released, 1=set); the standard SimConnect field is not used for this profile.",
+        "mcp": {
+          "_comment": "A380X documents selected speed, heading, and V/S as custom FCU LVAR readbacks. Selected altitude is documented as AUTOPILOT ALTITUDE LOCK VAR:3, so Flight Fabric keeps altitude on the existing SimConnect target path.",
+          "speed": "A32NX_AUTOPILOT_SPEED_SELECTED",
+          "heading": "A32NX_AUTOPILOT_HEADING_SELECTED",
+          "vs": "A32NX_AUTOPILOT_VS_SELECTED",
+          "loc": "A32NX_FCU_LOC_MODE_ACTIVE",
+          "app": "A32NX_FCU_APPR_MODE_ACTIVE"
+        }
+      },
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "FlyByWire Simulations",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "experimental",
+    "notes": "FlyByWire A380X (Airbus A380-842), four-engine wide-body. Speed values are based on public FlyByWire material and remain pending in-sim verification. AP/AT and FCU selected-value LVARs are documented in the FlyByWire A380X Flight Deck API. Selected altitude remains on the documented MSFS AUTOPILOT ALTITUDE LOCK VAR:3 path."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "name": "FlyByWire A380X aircraft.cfg",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a380x/src/base/flybywire-aircraft-a380-842/SimObjects/AirPlanes/FlyByWire_A380_842/aircraft.cfg",
+        "retrievedAt": "2026-05-15",
+        "notes": "Title string: 'FlyByWire A380X'"
+      },
+      {
+        "type": "official-sdk",
+        "name": "FlyByWire A380X simvars (a380-simvars.md)",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a380x/docs/a380-simvars.md",
+        "retrievedAt": "2026-05-15"
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A380X Flight Deck API",
+        "url": "https://docs.flybywiresim.com/aircraft/a380x/a380x-api/a380x-flight-deck-api/",
+        "retrievedAt": "2026-06-05",
+        "notes": "Documents A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX as a 0..4 flap handle position, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED as selected FCU speed 0..399, A32NX_AUTOPILOT_HEADING_SELECTED as selected FCU heading 0..359, A32NX_AUTOPILOT_VS_SELECTED as selected FCU vertical speed -6000..6000, A32NX_FCU_LOC_MODE_ACTIVE as LOC 0..1, A32NX_FCU_APPR_MODE_ACTIVE as APPR 0..1, and AUTOPILOT ALTITUDE LOCK VAR:3 as the FCU altitude target for A380X flight deck state."
+      },
+      {
+        "type": "official-docs",
+        "name": "FlyByWire A380X VFE limits commit 884541d",
+        "url": "https://github.com/flybywiresim/aircraft/commit/884541d6e9efb2be4a7718d3dd4e1d06337c58b1",
+        "retrievedAt": "2026-05-15",
+        "notes": "VFE: Conf1=263, Conf1+F=222 (auto), Conf2=220, Conf3=196, Full=182 kt"
+      }
+    ],
+    "verification": {
+      "status": "unverified",
+      "testedTitles": [],
+      "knownIssues": [
+        "Gear limits are estimated pending a reviewable vendor or manufacturer source.",
+        "Flap handle value mapping (0-4 lever indices) not confirmed in MSFS",
+        "The profile relies on the FLAPS HANDLE INDEX path; its five detent positions still need in-sim verification."
+      ]
+    },
+    "dataQuality": {
+      "flaps": "documented",
+      "gear": "estimated",
+      "spoilers": "unknown",
+      "lights": "unknown"
+    }
+  }
+}

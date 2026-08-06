@@ -1,0 +1,41 @@
+{
+  "name": "@flight-fabric/telemetry-types",
+  "version": "0.1.0",
+  "description": "TypeScript type definitions for Flight Fabric telemetry WebSocket messages",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "flight-fabric",
+    "telemetry",
+    "typescript",
+    "types",
+    "msfs"
+  ],
+  "author": "Flight Fabric",
+  "license": "AGPL-3.0-only",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "rimraf": "^5.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

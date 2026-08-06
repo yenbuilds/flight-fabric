@@ -1,0 +1,111 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "kuro-787-8",
+  "name": "Kuro Boeing 787-8",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-05T00:00:00Z",
+  "updatedAt": "2026-07-19T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/asobo-787",
+  "abstract": false,
+  "aircraft": {},
+  "integration": {
+    "matching": {
+      "priority": 97,
+      "titleContains": [
+        "Kuro_B787-8",
+        "Kuro B787-8",
+        "Kuro 787-8"
+      ],
+      "titleExcludes": [],
+      "titleRegex": "kuro.*(787|b788)|(787|b788).*kuro|kurorin.*(787|b788)|(787|b788).*kurorin",
+      "configPathContains": [
+        "kuro-b787-8",
+        "kuro-787-8",
+        "kuro_b787-8",
+        "kuro_787-8",
+        "kuro-aircraft-b787-8"
+      ],
+      "configPathExcludes": [],
+      "configPathRegex": "(kuro|kurorin).*(787|b788)|(787|b788).*(kuro|kurorin)",
+      "aircraftCfg": {
+        "_comment": "Use aircraft.cfg as high-confidence fallback only when the B788 type designator is paired with Kuro/Kurorin variation evidence.",
+        "equals": {
+          "icao_type_designator": "B788"
+        },
+        "containsAll": {
+          "ui_createdby": [
+            "Kuro",
+            "Kurorin"
+          ]
+        },
+        "containsAny": {
+          "title": [
+            "Kuro_B787-8",
+            "Kuro B787-8",
+            "Kuro 787-8"
+          ],
+          "ui_manufacturer": "Kuro",
+          "ui_createdby": [
+            "Kuro",
+            "Kurorin"
+          ],
+          "ui_type": [
+            "787-8",
+            "787-8 Dreamliner"
+          ]
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "The cited Kuro sources do not define a 787-8 custom integration table. This profile inherits the Asobo 787 family profile and keeps SimConnect as the active telemetry path."
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "_comment": "No active Kuro 787-8 custom controls are mapped because the cited sources do not define an external-control interface."
+    }
+  },
+  "meta": {
+    "developer": "Kuro / Kurorin",
+    "platforms": [
+      "msfs2020"
+    ],
+    "updated": "2026-07-19",
+    "status": "experimental",
+    "notes": "Kuro Boeing 787-8 profile for the freeware MSFS add-on that requires the Asobo 787-10 base aircraft. The cited Kuro sources do not define a custom-variable table, so active telemetry and controls remain SimConnect/inherited 787-family behavior."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "title": "Kuro_B787-8 [Req: MSFS2020 Asobo B787-10 (v1)]",
+        "url": "https://flightsim.to/addon/45062/boeing-787-8",
+        "type": "community",
+        "retrievedAt": "2026-06-05T00:00:00Z",
+        "notes": "Flightsim.to listing identifies the Kuro_B787-8 add-on and its dependency on the Asobo B787-10 base aircraft. It supports product identity only and does not define custom telemetry or controls."
+      },
+      {
+        "title": "Installer - Headwind Simulations",
+        "url": "https://headwindsim.net/installer.html",
+        "type": "official-docs",
+        "retrievedAt": "2026-06-05T00:00:00Z",
+        "notes": "Headwind's installer page describes installation for Headwind Simulations add-ons. The page did not publish a Boeing 787 custom-variable map, so no Headwind-specific 787 variables were activated."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "simVersion": "MSFS 2020",
+      "verifiedAt": "2026-06-05T00:00:00Z",
+      "notes": "Add-on identity is documented by the public distribution listing. Active mappings are limited to inherited SimConnect behavior pending a vendor-documented interface and in-sim verification."
+    }
+  }
+}

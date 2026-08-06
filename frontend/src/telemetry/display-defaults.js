@@ -1,0 +1,17 @@
+export const LIVE_TELEMETRY_MESSAGE_TYPES = new Set([
+  'ias',
+  'gs',
+  'vs',
+  'altitude',
+  'heading',
+  'xwind',
+  'fuel',
+  'environment',
+  'autopilot',
+  'gear',
+  'lights',
+  'flaps',
+  'spoilers',
+  'engines',
+  'flightTime',
+]);

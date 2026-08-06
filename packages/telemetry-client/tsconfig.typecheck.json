@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@flight-fabric/telemetry-types": [
+        "../telemetry-types/src/index.ts"
+      ]
+    },
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*",
+    "../telemetry-types/src/**/*"
+  ]
+}

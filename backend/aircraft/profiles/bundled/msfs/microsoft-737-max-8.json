@@ -1,0 +1,172 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "microsoft-737-max-8",
+  "name": "Microsoft / Asobo Studio Boeing 737 MAX 8",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-10T00:00:00Z",
+  "updatedAt": "2026-07-20T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/boeing-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "_commentFlaps": "No aircraft-specific flap detents are configured; use physical flap angle or raw handle percent pending in-sim handle-index verification.",
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "microsoft-737-max-8"
+    },
+    "matching": {
+      "priority": 72,
+      "titleContains": [],
+      "titleExcludes": [
+        "iFly",
+        "PMDG",
+        "Bredok3D",
+        "FSLTL",
+        "AIG Traffic",
+        "IVAO MTL"
+      ],
+      "titleRegex": "^(?!.*(?:ifly|pmdg|bredok3d|fsltl|aig[\\s_-]*traffic|ivao[\\s_-]*mtl))(?:(?:(?:microsoft|asobo(?:[\\s_-]*studio)?)[\\s_/-]+){0,2})(?:boeing[\\s_/-]+)?(?:b?737[\\s_-]*(?:max[\\s_-]*8|8[\\s_-]*max)|b38m|737[\\s_-]*8)$",
+      "configPathContains": [
+        "asobo-b737-max8",
+        "asobo-aircraft-b737-max8",
+        "asobo-aircraft-b737max8",
+        "asobo-aircraft-737-max8",
+        "microsoft-b737-max8",
+        "microsoft-aircraft-b737-max8",
+        "microsoft-aircraft-b737max8",
+        "microsoft-aircraft-737max8"
+      ],
+      "configPathExcludes": [
+        "ifly",
+        "pmdg",
+        "bredok3d",
+        "fsltl",
+        "aig-traffic",
+        "ivao-mtl"
+      ],
+      "configPathRegex": "(asobo|microsoft).*(737[-_ ]?max[-_ ]?8|737max8|b38m)|(737[-_ ]?max[-_ ]?8|737max8|b38m).*(asobo|microsoft)",
+      "aircraftCfg": {
+        "_comment": "Use aircraft.cfg as high-confidence fallback only when the B38M type designator is paired with Microsoft/Asobo creator evidence.",
+        "equals": {
+          "icao_type_designator": "B38M"
+        },
+        "regex": {
+          "title": "^(?!.*(?:ifly|pmdg|bredok3d|fsltl|aig[\\s_-]*traffic|ivao[\\s_-]*mtl)).*(?:b?737[\\s_-]*(?:max[\\s_-]*8|8[\\s_-]*max)|b38m|737[\\s_-]*8).*$",
+          "ui_createdby": "(?:microsoft|asobo)"
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "The cited Microsoft and Asobo sources do not define a 737 MAX 8 external LVAR, B-var, input-event, or hardware-integration map. Active telemetry stays on standard SimConnect data."
+      },
+      "spoilers": {
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. Boeing-specific autopilot, MCP, autothrottle, spoiler, and lighting writes remain unavailable until exact variables/events are verified."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "turnoff": "RTO",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Microsoft / Asobo Studio",
+    "platforms": [
+      "msfs2024"
+    ],
+    "updated": "2026-07-20",
+    "status": "partial",
+    "notes": "Dedicated monitoring-first page and identity profile for the included MSFS 2024 Boeing 737 MAX 8. The trusted Microsoft/Asobo adapter exposes an explicit standard-SimVar monitoring surface while aircraft-specific telemetry and cockpit writes remain inactive pending vendor documentation and in-sim verification."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-07-19",
+        "notes": "Lists the Boeing 737 Max 8 under manufacturer Boeing and confirms it is included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 Sim Update 2 release notes",
+        "url": "https://www.flightsimulator.com/msfs2024-sim-update-2/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Uses the official Boeing 737 MAX 8 product heading and documented package identifiers; it does not define an external custom-variable contract."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-07-19",
+        "notes": "The official manuals page does not list a 737 MAX 8 manual or external telemetry/control interface."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted monitoring adapter uses an explicit standard-SimVar allowlist and activates no aircraft-specific L: or B: variables."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - Key Events",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "knownIssues": [
+        "Exact MSFS 2024 737 MAX 8 TITLE strings remain unverified in-sim.",
+        "The Microsoft Flight Simulator aircraft manuals page does not list a 737 MAX 8 manual.",
+        "Flap handle indexes are not confirmed, so this profile intentionally defines no local flap notch table.",
+        "The dedicated page is monitoring-only. Complex-aircraft MCP, AFDS, light, and system standard-SimVar mirrors remain non-authoritative pending in-sim verification.",
+        "Boeing-specific autopilot, MCP, autothrottle, spoiler, and lighting writes remain unavailable until exact variables/events and independent effect readbacks are verified."
+      ]
+    }
+  }
+}

@@ -1,0 +1,183 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fss-e175",
+  "name": "FlightSim Studio Embraer E170/175",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-15T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/regional-jet",
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "_comment": "Embraer E175 (ERJ-170-200) has 7 lever positions: 0, 1, 2, 3, 4, 5, FULL. Speed values are provisional E175-family compatibility values pending redistributable public-source or vendor verification. In MSFS add-ons, FULL may be represented as a separate 7th detent or merged with position 5; the handle-index order needs in-sim verification.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 4,
+          "label": "4"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 6,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        5,
+        6
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 800,
+        "upFpm": 200
+      },
+      "thrustMinPct": 20,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 10
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -250,
+        "firmMinFpm": -450,
+        "hardMinFpm": -600,
+        "_comment": "Provisional E175 landing-rate bands pending aircraft-specific source verification."
+      }
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet",
+      "_comment": "Exact CF34 idle and limit N1 percentages are intentionally omitted pending a reviewable Embraer or engine-manufacturer source."
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 85,
+      "titleContains": [
+        "FlightSim Studio E175",
+        "FlightSim Studio E170",
+        "FlightSim Studio Embraer E175",
+        "FlightSim Studio Embraer E170",
+        "FSS E175",
+        "FSS E170"
+      ],
+      "titleRegex": "flight.?sim.?studio.*e?17[05]|fss.*e?17[05]|e?17[05].*(flight.?sim.?studio|fss)",
+      "configPathContains": [
+        "flightsim-studio-e-jets",
+        "flightsim-studio-e170",
+        "flightsim-studio-e175",
+        "fss-e170",
+        "fss-e175"
+      ],
+      "configPathRegex": "(flight.?sim.?studio|fss).*e?17[05]|e?17[05].*(flight.?sim.?studio|fss)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "_comment": "No FSS-specific telemetry route is active. Standard SimConnect remains the only live path pending vendor documentation and in-sim verification.",
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "_comment": "No aircraft-specific RPN toggle or relative rotary action is active. Exact command semantics require vendor documentation and in-simulator verification."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "logo": "LOGO"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "FlightSim Studio",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "experimental",
+    "notes": "FlightSim Studio Embraer E170/175 compatibility profile. The canonical profile id is fss-e175 because the target aircraft is the FlightSim Studio E-Jets add-on, not an Asobo aircraft. Powered by GE Aviation CF34-8E5 turbofan engines. Weight data from Embraer E175 Specifications and EASA TCDS EASA.IM.A.071 Issue 26. Flap and gear speed values are provisional E175-family compatibility values pending redistributable public-source or vendor verification. AR variant (Advanced Range) weights used as upper bound. Also covers ERJ-170-100 (E170), which shares similar systems but lower certified weights."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Embraer E175 Commercial Specifications",
+        "url": "https://embraer.com/media/5hun3qcb/e175_spec.pdf",
+        "retrievedAt": "2026-06-03",
+        "notes": "Documents the E175 LR/AR MTOW, MLW, MZFW, performance envelope, and E175 product identity used by this profile."
+      },
+      {
+        "type": "official-docs",
+        "name": "MSFS 2020/2024 Aircraft List",
+        "url": "https://devsupport.flightsimulator.com/uploads/short-url/8OyrE7OkEpU17It4CQ6w8JY4UG8.pdf",
+        "retrievedAt": "2026-06-03",
+        "notes": "Identifies the MSFS Embraer EMB 170/175 Short Wing add-on as a FlightSim Studio aircraft with ICAO designator E75S."
+      },
+      {
+        "type": "official-docs",
+        "name": "FlightSim Studio E-Jets Hardware Integration",
+        "url": "https://docs.flightsim-studio.com/e-jet-series/supplements/hardware-integration",
+        "retrievedAt": "2026-06-05",
+        "notes": "Official FlightSim Studio E-Jets hardware-integration page confirms external hardware integration support, but it does not itself publish a vendor-maintained exact variable contract."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "knownIssues": [
+        "Flap and gear speed values are provisional and need redistributable public-source or vendor verification before promotion.",
+        "FULL may be a separate seventh handle detent rather than sharing position 5; the index mapping needs in-sim verification",
+        "Aircraft-specific MCP readbacks remain inactive pending vendor documentation and in-sim verification of exact semantics.",
+        "FSS autopilot input records require RPN/relative rotary handling, so no active custom control writes are mapped yet",
+        "This profile also covers the E170 (ERJ-170-100) which shares nearly identical systems but has lower MTOW (37,200 kg LR / 38,790 kg AR)"
+      ]
+    }
+  }
+}

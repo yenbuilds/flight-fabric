@@ -1,0 +1,135 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "microsoft-atr-72-600",
+  "name": "Microsoft / S&H Software ATR 72-600",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-31T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/turboprop-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "B",
+    "engines": {
+      "count": 2,
+      "type": "turboprop"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "microsoft-atr-72-600"
+    },
+    "matching": {
+      "priority": 91,
+      "titleContains": [
+        "ATR 72-600",
+        "ATR72-600",
+        "ATR 72 600",
+        "ATR 72-600 HighLine",
+        "Microsoft ATR 72-600",
+        "S&H Software ATR 72-600",
+        "Microsoft_ATR_72_600"
+      ],
+      "titleExcludes": [
+        "ATR 72-600F"
+      ],
+      "titleRegex": "(?:microsoft|s&h\\s*software)?[\\s_-]*atr[\\s_-]*72[\\s_-]*600\\b(?![\\s_-]*f)",
+      "configPathContains": [
+        "microsoft-atr-72-600",
+        "microsoft-aircraft-atr72-600",
+        "microsoft-aircraft-atr-72-600",
+        "asobo-atr-72-600",
+        "asobo-aircraft-atr-72-600"
+      ],
+      "configPathExcludes": [
+        "atr-72-600f"
+      ],
+      "configPathRegex": "(microsoft|asobo).*(atr[-_ ]?72[-_ ]?600|atr72[-_ ]?600)|(atr[-_ ]?72[-_ ]?600|atr72[-_ ]?600).*(microsoft|asobo)",
+      "aircraftCfg": {
+        "_comment": "Use the official AT76 designator only when Microsoft/S&H creator evidence and an explicitly non-freighter ATR 72-600 title are both present.",
+        "equals": {
+          "icao_type_designator": "AT76"
+        },
+        "regex": {
+          "title": "atr[\\s_-]*72[\\s_-]*600\\b(?![\\s_-]*f\\b)",
+          "ui_createdby": "(?:microsoft|s\\s*&\\s*h\\s*software|asobo)"
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "_comment": "No ATR-specific LVAR is active. Microsoft/S&H do not publish an external variable contract with verified MSATR_* readback semantics, so the dedicated page uses standard SimConnect fields only."
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only the narrow standard gear/flaps fallback is available outside the dedicated monitoring page. No aircraft-specific control writes are mapped without a vendor-documented route and independent in-sim readback."
+    }
+  },
+  "meta": {
+    "developer": "Microsoft / S&H Software",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "partial",
+    "notes": "Dedicated monitoring-first page for the Microsoft / S&H Software Expert Series ATR 72-600 passenger aircraft. The profile and trusted adapter use standard SimConnect fields only; unverified aircraft-specific FGCP/AP readbacks and all custom cockpit writes remain unmapped."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Expert Series I: ATR 42-600 / 72-600",
+        "url": "https://www.flightsimulator.com/expert-series-i-atr-42-600-72-600/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Confirms the official ATR 42-600 / 72-600 package, identifies the ATR 72-600 as part of the bundle, and publishes high-level ATR 72-600 characteristics including passenger role, crew size, and cruise/range figures."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator Marketplace Update - week of June 1, 2026",
+        "url": "https://www.flightsimulator.com/marketplace-update-week-of-june-1-2026/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Officially lists ATR 42-600 / 72-600 under First Party with creator Microsoft / S&H Software and availability for PC and Xbox."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator Support - Where can I find a manual?",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/7058614252956-Where-can-I-find-a-manual",
+        "retrievedAt": "2026-06-05",
+        "notes": "The cited official support article does not define an ATR-specific custom-variable interface."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator Support - Controller Settings FAQ",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/16459737949980-Controller-Settings-FAQ",
+        "retrievedAt": "2026-06-05",
+        "notes": "Official MSFS 2024 support article documents aircraft-specific controller profiles and that nearly every mouse-manipulated cockpit function can be mapped in the simulator UI, but it does not expose ATR-specific external LVAR or SimConnect names."
+      },
+      {
+        "type": "official-docs",
+        "name": "MSFS SDK documentation - Aircraft Editor Systems Tab / Local Vars",
+        "url": "https://docs.flightsimulator.com/html/Developer_Mode/Aircraft_Editor/Tabs/The_Systems_Tab.htm",
+        "retrievedAt": "2026-06-05",
+        "notes": "Official SDK documentation explains that L: local variables are aircraft-local variables accessed with the L: identifier in RPN and may be stored in state.cfg, but it does not publish ATR-specific MSATR_* semantics."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "knownIssues": [
+        "Microsoft and S&H do not publish an ATR 72-600-specific external telemetry or control interface in the cited sources.",
+        "Aircraft-specific telemetry remains absent from the active profile and adapter pending vendor documentation and in-sim verification.",
+        "The dedicated page is monitoring-only and its standard-SimVar fields still require validation against the supported native MSFS package.",
+        "ATR selected-speed telemetry remains on standard SimConnect because the cited vendor sources do not define an aircraft-specific readback with Flight Fabric-compatible units.",
+        "This profile intentionally matches the passenger ATR 72-600 only and does not attempt to cover the 72-600F freighter or the ATR 42 variants included in the same package.",
+        "MLW, MZFW, flap schedule, and gear speed schedule remain absent because the cited vendor sources do not confirm them."
+      ]
+    }
+  }
+}

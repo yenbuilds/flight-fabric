@@ -1,0 +1,186 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a300",
+  "name": "iniBuilds Airbus A300-600R",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "A300-600R slat/flap system uses combined slat/flap configurations: CONF 0/0, 15/0, 15/15, 30/20, and 30/40. Speed values are based on public docket material and remain pending add-on-specific verification.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "15/0"
+        },
+        {
+          "value": 2,
+          "label": "15/15"
+        },
+        {
+          "value": 3,
+          "label": "30/20"
+        },
+        {
+          "value": 4,
+          "label": "30/40"
+        }
+      ],
+      "landingNotches": [
+        3,
+        4
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 25,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 12
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -250,
+        "firmMinFpm": -400,
+        "hardMinFpm": -600,
+        "_comment": "A300-600R widebody transport bands aligned with the existing A310 family profile."
+      }
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 92,
+      "titleContains": [
+        "iniBuilds A300",
+        "iniBuilds Airbus A300",
+        "iniBuilds A300-600R",
+        "iniBuilds A300-600"
+      ],
+      "titleRegex": "inibuilds.*a300|a300.*inibuilds",
+      "configPathContains": [
+        "inibuilds-a300",
+        "inibuilds_a300",
+        "inibuilds-aircraft-a300",
+        "inibuilds-aircraft-a300-600r"
+      ],
+      "configPathRegex": "inibuilds.*a300|a300.*inibuilds"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "_comment": "No A300-specific LVAR is active. Standard SimConnect remains the live telemetry path because exact aircraft-specific readback semantics lack vendor documentation and in-simulator verification.",
+      "spoilers": {
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "No custom cockpit writes are active. Only Flight Fabric's narrow standard gear/flaps surface fallback is allowed."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iniBuilds",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "experimental",
+    "notes": "Conservative iniBuilds A300-600R identity and analysis profile. Aircraft semantics follow A300-600 family references; approach category D remains provisional pending vendor documentation. Aircraft-specific readbacks are inactive, custom cockpit writes are blocked, and standard SimConnect plus the narrow gear/flaps fallback remain active."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "iniBuilds A300-600R Airliner for MSFS product page",
+        "url": "https://inibuilds.com/products/inibuilds-a300-600r-airliner-msfs",
+        "retrievedAt": "2026-06-09",
+        "notes": "Product identity for the iniBuilds A300-600R Airliner package and simulator support context for MSFS 2020 and MSFS 2024."
+      },
+      {
+        "type": "official-docs",
+        "name": "Public A300-600 speed-limit docket material",
+        "url": "https://data.ntsb.gov/Docket/Document/docBLOB?FileExtension=.PDF&ID=40167051",
+        "retrievedAt": "2026-06-09",
+        "notes": "A300-600 family VFE data used by the flap model: 15/0=250, 15/15=215, 30/20=205, 30/40=175 kt."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-06-09",
+      "knownIssues": [
+        "Exact MSFS title strings for A300 variants remain unverified in-sim.",
+        "Aircraft-specific readbacks remain inactive pending vendor documentation and verified in-sim semantics.",
+        "Profile mode, AP2, autobrake, and speedbrake off/fault indicators are not mapped because Flight Fabric has no matching canonical field or verified state semantics.",
+        "No custom cockpit writes are active; only standard gear/flaps fallback is enabled."
+      ]
+    },
+    "dataQuality": {
+      "flaps": "documented",
+      "gear": "generic",
+      "spoilers": "generic",
+      "lights": "generic"
+    }
+  }
+}

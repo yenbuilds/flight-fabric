@@ -1,0 +1,166 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "miltech-c17",
+  "name": "Miltech Boeing C-17 Globemaster III",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-06-09T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/widebody-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "C-17 manual documents fixed-vane double-slotted flaps and the configuration display; exact MSFS handle detent percentages still need in-sim verification, so labels are intentionally broad.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 4,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        3,
+        4
+      ]
+    },
+    "engines": {
+      "count": 4,
+      "type": "jet"
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -280,
+        "firmMinFpm": -600,
+        "hardMinFpm": -800,
+        "_comment": "Heavy tactical transport bands; partial until C-17-specific landing criteria are verified."
+      }
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 88,
+      "titleContains": [
+        "Miltech C-17",
+        "Miltech C17",
+        "Miltech Globemaster"
+      ],
+      "titleRegex": "miltech.*(c\\s*-?\\s*17|globemaster)|(c\\s*-?\\s*17|globemaster).*miltech",
+      "configPathContains": [
+        "miltech-c17",
+        "miltech_c17",
+        "miltech-aircraft-c17"
+      ],
+      "configPathRegex": "miltech.*(c17|c[-_ ]?17|globemaster)|(c17|c[-_ ]?17|globemaster).*miltech"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses documented standard SimVars only; no Miltech-specific telemetry routes are enabled."
+      },
+      "spoilers": {
+        "_comment": "The C-17 uses spoiler/speedbrake behavior, but the cited sources do not define an external armed/readback variable. Use standard percent handling only.",
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. Thrust-rating, engine shutoff, tactical reverse, flight-control, cargo/ramp, and AFCS writes remain unavailable until exact variables/events are verified."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Miltech Simulations / Microsoft",
+    "platforms": [
+      "msfs2024"
+    ],
+    "updated": "2026-06-09",
+    "status": "partial",
+    "notes": "Source-backed profile for the Premium Deluxe/Aviator Boeing C-17 Globemaster III. The official manual provides strong product, engine, and systems context, but no external variable/control map, so custom telemetry and cockpit writes stay inactive."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-06-09",
+        "notes": "Lists Boeing C-17 Globemaster III as included with Microsoft Flight Simulator 2024 Premium Deluxe and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Provides a Boeing C-17 Globemaster III Version 1 manual from Miltech Simulations. The page does not publish an external telemetry/control variable map."
+      },
+      {
+        "type": "official-docs",
+        "name": "Boeing C-17 Globemaster III for Microsoft Flight Simulator 2024 Manual",
+        "url": "https://flightsimulator.azureedge.net/wp-content/uploads/2024/11/C17-Manual.pdf",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents the C-17 as a 4-engine heavy-lift military transport, engine count/type, F117-PW-100 thrust, flap type, engine throttle axis guidance, thrust rating modes, and systems context. No external LVAR/B-var/control variable list is provided."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. This profile intentionally activates no aircraft-specific L: or B: variables."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-06-09",
+      "knownIssues": [
+        "Exact MSFS 2024 C-17 title strings remain unverified in-sim.",
+        "Flap labels are intentionally broad because runtime handle detents and percentages need in-sim verification.",
+        "The cited sources do not define a C-17 LVAR, B-var, or input-event integration map.",
+        "Thrust-rating modes, engine shutoff, tactical reverse, cargo/ramp, and AFCS controls remain unavailable until exact semantic writes are verified."
+      ]
+    }
+  }
+}

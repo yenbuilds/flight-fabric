@@ -1,0 +1,255 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "asobo-787",
+  "name": "Microsoft / Asobo Studio Boeing 787-10 Dreamliner",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-15T00:00:00Z",
+  "updatedAt": "2026-08-02T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/boeing-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "Boeing 787-10 flap positions: UP, 1 (slats only), 5 (takeoff), 15 (takeoff), 20 (takeoff/approach), 25 (landing), 30 (normal landing). Speed values are provisional 787-family compatibility values pending redistributable public-source or vendor verification. The seven-position handle-index mapping needs in-sim verification against the Asobo 787-10 detents.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 20,
+          "label": "20"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        }
+      ],
+      "landingNotches": [
+        25,
+        30
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 22,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 10
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -500,
+        "hardMinFpm": -600,
+        "_comment": "Provisional 787-family landing-rate bands pending aircraft-specific source verification."
+      }
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet",
+      "_comment": "Exact GEnx and Trent N1 idle and limit percentages are intentionally omitted pending a reviewable Boeing or engine-manufacturer source."
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "asobo-787"
+    },
+    "matching": {
+      "priority": 92,
+      "titleContains": [],
+      "titleExcludes": [
+        "Kuro",
+        "Horizon",
+        "Bravo",
+        "Heavy Division",
+        "B78XH",
+        "QualityWings",
+        "FSLTL",
+        "4Simmers",
+        "PassiveAircraft"
+      ],
+      "titleRegex": "^(?!.*(?:kuro|horizon|bravo|heavy[\\s_-]*division|b78xh|qualitywings|fsltl|4simmers|passiveaircraft))(?:(?:(?:microsoft|asobo(?:[\\s_-]*studio)?|working[\\s_-]*title)[\\s_/-]+){0,3})(?:boeing[\\s_/-]+)?b?787[\\s_-]*10(?:[\\s_-]*dreamliner)?(?:[\\s_/-]+working[\\s_-]*title(?:[\\s_-]*simulations?)?)?$",
+      "configPathExcludes": [
+        "Community",
+        "PassiveAircraft",
+        "FSLTL",
+        "Horizon",
+        "Kuro",
+        "Bravo",
+        "Heavy Division",
+        "B78XH",
+        "QualityWings",
+        "4Simmers"
+      ],
+      "configPathRegex": "^(?!.*(?:passiveaircraft|fsltl|horizon|kuro|bravo|heavy[-_ ]?division|community))(?:.*[\\\\/])?(?:fs(?:20|24)-asobo-aircraft-b787-10|asobo-aircraft-b787-10|asobo_b787)(?:[\\\\/].*)?$",
+      "aircraftCfg": {
+        "_comment": "High-confidence fallback requires exact B78X identity, a flyable/user-selectable config, first-party creator evidence, and a 787-10 product field. This rejects B788/B789 derivatives and passive/traffic-only B78X models.",
+        "equals": {
+          "icao_type_designator": "B78X",
+          "isairtraffic": [
+            "0",
+            "false"
+          ],
+          "isuserselectable": [
+            "1",
+            "true"
+          ]
+        },
+        "containsAll": {
+          "ui_createdby": [
+            "Asobo",
+            "Microsoft",
+            "Working Title"
+          ]
+        },
+        "containsAny": {
+          "title": [
+            "Asobo_B787_10",
+            "Boeing 787-10",
+            "787-10 Dreamliner"
+          ],
+          "ui_type": [
+            "787-10",
+            "787-10 Dreamliner"
+          ]
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses an explicit standard-SimVar monitoring allowlist; no Microsoft/Asobo/Working Title-specific telemetry routes are enabled."
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. MCP, autopilot, autothrottle, and other aircraft-specific writes remain unavailable without a vendor-documented interface and independent in-sim verification."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Asobo Studio",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-08-02",
+    "status": "partial",
+    "notes": "First-party Boeing 787-10 Dreamliner profile published by Microsoft and developed by Asobo Studio. It is included with Premium Deluxe in MSFS 2020 and with Premium Deluxe or Aviator in MSFS 2024. Working Title supplies the documented avionics and is credited for the manual. The exact trusted adapter exposes standard-SimVar monitoring only; custom telemetry and aircraft-specific writes remain inactive."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-07-19",
+        "notes": "Lists Boeing 787-10 Dreamliner as included with Microsoft Flight Simulator 2024 Premium Deluxe and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Uses the official heading Boeing 787-10 Dreamliner and credits its manual to Working Title. It does not identify Working Title as the base-aircraft vendor or publish an external telemetry/control variable map."
+      },
+      {
+        "type": "official-docs",
+        "name": "Boeing 787-10 Tutorial Flight",
+        "url": "https://flightsimulator.azureedge.net/wp-content/uploads/2023/06/B787-10-Tutorial-Flight-v1.pdf",
+        "retrievedAt": "2026-07-19",
+        "notes": "Official MSFS tutorial identifies the aircraft as the Boeing 787-10, gives ICAO B78X, and requires separate AUTOPILOT ON/OFF commands rather than a generic autopilot-master toggle."
+      },
+      {
+        "type": "official-docs",
+        "name": "Boeing 787 Airplane Characteristics for Airport Planning",
+        "url": "https://www.boeing.com/content/dam/boeing/boeingdotcom/commercial/airports/acaps/787_ACAP_Rev_Q.pdf",
+        "retrievedAt": "2026-06-03",
+        "notes": "Documents Boeing 787-10 weight variants and aircraft-performance context used by this profile."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. This profile intentionally activates no aircraft-specific L: or B: variables."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - Key Events",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "knownIssues": [
+        "Package and SimObject matching uses documented product identifiers; the stock 787-10 SimConnect TITLE still needs in-sim verification.",
+        "The cited Microsoft, Asobo, and Working Title sources do not define a 787-10 LVAR, B-var, or input-event integration map.",
+        "The seven-position flap handle-index mapping needs in-sim verification.",
+        "Flap and gear speed values are provisional compatibility values and need redistributable public-source or vendor verification before promotion.",
+        "The cited sources do not define an external control contract, so aircraft-specific writes remain blocked; the official manual's separate autopilot ON/OFF requirement also rules out generic autopilot-master fallback."
+      ]
+    }
+  }
+}

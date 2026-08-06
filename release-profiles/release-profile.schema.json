@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "release-profile.schema.json",
+  "title": "Release Profile",
+  "description": "Defines what files are included in a release edition",
+  "type": "object",
+  
+  "required": ["name", "displayName", "description", "include"],
+  
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z]+$",
+      "description": "Profile identifier (lowercase only)"
+    },
+    "displayName": {
+      "type": "string",
+      "description": "Human-readable name shown in releases"
+    },
+    "description": {
+      "type": "string",
+      "description": "What this edition includes/excludes"
+    },
+    "extends": {
+      "type": "string",
+      "description": "Parent profile to inherit from"
+    },
+    "include": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Backend JS files to include"
+        },
+        "backend_dirs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Backend subdirectories to include"
+        },
+        "frontend": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Frontend files to include"
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tool directories to include (glob patterns)"
+        },
+        "root": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Root-level files to include"
+        }
+      }
+    },
+    "exclude_patterns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns to exclude from all includes"
+    },
+    "_comment": {
+      "type": "string",
+      "description": "Documentation comment"
+    }
+  }
+}

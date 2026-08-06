@@ -1,0 +1,107 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "ga-base",
+  "name": "General Aviation Base",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2025-01-04T00:00:00Z",
+  "updatedAt": "2025-01-04T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "A",
+    "_commentFlaps": "No shared flap detents: GA base matching spans unrelated light aircraft with different flap gates. Specific aircraft profiles must supply source-backed detents when needed.",
+    "stability": {
+      "_comment": "General-aviation fallback bands use lower approach speeds than the generic jet profile.",
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 10
+      },
+      "vsLimits": {
+        "downFpm": 800,
+        "upFpm": 300
+      },
+      "stabilizedGates": {
+        "_comment": "The fallback provides distinct IMC and VMC stabilization gates.",
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "_comment": "Provisional light-aircraft landing bands; structural limits vary by aircraft.",
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -200,
+        "firmMinFpm": -350,
+        "hardMinFpm": -500,
+        "_comment": "Generic grading bands only; aircraft-specific profiles should supply documented thresholds."
+      }
+    },
+    "phaseThresholds": {
+      "_comment": "Fallback phase thresholds for light general-aviation aircraft.",
+      "taxiMaxKts": 80,
+      "parkedMaxKts": 2,
+      "takeoffRollMinIasKts": 40,
+      "takeoffMinIasKts": 55,
+      "takeoffMinVsFpm": 250,
+      "takeoffMaxRaFt": 150,
+      "climbMinVsFpm": 350,
+      "climbMinRaFt": 150,
+      "cruiseMinRaFt": 1500,
+      "cruiseMaxVsAbsFpm": 250,
+      "descentMinRaFt": 900,
+      "descentMinVsFpm": 400,
+      "approachMaxRaFt": 1000,
+      "approachMinVsFpm": 200,
+      "landingMaxRaFt": 50,
+      "landingMinVsFpm": 100,
+      "taxiInMaxKts": 60
+    },
+    "throttle": {
+      "type": "manual",
+      "_comment": "Manual-throttle fallback; specific profiles may override this capability."
+    },
+    "engines": {
+      "count": 1,
+      "type": "piston"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 10,
+      "titleContains": [
+        "Cessna",
+        "Piper",
+        "Beechcraft",
+        "Cirrus",
+        "Mooney",
+        "Diamond",
+        "Robin",
+        "Socata",
+        "Grumman"
+      ],
+      "titleRegex": "cessna|piper|beech|cirrus|mooney|diamond|robin|socata|grumman|c172|c182|c152|pa28|pa32|sr22|da40|da62"
+    },
+    "telemetry": {
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "Various",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "contributor": "YenBuilds",
+    "updated": "2025-01-04",
+    "status": "production"
+  },
+  "provenance": {}
+}

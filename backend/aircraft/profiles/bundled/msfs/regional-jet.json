@@ -1,0 +1,90 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "regional-jet",
+  "name": "Regional Jet Base",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2025-01-15T00:00:00Z",
+  "updatedAt": "2025-01-15T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "No shared flap detents: regional-jet matching spans unrelated aircraft families with different flap gates. Specific aircraft profiles must supply source-backed detents when needed.",
+    "stability": {
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -80,
+        "goodMinFpm": -160,
+        "firmMinFpm": -420,
+        "hardMinFpm": -560,
+        "_comment": "Category C tolerances - standard airliner standards"
+      }
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 35,
+      "titleContains": [
+        "ERJ",
+        "ERJ-135",
+        "ERJ-140",
+        "ERJ-145",
+        "E170",
+        "E175",
+        "E190",
+        "E195",
+        "E-Jet",
+        "EJet",
+        "Embraer 170",
+        "Embraer 175",
+        "Embraer 190",
+        "Embraer 195",
+        "Fokker 70",
+        "Fokker 100",
+        "F70",
+        "F100",
+        "BAe 146",
+        "Avro RJ",
+        "RJ85",
+        "RJ100",
+        "CRJ",
+        "SSJ",
+        "Superjet",
+        "ARJ21",
+        "Comac",
+        "Yakovlev",
+        "Yak-42"
+      ],
+      "titleRegex": "erj|e-?1[79][05]|embraer\\s*1[79]|fokker\\s*(70|100)|f[17]0{1,2}|bae.?146|avro\\s*rj|rj[18][05]|crj|ssj|superjet|arj21|yak-?42"
+    },
+    "telemetry": {
+      "spoilers": {
+        "_comment": "Regional jets typically have ground spoilers and flight spoilers",
+        "scale": "percent"
+      },
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "status": "production"
+  },
+  "provenance": {},
+  "_comment": "Catches regional jets: ERJ-135/140/145, E-Jets (E170-E195), Fokker 70/100, BAe 146/Avro RJ, CRJ backup. All have Vref 121-140 kt = Category C."
+}

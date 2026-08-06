@@ -1,0 +1,175 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "headwind-a330",
+  "name": "Headwind A330-900neo",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-15T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "A330-900neo flap lever positions 0-4. Config 1 is transitional; lever position 1 selects Config 1+F. Aircraft-specific speed limits remain provisional until supported by vendor documentation.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "1+F"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 4,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        3,
+        4
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 20,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 12
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -250,
+        "firmMinFpm": -400,
+        "hardMinFpm": -550,
+        "_comment": "Provisional wide-body landing-rate bands pending aircraft-specific source verification."
+      }
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 90,
+      "titleContains": [
+        "Headwind A330",
+        "Headwind A330-900neo",
+        "Headwind A339X",
+        "A339X"
+      ],
+      "titleRegex": "headwind.*A330|A330.*headwind|headwind.*A339X|A339X",
+      "configPathContains": [
+        "headwind-a330",
+        "headwind-a339x",
+        "headwind-aircraft-a330",
+        "headwind-aircraft-a339x"
+      ],
+      "configPathRegex": "headwind.*(a330|a339x)|(a330|a339x).*headwind"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "_comment": "Headwind does not publish a compatibility contract for the complete FlyByWire interface, so standard SimConnect is the only active telemetry path pending A339X-specific verification.",
+      "lights": {}
+    },
+    "controls": {
+      "backend": "simconnect",
+      "_comment": "FBW/Headwind custom FCU writes are documented as custom events such as A32NX.FCU_ALT_SET, but Flight Fabric's current MSFS provider does not execute custom input events yet. Keep only the existing generic MSFS write fallback active until provider support and A339X testing are available."
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "Headwind Simulations",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "experimental",
+    "notes": "Headwind A330-900neo (A330-941, Trent 7000) identity profile. Headwind documents its FBW A32NX heritage but does not publish a complete external-interface compatibility contract. Custom readbacks and writes remain unmapped; standard SimConnect is the live path pending A339X-specific verification."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "name": "Headwind A339X source repository",
+        "url": "https://github.com/headwindsim/aircraft",
+        "retrievedAt": "2026-06-05",
+        "notes": "Official Headwind project repository. Documents that the A339X is based on the FlyByWire System A32NX and identifies the A330-941 / Trent 7000 target aircraft. No inherited aircraft-specific variables are activated without a documented compatibility contract and in-sim verification."
+      },
+      {
+        "type": "official-docs",
+        "name": "Headwind A339X product page",
+        "url": "https://www.headwindsim.net/a339x.html",
+        "retrievedAt": "2026-06-05",
+        "notes": "Official Headwind A339X product page confirming the aircraft is based on FlyByWire A32NX, includes SimBridge resources, and targets the Airbus A330-900neo."
+      },
+      {
+        "type": "official-sdk",
+        "name": "FlyByWire A32NX Flight Deck API",
+        "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-flightdeck-api/",
+        "retrievedAt": "2026-06-05",
+        "notes": "Documents the FlyByWire A32NX flight-deck interface. This profile does not assume those aircraft-specific routes are compatible with the Headwind A339X."
+      },
+      {
+        "type": "official-sdk",
+        "name": "FlyByWire A32NX Developer API",
+        "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-systems-api/",
+        "retrievedAt": "2026-06-05",
+        "notes": "Documents the FlyByWire A32NX systems interface. This profile does not activate inherited A32NX routes without a Headwind compatibility contract."
+      },
+      {
+        "type": "official-docs",
+        "name": "Headwind aircraft releases",
+        "url": "https://github.com/headwindsim/aircraft/releases",
+        "retrievedAt": "2026-06-05",
+        "notes": "Release history records FBW Core Module updates, demonstrating why inherited A32NX interfaces must be revalidated per Headwind release rather than assumed compatible."
+      }
+    ],
+    "verification": {
+      "status": "unverified",
+      "testedTitles": [],
+      "knownIssues": [
+        "No inherited A32NX_* telemetry is active because the cited Headwind sources do not define compatibility for those exact interfaces.",
+        "Custom FCU writes remain inactive because the cited Headwind sources do not define them and the current MSFS provider has no applicable custom-event route.",
+        "Flap lever value mapping (0-4 indices) not confirmed in MSFS",
+        "A330 Config 1 (slats only, 240 kt) is not a dedicated lever position in MSFS implementation — lever 1 = Config 1+F"
+      ]
+    },
+    "dataQuality": {
+      "flaps": "estimated",
+      "gear": "estimated",
+      "spoilers": "unknown",
+      "lights": "unknown"
+    }
+  }
+}

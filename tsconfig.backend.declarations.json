@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.backend.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "outDir": "backend/types/generated",
+    "rootDir": "backend"
+  },
+  "include": [
+    "backend/**/*.ts",
+    "backend/types/**/*.d.ts"
+  ]
+}

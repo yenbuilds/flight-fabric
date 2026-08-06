@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Flight Fabric</title>
+  <desc id="desc">Navigation-display-inspired flight path and aircraft mark</desc>
+  <defs>
+    <linearGradient id="orbit" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="0.52" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#06b6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="504" height="504" rx="108" fill="#06142e"/>
+  <g fill="none" stroke="url(#orbit)" stroke-width="26" stroke-linecap="round">
+    <path d="M116.8 355.5A170 170 0 0 1 365.3 127.8"/>
+    <path d="M421 216.9A170 170 0 0 1 300 422.2"/>
+    <path d="M168.7 318.8A102.5 102.5 0 0 1 316.3 183.5" stroke-width="24"/>
+  </g>
+  <path d="M74 418C153 405 240 356 310 257L318 264C251 365 169 425 86 447Z" fill="#ff168f"/>
+  <circle cx="406" cy="155" r="15" fill="#06142e" stroke="#ff168f" stroke-width="8"/>
+  <g transform="rotate(45 312 250)" stroke="#031027" stroke-width="6" stroke-linejoin="round">
+    <path d="M312 166L358 286L312 266L266 286Z" fill="#f8fbff"/>
+  </g>
+</svg>

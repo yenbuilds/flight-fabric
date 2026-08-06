@@ -1,0 +1,124 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "toliss-a320-family",
+  "name": "ToLiss Airbus A320 Family",
+  "simulator": "xplane",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-06-09T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "No flap detents are configured: this X-Plane profile is for identity and conservative analysis only. Add detents after vendor documentation or in-sim verification.",
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 10
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 25,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 12
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -250,
+        "firmMinFpm": -400,
+        "hardMinFpm": -600,
+        "_comment": "Provisional A320-family landing bands pending in-sim verification."
+      }
+    },
+    "throttle": {
+      "type": "detent"
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 115,
+      "xplane": {
+        "acfFileNames": [
+          "a320.acf",
+          "a320ceo.acf",
+          "a320neo.acf",
+          "tolissa320.acf",
+          "tolissa320neo.acf",
+          "toliss a320.acf",
+          "toliss a320neo.acf"
+        ],
+        "aliases": [
+          "a320",
+          "a320ceo",
+          "a320neo",
+          "tolissa320",
+          "tolissa320neo",
+          "toliss a320",
+          "toliss a320neo",
+          "toliss-a320",
+          "toliss-a320neo"
+        ]
+      }
+    },
+    "telemetry": {
+      "preferred": "xplane-web",
+      "_comment": "Uses only the built-in X-Plane Web API telemetry provider. No aircraft-specific dataref or command mapping is active.",
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "ToLiss",
+    "platforms": [
+      "xplane12"
+    ],
+    "status": "experimental",
+    "notes": "Conservative X-Plane test profile for ToLiss A320-family identity and basic aircraft category handling. No custom X-Plane datarefs or commands are active."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "ToLiss A320 NEO product page",
+        "url": "https://toliss.com/pages/a320-neo",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents the ToLiss A320 NEO X-Plane aircraft product, A320-family identity, and modeled engine variants."
+      },
+      {
+        "type": "official-docs",
+        "name": "ToLiss A320 CEO product page",
+        "url": "https://toliss.com/pages/a320-ceo",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents the ToLiss A320 CEO add-on to the A320neo base package, supporting this narrow A320-family profile identity."
+      }
+    ],
+    "verification": {
+      "status": "unverified",
+      "lastVerified": null,
+      "knownIssues": [
+        "No custom X-Plane datarefs or commands are mapped.",
+        "Flap detents are intentionally absent pending vendor documentation or in-sim verification.",
+        "Runtime .acf filenames may vary; matching includes common A320 and ToLiss A320-family filename and identity aliases only."
+      ]
+    }
+  }
+}

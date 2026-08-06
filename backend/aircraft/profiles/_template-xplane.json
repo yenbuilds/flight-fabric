@@ -1,0 +1,131 @@
+{
+  "$schema": "./aircraft-profile.schema.json",
+  "version": 2,
+  "id": "xplane-aircraft-template",
+  "name": "X-Plane Aircraft Template",
+  "simulator": "xplane",
+  "namespace": "local",
+  "visibility": "private",
+  "abstract": true,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        3
+      ]
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 100,
+      "xplane": {
+        "acfPaths": [
+          "Aircraft/Vendor/Aircraft/MyAircraft.acf"
+        ],
+        "acfFileNames": [
+          "MyAircraft.acf"
+        ],
+        "aliases": [
+          "vendor-myaircraft"
+        ]
+      }
+    },
+    "telemetry": {
+      "preferred": "xplane-custom",
+      "identityDatarefs": {
+        "acfPath": "flightfabric/aircraft/acf_path",
+        "acfFileName": "flightfabric/aircraft/acf_filename",
+        "id": "flightfabric/aircraft/id"
+      },
+      "datarefs": {
+        "flaps": "vendor/aircraft/flaps_handle_index",
+        "autopilot": "vendor/aircraft/ap_master",
+        "lights": {
+          "landing": "vendor/aircraft/light_landing",
+          "taxi": "vendor/aircraft/light_taxi"
+        }
+      },
+      "commands": {
+        "flapsUp": "sim/flight_controls/flaps_up",
+        "flapsDown": "sim/flight_controls/flaps_down",
+        "gearUp": "sim/flight_controls/landing_gear_up",
+        "gearDown": "sim/flight_controls/landing_gear_down"
+      },
+      "allowGenericFallback": true,
+      "lights": {
+        "source": "xplane"
+      }
+    },
+    "controls": {
+      "backend": "xplane",
+      "flaps": {
+        "setAction": {
+          "type": "dataref",
+          "name": "vendor/aircraft/flaps_handle_index",
+          "valueType": "int"
+        },
+        "incrementAction": {
+          "type": "command",
+          "name": "sim/flight_controls/flaps_down"
+        },
+        "decrementAction": {
+          "type": "command",
+          "name": "sim/flight_controls/flaps_up"
+        },
+        "notchMapping": {
+          "0": 0,
+          "1": 1,
+          "2": 2,
+          "3": 3
+        }
+      },
+      "gear": {
+        "upAction": {
+          "type": "command",
+          "name": "sim/flight_controls/landing_gear_up"
+        },
+        "downAction": {
+          "type": "command",
+          "name": "sim/flight_controls/landing_gear_down"
+        }
+      }
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "landing",
+          "taxi"
+        ]
+      }
+    }
+  },
+  "meta": {
+    "developer": "Vendor Name",
+    "platforms": [
+      "xplane12"
+    ],
+    "contributor": "Your Name",
+    "updated": "2026-05-22",
+    "status": "experimental",
+    "notes": "Abstract X-Plane example. Replace vendor paths and identity datarefs with documented aircraft-specific values."
+  }
+}

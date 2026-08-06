@@ -1,0 +1,102 @@
+{
+  "$schema": "./aircraft-profile.schema.json",
+  "version": 2,
+  "_instructions": [
+    "=== QUICK START PROFILE ===",
+    "1. Save this as '<aircraft-name>.json' in your Local aircraft profile namespace.",
+    "2. Set simulator to 'msfs' or 'xplane'.",
+    "3. Change id and name.",
+    "4. Put aircraft semantics under aircraft.* and simulator bindings under integration.*.",
+    "5. Restart the backend or reload profiles.",
+    "",
+    "Delete these _instructions when done."
+  ],
+  "id": "example-aircraft",
+  "name": "Example Aircraft Name",
+  "simulator": "msfs",
+  "namespace": "local",
+  "visibility": "private",
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "_help": "Array order follows the simulator handle index; value is the cockpit detent and label is display text.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 30,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        25,
+        30
+      ]
+    },
+    "stability": {
+      "vref": {
+        "minKts": 130,
+        "maxKts": 150,
+        "source": "proxy"
+      },
+      "vappAddKts": 5,
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 10
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 20,
+      "pitch": {
+        "minDeg": -5,
+        "maxDeg": 15
+      },
+      "glideslopeDeg": 3,
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "gear": {
+      "maxExtendKts": 270,
+      "maxExtendedKts": 270
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 100,
+      "titleContains": [
+        "Example aircraft title text"
+      ]
+    },
+    "telemetry": {
+      "preferred": "simconnect"
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "status": "experimental",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ]
+  }
+}

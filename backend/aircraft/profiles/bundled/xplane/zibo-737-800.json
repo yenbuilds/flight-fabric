@@ -1,0 +1,137 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "zibo-737-800",
+  "name": "Zibo Boeing 737-800X",
+  "simulator": "xplane",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-06-19T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "_commentFlaps": "X-Plane flap_handle_deploy_ratio reports normalized handle travel. These 737 labels map the nine Boeing handle detents across that 0-1 range so raw 0.875 displays as Flaps 30, not 88%.",
+    "flaps": {
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        },
+        {
+          "value": 40,
+          "label": "40"
+        }
+      ],
+      "landingNotches": [
+        30,
+        40
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 20
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -500,
+        "hardMinFpm": -600,
+        "_comment": "Provisional 737-family landing bands pending in-sim verification."
+      }
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 120,
+      "xplane": {
+        "acfPaths": [
+          "Aircraft/B737-800X/b738.acf",
+          "Aircraft/B737-800X/b738_4k.acf"
+        ],
+        "aliases": [
+          "b737-800x",
+          "zibo-737-800",
+          "zibo-b738"
+        ]
+      }
+    },
+    "telemetry": {
+      "preferred": "xplane-web",
+      "_comment": "Uses only the built-in X-Plane Web API telemetry provider. No aircraft-specific dataref or command mapping is active.",
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "developer": "Zibo Mod",
+    "platforms": [
+      "xplane12"
+    ],
+    "status": "experimental",
+    "notes": "Conservative X-Plane test profile for Zibo B737-800X identity and basic aircraft category handling. Approach category D is used because the reference 737-800 Vref range reaches 163 kt. No custom X-Plane datarefs or commands are active."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "forum",
+        "name": "X-Plane.org Zibo B737-800X information and installation thread",
+        "url": "https://forums.x-plane.org/forums/topic/138974-b737-800x-zibo-mod-info-installation-download-links/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents the Zibo B737-800X project identity. Matching requires the common B737-800X install path or a Zibo-specific identity alias to avoid confusing the Laminar b738.acf with Zibo."
+      }
+    ],
+    "verification": {
+      "status": "unverified",
+      "lastVerified": null,
+      "knownIssues": [
+        "No custom X-Plane datarefs or commands are mapped.",
+        "Flap display maps X-Plane normalized handle travel to standard 737 labels pending Zibo-specific in-sim verification."
+      ]
+    }
+  }
+}

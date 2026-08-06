@@ -1,0 +1,274 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-tristar",
+  "name": "iniBuilds TriStar Airliner (L-1011)",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-11T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/widebody-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "L-1011-family flap labels use 0, 4, 10, 22, 33, and 42. Flap and gear speed values are provisional compatibility values pending redistributable public-source or vendor verification. Normal takeoff: 4 or 10. Normal landing: 33 or 42 (42 = FULL for short/wet runways; 33 = normal). The iniBuilds FAQ confirms AoA mode auto-engages at Flaps 33.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 4,
+          "label": "4"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 22,
+          "label": "22"
+        },
+        {
+          "value": 33,
+          "label": "33"
+        },
+        {
+          "value": 42,
+          "label": "42"
+        }
+      ],
+      "landingNotches": [
+        33,
+        42
+      ]
+    },
+    "stability": {
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "engines": {
+      "_comment": "3 Rolls-Royce RB211 engines. 2 wing-pylon mounted, 1 centre-mounted via S-duct through fin. EPR-rated (not N1). The iniBuilds simulation uses a detailed EPR logic model.",
+      "count": 3,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "inibuilds-tristar"
+    },
+    "matching": {
+      "priority": 90,
+      "titleContains": [
+        "iniBuilds TriStar",
+        "iniBuilds L-1011",
+        "iniBuilds L1011"
+      ],
+      "titleRegex": "inibuilds.*(tristar|l-?1011)|(tristar|l-?1011).*inibuilds",
+      "configPathContains": [
+        "inibuilds-tristar",
+        "inibuilds_tristar",
+        "inibuilds-l1011",
+        "inibuilds-aircraft-tristar"
+      ],
+      "configPathRegex": "inibuilds.*(tristar|l1011|l[-_ ]?1011)|(tristar|l1011|l[-_ ]?1011).*inibuilds"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses documented standard SimVars only; no vendor-specific telemetry routes are enabled."
+      },
+      "autopilot": {
+        "_comment": "The documented AFCS key events use SimConnect, but this profile does not use generic AUTOPILOT MASTER or mode SimVars as AFCS-state readbacks. Keep those fields unavailable until a vendor-documented and independently verified source is available.",
+        "simVarReliable": false
+      },
+      "spoilers": {
+        "_comment": "TriStar Direct Lift Control (DLC) uses spoiler panels during normal approach, so the generic SimConnect spoiler value can include DLC or roll-spoiler movement rather than only speedbrake-handle state. Keep spoiler UI/scoring state unavailable until a dedicated handle or autospoiler source is verified.",
+        "scale": "percent",
+        "simVarReliable": false
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Official iniBuilds TriStar keybind FAQs publish SimConnect Event IDs for AFCS and lights. This profile preserves only AFCS toggle/off events that the current Flight Fabric control surface can represent safely. They remain profile-level controls and are not promoted into the trusted aircraft-specific adapter because no independent reliable AFCS effect readback exists. Selector inc/dec events, light events, and INI_* action LVAR references remain inactive until runtime support and in-simulator verification catch up.",
+      "autopilot": {
+        "_comment": "These AFCS events are vendor-documented but not yet verified in-sim. Toggle-only events must not be mapped to on/off semantic requests.",
+        "actions": {
+          "masterToggle": {
+            "type": "key-event",
+            "name": "AP_MASTER",
+            "verification": "untested"
+          },
+          "masterOff": {
+            "type": "key-event",
+            "name": "AUTOPILOT_OFF",
+            "verification": "untested"
+          },
+          "flightDirectorToggle": {
+            "type": "key-event",
+            "name": "TOGGLE_FLIGHT_DIRECTOR",
+            "verification": "untested"
+          },
+          "speedHoldToggle": {
+            "type": "key-event",
+            "name": "AP_AIRSPEED_HOLD",
+            "verification": "untested"
+          },
+          "verticalSpeedHoldToggle": {
+            "type": "key-event",
+            "name": "AP_VS_HOLD",
+            "verification": "untested"
+          },
+          "altitudeHoldToggle": {
+            "type": "key-event",
+            "name": "AP_ALT_HOLD",
+            "verification": "untested"
+          },
+          "machHoldToggle": {
+            "type": "key-event",
+            "name": "AP_MACH_HOLD",
+            "verification": "untested"
+          },
+          "headingHoldToggle": {
+            "type": "key-event",
+            "name": "AP_HDG_HOLD",
+            "verification": "untested"
+          },
+          "appToggle": {
+            "type": "key-event",
+            "name": "AP_APR_HOLD",
+            "verification": "untested"
+          },
+          "locToggle": {
+            "type": "key-event",
+            "name": "AP_LOC_HOLD",
+            "verification": "untested"
+          },
+          "nav1Toggle": {
+            "type": "key-event",
+            "name": "AP_NAV1_HOLD",
+            "verification": "untested"
+          },
+          "backcourseToggle": {
+            "type": "key-event",
+            "name": "AP_BC_HOLD",
+            "verification": "untested"
+          },
+          "yawDamperToggle": {
+            "type": "key-event",
+            "name": "TOGGLE_WATER_RUDDER",
+            "verification": "untested"
+          }
+        }
+      }
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "logo": "LOGO"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iniBuilds",
+    "icaoType": "L101",
+    "platforms": [
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "experimental",
+    "notes": "iniBuilds TriStar Airliner for MSFS 2024. A dedicated monitoring-first page exposes an explicit standard-SimVar field set for AFCS selector windows, lights, configuration, engines, fuel, weight, and pressurization. Generic AP/mode booleans and spoiler state are excluded because they do not represent the required AFCS and speedbrake-handle semantics. Vendor-documented profile-level AFCS key events remain available while broad generic autopilot fallback stays blocked. Flap and gear speed values remain provisional pending vendor verification."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "iniBuilds TriStar Airliner product/support material",
+        "url": "https://inibuilds.com/products/inibuilds-tristar-airliner-msfs-2024",
+        "retrievedAt": "2026-06-04",
+        "notes": "Product context for the iniBuilds MSFS 2024 TriStar Airliner and the AoA mode note tied to Flaps 33."
+      },
+      {
+        "type": "official-docs",
+        "name": "iniBuilds TriStar Airliner manual forum post",
+        "url": "https://forum.inibuilds.com/topic/35986-aircraft-manual-tristar-airliner/",
+        "retrievedAt": "2026-06-04",
+        "notes": "Official forum entry for the TriStar Airliner manual; the vendor material does not define a complete custom telemetry interface."
+      },
+      {
+        "type": "official-docs",
+        "name": "iniBuilds TriStar Airliner development update",
+        "url": "https://forum.inibuilds.com/topic/35590-inibuilds-tristar-airliner-development-update/",
+        "retrievedAt": "2026-06-05",
+        "notes": "Official iniBuilds development note describing the TriStar DLC implementation and spoiler-to-pitch coupling. This supports suppressing generic SimConnect spoiler UI state until a speedbrake-handle-specific readback is verified."
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "iniBuilds TriStar FAQ - How to: Autopilot Keybinds",
+        "url": "https://forum.inibuilds.com/topic/36848-how-to-autopilot-keybinds/",
+        "retrievedAt": "2026-06-04",
+        "notes": "Source for active AFCS key-event mappings: AP_MASTER, AUTOPILOT_OFF, TOGGLE_FLIGHT_DIRECTOR, AP_AIRSPEED_HOLD, AP_VS_HOLD, AP_ALT_HOLD, AP_MACH_HOLD, AP_HDG_HOLD, AP_APR_HOLD, AP_LOC_HOLD, AP_NAV1_HOLD, AP_BC_HOLD, and TOGGLE_WATER_RUDDER. The same FAQ also lists selector inc/dec events and INI_* action LVAR references; those are intentionally not active telemetry/readback mappings."
+      },
+      {
+        "type": "official-docs",
+        "name": "iniBuilds TriStar FAQ - How to: Light Keybinds",
+        "url": "https://forum.inibuilds.com/topic/36849-how-to-light-keybinds/",
+        "retrievedAt": "2026-06-04",
+        "notes": "Source for standard light key events such as LANDING_LIGHTS_TOGGLE, TOGGLE_TAXI_LIGHTS, STROBES_TOGGLE, TOGGLE_BEACON_LIGHTS, TOGGLE_NAV_LIGHTS, TOGGLE_WING_LIGHTS, TOGGLE_LOGO_LIGHTS, and TOGGLE_LIGHTS. These are documented but not active profile controls because the current control service has no semantic light-control resolver."
+      },
+      {
+        "type": "official-sdk",
+        "name": "Microsoft Flight Simulator 2024 SDK - Simulation Variables",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Simulation_Variables.htm",
+        "retrievedAt": "2026-07-17",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted TriStar adapter exposes only an explicit backend allowlist already normalized by Flight Fabric and activates no aircraft-specific L: or B: telemetry variables."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "knownIssues": [
+        "Flap and gear speed values are provisional and need redistributable public-source or vendor verification before promotion.",
+        "TriStar spoiler telemetry is suppressed because DLC uses spoiler panels during normal approach and generic SimConnect spoiler state can report DLC/roll spoiler deflection rather than actual speedbrake handle deployment.",
+        "Active AFCS control mappings are documented by official iniBuilds keybind FAQs but remain untested pending in-sim verification.",
+        "Generic SimConnect AP master/mode readback is suppressed because it can remain off while the custom TriStar AFCS is actually engaged.",
+        "The dedicated page is monitoring-only. Its 32 standard-SimVar fields require live TriStar verification; the four AFCS selector values are candidates and no AFCS engagement or mode state is claimed.",
+        "The dedicated page intentionally excludes generic spoiler/speedbrake state because DLC can move spoiler panels independently of speedbrake-handle intent.",
+        "The trusted aircraft-specific adapter exposes no write actions because no reliable independent AFCS effect readback is available. Existing source-backed profile-level AFCS key-event controls are preserved separately.",
+        "The profile intentionally maps only safe toggle/off AFCS events. Selector inc/dec events, VOR course inc/dec events, and INI_* action LVAR references from the official FAQ are documented but not active because the current semantic control surface expects absolute selector set writes or verified pulse semantics.",
+        "Official light key events are documented, but the current profile control service has no semantic light-control resolver. TriStar lights remain SimConnect telemetry/presentation only.",
+        "The cited vendor material does not define a complete TriStar custom telemetry interface, so the profile does not subscribe custom LVAR readbacks.",
+        "No RPN/H-event autothrottle action is active because Flight Fabric's current MSFS provider does not support html-event/H-event actions and no vendor-published production mapping has been verified."
+      ]
+    }
+  },
+  "_comment": "iniBuilds TriStar Airliner for MSFS 2024. Classic Lockheed L-1011 tri-jet wide-body powered by three Rolls-Royce RB211 engines. Flap and gear speed values are provisional pending vendor verification. The monitoring-only adapter exposes an explicit standard-SimVar field set without generic AP/mode booleans, ambiguous spoiler state, vendor-specific telemetry routes, or aircraft-specific writes. Profile-level AFCS key events are sourced from official iniBuilds documentation."
+}

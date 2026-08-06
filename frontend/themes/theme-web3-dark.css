@@ -1,0 +1,391 @@
+/*
+ * Flight Fabric — Theme: Web3 Dark
+ * Rounded glass-dark shell with crisp blue accents and restrained motion.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --color-surface:     7 17 31;
+  --color-surface-50:  11 22 39;
+  --color-surface-100: 15 28 48;
+  --color-surface-200: 25 40 63;
+  --color-surface-300: 54 74 104;
+  --color-accent:      90 178 255;
+  --color-accent-warm: 45 212 191;
+  --color-danger:      248 113 113;
+  --color-warning:     251 191 36;
+  --color-success:     52 211 153;
+
+  --th-accent:          #5ab2ff;
+  --th-accent-rgb:      90, 178, 255;
+  --th-surface-base:    #07111f;
+  --th-surface-50:      #0b1627;
+  --th-surface-75:      #0d1a2e;
+  --th-surface-100:     #0f1c30;
+  --th-surface-200:     #19283f;
+  --th-surface-300:     #364a68;
+  --th-surface-50-rgb:  11, 22, 39;
+  --th-surface-100-rgb: 15, 28, 48;
+  --th-surface-300-rgb: 54, 74, 104;
+
+  --th-scanlines: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(90, 178, 255, 0.14) 0%, transparent 30%),
+    radial-gradient(circle at 100% 10%, rgba(45, 212, 191, 0.08) 0%, transparent 24%),
+    linear-gradient(180deg, #091423 0%, #07111f 100%) !important;
+  color: #e5eefb !important;
+  font-family: 'Sora', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+body::before {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(90, 178, 255, 0.12) 0%, transparent 28%),
+    radial-gradient(circle at 100% 12%, rgba(45, 212, 191, 0.08) 0%, transparent 24%),
+    linear-gradient(180deg, rgba(7, 17, 31, 0.72), rgba(7, 17, 31, 0.9));
+}
+
+body::after {
+  display: none;
+}
+
+header {
+  background: rgba(7, 17, 31, 0.76) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.38) !important;
+  backdrop-filter: blur(20px) saturate(1.25);
+}
+
+header .text-gray-400,
+header .text-gray-500 {
+  color: #8aa0bd !important;
+}
+
+#phase-badge,
+#phase-badge-mobile,
+#menu-state-top {
+  background: linear-gradient(135deg, rgba(90, 178, 255, 0.12) 0%, rgba(11, 22, 39, 0.95) 100%) !important;
+  border-color: rgba(90, 178, 255, 0.18) !important;
+  color: #b9dbff !important;
+  font-family: 'Sora', 'Inter', sans-serif !important;
+  letter-spacing: 0.1em !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 32px rgba(2, 6, 23, 0.28);
+}
+
+#menu-state-top {
+  color: #b4c2d6 !important;
+}
+
+#cabin-ann-mute-btn {
+  color: #9cb0cb !important;
+  background: rgba(11, 22, 39, 0.78) !important;
+  border: 1px solid rgba(148, 163, 184, 0.14) !important;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.28) !important;
+}
+
+#cabin-ann-mute-btn:hover {
+  color: #f8fbff !important;
+  background: rgba(15, 28, 48, 0.96) !important;
+  border-color: rgba(90, 178, 255, 0.28) !important;
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.34) !important;
+}
+
+.card-hover,
+.landing-gradient,
+.ap-mode-btn,
+.ap-nav-btn,
+.ap-adj-btn,
+.desktop-tab-bar,
+.desktop-tab,
+.mobile-tab-bar,
+.mobile-tab,
+.mobile-more-item,
+.modal-enter,
+.light-indicator,
+.brake-indicator,
+[class*='rounded-lg'],
+[class*='rounded-md'],
+[class*='rounded-xl'],
+[class*='rounded-2xl'] {
+  border-radius: var(--ff-radius-card) !important;
+}
+
+[class*='rounded-sm'] {
+  border-radius: calc(var(--ff-radius-card) * 0.5) !important;
+}
+
+[class*='rounded-full'] {
+  border-radius: 9999px !important;
+}
+
+.card-hover::before {
+  display: none !important;
+}
+
+.card-hover,
+.modal-enter {
+  background: linear-gradient(180deg, rgba(15, 28, 48, 0.82) 0%, rgba(11, 22, 39, 0.92) 100%) !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  box-shadow: 0 24px 54px rgba(2, 6, 23, 0.34) !important;
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.card-hover,
+.ap-mode-btn,
+.ap-nav-btn,
+.ap-adj-btn,
+.desktop-tab,
+.mobile-tab,
+.mobile-more-item {
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, background 0.18s ease, color 0.18s ease !important;
+}
+
+.card-hover:hover,
+.ap-mode-btn:hover,
+.ap-nav-btn:hover,
+.ap-adj-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(90, 178, 255, 0.22) !important;
+  box-shadow: 0 28px 58px rgba(2, 6, 23, 0.4) !important;
+}
+
+.desktop-tab-bar,
+.mobile-tab-bar,
+#mobile-more-sheet > div:last-child {
+  background: rgba(9, 20, 35, 0.76) !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  box-shadow: 0 20px 44px rgba(2, 6, 23, 0.32) !important;
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.desktop-tab {
+  border: 1px solid rgba(90, 178, 255, 0) !important;
+  border-right-color: rgba(90, 178, 255, 0) !important;
+  color: #93a7c1 !important;
+}
+
+.mobile-tab {
+  border: 1px solid rgba(90, 178, 255, 0) !important;
+}
+
+.desktop-tab:hover,
+.mobile-tab:hover,
+.mobile-more-item:hover {
+  background: rgba(90, 178, 255, 0.08) !important;
+  color: #f8fbff !important;
+}
+
+.desktop-tab.active,
+.mobile-tab.active {
+  background: linear-gradient(135deg, rgba(90, 178, 255, 0.14) 0%, rgba(45, 212, 191, 0.1) 100%) !important;
+  border-color: rgba(90, 178, 255, 0.22) !important;
+  color: #d8ebff !important;
+  text-shadow: none !important;
+  box-shadow: 0 18px 34px rgba(6, 25, 53, 0.34) !important;
+}
+
+.mobile-more-item {
+  color: #e5eefb !important;
+}
+
+.telemetry-value {
+  color: #f8fbff !important;
+  letter-spacing: -0.03em;
+  text-shadow: none !important;
+}
+
+.telemetry-unit,
+.telemetry-label {
+  color: #8aa0bd !important;
+  font-family: 'Sora', 'Inter', sans-serif !important;
+  text-shadow: none !important;
+}
+
+main .text-white,
+main .text-gray-100,
+main .text-gray-200,
+.modal-enter .text-white,
+.modal-enter .text-gray-100,
+#mobile-more-sheet .text-gray-200 {
+  color: #edf5ff !important;
+}
+
+main .text-gray-300,
+.modal-enter .text-gray-300 {
+  color: #c4d3e8 !important;
+}
+
+main .text-gray-400,
+.modal-enter .text-gray-400,
+#mobile-more-sheet .text-gray-400 {
+  color: #8aa0bd !important;
+}
+
+main .text-gray-500,
+.modal-enter .text-gray-500,
+#mobile-more-sheet .text-gray-500 {
+  color: #7a8fa9 !important;
+}
+
+main .text-cyan-400,
+.modal-enter .text-cyan-400 {
+  color: #7ac7ff !important;
+}
+
+.light-indicator,
+.brake-indicator {
+  background: rgba(148, 163, 184, 0.06) !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  color: #9cb0cb !important;
+  box-shadow: none !important;
+}
+
+.light-indicator.on {
+  background: rgba(90, 178, 255, 0.14) !important;
+  border-color: rgba(90, 178, 255, 0.28) !important;
+  color: #d8ebff !important;
+  box-shadow: 0 12px 28px rgba(6, 25, 53, 0.34) !important;
+}
+
+.brake-indicator.set {
+  background: rgba(251, 191, 36, 0.12) !important;
+  border-color: rgba(251, 191, 36, 0.24) !important;
+  color: #fcd34d !important;
+  box-shadow: 0 12px 28px rgba(120, 53, 15, 0.2) !important;
+}
+
+.gear-dot {
+  background: #23324b;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.gear-dot.down {
+  background: #5ab2ff !important;
+  border-color: #5ab2ff !important;
+  box-shadow: 0 0 0 4px rgba(90, 178, 255, 0.18) !important;
+}
+
+.gear-dot.transit {
+  background: #fbbf24 !important;
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.16) !important;
+}
+
+.ap-mode-btn.active,
+.ap-nav-btn.active {
+  background: linear-gradient(135deg, rgba(90, 178, 255, 0.16) 0%, rgba(45, 212, 191, 0.12) 100%) !important;
+  border-color: rgba(90, 178, 255, 0.26) !important;
+  color: #edf5ff !important;
+  box-shadow: 0 18px 34px rgba(6, 25, 53, 0.34) !important;
+}
+
+.ap-engage-btn:hover {
+  background: rgba(90, 178, 255, 0.08) !important;
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.3) !important;
+}
+
+input,
+select,
+textarea {
+  background: rgba(7, 17, 31, 0.84) !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+  color: #edf5ff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 22px rgba(2, 6, 23, 0.18);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #7a8fa9 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(90, 178, 255, 0.32) !important;
+  box-shadow: 0 0 0 4px rgba(90, 178, 255, 0.14), 0 16px 30px rgba(2, 6, 23, 0.26) !important;
+}
+
+.leaflet-container {
+  background: #091423 !important;
+}
+
+.leaflet-bar {
+  border: 1px solid rgba(148, 163, 184, 0.14) !important;
+  border-radius: 18px !important;
+  overflow: hidden;
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.32) !important;
+}
+
+.leaflet-control-zoom a,
+.leaflet-bar a,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgba(11, 22, 39, 0.96) !important;
+  color: #d4e8ff !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+.leaflet-control-zoom a:hover,
+.leaflet-bar a:hover {
+  background: rgba(90, 178, 255, 0.12) !important;
+  color: #f8fbff !important;
+}
+
+.menu-overlay {
+  background: rgba(7, 17, 31, 0.76) !important;
+  backdrop-filter: blur(10px);
+}
+
+.map-filter-cb {
+  border-color: rgba(90, 178, 255, 0.28) !important;
+  background: rgba(7, 17, 31, 0.78) !important;
+}
+
+.map-filter-cb:hover {
+  border-color: rgba(90, 178, 255, 0.5) !important;
+  box-shadow: 0 0 8px rgba(90, 178, 255, 0.16) !important;
+}
+
+.map-filter-cb:checked {
+  background: rgba(90, 178, 255, 0.18) !important;
+  border-color: rgba(90, 178, 255, 0.65) !important;
+  box-shadow: 0 0 8px rgba(90, 178, 255, 0.24), inset 0 0 4px rgba(90, 178, 255, 0.08) !important;
+}
+
+.map-filter-cb:checked::after {
+  border-color: rgba(216, 235, 255, 0.98) !important;
+  border-top: none !important;
+  border-left: none !important;
+}
+
+.modal-enter {
+  animation: web3DarkModalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+@keyframes web3DarkModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+::-webkit-scrollbar-track {
+  background: #091423;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2d405b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5ab2ff;
+}

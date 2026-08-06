@@ -1,0 +1,110 @@
+# JavaScript dependencies
+node_modules/
+electron/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# Build output
+dist/
+frontend-dist/
+backend-build/
+backend/telemetry-provider/rust-simconnect-sidecar/target/
+
+# Downloaded binaries
+bin/
+
+# Logs
+logs/
+*.log
+
+# Temporary analysis/lint/test scratch files
+.tmp-*
+.tmp/
+C_tmp/
+tmp/icon-size-preview.png
+
+# Local stdio dumps
+stdin.txt
+stdout.txt
+stderr.txt
+
+# Local SimConnect client library overrides (user-owned, never committed)
+.local/simconnect/
+
+# Video recordings
+recordings/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# API credentials (keep examples only)
+credentials/*.json
+!credentials/*.example.json
+
+# MSFS SDK package compiler scratch/output (the assembled package is tracked)
+msfs-toolbar-panel/source/Packages/
+msfs-toolbar-panel/source/PackagesMetadata/
+msfs-toolbar-panel/source/_Temp/
+
+# MCP server configs (may contain API keys)
+.cursor/mcp.json
+.vscode/mcp.json
+
+# Legacy root app state from older dev runs
+.msfs-telemetry-user-id
+.msfs-telemetry-flight-context.json
+.msfs-telemetry-flight-context.json.tmp
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Aviation data (auto-synced, large CSV files)
+backend/data-sync/data/
+
+# Provenance state (dynamic, changes every sync - prevents merge conflicts)
+# provenance-sources.json is committed (static source definitions)
+backend/data-sync/provenance-state.json
+
+# Legacy provenance file (replaced by split files)
+backend/data-sync/provenance.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Stray app-data written to repo root by a misconfigured dev run.
+# Installed app data belongs under the OS app-data directory instead.
+/Library/
+/Flight Fabric/
+/Settings/
+/Profiles/
+/Audio/
+/Themes/
+/.flight-fabric-data.json
+/logbook.json
+/origin-target.json
+/destination-target.json
+
+# Large PDF reference documents (use Git LFS or download separately)
+docs/expertise/*.pdf
+
+# Locally supplied SDK reference material is not repository content.
+docs/expertise/vendor-sdk-reference/
+
+# Generated Monte Carlo test scenarios
+tests/data/monte-carlo/
+tests/data/monte-carlo-phases/
+tests/data/monte-carlo-landings/
+tests/data/monte-carlo-flight-types/
+tests/data/monte-carlo-tdz/
+tests/data/monte-carlo-hybrid/
+
+# User-supplied Microsoft SDK runtime; excluded from the public source mirror.
+backend/telemetry-provider/simconnect/SimConnect.dll

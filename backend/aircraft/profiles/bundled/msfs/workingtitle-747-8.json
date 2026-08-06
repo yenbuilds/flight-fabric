@@ -1,0 +1,228 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "workingtitle-747-8",
+  "name": "Microsoft / Asobo Studio Boeing 747-8i / 747-8F",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-08-02T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/widebody-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "747-8 profile uses Boeing 747-family detent labels. Working Title 747 tutorial material explicitly uses takeoff flaps 10, approach flaps 20, and landing flaps 25/30; flaps 1/5 are retained as standard intermediate 747 detents but need in-sim percent verification.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 20,
+          "label": "20"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        }
+      ],
+      "landingNotches": [
+        25,
+        30
+      ]
+    },
+    "engines": {
+      "count": 4,
+      "type": "jet"
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -250,
+        "firmMinFpm": -500,
+        "hardMinFpm": -700,
+        "_comment": "Conservative heavy-aircraft bands for the included 747-8. Keep partial until manual/in-sim landing thresholds are confirmed."
+      }
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "workingtitle-747-8"
+    },
+    "matching": {
+      "priority": 92,
+      "titleContains": [],
+      "titleExcludes": [
+        "Salty",
+        "PMDG",
+        "FSLTL",
+        "Captain Sim",
+        "Global Supertanker",
+        "Dreamlifter",
+        "747-400",
+        "PassiveAircraft"
+      ],
+      "titleRegex": "^(?!.*(?:salty|pmdg|fsltl|captain[\\s_-]*sim|global[\\s_-]*supertanker|dreamlifter|747[\\s_-]*400))(?:(?:(?:microsoft|asobo(?:[\\s_-]*studio)?|working[\\s_-]*title)[\\s_/-]+){0,3})(?:boeing[\\s_/-]+)?(?:b?747[\\s_-]*8i(?:[\\s_-]*intercontinental)?|b?747[\\s_-]*8f|b?747[\\s_-]*8[\\s_-]*(?:intercontinental|freighter)|b?747[\\s_-]*8i(?:[\\s_-]*intercontinental)?[\\s_/-]+(?:b?747[\\s_-]*)?-?8f|b?747[\\s_-]*8i[\\s_-]*(?:\\([\\s_-]*-?8f[\\s_-]*\\)|&[\\s_-]*8f)|b?747[\\s_-]*8(?=[\\s_/-]+working[\\s_-]*title(?:[\\s_-]*simulations?)?))(?:[\\s_/-]+working[\\s_-]*title(?:[\\s_-]*simulations?)?)?$",
+      "configPathExcludes": [
+        "Community",
+        "PassiveAircraft",
+        "FSLTL",
+        "Salty",
+        "PMDG",
+        "Captain Sim",
+        "Dreamlifter",
+        "Supertanker"
+      ],
+      "configPathRegex": "^(?!.*(?:passiveaircraft|fsltl|salty|pmdg|captain[\\s_-]*sim|community))(?:.*[\\\\/])?(?:fs(?:20|24)-asobo-aircraft-b7478i|asobo-aircraft-b7478i|asobo_b747_8i)(?:[\\\\/].*)?$",
+      "aircraftCfg": {
+        "_comment": "High-confidence fallback requires the exact B748 type, a flyable/user-selectable config, first-party creator evidence, and a 747-8i/-8F product field. This excludes passive and traffic-only B748 models.",
+        "equals": {
+          "icao_type_designator": "B748",
+          "isairtraffic": [
+            "0",
+            "false"
+          ],
+          "isuserselectable": [
+            "1",
+            "true"
+          ]
+        },
+        "containsAll": {
+          "ui_createdby": [
+            "Asobo",
+            "Microsoft",
+            "Working Title"
+          ]
+        },
+        "containsAny": {
+          "title": [
+            "Asobo_B747_8i",
+            "Asobo_B747_8F",
+            "Boeing 747-8i",
+            "Boeing 747-8F",
+            "Boeing 747-8 Intercontinental"
+          ],
+          "ui_type": [
+            "747-8i",
+            "747-8F",
+            "747-8 Intercontinental",
+            "747-8 Freighter"
+          ]
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses an explicit standard-SimVar monitoring allowlist; no Microsoft/Asobo/Working Title-specific telemetry routes are enabled."
+      },
+      "spoilers": {
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. The Working Title tutorial warns against a simple autopilot-master toggle for Boeing behavior, so autopilot writes remain unavailable until profile-specific engage/disconnect actions are verified."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Asobo Studio",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-08-02",
+    "status": "partial",
+    "notes": "First-party Boeing 747-8 profile published by Microsoft and developed by Asobo Studio. It covers the MSFS 2024 passenger 747-8i and freighter 747-8F; MSFS 2020 included the 747-8i. Working Title supplies the documented avionics and is credited for the manuals. The exact trusted adapter exposes four-engine standard-SimVar monitoring only; custom telemetry and aircraft-specific writes remain inactive."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-07-19",
+        "notes": "Lists Boeing 747-8i (-8F) as included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Uses the official heading Boeing 747-8i & 8f and credits the manuals to Working Title. It does not identify Working Title as the base-aircraft vendor or publish an external telemetry/control variable map."
+      },
+      {
+        "type": "official-docs",
+        "name": "Boeing 747-8i / -8F Tutorial Flight - Instructions and Reference",
+        "url": "https://flightsimulator.azureedge.net/wp-content/uploads/2024/11/B747-8i-8f-Tutorial-Flight-Instructions-and-Reference.pdf",
+        "retrievedAt": "2026-07-19",
+        "notes": "Official MSFS 2024 manual identifies both the passenger 747-8i and freighter 747-8F, gives ICAO B748, and warns that Boeing autopilot requires separate ON/OFF commands rather than a generic master toggle."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - Key Events",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "knownIssues": [
+        "Package and SimObject matching uses documented product identifiers; stock 747-8i and 747-8F runtime titles still need in-sim verification.",
+        "Flap detent labels are source-backed, but their runtime handle-index order needs in-sim verification.",
+        "The cited Microsoft, Asobo, and Working Title sources do not define a 747-8 LVAR, B-var, or input-event integration map.",
+        "The cited sources do not define an external control contract, so aircraft-specific writes remain blocked; the official manual's separate autopilot ON/OFF requirement also rules out generic autopilot-master fallback."
+      ]
+    }
+  }
+}

@@ -1,0 +1,390 @@
+/* Shared theme adaptation for compact widget browser sources. */
+:root {
+  color-scheme: dark;
+  --font-ui: 'Avenir Next', 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'B612 Mono', 'SF Mono', 'Cascadia Code', monospace;
+  --mono: var(--font-mono);
+  --accent: #38bdf8;
+  --widget-accent-rgb: 56, 189, 248;
+  --widget-surface-base: rgba(8, 14, 24, 0.98);
+  --widget-surface-soft: rgba(13, 20, 31, 0.95);
+  --widget-surface-softest: rgba(17, 25, 39, 0.92);
+  --widget-border: rgba(74, 93, 118, 0.34);
+  --widget-border-soft: rgba(74, 93, 118, 0.18);
+  --widget-header-bg: rgba(8, 14, 24, 0.36);
+  --widget-text-strong: #e8eef7;
+  --widget-text: #c9d5e3;
+  --widget-text-muted: #8fa1b7;
+  --widget-text-dim: #5a6e86;
+  --widget-shadow: 0 18px 42px rgba(2, 6, 23, 0.24);
+  --widget-badge-bg: rgba(13, 20, 31, 0.82);
+  --widget-badge-border: rgba(74, 93, 118, 0.24);
+  --widget-success: #4ade80;
+  --widget-warning: #fbbf24;
+  --widget-danger: #f87171;
+  --sky-top: #0b1f3b;
+  --sky-mid: #12375f;
+  --sky-bottom: #1d5384;
+  --ground-top: #6a4120;
+  --ground-bottom: #2b1909;
+}
+
+html,
+body {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+body::before,
+body::after {
+  content: none !important;
+  display: none !important;
+}
+
+body {
+  color: var(--widget-text-strong) !important;
+  font-family: var(--font-ui) !important;
+}
+
+.strip-container,
+.panel,
+.pfd-panel {
+  background: linear-gradient(180deg, var(--widget-surface-soft) 0%, var(--widget-surface-base) 100%) !important;
+  border-color: var(--widget-border) !important;
+  box-shadow: var(--widget-shadow) !important;
+  backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.panel {
+  border-radius: 10px !important;
+}
+
+.pfd-panel {
+  border-right-color: var(--widget-border) !important;
+}
+
+.panel-header,
+.panel-hdr,
+.strip-header {
+  background: var(--widget-header-bg) !important;
+  border-bottom-color: var(--widget-border-soft) !important;
+}
+
+.data-section,
+.engagement-row,
+.dest-strip-wrap,
+.route-row {
+  border-color: var(--widget-border-soft) !important;
+}
+
+.section-divider,
+.bar-divider {
+  background: linear-gradient(180deg, transparent 0%, var(--widget-border) 50%, transparent 100%) !important;
+}
+
+.dest-strip-bar {
+  background: rgba(var(--widget-accent-rgb), 0.12) !important;
+}
+
+.dest-strip-fill {
+  background: var(--accent) !important;
+}
+
+.panel-title,
+.phase-label,
+.branding-tag,
+.section-label,
+.sub-label,
+.sys-label,
+.data-label,
+.dest-strip-label,
+.dest-strip-text,
+.route-label,
+.vis-label,
+.label-name,
+.no-sync,
+.e-time,
+.sub-unit,
+.primary-unit,
+.target-unit,
+.data-unit,
+.readouts,
+.rate-arrow {
+  color: var(--widget-text-muted) !important;
+}
+
+.aircraft-name,
+.panel-title,
+.branding-tag,
+.phase-label,
+.section-label,
+.sub-label,
+.sys-label,
+.data-label,
+.route-label,
+.dest-strip-label,
+.vis-label,
+.label-name,
+.no-sync {
+  letter-spacing: 0.08em;
+}
+
+.data-value,
+.data-value.secondary,
+.sys-value,
+.target-value,
+.primary-value,
+.sub-value,
+.stability-value,
+.label-val,
+.t-mins,
+.t-secs,
+.t-hours,
+.e-text,
+.readouts .v,
+.rwy-value,
+.route-pill,
+.vis-value,
+.grade-badge,
+.surface-badge,
+.phase-badge,
+.stability-mini {
+  color: var(--widget-text-strong) !important;
+}
+
+.val-normal {
+  color: var(--widget-text-strong) !important;
+}
+
+.val-dim,
+.target-value.dim,
+.primary-value.dim,
+.label-val.na,
+.empty {
+  color: var(--widget-text-dim) !important;
+}
+
+.status-dot,
+.conn-dot,
+.gear-dot-mini,
+.light-mini,
+.ap-badge,
+.brake-badge,
+.mode-badge,
+.surface-badge,
+.phase-badge,
+.grade-badge {
+  background: var(--widget-badge-bg) !important;
+  border-color: var(--widget-badge-border) !important;
+  color: var(--widget-text-dim) !important;
+}
+
+.status-dot,
+.conn-dot {
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.16) !important;
+}
+
+.status-dot.connected,
+.status-dot.on,
+.conn-dot.on {
+  background: rgba(34, 197, 94, 0.22) !important;
+  border-color: rgba(34, 197, 94, 0.3) !important;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.28) !important;
+}
+
+.status-dot.disconnected,
+.conn-dot.off {
+  background: rgba(239, 68, 68, 0.22) !important;
+  border-color: rgba(239, 68, 68, 0.24) !important;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.22) !important;
+}
+
+.status-dot.paused {
+  background: rgba(245, 158, 11, 0.22) !important;
+  border-color: rgba(245, 158, 11, 0.24) !important;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.22) !important;
+}
+
+.status-dot.running {
+  background: rgba(248, 113, 113, 0.26) !important;
+  border-color: rgba(248, 113, 113, 0.26) !important;
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.24) !important;
+}
+
+.light-mini.on,
+.ap-badge.engaged,
+.mode-badge.active {
+  background: rgba(var(--widget-accent-rgb), 0.16) !important;
+  border-color: rgba(var(--widget-accent-rgb), 0.28) !important;
+  color: var(--accent) !important;
+}
+
+.mode-badge.armed {
+  background: rgba(234, 179, 8, 0.16) !important;
+  border-color: rgba(234, 179, 8, 0.3) !important;
+  color: var(--widget-warning) !important;
+}
+
+.mode-badge.appr,
+.surface-badge.other,
+.brake-badge.set,
+.grade-VERY-HARD,
+.cat-warning .e-text {
+  color: var(--widget-danger) !important;
+}
+
+.gear-dot-mini.down,
+.surface-badge.paved,
+.grade-PERFECT,
+.grade-GOOD,
+.cat-landing .e-text {
+  color: var(--widget-success) !important;
+}
+
+.gear-dot-mini.down {
+  background: var(--widget-success) !important;
+  border-color: rgba(34, 197, 94, 0.58) !important;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.42) !important;
+}
+
+.gear-dot-mini.transit,
+.surface-badge.unpaved,
+.grade-FIRM,
+.grade-HARD,
+.val-caution,
+.primary-value.caution,
+.sub-value.caution,
+.cat-lights .e-text,
+.menu-overlay span,
+.strip-menu-overlay span {
+  color: var(--widget-warning) !important;
+}
+
+.gear-dot-mini.transit {
+  background: var(--widget-warning) !important;
+  border-color: rgba(245, 158, 11, 0.62) !important;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.38) !important;
+}
+
+.val-warning,
+.primary-value.warning,
+.sub-value.warning {
+  color: var(--widget-danger) !important;
+}
+
+.val-good,
+.stability-value.high {
+  color: var(--widget-success) !important;
+}
+
+.stability-value.medium,
+.cat-spoilers .e-text,
+.cat-lights .e-time,
+.cat-flaps .e-time,
+.cat-warning .e-time {
+  color: var(--widget-warning) !important;
+}
+
+.stability-value.low,
+.cat-warning .e-time {
+  color: var(--widget-danger) !important;
+}
+
+.phase-badge,
+.hdg-index,
+.hdg-box,
+.spd-box,
+.alt-box,
+.hdg-lbl.cardinal,
+.rwy-type,
+.cat-ap .e-text,
+.cat-callout .e-text,
+.cat-phase .e-text,
+.cat-gear .e-text,
+.cat-flaps .e-text {
+  color: var(--accent) !important;
+}
+
+.hdg-box,
+.spd-box,
+.alt-box {
+  border-color: rgba(var(--widget-accent-rgb), 0.42) !important;
+  background: var(--widget-surface-base) !important;
+}
+
+.hdg-wrap,
+.spd-wrap,
+.alt-wrap,
+.adi-wrap {
+  background: var(--widget-surface-soft) !important;
+  border-color: var(--widget-border) !important;
+}
+
+.hdg-tick,
+.spd-tick,
+.alt-tick,
+.adi-pitch-line,
+.e-time,
+.hdg-lbl,
+.spd-lbl,
+.alt-lbl {
+  color: var(--widget-text-muted) !important;
+}
+
+.hdg-tick,
+.spd-tick,
+.alt-tick {
+  background: rgba(138, 155, 181, 0.32) !important;
+}
+
+.hdg-tick.major,
+.spd-tick.major,
+.alt-tick.major {
+  background: rgba(138, 155, 181, 0.56) !important;
+}
+
+.adi-wrap {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.adi-aircraft svg path,
+.adi-aircraft svg circle {
+  stroke: var(--accent) !important;
+}
+
+.panel-hdr,
+.log-outer::after {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.02) 0%, var(--widget-surface-base) 100%) !important;
+}
+
+.entry {
+  border-left-color: transparent;
+}
+
+.cat-phase,
+.cat-callout {
+  border-left-color: rgba(var(--widget-accent-rgb), 0.5) !important;
+}
+
+.cat-lights,
+.cat-spoilers {
+  border-left-color: rgba(251, 191, 36, 0.52) !important;
+}
+
+.cat-gear,
+.cat-landing {
+  border-left-color: rgba(74, 222, 128, 0.5) !important;
+}
+
+.cat-flaps,
+.cat-ap {
+  border-left-color: rgba(var(--widget-accent-rgb), 0.46) !important;
+}
+
+.cat-warning {
+  border-left-color: rgba(248, 113, 113, 0.54) !important;
+}
+
+.cat-pa {
+  border-left-color: var(--widget-border) !important;
+}

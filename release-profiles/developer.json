@@ -1,0 +1,18 @@
+{
+  "$schema": "./release-profile.schema.json",
+  "name": "developer",
+  "displayName": "Flight Fabric (Developer Edition)",
+  "description": "User edition plus developer tooling, diagnostics, and HUD builder. For contributors and power users.",
+  "extends": "user",
+  
+  "include": {
+    "backend_dirs": [],
+    "frontend": [],
+    "tools": [],
+    "root": []
+  },
+  
+  "exclude_patterns": [],
+  
+  "_comment": "Developer profile currently inherits the user include set without additional packaged files."
+}

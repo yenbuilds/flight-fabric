@@ -1,0 +1,590 @@
+<script setup>
+import { computed } from 'vue';
+import AppTooltip from './AppTooltip.vue';
+import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
+import { getAircraftControlCommandPendingKey } from '../../aircraft/control-ui.js';
+
+const aircraftControls = useAircraftControlsStore();
+
+const modeButtonClass = 'controls-command-card ap-mode-btn w-full h-full p-4 text-center transition-all hover:border-accent/50';
+const adjustButtonClass = 'controls-adjust-button ap-adj-btn w-8 h-8 text-lg font-bold';
+
+const surfaceCommands = [
+  { id: 'ctrl-gear-up-btn', label: 'Gear', value: 'UP', command: { type: 'preset', id: 'gearUp' } },
+  { id: 'ctrl-gear-down-btn', label: 'Gear', value: 'DOWN', command: { type: 'preset', id: 'gearDown' } },
+  { id: 'ctrl-flaps-dec-btn', label: 'Flaps', value: 'LESS', command: { type: 'preset', id: 'flapsDecrease' } },
+  { id: 'ctrl-flaps-inc-btn', label: 'Flaps', value: 'MORE', command: { type: 'preset', id: 'flapsIncrease' } },
+];
+
+const selectors = [
+  {
+    mode: 'spd',
+    label: 'SPD',
+    units: 'KTS',
+    valueId: 'ap-spd-value',
+    valueClass: 'w-16',
+    actions: [
+      { action: 'dec10', label: '--' },
+      { action: 'dec', label: '-' },
+      { action: 'inc', label: '+' },
+      { action: 'inc10', label: '++' },
+    ],
+  },
+  {
+    mode: 'hdg',
+    label: 'HDG',
+    units: 'DEG',
+    valueId: 'ap-hdg-value',
+    valueClass: 'w-16',
+    actions: [
+      { action: 'dec10', label: '--' },
+      { action: 'dec', label: '-' },
+      { action: 'inc', label: '+' },
+      { action: 'inc10', label: '++' },
+    ],
+  },
+  {
+    mode: 'alt',
+    label: 'ALT',
+    units: 'FT',
+    valueId: 'ap-alt-value',
+    valueClass: 'w-20',
+    actions: [
+      { action: 'dec1000', label: '--' },
+      { action: 'dec100', label: '-' },
+      { action: 'inc100', label: '+' },
+      { action: 'inc1000', label: '++' },
+    ],
+  },
+  {
+    mode: 'vs',
+    label: 'V/S',
+    units: 'FPM',
+    valueId: 'ap-vs-value',
+    valueClass: 'w-20',
+    actions: [
+      { action: 'dec500', label: '--' },
+      { action: 'dec100', label: '-' },
+      { action: 'inc100', label: '+' },
+      { action: 'inc500', label: '++' },
+    ],
+  },
+];
+
+const availabilityButtonTitle = computed(() => (
+  aircraftControls.availability.enabled ? null : aircraftControls.availability.reason
+));
+
+const apStatusActive = computed(() => aircraftControls.autopilot.master === true);
+const apStatusText = computed(() => {
+  if (aircraftControls.autopilot.master === true) return 'Engaged';
+  if (aircraftControls.autopilot.master === false) return 'Disengaged';
+  return 'Unknown';
+});
+
+function booleanStateLabel(value) {
+  if (value === true) return 'ON';
+  if (value === false) return 'OFF';
+  return '---';
+}
+
+function getAthrStateLabel(autopilot) {
+  if (autopilot.athrActive === true) return 'ACTIVE';
+  if (autopilot.athrArmed === true) return 'ARMED';
+  if (autopilot.athrActive === false && autopilot.athrArmed === false) return 'OFF';
+  return '---';
+}
+
+const primaryModes = computed(() => {
+  const autopilot = aircraftControls.autopilot;
+  return [
+    {
+      id: 'ap-master-btn',
+      label: 'AP Master',
+      stateId: 'ap-master-state',
+      dataMode: 'master',
+      stateLabel: booleanStateLabel(autopilot.master),
+      active: autopilot.master === true,
+      command: { type: 'preset', id: 'autopilotMasterToggle' },
+    },
+    {
+      id: 'ap-athr-btn',
+      label: 'A/T',
+      stateId: 'ap-athr-state',
+      dataMode: '',
+      stateLabel: getAthrStateLabel(autopilot),
+      active: autopilot.athrActive === true || autopilot.athrArmed === true,
+      command: { type: 'preset', id: 'autothrottleToggle' },
+    },
+  ];
+});
+
+const selectorStates = computed(() => {
+  const autopilot = aircraftControls.autopilot;
+  return {
+    spd: { value: autopilot.spdDisplay, engaged: autopilot.spdHold === true, label: booleanStateLabel(autopilot.spdHold) },
+    hdg: { value: autopilot.hdgDisplay, engaged: autopilot.hdgHold === true, label: booleanStateLabel(autopilot.hdgHold) },
+    alt: { value: autopilot.altDisplay, engaged: autopilot.altHold === true, label: booleanStateLabel(autopilot.altHold) },
+    vs: { value: autopilot.vsDisplay, engaged: autopilot.vsHold === true, label: booleanStateLabel(autopilot.vsHold) },
+  };
+});
+
+const navModes = computed(() => {
+  const autopilot = aircraftControls.autopilot;
+  return [
+    { id: 'ap-fd-btn', stateId: 'ap-fd-btn-state', label: 'FD', active: autopilot.fdActive === true, command: { type: 'preset', id: 'flightDirectorToggle' } },
+    { id: 'ap-flc-btn', stateId: 'ap-flc-state', label: 'FLC', active: autopilot.flcHold === true, command: { type: 'preset', id: 'flcToggle' } },
+    { id: 'ap-loc-btn', stateId: 'ap-loc-state', label: 'LOC', active: autopilot.locHold === true, command: { type: 'preset', id: 'locToggle' } },
+    { id: 'ap-app-btn', stateId: 'ap-app-state', label: 'APP', active: autopilot.appHold === true, command: { type: 'preset', id: 'appToggle' } },
+  ];
+});
+
+const hasAnyAutopilotWriteCapability = computed(() => (
+  Object.values(aircraftControls.controlCapabilities?.autopilot || {}).some((value) => value === true)
+));
+
+const autopilotCapabilityText = computed(() => (
+  hasAnyAutopilotWriteCapability.value
+    ? 'Writes are profile-gated.'
+    : 'Readback only for this profile.'
+));
+
+const unsupportedNavModeLabels = computed(() => (
+  navModes.value
+    .filter((mode) => aircraftControls.isCommandSupported(mode.command) !== true)
+    .map((mode) => mode.label)
+));
+
+function getPendingKey(command) {
+  return getAircraftControlCommandPendingKey(command);
+}
+
+function getSelectorHoldCommand(mode) {
+  return { type: 'selector-hold', mode };
+}
+
+function getSelectorAdjustCommand(mode, action) {
+  return { type: 'selector-adjust', mode, action };
+}
+
+function isCommandBusy(command) {
+  return aircraftControls.isCommandPending(command);
+}
+
+function isCommandDisabled(command) {
+  return aircraftControls.isCommandDisabled(command);
+}
+
+function getCommandTitle(command) {
+  if (isCommandBusy(command)) {
+    return 'Command in progress';
+  }
+  if (aircraftControls.isCommandSupported(command) !== true) {
+    return 'No mapped action is available for this aircraft profile';
+  }
+  return availabilityButtonTitle.value || undefined;
+}
+
+function requestPresetCommand(command) {
+  aircraftControls.requestControlCommand(command, {
+    pendingKey: getPendingKey(command),
+  });
+}
+
+function requestSelectorHold(mode) {
+  const command = getSelectorHoldCommand(mode);
+  aircraftControls.requestControlCommand(command, {
+    pendingKey: getPendingKey(command),
+  });
+}
+
+function requestSelectorAdjustment(mode, action) {
+  const command = getSelectorAdjustCommand(mode, action);
+  aircraftControls.requestControlCommand(command, {
+    pendingKey: getPendingKey(command),
+  });
+}
+</script>
+
+<template>
+  <div class="controls-shell page-stack">
+    <div class="page-intro">
+      <div class="flex flex-wrap items-center gap-2 mb-1">
+        <h2 class="text-sm font-semibold tracking-wide">Flight Controls</h2>
+        <span
+          id="controls-experimental-badge"
+          class="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300"
+          style="font-family:'B612 Mono',monospace;"
+        >
+          Experimental
+        </span>
+      </div>
+      <p class="text-xs text-gray-500 leading-relaxed max-w-4xl">
+        Send supported controls to the simulator. Availability varies by aircraft.
+      </p>
+    </div>
+
+    <div class="controls-status-panel">
+      <div class="controls-status-header">
+        <div class="controls-subkicker">Control Status</div>
+        <div id="controls-availability-text" class="text-xs text-gray-400">{{ aircraftControls.availability.reason }}</div>
+      </div>
+      <div class="controls-status-grid">
+        <div class="controls-status-item">
+          <div class="controls-status-label">Last Command</div>
+          <div id="controls-last-action" class="text-sm font-semibold text-gray-200">{{ aircraftControls.feedback.actionText }}</div>
+        </div>
+        <div class="controls-status-item">
+          <div class="controls-status-label">Resolution</div>
+          <div id="controls-last-route" class="text-sm text-gray-300">{{ aircraftControls.feedback.routeText }}</div>
+        </div>
+        <div class="controls-status-item">
+          <div class="controls-status-label">Profile</div>
+          <div id="controls-last-profile" class="text-sm text-gray-300">{{ aircraftControls.feedback.profileText }}</div>
+        </div>
+      </div>
+    </div>
+
+    <section class="controls-section">
+      <div class="controls-section-header">
+        <div>
+          <div class="controls-kicker">Surfaces</div>
+          <div class="text-xs text-gray-500 mt-1">Profile supported simulator surface commands, with fallbacks only where the backend allows for them.</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <div
+            id="ap-status-indicator"
+            class="w-2.5 h-2.5 rounded-full"
+            :class="apStatusActive ? 'bg-accent' : 'bg-gray-600'"
+          ></div>
+          <span id="ap-status-text" class="text-sm" :class="apStatusActive ? 'text-accent' : 'text-gray-400'">
+            {{ apStatusText }}
+          </span>
+        </div>
+      </div>
+      <div class="controls-section-body grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <button
+          v-for="command in surfaceCommands"
+          :key="command.id"
+          :id="command.id"
+          :class="[modeButtonClass, isCommandDisabled(command.command) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(command.command) ? 'border-accent/50 bg-accent/10' : '']"
+          :disabled="isCommandDisabled(command.command)"
+          :aria-busy="isCommandBusy(command.command) ? 'true' : 'false'"
+          @click="requestPresetCommand(command.command)"
+        >
+          <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">{{ command.label }}</div>
+          <div class="text-lg font-semibold text-gray-200">{{ command.value }}</div>
+          <div class="h-4 mt-2 text-[10px]" :class="isCommandBusy(command.command) ? 'text-accent' : 'text-transparent'">
+            {{ isCommandBusy(command.command) ? 'Sending...' : '.' }}
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <section class="controls-section">
+      <div class="controls-section-header">
+        <div>
+          <div class="controls-kicker">Autopilot</div>
+          <div
+            id="ap-capability-note"
+            class="text-xs mt-1"
+            :class="hasAnyAutopilotWriteCapability ? 'text-gray-500' : 'text-amber-300'"
+          >
+            {{ autopilotCapabilityText }}
+          </div>
+        </div>
+      </div>
+
+      <div class="controls-section-body space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <AppTooltip
+          v-for="mode in primaryModes"
+          :key="mode.id"
+          :content="getCommandTitle(mode.command)"
+          anchor-class="controls-command-tooltip-anchor"
+          placement="top"
+        >
+          <button
+            :id="mode.id"
+            :class="[modeButtonClass, mode.active ? 'border-accent bg-accent/10' : '', isCommandDisabled(mode.command) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(mode.command) ? 'border-accent/50 bg-accent/10' : '']"
+            :data-mode="mode.dataMode || undefined"
+            :disabled="isCommandDisabled(mode.command)"
+            :aria-busy="isCommandBusy(mode.command) ? 'true' : 'false'"
+            @click="requestPresetCommand(mode.command)"
+          >
+            <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">{{ mode.label }}</div>
+            <div :id="mode.stateId" class="text-xl font-semibold" :class="mode.active ? 'text-accent' : 'text-gray-400'">{{ mode.stateLabel }}</div>
+            <div class="h-4 mt-2 text-[10px]" :class="isCommandBusy(mode.command) ? 'text-accent' : 'text-transparent'">
+              {{ isCommandBusy(mode.command) ? 'Sending...' : '.' }}
+            </div>
+          </button>
+        </AppTooltip>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div v-for="selector in selectors" :key="selector.mode" class="controls-selector-card p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs text-gray-500 uppercase tracking-wider">{{ selector.label }}</span>
+            <AppTooltip
+              :content="getCommandTitle(getSelectorHoldCommand(selector.mode))"
+              placement="top"
+            >
+              <button
+                :id="`ap-${selector.mode}-engage`"
+                class="controls-engage-button ap-engage-btn text-xs px-2 py-0.5 transition-colors"
+                :class="[selectorStates[selector.mode].engaged ? 'border border-accent/50 bg-accent/10' : '', isCommandDisabled(getSelectorHoldCommand(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorHoldCommand(selector.mode)) ? 'ring-1 ring-accent/40' : '']"
+                :data-mode="selector.mode"
+                data-action="engage"
+                :disabled="isCommandDisabled(getSelectorHoldCommand(selector.mode))"
+                :aria-busy="isCommandBusy(getSelectorHoldCommand(selector.mode)) ? 'true' : 'false'"
+                @click="requestSelectorHold(selector.mode)"
+              >
+                <span
+                  :id="`ap-${selector.mode}-engaged`"
+                  :class="selectorStates[selector.mode].engaged ? 'text-accent' : 'text-gray-400'"
+                >
+                  {{ isCommandBusy(getSelectorHoldCommand(selector.mode)) ? '...' : selectorStates[selector.mode].label }}
+                </span>
+              </button>
+            </AppTooltip>
+          </div>
+          <div class="flex items-center justify-center gap-1 mb-2">
+            <template v-for="(action, index) in selector.actions" :key="`${selector.mode}-${action.action}`">
+              <AppTooltip
+                v-if="index < 2"
+                :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action))"
+                placement="top"
+              >
+                <button
+                  :class="[adjustButtonClass, isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
+                  :data-mode="selector.mode"
+                  :data-action="action.action"
+                  :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action))"
+                  :aria-busy="isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'true' : 'false'"
+                  @click="requestSelectorAdjustment(selector.mode, action.action)"
+                >
+                  {{ isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? '...' : action.label }}
+                </button>
+              </AppTooltip>
+            </template>
+            <span :id="selector.valueId" :class="['text-2xl font-semibold tabular text-center', selector.valueClass]">{{ selectorStates[selector.mode].value }}</span>
+            <template v-for="(action, index) in selector.actions" :key="`${selector.mode}-${action.action}-right`">
+              <AppTooltip
+                v-if="index >= 2"
+                :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action))"
+                placement="top"
+              >
+                <button
+                  :class="[adjustButtonClass, isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
+                  :data-mode="selector.mode"
+                  :data-action="action.action"
+                  :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action))"
+                  :aria-busy="isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'true' : 'false'"
+                  @click="requestSelectorAdjustment(selector.mode, action.action)"
+                >
+                  {{ isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? '...' : action.label }}
+                </button>
+              </AppTooltip>
+            </template>
+          </div>
+          <div class="text-xs text-gray-500 text-center">{{ selector.units }}</div>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Mode Controls</div>
+        <div class="flex flex-wrap gap-2">
+          <AppTooltip
+            v-for="mode in navModes"
+            :key="mode.id"
+            :content="getCommandTitle(mode.command)"
+            placement="top"
+          >
+            <button
+              :id="mode.id"
+              class="controls-nav-button ap-nav-btn px-4 py-2 text-sm font-medium transition-all hover:border-accent/50"
+              :class="[mode.active ? 'border-accent bg-accent/10' : '', isCommandDisabled(mode.command) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(mode.command) ? 'ring-1 ring-accent/40' : '']"
+              :disabled="isCommandDisabled(mode.command)"
+              :aria-busy="isCommandBusy(mode.command) ? 'true' : 'false'"
+              @click="requestPresetCommand(mode.command)"
+            >
+              <span :id="mode.stateId" :class="mode.active ? 'text-accent' : 'text-gray-400'">{{ isCommandBusy(mode.command) ? '...' : mode.label }}</span>
+            </button>
+          </AppTooltip>
+        </div>
+        <div v-if="unsupportedNavModeLabels.length" class="text-xs text-amber-300">
+          Unavailable for this profile: {{ unsupportedNavModeLabels.join(', ') }}
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 text-sm text-gray-500">
+        <div
+          id="ap-fd-indicator"
+          class="w-2 h-2 rounded-full"
+          :class="aircraftControls.autopilot.fdActive === true ? 'bg-accent' : 'bg-gray-600'"
+        ></div>
+        <span>
+          Flight Director:
+          <span id="ap-fd-state">{{ booleanStateLabel(aircraftControls.autopilot.fdActive) }}</span>
+        </span>
+      </div>
+      </div>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.controls-shell {
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+}
+
+.controls-status-panel,
+.controls-section,
+.controls-command-card,
+.controls-selector-card,
+.controls-nav-button {
+  border: 1px solid rgb(var(--border) / 0.72);
+  border-radius: var(--ff-radius-card);
+  box-shadow: var(--ff-shadow-soft);
+}
+
+.controls-status-panel {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgb(var(--card) / 0.96), rgb(var(--panel-subtle) / 0.86));
+}
+
+.controls-status-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border-bottom: 1px solid rgb(245 158 11 / 0.18);
+  background: rgb(245 158 11 / 0.055);
+  padding: 0.72rem 1rem;
+}
+
+.controls-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.controls-status-item {
+  display: grid;
+  align-content: start;
+  gap: 0.22rem;
+  min-height: 3.9rem;
+  padding: 0.82rem 1rem 0.9rem;
+}
+
+.controls-status-item + .controls-status-item {
+  border-left: 1px solid rgb(var(--border) / 0.58);
+}
+
+.controls-status-label {
+  color: rgb(var(--muted-foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.controls-section {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgb(var(--card) / 0.97), rgb(var(--panel-subtle) / 0.96));
+}
+
+.controls-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgb(var(--border) / 0.72);
+  background: linear-gradient(180deg, rgb(var(--panel-subtle) / 0.88) 0%, rgb(var(--panel) / 0.68) 100%);
+  padding: 0.9rem 1rem;
+}
+
+.controls-section-body {
+  padding: 1rem;
+}
+
+.controls-kicker,
+.controls-subkicker {
+  font-family: var(--ff-font-mono);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.controls-kicker {
+  color: rgb(var(--primary));
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+}
+
+.controls-subkicker {
+  color: rgb(var(--warning));
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+}
+
+.controls-command-card,
+.controls-selector-card,
+.controls-nav-button {
+  background: rgb(var(--card) / 0.78);
+}
+
+.controls-command-card:hover,
+.controls-nav-button:hover {
+  background: rgb(var(--panel-elevated) / 0.55);
+}
+
+.controls-selector-card {
+  min-width: 0;
+}
+
+.controls-adjust-button,
+.controls-engage-button {
+  border-radius: 7px;
+  background: rgb(var(--panel-subtle) / 0.86);
+  color: rgb(var(--muted-foreground));
+}
+
+.controls-adjust-button:hover,
+.controls-engage-button:hover {
+  background: rgb(var(--panel-elevated) / 0.82);
+  color: rgb(var(--foreground));
+}
+
+.controls-nav-button {
+  border-radius: 8px;
+}
+
+.controls-command-tooltip-anchor {
+  width: 100%;
+}
+
+.controls-command-tooltip-anchor > .controls-command-card {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 640px) {
+  .controls-section-header {
+    display: grid;
+  }
+
+  .controls-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .controls-status-item + .controls-status-item {
+    border-top: 1px solid rgb(var(--border) / 0.58);
+    border-left: 0;
+  }
+}
+</style>

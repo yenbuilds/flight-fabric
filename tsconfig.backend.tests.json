@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.backend.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "backend/**/*.test.ts",
+    "tests/backend/**/*.ts",
+    "tests/support/**/*.ts",
+    "backend/types/**/*.d.ts",
+    "shared/**/*.js",
+    "shared/**/*.ts",
+    "shared/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "frontend",
+    "frontend-dist",
+    "apps",
+    "electron",
+    "docs",
+    "backend/types/generated"
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "tfdi-md-11",
+  "name": "TFDi Design MD-11",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-14T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/widebody-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "MD-11 Dial-a-Flap system: continuous range 0-50 degrees. Key positions and speed values are provisional MD-11-family compatibility values pending redistributable public-source or vendor verification. Fractions are proportional to 50 degree max (0=0.00, 5=0.10, 15=0.30, 25=0.50, 35=0.70, 50=1.00). TFDi Quick Start confirms: takeoff 15 or 25, cleanup at 15, landing 35 (normal) or 50 (short/wet).",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 35,
+          "label": "35"
+        },
+        {
+          "value": 50,
+          "label": "50"
+        }
+      ],
+      "landingNotches": [
+        35,
+        50
+      ]
+    },
+    "stability": {
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "engines": {
+      "_comment": "3 engines: 2 underwing (GE CF6-80C2D1F or PW4460/4462) + 1 centre-mounted tail-cone engine. TFDi models both engine variants. EPR-based thrust management.",
+      "count": 3,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "tfdi-md-11"
+    },
+    "matching": {
+      "priority": 94,
+      "titleContains": [
+        "TFDi Design MD-11",
+        "TFDi Design MD11",
+        "TFDi MD-11",
+        "TFDi MD11",
+        "TFDi_Design_MD-11"
+      ],
+      "titleRegex": "^(?=.*tfdi(?:[\\s_/-]*design)?)(?=.*md[\\s_-]*11(?:\\b|_)).*$",
+      "configPathContains": [
+        "tfdidesign-aircraft-md11",
+        "tfdi_design_md-11",
+        "simobjects/airplanes/tfdi_design_md-11"
+      ],
+      "configPathRegex": "(?:^|[/\\\\])tfdidesign-aircraft-md11(?:[/\\\\]|$)|(?:^|[/\\\\])tfdi_design_md-11(?:_[a-z0-9-]+)?(?:[/\\\\]|$)",
+      "aircraftCfg": {
+        "_comment": "An MD11 designator is accepted only when both the aircraft title and creator identify TFDi; bare MD11 metadata may identify traffic models or other MD-11 products.",
+        "equals": {
+          "icao_type_designator": "MD11"
+        },
+        "containsAll": {
+          "title": [
+            "TFDi Design MD-11",
+            "TFDi Design MD11",
+            "TFDi_Design_MD-11"
+          ],
+          "ui_createdby": [
+            "TFDi Design",
+            "TFDi"
+          ]
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "autopilot": "MD11_AP_STATE",
+        "autothrottle": "MD11_ATS_STATE",
+        "lights": {
+          "_comment": "Names are from TFDi's official MD-11 Integration Guide; only documented overhead switch and readback variables are used.",
+          "nav": "MD11_OVHD_LTS_NAV_LT",
+          "beacon": "MD11_OVHD_LTS_BCN_LT",
+          "strobe": "MD11_OVHD_LTS_HI_INT_LT",
+          "landing_left": "MD11_OVHD_LTS_LDG_L_SW",
+          "landing_right": "MD11_OVHD_LTS_LDG_R_SW",
+          "taxi": "MD11_OVHD_LTS_NOSE_SW",
+          "turnoff_left": "MD11_OVHD_LTS_RWY_TURNOFF_L_LT",
+          "turnoff_right": "MD11_OVHD_LTS_RWY_TURNOFF_R_LT",
+          "logo": "MD11_OVHD_LTS_LOGO_ON_LT"
+        },
+        "mcp": {
+          "altitude": "MD11_AFS_ALT",
+          "heading": "MD11_AFS_HDG",
+          "speed": "MD11_AFS_SPD",
+          "vs": "MD11_AFS_VS"
+        }
+      },
+      "lights": {
+        "source": "lvar"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "The dedicated page is monitoring-only. TFDi documents an event-driven CEVENT contract and warns against direct state/control LVAR writes, so only Flight Fabric's narrow standard gear/flaps surface fallback remains available."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY TO",
+          "logo": "LOGO"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "TFDi Design",
+    "icaoType": "MD11",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "partial",
+    "notes": "Dedicated monitoring-first profile for the TFDi Design MD-11 passenger and freighter packages on MSFS 2020 and MSFS 2024. TFDi Design is the matching vendor; McDonnell Douglas is the aircraft manufacturer and Boeing is the product licensor. The page uses TFDi's published AFS, AP, APU, unit-mode, and V-speed integration variables plus a conservative standard-SimVar read allowlist. TFDi's documented -999/-9999 dashed-window sentinels are rendered as unavailable, and aircraft-specific writes remain disabled because TFDi's event-driven guide warns against direct state/control LVAR writes. Exact runtime identity and readbacks remain pending in-sim verification."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "TFDi MD-11 Integration Guide Variables",
+        "url": "https://docs.tfdidesign.com/md11/integration-guide/variables",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents the read-only MD11_AFS_* windows and dashed sentinels, MD11_AP_STATE enum, MD11_ATS_STATE raw state, MD11_ATS_CLAMP, MD11_APU_* state/readouts, MD11_AP_IAS_MACH, MD11_AP_HDG_TRK, MD11_AP_VS_FPA, MD11_AP_FT_M, MD11_V*, plus the MD11_OVHD_LTS_* names retained by the legacy telemetry layer."
+      },
+      {
+        "type": "official-docs",
+        "name": "TFDi MD-11 Integration Guide",
+        "url": "https://docs.tfdidesign.com/md11/integration-guide",
+        "retrievedAt": "2026-07-19",
+        "notes": "States that the aircraft is primarily event-driven and warns that direct variable writes bypass integrity checks; this is why the trusted adapter has no aircraft-specific write actions."
+      },
+      {
+        "type": "official-docs",
+        "name": "TFDi Design MD-11 product page",
+        "url": "https://tfdidesign.com/products/md11",
+        "retrievedAt": "2026-07-19",
+        "notes": "Confirms the canonical TFDi Design MD-11 name, MSFS 2020/2024 support, passenger and freighter packages, and Boeing licensing."
+      },
+      {
+        "type": "official-docs",
+        "name": "TFDi MD-11 navigation-data troubleshooting",
+        "url": "https://support.tfdidesign.com/support/solutions/articles/62000237255-md-11-navigation-data-troubleshooting",
+        "retrievedAt": "2026-07-19",
+        "notes": "Publishes the main package folder identifier tfdidesign-aircraft-md11 used by the exact config-path matcher."
+      },
+      {
+        "type": "official-docs",
+        "name": "TFDi MD-11 FS24 livery catalog",
+        "url": "https://tfdidesign.com/downloads/liveries/md11/fs24",
+        "retrievedAt": "2026-07-19",
+        "notes": "Official catalog separates GE/PW passenger/freighter variants; an official catalog archive uses the SimObject family folder TFDi_Design_MD-11."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "knownIssues": [
+        "The TFDi integration-variable names and enums are vendor-published; the exact live SimConnect title and runtime readbacks remain unverified in-sim.",
+        "Standard SimVar lights, three-engine, gear, flap, fuel, and pressurization fields fail closed if a TFDi build does not mirror them; the centre-body landing gear has no separately verified binding on this page.",
+        "Flap and gear operating limits remain provisional MD-11-family compatibility values until cross-checked against redistributable public-source or vendor data for the target add-on configuration."
+      ]
+    }
+  },
+  "_comment": "TFDi Design MD-11 for MSFS 2020 and 2024. Payware wide-body tri-jet (Boeing Officially Licensed) with GE CF6-80C2D1F or PW4460/4462 passenger/freighter variants. The exact-profile page is monitoring-only and uses TFDi-published integration variables without promoting state/control LVARs into writes. Flap and gear speed values remain provisional pending redistributable public-source or vendor verification."
+}

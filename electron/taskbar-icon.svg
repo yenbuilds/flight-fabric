@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Flight Fabric compact mark</title>
+  <desc id="desc">Simplified flight path and aircraft mark for taskbars and system trays</desc>
+  <defs>
+    <linearGradient id="orbit" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="0.52" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#06b6ff"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(256 256) scale(1.12) translate(-256 -256)">
+    <g fill="none" stroke="url(#orbit)" stroke-width="43" stroke-linecap="round">
+      <path d="M128 384A181 181 0 0 1 384 128"/>
+      <path d="M426.1 194.1A181 181 0 0 1 302.9 432.9"/>
+    </g>
+    <path d="M54 414C145 405 242 355 307 261L321 274C254 374 164 430 68 453Z" fill="#ff168f" stroke="#ff168f" stroke-width="11" stroke-linejoin="round"/>
+    <g transform="translate(312 250) rotate(45) scale(1.18) translate(-312 -250)" stroke="#031027" stroke-width="12" stroke-linejoin="round">
+      <path d="M312 166L358 286L312 266L266 286Z" fill="#f8fbff"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,178 @@
+'use strict';
+
+import type { AircraftIntegrationDefinition } from './types.js';
+
+const {
+  createAircraftIntegrationRegistry,
+  defineAircraftIntegration,
+  normalizeAircraftIntegrationActionInput,
+} = require('./registry') as {
+  createAircraftIntegrationRegistry: (
+    definitions?: readonly AircraftIntegrationDefinition[],
+  ) => Record<string, any>;
+  defineAircraftIntegration: (
+    definition: AircraftIntegrationDefinition,
+  ) => AircraftIntegrationDefinition;
+  normalizeAircraftIntegrationActionInput: (
+    action: AircraftIntegrationDefinition['actions'][string] | null | undefined,
+    value: unknown,
+  ) => Readonly<{ ok: true; value?: number } | { ok: false; error: string }>;
+};
+const {
+  FBW_A32NX_ADAPTER_ID,
+  FBW_A32NX_INTEGRATION,
+  FBW_A32NX_PROFILE_KEY,
+} = require('./fbw-a32nx') as {
+  FBW_A32NX_ADAPTER_ID: string;
+  FBW_A32NX_INTEGRATION: AircraftIntegrationDefinition;
+  FBW_A32NX_PROFILE_KEY: string;
+};
+const {
+  IFLY_737_MAX_8_ADAPTER_ID,
+  IFLY_737_MAX_8_INTEGRATION,
+  IFLY_737_MAX_8_PROFILE_KEY,
+} = require('./ifly-737-max-8') as {
+  IFLY_737_MAX_8_ADAPTER_ID: string;
+  IFLY_737_MAX_8_INTEGRATION: AircraftIntegrationDefinition;
+  IFLY_737_MAX_8_PROFILE_KEY: string;
+};
+const {
+  MICROSOFT_747_8_ADAPTER_ID,
+  MICROSOFT_747_8_INTEGRATION,
+  MICROSOFT_747_8_PROFILE_KEY,
+} = require('./workingtitle-747-8') as {
+  MICROSOFT_747_8_ADAPTER_ID: string;
+  MICROSOFT_747_8_INTEGRATION: AircraftIntegrationDefinition;
+  MICROSOFT_747_8_PROFILE_KEY: string;
+};
+const {
+  MICROSOFT_787_10_ADAPTER_ID,
+  MICROSOFT_787_10_INTEGRATION,
+  MICROSOFT_787_10_PROFILE_KEY,
+} = require('./asobo-787') as {
+  MICROSOFT_787_10_ADAPTER_ID: string;
+  MICROSOFT_787_10_INTEGRATION: AircraftIntegrationDefinition;
+  MICROSOFT_787_10_PROFILE_KEY: string;
+};
+const {
+  INIBUILDS_A310_ADAPTER_ID,
+  INIBUILDS_A310_INTEGRATION,
+  INIBUILDS_A310_PROFILE_KEY,
+} = require('./inibuilds-a310') as {
+  INIBUILDS_A310_ADAPTER_ID: string;
+  INIBUILDS_A310_INTEGRATION: AircraftIntegrationDefinition;
+  INIBUILDS_A310_PROFILE_KEY: string;
+};
+const {
+  INIBUILDS_A330_ADAPTER_ID,
+  INIBUILDS_A330_INTEGRATION,
+  INIBUILDS_A330_PROFILE_KEY,
+} = require('./inibuilds-a330') as {
+  INIBUILDS_A330_ADAPTER_ID: string;
+  INIBUILDS_A330_INTEGRATION: AircraftIntegrationDefinition;
+  INIBUILDS_A330_PROFILE_KEY: string;
+};
+const {
+  INIBUILDS_TRISTAR_ADAPTER_ID,
+  INIBUILDS_TRISTAR_INTEGRATION,
+  INIBUILDS_TRISTAR_PROFILE_KEY,
+} = require('./inibuilds-tristar') as {
+  INIBUILDS_TRISTAR_ADAPTER_ID: string;
+  INIBUILDS_TRISTAR_INTEGRATION: AircraftIntegrationDefinition;
+  INIBUILDS_TRISTAR_PROFILE_KEY: string;
+};
+const {
+  MICROSOFT_737_MAX_8_ADAPTER_ID,
+  MICROSOFT_737_MAX_8_INTEGRATION,
+  MICROSOFT_737_MAX_8_PROFILE_KEY,
+} = require('./microsoft-737-max-8') as {
+  MICROSOFT_737_MAX_8_ADAPTER_ID: string;
+  MICROSOFT_737_MAX_8_INTEGRATION: AircraftIntegrationDefinition;
+  MICROSOFT_737_MAX_8_PROFILE_KEY: string;
+};
+const {
+  MICROSOFT_ATR_72_600_ADAPTER_ID,
+  MICROSOFT_ATR_72_600_INTEGRATION,
+  MICROSOFT_ATR_72_600_PROFILE_KEY,
+} = require('./microsoft-atr-72-600') as {
+  MICROSOFT_ATR_72_600_ADAPTER_ID: string;
+  MICROSOFT_ATR_72_600_INTEGRATION: AircraftIntegrationDefinition;
+  MICROSOFT_ATR_72_600_PROFILE_KEY: string;
+};
+const {
+  INIBUILDS_A320NEO_V2_PROFILE_KEY,
+  INIBUILDS_A321LR_PROFILE_KEY,
+  MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
+  MICROSOFT_INIBUILDS_A32X_INTEGRATION,
+} = require('./microsoft-inibuilds-a32x') as {
+  INIBUILDS_A320NEO_V2_PROFILE_KEY: string;
+  INIBUILDS_A321LR_PROFILE_KEY: string;
+  MICROSOFT_INIBUILDS_A32X_ADAPTER_ID: string;
+  MICROSOFT_INIBUILDS_A32X_INTEGRATION: AircraftIntegrationDefinition;
+};
+const {
+  TFDI_MD_11_ADAPTER_ID,
+  TFDI_MD_11_INTEGRATION,
+  TFDI_MD_11_PROFILE_KEY,
+} = require('./tfdi-md-11') as {
+  TFDI_MD_11_ADAPTER_ID: string;
+  TFDI_MD_11_INTEGRATION: AircraftIntegrationDefinition;
+  TFDI_MD_11_PROFILE_KEY: string;
+};
+
+const defaultAircraftIntegrationRegistry = createAircraftIntegrationRegistry([
+  FBW_A32NX_INTEGRATION,
+  IFLY_737_MAX_8_INTEGRATION,
+  INIBUILDS_A310_INTEGRATION,
+  INIBUILDS_A330_INTEGRATION,
+  INIBUILDS_TRISTAR_INTEGRATION,
+  MICROSOFT_747_8_INTEGRATION,
+  MICROSOFT_787_10_INTEGRATION,
+  MICROSOFT_737_MAX_8_INTEGRATION,
+  MICROSOFT_ATR_72_600_INTEGRATION,
+  MICROSOFT_INIBUILDS_A32X_INTEGRATION,
+  TFDI_MD_11_INTEGRATION,
+]);
+
+module.exports = {
+  FBW_A32NX_ADAPTER_ID,
+  FBW_A32NX_INTEGRATION,
+  FBW_A32NX_PROFILE_KEY,
+  IFLY_737_MAX_8_ADAPTER_ID,
+  IFLY_737_MAX_8_INTEGRATION,
+  IFLY_737_MAX_8_PROFILE_KEY,
+  MICROSOFT_747_8_ADAPTER_ID,
+  MICROSOFT_747_8_INTEGRATION,
+  MICROSOFT_747_8_PROFILE_KEY,
+  MICROSOFT_787_10_ADAPTER_ID,
+  MICROSOFT_787_10_INTEGRATION,
+  MICROSOFT_787_10_PROFILE_KEY,
+  INIBUILDS_A310_ADAPTER_ID,
+  INIBUILDS_A310_INTEGRATION,
+  INIBUILDS_A310_PROFILE_KEY,
+  INIBUILDS_A330_ADAPTER_ID,
+  INIBUILDS_A330_INTEGRATION,
+  INIBUILDS_A330_PROFILE_KEY,
+  INIBUILDS_TRISTAR_ADAPTER_ID,
+  INIBUILDS_TRISTAR_INTEGRATION,
+  INIBUILDS_TRISTAR_PROFILE_KEY,
+  MICROSOFT_737_MAX_8_ADAPTER_ID,
+  MICROSOFT_737_MAX_8_INTEGRATION,
+  MICROSOFT_737_MAX_8_PROFILE_KEY,
+  MICROSOFT_ATR_72_600_ADAPTER_ID,
+  MICROSOFT_ATR_72_600_INTEGRATION,
+  MICROSOFT_ATR_72_600_PROFILE_KEY,
+  INIBUILDS_A320NEO_V2_PROFILE_KEY,
+  INIBUILDS_A321LR_PROFILE_KEY,
+  MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
+  MICROSOFT_INIBUILDS_A32X_INTEGRATION,
+  TFDI_MD_11_ADAPTER_ID,
+  TFDI_MD_11_INTEGRATION,
+  TFDI_MD_11_PROFILE_KEY,
+  createAircraftIntegrationRegistry,
+  defaultAircraftIntegrationRegistry,
+  defineAircraftIntegration,
+  normalizeAircraftIntegrationActionInput,
+};
+
+export {};

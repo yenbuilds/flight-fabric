@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0e14" />
+  <title>Flight Fabric Airline Strip Right (Environment)</title>
+  <script type="module" src="widget-theme-bootstrap.js"></script>
+
+  <!-- Packaged-app safe: use local/system fonts only. -->
+
+  <style>
+    :root {
+      --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: rgba(0, 0, 0, 0) !important;
+      background-color: rgba(0, 0, 0, 0) !important;
+    }
+    body {
+      overflow: hidden;
+      width: 200px;
+      font-family: var(--font-ui);
+    }
+
+    /* ===== PANEL ===== */
+    .panel {
+      width: 200px;
+      background: linear-gradient(270deg, rgba(10, 12, 18, 0.97) 0%, rgba(8, 10, 16, 0.95) 100%);
+      border-left: 1px solid rgba(255, 255, 255, 0.07);
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* ===== HEADER ===== */
+    .panel-header {
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 5px 10px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-title {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.10em;
+    }
+    .phase-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: #4b5563;
+      letter-spacing: 0.04em;
+    }
+
+    /* ===== DATA SECTIONS ===== */
+    .data-section {
+      padding: 8px 10px 7px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .section-label {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+
+    /* ===== PRIMARY VALUE ===== */
+    .primary-value {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: #e5e7eb;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .primary-value.dim     { color: #374151; }
+    .primary-value.caution { color: #fbbf24; }
+    .primary-value.warning { color: #f87171; }
+    .primary-unit {
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 500;
+      color: #6b7280;
+      margin-left: 3px;
+    }
+
+    /* ===== CABIN GRID ===== */
+    .cabin-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 8px;
+      margin-top: 5px;
+    }
+    .cabin-cell { display: flex; flex-direction: column; gap: 2px; }
+    .sub-label {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 500;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .sub-value {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: #9ca3af;
+      letter-spacing: -0.01em;
+    }
+    .sub-value.caution { color: #fbbf24; }
+    .sub-value.warning { color: #f87171; }
+    .sub-unit {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      color: #6b7280;
+      margin-left: 2px;
+    }
+    .rate-arrow {
+      font-size: 10px;
+      font-weight: 700;
+      margin-right: 2px;
+      color: #6b7280;
+    }
+
+    /* ===== SURFACE BADGE ===== */
+    .surface-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 3px;
+      display: inline-block;
+      letter-spacing: 0.03em;
+      background: rgba(30, 35, 45, 0.8);
+      color: #4b5563;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .surface-badge.paved   { background: rgba(34, 197, 94, 0.15);  color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+    .surface-badge.unpaved { background: rgba(234, 179, 8, 0.15);  color: #fbbf24; border-color: rgba(234, 179, 8, 0.3); }
+    .surface-badge.other   { background: rgba(239, 68, 68, 0.15);  color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+
+    /* Surface section only visible when on ground */
+    #surface-section { display: none; }
+    #surface-section.visible { display: block; }
+
+    /* ===== IN-MENU OVERLAY ===== */
+    .menu-overlay {
+      display: none;
+      position: absolute; inset: 0; z-index: 20;
+      background: rgba(10, 10, 10, 0.82);
+      backdrop-filter: blur(3px);
+      align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+    body.sim-in-menu .menu-overlay { display: flex; }
+    .menu-overlay span {
+      font-family: var(--font-mono);
+      font-size: 10px; font-weight: 600;
+      color: #fbbf24; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+  </style>
+  <link rel="stylesheet" href="widget-theme.css" />
+  <link rel="stylesheet" href="compact-widget-theme.css" />
+</head>
+
+<body>
+  <div class="panel">
+    <div class="menu-overlay"><span>In Menus</span></div>
+
+    <!-- Header: title + current phase -->
+    <div class="panel-header">
+      <span class="panel-title">Environment</span>
+      <span id="phase-label" class="phase-label">--</span>
+    </div>
+
+    <!-- OAT: Outside Air Temperature -->
+    <!--
+      Source: 'environment' message → oatC (integer °C)
+      Broadcast gate: only sent when cabinAltFt is valid — primarily airliners.
+      Shows '--' when unavailable.
+    -->
+    <div class="data-section">
+      <div class="section-label">OAT</div>
+      <div style="display:flex;align-items:baseline;">
+        <span id="oat-value" class="primary-value dim">--</span>
+        <span class="primary-unit">°C</span>
+      </div>
+    </div>
+
+    <!-- Cabin Pressurization: altitude only -->
+    <!--
+      Source: 'environment' message → cabinAltFt
+      Caution threshold: >10,000 ft; Warning: >14,000 ft (hypoxia risk).
+      NOTE: PRESSURIZATION CABIN ALTITUDE RATE and CABIN ALTITUDE GOAL are not
+      registered in the SimConnect data definition (removed to stay under the
+      MSFS 2024 98-var limit), so rate/target are always null and are not shown.
+    -->
+    <div class="data-section">
+      <div class="section-label">Cabin Alt</div>
+      <div style="display:flex;align-items:baseline;">
+        <span id="cabin-alt-value" class="primary-value dim">----</span>
+        <span class="primary-unit">ft</span>
+      </div>
+    </div>
+
+    <!-- Surface type (on-ground only) -->
+    <!--
+      Source: 'surface' message → value.{ name, class, runwayLike, onGround, valid }
+      SURFACE_TYPE_NAMES: CONCRETE, TARMAC, ASPHALT (paved) vs. GRASS, DIRT, SAND (unpaved).
+      Section is hidden when airborne; appears automatically at landing.
+    -->
+    <div class="data-section" id="surface-section">
+      <div class="section-label">Surface</div>
+      <span id="surface-badge" class="surface-badge">--</span>
+    </div>
+  </div>
+
+  <script src="../telemetry-ui.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    let wasConnected = false;
+
+    function setColor(el, level) {
+      el.classList.remove('dim', 'caution', 'warning');
+      if (level) el.classList.add(level);
+    }
+
+    function resetEnv() {
+      const oatEl = $('oat-value');
+      oatEl.textContent = '--';
+      oatEl.classList.add('dim');
+
+      const cabAltEl = $('cabin-alt-value');
+      cabAltEl.textContent = '----';
+      cabAltEl.classList.add('dim');
+
+      $('phase-label').textContent = '--';
+
+      const surfaceSection = $('surface-section');
+      if (surfaceSection) surfaceSection.classList.remove('visible');
+
+      document.body.classList.remove('sim-in-menu');
+    }
+
+    function handleMessage(msg) {
+      const t = msg.type;
+
+      if (t === 'environment') {
+        // OAT
+        const oatEl = $('oat-value');
+        if (msg.oatC != null) {
+          oatEl.textContent = msg.oatC;
+          oatEl.classList.remove('dim');
+        } else {
+          oatEl.textContent = '--';
+          oatEl.classList.add('dim');
+        }
+
+        // Cabin altitude
+        const cabAltEl = $('cabin-alt-value');
+        if (msg.cabinAltFt != null) {
+          cabAltEl.textContent = Math.round(msg.cabinAltFt).toLocaleString();
+          cabAltEl.classList.remove('dim');
+          setColor(cabAltEl,
+            msg.cabinAltFt > 14000 ? 'warning' :
+            msg.cabinAltFt > 10000 ? 'caution' : null
+          );
+        } else {
+          cabAltEl.textContent = '----';
+          cabAltEl.classList.add('dim');
+        }
+
+      }
+
+      if (t === 'surface') {
+        const sv  = msg.value;
+        const sec = $('surface-section');
+        const badge = $('surface-badge');
+        // Only show when aircraft is confirmed on the ground and surface data is valid
+        if (!sv || !sv.onGround || !sv.valid) {
+          if (sec) sec.classList.remove('visible');
+          return;
+        }
+        if (badge) {
+          badge.textContent = sv.name || 'UNKNOWN';
+          badge.className = 'surface-badge';
+          if      (sv.runwayLike)       badge.classList.add('paved');
+          else if (sv.class === 'UNPAVED') badge.classList.add('unpaved');
+          else                             badge.classList.add('other');
+        }
+        if (sec) sec.classList.add('visible');
+      }
+
+      if (t === 'phase') {
+        const pl = $('phase-label');
+        if (pl) pl.textContent = msg.value || '--';
+        // When airborne the surface section self-hides via the 'surface' message's onGround check
+      }
+
+      if (t === 'aircraftChanged') {
+        // Aircraft swapped in-sim — reset to a clean slate before new profile arrives.
+        resetEnv();
+        return;
+      }
+
+      if (t === 'simState') {
+        const connected = msg.simconnectConnected === true;
+        if (wasConnected && !connected) {
+          resetEnv();
+          wasConnected = false;
+          return;
+        }
+        wasConnected = connected;
+        document.body.classList.toggle('sim-in-menu', msg.simconnectConnected === true && msg.inMenu === true);
+      }
+    }
+
+    resetEnv();
+    TelemetryUI.onConnectionChange(
+      () => { TelemetryUI.send({ type: 'requestState' }); },
+      () => { resetEnv(); }
+    );
+    TelemetryUI.onMessage(handleMessage);
+    TelemetryUI.connect();
+  </script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "generic",
+  "name": "Generic Aircraft",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2024-12-20T00:00:00Z",
+  "updatedAt": "2025-01-15T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "No generic flap detents: MSFS fallback should use physical flap angle or raw handle percent until a specific profile supplies source-backed detents.",
+    "stability": {
+      "_comment": "Broad fallback bands avoid aircraft-specific stability claims when no matching profile is available.",
+      "speedBand": {
+        "belowVrefKts": 50,
+        "aboveVrefKts": 100,
+        "_comment": "Broad fallback band; an aircraft-specific profile is required for limit-based assessment."
+      },
+      "vsLimits": {
+        "downFpm": 3000,
+        "upFpm": 1000,
+        "_comment": "Broad fallback vertical-speed band pending aircraft-specific limits."
+      },
+      "pitch": {
+        "minDeg": -30,
+        "maxDeg": 45,
+        "_comment": "Broad fallback pitch band pending aircraft-specific limits."
+      }
+    },
+    "landing": {
+      "_comment": "Broad fallback landing bands are used when aircraft-specific thresholds are unavailable.",
+      "grades": {
+        "perfectMinFpm": -250,
+        "goodMinFpm": -450,
+        "firmMinFpm": -700,
+        "hardMinFpm": -1000,
+        "_comment": "Aircraft-specific profiles should replace these generic landing bands."
+      }
+    },
+    "phaseThresholds": {
+      "_comment": "Generic phase thresholds; aircraft-specific profiles may override them.",
+      "taxiMaxKts": 80,
+      "parkedMaxKts": 2,
+      "takeoffRollMinIasKts": 60,
+      "takeoffMinIasKts": 120,
+      "takeoffMinVsFpm": 600,
+      "takeoffMaxRaFt": 200,
+      "climbMinVsFpm": 700,
+      "climbMinRaFt": 200,
+      "cruiseMinRaFt": 5000,
+      "cruiseMaxVsAbsFpm": 800,
+      "descentMinRaFt": 1500,
+      "descentMinVsFpm": 450,
+      "approachMaxRaFt": 1000,
+      "approachMinVsFpm": 200,
+      "landingMaxRaFt": 50,
+      "landingMinVsFpm": 100,
+      "taxiInMaxKts": 60
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "count": 2,
+      "type": "unknown"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": -1000
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "spoilers": {
+        "_comment": "Generic linear scale: 0-16383 linear, no armed detection. Armed state requires aircraft-specific LVAR.",
+        "scale": "linear",
+        "maxValue": 16383
+      },
+      "lights": {}
+    },
+    "signalReliability": {
+      "ias": "generic",
+      "vs": "generic",
+      "ra": "generic",
+      "heading": "generic",
+      "flapsNotch": "generic",
+      "flapsFraction": "generic",
+      "spoilersPercent": "generic",
+      "spoilersArmed": "unavailable",
+      "gearPosition": "generic",
+      "n1": "generic",
+      "autobrake": "unavailable",
+      "vref": "unavailable",
+      "stabilityScore": "generic"
+    },
+    "presentation": {
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LDG",
+          "taxi": "TAXI"
+        }
+      }
+    }
+  },
+  "meta": {
+    "notes": "Conservative fallback profile with broad thresholds and no aircraft-specific operational claims. Use a matching aircraft profile for detailed analysis.",
+    "status": "production",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ]
+  },
+  "provenance": {}
+}

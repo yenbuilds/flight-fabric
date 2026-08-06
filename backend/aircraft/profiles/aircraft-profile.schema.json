@@ -1,0 +1,1519 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "aircraft-profile.schema.json",
+  "title": "Aircraft Profile",
+  "description": "Simulator-specific aircraft profile document. Aircraft semantics live under aircraft.* and simulator bindings live under integration.*. Fully-qualified profile identity is namespace/simulator/id.",
+  "type": "object",
+  "required": [
+    "version",
+    "id",
+    "name",
+    "simulator",
+    "namespace",
+    "aircraft",
+    "integration"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "const": 2,
+      "description": "Persisted schema version."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "description": "Simulator-local profile slug. Collisions are avoided by qualifying it with namespace and simulator."
+    },
+    "name": {
+      "type": "string"
+    },
+    "simulator": {
+      "type": "string",
+      "enum": [
+        "msfs",
+        "xplane"
+      ],
+      "description": "Simulator binding this profile targets."
+    },
+    "namespace": {
+      "type": "string",
+      "enum": [
+        "bundled",
+        "local",
+        "community"
+      ],
+      "description": "Storage/distribution namespace. Bundled means Flight Fabric-maintained and shipped with the app, not vendor-official. Fully-qualified identity = namespace/simulator/id."
+    },
+    "author": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "authorAccount": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "createdAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "private",
+        "public"
+      ]
+    },
+    "extends": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Parent profile locator. Prefer full namespace/simulator/id form."
+    },
+    "abstract": {
+      "type": "boolean"
+    },
+    "aircraft": {
+      "$ref": "#/definitions/aircraftSection"
+    },
+    "integration": {
+      "$ref": "#/definitions/integrationSection"
+    },
+    "meta": {
+      "$ref": "#/definitions/metaSection"
+    },
+    "provenance": {
+      "$ref": "#/definitions/provenanceSection"
+    },
+    "requirements": {
+      "$ref": "#/definitions/requirementsSection"
+    }
+  },
+  "patternProperties": {
+    "^_": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "lightId": {
+      "type": "string",
+      "enum": [
+        "beacon",
+        "nav",
+        "strobe",
+        "landing",
+        "taxi",
+        "turnoff",
+        "logo",
+        "wing",
+        "recognition",
+        "cabin"
+      ]
+    },
+    "reliabilityLevel": {
+      "type": "string",
+      "enum": [
+        "authoritative",
+        "generic",
+        "unavailable"
+      ]
+    },
+    "controlArgument": {
+      "oneOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string",
+          "maxLength": 120,
+          "pattern": "^[A-Za-z0-9 _./:+%()-]+$"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "aircraftCfgFieldRules": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patternProperties": {
+        "^_": {}
+      }
+    },
+    "aircraftCfgMatchingSection": {
+      "type": "object",
+      "properties": {
+        "equals": {
+          "$ref": "#/definitions/aircraftCfgFieldRules"
+        },
+        "containsAll": {
+          "$ref": "#/definitions/aircraftCfgFieldRules"
+        },
+        "containsAny": {
+          "$ref": "#/definitions/aircraftCfgFieldRules"
+        },
+        "regex": {
+          "$ref": "#/definitions/aircraftCfgFieldRules"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "matchingSection": {
+      "type": "object",
+      "properties": {
+        "priority": {
+          "type": "integer"
+        },
+        "titleContains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "titleExcludes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "titleRegex": {
+          "type": "string"
+        },
+        "configPathContains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "configPathExcludes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "configPathRegex": {
+          "type": "string"
+        },
+        "aircraftCfg": {
+          "$ref": "#/definitions/aircraftCfgMatchingSection"
+        },
+        "xplane": {
+          "type": "object",
+          "properties": {
+            "acfPaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "acfFileNames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "flapNotch": {
+      "type": "object",
+      "required": [
+        "value",
+        "label"
+      ],
+      "properties": {
+        "value": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "flapsSection": {
+      "type": "object",
+      "properties": {
+        "notches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/flapNotch"
+          }
+        },
+        "landingNotches": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "stabilitySection": {
+      "type": "object",
+      "properties": {
+        "speedBand": {
+          "type": "object",
+          "properties": {
+            "belowVrefKts": {
+              "type": "number"
+            },
+            "aboveVrefKts": {
+              "type": "number"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "vsLimits": {
+          "type": "object",
+          "properties": {
+            "downFpm": {
+              "type": "number"
+            },
+            "upFpm": {
+              "type": "number"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "thrustMinPct": {
+          "type": "number"
+        },
+        "pitch": {
+          "type": "object",
+          "properties": {
+            "minDeg": {
+              "type": "number"
+            },
+            "maxDeg": {
+              "type": "number"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "stabilizedGates": {
+          "type": "object",
+          "properties": {
+            "imcRaFt": {
+              "type": "number"
+            },
+            "vmcRaFt": {
+              "type": "number"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "landingSection": {
+      "type": "object",
+      "properties": {
+        "grades": {
+          "type": "object",
+          "properties": {
+            "perfectMinFpm": {
+              "type": "number"
+            },
+            "goodMinFpm": {
+              "type": "number"
+            },
+            "firmMinFpm": {
+              "type": "number"
+            },
+            "hardMinFpm": {
+              "type": "number"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "phaseThresholdsSection": {
+      "type": "object",
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          }
+        ]
+      }
+    },
+    "throttleSection": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "servo",
+            "detent",
+            "manual"
+          ]
+        },
+        "detents": false
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "enginesSection": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "jet",
+            "turboprop",
+            "piston",
+            "unknown"
+          ]
+        },
+        "idleN1Pct": {
+          "type": "number"
+        },
+        "maxN1Pct": {
+          "type": "number"
+        },
+        "togaN1Pct": {
+          "type": "number"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "aircraftSection": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        "flaps": {
+          "$ref": "#/definitions/flapsSection"
+        },
+        "stability": {
+          "$ref": "#/definitions/stabilitySection"
+        },
+        "landing": {
+          "$ref": "#/definitions/landingSection"
+        },
+        "phaseThresholds": {
+          "$ref": "#/definitions/phaseThresholdsSection"
+        },
+        "throttle": {
+          "$ref": "#/definitions/throttleSection"
+        },
+        "engines": {
+          "$ref": "#/definitions/enginesSection"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "sdkSection": {
+      "type": "object",
+      "properties": {
+        "adapter": {
+          "type": "string"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "target": {
+          "type": "object",
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "channel": {
+          "type": "string"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "requirementsSection": {
+      "type": "object",
+      "properties": {
+        "sdkConnectors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]*$"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "patternProperties": {
+              "^_": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "spoilersTelemetrySection": {
+      "type": "object",
+      "properties": {
+        "scale": {
+          "type": "string",
+          "enum": [
+            "fraction",
+            "percent",
+            "linear",
+            "auto"
+          ]
+        },
+        "maxValue": {
+          "type": "number"
+        },
+        "armedValue": {
+          "type": "number"
+        },
+        "simVarReliable": {
+          "type": "boolean"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "telemetryLightsSection": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "simconnect",
+            "lvar",
+            "sdk",
+            "xplane"
+          ]
+        },
+        "simVarReliable": {
+          "type": "boolean"
+        },
+        "simvarMapping": {
+          "$ref": "#/definitions/stringMap"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "autopilotTelemetrySection": {
+      "type": "object",
+      "properties": {
+        "simVarReliable": {
+          "type": "boolean"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "lvarsSection": {
+      "type": "object",
+      "properties": {
+        "flaps": {
+          "type": "string"
+        },
+        "autopilot": {
+          "type": "string"
+        },
+        "autothrottle": {
+          "type": "string"
+        },
+        "parkingBrake": {
+          "type": "string"
+        },
+        "spoilers": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "armed": {
+                  "type": "string"
+                },
+                "handlePosition": {
+                  "type": "string"
+                }
+              },
+              "patternProperties": {
+                "^_": {}
+              },
+              "additionalProperties": true
+            }
+          ]
+        },
+        "n1": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "mcp": {
+          "type": "object",
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            ]
+          }
+        },
+        "lights": {
+          "$ref": "#/definitions/stringMap"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "aircraftIntegrationAdapterSection": {
+      "type": "object",
+      "required": [
+        "adapter"
+      ],
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+          "description": "Built-in aircraft integration adapter requested by this profile. Runtime activation additionally requires an exact trusted profile-key binding."
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificPrimitive": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "aircraftSpecificLvarBinding": {
+      "type": "object",
+      "required": [
+        "type",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "lvar"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 160,
+          "pattern": "^L:[A-Za-z0-9 _./:+%()#-]+$"
+        },
+        "unit": {
+          "const": "Number",
+          "default": "Number"
+        },
+        "dataType": {
+          "const": "number",
+          "default": "number"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificSdkBinding": {
+      "type": "object",
+      "required": [
+        "type",
+        "path"
+      ],
+      "properties": {
+        "type": {
+          "const": "sdk"
+        },
+        "adapter": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*$",
+          "description": "Own-property path within the active SDK adapter's normalized snapshot. Raw SDK structures are not exposed to templates."
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificSourceBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/aircraftSpecificLvarBinding"
+        },
+        {
+          "$ref": "#/definitions/aircraftSpecificSdkBinding"
+        }
+      ]
+    },
+    "aircraftSpecificNumberDecoder": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "number"
+        },
+        "scale": {
+          "type": "number",
+          "default": 1
+        },
+        "offset": {
+          "type": "number",
+          "default": 0
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "unavailableValues": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "number"
+          },
+          "description": "Exact raw numeric values that mean the aircraft has no usable value. Sentinel rejection occurs before scale, offset, and precision transforms."
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificBooleanDecoder": {
+      "type": "object",
+      "required": [
+        "type",
+        "trueValues",
+        "falseValues"
+      ],
+      "properties": {
+        "type": {
+          "const": "boolean"
+        },
+        "trueValues": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/aircraftSpecificPrimitive"
+          }
+        },
+        "falseValues": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/aircraftSpecificPrimitive"
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificEnumDecoder": {
+      "type": "object",
+      "required": [
+        "type",
+        "values"
+      ],
+      "properties": {
+        "type": {
+          "const": "enum"
+        },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/definitions/aircraftSpecificPrimitive"
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificField": {
+      "type": "object",
+      "required": [
+        "source",
+        "decode"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/aircraftSpecificSourceBinding"
+        },
+        "decode": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/aircraftSpecificNumberDecoder"
+            },
+            {
+              "$ref": "#/definitions/aircraftSpecificBooleanDecoder"
+            },
+            {
+              "$ref": "#/definitions/aircraftSpecificEnumDecoder"
+            }
+          ]
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "aircraftSpecificTelemetrySection": {
+      "type": "object",
+      "required": [
+        "fields"
+      ],
+      "properties": {
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 128,
+          "patternProperties": {
+            "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$": {
+              "$ref": "#/definitions/aircraftSpecificField"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "telemetrySection": {
+      "type": "object",
+      "properties": {
+        "preferred": {
+          "type": "string"
+        },
+        "lvars": {
+          "$ref": "#/definitions/lvarsSection"
+        },
+        "sdk": {
+          "$ref": "#/definitions/sdkSection"
+        },
+        "autopilot": {
+          "$ref": "#/definitions/autopilotTelemetrySection"
+        },
+        "spoilers": {
+          "$ref": "#/definitions/spoilersTelemetrySection"
+        },
+        "lights": {
+          "$ref": "#/definitions/telemetryLightsSection"
+        },
+        "aircraftSpecific": {
+          "$ref": "#/definitions/aircraftSpecificTelemetrySection"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "presentationSection": {
+      "type": "object",
+      "properties": {
+        "visualSupport": {
+          "type": "string",
+          "enum": [
+            "full",
+            "basic"
+          ]
+        },
+        "lights": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/lightId"
+              }
+            },
+            "labels": {
+              "$ref": "#/definitions/stringMap"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "aircraftSpecific": {
+          "type": "object",
+          "required": [
+            "template"
+          ],
+          "properties": {
+            "template": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$",
+              "maxLength": 64
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "msfsControlAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "key-event",
+            "input-event",
+            "html-event",
+            "lvar",
+            "simvar"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9 _./:+%()#-]+$",
+          "description": "Simulator action token only. Shell-style punctuation and nested payloads are rejected at runtime."
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 48,
+          "pattern": "^[A-Za-z0-9 _./:+%()-]+$"
+        },
+        "value": {
+          "$ref": "#/definitions/controlArgument"
+        },
+        "parameters": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/definitions/controlArgument"
+          }
+        },
+        "verification": {
+          "type": "string",
+          "enum": [
+            "untested",
+            "partial",
+            "verified"
+          ],
+          "description": "Observed write-test status for this action. `verified` requires profile provenance evidence."
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "xplaneControlAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "command",
+            "dataref"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9 _./:+%()#-]+$",
+          "description": "X-Plane command/dataref token only. Shell-style punctuation and nested payloads are rejected at runtime."
+        },
+        "valueType": {
+          "type": "string",
+          "enum": [
+            "float",
+            "double",
+            "int",
+            "int_array",
+            "float_array",
+            "data"
+          ]
+        },
+        "value": {
+          "$ref": "#/definitions/controlArgument"
+        },
+        "verification": {
+          "type": "string",
+          "enum": [
+            "untested",
+            "partial",
+            "verified"
+          ],
+          "description": "Observed write-test status for this action. `verified` requires profile provenance evidence."
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "controlActionLeaf": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/msfsControlAction"
+        },
+        {
+          "$ref": "#/definitions/xplaneControlAction"
+        }
+      ]
+    },
+    "controlAction": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/controlActionLeaf"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/controlActionLeaf"
+          }
+        }
+      ]
+    },
+    "aircraftSpecificControlsSection": {
+      "type": "object",
+      "required": [
+        "actions"
+      ],
+      "properties": {
+        "actions": {
+          "type": "object",
+          "maxProperties": 128,
+          "propertyNames": {
+            "maxLength": 96,
+            "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+          },
+          "patternProperties": {
+            "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$": {
+              "$ref": "#/definitions/controlAction"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Logical action IDs mapped to fixed, profile-declared provider actions. Browser requests supply only the logical ID."
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "controlsSection": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "simconnect",
+            "xplane",
+            "auto"
+          ]
+        },
+        "genericFallback": {
+          "type": "boolean",
+          "description": "Opt-in for broad built-in generic simulator cockpit writes. When omitted or false, autopilot, selector, spoiler, autobrake, and similar cockpit requests must be backed by profile mappings."
+        },
+        "standardSurfaceFallback": {
+          "type": "boolean",
+          "description": "When genericFallback is omitted or false, allows only the built-in MSFS gear up/down/toggle and flaps increment/decrement fallback actions."
+        },
+        "aircraftSpecific": {
+          "$ref": "#/definitions/aircraftSpecificControlsSection"
+        },
+        "flaps": {
+          "type": "object",
+          "properties": {
+            "setAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "incrementAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "decrementAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "notchMapping": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "gear": {
+          "type": "object",
+          "properties": {
+            "upAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "downAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "toggleAction": {
+              "$ref": "#/definitions/controlAction"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "autobrake": {
+          "type": "object",
+          "properties": {
+            "setAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "incrementAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "decrementAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "modeMapping": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "spoilers": {
+          "type": "object",
+          "properties": {
+            "setAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "armAction": {
+              "$ref": "#/definitions/controlAction"
+            },
+            "disarmAction": {
+              "$ref": "#/definitions/controlAction"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        },
+        "autopilot": {
+          "type": "object",
+          "properties": {
+            "actions": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "$ref": "#/definitions/controlAction"
+                }
+              },
+              "additionalProperties": false
+            },
+            "selectorActions": {
+              "type": "object",
+              "patternProperties": {
+                ".*": {
+                  "$ref": "#/definitions/controlAction"
+                }
+              },
+              "additionalProperties": false
+            },
+            "mcpLvars": {
+              "$ref": "#/definitions/stringMap"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "signalReliabilitySection": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/reliabilityLevel"
+      }
+    },
+    "integrationSection": {
+      "type": "object",
+      "properties": {
+        "aircraftSpecific": {
+          "$ref": "#/definitions/aircraftIntegrationAdapterSection"
+        },
+        "matching": {
+          "$ref": "#/definitions/matchingSection"
+        },
+        "telemetry": {
+          "$ref": "#/definitions/telemetrySection"
+        },
+        "controls": {
+          "$ref": "#/definitions/controlsSection"
+        },
+        "signalReliability": {
+          "$ref": "#/definitions/signalReliabilitySection"
+        },
+        "presentation": {
+          "$ref": "#/definitions/presentationSection"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "metaSection": {
+      "type": "object",
+      "properties": {
+        "developer": {
+          "type": "string"
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contributor": {
+          "type": "string"
+        },
+        "updated": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "production",
+            "partial",
+            "experimental",
+            "deprecated"
+          ]
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    },
+    "provenanceSection": {
+      "type": "object",
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "official-sdk",
+                  "official-docs",
+                  "forum",
+                  "wiki",
+                  "community",
+                  "manual-testing"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uri"
+              },
+              "name": {
+                "type": "string"
+              },
+              "retrievedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "license": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              },
+              "authority": {
+                "type": "string",
+                "enum": [
+                  "simulator-vendor",
+                  "aircraft-vendor",
+                  "airframe-manufacturer",
+                  "regulator",
+                  "operator",
+                  "community"
+                ],
+                "description": "Who published or owns the evidence. This is separate from the publication medium in `type`."
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "vendor-install"
+                ],
+                "description": "Whether the cited evidence is publicly reviewable or ships only with a licensed vendor installation."
+              },
+              "supportsActiveMappings": {
+                "type": "boolean",
+                "description": "True only when this source directly supports active aircraft-specific telemetry or control mappings."
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "patternProperties": {
+              "^_": {}
+            },
+            "additionalProperties": true
+          }
+        },
+        "verification": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "unverified",
+                "partial",
+                "verified",
+                "certified"
+              ]
+            },
+            "lastVerified": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "knownIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": true
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": true
+    }
+  }
+}

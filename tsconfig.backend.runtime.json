@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": false,
+    "allowJs": true,
+    "checkJs": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": false,
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": [
+    "backend/**/*.ts",
+    "backend/types/**/*.d.ts",
+    "tests/backend/**/*.ts",
+    "tests/support/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "frontend",
+    "frontend-dist",
+    "apps",
+    "electron",
+    "docs",
+    "backend/types/generated"
+  ]
+}

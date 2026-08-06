@@ -1,0 +1,83 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "widebody-base",
+  "name": "Wide-Body Aircraft Base",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2025-01-15T00:00:00Z",
+  "updatedAt": "2025-01-15T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "_commentFlaps": "No shared flap detents: wide-body matching spans unrelated aircraft families with different flap gates. Specific aircraft profiles must supply source-backed detents when needed.",
+    "stability": {
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "engines": {
+      "_comment": "Wide-body aircraft span 2 (777, 787, A330, A350), 3 (DC-10, MD-11, L-1011) and 4 (747, A340, A380, Concorde) engines. Engine count is NOT set here because it varies by aircraft — the backend detects the live count at runtime from SimConnect N1 values.",
+      "type": "jet"
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -180,
+        "firmMinFpm": -450,
+        "hardMinFpm": -600,
+        "_comment": "Category D tolerances - slightly more permissive for heavy aircraft"
+      }
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 50,
+      "titleContains": [
+        "747",
+        "777",
+        "787",
+        "767-300",
+        "767-400",
+        "757-300",
+        "A330",
+        "A340",
+        "A350",
+        "A380",
+        "DC-10",
+        "MD-11",
+        "L-1011",
+        "TriStar",
+        "IL-96",
+        "Tu-204",
+        "Tu-214",
+        "Concorde"
+      ],
+      "titleRegex": "747|777|787|767-[34]|757-3|a3[345]0|a380|dc-10|md-11|l-1011|tristar|il-96|tu-20[04]|tu-214|concorde"
+    },
+    "telemetry": {
+      "spoilers": {
+        "_comment": "Generic wide-body spoilers",
+        "scale": "percent"
+      },
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "status": "production"
+  },
+  "provenance": {},
+  "_comment": "Catches wide-body jets: 747, 757-300, 767-300+, 777, 787, A330, A340, A350, A380, DC-10, MD-11, L-1011, IL-96, Tu-204. All have Vref 141-165 kt = Category D."
+}

@@ -1,0 +1,210 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fbw-a32nx",
+  "name": "FlyByWire A32NX",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-02T00:00:00Z",
+  "updatedAt": "2026-07-27T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "_comment": "A32NX_FLAPS_HANDLE_INDEX is documented as the physical flap handle position: 0=0, 1=1/1+F, 2=2, 3=3, 4=FULL.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "0"
+        },
+        {
+          "value": 1,
+          "label": "1/1+F"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 3,
+          "label": "3"
+        },
+        {
+          "value": 4,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        3,
+        4
+      ]
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "fbw-a32nx"
+    },
+    "matching": {
+      "priority": 90,
+      "titleContains": [
+        "Airbus A320 Neo FlyByWire",
+        "FlyByWire A320",
+        "FBW A320",
+        "A32NX"
+      ],
+      "titleRegex": "(FlyByWire.*A32|A32NX|FBW.*A32)",
+      "configPathContains": [
+        "flybywire-aircraft-a320-neo",
+        "flybywire-aircraft-a32nx",
+        "fbw-a32nx",
+        "a32nx"
+      ],
+      "configPathRegex": "(flybywire|fbw|a32nx).*(a32|a320)|(a32|a320).*(flybywire|fbw|a32nx)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "A32NX LVARs are covered by authoritative profile sources. AP and A/THR use FlyByWire's current 0/1 FCU light readbacks; the older A32NX_AUTOPILOT_1_ACTIVE compatibility variable is explicitly deprecated in the published API. FCU windows use the published display-value interfaces.",
+        "autopilot": "A32NX_FCU_AP_1_LIGHT_ON",
+        "autothrottle": "A32NX_FCU_ATHR_LIGHT_ON",
+        "flaps": "A32NX_FLAPS_HANDLE_INDEX",
+        "_commentFlaps": "A32NX_FLAPS_HANDLE_INDEX is documented as the physical flaps handle position: 0=0, 1=1/1+F, 2=2, 3=3, 4=FULL. Flight Fabric uses profile flap LVARs before SimConnect flap mapping.",
+        "spoilers": {
+          "_comment": "The cited FlyByWire interface supplies the intended armed state through A32NX_SPOILERS_ARMED and a 0-1 handle fraction through A32NX_SPOILERS_HANDLE_POSITION; the standard SimConnect armed field is not used for this profile.",
+          "armed": "A32NX_SPOILERS_ARMED",
+          "handlePosition": "A32NX_SPOILERS_HANDLE_POSITION"
+        },
+        "parkingBrake": "A32NX_PARK_BRAKE_LEVER_POS",
+        "_commentParkingBrake": "The cited FlyByWire interface supplies the intended parking-brake lever state through A32NX_PARK_BRAKE_LEVER_POS (0=released, 1=set); the standard SimConnect field is not used for this profile.",
+        "mcp": {
+          "altitude": "A32NX_FCU_AFS_DISPLAY_ALT_VALUE",
+          "heading": "A32NX_FCU_AFS_DISPLAY_HDG_TRK_VALUE",
+          "speed": "A32NX_FCU_AFS_DISPLAY_SPD_MACH_VALUE",
+          "vs": "A32NX_FCU_AFS_DISPLAY_VS_FPA_VALUE",
+          "vsMode": "A32NX_FMA_VERTICAL_MODE",
+          "vsModeEnumVs": [
+            14,
+            15
+          ],
+          "app": "A32NX_FCU_APPR_LIGHT_ON"
+        }
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Aircraft-specific cockpit writes resolve only through the exact-profile trusted fbw-a32nx adapter. The adapter exposes fixed documented LVAR values and documented SimConnect events behind fresh readback, stable-simulator-state checks, cooldown and no-retry guards. Standard gear and flap actions remain available through the narrow shared fallback."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "FlyByWire Simulations",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-27",
+    "status": "partial",
+    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 119 documentation-backed logical read fields and 230 fixed semantic actions spanning FCU mode buttons, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. Irreversible fire/IDG/oxygen actions, presets, pushback motion, delayed landing-light sequences and unsupported custom FCU set events remain excluded."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A32NX Flight Deck API",
+        "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-flightdeck-api/",
+        "retrievedAt": "2026-07-27",
+        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 and SPOILERS_SET. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build."
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A32NX Systems API",
+        "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-systems-api/",
+        "retrievedAt": "2026-07-27",
+        "notes": "Documents A32NX_FLAPS_HANDLE_INDEX and the system-state variables used by the aircraft-specific page."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A32NX a320-simvars.md",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a32nx/docs/a320-simvars.md",
+        "retrievedAt": "2026-07-27",
+        "notes": "Official vendor SDK reference confirming the active A32NX_* and LIGHTING_* mappings."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A32NX a320-events.md",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a32nx/docs/a320-events.md",
+        "retrievedAt": "2026-07-27",
+        "notes": "Cross-check for the current A32NX custom-event namespace and the reason custom FCU set/push/pull events remain outside the native route surface."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator Aircraft Autopilot/Assistant Variables",
+        "url": "https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Aircraft_SimVars/Aircraft_AutopilotAssistant_Variables.htm",
+        "retrievedAt": "2026-05-31",
+        "notes": "Documents AUTOPILOT ALTITUDE LOCK VAR and altitude slot behavior used by the profile's altitude selector override."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-27",
+      "knownIssues": [
+        "Most expanded routes are documentation-backed but have not been live-validated across every stable and development A32NX release. A selector-only or otherwise cosmetic write fails with a confirmation timeout when the configured logical field does not reach the requested value; a matching selector readback still does not prove every downstream aircraft-system effect.",
+        "FlyByWire states that its Flight Deck API table can lag current development. The adapter therefore uses only fixed bounded values, requires a fresh decodable preflight, serializes each physical control group, applies a 750 ms cooldown, never retries, and requires a newer confirming readback after dispatch.",
+        "Strobe coordinates LIGHTING_STROBE_0, STROBE_0_AUTO and STROBES_SET, then confirms actual LIGHT STROBE output for OFF/ON or the AUTO flag for AUTO. It still needs combined selector, AUTO and exterior-output validation on current aircraft builds.",
+        "Landing, nose and runway-turnoff lights remain monitoring-only because FlyByWire documents coordinated circuit, retraction and 8-10 second extension behavior that the bounded sequence transport cannot perform atomically.",
+        "Toggle-only standard events are presented as explicit targets only because the provider first requires a fresh matching readback and skips dispatch when the requested target is already satisfied. A changed target is dispatched once and must confirm.",
+        "FlyByWire custom FCU set/push/pull events are not exposed because the current native runtime does not advertise custom InputEvent execution. Only the documented standard SimConnect FCU mode events with direct light readback are enabled.",
+        "Fire, oxygen, irreversible IDG disconnect, flight-control-computer, preset loading/saving, pushback motion, raw flight axes and momentary controls without durable readback remain excluded.",
+        "Wipers remain excluded because the published interface requires indexed electrical-circuit power events and the current trusted integration transport does not provide an independently confirmed, position-safe indexed circuit route."
+      ]
+    }
+  }
+}

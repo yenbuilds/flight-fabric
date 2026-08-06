@@ -1,0 +1,102 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "turboprop-base",
+  "name": "Turboprop Aircraft Base",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2025-01-15T00:00:00Z",
+  "updatedAt": "2025-01-15T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "B",
+    "_commentFlaps": "No shared flap detents: this catch-all covers unrelated turboprops (TBM, King Air, PC-12, Caravan, ATR, Dash 8, etc.). Runtime should use physical flap angle or raw percent unless a specific profile supplies source-backed detents.",
+    "stability": {
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -80,
+        "goodMinFpm": -150,
+        "firmMinFpm": -400,
+        "hardMinFpm": -550,
+        "_comment": "Category B tolerances - moderate standards for turboprops"
+      }
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 45,
+      "titleContains": [
+        "TBM",
+        "Daher",
+        "King Air",
+        "KingAir",
+        "BE90",
+        "BE200",
+        "BE350",
+        "PC-12",
+        "PC12",
+        "Pilatus",
+        "Caravan",
+        "C208",
+        "Grand Caravan",
+        "ATR",
+        "ATR-42",
+        "ATR-72",
+        "ATR42",
+        "ATR72",
+        "Dash 8",
+        "Dash-8",
+        "Q100",
+        "Q200",
+        "Q300",
+        "Q400",
+        "DHC-8",
+        "Twin Otter",
+        "DHC-6",
+        "C-130",
+        "Hercules",
+        "C130",
+        "Saab 340",
+        "Saab 2000",
+        "Jetstream",
+        "BAe ATP",
+        "EMB-120",
+        "Brasilia",
+        "Do 228",
+        "Dornier",
+        "BN-2",
+        "Islander",
+        "Trislander"
+      ],
+      "titleRegex": "tbm|king\\s*air|pc-?12|pilatus|caravan|c208|atr|dash.?8|q[1234]00|dhc-[68]|twin\\s*otter|c-?130|hercules|saab|jetstream|emb-?120|brasilia|do\\s*228|dornier|islander"
+    },
+    "telemetry": {
+      "spoilers": {
+        "_comment": "Most turboprops have no spoilers or simple ground spoilers only",
+        "scale": "percent"
+      },
+      "lights": {}
+    },
+    "presentation": {
+      "visualSupport": "basic"
+    }
+  },
+  "meta": {
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "status": "production"
+  },
+  "provenance": {},
+  "_comment": "Catches turboprops: TBM, King Air, PC-12, Caravan, ATR, Dash-8/Q-Series, Twin Otter, C-130. All have Vref 91-120 kt = Category B."
+}

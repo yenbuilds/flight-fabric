@@ -1,0 +1,171 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a320neo-v2",
+  "name": "Microsoft / iniBuilds Airbus A320neo V2",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-19T00:00:00Z",
+  "updatedAt": "2026-07-19T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "No aircraft-specific flap detents are configured: airbus-base intentionally does not assert shared Airbus flap notches. Add A320neo V2-specific detents only after vendor documentation or in-sim verification.",
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "microsoft-inibuilds-a32x"
+    },
+    "matching": {
+      "priority": 94,
+      "titleContains": [
+        "Airbus A320neo (v2) - Microsoft / iniBuilds",
+        "Airbus A320neo V2 - Microsoft / iniBuilds",
+        "Microsoft / iniBuilds Airbus A320neo V2",
+        "Microsoft iniBuilds Airbus A320neo V2",
+        "Microsoft Airbus A320neo V2",
+        "iniBuilds Airbus A320neo V2",
+        "iniBuilds A320neo V2",
+        "Microsoft_Airbus_A320neo_V2"
+      ],
+      "titleRegex": "^(?:airbus[\\s_-]*a320[\\s_-]*neo[\\s_-]*\\(?v2\\)?|(?:microsoft[\\s_/+-]*inibuilds|microsoft|inibuilds)[\\s_/-]*(?:airbus[\\s_/-]*)?a320[\\s_-]*neo[\\s_-]*\\(?v2\\)?)$",
+      "configPathContains": [
+        "fs24-microsoft-aircraft-a320neo",
+        "microsoft-aircraft-a320neo",
+        "simobjects/airplanes/microsoft-a320neo",
+        "simobjects\\airplanes\\microsoft-a320neo"
+      ],
+      "configPathRegex": "(?:^|[/\\\\])(?:fs24-)?microsoft-aircraft-a320neo(?:[/\\\\]|$)|(?:^|[/\\\\])microsoft-a320neo(?:[/\\\\]|$)",
+      "aircraftCfg": {
+        "_comment": "The A20N designator is only accepted when both the title and creator identify the Microsoft/iniBuilds A320neo V2, preventing legacy Asobo, FlyByWire, and Fenix A320 variants from matching.",
+        "equals": {
+          "icao_type_designator": "A20N"
+        },
+        "containsAll": {
+          "title": [
+            "Airbus A320neo V2",
+            "Airbus A320neo (V2)",
+            "Microsoft Airbus A320neo V2",
+            "Microsoft / iniBuilds Airbus A320neo V2"
+          ],
+          "ui_createdby": "iniBuilds"
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses documented standard SimVars only; no Microsoft/iniBuilds-specific telemetry routes are enabled."
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "The dedicated page is monitoring-only. Only Flight Fabric's narrow standard MSFS gear/flaps surface fallback is allowed; FCU, managed/selected-mode, autothrust, and other Airbus-specific writes remain unavailable until exact interactions and readbacks are verified in-sim."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Microsoft / iniBuilds",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-19",
+    "status": "partial",
+    "notes": "Dedicated monitoring-first identity profile for the Microsoft / iniBuilds Airbus A320neo V2, included with every Microsoft Flight Simulator 2024 edition. Package matching uses identifiers documented by official Microsoft and iniBuilds sources. The page exposes only an explicit standard-SimVar read allowlist and no aircraft-specific writes because no vendor-published A320neo V2 integration contract is available."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-07-19",
+        "notes": "Lists the Airbus A320neo and confirms it is included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - May 23, 2024 Development Update",
+        "url": "https://www.flightsimulator.com/may-23rd-2024-development-update/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Identifies the A320neo V2 as part of Sim Update 15 and the free Marketplace aircraft as Airbus A320neo Enhanced by Microsoft/iniBuilds."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Lists the Airbus A320neo V2 manual as Version 1 from iniBuilds, supporting the canonical model and developer identity. The page does not publish an external telemetry/control variable map."
+      },
+      {
+        "type": "forum",
+        "name": "iniBuilds Support - How to clear the WASM folder (A320neo)",
+        "url": "https://forum.inibuilds.com/topic/24256-how-to-clear-the-wasm-folder/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Official iniBuilds support instructions identify the MSFS 2024 package as microsoft-aircraft-a320neo."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The dedicated adapter uses an explicit read-only standard-SimVar allowlist and activates no aircraft-specific L: or B: variables."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - Key Events",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
+        "retrievedAt": "2026-07-19",
+        "notes": "Documents simulator key events. No A320neo V2-specific key-event mappings are activated; only Flight Fabric's narrow existing gear/flaps surface fallback remains allowed."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-19",
+      "knownIssues": [
+        "The exact SimConnect TITLE has not been verified in-sim; matching covers documented product-name and package-identity variants.",
+        "The cited sources do not define an A320neo V2 LVAR, B-var, input-event, or hardware-integration map.",
+        "Standard simulator mirrors may be unavailable or differ from aircraft-internal managed/selected state and remain non-authoritative pending in-sim verification.",
+        "Flap detents are intentionally absent until A320neo V2-specific handle mapping is source-backed or verified in-sim.",
+        "Aircraft-specific cockpit writes intentionally remain unavailable until exact controls and independent readbacks are verified."
+      ]
+    }
+  }
+}

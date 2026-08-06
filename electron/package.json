@@ -1,0 +1,200 @@
+{
+  "name": "flight-fabric-electron",
+  "version": "0.2.2",
+  "description": "Flight Fabric - airline flying telemetry and debrief app",
+  "main": "main.js",
+  "author": "Flight Fabric",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "npm --prefix .. run frontend:build && npm --prefix .. run build:backend:runtime && electron .",
+    "dev": "npm --prefix .. run frontend:build && npm --prefix .. run build:backend:runtime && electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "build:nsis": "electron-builder --win nsis",
+    "dist": "npm run build:win"
+  },
+  "devDependencies": {
+    "@electron/asar": "4.2.1",
+    "@electron/fuses": "^2.1.3",
+    "@electron/rebuild": "^4.2.0",
+    "electron": "^41.10.3",
+    "electron-builder": "^26.15.3",
+    "rcedit": "^4.0.1",
+    "tailwindcss": "^3.4.17"
+  },
+  "build": {
+    "appId": "com.flightfabric.app",
+    "productName": "Flight Fabric",
+    "copyright": "Copyright (c) 2026 Flight Fabric",
+    "npmRebuild": false,
+    "icon": "taskbar-icon.ico",
+    "afterPack": "./after-pack.js",
+    "directories": {
+      "output": "../dist/electron"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "backend-cleanup-policy.js",
+      "backend-lifecycle.js",
+      "backend-process-identity.js",
+      "external-url-policy.js",
+      "ipc-sender-policy.js",
+      "session-permission-policy.js",
+      "settings-store.js",
+      "network-info.js",
+      "process-liveness.js",
+      "runtime-owner-lock.js",
+      "msfs-detect.js"
+    ],
+    "extraResources": [
+      {
+        "from": "taskbar-icon.ico",
+        "to": "taskbar-icon.ico"
+      },
+      {
+        "from": "taskbar-icon.png",
+        "to": "taskbar-icon.png"
+      },
+      {
+        "from": "taskbar-recording-icon.png",
+        "to": "taskbar-recording-icon.png"
+      },
+      {
+        "from": "taskbar-finalizing-icon.png",
+        "to": "taskbar-finalizing-icon.png"
+      },
+      {
+        "from": "recording-overlay.png",
+        "to": "recording-overlay.png"
+      },
+      {
+        "from": "finalizing-overlay.png",
+        "to": "finalizing-overlay.png"
+      },
+      {
+        "from": "../backend-build",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/*.pdf",
+          "!**/*.doc",
+          "!**/*.docx",
+          "!**/*.txt",
+          "!**/README*",
+          "!**/CHANGELOG*",
+          "!**/LICENSE*",
+          "!**/*.map",
+          "!**/*.ts",
+          "!**/*.d.ts",
+          "!**/*.log",
+          "!**/sample/**",
+          "!**/samples/**",
+          "!**/example/**",
+          "!**/examples/**",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/*.test.js",
+          "!**/*.spec.js",
+          "!**/test.js",
+          "!**/*.bak",
+          "!**/*.example",
+          "!**/.gitignore",
+          "!**/.eslintrc*",
+          "!**/package-lock.json",
+          "!**/*.schema.json",
+          "!**/_template*",
+          "!**/credentials/**",
+          "!**/*-creds.json",
+          "!**/*-credentials.json",
+          "!**/*-secret*",
+          "!**/*.pem",
+          "!**/*.key",
+          "!**/*.crt",
+          "!**/*.pfx",
+          "!**/.env",
+          "!**/.env.*",
+          "!**/*.secrets"
+        ]
+      },
+      {
+        "from": "../frontend-dist",
+        "to": "frontend",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/README*",
+          "!**/*.map",
+          "!**/*.ts",
+          "!**/*.d.ts"
+        ]
+      },
+      {
+        "from": "../dist/shared",
+        "to": "shared",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/README*",
+          "!**/*.map",
+          "!**/*.ts",
+          "!**/*.d.ts",
+          "!**/*.log"
+        ]
+      },
+      {
+        "from": "launcher",
+        "to": "launcher",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/README*",
+          "!**/*.map",
+          "!**/*.ts",
+          "!**/*.d.ts",
+          "!**/*.log"
+        ]
+      },
+      {
+        "from": "..",
+        "to": "legal",
+        "filter": [
+          "SAFETY-NOTICE.md",
+          "THIRD_PARTY_NOTICES.md",
+          "LICENSE.md",
+          "OURAIRPORTS-DATA-LICENSE.txt"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "taskbar-icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "license": "installer-notice.txt",
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Flight Fabric"
+    }
+  }
+}

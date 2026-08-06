@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0e14" />
+  <title>Flight Fabric Airline Event Log</title>
+  <script type="module" src="widget-theme-bootstrap.js"></script>
+  <script src="../flight-phases.js"></script>
+
+  <!-- Packaged-app safe: use local/system fonts only. -->
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: rgba(0,0,0,0) !important;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ── Panel shell */
+    .panel {
+      width: 300px;
+      background: linear-gradient(160deg, rgba(10,12,18,0.96) 0%, rgba(8,10,14,0.98) 100%);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 2px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header */
+    .panel-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 12px;
+      background: rgba(0,0,0,0.28);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      flex-shrink: 0;
+    }
+    .panel-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: #4b5563;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .conn-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #374151;
+      transition: background 0.3s, box-shadow 0.3s;
+      flex-shrink: 0;
+    }
+    .conn-dot.on  { background: #22c55e; box-shadow: 0 0 5px rgba(34,197,94,0.5); }
+    .conn-dot.off { background: #ef4444; }
+
+    /* ── Log scroll area */
+    .log-outer {
+      height: 380px;
+      overflow: hidden;
+      position: relative;
+    }
+    /* Bottom fade — blends entries into panel background */
+    .log-outer::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0; height: 110px;
+      background: linear-gradient(to bottom, transparent 0%, rgba(8,10,14,0.98) 100%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .log-list {
+      display: flex;
+      flex-direction: column;
+      padding: 4px 0 100px;
+    }
+
+    /* ── Entry row */
+    .entry {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 10px 3px 12px;
+      border-left: 2px solid transparent;
+      animation: slideIn 0.22s ease-out;
+      flex-shrink: 0;
+    }
+    .entry.restored { animation: none; }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-7px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .e-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9.5px;
+      color: #9ca3af;
+      flex-shrink: 0;
+      letter-spacing: -0.03em;
+      min-width: 52px;
+    }
+    .e-icon {
+      font-size: 12px;
+      flex-shrink: 0;
+      width: 16px;
+      text-align: center;
+      line-height: 1;
+    }
+    .e-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Category colours (border + text) */
+    .cat-phase    { border-left-color: #818cf8; }
+    .cat-phase    .e-text { color: #c4b5fd; }
+    .cat-lights   { border-left-color: #fbbf24; }
+    .cat-lights   .e-text { color: #fcd34d; }
+    .cat-gear     { border-left-color: #2dd4bf; }
+    .cat-gear     .e-text { color: #5eead4; }
+    .cat-flaps    { border-left-color: #60a5fa; }
+    .cat-flaps    .e-text { color: #93c5fd; }
+    .cat-spoilers { border-left-color: #fb923c; }
+    .cat-spoilers .e-text { color: #fdba74; }
+    .cat-ap       { border-left-color: #22d3ee; }
+    .cat-ap       .e-text { color: #67e8f9; }
+    .cat-landing  { border-left-color: #4ade80; }
+    .cat-landing  .e-text { color: #86efac; }
+    .cat-warning  { border-left-color: #f87171; }
+    .cat-warning  .e-text { color: #fca5a5; }
+    .cat-callout  { border-left-color: #a78bfa; }
+    .cat-callout  .e-text { color: #c4b5fd; }
+    .cat-pa       { border-left-color: #6b7280; }
+    .cat-pa       .e-text { color: #9ca3af; }
+
+    /* ── Empty placeholder */
+    .empty {
+      padding: 18px 16px;
+      font-size: 10px;
+      color: #374151;
+      text-align: center;
+      letter-spacing: 0.06em;
+    }
+  </style>
+  <link rel="stylesheet" href="widget-theme.css" />
+  <link rel="stylesheet" href="compact-widget-theme.css" />
+</head>
+<body>
+
+<div class="panel">
+  <div class="panel-hdr">
+    <span class="panel-title">Event Log</span>
+    <div class="conn-dot off" id="dot"></div>
+  </div>
+  <div class="log-outer">
+    <div id="list" class="log-list"></div>
+  </div>
+</div>
+
+<script src="../telemetry-ui.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const { PHASES } = window.FlightPhases;
+  const MAX   = 50;          // max in-memory events
+  const list  = document.getElementById('list');
+  const dot   = document.getElementById('dot');
+
+  // ── In-memory log (newest first)
+  let log = [];
+
+  // ── DOM helpers
+  function buildRow(e, restored) {
+    const d = document.createElement('div');
+    d.className = 'entry cat-' + e.cat + (restored ? ' restored' : '');
+    // Use textContent to avoid XSS — icon/text fields originate from backend messages.
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'e-time';
+    timeSpan.textContent = e.time;
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'e-icon';
+    iconSpan.textContent = e.icon;
+    const textSpan = document.createElement('span');
+    textSpan.className = 'e-text';
+    textSpan.textContent = e.text;
+    d.appendChild(timeSpan);
+    d.appendChild(iconSpan);
+    d.appendChild(textSpan);
+    return d;
+  }
+
+  function renderAll() {
+    list.innerHTML = '';
+    if (!log.length) {
+      list.innerHTML = '<div class="empty">Waiting for events…</div>';
+      return;
+    }
+    for (const e of log) list.appendChild(buildRow(e, true));
+  }
+
+  // ── Push a new event
+  function push(icon, text, cat) {
+    const now  = new Date();
+    const time = now.toTimeString().slice(0, 8);
+    const e    = { time, icon, text, cat };
+    log.unshift(e);
+    if (log.length > MAX) log.length = MAX;
+
+    // Remove empty placeholder if present
+    const empty = list.querySelector('.empty');
+    if (empty) list.removeChild(empty);
+
+    list.insertBefore(buildRow(e, false), list.firstChild);
+
+    // Prune excess DOM rows
+    while (list.children.length > MAX) list.removeChild(list.lastChild);
+  }
+
+  // ── Previous-state buckets (set on first message, clear on disconnect)
+  // Gear, spoilers, overspeed, stall: change detection moved to backend.
+  let prevLights = null;
+  let prevAthr   = null;    // 'OFF' | 'ARMED' | 'ACTIVE'
+  let prevAP     = null;    // object of mode flags (null = not yet seeded)
+  let prevPhase  = null;
+  let wasSimconnectConnected = false;
+  let startupWarmupUntil = 0;
+  const STARTUP_EVENT_SQUELCH_MS = 8000;
+
+  function beginStartupWarmup() {
+    startupWarmupUntil = Date.now() + STARTUP_EVENT_SQUELCH_MS;
+  }
+
+  function isStartupWarmup() {
+    return Date.now() < startupWarmupUntil;
+  }
+
+  function clearPrev() {
+    prevLights = prevAthr = prevAP = prevPhase = null;
+  }
+
+  function clearEntries() {
+    log = [];
+    renderAll();
+  }
+
+  function resetEventLogState() {
+    clearEntries();
+    clearPrev();
+    beginStartupWarmup();
+    wasSimconnectConnected = false;
+  }
+
+  // ── Lights
+  const LIGHT_DEFS = [
+    { k: 'landing', icon: '💡', label: 'Landing Lights' },
+    { k: 'strobe',  icon: '⚡', label: 'Strobe' },
+    { k: 'beacon',  icon: '🔆', label: 'Beacon' },
+    { k: 'taxi',    icon: '🟡', label: 'Taxi Light' },
+    { k: 'nav',     icon: '🔵', label: 'Nav Lights' },
+    { k: 'wing',    icon: '💠', label: 'Wing Lights' },
+    { k: 'logo',    icon: '🏷', label: 'Logo Light' },
+  ];
+
+  function normalizeLights(data) {
+    const state = {};
+    for (const { k } of LIGHT_DEFS) {
+      if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
+      if (data[k] === null || data[k] === undefined) continue;
+      state[k] = data[k] === true || data[k] === 1 || data[k] === '1' || data[k] === 'true';
+    }
+    return state;
+  }
+
+  function onLights(data) {
+    if (!data) return;
+    if (data.available === false) return; // lights not accessible for this aircraft
+    const lights = normalizeLights(data);
+    if (!Object.keys(lights).length) return;
+    if (!prevLights || isStartupWarmup()) {
+      prevLights = { ...(prevLights || {}), ...lights };
+      return;
+    }
+    for (const { k, icon, label } of LIGHT_DEFS) {
+      if (!Object.prototype.hasOwnProperty.call(lights, k)) continue;
+      if (!Object.prototype.hasOwnProperty.call(prevLights, k)) {
+        prevLights[k] = lights[k];
+        continue;
+      }
+      const now = lights[k], was = prevLights[k];
+      if (now !== was) push(icon, label + ' ' + (now ? 'ON' : 'OFF'), 'lights');
+    }
+    prevLights = { ...prevLights, ...lights };
+  }
+
+  // ── Gear — backend sets changed/parkingBrakeChanged only on transitions.
+  function onGearFull(data) {
+    if (!data) return;
+    if (data.changed) {
+      if (data.gearState === 'DOWN') push('⬇️', 'Gear DOWN · locked', 'gear');
+      else if (data.gearState === 'UP') push('⬆️', 'Gear UP · retracted', 'gear');
+    }
+    if (data.parkingBrakeChanged) {
+      push('🅿', 'Parking Brake ' + (data.parkingBrake ? 'SET' : 'RELEASED'), 'gear');
+    }
+  }
+
+  // ── Flaps — backend sets changed:true only on notch transitions, so no
+  // change-detection or debounce needed here.
+  function onFlaps(fv) {
+    if (!fv || !fv.changed) return;
+    const label = fv.label || (fv.notch === 0 ? 'UP' : String(fv.notch));
+    push('🔧', 'Flaps → ' + label, 'flaps');
+  }
+
+  // ── Spoilers — backend sets changed:true only on state transitions.
+  function onSpoilers(sv) {
+    if (!sv || !sv.changed) return;
+    const state = sv.state || 'STOWED';
+    const icons = { STOWED: '📦', ARMED: '⚠', DEPLOYED: '⚡', 'SPEED BRAKE': '⚡' };
+    push(icons[state] || '⚡', 'Speedbrakes ' + state, 'spoilers');
+  }
+
+  // ── Autopilot
+  // A/THR is tracked as a composite 3-state value.
+  function booleanApFlag(value) {
+    if (value === true || value === 1 || value === '1' || value === 'true') return true;
+    if (value === false || value === 0 || value === '0' || value === 'false') return false;
+    return null;
+  }
+
+  function athrState(msg) {
+    const active = booleanApFlag(msg.athrActive);
+    const armed = booleanApFlag(msg.athrArmed);
+    if (active === true) return 'ACTIVE';
+    if (armed === true) return 'ARMED';
+    if (active === false && armed === false) return 'OFF';
+    return null;
+  }
+
+  // AP mode fields to track.
+  // logOff: true  → also emit when mode turns OFF
+  // logOff: false → only emit engagement (mode changes captured by new mode turning ON)
+  const AP_MODE_DEFS = [
+    { k: 'master',     icon: '✈️',  label: 'A/P',       logOff: true  },
+    { k: 'hdgHold',    icon: '🧭', label: 'HDG SEL',   logOff: false },
+    { k: 'lnavHold',   icon: '🗺', label: 'LNAV',      logOff: false },
+    { k: 'locHold',    icon: '📡', label: 'LOC',       logOff: false },
+    { k: 'altHold',    icon: '🔒', label: 'ALT HOLD',  logOff: false },
+    { k: 'vsHold',     icon: '↕️', label: 'V/S',       logOff: false },
+    { k: 'vnavHold',   icon: '🛤', label: 'VNAV',      logOff: false },
+    { k: 'lvlChgHold', icon: '🔼', label: 'LVL CHG',   logOff: false },
+    { k: 'expedHold',  icon: '⚡', label: 'EXPED',     logOff: false },
+    { k: 'apprHold',   icon: '🎯', label: 'APPR',      logOff: false },
+    { k: 'navHold',    icon: '🗺', label: 'NAV',       logOff: false },
+  ];
+
+  function seedApState(msg) {
+    const athr = athrState(msg);
+    if (athr !== null) prevAthr = athr;
+    if (prevAP === null) prevAP = {};
+    for (const { k } of AP_MODE_DEFS) {
+      const value = booleanApFlag(msg[k]);
+      if (value !== null) prevAP[k] = value;
+    }
+  }
+
+  function onAP(msg) {
+    if (!msg) return;
+    if (isStartupWarmup()) {
+      seedApState(msg);
+      return;
+    }
+
+    // ── A/THR composite
+    const athr = athrState(msg);
+    if (athr !== null) {
+      if (prevAthr === null) {
+        prevAthr = athr;
+      } else if (athr !== prevAthr) {
+        const icons = { ACTIVE: '🎯', ARMED: '🎯', OFF: '🎯' };
+        push(icons[athr], 'A/THR ' + athr, 'ap');
+        prevAthr = athr;
+      }
+    }
+
+    // ── AP modes
+    if (prevAP === null) {
+      // Seed baseline — no events for initial state
+      prevAP = {};
+      for (const { k } of AP_MODE_DEFS) prevAP[k] = booleanApFlag(msg[k]);
+      return;
+    }
+
+    for (const { k, icon, label, logOff } of AP_MODE_DEFS) {
+      const was = prevAP[k];
+      const now = booleanApFlag(msg[k]);
+      if (now === null) continue;
+      if (now === was) continue;
+      // navHold: skip if lnavHold is also non-null (PMDG uses lnavHold, navHold would double-log)
+      if (k === 'navHold' && msg.lnavHold != null) { prevAP[k] = now; continue; }
+      if (now === true && was !== true)
+        push(icon, label + ' ON', 'ap');
+      else if (logOff && now !== true && was === true)
+        push(icon, label + ' OFF', 'ap');
+      prevAP[k] = now;
+    }
+  }
+
+  // ── Phase
+  const PHASE_ICONS = {
+    [PHASES.PARKED]: '🅿',
+    [PHASES.TAXI]: '🛞',
+    [PHASES.TAKEOFF]: '🛫',
+    [PHASES.CLIMB]: '📈',
+    [PHASES.CRUISE]: '✈',
+    [PHASES.DESCENT]: '📉',
+    [PHASES.APPROACH]: '🎯',
+    [PHASES.LANDING]: '🛬',
+    [PHASES.TAXI_IN]: '🛞',
+    [PHASES.GO_AROUND]: '↩',
+  };
+
+  function onPhase(val) {
+    if (!val || val === prevPhase) return;
+    if (!prevPhase) {
+      prevPhase = val;
+      return;
+    } // seed without logging
+
+
+    push(PHASE_ICONS[val] || '✈', val.replace(/_/g, ' '), 'phase');
+    prevPhase = val;
+  }
+
+  function onSimState(msg) {
+    const connected = msg.simconnectConnected === true;
+    if (wasSimconnectConnected && !connected) {
+      resetEventLogState();
+      wasSimconnectConnected = false;
+      return;
+    }
+    wasSimconnectConnected = connected;
+  }
+
+  // ── Landing
+  function onLanding(msg) {
+    if (!msg.final) return;
+    const grade = msg.grade || '--';
+    const vs    = msg.vs    != null ? Math.round(msg.vs) + ' fpm' : '';
+    const g     = msg.gforce!= null ? msg.gforce.toFixed(1) + 'G'  : '';
+    const parts = [grade, vs, g].filter(Boolean).join(' · ');
+    push('🛬', 'Landed · ' + parts, 'landing');
+  }
+
+  // ── Callouts
+  function onCallout(msg) {
+    if (!msg || msg.altitude == null) return;
+    push('🔊', msg.altitude + ' ft', 'callout');
+  }
+
+  // ── Cabin PA
+  const PA_LABELS = {
+    [PHASES.TAXI]: 'Pre-departure briefing',
+    [PHASES.CLIMB]: 'Seatbelts on',
+    [PHASES.CRUISE]: 'Seatbelt sign off',
+    [PHASES.DESCENT]: 'Descent announcement',
+    [PHASES.APPROACH]: 'Final approach',
+    [PHASES.TAXI_IN]: 'Welcome / arrival',
+    'ABOVE_10K': 'Passing 10,000 ft (climb)',
+    'BELOW_10K': 'Passing 10,000 ft (descent)',
+  };
+  function onCabinAnnouncement(msg) {
+    if (!msg || !msg.phase) return;
+    const label = PA_LABELS[msg.phase] || msg.phase;
+    push('📢', 'PA · ' + label, 'pa');
+  }
+
+  // ── Warnings — backend event bus fires once on rising edge (active:true)
+  // and once on falling edge (active:false). Only log activation.
+  function onOverspeed(active) {
+    if (active) push('⚠️', 'OVERSPEED', 'warning');
+  }
+  function onStall(active) {
+    if (active) push('⚠️', 'STALL WARNING', 'warning');
+  }
+
+  // ── Message dispatcher
+  TelemetryUI.onMessage(function (msg) {
+    switch (msg.type) {
+      case 'aircraftChanged': resetEventLogState();         break;
+      case 'simState':        onSimState(msg);              break;
+      case 'lights':    onLights(msg.data);     break;
+      case 'gear':      onGearFull(msg.data);   break;
+      case 'flaps':     onFlaps(msg.value);     break;
+      case 'spoilers':  onSpoilers(msg.value);  break;
+      case 'autopilot': onAP(msg);              break;
+      case 'phase':     onPhase(msg.value);     break;
+      case 'landing':   onLanding(msg);         break;
+      case 'callout':   onCallout(msg);         break;
+      case 'overspeed': onOverspeed(!!msg.active); break;
+      case 'stall':            onStall(!!msg.active);    break;
+      case 'flightViolation':
+        if (msg.event === 'start') push('⚠️', 'UPSET: ' + msg.label, 'warning');
+        break;
+      case 'cabinAnnouncement': onCabinAnnouncement(msg); break;
+    }
+  });
+
+  // On WS disconnect: clear prev-state so reconnection seeds a fresh baseline
+  // (avoids false events like "AP OFF" when backend restarts with AP already on)
+  TelemetryUI.onConnectionChange(
+    function ()  { dot.className = 'conn-dot on'; },
+    function ()  {
+      dot.className = 'conn-dot off';
+      resetEventLogState();
+    }
+  );
+
+  // ── Init
+  resetEventLogState();
+  TelemetryUI.connect();
+})();
+</script>
+</body>
+</html>

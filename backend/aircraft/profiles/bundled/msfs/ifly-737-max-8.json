@@ -1,0 +1,228 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "ifly-737-max-8",
+  "name": "iFly Boeing 737 MAX 8",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-07-24T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/boeing-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "_comment": "737 MAX 8 uses the Boeing 737 family detent set in simulator handle-index order.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 25,
+          "label": "25"
+        },
+        {
+          "value": 30,
+          "label": "30"
+        },
+        {
+          "value": 40,
+          "label": "40"
+        }
+      ],
+      "landingNotches": [
+        30,
+        40
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 25,
+      "pitch": {
+        "minDeg": -5,
+        "maxDeg": 12
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -500,
+        "hardMinFpm": -600,
+        "_comment": "737 family touchdown bands aligned with the generic 737 reference envelope."
+      }
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "ifly-737-max-8"
+    },
+    "matching": {
+      "priority": 103,
+      "titleContains": [
+        "iFly 737 MAX 8",
+        "iFly 737 MAX8",
+        "iFly MAX 8",
+        "iFly MAX8",
+        "iFly Boeing 737 MAX 8",
+        "iFly Jets 737 MAX8"
+      ],
+      "titleRegex": "ifly.*(737|b737).*max\\s*8|ifly.*max\\s*8|737[- ]?max8.*ifly|737\\s*max\\s*8.*ifly",
+      "configPathContains": [
+        "ifly-aircraft-737max8",
+        "ifly_737max8",
+        "ifly-737max8"
+      ],
+      "configPathRegex": "ifly.*737\\s*max\\s*8|ifly[-_a-z0-9]*737max8|737max8.*ifly",
+      "aircraftCfg": {
+        "_comment": "Use aircraft.cfg as high-confidence fallback only when the B38M type designator is paired with iFly variation evidence.",
+        "equals": {
+          "icao_type_designator": "B38M"
+        },
+        "containsAny": {
+          "title": [
+            "iFly 737 MAX 8",
+            "iFly 737 MAX8",
+            "iFly Boeing 737 MAX 8",
+            "iFly Jets 737 MAX8"
+          ],
+          "ui_manufacturer": "iFly",
+          "ui_createdby": "iFly"
+        }
+      }
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "_comment": "No iFly-specific LVAR is active. The dedicated page uses standard SimConnect fields exclusively because aircraft-specific readback semantics lack vendor documentation and in-simulator verification.",
+      "spoilers": {
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "No custom cockpit writes are active. This iFly profile allows only Flight Fabric's narrow standard gear/flaps surface fallback."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iFly / Flight1",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-07-24",
+    "status": "experimental",
+    "notes": "Conservative iFly 737 MAX 8 profile with a dedicated monitoring-only aircraft page. Its trusted adapter exposes only normalized standard SimVars; unverified aircraft-specific MCP/AFDS light readbacks are inactive. It blocks custom cockpit writes and retains only the narrow standard gear/flaps surface fallback."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Flight1 iFly 737 MAX8 for MSFS product page",
+        "url": "https://www.flight1.com/products.asp?pid=iflymax8&vid=flt1sf",
+        "retrievedAt": "2026-06-09",
+        "notes": "Official product identity for the iFly 737 MAX8 for MSFS package."
+      },
+      {
+        "type": "official-docs",
+        "name": "Boeing 737 MAX Airplane Characteristics for Airport Planning",
+        "url": "https://www.boeing.com/content/dam/boeing/boeingdotcom/commercial/airports/acaps/737MAX_RevK.pdf",
+        "retrievedAt": "2026-06-09",
+        "notes": "Boeing 737 MAX family reference used for aircraft identity and category context."
+      },
+      {
+        "type": "official-docs",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Simulation_Variables.htm",
+        "retrievedAt": "2026-07-17",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted iFly adapter exposes only an explicit backend allowlist of normalized standard SimVars; undocumented aircraft-specific readbacks are inactive."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-17",
+      "knownIssues": [
+        "Exact MSFS title strings for the iFly aircraft remain unverified in-sim.",
+        "Validate MSFS 2024 runtime behavior before changing this profile's experimental status.",
+        "The dedicated page is monitoring-only. Its documented standard-SimVar fields require validation against the target iFly build; complex-aircraft MCP and system mirrors may be unavailable or incomplete.",
+        "Aircraft-specific readbacks remain absent from the active profile and adapter pending vendor documentation and in-sim verification.",
+        "AP master maps the standard simulator state only; CMD B, N1, and SPEED readbacks remain unavailable pending vendor documentation and live validation.",
+        "MCP speed, heading, altitude, and vertical speed stay on standard SimConnect telemetry.",
+        "No custom cockpit writes are active; only standard gear/flaps fallback is enabled."
+      ]
+    },
+    "dataQuality": {
+      "flaps": "documented",
+      "gear": "generic",
+      "spoilers": "generic",
+      "lights": "generic"
+    }
+  }
+}

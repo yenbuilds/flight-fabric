@@ -1,0 +1,12 @@
+type HeadingInput = Record<string, unknown> | null | undefined;
+export declare function finiteNumberOrNull(value: unknown): number | null;
+export declare function firstFiniteNumber(...values: unknown[]): number | null;
+export declare function normalizeHeadingDegrees(value: unknown): number | null;
+export declare function deriveTrueHeadingFromMagnetic(magneticHeadingDeg: unknown, magvarDeg: unknown): number | null;
+export declare function deriveMagneticHeadingFromTrue(trueHeadingDeg: unknown, magvarDeg: unknown): number | null;
+export declare function headingDifferenceDegrees(leftHeadingDeg: unknown, rightHeadingDeg: unknown): number | null;
+export declare function roundedHeadingDifferenceDegrees(leftHeadingDeg: unknown, rightHeadingDeg: unknown, precision?: number): number | null;
+export declare function getMagvarDeg(input: HeadingInput): number | null;
+export declare function getAircraftTrueHeadingDeg(input: HeadingInput): number | null;
+export declare function getRunwayTrueHeadingDeg(input: HeadingInput): number | null;
+export {};

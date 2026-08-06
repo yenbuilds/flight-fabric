@@ -1,0 +1,484 @@
+:root {
+  color-scheme: dark;
+  --compact-accent: #22d3ee;
+  --compact-accent-rgb: 34, 211, 238;
+  --compact-surface: rgba(7, 12, 18, 0.94);
+  --compact-surface-soft: rgba(12, 18, 27, 0.9);
+  --compact-border: rgba(116, 135, 159, 0.28);
+  --compact-border-soft: rgba(116, 135, 159, 0.14);
+  --compact-text: #edf4fb;
+  --compact-muted: #9aabba;
+  --compact-dim: #617287;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body,
+.tabular,
+.panel-title,
+.branding-tag,
+.phase-label,
+.section-label,
+.sub-label,
+.sys-label,
+.data-label,
+.dest-strip-label,
+.dest-strip-text,
+.route-label,
+.compact-route-label,
+.compact-route-string,
+.vis-label,
+.label-name,
+.data-value,
+.data-value.secondary,
+.sys-value,
+.target-value,
+.primary-value,
+.sub-value,
+.stability-value,
+.label-val,
+.grade-badge,
+.surface-badge,
+.phase-badge,
+.stability-mini {
+  letter-spacing: 0 !important;
+}
+
+.strip-container,
+.panel,
+.pfd-panel {
+  background:
+    linear-gradient(180deg, rgba(17, 24, 34, 0.88), var(--compact-surface)),
+    linear-gradient(90deg, rgba(var(--compact-accent-rgb), 0.08), rgba(16, 185, 129, 0.05)) !important;
+  border-color: var(--compact-border) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22) !important;
+  backdrop-filter: blur(14px) saturate(1.08) !important;
+}
+
+.strip-header,
+.panel-header,
+.panel-hdr {
+  min-height: 18px !important;
+  padding: 2px 10px !important;
+  background: rgba(4, 8, 13, 0.34) !important;
+  border-bottom-color: var(--compact-border-soft) !important;
+}
+
+.compact-top-header {
+  display: grid !important;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  column-gap: 14px;
+  align-items: center;
+}
+
+.strip-header > .flex,
+.panel-header > .flex,
+.panel-hdr > .flex {
+  gap: 8px !important;
+}
+
+.branding-tag {
+  display: none !important;
+}
+
+.status-dot,
+.conn-dot {
+  width: 7px !important;
+  height: 7px !important;
+}
+
+.phase-badge,
+.grade-badge,
+.surface-badge,
+.mode-badge,
+.ap-badge,
+.brake-badge,
+.light-mini {
+  border-radius: 3px !important;
+}
+
+.phase-badge {
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+}
+
+.aircraft-name {
+  max-width: 220px !important;
+  font-size: 9px !important;
+}
+
+.content-row,
+.strip-section,
+.compact-bottom-systems {
+  padding: 3px 10px !important;
+}
+
+.strip-row {
+  min-height: 32px !important;
+  gap: 0 !important;
+  overflow: visible;
+}
+
+.compact-bottom-systems > .flex {
+  min-height: 32px !important;
+  gap: 0 !important;
+  overflow: hidden;
+}
+
+.data-group {
+  gap: 3px !important;
+  white-space: nowrap;
+}
+
+.data-label,
+.sys-label,
+.vis-label {
+  min-width: 0 !important;
+  font-size: 10px !important;
+  color: var(--compact-muted) !important;
+}
+
+.vis-label {
+  font-size: 9px !important;
+}
+
+.data-value {
+  font-size: 19px !important;
+}
+
+.data-value.secondary {
+  font-size: 15px !important;
+}
+
+.data-unit {
+  font-size: 10px !important;
+  color: var(--compact-muted) !important;
+}
+
+.sys-value {
+  font-size: 12px !important;
+}
+
+.section-divider {
+  height: 22px !important;
+  margin: 0 8px !important;
+}
+
+.bar-divider {
+  height: 18px !important;
+  margin: 0 7px !important;
+}
+
+.gear-dot-mini {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+.light-mini,
+.ap-badge,
+.brake-badge {
+  padding: 2px 6px !important;
+  font-size: 10px !important;
+}
+
+#alt-canvas-wrap,
+#alt-profile,
+#eng-canvas-wrap,
+#eng-mix-chart {
+  height: 24px !important;
+}
+
+#alt-canvas-wrap {
+  flex: 0 0 118px !important;
+  width: 118px !important;
+  min-width: 118px !important;
+}
+
+#eng-canvas-wrap {
+  flex: 0 0 104px !important;
+  width: 104px !important;
+  min-width: 104px !important;
+}
+
+.compact-route-wrap {
+  display: none;
+  flex: 1 1 420px;
+  min-width: 280px;
+  align-items: flex-start;
+  gap: 7px;
+  margin-left: 8px;
+  padding-left: 10px;
+  border-left: 1px solid var(--compact-border-soft);
+}
+
+.compact-route-wrap.visible {
+  display: flex !important;
+}
+
+.compact-route-label {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  font-family: var(--font-ui);
+  font-size: 8px !important;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--compact-muted) !important;
+  text-transform: uppercase;
+}
+
+.compact-route-string {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 8px !important;
+  font-weight: 650;
+  line-height: 1.16;
+  color: var(--compact-text) !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-shadow: 0 0 10px rgba(var(--compact-accent-rgb), 0.12);
+}
+
+.route-row {
+  padding: 2px 10px 3px !important;
+}
+
+.route-label,
+.route-string {
+  font-size: 10px !important;
+  line-height: 1.15 !important;
+}
+
+#landing-row {
+  padding: 3px 10px !important;
+}
+
+.stability-value {
+  font-size: 16px !important;
+}
+
+.stability-mini {
+  max-width: 360px;
+  font-size: 10px !important;
+}
+
+.grade-badge {
+  padding: 3px 9px !important;
+  font-size: 12px !important;
+}
+
+.dest-strip-wrap {
+  padding: 3px 10px 4px !important;
+  gap: 6px !important;
+}
+
+.dest-strip-label,
+.dest-strip-text {
+  font-size: 9px !important;
+}
+
+.dest-strip-bar {
+  height: 4px !important;
+}
+
+.dest-strip-fill {
+  height: 100% !important;
+  width: 0%;
+  background: linear-gradient(90deg, var(--compact-accent), #34d399) !important;
+  border-radius: inherit;
+  transition: width 0.25s ease;
+}
+
+.compact-header-progress {
+  display: grid !important;
+  visibility: hidden;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.compact-header-progress.visible {
+  display: grid !important;
+  visibility: visible;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+}
+
+.compact-header-progress .dest-strip-label {
+  min-width: 0 !important;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--compact-muted) !important;
+}
+
+.compact-header-progress .dest-strip-bar {
+  width: 100%;
+  min-width: 120px;
+  height: 4px !important;
+}
+
+.compact-header-progress .dest-strip-text {
+  min-width: 82px !important;
+  text-align: right !important;
+  white-space: nowrap;
+  color: var(--compact-text) !important;
+}
+
+.compact-bottom-systems {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.compact-bottom-systems > .flex {
+  gap: 14px !important;
+  flex-wrap: nowrap;
+}
+
+.panel {
+  border-radius: 6px !important;
+}
+
+.panel-header,
+.panel-hdr {
+  padding: 3px 8px !important;
+}
+
+.data-section {
+  padding: 5px 8px !important;
+}
+
+.engagement-row {
+  padding: 4px 8px !important;
+}
+
+.target-value {
+  font-size: 22px !important;
+}
+
+.primary-value {
+  font-size: 24px !important;
+}
+
+.sub-value,
+.target-unit,
+.primary-unit {
+  font-size: 10px !important;
+}
+
+.mode-badge {
+  padding: 2px 4px !important;
+  font-size: 9px !important;
+}
+
+.rwy-context {
+  padding: 4px 8px !important;
+}
+
+.log-outer {
+  height: 320px !important;
+}
+
+.panel-hdr + .log-outer .entry,
+.entry {
+  gap: 5px !important;
+  padding: 2px 8px !important;
+}
+
+.e-time {
+  min-width: 46px !important;
+  font-size: 9px !important;
+}
+
+.e-icon {
+  width: 14px !important;
+  font-size: 10px !important;
+}
+
+.e-text {
+  font-size: 10px !important;
+}
+
+.content {
+  padding: 6px 8px !important;
+  gap: 6px !important;
+}
+
+.labels {
+  gap: 5px !important;
+}
+
+.label-name {
+  font-size: 8px !important;
+}
+
+.label-val {
+  font-size: 11px !important;
+}
+
+.pfd-panel {
+  width: 148px !important;
+  padding: 2px !important;
+  gap: 2px !important;
+}
+
+.hdg-wrap {
+  height: 22px !important;
+}
+
+.pfd-main {
+  height: 128px !important;
+}
+
+.spd-wrap {
+  width: 30px !important;
+}
+
+.alt-wrap {
+  width: 34px !important;
+}
+
+.readouts {
+  padding-top: 1px !important;
+  font-size: 7px !important;
+}
+
+@media (max-width: 780px) {
+  .strip-row,
+  .compact-bottom-systems > .flex {
+    gap: 8px !important;
+  }
+
+  .section-divider,
+  .bar-divider {
+    margin: 0 5px !important;
+  }
+
+  .data-value {
+    font-size: 17px !important;
+  }
+
+  .data-value.secondary {
+    font-size: 14px !important;
+  }
+
+  .compact-top-header {
+    grid-template-columns: minmax(180px, 1fr) auto;
+    column-gap: 8px;
+  }
+
+  .compact-header-progress.visible {
+    column-gap: 6px;
+  }
+
+  .aircraft-name {
+    max-width: 140px !important;
+  }
+}

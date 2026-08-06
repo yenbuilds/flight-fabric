@@ -1,0 +1,96 @@
+{
+  "$schema": "./release-profile.schema.json",
+  "name": "user",
+  "displayName": "Flight Fabric (User Edition)",
+  "description": "Core telemetry and overlays for end users. No account or sign-in is required.",
+  
+  "include": {
+    "backend_dirs": [
+      "core",
+      "analysis",
+      "cabin-announcements",
+      "lifecycle",
+      "flight-recording",
+      "history-index",
+      "flight-violations",
+      "landing",
+      "stability",
+      "aircraft",
+      "events",
+      "utils",
+      "telemetry-provider",
+      "data-sync"
+    ],
+    "frontend": [
+      "index.html",
+      "app-settings-shared.js",
+      "src/app/bootstrap.js"
+    ],
+    "tools": [],
+    "root": [
+      "package.json",
+      "start-simbridge.bat"
+    ]
+  },
+  
+  "exclude_patterns": [
+    "**/*.test.js",
+    "**/test-*.js",
+    "**/*.spec.js",
+    "**/__tests__/**",
+    "**/_quickstart.json",
+    "**/_template*.json",
+    "**/_template/**",
+    "**/generate-flight-timeline.js",
+    "**/tests/data/**",
+    "**/*.md",
+    "**/*.pdf",
+    "**/*.doc",
+    "**/*.docx",
+    "**/*.txt",
+    "**/README*",
+    "**/CHANGELOG*",
+    "**/LICENSE*",
+    "**/*.map",
+    "**/*.log",
+    "**/*.bak",
+    "**/*.example",
+    "**/.gitignore",
+    "**/.eslintrc*",
+    "**/.prettierrc*",
+    "**/package-lock.json",
+    "**/*.schema.json",
+    "**/credentials/**",
+    "**/*-creds.json",
+    "**/*-credentials.json",
+    "**/*-secret*",
+    "**/*-api-key*",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.crt",
+    "**/*.pfx",
+    "**/.env",
+    "**/.env.local",
+    "**/.env.production",
+    "**/*.secrets",
+    "**/__pycache__/**",
+    "backend/telemetry-provider/rust-simconnect-sidecar/**",
+    "backend/telemetry-provider/**/*.py",
+    "backend/telemetry-provider/mock-provider.*",
+    "telemetry-provider/mock-provider.*",
+    "tests/backend/**"
+  ],
+  
+  "exclude_sensitive": [
+    ".env",
+    ".env.local",
+    ".msfs-telemetry-user-id",
+    "credentials/**",
+    "**/*.key",
+    "**/*.pem",
+    "**/*secret*",
+    "**/*token*"
+  ],
+
+  "_comment": "User release profile. Development tests and sensitive local files are excluded; optional network features remain feature-gated."
+}

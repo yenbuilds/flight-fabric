@@ -1,0 +1,208 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "workingtitle-citation-longitude",
+  "name": "Working Title Cessna Citation Longitude",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-06-09T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "_comment": "Longitude operator guide documents four flap detents: UP 0 degrees, 1 at 7 degrees limited to 250 KIAS, 2 at 15 degrees limited to 230 KIAS, and FULL at 35 degrees limited to 180 KIAS.",
+      "notches": [
+        {
+          "value": 0,
+          "label": "UP"
+        },
+        {
+          "value": 1,
+          "label": "1"
+        },
+        {
+          "value": 2,
+          "label": "2"
+        },
+        {
+          "value": 35,
+          "label": "FULL"
+        }
+      ],
+      "landingNotches": [
+        35
+      ]
+    },
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 15
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 15,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 12
+      },
+      "stabilizedGates": {
+        "imcRaFt": 1000,
+        "vmcRaFt": 500
+      }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -100,
+        "goodMinFpm": -220,
+        "firmMinFpm": -450,
+        "hardMinFpm": -600,
+        "_comment": "Provisional super-midsize jet landing bands pending Longitude-specific in-sim verification."
+      }
+    },
+    "phaseThresholds": {
+      "taxiMaxKts": 80,
+      "parkedMaxKts": 2,
+      "takeoffRollMinIasKts": 55,
+      "takeoffMinIasKts": 100,
+      "takeoffMinVsFpm": 500,
+      "takeoffMaxRaFt": 200,
+      "climbMinVsFpm": 700,
+      "climbMinRaFt": 200,
+      "cruiseMinRaFt": 5000,
+      "cruiseMaxVsAbsFpm": 800,
+      "descentMinRaFt": 1500,
+      "descentMinVsFpm": 450,
+      "approachMaxRaFt": 1000,
+      "approachMinVsFpm": 200,
+      "landingMaxRaFt": 50,
+      "landingMinVsFpm": 100,
+      "taxiInMaxKts": 60
+    },
+    "throttle": {
+      "type": "servo"
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 86,
+      "titleContains": [
+        "Cessna Citation Longitude",
+        "Citation Longitude",
+        "Longitude",
+        "Cessna Model 700",
+        "Model 700"
+      ],
+      "titleRegex": "citation\\s*longitude|\\blongitude\\b|model\\s*700",
+      "configPathContains": [
+        "asobo-aircraft-longitude",
+        "asobo-longitude",
+        "microsoft-aircraft-longitude",
+        "workingtitle-longitude"
+      ],
+      "configPathRegex": "(asobo|microsoft|workingtitle).*(longitude|model[-_ ]?700)|(longitude|model[-_ ]?700).*(asobo|microsoft|workingtitle)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses documented standard SimVars only; no Working Title-specific telemetry routes are enabled."
+      },
+      "spoilers": {
+        "_comment": "The Longitude guide documents speedbrakes and automated ground spoilers but does not define an external armed/readback variable, so this profile uses standard percent handling only.",
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. Autothrottle, TO/GA, FMS, autopilot/FGP, speedbrake, and ground-spoiler writes remain unavailable until verified."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "recognition"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "recognition": "RECOG"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Working Title / Microsoft",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ],
+    "updated": "2026-06-09",
+    "status": "partial",
+    "notes": "Source-backed profile for the Premium Deluxe Cessna Citation Longitude. The Working Title operator guide gives strong flap and speedbrake context but does not define an external variable/control interface, so custom telemetry and cockpit writes stay inactive."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-06-09",
+        "notes": "Lists Cessna Citation Longitude as included with Microsoft Flight Simulator 2024 Premium Deluxe and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Provides a Cessna Citation Longitude Model 700 operator's guide from Working Title. The page does not publish an external telemetry/control variable map."
+      },
+      {
+        "type": "official-docs",
+        "name": "Cessna Citation Longitude Model 700 Operator's Guide",
+        "url": "https://flightsimulator.azureedge.net/wp-content/uploads/2023/02/Cessna-Model-700-Operators-Guide.pdf",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents Longitude flaps UP/1/2/FULL with 0/7/15/35 degrees and VFE limits of 250/230/180 KIAS, speedbrakes, automated ground spoilers, and go-around procedure. No external LVAR/B-var/control variable list is provided."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. This profile intentionally activates no aircraft-specific L: or B: variables."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-06-09",
+      "knownIssues": [
+        "Exact MSFS 2024 Longitude title strings remain unverified in-sim.",
+        "Flap detents are manual-backed, but their runtime handle-index order still needs in-sim verification.",
+        "The cited sources do not define a Longitude external LVAR, B-var, or input-event map.",
+        "Autothrottle, TO/GA, autopilot/FGP, speedbrake, and spoiler-arm controls remain unavailable until exact semantic writes are verified."
+      ]
+    }
+  }
+}

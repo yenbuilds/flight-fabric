@@ -1,0 +1,84 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "airbus-base",
+  "name": "Airbus Base Profile",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2024-12-20T00:00:00Z",
+  "updatedAt": "2024-12-21T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": true,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "No shared flap detents: Airbus-family base matching is too broad for authoritative notch metadata. Specific aircraft profiles must supply source-backed detents when needed.",
+    "stability": {
+      "speedBand": {
+        "belowVrefKts": 5,
+        "aboveVrefKts": 10
+      },
+      "vsLimits": {
+        "downFpm": 1000,
+        "upFpm": 200
+      },
+      "thrustMinPct": 25,
+      "pitch": {
+        "minDeg": -3,
+        "maxDeg": 12
+      }
+    },
+    "phaseThresholds": {
+      "_comment": "Jet aircraft phase detection thresholds - same as Boeing",
+      "taxiMaxKts": 80,
+      "parkedMaxKts": 2,
+      "takeoffRollMinIasKts": 60,
+      "takeoffMinIasKts": 120,
+      "takeoffMinVsFpm": 600,
+      "takeoffMaxRaFt": 200,
+      "climbMinVsFpm": 700,
+      "climbMinRaFt": 200,
+      "cruiseMinRaFt": 5000,
+      "cruiseMaxVsAbsFpm": 800,
+      "descentMinRaFt": 1500,
+      "descentMinVsFpm": 450,
+      "approachMaxRaFt": 1000,
+      "approachMinVsFpm": 200,
+      "landingMaxRaFt": 50,
+      "landingMinVsFpm": 100,
+      "taxiInMaxKts": 60
+    },
+    "throttle": {
+      "type": "detent"
+    },
+    "engines": {
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 0,
+      "titleRegex": "airbus|a3\\d+"
+    },
+    "telemetry": {
+      "spoilers": {
+        "_comment": "Airbus default: auto-detect scale. Override with LVARs for specific add-ons.",
+        "scale": "auto",
+        "maxValue": null,
+        "armedValue": null
+      },
+      "lights": {}
+    },
+    "presentation": {}
+  },
+  "meta": {
+    "notes": "Base profile for Airbus aircraft. Extend this for specific types.",
+    "platforms": [
+      "msfs2020",
+      "msfs2024"
+    ]
+  },
+  "provenance": {}
+}

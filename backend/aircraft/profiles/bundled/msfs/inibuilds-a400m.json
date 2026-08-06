@@ -1,0 +1,142 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a400m",
+  "name": "iniBuilds Airbus A400M Atlas (MSFS 2024)",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-06-09T00:00:00Z",
+  "updatedAt": "2026-06-09T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/turboprop-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "C",
+    "_commentFlaps": "Aircraft-specific flap detents are not defined because the cited sources do not establish A400M handle positions and runtime flap percentages. Use physical flap angle or raw percent until exact detents are documented and verified.",
+    "engines": {
+      "count": 4,
+      "type": "turboprop"
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -250,
+        "firmMinFpm": -500,
+        "hardMinFpm": -700,
+        "_comment": "Conservative transport-aircraft landing bands. Flap and approach-speed detail remains unprofiled until A400M detents are verified."
+      }
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 87,
+      "titleContains": [
+        "iniBuilds A400M",
+        "iniBuilds A400M Atlas",
+        "iniBuilds Airbus A400M",
+        "Microsoft A400M"
+      ],
+      "titleRegex": "(inibuilds|microsoft).*(a400\\s*m|a400m|atlas)|(a400\\s*m|a400m|atlas).*(inibuilds|microsoft)",
+      "configPathContains": [
+        "inibuilds-a400m",
+        "inibuilds_a400m",
+        "inibuilds-aircraft-a400m",
+        "microsoft-aircraft-a400m"
+      ],
+      "configPathRegex": "(inibuilds|microsoft).*(a400m|a400[-_ ]?m|atlas)|(a400m|a400[-_ ]?m|atlas).*(inibuilds|microsoft)"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "This profile uses documented standard SimVars only; no iniBuilds-specific telemetry routes are enabled."
+      },
+      "spoilers": {
+        "_comment": "The A400M quick reference mentions arming ground spoilers but does not define an external readback. Use standard SimConnect spoiler handling pending a vendor-documented and in-sim-verified source.",
+        "scale": "percent"
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Only standard gear/flaps surface fallback is allowed. Engine master, propeller, spoiler-arm, FMGES, and other A400M-specific writes remain unavailable until verified."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iniBuilds / Microsoft",
+    "platforms": [
+      "msfs2024"
+    ],
+    "updated": "2026-06-09",
+    "status": "partial",
+    "notes": "Profile for the included MSFS 2024 Airbus A400M Atlas. The cited public manual and quick-reference material does not define flap detent details or an external control interface, so the profile records product identity and four-turboprop transport semantics while leaving custom telemetry and cockpit writes inactive."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
+        "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
+        "retrievedAt": "2026-06-09",
+        "notes": "Lists the Airbus A400M Atlas as included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
+      },
+      {
+        "type": "official-docs",
+        "name": "Microsoft Flight Simulator - Aircraft Manuals",
+        "url": "https://www.flightsimulator.com/aircraft-manuals/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Provides an Airbus A400M Version 1 manual and A400M Quick Reference Card from iniBuilds. The page does not publish an external telemetry/control variable map."
+      },
+      {
+        "type": "official-docs",
+        "name": "Airbus A400M Atlas for Microsoft Flight Simulator - Quick Reference Card",
+        "url": "https://flightsimulator.azureedge.net/wp-content/uploads/2024/11/Airbus-A400M-QRC.pdf",
+        "retrievedAt": "2026-06-09",
+        "notes": "Checklist source confirms A400M-specific operating steps such as ENG Master FEATHER/RUN, Auto Brakes HI/RTO, Ground Spoilers Arm/Disarm, and Flaps Set/Retracted. These are not active controls because no external variable/event semantics are published."
+      },
+      {
+        "type": "official-sdk",
+        "name": "MSFS 2024 Avionics Framework - SimVars",
+        "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
+        "retrievedAt": "2026-06-09",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. This profile intentionally activates no aircraft-specific L: or B: variables."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-06-09",
+      "knownIssues": [
+        "Exact MSFS 2024 A400M title strings remain unverified in-sim.",
+        "A400M flap detents and runtime flap percentages are not confirmed, so this profile intentionally defines no flap notch table.",
+        "The official manual/QRC does not provide external LVAR/B-var/input-event names for telemetry or controls.",
+        "Engine master, propeller, spoiler-arm, autobrake, and FMGES controls remain unavailable until exact variables/events are verified."
+      ]
+    }
+  }
+}

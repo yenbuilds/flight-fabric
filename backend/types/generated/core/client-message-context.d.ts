@@ -1,0 +1,28 @@
+export type ClientMessageContextState = {
+    lastSimState: unknown;
+    getPhase: unknown;
+    flightCsvWriter: unknown;
+    flightCsvStore?: unknown;
+    recordingBundleGuard: unknown;
+    flightActive: unknown;
+    flightId: unknown;
+    flightStartIso: unknown;
+    flightStartAircraftTitle: unknown;
+    recordingSession: unknown;
+    startFlightManual: unknown;
+    endFlight: unknown;
+    getDestinationTarget: unknown;
+    setDestinationTarget: unknown;
+    clearDestinationTarget: unknown;
+    getOriginTarget: unknown;
+    setOriginTarget: unknown;
+    clearOriginTarget: unknown;
+    replayMessages: unknown;
+    provider: unknown;
+    broadcast: unknown;
+    getCabinAnnouncementsConfig?: unknown;
+    reconfigureCabinAnnouncements?: unknown;
+    timeNow: unknown;
+    Debug: unknown;
+};
+export declare function buildClientMessageContext(state: ClientMessageContextState): ClientMessageContextState;

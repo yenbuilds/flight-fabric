@@ -1,0 +1,37 @@
+/*
+ * Flight Fabric — Theme: Default (Glass Cockpit)
+ * Teal/cyan accent on deep blue-black surfaces.
+ * This is the factory look — no overrides needed unless switching back from
+ * another theme.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Tailwind color tokens */
+  --color-surface:     10 14 20;
+  --color-surface-50:  17 25 35;
+  --color-surface-100: 21 29 40;
+  --color-surface-200: 28 38 51;
+  --color-surface-300: 42 53 69;
+  --color-accent:      0 212 255;
+  --color-accent-warm: 212 168 83;
+  --color-danger:      239 68 68;
+  --color-warning:     245 158 11;
+  --color-success:     0 224 112;
+
+  /* Custom CSS shorthands */
+  --th-accent:          #00d4ff;
+  --th-accent-rgb:      0, 212, 255;
+  --th-surface-base:    #0a0e14;
+  --th-surface-50:      #111923;
+  --th-surface-75:      #0d1420;
+  --th-surface-100:     #151d28;
+  --th-surface-200:     #1c2633;
+  --th-surface-300:     #2a3545;
+  --th-surface-50-rgb:  17, 25, 35;
+  --th-surface-100-rgb: 21, 29, 40;
+  --th-surface-300-rgb: 42, 53, 69;
+
+  --th-scanlines: 0;
+}
