@@ -77,50 +77,68 @@ function previewUnavailableReason(value) {
       </dl>
     </div>
 
-    <section
+    <details
       v-if="timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId"
+      :key="timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId"
       id="timeline-analysis-rescore"
-      class="border-t border-surface-200/70 px-3 py-3 sm:px-4"
+      class="group border-t border-surface-200/70"
       aria-labelledby="timeline-analysis-rescore-title"
     >
-      <div class="flex flex-wrap items-start justify-between gap-2">
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-2">
-            <h3 id="timeline-analysis-rescore-title" class="text-xs font-semibold text-gray-300">All landing analysis</h3>
-            <span
-              v-if="timeline.analysisRescore.applied"
-              id="timeline-analysis-rescore-applied-badge"
-              class="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300"
-            >
-              Current scoring saved<span v-if="appliedAtText"> · {{ appliedAtText }}</span>
-            </span>
-          </div>
-          <p class="mt-1 max-w-3xl text-[11px] leading-snug text-gray-500">
+      <summary
+        id="timeline-analysis-rescore-toggle"
+        class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 sm:px-4 [&::-webkit-details-marker]:hidden"
+      >
+        <span class="flex min-w-0 flex-wrap items-center gap-2">
+          <span id="timeline-analysis-rescore-title" class="text-xs font-semibold text-gray-300">All landing analysis</span>
+          <span
+            v-if="timeline.analysisRescore.applied"
+            id="timeline-analysis-rescore-applied-badge"
+            class="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300"
+          >
+            Current scoring saved<span v-if="appliedAtText"> · {{ appliedAtText }}</span>
+          </span>
+        </span>
+        <span class="flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-gray-500">
+          <span class="hidden sm:inline">Review current rules</span>
+          <svg
+            class="h-3.5 w-3.5 transition-transform group-open:rotate-180"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6" />
+          </svg>
+        </span>
+      </summary>
+
+      <div id="timeline-analysis-rescore-content" class="px-3 pb-3 sm:px-4">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <p class="max-w-3xl text-[11px] leading-snug text-gray-500">
             Recalculates touchdown-rate, approach stability, TDZ, lateral-offset, bounce, and rollout scoring with today’s rules and each landing’s recorded aircraft profile. The original recording and recorded results remain unchanged.
           </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              id="timeline-preview-analysis-rescore-btn"
+              type="button"
+              class="rounded border border-accent/40 px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 disabled:cursor-wait disabled:opacity-60"
+              :disabled="!timeline.canRequestAnalysisRescorePreview"
+              @click="timeline.requestAnalysisRescorePreview()"
+            >
+              {{ timeline.analysisRescorePreviewStatus === 'loading' ? 'Reviewing current scoring…' : 'Review current scoring' }}
+            </button>
+            <button
+              v-if="timeline.analysisRescore.applied"
+              id="timeline-revert-analysis-rescore-btn"
+              type="button"
+              class="rounded border border-surface-300 px-3 py-1.5 text-xs font-semibold text-gray-300 transition-colors hover:bg-surface-200/50 disabled:cursor-wait disabled:opacity-60"
+              :disabled="!timeline.canRevertFlightAnalysisRescore"
+              @click="timeline.revertFlightAnalysisRescore()"
+            >
+              Restore all recorded scoring
+            </button>
+          </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            id="timeline-preview-analysis-rescore-btn"
-            type="button"
-            class="rounded border border-accent/40 px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 disabled:cursor-wait disabled:opacity-60"
-            :disabled="!timeline.canRequestAnalysisRescorePreview"
-            @click="timeline.requestAnalysisRescorePreview()"
-          >
-            {{ timeline.analysisRescorePreviewStatus === 'loading' ? 'Reviewing current scoring…' : 'Review current scoring' }}
-          </button>
-          <button
-            v-if="timeline.analysisRescore.applied"
-            id="timeline-revert-analysis-rescore-btn"
-            type="button"
-            class="rounded border border-surface-300 px-3 py-1.5 text-xs font-semibold text-gray-300 transition-colors hover:bg-surface-200/50 disabled:cursor-wait disabled:opacity-60"
-            :disabled="!timeline.canRevertFlightAnalysisRescore"
-            @click="timeline.revertFlightAnalysisRescore()"
-          >
-            Restore all recorded scoring
-          </button>
-        </div>
-      </div>
 
       <p
         v-if="timeline.analysisRescorePreviewStatus === 'loading'"
@@ -225,6 +243,7 @@ function previewUnavailableReason(value) {
       >
         {{ timeline.analysisRescoreError }}
       </p>
-    </section>
+      </div>
+    </details>
   </div>
 </template>

@@ -3944,7 +3944,11 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="timeline-analysis-rescore"/, 'analysis rescore belongs to the loaded flight, not a selected landing');
+    const disclosureTag = html.match(/<details[^>]*id="timeline-analysis-rescore"[^>]*>/)?.[0] || '';
+    assert.ok(disclosureTag, 'analysis rescore should be a compact flight-level disclosure');
+    assert.doesNotMatch(disclosureTag, /\sopen(?:=|\s|>)/, 'analysis rescore should be collapsed by default to preserve event-list height');
+    assert.match(html, /<summary[^>]*id="timeline-analysis-rescore-toggle"[\s\S]*All landing analysis/, 'analysis rescore disclosure should have an accessible summary');
+    assert.match(html, /id="timeline-analysis-rescore-content"/, 'expanded disclosure should retain the complete rescore flow');
     assert.match(html, /id="timeline-preview-analysis-rescore-btn"[^>]*>\s*Review current scoring\s*</);
     assert.match(html, /touchdown-rate, approach stability, TDZ, lateral-offset, bounce, and rollout scoring/);
     assert.match(html, /original recording and recorded results remain unchanged/i);
