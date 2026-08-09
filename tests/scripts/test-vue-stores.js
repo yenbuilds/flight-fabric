@@ -101,7 +101,13 @@ async function main() {
     getFiniteDistanceNm,
     getFiniteFuelBurnGal,
   } = await import(toFrontendUrl('src', 'utils', 'formatting.js'));
-  const { buildLandingVerdict, normalizeLandingData } = await import(toFrontendUrl('src', 'landing', 'scoring.js'));
+  const {
+    buildLandingPresentation,
+    buildLandingVerdict,
+    gradeSeverity,
+    normalizeLandingData,
+    resolveStabilityVerdict,
+  } = await import(toFrontendUrl('src', 'landing', 'scoring.js'));
   const {
     getStabilityContextSummary,
     getStabilityMetricPresentation,
@@ -333,6 +339,47 @@ async function main() {
     ], 'system host actions should route through the preload bridge');
   });
 
+  await test('stability presentation prefers persisted verdicts and safely classifies legacy results', () => {
+    assert.equal(
+      resolveStabilityVerdict({ verdict: 'stable', score: 42, gateStable: false, gateFailures: ['gear_not_down_at_gate'] }),
+      'stable',
+      'a persisted verdict should remain authoritative even when legacy fields conflict',
+    );
+    assert.equal(
+      resolveStabilityVerdict({ verdict: 'marginal', gateStable: true, gateFailures: [] }),
+      'marginal',
+      'all four persisted verdict values should be preserved',
+    );
+    assert.equal(
+      resolveStabilityVerdict({ score: 96, gateStable: false, gateFailures: ['thrust_unstable_after_gate'], breakdown: { thrust_ok: 79 } }),
+      'marginal',
+      'a 79% throttle-only legacy miss should be marginal',
+    );
+    assert.equal(
+      resolveStabilityVerdict({ score: 94, gateStable: false, gateFailures: ['glidepath_proxy_unstable_after_gate'], breakdown: { glidepath_ok: 56 } }),
+      'marginal',
+      'a path-rate-proxy-only legacy miss should be marginal',
+    );
+    assert.equal(
+      resolveStabilityVerdict({ score: 84, gateStable: false, gateFailures: ['speed_proxy_unstable_after_gate'], breakdown: { speed_ok: 38 } }),
+      'unstable',
+      'a substantial direct speed deviation should remain unstable',
+    );
+    assert.equal(
+      resolveStabilityVerdict({ score: 96, gateStable: false, gateFailures: ['gear_not_down_at_gate'] }),
+      'unstable',
+      'hard configuration failures should remain unstable',
+    );
+    assert.equal(resolveStabilityVerdict({ score: null, samples: 0, gateFailures: ['insufficient_data'] }), 'no_verdict');
+    assert.equal(resolveStabilityVerdict({ score: 91 }), 'no_verdict', 'a score without a strict result should not invent a verdict');
+
+    const explicitPresentation = buildLandingPresentation({
+      ultimateStability: { verdict: 'marginal', score: 96, gateStable: false, gateFailures: ['thrust_unstable_after_gate'] },
+    });
+    assert.equal(explicitPresentation.approachText, 'MARGINAL');
+    assert.equal(explicitPresentation.verdict.stability.color, '#f59e0b');
+  });
+
   await test('landing debrief helpers avoid mutually exclusive praise and warning chips', () => {
     const unstableGatePayload = {
       vs: -210,
@@ -348,8 +395,68 @@ async function main() {
     const unstableGateVerdict = buildLandingVerdict(unstableGatePayload);
     assert.equal(unstableGateVerdict.stability.tone, 'warning', 'gate-flagged high stability should be a warning verdict');
     assert.equal(unstableGateVerdict.stability.color, '#f59e0b', 'gate-flagged high stability should use warning color');
-    assert.equal(unstableGateReasons.includes('Gate instability observed'), true, 'gate instability should be surfaced');
+    assert.equal(unstableGateReasons.includes('Marginal approach - soft/proxy miss'), true, 'a soft strict-gate miss should be surfaced as marginal');
     assert.equal(unstableGateReasons.includes('Stabilized approach'), false, 'gate instability should suppress stabilized approach praise');
+    assert.equal(gradeSeverity('Firm'), 1, 'touchdown-grade severity should be case-normalized');
+
+    const profileGradeReasons = buildDebriefReasons({
+      vs: -210,
+      grade: 'GOOD',
+    }, { limit: 8 }).map((reason) => reason.text);
+    assert.equal(profileGradeReasons.includes('Good touchdown rate'), true, 'debrief wording should use the resolved profile-aware touchdown-rate grade');
+    assert.equal(profileGradeReasons.includes('Smooth touchdown rate'), false, 'a generic vertical-speed band must not rewrite a resolved GOOD grade as smooth');
+
+    const missingGradeReasons = buildDebriefReasons({
+      vs: -800,
+    }, { limit: 8 }).map((reason) => reason.text);
+    assert.equal(missingGradeReasons.some((reason) => /touchdown/i.test(reason)), false, 'the frontend must not invent a touchdown-rate factor when no grade was resolved');
+
+    const legacyExcursionReasons = buildDebriefReasons({
+      grade: 'RUNWAY EXCURSION',
+      runwayExcursion: true,
+    }, { limit: 8 }).map((reason) => reason.text);
+    assert.equal(legacyExcursionReasons.includes('Runway excursion'), true, 'legacy excursions remain a separate safety fact');
+    assert.equal(legacyExcursionReasons.includes('Runway Excursion touchdown rate'), false, 'an excursion sentinel must not become a touchdown-rate factor');
+
+    const failureOnlyPayload = {
+      vs: -210,
+      touchdownDistance: { distanceFt: 600 },
+      ultimateStability: { score: 91, gateFailures: ['speed_proxy_unstable_after_gate'] },
+    };
+    const failureOnlyReasons = buildDebriefReasons(failureOnlyPayload, {
+      normalized: normalizeLandingData(failureOnlyPayload),
+      touchdownDistance: failureOnlyPayload.touchdownDistance,
+      ultimateStability: failureOnlyPayload.ultimateStability,
+      limit: 8,
+    }).map((reason) => reason.text);
+    assert.equal(buildLandingPresentation(failureOnlyPayload).gateVerdict, 'MARGINAL', 'soft failed checks should infer a marginal legacy verdict when the explicit verdict is absent');
+    assert.equal(failureOnlyReasons.includes('Marginal approach - soft/proxy miss'), true, 'soft failed checks should surface a marginal approach');
+    assert.equal(failureOnlyReasons.includes('Stabilized approach'), false, 'failed checks must suppress stabilized approach praise');
+
+    const cappedPerfect = buildLandingPresentation({
+      grade: 'PERFECT',
+      touchdownDistance: { distanceFt: 600, grade: 'Outstanding', bounceCount: 1, bounceGrade: 'Single Bounce' },
+      ultimateStability: { verdict: 'unstable', score: 84, gateStable: false, gateFailures: ['speed_proxy_unstable_after_gate'] },
+    });
+    assert.equal(cappedPerfect.touchdownGrade, 'PERFECT', 'the raw touchdown-rate grade should remain factual and explicitly scoped');
+    assert.equal(Object.prototype.hasOwnProperty.call(cappedPerfect, 'displayGrade'), false, 'presentation must not expose a hybrid overall grade');
+    assert.equal(Object.prototype.hasOwnProperty.call(cappedPerfect, 'perfectCapped'), false, 'peer facts must not cap the touchdown-rate grade');
+    assert.equal(cappedPerfect.approachText, 'UNSTABLE', 'the approach verdict should remain independent of the touchdown grade');
+    assert.equal(cappedPerfect.approachScoreText, 'Approach score 84%', 'the percentage should be labelled as a secondary approach score');
+    assert.equal(cappedPerfect.bounceText, '1x', 'the shared presentation should expose the recorded bounce count');
+    assert.equal(cappedPerfect.touchdownColor, '#00e070', 'the touchdown grade should keep its own grade color');
+    assert.equal(cappedPerfect.verdict.bounce.color, '#f59e0b', 'the recorded bounce should carry its own warning color');
+
+    const verifiedPerfect = buildLandingPresentation({
+      grade: 'PERFECT',
+      touchdownDistance: { distanceFt: 600, grade: 'Outstanding', bounceCount: 0, bounceGrade: 'Clean' },
+      ultimateStability: { score: 96, gateStable: true },
+    });
+    assert.equal(verifiedPerfect.touchdownGrade, 'PERFECT', 'the touchdown-rate grade should remain available for a verified clean landing');
+
+    const topLevelBounce = buildLandingPresentation({ grade: 'PERFECT', bounceCount: 1, bounceGrade: 'Single Bounce' });
+    assert.equal(topLevelBounce.touchdownGrade, 'PERFECT', 'top-level replay bounce facts should not rewrite the touchdown-rate grade');
+    assert.equal(topLevelBounce.bounceText, '1x', 'top-level replay bounce facts should remain visible');
 
     const shortLandingPayload = {
       vs: -210,
@@ -389,11 +496,8 @@ async function main() {
     assert.equal(replayedShortLandingReasons.includes('First 1,000 ft target'), false, 'grade-only short landings should suppress first-1,000-ft praise');
     assert.equal(replayedShortLandingReasons.includes('Inside formal 3,000 ft TDZ'), false, 'grade-only short landings should suppress formal-TDZ praise');
 
-    const staleOptimisticShortLandingVerdict = buildLandingVerdict({
+    const shortLandingVerdict = buildLandingVerdict({
       grade: 'GOOD',
-      headlineGrade: 'GOOD',
-      headlineSev: '0',
-      headlineColor: '#10b981',
       touchdownDistance: {
         distanceFt: -80,
         grade: 'Good',
@@ -401,20 +505,18 @@ async function main() {
         tdzAchieved: true,
       },
     });
-    assert.equal(staleOptimisticShortLandingVerdict.headline.grade, 'Short Landing', 'short landing geometry should override stale optimistic headline grades');
-    assert.equal(staleOptimisticShortLandingVerdict.headline.severity, 3, 'short landing geometry should force a severe headline');
-    assert.equal(staleOptimisticShortLandingVerdict.touchdown.color, '#ef4444', 'short landing touchdown verdict should stay danger-colored even with stale green scores');
-    assert.equal(staleOptimisticShortLandingVerdict.flags.tdzAchieved, false, 'short landing verdict should suppress stale TDZ achieved flags');
+    assert.equal(Object.prototype.hasOwnProperty.call(shortLandingVerdict, 'headline'), false, 'the verdict must not synthesize an overall landing grade');
+    assert.equal(shortLandingVerdict.touchdown.color, '#ef4444', 'short landing touchdown verdict should stay danger-colored even with a stale green TDZ score');
+    assert.equal(shortLandingVerdict.flags.tdzAchieved, false, 'short landing verdict should suppress stale TDZ achieved flags');
 
-    const nullSeverityVerdict = buildLandingVerdict({
-      headlineSev: null,
+    const longLandingVerdict = buildLandingVerdict({
       touchdownDistance: {
         distanceFt: 1300,
         grade: 'Long Landing',
       },
     });
-    assert.equal(nullSeverityVerdict.headline.grade, 'Long Landing', 'null headline severity should not mask computed TDZ grades');
-    assert.equal(nullSeverityVerdict.headline.severity, 2, 'null headline severity should not coerce to an optimistic green severity');
+    assert.equal(longLandingVerdict.touchdown.grade, 'Long Landing', 'the TDZ grade should remain on its own axis');
+    assert.equal(longLandingVerdict.touchdown.severity, 2, 'the TDZ axis should retain long-landing severity');
 
     const nullStabilityVerdict = buildLandingVerdict({
       touchdownDistance: { distanceFt: 600 },
@@ -463,14 +565,13 @@ async function main() {
     assert.equal(lateFormalTdzReasons.includes('First 1,000 ft target'), false, 'late formal-TDZ landings should not receive first-1,000-ft praise');
     assert.equal(lateFormalTdzReasons.includes('Inside formal 3,000 ft TDZ'), true, 'formal TDZ feedback should state its 3,000-ft boundary');
 
-    const excursionNormalized = normalizeLandingData({
+    const excursionVerdict = buildLandingVerdict({
       grade: 'GOOD',
       runwayExcursion: 1,
       touchdownDistance: { distanceFt: 600, grade: 'Good' },
     });
-    assert.equal(excursionNormalized.headlineGrade, 'RUNWAY EXCURSION', 'runway excursion should override optimistic landing grades');
-    assert.equal(excursionNormalized.headlineSev, 3, 'runway excursion should be treated as a severe headline');
-    assert.equal(excursionNormalized.headlineColor, '#ef4444', 'runway excursion should use danger color');
+    assert.equal(excursionVerdict.flags.runwayExcursion, true, 'runway excursion should remain a separate safety fact');
+    assert.equal(excursionVerdict.touchdown.color, '#ef4444', 'runway excursion should retain danger styling without becoming an overall grade');
 
     const rolloutReasons = buildDebriefReasons({
       vs: -210,
@@ -526,18 +627,19 @@ async function main() {
     );
   });
 
-  await test('timeline landing rows keep high stability scores neutral when the gate was flagged', () => {
+  await test('timeline landing rows lead with gate verdicts and retain bounce-only facts', () => {
     const row = buildTimelineEventRowState({
       type: 'landing',
       timestampMs: 2000,
       grade: 'Good',
       runway: { airport_icao: 'YSSY', runway_id: '34L' },
       touchdownDistance: { distanceFt: 500, grade: 'Good' },
-      ultimateStability: { score: 91, gateStable: 'false' },
+      ultimateStability: { verdict: 'unstable', score: 91, gateStable: 'false' },
     }, 0, 1000);
-    const stabilityBadge = row.badges.find((badge) => badge.text === 'STAB 91%');
-    assert.ok(stabilityBadge, 'timeline row should still show the stability score');
-    assert.equal(stabilityBadge.toneClass, '', 'gate-flagged high stability should not get a positive badge');
+    const stabilityBadge = row.badges.find((badge) => badge.text === 'APP UNSTABLE');
+    assert.ok(stabilityBadge, 'timeline row should expose the unstable approach verdict independently');
+    assert.equal(stabilityBadge.toneClass, 'negative', 'an unstable verdict should retain a prominent danger tone');
+    assert.match(row.subtitle, /Approach score 91%/, 'timeline row should retain the percentage as a labelled secondary score');
 
     const stableRow = buildTimelineEventRowState({
       type: 'landing',
@@ -547,8 +649,55 @@ async function main() {
       touchdownDistance: { distanceFt: 500, grade: 'Good' },
       ultimateStability: { score: 91, gateStable: true },
     }, 0, 1000);
-    const stableBadge = stableRow.badges.find((badge) => badge.text === 'STAB 91%');
+    const stableBadge = stableRow.badges.find((badge) => badge.text === 'APP STABLE');
     assert.equal(stableBadge?.toneClass, 'positive', 'stable high-score approaches should keep positive timeline tone');
+
+    const marginalRow = buildTimelineEventRowState({
+      type: 'landing',
+      timestampMs: 2000,
+      grade: 'Good',
+      ultimateStability: {
+        score: 96,
+        gateStable: false,
+        gateFailures: ['thrust_unstable_after_gate'],
+        breakdown: { thrust_ok: 79 },
+      },
+    }, 0, 1000);
+    assert.equal(
+      marginalRow.badges.find((badge) => badge.text === 'APP MARGINAL')?.toneClass,
+      'warning',
+      'soft/proxy misses should render as an amber marginal Timeline badge',
+    );
+
+    const gateOnlyRow = buildTimelineEventRowState({
+      type: 'landing',
+      timestampMs: 2000,
+      grade: 'GOOD',
+      ultimateStability: { gateStable: false },
+    }, 0, 1000);
+    assert.equal(gateOnlyRow.badges.some((badge) => badge.text === 'APP MARGINAL'), true, 'a legacy strict-gate miss without hard evidence should render as marginal');
+
+    const scoreOnlyRow = buildTimelineEventRowState({
+      type: 'landing',
+      timestampMs: 2000,
+      grade: 'GOOD',
+      ultimateStability: { score: 91 },
+    }, 0, 1000);
+    assert.match(scoreOnlyRow.subtitle, /Approach score 91%/, 'score-only events should label the percentage without inventing a verdict');
+    const scoreOnlyApproachBadge = scoreOnlyRow.badges.find((badge) => badge.text === 'APP NO VERDICT');
+    assert.ok(scoreOnlyApproachBadge, 'score-only events should explicitly state that no approach verdict is available');
+    assert.equal(scoreOnlyApproachBadge.toneClass, '', 'a score-only no-verdict badge should remain neutral');
+
+    const bounceOnlyRow = buildTimelineEventRowState({
+      type: 'landing',
+      timestampMs: 2000,
+      grade: 'PERFECT',
+      bounceCount: 1,
+      bounceGrade: 'Single Bounce',
+    }, 0, 1000);
+    assert.equal(bounceOnlyRow.badges.some((badge) => badge.text === 'TD RATE PERFECT'), true, 'bounce-only events should keep the explicitly scoped touchdown-rate grade');
+    assert.equal(bounceOnlyRow.badges.some((badge) => badge.text === 'BNC 1x'), true, 'bounce-only events should show the bounce as a peer fact');
+    assert.match(bounceOnlyRow.subtitle, /Bounce 1x/, 'authoritative top-level bounce facts should remain visible without TDZ data');
 
     const excursionRow = buildTimelineEventRowState({
       type: 'landing',
@@ -766,6 +915,87 @@ async function main() {
     assert.match(excursionGradeRow?.valueClass || '', /text-red-400/, 'runway excursion should override optimistic TDZ grade tone');
     assert.equal(excursionRow?.value, 'Yes', 'runway excursion should be visible in landing detail rows');
     assert.match(excursionRow?.valueClass || '', /text-red-400/, 'runway excursion detail row should be red');
+
+    const bounceOnlySections = buildLandingDetailSections({
+      type: 'landing',
+      grade: 'PERFECT',
+      bounceCount: 1,
+      bounceGrade: 'Single Bounce',
+    });
+    const bounceOnlySnapshot = bounceOnlySections.find((section) => section.key === 'landing-snapshot');
+    assert.equal(bounceOnlySnapshot?.rows.find((row) => row.key === 'touchdown-grade')?.value, 'PERFECT', 'bounce-only detail should keep the explicitly labelled touchdown grade');
+    assert.match(bounceOnlySnapshot?.rows.find((row) => row.key === 'bounce')?.value || '', /^1x/, 'bounce-only detail should expose top-level bounce facts');
+
+    const partialTouchdownSections = buildLandingDetailSections({
+      type: 'landing',
+      grade: 'GOOD',
+      runway: { length_ft: 10000 },
+      touchdownDistance: {
+        distanceFt: null,
+        grade: null,
+        score: null,
+        lateralOffsetFt: null,
+        bounceCount: 1,
+        bounceGrade: 'Single Bounce',
+      },
+    });
+    const partialTouchdownSnapshot = partialTouchdownSections.find((section) => section.key === 'landing-snapshot');
+    assert.match(partialTouchdownSnapshot?.rows.find((row) => row.key === 'bounce')?.value || '', /^1x/, 'partial TDZ data should retain a real bounce fact');
+    assert.equal(partialTouchdownSections.some((section) => section.key === 'touchdown-zone-analysis'), false, 'bounce-only TDZ objects should not fabricate a geometry section');
+    assert.doesNotMatch(JSON.stringify(partialTouchdownSections), /NaN|undefined|0% down runway/, 'missing TDZ geometry should not render coerced or invalid values');
+
+    const excursionOnlySections = buildLandingDetailSections({
+      type: 'landing',
+      grade: 'GOOD',
+      runwayExcursion: true,
+      touchdownDistance: { bounceCount: 0, bounceGrade: 'Clean' },
+    });
+    const excursionOnlyTdz = excursionOnlySections.find((section) => section.key === 'touchdown-zone-analysis');
+    assert.equal(excursionOnlyTdz?.rows.find((row) => row.key === 'runway-excursion')?.value, 'Yes', 'an excursion should remain visible even when TDZ geometry is unavailable');
+    assert.doesNotMatch(JSON.stringify(excursionOnlySections), /NaN|undefined/, 'excursion-only data should not emit invalid geometry text');
+
+    const scoreOnlySections = buildLandingDetailSections({
+      type: 'landing',
+      grade: 'GOOD',
+      ultimateStability: { score: 91 },
+    });
+    const scoreOnlySnapshot = scoreOnlySections.find((section) => section.key === 'landing-snapshot');
+    const scoreOnlyApproach = scoreOnlySnapshot?.rows.find((row) => row.key === 'approach-verdict');
+    assert.equal(scoreOnlyApproach?.value, 'NO VERDICT', 'landing detail should not silently omit a missing approach verdict');
+    assert.match(scoreOnlyApproach?.valueClass || '', /text-gray-400/, 'a missing approach verdict should remain visually neutral');
+
+    const marginalSections = buildLandingDetailSections({
+      type: 'landing',
+      ultimateStability: {
+        score: 96,
+        gateStable: false,
+        gateFailures: ['thrust_unstable_after_gate'],
+        breakdown: { thrust_ok: 79, speed_ok: 87 },
+        scoringContext: { criteria: { gateRaFt: 1200, passPct: 80 } },
+      },
+    });
+    const marginalSnapshot = marginalSections.find((section) => section.key === 'landing-snapshot');
+    const stabilitySection = marginalSections.find((section) => section.key === 'retrospective-stability');
+    assert.equal(marginalSnapshot?.rows.find((row) => row.key === 'approach-verdict')?.value, 'MARGINAL');
+    assert.match(marginalSnapshot?.rows.find((row) => row.key === 'approach-verdict')?.valueClass || '', /text-amber-400/);
+    assert.match(stabilitySection?.rows.find((row) => row.key === 'thrust_ok')?.valueClass || '', /text-amber-400/, '60-79% metrics should be amber');
+    assert.match(stabilitySection?.rows.find((row) => row.key === 'speed_ok')?.valueClass || '', /text-green-400/, '80% and higher metrics should pass visually');
+    assert.match(stabilitySection?.noteText || '', /after the 1,200 ft gate[\s\S]*Marginal means only soft\/proxy checks/, 'Timeline detail should explain the recorded threshold and gate');
+
+    const substantialSections = buildLandingDetailSections({
+      type: 'landing',
+      ultimateStability: {
+        score: 84,
+        gateStable: false,
+        gateFailures: ['speed_proxy_unstable_after_gate'],
+        breakdown: { speed_ok: 38 },
+      },
+    });
+    const substantialSnapshot = substantialSections.find((section) => section.key === 'landing-snapshot');
+    const substantialStability = substantialSections.find((section) => section.key === 'retrospective-stability');
+    assert.equal(substantialSnapshot?.rows.find((row) => row.key === 'approach-verdict')?.value, 'UNSTABLE');
+    assert.match(substantialSnapshot?.rows.find((row) => row.key === 'approach-verdict')?.valueClass || '', /text-red-400/);
+    assert.match(substantialStability?.rows.find((row) => row.key === 'speed_ok')?.valueClass || '', /text-red-400/, 'below-60% direct metrics should be red');
 
     const rolloutSections = buildLandingDetailSections({
       type: 'landing',
@@ -1547,7 +1777,18 @@ async function main() {
               times: { est_time_enroute: '28800', est_in: '1781530000', taxi_out: '900' },
               fuel: { plan_ramp: '248000', enroute_burn: '180000', plan_landing: '57000' },
               weights: { pax_count: '420', payload: '51000', est_zfw: '360000' },
-              weather: { dest_metar: 'WSSS 141100Z 18008KT 9999 FEW018 30/25 Q1009', dest_taf: 'TAF WSSS 141100Z 1412/1518 18008KT 9999 FEW018' },
+              weather: {
+                dest_metar: 'WSSS 141100Z 18008KT 9999 FEW018 30/25 Q1009',
+                dest_taf: 'TAF WSSS 141100Z 1412/1518 18008KT 9999 FEW018',
+                etops_metar: {
+                  BIKF: 'BIKF 141100Z 18008KT 9999 FEW018 12/08 Q1016',
+                  EINN: 'EINN 141130Z 22012KT 9999 SCT020 14/09 Q1012',
+                },
+                etops_taf: {
+                  BIKF: 'TAF BIKF 141100Z 1412/1518 18008KT 9999 FEW018',
+                  EINN: 'TAF EINN 141100Z 1412/1518 22012KT 9999 SCT020',
+                },
+              },
               navlog: { fix: [{ ident: 'YSSY', type: 'apt', altitude_feet: '21', distance: '0' }, { ident: 'TESAT', type: 'wpt', altitude_feet: '36000', distance: '88' }] },
               tlr: {
                 landing: {
@@ -1615,6 +1856,16 @@ async function main() {
       assert.equal(simbrief.plan.arrivalRunway, '02C', 'fetchOfp should normalize the SimBrief arrival runway');
       assert.equal(simbrief.plan.weightUnit, 'kg', 'fetchOfp should preserve the OFP weight unit');
       assert.equal(simbrief.plan.weather.destinationMetar.startsWith('WSSS'), true, 'fetchOfp should retain destination planning weather');
+      assert.equal(
+        simbrief.plan.weather.etopsMetar,
+        'BIKF 141100Z 18008KT 9999 FEW018 12/08 Q1016\nEINN 141130Z 22012KT 9999 SCT020 14/09 Q1012',
+        'fetchOfp should flatten keyed ETOPS METAR reports into readable text',
+      );
+      assert.equal(
+        simbrief.plan.weather.etopsTaf,
+        'TAF BIKF 141100Z 1412/1518 18008KT 9999 FEW018\nTAF EINN 141100Z 1412/1518 22012KT 9999 SCT020',
+        'fetchOfp should flatten keyed ETOPS TAF reports into readable text',
+      );
       assert.equal(simbrief.plan.fuel.trip, 180000, 'fetchOfp should normalize the detailed fuel breakdown');
       assert.equal(simbrief.plan.weights.payload, 51000, 'fetchOfp should normalize payload and weight data');
       assert.equal(simbrief.plan.navlog.length, 2, 'fetchOfp should normalize the detailed waypoint navlog');
@@ -1837,7 +2088,34 @@ async function main() {
       grade: 'Good',
       ultimateStability: { score: null },
     });
-    assert.equal(flight.lastLanding.stability, '--', 'landing preview should not coerce missing stability to 0%');
+    assert.equal(flight.lastLanding.stability, 'NO VERDICT', 'landing preview should explicitly distinguish missing stability from a 0% score');
+
+    flight.updateLandingPreview({
+      final: true,
+      vs: -280,
+      grade: 'GOOD',
+      ultimateStability: { score: 88 },
+    });
+    assert.equal(flight.lastLanding.stability, 'NO VERDICT', 'a score-only preview should not invent a stable approach verdict');
+    assert.equal(flight.lastLanding.stabilityScore, 'Approach score 88%', 'a score-only preview should retain the explicitly scoped score');
+
+    flight.updateLandingPreview({
+      final: true,
+      vs: -243,
+      grade: 'PERFECT',
+      runwayExcursion: true,
+      touchdownDistance: { distanceFt: 600, grade: 'Outstanding', bounceCount: 1, bounceGrade: 'Single Bounce' },
+      ultimateStability: { verdict: 'unstable', score: 84, gateStable: false },
+    });
+    assert.equal(flight.lastLanding.grade, 'PERFECT', 'last-landing preview should preserve the explicitly scoped touchdown grade');
+    assert.equal(flight.lastLanding.stability, 'UNSTABLE', 'last-landing preview should expose the approach verdict independently');
+    assert.equal(flight.lastLanding.stabilityScore, 'Approach score 84%', 'last-landing preview should keep the percentage subordinate and labelled');
+    assert.equal(flight.lastLanding.bounce, '1x', 'last-landing preview should expose the bounce result independently');
+    assert.equal(flight.lastLanding.stabilityTone, 'text-red-400', 'an unstable approach should carry a danger tone');
+    assert.equal(flight.lastLanding.bounceTone, 'text-amber-400', 'a single bounce should carry a warning tone');
+    assert.equal(flight.lastLanding.tdz, '600 ft', 'last-landing preview should expose TDZ distance independently');
+    assert.equal(flight.lastLanding.tdzDetail, 'Outstanding · Runway excursion', 'last-landing preview should retain separate TDZ and excursion facts');
+    assert.equal(flight.lastLanding.tdzTone, 'text-red-400', 'runway excursion should retain its critical TDZ tone');
 
     flight.resetLiveTelemetry();
     assert.equal(flight.telemetry.ias, '---', 'reset should restore default IAS');
@@ -2489,14 +2767,15 @@ async function main() {
 
     assert.equal(landing.cardVisible, true, 'landing-card messages should reveal the landing card');
     assert.equal(landing.waitingVisible, false, 'landing-card messages should hide the waiting state');
-    assert.equal(landing.landingCard.gradeText, 'OUTSTANDING', 'headline grade should use normalized grade output');
+    assert.equal(landing.landingCard.gradeText, 'FIRM', 'touchdown headline should use the raw touchdown-rate grade');
     assert.equal(landing.landingCard.gforceText, 'G: 1.23', 'gforce label should be formatted');
     assert.equal(landing.landingCard.airportText, 'YSSY', 'airport label should be stored');
     assert.equal(landing.landingCard.runwayText, 'RWY 34L', 'runway label should be stored');
     assert.equal(landing.landingCard.vsText, '-467', 'vertical-speed label should be rounded and stored');
     assert.equal(landing.landingCard.touchdown.distanceText, '305 ft', 'touchdown distance should be formatted');
     assert.equal(landing.landingCard.touchdown.achievedText, 'YES', 'first-1,000-ft target achievement should be stored');
-    assert.equal(landing.landingCard.approach.stabilityText, '91', 'stability score should be stored');
+    assert.equal(landing.landingCard.approach.stabilityText, 'NO VERDICT', 'an approach score should not invent a gate verdict');
+    assert.equal(landing.landingCard.approach.stabilityNoteText, 'Approach score 91%', 'the approach score should remain labelled and secondary');
     assert.equal(landing.landingCard.approach.speedText, '136 kt', 'speed label should be stored');
     assert.equal(landing.landingCard.approach.gsText, 'GS: 142', 'ground-speed label should be stored');
     assert.equal(landing.landingCard.approach.crosswindText, '8 kt L', 'crosswind label should be direction-aware');
@@ -2630,6 +2909,107 @@ async function main() {
     assert.equal(landing.topdownProfile.visible, false, 'resetLandingCard should hide rendered top-down profile content');
   });
 
+  await test('landing store keeps touchdown, approach, bounce, and TDZ facts independent', () => {
+    resetStoreTestContext();
+    const landing = useLandingStore();
+
+    landing.applyLandingCardMessage({
+      final: true,
+      vs: -243,
+      grade: 'PERFECT',
+      touchdownDistance: {
+        distanceFt: 600,
+        grade: 'Outstanding',
+        bounceGrade: 'Clean',
+        bounceCount: 0,
+      },
+      ultimateStability: {
+        verdict: 'unstable',
+        score: 84,
+        gateStable: false,
+        gateFailures: ['speed_ok', 'vs_ok', 'glidepath_ok'],
+      },
+    });
+
+    assert.equal(landing.landingCard.gradeText, 'PERFECT', 'an unstable approach must not rewrite the touchdown-rate grade');
+    assert.equal(landing.landingCard.gradeColor, '#00e070', 'the touchdown-rate grade should keep its own tone');
+    assert.equal(
+      landing.landingCard.gradeBreakdownText,
+      'TDZ: 600 ft · Outstanding',
+      'the touchdown summary detail should keep the distinct TDZ distance and result visible',
+    );
+    assert.equal(landing.landingCard.approach.stabilityText, 'UNSTABLE', 'gate verdict should lead the approach tile');
+    assert.equal(landing.landingCard.approach.stabilityTone, 'text-red-400', 'unstable should use a danger tone');
+    assert.equal(
+      landing.landingCard.approach.stabilityNoteText,
+      '3 substantial/required findings · Approach score 84%',
+      'aggregate score should be secondary to the gate verdict and failed checks',
+    );
+    assert.equal(landing.landingCard.touchdown.bounceText, 'Clean', 'the clean bounce result should remain a peer fact');
+
+    landing.applyLandingCardMessage({
+      final: true,
+      vs: -177,
+      grade: 'GOOD',
+      ultimateStability: {
+        score: 96,
+        gateStable: false,
+        gateFailures: ['thrust_unstable_after_gate'],
+        breakdown: { thrust_ok: 79 },
+        scoringContext: { criteria: { gateRaFt: 1000, passPct: 80 } },
+      },
+    });
+    assert.equal(landing.landingCard.approach.stabilityText, 'MARGINAL', 'a soft/proxy-only miss should lead with marginal');
+    assert.equal(landing.landingCard.approach.stabilityTone, 'text-amber-400', 'marginal should use an amber tone');
+    assert.equal(landing.landingCard.approach.stabilityNoteText, '1 strict check below 80% · Approach score 96%');
+    assert.match(landing.landingCard.approach.stabilityTooltip, /after the 1,000 ft gate/, 'landing detail should describe the full post-gate window');
+
+    landing.applyLandingCardMessage({
+      final: true,
+      vs: -180,
+      grade: 'PERFECT',
+      touchdownDistance: {
+        distanceFt: 500,
+        grade: 'Outstanding',
+        bounceGrade: 'Single Bounce',
+        bounceCount: 1,
+      },
+      ultimateStability: { score: 94, gateStable: true, gateFailures: [] },
+    });
+    assert.equal(landing.landingCard.gradeText, 'PERFECT', 'a recorded bounce must not rewrite the touchdown-rate grade');
+    assert.equal(landing.landingCard.approach.stabilityText, 'STABLE', 'the stable approach verdict should remain independently visible');
+    assert.equal(landing.landingCard.touchdown.bounceText, '1x', 'the recorded bounce should remain independently visible');
+
+    landing.applyLandingCardMessage({
+      final: true,
+      vs: -180,
+      grade: 'PERFECT',
+      touchdownDistance: {
+        distanceFt: 1500,
+        grade: 'Good',
+        bounceGrade: 'Clean',
+        bounceCount: 0,
+      },
+      ultimateStability: { score: 94, gateStable: true, gateFailures: [] },
+    });
+    assert.equal(landing.landingCard.gradeText, 'PERFECT', 'TDZ position must not rewrite the touchdown-rate grade');
+    assert.equal(landing.landingCard.gradeBreakdownText, 'TDZ: 1,500 ft · Good', 'TDZ distance and quality should remain a separate visible fact');
+
+    landing.applyLandingCardMessage({
+      final: true,
+      vs: -180,
+      grade: 'PERFECT',
+      touchdownDistance: {
+        distanceFt: 500,
+        grade: 'Outstanding',
+        bounceGrade: 'Clean',
+        bounceCount: 0,
+      },
+      ultimateStability: { score: 94, gateStable: true, gateFailures: [] },
+    });
+    assert.equal(landing.landingCard.gradeText, 'PERFECT', 'a clean touchdown should retain its raw touchdown-rate grade');
+  });
+
   await test('stability explanations use the scoring profile snapshot and hide neutral compatibility metrics', () => {
     const scoringContext = {
       schemaVersion: 1,
@@ -2670,6 +3050,11 @@ async function main() {
     const speedPresentation = getStabilityMetricPresentation('speed_ok', scoringContext, {});
     assert.match(speedPresentation.criteriaText, /95-245 kt/);
     assert.match(speedPresentation.criteriaText, /-50\/\+100/);
+    assert.match(
+      getStabilityMetricPresentation('thrust_ok', scoringContext, {}).descriptionText,
+      /rolling one-second windows/,
+      'throttle explanation should match the cadence-independent one-second measurement window',
+    );
 
     const fractionalSpeedPresentation = getStabilityMetricPresentation('speed_ok', {
       ...scoringContext,
@@ -2705,6 +3090,11 @@ async function main() {
       },
     });
     const stabilitySection = sections.find((section) => section.key === 'retrospective-stability');
+    const approachVerdictIndex = stabilitySection?.rows.findIndex((row) => row.key === 'gate-stable');
+    const scoreIndex = stabilitySection?.rows.findIndex((row) => row.key === 'score');
+    assert.equal(stabilitySection?.rows[approachVerdictIndex]?.value, 'MARGINAL', 'detail should soften a legacy strict-only gate miss without hard evidence');
+    assert.equal(approachVerdictIndex < scoreIndex, true, 'approach verdict should appear before the approach score');
+    assert.equal(stabilitySection?.rows[scoreIndex]?.label, 'Approach Score', 'the retrospective percentage should be explicitly scoped');
     assert.equal(stabilitySection?.rows.find((row) => row.key === 'profile')?.value, 'Generic Aircraft - Generic estimate');
     assert.match(stabilitySection?.rows.find((row) => row.key === 'speed_ok')?.label || '', /-50\/\+100 kt from gate IAS/);
     assert.equal(stabilitySection?.rows.some((row) => row.key === 'thrust_not_idle_ok'), false);
@@ -2767,6 +3157,7 @@ async function main() {
     landing.applyLandingCardMessage({
       final: true,
       vs: -467.3,
+      grade: 'FIRM',
       pitchDeg: 3.1,
       bankDeg: -1.4,
       touchdownDistance: {
@@ -2784,11 +3175,13 @@ async function main() {
 
     const reasons = landing.landingCard.debrief.reasons.map((reason) => reason.text);
     assert.equal(landing.landingCard.debrief.visible, true, 'landing card debrief should become visible when reasons are derived');
-    assert.equal(reasons.includes('Firm touchdown'), true, 'firm touchdown reason should be derived from VS');
+    assert.equal(reasons.includes('Firm touchdown rate'), true, 'firm touchdown reason should use the resolved touchdown-rate grade');
     assert.equal(reasons.includes('Stabilized approach'), true, 'stabilized approach reason should be derived from ultimate stability');
     assert.equal(reasons.includes('First 1,000 ft target'), true, 'first-1,000-ft reason should be derived from touchdown distance');
     assert.equal(reasons.includes('Nose-down touchdown'), false, 'positive touchdown pitch should not be marked nose-down');
     assert.equal(landing.landingCard.debrief.confidenceText, 'High', 'complete data should keep high confidence');
+    assert.equal(landing.landingCard.approach.stabilityText, 'STABLE', 'confirmed gate result should lead the stability tile');
+    assert.equal(landing.landingCard.approach.stabilityNoteText, 'Approach score 91%', 'stable approach score should remain available as secondary context');
 
     landing.applyLandingCardMessage({
       final: true,
@@ -2801,10 +3194,11 @@ async function main() {
       },
     });
     const unstableGateReasons = landing.landingCard.debrief.reasons.map((reason) => reason.text);
-    assert.equal(unstableGateReasons.includes('Gate instability observed'), true, 'unstable gate should be called out in debrief reasons');
-    assert.equal(unstableGateReasons.includes('Stabilized approach'), false, 'unstable gate should suppress stabilized approach praise');
-    assert.equal(landing.landingCard.approach.stabilityTone, 'text-amber-400', 'gate-flagged high scores should use warning tone on the stability tile');
-    assert.equal(landing.landingCard.approach.stabilityNoteText, 'Gate instability observed', 'stability tile should explain gate-flagged high scores');
+    assert.equal(unstableGateReasons.includes('Marginal approach - soft/proxy miss'), true, 'a legacy strict-gate-only miss should be called out as marginal');
+    assert.equal(unstableGateReasons.includes('Stabilized approach'), false, 'a marginal approach should suppress stabilized approach praise');
+    assert.equal(landing.landingCard.approach.stabilityTone, 'text-amber-400', 'marginal high scores should use an amber tone on the stability tile');
+    assert.equal(landing.landingCard.approach.stabilityText, 'MARGINAL', 'the four-state verdict should be more prominent than its aggregate score');
+    assert.equal(landing.landingCard.approach.stabilityNoteText, 'Approach score 91%', 'gate-flagged score should remain secondary context');
 
     landing.applyLandingCardMessage({
       final: true,
@@ -3399,7 +3793,12 @@ async function main() {
     }, 'requestList should emit the indexed timeline list request');
 
     assert.equal(store.requestTimeline('flight.csv', 'F2'), true, 'requestTimeline should support file-path payloads');
-    assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'flight.csv', flightId: 'F2' }, 'requestTimeline should send file-path payloads when given a CSV path');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'flight.csv',
+      flightId: 'F2',
+      requestId: 1,
+    }, 'requestTimeline should send request-scoped file-path payloads when given a CSV path');
     assert.equal(store.timelineLoading, true, 'requestTimeline should mark timeline detail loading while the backend responds');
     assert.equal(store.timelineLoadingFlightKey, 'flight.csv', 'requestTimeline should default the loading key to the requested CSV path');
     assert.equal(store.timelineMobileViewerOpen, true, 'requestTimeline should open the fullscreen mobile timeline viewer when a request is sent');
@@ -3411,15 +3810,33 @@ async function main() {
     assert.equal(store.timelineLoading, false, 'clearTimelineLoading should reset timeline detail loading state');
 
     assert.equal(store.requestTimeline('flight.csv', 'F2', { flightKey: 'F2-key', flightLabel: 'EGLL-LFPG' }), true, 'requestTimeline should accept loading display metadata');
-    assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'flight.csv', flightId: 'F2' }, 'requestTimeline should still send the same backend payload with loading metadata');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'flight.csv',
+      flightId: 'F2',
+      requestId: 2,
+    }, 'requestTimeline should keep loading metadata local while assigning a fresh request id');
     assert.equal(store.timelineLoadingFlightKey, 'F2-key', 'requestTimeline should store the supplied loading key');
     assert.equal(store.timelineLoadingFlightLabel, 'EGLL-LFPG', 'requestTimeline should store the supplied loading label');
     store.clearTimelineLoading();
 
     assert.equal(store.requestTimeline(undefined, 'F2', { flightKey: 'F2', flightLabel: 'Fallback ID' }), true, 'requestTimeline should fall back to the legacy flight id when no CSV path is available');
-    assert.deepEqual(sent.shift(), { type: 'requestTimeline', flightId: 'F2' }, 'requestTimeline should send a flight-id payload when rows have no CSV path');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      flightId: 'F2',
+      requestId: 3,
+    }, 'requestTimeline should send a request-scoped flight-id payload when rows have no CSV path');
     assert.equal(store.timelineLoadingFlightKey, 'F2', 'requestTimeline should keep loading feedback tied to flight-id-only rows');
     assert.equal(store.timelineLoadingFlightLabel, 'Fallback ID', 'requestTimeline should keep loading copy for flight-id-only rows');
+    store.clearTimelineLoading();
+
+    const isoFlightId = '2026-08-08T01:02:03.000Z';
+    assert.equal(store.requestTimeline(isoFlightId, isoFlightId), true, 'ISO recording identities should remain flight IDs');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      flightId: isoFlightId,
+      requestId: 4,
+    }, 'a timestamp dot in a flight ID must not be mistaken for a local file path');
     store.clearTimelineLoading();
 
     store.setLoadedTimelineIdentity({
@@ -3435,7 +3852,12 @@ async function main() {
       offset: 0,
       requestId: 2,
     }, 'page refresh should refresh the saved-flight list first');
-    assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'C:/Flights/F2.csv', flightId: 'F2' }, 'page refresh should reload the currently open timeline');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'C:/Flights/F2.csv',
+      flightId: 'F2',
+      requestId: 5,
+    }, 'page refresh should reload the currently open timeline with the shared request sequence');
     assert.equal(store.timelineLoadingFlightKey, 'C:/Flights/F2.csv', 'page refresh should show loading feedback for the open timeline');
     assert.equal(store.timelineLoadingFlightLabel, 'YSSY-KJFK', 'page refresh should preserve the open timeline label');
     assert.equal(store.timelineMobileViewerOpen, true, 'page refresh should preserve an already-open timeline viewer');
@@ -3449,7 +3871,12 @@ async function main() {
     });
     assert.equal(store.refreshTimelinePage(), true, 'page refresh should still reload the last timeline after its viewer is closed');
     sent.shift();
-    assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'C:/Flights/F2.csv', flightId: 'F2' }, 'closed-viewer refresh should still update the timeline data in the background');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'C:/Flights/F2.csv',
+      flightId: 'F2',
+      requestId: 6,
+    }, 'closed-viewer refresh should still update the timeline data in the background');
     assert.equal(store.timelineMobileViewerOpen, false, 'page refresh should not reopen a closed timeline viewer');
     store.clearTimelineLoading();
 
@@ -3465,7 +3892,12 @@ async function main() {
     globalThis.clearTimeout = () => {};
     try {
       assert.equal(store.requestTimeline('fast.csv', 'F3'), true, 'requestTimeline should start loading before fast backend responses');
-      assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'fast.csv', flightId: 'F3' }, 'fast timeline requests should still send the CSV payload');
+      assert.deepEqual(sent.shift(), {
+        type: 'requestTimeline',
+        filePath: 'fast.csv',
+        flightId: 'F3',
+        requestId: 7,
+      }, 'fast timeline requests should still send the request-scoped CSV payload');
       store.timelineLoadingStartedAtMs = typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : Date.now();
       store.finishTimelineLoading();
       assert.equal(store.timelineLoading, true, 'finishTimelineLoading should keep very fast responses visible for a paintable moment');
@@ -3475,12 +3907,22 @@ async function main() {
       assert.equal(store.timelineLoading, false, 'the delayed finish callback should clear timeline loading');
 
       assert.equal(store.requestTimeline('first-fast.csv', 'F4'), true, 'a new fast timeline request should start loading');
-      assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'first-fast.csv', flightId: 'F4' }, 'the first fast request should be sent');
+      assert.deepEqual(sent.shift(), {
+        type: 'requestTimeline',
+        filePath: 'first-fast.csv',
+        flightId: 'F4',
+        requestId: 8,
+      }, 'the first fast request should be sent');
       store.timelineLoadingStartedAtMs = typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : Date.now();
       store.finishTimelineLoading();
       const staleFinishTimerCallback = finishTimerCallback;
       assert.equal(store.requestTimeline('second-fast.csv', 'F5'), true, 'a newer timeline request should replace pending finish timers');
-      assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'second-fast.csv', flightId: 'F5' }, 'the second fast request should be sent');
+      assert.deepEqual(sent.shift(), {
+        type: 'requestTimeline',
+        filePath: 'second-fast.csv',
+        flightId: 'F5',
+        requestId: 9,
+      }, 'the second fast request should be sent');
       staleFinishTimerCallback();
       assert.equal(store.timelineLoading, true, 'a stale finish timer should not clear a newer timeline request');
       assert.equal(store.timelineLoadingFlightKey, 'second-fast.csv', 'a newer timeline request should keep its loading key');
@@ -3531,7 +3973,12 @@ async function main() {
       latestLandingEvent: { id: 'from-flight-row', grade: 'Good' },
     }), true, 'flight-row landing shortcut should request the full timeline before opening the landing card');
     assert.equal(landingLoadStarted, true, 'flight-row landing shortcut should publish loading state for the modal');
-    assert.deepEqual(sent.shift(), { type: 'requestTimeline', filePath: 'full-flight.csv', flightId: 'F6' }, 'flight-row landing shortcut should request the full flight timeline');
+    assert.deepEqual(sent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'full-flight.csv',
+      flightId: 'F6',
+      requestId: 10,
+    }, 'flight-row landing shortcut should share the normal Timeline request sequence');
     assert.equal(store.timelineMobileViewerOpen, false, 'flight-row landing shortcut should close any open timeline modal without switching tabs');
     assert.equal(store.openPendingFlightLandingFromTimeline({
       events: [
@@ -3625,6 +4072,235 @@ async function main() {
     assert.equal(store.inspectorEventListVisible, false, 'clearInspector should remove timeline rows from the store');
     assert.equal(store.inspectorEmptyVisible, true, 'clearInspector should restore the empty inspector state');
     assert.equal(store.inspectorEmptyMessage, 'No timeline loaded', 'clearInspector should restore the default empty copy');
+  });
+
+  await test('timeline store shares one monotonic request sequence across replay entry points', () => {
+    resetStoreTestContext();
+
+    const timelineSent = [];
+    const listSent = [];
+    const store = useTimelineStore();
+    store.bindRequestActions({
+      onRequestTimeline(payload) {
+        timelineSent.push(payload);
+        return true;
+      },
+      onRequestList(payload) {
+        listSent.push(payload);
+        return true;
+      },
+    });
+    store.bindDetailActions({ onOpenSelectedLanding: () => true });
+
+    assert.equal(store.requestTimeline('first.csv', 'F-first'), true);
+    assert.equal(store.requestFlightLanding({
+      filePath: 'landing.csv',
+      flightId: 'F-landing',
+      latestLandingEvent: { id: 'landing-1', type: 'landing' },
+    }), true);
+    assert.ok(store.pendingFlightLandingRequest, 'landing shortcut should own the current replay handoff');
+
+    store.setLoadedTimelineIdentity({
+      filePath: 'rescored.csv',
+      flightId: 'F-rescored',
+    });
+    store.analysisRescoreStatus = 'refreshing';
+    store.analysisRescoreLastAction = 'apply';
+    assert.equal(store.requestFlightAnalysisRescoreRefresh(), true);
+
+    assert.deepEqual(timelineSent.slice(0, 3), [
+      { type: 'requestTimeline', filePath: 'first.csv', flightId: 'F-first', requestId: 1 },
+      { type: 'requestTimeline', filePath: 'landing.csv', flightId: 'F-landing', requestId: 2 },
+      { type: 'requestTimeline', filePath: 'rescored.csv', flightId: 'F-rescored', requestId: 3 },
+    ], 'row selection, landing handoff, and post-rescore reload should share one sequence');
+    assert.deepEqual(timelineSent[3], { type: 'requestLogbook', limit: 500 });
+    assert.equal(listSent.length, 1, 'post-rescore reload should still refresh the history list');
+    assert.equal(store.pendingFlightLandingRequest, null, 'a newer replay request should retire an older landing handoff');
+    assert.equal(store.analysisRescorePendingRefreshRequestId, 3);
+    assert.equal(store.isCurrentTimelineRequestMessage({ requestId: 2 }), false);
+    assert.equal(store.isCurrentTimelineRequestMessage({ requestId: 3 }), true);
+    assert.equal(store.isCurrentTimelineRequestMessage({}), false, 'uncorrelated normal replies should fail closed');
+
+    store.clearTimelineLoading();
+  });
+
+  await test('timeline flight-analysis rescore is request-scoped, atomic, and refreshes all history views', () => {
+    resetStoreTestContext();
+    const timelineSent = [];
+    const listSent = [];
+    const store = useTimelineStore();
+    store.bindRequestActions({
+      onRequestTimeline(payload) {
+        timelineSent.push(payload);
+        return true;
+      },
+      onRequestList(payload) {
+        listSent.push(payload);
+        return true;
+      },
+    });
+    store.setLoadedTimelineIdentity({
+      filePath: 'C:/Flights/F-preview.csv',
+      flightId: 'F-preview',
+      route: 'YSSY-KJFK',
+      analysisRescore: { applied: false, revision: 0 },
+    });
+
+    assert.equal(store.canRequestAnalysisRescorePreview, true, 'a loaded historic flight should enable flight-level preview without selecting a landing');
+    assert.equal(store.requestAnalysisRescorePreview(), true, 'preview should use the bound timeline request channel');
+    assert.deepEqual(timelineSent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'C:/Flights/F-preview.csv',
+      flightId: 'F-preview',
+      requestId: 1,
+      scoringMode: 'current-preview',
+    });
+    assert.equal(store.analysisRescorePreviewStatus, 'loading');
+    assert.equal(store.applyAnalysisRescorePreviewMessage({
+      type: 'timeline',
+      scoringMode: 'current-preview',
+      requestId: 0,
+      timeline: { analysisRescorePreview: {} },
+    }), false, 'stale preview responses should be ignored');
+    assert.equal(store.analysisRescorePreviewStatus, 'loading');
+
+    assert.equal(store.applyAnalysisRescorePreviewMessage({
+      type: 'timeline',
+      scoringMode: 'current-preview',
+      requestId: 1,
+      timeline: {
+        analysisRescorePreview: {
+          available: true,
+          previewFingerprint: 'preview-fingerprint',
+          baseRevision: 0,
+          sourceFingerprint: 'source-fingerprint',
+          analysisContractFingerprint: 'contract-fingerprint',
+          changedMetricCount: 2,
+          landingCount: 1,
+          landings: [{
+            landingKey: '42',
+            label: 'Landing at KJFK 22L',
+            metrics: [
+              { key: 'touchdown-rate', label: 'Touchdown rate', recorded: 'GOOD', current: 'FIRM', changed: true },
+              { key: 'stability', label: 'Approach stability', recorded: 'Stable 86%', current: 'Unstable 72%', changed: true },
+              { key: 'bounce', label: 'Bounce', recorded: 'Clean', current: 'Clean', changed: false },
+            ],
+          }],
+        },
+      },
+    }), true);
+    assert.equal(store.analysisRescorePreviewStatus, 'ready');
+    assert.equal(store.analysisRescorePreview.changedMetricCount, 2);
+    assert.equal(store.analysisRescorePreview.groups[0].metrics[0].label, 'Touchdown rate');
+    assert.equal(store.analysisRescorePreview.groups[0].metrics[2].changed, false);
+
+    assert.equal(store.applyCurrentFlightAnalysisRescore(), true, 'a complete preview should be durably applicable as one snapshot');
+    assert.deepEqual(timelineSent.shift(), {
+      type: 'applyFlightAnalysisRescore',
+      filePath: 'C:/Flights/F-preview.csv',
+      flightId: 'F-preview',
+      requestId: 1,
+      previewFingerprint: 'preview-fingerprint',
+      baseRevision: 0,
+      sourceFingerprint: 'source-fingerprint',
+      analysisContractFingerprint: 'contract-fingerprint',
+    }, 'apply must send only immutable preview guards, never client-computed scores');
+    assert.equal(store.applyFlightAnalysisRescoreResult({
+      type: 'flightAnalysisRescoreResult',
+      requestId: 0,
+      action: 'apply',
+      success: true,
+      revision: 3,
+    }), false, 'stale mutation results should be ignored');
+    assert.equal(store.applyFlightAnalysisRescoreResult({
+      type: 'flightAnalysisRescoreResult',
+      requestId: 1,
+      action: 'apply',
+      success: true,
+      revision: 3,
+      appliedAt: '2026-08-08T00:00:00.000Z',
+      snapshotFingerprint: 'saved-snapshot-3',
+    }), true);
+    assert.equal(store.analysisRescoreStatus, 'refreshing');
+    assert.equal(store.analysisRescore.applied, true);
+    assert.equal(store.analysisRescorePreview, null, 'saved previews should be discarded because their fingerprints are now stale');
+
+    assert.equal(store.requestFlightAnalysisRescoreRefresh(), true);
+    assert.deepEqual(timelineSent.shift(), {
+      type: 'requestTimeline',
+      filePath: 'C:/Flights/F-preview.csv',
+      flightId: 'F-preview',
+      requestId: 1,
+    }, 'successful apply should reload the effective Timeline');
+    assert.deepEqual(timelineSent.shift(), { type: 'requestLogbook', limit: 500 }, 'successful apply should refresh Logbook');
+    assert.equal(listSent.length, 1, 'successful apply should refresh the flight list and history index');
+    store.setLoadedTimelineIdentity({
+      filePath: 'C:/Flights/F-preview.csv',
+      flightId: 'F-preview',
+      analysisRescore: {
+        applied: true,
+        revision: 3,
+        appliedAt: '2026-08-08T00:00:00.000Z',
+        snapshotFingerprint: 'saved-snapshot-3',
+      },
+    });
+    assert.equal(store.finishFlightAnalysisRescoreRefresh({ requestId: 1 }), true);
+    assert.equal(store.analysisRescoreStatus, 'applied');
+
+    assert.equal(store.revertFlightAnalysisRescore(), true, 'the whole saved analysis should expose one reversible restore action');
+    assert.deepEqual(timelineSent.shift(), {
+      type: 'revertFlightAnalysisRescore',
+      filePath: 'C:/Flights/F-preview.csv',
+      flightId: 'F-preview',
+      requestId: 2,
+      expectedRevision: 3,
+      expectedSnapshotFingerprint: 'saved-snapshot-3',
+    });
+    assert.equal(store.applyFlightAnalysisRescoreResult({
+      type: 'flightAnalysisRescoreResult',
+      requestId: 2,
+      action: 'revert',
+      success: true,
+      revision: 4,
+    }), true);
+    assert.equal(store.analysisRescoreStatus, 'refreshing');
+    assert.equal(store.analysisRescore.applied, false);
+
+    store.clearAnalysisRescoreActionState();
+    assert.equal(store.requestAnalysisRescorePreview(), true);
+    assert.equal(store.applyAnalysisRescorePreviewMessage({
+      type: 'timeline',
+      scoringMode: 'current-preview',
+      requestId: 2,
+      timeline: {
+        analysisRescorePreview: {
+          available: true,
+          complete: true,
+          previewFingerprint: 'incomplete-preview',
+          baseRevision: 4,
+          sourceFingerprint: 'source-fingerprint',
+          analysisContractFingerprint: 'contract-fingerprint',
+          landings: [{
+            landingKey: '42',
+            available: false,
+            reason: 'recorded_profile_unavailable',
+            metrics: [],
+          }],
+        },
+      },
+    }), true);
+    assert.equal(store.analysisRescorePreview.available, false, 'one unavailable landing must fail the flight-wide preview closed');
+    assert.equal(store.canApplyFlightAnalysisRescore, false, 'partial flight analysis must never be saveable');
+
+    assert.equal(store.requestAnalysisRescorePreview(), true);
+    assert.equal(store.applyAnalysisRescorePreviewError({
+      type: 'timelineError',
+      scoringMode: 'current-preview',
+      requestId: 3,
+      error: 'Recorded profile is unavailable',
+    }), true);
+    assert.equal(store.analysisRescorePreviewStatus, 'error');
+    assert.equal(store.analysisRescorePreviewError, 'Recorded profile is unavailable');
   });
 
   await test('timeline store surfaces timeline list failures instead of an empty-list state', () => {

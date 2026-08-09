@@ -49,6 +49,18 @@ function textValue(value) {
     : null;
 }
 
+function weatherReportValue(value) {
+  if (Array.isArray(value)) {
+    const reports = value.map(weatherReportValue).filter(Boolean);
+    return reports.length ? reports.join('\n') : null;
+  }
+  if (value && typeof value === 'object') {
+    const reports = Object.values(value).map(weatherReportValue).filter(Boolean);
+    return reports.length ? reports.join('\n') : null;
+  }
+  return textValue(value);
+}
+
 function normalizeCollection(value) {
   if (Array.isArray(value)) return value;
   if (!value || typeof value !== 'object') return [];
@@ -230,8 +242,8 @@ function normalizeOfp(ofp, username) {
       destinationTaf: textValue(weather.dest_taf),
       alternateMetar: textValue(weather.altn_metar),
       alternateTaf: textValue(weather.altn_taf),
-      etopsMetar: textValue(weather.etops_metar),
-      etopsTaf: textValue(weather.etops_taf),
+      etopsMetar: weatherReportValue(weather.etops_metar),
+      etopsTaf: weatherReportValue(weather.etops_taf),
     },
     navlog: normalizeNavlog(ofp.navlog),
     icaoFlightPlan: textValue(atc.flightplan_text),

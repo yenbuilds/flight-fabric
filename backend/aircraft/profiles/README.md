@@ -119,8 +119,8 @@ certification model.
 Current policy:
 
 - Generic aircraft and aircraft outside category A use the common
-  `transport-v1` criteria.
-- Category A aircraft use the lighter `ga-profile-v1` path, where mapped
+  `transport-v2` criteria.
+- Category A aircraft use the lighter `ga-profile-v2` path, where mapped
   `aircraft.stability` values can override matching common fields.
 - Profiles continue to define telemetry decoding, signal reliability, and the
   meaning of gear, flap, spoiler, and throttle data.

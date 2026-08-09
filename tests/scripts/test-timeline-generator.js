@@ -36,7 +36,9 @@ delete process.env.OneDriveCommercial;
 const timelineGeneratorPath = resolveBackendRuntimeFile('events', 'timeline-generator.js');
 const timelineTouchdownPath = resolveBackendRuntimeFile('events', 'timeline-touchdown.js');
 const runwayDatabasePath = resolveBackendRuntimeFile('landing', 'runway-database.js');
+const profileLoader = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-loader.js'));
 const {
+  CURRENT_ANALYSIS_RESCORE_CONTRACT,
   _toFiniteNumber: toFiniteNumber,
   _csvRowToStabilityFrame: csvRowToStabilityFrame,
   _downsampleApproachProfile: downsampleApproachProfile,
@@ -2383,6 +2385,7 @@ async function runAsyncTests() {
         alt_msl_ft: 800,
         alt_plane_ft: 800,
         aircraft: 'A320',
+        aircraft_profile_id: 'fbw-a32nx',
         ...overrides,
       });
       const result = timelineGenerator._generateTimelineFromRows('wow-chatter-replay.csv', [
@@ -2437,6 +2440,7 @@ async function runAsyncTests() {
         alt_msl_ft: 800,
         alt_plane_ft: 800,
         aircraft: 'A320',
+        aircraft_profile_id: 'fbw-a32nx',
         ...overrides,
       });
       const result = timelineGenerator._generateTimelineFromRows('physical-bounce-replay.csv', [
@@ -2453,6 +2457,637 @@ async function runAsyncTests() {
       assert(
         landings[0].touchdownDistance?.bounceCount === 1,
         `expected one nested replay bounce, got ${landings[0].touchdownDistance?.bounceCount}`,
+      );
+    });
+  });
+
+  await testAsync('replay confirms a sustained shallow hop but rejects similarly long WOW chatter', async () => {
+    await withMockRunway({
+      icao: 'TEST',
+      airportName: 'Test Field',
+      runway: '36',
+      runwayId: '36',
+      threshold: { lat: 37, lon: -122 },
+      heading: 360,
+      lengthFt: 6000,
+      widthFt: 150,
+      surface: 'ASPHALT',
+      elevation_ft: 700,
+    }, async (timelineGenerator) => {
+      const baseTs = 1700000205500;
+      const sample = (flightId, offsetMs, overrides = {}) => ({
+        flight_id: flightId,
+        timestamp_utc: new Date(baseTs + offsetMs).toISOString(),
+        ts: baseTs + offsetMs,
+        flight_elapsed_ms: offsetMs,
+        record_type: 'SAMPLE',
+        phase: 'APPROACH',
+        lat_deg: 37.001,
+        lon_deg: -122,
+        ra_ft: 100,
+        on_ground: false,
+        ias_kts: 130,
+        vs_fpm: -500,
+        g_force: 1.05,
+        gs_kts: 120,
+        hdg_true_deg: 360,
+        alt_msl_ft: 800,
+        alt_plane_ft: 800,
+        aircraft: 'A320',
+        aircraft_profile_id: 'fbw-a32nx',
+        ...overrides,
+      });
+
+      const shallowHop = timelineGenerator._generateTimelineFromRows('shallow-hop-replay.csv', [
+        sample('shallow-hop-replay', 0),
+        sample('shallow-hop-replay', 1000, { ra_ft: 0, on_ground: true, vs_fpm: -180, alt_plane_ft: 700 }),
+        sample('shallow-hop-replay', 1200, { ra_ft: 0.1, on_ground: false, vs_fpm: 20, alt_plane_ft: 700.2 }),
+        sample('shallow-hop-replay', 1700, { ra_ft: 0.4, on_ground: false, vs_fpm: 48, alt_plane_ft: 700.8 }),
+        sample('shallow-hop-replay', 2135, { ra_ft: 0, on_ground: true, vs_fpm: -30, g_force: 1.1, alt_plane_ft: 700 }),
+        {
+          ...sample('shallow-hop-replay', 2600, { ra_ft: 0, on_ground: true, vs_fpm: -243, alt_plane_ft: 700 }),
+          record_type: 'LANDING',
+          grade: 'PERFECT',
+          bounce_count: 0,
+          bounce_grade: 'Clean',
+          bounce_score: 100,
+          td_sim_trusted: true,
+          td_sim_fresh: true,
+          td_sim_landing_vs_fpm: -349,
+        },
+      ]);
+      assert(shallowHop.success === true, `expected shallow-hop success, got ${shallowHop.error}`);
+      const shallowLanding = shallowHop.timeline.events.find((event) => event.type === 'landing');
+      assert(shallowLanding?.bounceCount === 1, `expected one shallow replay bounce, got ${shallowLanding?.bounceCount}`);
+      assert(shallowLanding?.touchdownDistance?.bounceCount === 1, 'expected replay bounce to win over persisted zero');
+      assert(shallowLanding?.touchdownDistance?.bounceGrade == null, 'expected stale Clean bounce grade to be cleared');
+      assert(shallowLanding?.touchdownDistance?.bounceScore == null, 'expected stale 100 bounce score to be cleared');
+      assert(shallowLanding?.vs_fpm === -243, `expected persisted landing V/S, got ${shallowLanding?.vs_fpm}`);
+      assert(shallowLanding?.grade === 'GOOD', `expected recorded-profile landing grade, got ${shallowLanding?.grade}`);
+
+      const legacyExcursion = timelineGenerator._generateTimelineFromRows('legacy-excursion-replay.csv', [
+        sample('legacy-excursion-replay', 0),
+        sample('legacy-excursion-replay', 1000, { ra_ft: 0, on_ground: true, vs_fpm: -243, alt_plane_ft: 700 }),
+        {
+          ...sample('legacy-excursion-replay', 2600, { ra_ft: 0, on_ground: true, vs_fpm: -243, alt_plane_ft: 700 }),
+          record_type: 'LANDING',
+          grade: 'RUNWAY EXCURSION',
+          runway_excursion: true,
+          td_sim_trusted: true,
+          td_sim_fresh: true,
+          td_sim_landing_vs_fpm: -349,
+        },
+      ]);
+      assert(legacyExcursion.success === true, `expected legacy-excursion success, got ${legacyExcursion.error}`);
+      const excursionLanding = legacyExcursion.timeline.events.find((event) => event.type === 'landing');
+      assert(excursionLanding?.vs_fpm === -243, 'complete legacy landing should retain persisted V/S');
+      assert(excursionLanding?.grade === 'GOOD', 'legacy excursion sentinel must not replace the rate grade');
+      assert(excursionLanding?.runwayExcursion === true, 'timeline event should preserve row.runway_excursion separately');
+
+      for (const [label, tdSimTrusted, tdSimFresh] of [
+        ['untrusted', false, true],
+        ['stale', true, false],
+      ]) {
+        const flightId = `${label}-sustained-wow-chatter-replay`;
+        const wowChatter = timelineGenerator._generateTimelineFromRows(`${flightId}.csv`, [
+          sample(flightId, 0),
+          sample(flightId, 1000, { ra_ft: 0, on_ground: true, vs_fpm: -180, alt_plane_ft: 700 }),
+          sample(flightId, 1200, { ra_ft: 0.3, on_ground: false, vs_fpm: 5, alt_plane_ft: 700 }),
+          sample(flightId, 1700, { ra_ft: 0.4, on_ground: false, vs_fpm: 10, alt_plane_ft: 700 }),
+          sample(flightId, 2135, { ra_ft: 0, on_ground: true, vs_fpm: -30, g_force: 1.1, alt_plane_ft: 700 }),
+          {
+            ...sample(flightId, 2600, { ra_ft: 0, on_ground: true, vs_fpm: -243, alt_plane_ft: 700 }),
+            record_type: 'LANDING',
+            grade: 'PERFECT',
+            bounce_count: 0,
+            td_sim_trusted: tdSimTrusted,
+            td_sim_fresh: tdSimFresh,
+            td_sim_landing_vs_fpm: -349,
+          },
+        ]);
+        assert(wowChatter.success === true, `expected ${label} WOW-chatter success, got ${wowChatter.error}`);
+        const chatterLanding = wowChatter.timeline.events.find((event) => event.type === 'landing');
+        assert((chatterLanding?.bounceCount || 0) === 0, `expected no ${label} chatter bounce, got ${chatterLanding?.bounceCount}`);
+        assert(chatterLanding?.vs_fpm === -243, `expected ${label} simulator V/S to be ignored, got ${chatterLanding?.vs_fpm}`);
+        assert(chatterLanding?.grade === 'GOOD', `expected ${label} rate grade to be recomputed, got ${chatterLanding?.grade}`);
+      }
+
+      const diagnosticOnly = timelineGenerator._generateTimelineFromRows('diagnostic-only-vs.csv', [{
+        ...sample('diagnostic-only-vs', 1000, { on_ground: true, vs_fpm: null, ra_ft: 0, alt_plane_ft: 700 }),
+        record_type: 'LANDING',
+        grade: 'FIRM',
+        td_sim_trusted: true,
+        td_sim_fresh: true,
+        td_sim_landing_vs_fpm: -349,
+      }]);
+      assert(diagnosticOnly.success === true, `expected diagnostic-only success, got ${diagnosticOnly.error}`);
+      const diagnosticOnlyLanding = diagnosticOnly.timeline.events.find((event) => event.type === 'landing');
+      assert(diagnosticOnlyLanding?.vs_fpm == null, 'simulator diagnostic must not fill a missing conventional V/S');
+      assert(diagnosticOnlyLanding?.grade === 'FIRM', 'persisted rate grade is the fallback only when conventional V/S is absent');
+    });
+  });
+
+  await testAsync('historical landing grading uses the recorded profile and leaves the active aircraft alone', async () => {
+    await withMockRunway({
+      icao: 'TEST',
+      airportName: 'Test Field',
+      runway: '36',
+      runwayId: '36',
+      threshold: { lat: 37, lon: -122 },
+      heading: 360,
+      lengthFt: 6000,
+      widthFt: 150,
+      surface: 'ASPHALT',
+      elevation_ft: 700,
+    }, async (timelineGenerator) => {
+      const previousProfileId = profileLoader.getActiveProfileId();
+      profileLoader.setActiveProfile('generic');
+      const activeGenericId = profileLoader.getActiveProfileId();
+      const baseTs = 1700000206000;
+      const sample = (flightId, offsetMs, overrides = {}) => ({
+        flight_id: flightId,
+        timestamp_utc: new Date(baseTs + offsetMs).toISOString(),
+        ts: baseTs + offsetMs,
+        flight_elapsed_ms: offsetMs,
+        record_type: 'SAMPLE',
+        phase: 'APPROACH',
+        lat_deg: 37.001,
+        lon_deg: -122,
+        ra_ft: 100,
+        on_ground: false,
+        ias_kts: 130,
+        vs_fpm: -500,
+        g_force: 1.05,
+        gs_kts: 120,
+        hdg_true_deg: 360,
+        alt_msl_ft: 800,
+        alt_plane_ft: 800,
+        aircraft: 'A380',
+        aircraft_profile_id: 'fbw-a380x',
+        ...overrides,
+      });
+
+      try {
+        const incomplete = timelineGenerator._generateTimelineFromRows('recorded-profile-grade.csv', [{
+          ...sample('recorded-profile-grade', 1000, {
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -180,
+            alt_plane_ft: 700,
+          }),
+          record_type: 'LANDING',
+          grade: null,
+        }]);
+        assert(incomplete.success === true, `expected incomplete-row success, got ${incomplete.error}`);
+        const reconstructed = incomplete.timeline.events.find((event) => event.type === 'landing');
+        assert(reconstructed?.vs_fpm === -180, `expected persisted V/S, got ${reconstructed?.vs_fpm}`);
+        assert(reconstructed?.grade === 'GOOD', `expected recorded A380 grade GOOD, got ${reconstructed?.grade}`);
+        assert(incomplete.timeline.analysisRescore?.mode === 'recorded', 'default timeline must use recorded landing analysis');
+        assert(
+          JSON.stringify(incomplete.timeline.analysisRescore?.contract) === JSON.stringify(CURRENT_ANALYSIS_RESCORE_CONTRACT),
+          'timeline must expose the shared landing-analysis contract',
+        );
+
+        const contextBackedRow = {
+          ...sample('recorded-context-grade', 1000, {
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -180,
+            alt_plane_ft: 700,
+          }),
+          record_type: 'LANDING',
+          sample_index: 731,
+          grade: 'PERFECT',
+          landing_rate_context: JSON.stringify({
+            schemaVersion: 1,
+            criteriaSource: 'recorded',
+            policy: { id: 'landing-rate-v1', version: 1 },
+            profile: { id: 'fbw-a380x', name: 'FlyByWire A380X', resolved: true },
+            thresholds: {
+              perfectMinFpm: -250,
+              goodMinFpm: -450,
+              firmMinFpm: -700,
+              hardMinFpm: -1000,
+            },
+          }),
+        };
+        const recordedSnapshot = timelineGenerator._generateTimelineFromRows(
+          'recorded-context-grade.csv',
+          [contextBackedRow],
+        );
+        const recordedSnapshotLanding = recordedSnapshot.timeline.events.find((event) => event.type === 'landing');
+        assert(recordedSnapshotLanding?.grade === 'PERFECT', 'recorded context-backed grade must remain the default');
+        assert(recordedSnapshotLanding?.landingKey === '731', 'normal timeline should expose the immutable LANDING sample index');
+        assert(recordedSnapshotLanding?.landingGradePreview == null, 'normal timeline must not add retired grade-preview state');
+        assert(recordedSnapshotLanding?.landingRateContext?.profile?.id === 'fbw-a380x', 'recorded scoring context should be exposed');
+
+        const currentPreview = timelineGenerator._generateTimelineFromRows(
+          'recorded-context-grade.csv',
+          [contextBackedRow],
+          { scoringMode: 'current-preview', requestId: 'preview-1' },
+        );
+        const currentPreviewLanding = currentPreview.timeline.events.find((event) => event.type === 'landing');
+        assert(currentPreview.timeline.analysisRescore?.mode === 'current-preview', 'preview timeline must declare current-preview mode');
+        assert(currentPreview.timeline.analysisRescore?.persistedDataModified === false, 'preview must declare that persisted data is untouched');
+        assert(currentPreview.timeline.analysisRescore?.complete === false, 'LANDING-only preview must report missing replay surfaces');
+        assert(currentPreviewLanding?.grade === 'GOOD', `expected current A380 preview grade GOOD, got ${currentPreviewLanding?.grade}`);
+        assert(currentPreviewLanding?.landingGradePreview == null, 'current preview must not expose retired grade-only comparison state');
+        assert(currentPreviewLanding?.landingKey === '731', 'preview event should keep the immutable LANDING sample index');
+        assert(currentPreviewLanding?.landingRateContext?.criteriaSource === 'current-rescore', 'preview must expose the current scoring context');
+        const currentPreviewAnalysis = currentPreview.timeline.analysisRescore?.landings?.[0];
+        assert(currentPreviewAnalysis?.landingKey === '731', 'preview analysis should carry the immutable landing key');
+        assert(currentPreviewAnalysis?.profileId === 'fbw-a380x', 'preview analysis must use the recorded profile id');
+        assert(currentPreviewAnalysis?.metrics?.landingRate?.available === true, 'landing-rate rescore should be available');
+        assert(currentPreviewAnalysis?.metrics?.landingRate?.source === 'reconstructed', 'landing-rate rescore should be reconstructed');
+        assert(currentPreviewAnalysis?.metrics?.stability?.reason === 'approach_samples_unavailable', 'preview should explain missing stability samples');
+
+        const retiredProfileRow = {
+          ...sample('retired-profile-grade', 1000, {
+            aircraft: 'PMDG 737-800',
+            aircraft_profile_id: 'pmdg-737',
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -650,
+            alt_plane_ft: 700,
+          }),
+          record_type: 'LANDING',
+          sample_index: 912,
+          grade: 'VERY HARD',
+          td_sim_landing_vs_fpm: -900,
+        };
+        const retiredProfile = timelineGenerator._generateTimelineFromRows('retired-profile-grade.csv', [retiredProfileRow]);
+        assert(retiredProfile.success === true, `expected retired-profile success, got ${retiredProfile.error}`);
+        const preserved = retiredProfile.timeline.events.find((event) => event.type === 'landing');
+        assert(preserved?.vs_fpm === -650, `expected retired-profile persisted V/S, got ${preserved?.vs_fpm}`);
+        assert(preserved?.grade === 'VERY HARD', `expected retired-profile saved grade, got ${preserved?.grade}`);
+
+        const retiredPreview = timelineGenerator._generateTimelineFromRows(
+          'retired-profile-grade.csv',
+          [retiredProfileRow],
+          { scoringMode: 'current-preview' },
+        );
+        const retiredPreviewLanding = retiredPreview.timeline.events.find((event) => event.type === 'landing');
+        assert(retiredPreviewLanding?.grade === null, 'unavailable profile preview must not leak the recorded grade');
+        assert(retiredPreviewLanding?.landingRateContext === null, 'retired profile preview must not substitute generic scoring context');
+        const retiredPreviewAnalysis = retiredPreview.timeline.analysisRescore?.landings?.[0];
+        assert(retiredPreviewAnalysis?.available === false, 'retired profile preview must be unavailable');
+        assert(retiredPreviewAnalysis?.profileId === 'pmdg-737', 'retired preview must report the recorded profile id');
+        assert(retiredPreviewAnalysis?.metrics?.landingRate?.reason === 'recorded_profile_unavailable', 'retired preview must explain why landing-rate rescore is unavailable');
+        assert(retiredPreviewAnalysis?.metrics?.rollout?.reason === 'recorded_profile_unavailable', 'retired preview must fail closed for current rollout policy');
+
+        const impactOnlyBounce = timelineGenerator._generateTimelineFromRows('recorded-profile-bounce.csv', [
+          sample('recorded-profile-bounce', 0),
+          sample('recorded-profile-bounce', 1000, {
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -180,
+            alt_plane_ft: 700,
+          }),
+          sample('recorded-profile-bounce', 1200, {
+            ra_ft: 0,
+            on_ground: false,
+            vs_fpm: 0,
+            alt_plane_ft: 700,
+          }),
+          sample('recorded-profile-bounce', 1500, {
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -150,
+            g_force: 1.1,
+            alt_plane_ft: 700,
+          }),
+        ]);
+        assert(impactOnlyBounce.success === true, `expected bounce success, got ${impactOnlyBounce.error}`);
+        const bounceLanding = impactOnlyBounce.timeline.events.find((event) => event.type === 'landing');
+        assert(bounceLanding?.grade === 'GOOD', `expected SAMPLE-only A380 grade GOOD, got ${bounceLanding?.grade}`);
+        assert(bounceLanding?.bounceCount === 1, `expected recorded-profile bounce, got ${bounceLanding?.bounceCount}`);
+
+        const retiredProfileBounce = timelineGenerator._generateTimelineFromRows('retired-profile-bounce.csv', [
+          sample('retired-profile-bounce', 0, {
+            aircraft: 'PMDG 737-800',
+            aircraft_profile_id: 'pmdg-737',
+          }),
+          sample('retired-profile-bounce', 1000, {
+            aircraft: 'PMDG 737-800',
+            aircraft_profile_id: 'pmdg-737',
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -650,
+            alt_plane_ft: 700,
+          }),
+          sample('retired-profile-bounce', 1200, {
+            aircraft: 'PMDG 737-800',
+            aircraft_profile_id: 'pmdg-737',
+            ra_ft: 0,
+            on_ground: false,
+            vs_fpm: 0,
+            alt_plane_ft: 700,
+          }),
+          sample('retired-profile-bounce', 1500, {
+            aircraft: 'PMDG 737-800',
+            aircraft_profile_id: 'pmdg-737',
+            ra_ft: 0,
+            on_ground: true,
+            vs_fpm: -650,
+            g_force: 1.1,
+            alt_plane_ft: 700,
+          }),
+        ]);
+        assert(retiredProfileBounce.success === true, `expected retired-profile bounce success, got ${retiredProfileBounce.error}`);
+        const retiredBounceLanding = retiredProfileBounce.timeline.events.find((event) => event.type === 'landing');
+        assert(retiredBounceLanding?.bounceCount === 1, 'retired-profile impact fallback must retain bounce detection');
+        assert(profileLoader.getActiveProfileId() === activeGenericId, 'historical analysis changed the active profile');
+      } finally {
+        if (previousProfileId) profileLoader.setActiveProfile(previousProfileId);
+      }
+    });
+  });
+
+  await testAsync('current preview fully reconstructs every landing-analysis surface for multiple landings', async () => {
+    await withMockRunway({
+      icao: 'TEST',
+      airportName: 'Test Field',
+      runway: '36',
+      runwayId: '36',
+      threshold: { lat: 37, lon: -122 },
+      heading: 360,
+      heading_true_deg: 360,
+      lengthFt: 6000,
+      widthFt: 150,
+      surface: 'ASPHALT',
+      elevation_ft: 700,
+      source: 'msfs-facilities',
+      elevationReference: 'runway',
+    }, async (timelineGenerator) => {
+      const baseTs = 1700000206250;
+      const flightId = 'full-analysis-current-preview';
+      const sample = (offsetMs, overrides = {}) => ({
+        flight_id: flightId,
+        timestamp_utc: new Date(baseTs + offsetMs).toISOString(),
+        ts: baseTs + offsetMs,
+        flight_elapsed_ms: offsetMs,
+        record_type: 'SAMPLE',
+        phase: 'APPROACH',
+        lat_deg: 37.001,
+        lon_deg: -122,
+        ra_ft: 1200,
+        on_ground: false,
+        surface_on_runway: true,
+        ias_kts: 140,
+        vs_fpm: -640,
+        g_force: 1.05,
+        gs_kts: 120,
+        bank_deg: 0,
+        pitch_deg: 3,
+        hdg_true_deg: 360,
+        alt_msl_ft: 1900,
+        alt_calibrated_ft: 1900,
+        alt_plane_ft: 1900,
+        gear_down_locked: 1,
+        flaps_pct: 30,
+        flaps_notch: 3,
+        spoiler_pct: 0,
+        spoiler_state: 'ARMED',
+        thr1_pct: 35,
+        thr2_pct: 35,
+        aircraft: 'A380',
+        aircraft_profile_id: 'fbw-a380x',
+        ...overrides,
+      });
+      const recordedRateContext = JSON.stringify({
+        schemaVersion: 1,
+        criteriaSource: 'recorded',
+        policy: { id: 'landing-rate-v1', version: 1 },
+        profile: { id: 'fbw-a380x', name: 'FlyByWire A380X', resolved: true },
+        thresholds: {
+          perfectMinFpm: -100,
+          goodMinFpm: -200,
+          firmMinFpm: -300,
+          hardMinFpm: -400,
+        },
+      });
+      const heights = [1200, 950, 750, 550, 350, 150];
+      const buildAttempt = (startOffsetMs, landingKey, bounceCount) => {
+        const touchdownOffsetMs = startOffsetMs + 6000;
+        const touchdownLat = 37.001 + (landingKey / 10000000);
+        const rows = heights.map((raFt, index) => sample(startOffsetMs + index * 1000, {
+          ra_ft: raFt,
+          alt_msl_ft: 700 + raFt,
+          alt_calibrated_ft: 700 + raFt,
+          alt_plane_ft: 700 + raFt,
+          lat_deg: touchdownLat - 0.001 + (index * 0.00015),
+        }));
+        rows.push(
+          sample(touchdownOffsetMs, {
+            phase: 'LANDING',
+            ra_ft: 0,
+            alt_msl_ft: 700,
+            alt_calibrated_ft: 700,
+            alt_plane_ft: 700,
+            lat_deg: touchdownLat,
+            on_ground: true,
+            vs_fpm: -180,
+            g_force: 1.25,
+            gs_kts: 118,
+          }),
+          sample(touchdownOffsetMs + 500, {
+            phase: 'LANDING',
+            ra_ft: 0,
+            alt_msl_ft: 700,
+            alt_calibrated_ft: 700,
+            alt_plane_ft: 700,
+            lat_deg: touchdownLat + 0.0004,
+            on_ground: true,
+            vs_fpm: 0,
+            gs_kts: 100,
+          }),
+          sample(touchdownOffsetMs + 1000, {
+            phase: 'LANDING',
+            ra_ft: 0,
+            alt_msl_ft: 700,
+            alt_calibrated_ft: 700,
+            alt_plane_ft: 700,
+            lat_deg: touchdownLat + 0.0008,
+            on_ground: true,
+            vs_fpm: 0,
+            gs_kts: 80,
+          }),
+          sample(touchdownOffsetMs + 1500, {
+            phase: 'TAXI-IN',
+            ra_ft: 0,
+            alt_msl_ft: 700,
+            alt_calibrated_ft: 700,
+            alt_plane_ft: 700,
+            lat_deg: touchdownLat + 0.001,
+            on_ground: true,
+            surface_on_runway: false,
+            vs_fpm: 0,
+            gs_kts: 45,
+          }),
+          {
+            ...sample(touchdownOffsetMs + 2000, {
+              phase: 'LANDING',
+              ra_ft: 0,
+              alt_msl_ft: 700,
+              alt_calibrated_ft: 700,
+              alt_plane_ft: 700,
+              lat_deg: touchdownLat,
+              on_ground: true,
+              vs_fpm: -180,
+              g_force: 1.25,
+              gs_kts: 118,
+            }),
+            record_type: 'LANDING',
+            sample_index: landingKey,
+            icao: 'TEST',
+            runway: '36',
+            grade: 'VERY HARD',
+            landing_rate_context: recordedRateContext,
+            runway_excursion: false,
+            short_landing: false,
+            touchdown_distance_ft: landingKey === 1001 ? 500 : 900,
+            touchdown_distance_score: 1,
+            touchdown_distance_grade: 'Dangerous',
+            runway_condition: 'dry',
+            runway_condition_source: 'simconnect',
+            runway_condition_confident: true,
+            runway_geometry_source: 'msfs-facilities',
+            runway_reference_elev_ft: 700,
+            runway_reference_elevation_source: 'msfs-facilities',
+            runway_reference_elevation_kind: 'runway',
+            runway_heading_true_deg: 360,
+            runway_length_ft: 6000,
+            runway_width_ft: 150,
+            runway_threshold_lat: 37,
+            runway_threshold_lon: -122,
+            lateral_offset_ft: 8,
+            lateral_offset_side: 'right',
+            lateral_offset_score: 1,
+            lateral_offset_grade: 'Excursion',
+            lateral_offset_suspect: landingKey === 2002,
+            bounce_count: bounceCount,
+            bounce_score: 1,
+            bounce_grade: 'Porpoise',
+            bounce_distance_ft: bounceCount > 0 ? 80 : 0,
+            bounce_worst_gforce: bounceCount > 0 ? 1.4 : 1.25,
+            first_touchdown_lat: touchdownLat,
+            first_touchdown_lon: -122,
+            first_touchdown_vs_fpm: -180,
+            first_touchdown_gforce: 1.25,
+            final_touchdown_lat: bounceCount > 0 ? touchdownLat + 0.0002 : null,
+            final_touchdown_lon: bounceCount > 0 ? -122 : null,
+            final_touchdown_vs_fpm: bounceCount > 0 ? -90 : null,
+            final_touchdown_gforce: bounceCount > 0 ? 1.4 : null,
+            ultimate_stability_score: 1,
+            ultimate_stability_samples: 99,
+            ultimate_stability_gate_stable: false,
+            ultimate_stability_gate_failures: 'persisted_failure',
+            ultimate_stability_breakdown: JSON.stringify({ gear_ok: 1 }),
+            rollout_analysis: JSON.stringify({
+              schemaVersion: 2,
+              source: 'persisted',
+              assessment: 'critical',
+              sampleCount: 99,
+              flags: [{ code: 'persisted_only', severity: 'critical' }],
+            }),
+          },
+        );
+        return rows;
+      };
+
+      const rows = [
+        ...buildAttempt(0, 1001, 0),
+        {
+          ...sample(9000, {
+            phase: 'GO_AROUND',
+            ra_ft: 1200,
+            alt_msl_ft: 1900,
+            alt_calibrated_ft: 1900,
+            alt_plane_ft: 1900,
+            on_ground: false,
+            vs_fpm: 900,
+          }),
+          record_type: 'GO_AROUND',
+          goaround_altitude_ft: 1200,
+          previous_phase: 'LANDING',
+        },
+        ...buildAttempt(10000, 2002, 1),
+      ];
+      const recorded = timelineGenerator._generateTimelineFromRows(`${flightId}.csv`, rows);
+      const preview = timelineGenerator._generateTimelineFromRows(
+        `${flightId}.csv`,
+        rows,
+        { scoringMode: 'current-preview' },
+      );
+      assert(recorded.success === true, `expected recorded success, got ${recorded.error}`);
+      assert(preview.success === true, `expected preview success, got ${preview.error}`);
+      const recordedLandings = recorded.timeline.events.filter((event) => event.type === 'landing');
+      const previewLandings = preview.timeline.events.filter((event) => event.type === 'landing');
+      assert(recordedLandings.length === 2, `expected two recorded landings, got ${recordedLandings.length}`);
+      assert(previewLandings.length === 2, `expected two preview landings, got ${previewLandings.length}`);
+      assert(preview.timeline.analysisRescore?.complete === true, `expected complete preview, got ${JSON.stringify(preview.timeline.analysisRescore)}`);
+      assert(preview.timeline.analysisRescore?.landingCount === 2, 'preview analysis must cover both landings');
+
+      for (let index = 0; index < 2; index += 1) {
+        const before = recordedLandings[index];
+        const after = previewLandings[index];
+        const analysis = preview.timeline.analysisRescore.landings[index];
+        assert(after.landingKey === String(index === 0 ? 1001 : 2002), 'preview must retain each immutable landing key');
+        assert(after.grade === 'GOOD' && before.grade === 'VERY HARD', 'landing-rate grade must be fully rescored');
+        assert(after.ultimateStability?.score !== 1, 'persisted stability score must not leak into preview');
+        assert(after.touchdownDistance?.score !== 1, 'persisted touchdown-distance score must not leak into preview');
+        assert(after.touchdownDistance?.grade !== 'Dangerous', 'persisted touchdown-distance grade must not leak into preview');
+        assert(after.touchdownDistance?.lateralOffsetScore === 100, 'lateral score must be reconstructed from the recorded offset');
+        assert(after.touchdownDistance?.lateralOffsetGrade === 'Perfect', 'lateral grade must be reconstructed from the recorded offset');
+        assert(after.touchdownDistance?.bounceScore !== 1, 'persisted bounce score must not leak into preview');
+        assert(after.touchdownDistance?.bounceGrade !== 'Porpoise', 'persisted bounce grade must not leak into preview');
+        assert(after.rolloutAnalysis?.source === 'replay', 'persisted rollout analysis must not leak into preview');
+        assert(after.rolloutAnalysis?.assessment !== 'critical', 'rollout assessment must be reconstructed from SAMPLE rows');
+        for (const metric of ['landingRate', 'stability', 'touchdownDistance', 'lateralOffset', 'bounce', 'rollout']) {
+          assert(analysis.metrics?.[metric]?.available === true, `expected ${metric} to be available for landing ${index + 1}`);
+          assert(analysis.metrics?.[metric]?.source === 'reconstructed', `expected reconstructed ${metric} for landing ${index + 1}`);
+        }
+
+        for (const field of ['vs_fpm', 'gforce', 'lat', 'lon', 'runwayExcursion', 'bounceCount']) {
+          assert(after[field] === before[field], `raw landing field ${field} changed during preview`);
+        }
+        for (const field of ['distanceFt', 'shortLanding', 'bounceCount', 'bounceDistanceFt', 'bounceWorstGforce']) {
+          assert(after.touchdownDistance?.[field] === before.touchdownDistance?.[field], `raw touchdown field ${field} changed during preview`);
+        }
+        assert(after.touchdownDistance?.lateralOffsetFt === 8, 'preview must retain the immutable LANDING-row lateral offset');
+        assert(after.touchdownDistance?.lateralOffsetSide === 'right', 'preview must retain the immutable LANDING-row lateral side');
+        assert(
+          after.touchdownDistance?.lateralOffsetSuspect === (index === 1),
+          'preview must retain the immutable LANDING-row lateral quality flag',
+        );
+        if (index === 1) {
+          assert(
+            after.ultimateStability?.scoringContext?.coverage?.metrics?.lateral_offset_ok?.available === false,
+            'suspect recorded lateral geometry must not enter the reconstructed stability score',
+          );
+        }
+        assert(
+          JSON.stringify(after.touchdownDistance?.firstTouchdown) === JSON.stringify(before.touchdownDistance?.firstTouchdown),
+          'first-touchdown bounce evidence changed during preview',
+        );
+        assert(
+          JSON.stringify(after.touchdownDistance?.finalTouchdown) === JSON.stringify(before.touchdownDistance?.finalTouchdown),
+          'final-touchdown bounce evidence changed during preview',
+        );
+        assert(after.runwayReferenceElevFt === 700, 'preview must retain the recorded runway elevation reference');
+        assert(after.runwayReferenceElevationSource === 'msfs-facilities', 'preview must retain runway elevation provenance');
+        assert(after.runwayReferenceElevationKind === 'runway', 'preview must retain runway elevation reference kind');
+      }
+
+      const recordedViolationFacts = recorded.timeline.events
+        .filter((event) => event.type === 'violation_start' || event.type === 'violation_end')
+        .map((event) => ({ type: event.type, timestampMs: event.timestampMs, ruleId: event.ruleId }));
+      const previewViolationFacts = preview.timeline.events
+        .filter((event) => event.type === 'violation_start' || event.type === 'violation_end')
+        .map((event) => ({ type: event.type, timestampMs: event.timestampMs, ruleId: event.ruleId }));
+      assert(
+        JSON.stringify(previewViolationFacts) === JSON.stringify(recordedViolationFacts),
+        'current preview must preserve violation detections',
       );
     });
   });
@@ -2685,7 +3320,7 @@ async function runAsyncTests() {
       assert(landings[0].grade !== 'VERY HARD', 'expected first attempt to remain unmerged');
       assert(landings[1].bounceCount === 1, `expected second attempt to own its bounce, got ${landings[1].bounceCount}`);
       assert(landings[1].touchdownDistance?.bounceCount === 1, 'expected second attempt nested bounce count 1');
-      assert(landings[1].grade === 'VERY HARD', `expected LANDING row grade on second attempt, got ${landings[1].grade}`);
+      assert(landings[1].grade === 'PERFECT', `expected conventional V/S to replace the stale LANDING row grade, got ${landings[1].grade}`);
       assert(landings[1].touchdownDistance?.distanceFt === 2222, `expected LANDING row distance 2222, got ${landings[1].touchdownDistance?.distanceFt}`);
       assert(!landings.some((landing) => Object.prototype.hasOwnProperty.call(landing, '_landingRowMerged')), 'expected no internal merge markers in output');
     });

@@ -36,6 +36,10 @@ const {
   shouldResetCurrentApproachScorerForParked,
   shouldStartCurrentApproachScorer,
 } = require(resolveBackendRuntimeFile('core', 'simbridge-core-utils.js'));
+const {
+  snapshotStabilityScoringInputs,
+  resolveRecordedStabilityScoringInputs,
+} = require(resolveBackendRuntimeFile('core', 'simbridge-core.js'));
 
 let passed = 0;
 let failed = 0;
@@ -785,6 +789,89 @@ test('does not reset a populated current-approach scorer during parked rollout d
     hasScored: true,
     sampleCount: 125,
   }) === true, 'scored parked scorer can be reset');
+});
+
+test('approach stability profile, policy, and criteria are immutable snapshots', () => {
+  const profile = {
+    id: 'test-ga',
+    name: 'Test GA',
+    aircraft: { category: 'A', engines: { count: 2 } },
+    signalReliability: { stabilityScore: 'profile' },
+  };
+  const commonCriteria = { gateRaFt: 1000, speedPlusKts: 10, passPct: 80 };
+  const profileCriteria = { gateRaFt: 500, speedPlusKts: 4 };
+  const snapshot = snapshotStabilityScoringInputs({ profile, commonCriteria, profileCriteria });
+
+  profile.id = 'changed-after-capture';
+  profile.aircraft.category = 'D';
+  profile.aircraft.engines.count = 4;
+  commonCriteria.passPct = 1;
+  profileCriteria.speedPlusKts = 99;
+
+  assert(snapshot.profile.id === 'test-ga', 'captured profile identity must not follow later active-profile mutation');
+  assert(snapshot.profile.aircraft.category === 'A', 'captured aircraft category must remain attempt-scoped');
+  assert(snapshot.engineCount === 2, 'fallback engine count must remain paired with the captured scorer profile');
+  assert(snapshot.policy.id === 'ga-profile-v2', 'captured GA policy must remain explicit');
+  assert(snapshot.policy.profileCriteriaApplied === true, 'GA profile criteria should be captured as applied');
+  assert(snapshot.criteria.gateRaFt === 500, 'captured profile gate must remain unchanged');
+  assert(snapshot.criteria.speedPlusKts === 4, 'captured profile speed band must remain unchanged');
+  assert(snapshot.criteria.passPct === 80, 'captured common criteria must remain unchanged');
+  assert(Object.isFrozen(snapshot), 'scoring-input snapshot should be frozen');
+  assert(Object.isFrozen(snapshot.profile), 'profile snapshot should be frozen');
+  assert(Object.isFrozen(snapshot.policy), 'policy snapshot should be frozen');
+  assert(Object.isFrozen(snapshot.criteria), 'criteria snapshot should be frozen');
+});
+
+test('recorded-profile stability fallback never consults the currently selected aircraft', () => {
+  let activeProfileReads = 0;
+  const loadCalls = [];
+  const profiles = {
+    'recorded-a380': {
+      id: 'recorded-a380',
+      name: 'Recorded A380',
+      aircraft: { category: 'D', engines: { count: 4 } },
+      signalReliability: { stabilityScore: 'profile' },
+    },
+    generic: {
+      id: 'generic',
+      name: 'Generic Aircraft',
+      aircraft: { category: 'C', engines: { count: 2 } },
+      signalReliability: { stabilityScore: 'generic' },
+    },
+  };
+  const fakeLoader = {
+    getActiveProfile() {
+      activeProfileReads += 1;
+      return profiles.generic;
+    },
+    loadProfile(id) {
+      loadCalls.push(id);
+      return profiles[id] || null;
+    },
+    getStabilityScoringCriteria(profile) {
+      return profile?.id === 'recorded-a380' ? { speedPlusKts: 3 } : null;
+    },
+  };
+
+  const recorded = resolveRecordedStabilityScoringInputs('recorded-a380', {
+    profileLoaderApi: fakeLoader,
+    commonCriteria: { gateRaFt: 1000, speedPlusKts: 10 },
+  });
+  assert(recorded.profile.id === 'recorded-a380', 'explicit recorded profile must win over selected generic profile');
+  assert(recorded.engineCount === 4, 'recorded scorer snapshot must retain its fallback engine count');
+  assert(recorded.policy.id === 'transport-v2', 'recorded transport policy should be captured');
+  assert(recorded.criteria.speedPlusKts === 10, 'transport policy should retain the common criteria');
+  assert(activeProfileReads === 0, 'recorded-profile resolution must not read active profile state');
+  assert(loadCalls.length === 1 && loadCalls[0] === 'recorded-a380', 'recorded profile should resolve directly');
+
+  loadCalls.length = 0;
+  const missing = resolveRecordedStabilityScoringInputs('retired-profile', {
+    profileLoaderApi: fakeLoader,
+    commonCriteria: { gateRaFt: 1000 },
+  });
+  assert(missing.profile.id === 'generic', 'unresolvable live profile should fail safe to explicit generic data');
+  assert(activeProfileReads === 0, 'generic fallback must still avoid active profile state');
+  assert(loadCalls.join(',') === 'retired-profile,generic', 'fallback should be deterministic and explicit');
 });
 
 console.log('\n════════════════════════════════════════════════════════════');

@@ -50,6 +50,13 @@ const PITCH_MIN_DEG = -5;
 const PITCH_MAX_DEG = 15;
 const BANK_MAX_DEG = 25;
 const CHECK_PASS_PCT = 80;
+// The strict gateStable audit remains an all-checks boolean. The user-facing
+// verdict is deliberately less brittle: proxy/advisory misses are marginal
+// unless the overall result or a directly measured core metric is clearly poor.
+const STABILITY_VERDICT_POLICY_ID = 'approach-stability-verdict';
+const STABILITY_VERDICT_POLICY_VERSION = 1;
+const STABILITY_VERDICT_MIN_OVERALL_SCORE = 80;
+const STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT = 60;
 const FEET_PER_NM = 6076.12;
 const DEFAULT_GLIDEPATH_VS_FACTOR = 5.31;
 const MIN_GLIDEPATH_ANGLE_DEG = 1;
@@ -79,6 +86,100 @@ type StabilityBreakdown = {
   thrust_not_idle_ok: number;
   thrust_stable_ok: number | null;
 };
+
+type ApproachStabilityVerdict = 'stable' | 'marginal' | 'unstable' | 'no_verdict';
+
+type StabilityVerdictInput = {
+  score?: unknown;
+  samples?: unknown;
+  gateStable?: unknown;
+  gateFailures?: unknown;
+  breakdown?: Record<string, unknown> | null;
+};
+
+const HARD_STABILITY_FAILURES = new Set([
+  'gear_not_down_at_gate',
+  'flaps_not_set_at_gate',
+  'gear_changed_after_gate',
+  'flaps_changed_after_gate',
+]);
+
+const DIRECT_CORE_STABILITY_METRICS = [
+  'speed_ok',
+  'vs_ok',
+  'pitch_ok',
+  'bank_ok',
+  'lateral_offset_ok',
+] as const;
+const HARD_CONFIGURATION_METRICS = ['config_ok', 'gear_ok', 'flaps_ok'] as const;
+
+/**
+ * Classify a scored approach without changing its strict gate audit.
+ *
+ * Boundary semantics are intentional: 80 overall and 60 for a direct metric
+ * are acceptable for a marginal verdict; only values below those floors are
+ * unstable. Path-rate, directional path, speed-trend and throttle-movement
+ * failures remain visible in gateFailures but are advisory for this verdict.
+ */
+function classifyApproachStability(
+  result: StabilityVerdictInput | null | undefined,
+): ApproachStabilityVerdict {
+  if (!result || typeof result !== 'object') return 'no_verdict';
+
+  const rawFailures = Array.isArray(result.gateFailures)
+    ? result.gateFailures
+    : (typeof result.gateFailures === 'string' ? result.gateFailures.split('|') : []);
+  const failures = rawFailures.map(value => String(value || '').trim()).filter(Boolean);
+  if (failures.includes('insufficient_data') || failures.includes('no_gate_sample')) {
+    return 'no_verdict';
+  }
+
+  const score = typeof result.score === 'number' && Number.isFinite(result.score)
+    ? result.score
+    : null;
+  const gateStable = typeof result.gateStable === 'boolean' ? result.gateStable : null;
+  const breakdown = result.breakdown && typeof result.breakdown === 'object'
+    ? result.breakdown
+    : {};
+  const hasMetric = Object.values(breakdown).some(value => (
+    typeof value === 'number' && Number.isFinite(value)
+  ));
+  const hasUsableResult = score !== null || gateStable !== null || failures.length > 0 || hasMetric;
+  if (!hasUsableResult) return 'no_verdict';
+  if (typeof result.samples === 'number'
+    && Number.isFinite(result.samples)
+    && result.samples <= 0
+    && score === null
+    && !hasMetric) {
+    return 'no_verdict';
+  }
+  if (failures.some(failure => HARD_STABILITY_FAILURES.has(failure))) return 'unstable';
+  if (score !== null && score < STABILITY_VERDICT_MIN_OVERALL_SCORE) return 'unstable';
+
+  for (const key of DIRECT_CORE_STABILITY_METRICS) {
+    const value = breakdown[key];
+    if (typeof value === 'number'
+      && Number.isFinite(value)
+      && value < STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT) {
+      return 'unstable';
+    }
+  }
+  for (const key of HARD_CONFIGURATION_METRICS) {
+    const value = breakdown[key];
+    if (typeof value === 'number'
+      && Number.isFinite(value)
+      && value < CHECK_PASS_PCT) {
+      return 'unstable';
+    }
+  }
+
+  if (gateStable === true) return 'stable';
+  const failuresWereRecorded = Array.isArray(result.gateFailures)
+    || typeof result.gateFailures === 'string';
+  if (gateStable !== false && failuresWereRecorded && failures.length === 0) return 'stable';
+  if (gateStable === false || failures.length > 0) return 'marginal';
+  return 'no_verdict';
+}
 
 type StabilityMetricCoverage = {
   available: boolean;
@@ -187,6 +288,7 @@ type CanonicalFrame = {
 
 type StabilityScoreResult = {
   score: number | null;
+  verdict: ApproachStabilityVerdict;
   breakdown: StabilityBreakdown;
   samples: number;
   gateStable: boolean;
@@ -312,30 +414,6 @@ function percentageOfSamples<T>(samples: T[], predicate: (sample: T) => boolean)
   return clamp01((passCount / samples.length) * 100);
 }
 
-function percentageOfPairs<T>(
-  samples: T[],
-  predicate: (previous: T, current: T) => boolean | null | undefined,
-): { score: number | null; eligibleCount: number } {
-  if (!Array.isArray(samples) || samples.length < 2) return { score: null, eligibleCount: 0 };
-  let pairCount = 0;
-  let passCount = 0;
-
-  for (let index = 1; index < samples.length; index++) {
-    const previous = samples[index - 1];
-    const current = samples[index];
-    const result = predicate(previous, current);
-    if (result == null) continue;
-    pairCount++;
-    if (result) passCount++;
-  }
-
-  if (pairCount === 0) return { score: null, eligibleCount: 0 };
-  return {
-    score: clamp01((passCount / pairCount) * 100),
-    eligibleCount: pairCount,
-  };
-}
-
 function airborneOrAllSamples(samples: ApproachSample[]): ApproachSample[] {
   const airborne = samples.filter(sample => !sample.onGround);
   return airborne.length > 0 ? airborne : samples;
@@ -421,14 +499,6 @@ function selectedReferenceAltitude(sample: ApproachSample, source: ApproachAltit
       ? sample.altCalibratedFt
       : (source === 'indicated' ? sample.altMslFt : null));
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function ratePerSecond(deltaValue: number, dtMs: number | null | undefined): number {
-  const dtSec = Math.max(
-    0.05,
-    ((typeof dtMs === 'number' && Number.isFinite(dtMs)) ? dtMs : 100) / 1000,
-  );
-  return Math.abs(deltaValue) / dtSec;
 }
 
 function percentageOfWindowedRates(
@@ -695,6 +765,7 @@ class SimpleStabilityScorer {
     if (this.samples.length < 5) {
       return {
         score: null,
+        verdict: 'no_verdict',
         breakdown: this._createEmptyBreakdown(),
         samples: this.samples.length,
         gateStable: false,
@@ -713,6 +784,7 @@ class SimpleStabilityScorer {
     if (!gateSample) {
       return {
         score: null,
+        verdict: 'no_verdict',
         breakdown: this._createEmptyBreakdown(),
         samples: this.samples.length,
         gateStable: false,
@@ -730,8 +802,13 @@ class SimpleStabilityScorer {
     // Check configuration stability after gate
     const result = this._checkConfigurationStability(gateSample, heightOf, scoringContext, criteria);
 
+    const verdict = classifyApproachStability({
+      ...result,
+      samples: this.samples.length,
+    });
     return {
       score: result.score,
+      verdict,
       breakdown: result.breakdown,
       samples: this.samples.length,
       gateStable: result.gateStable,
@@ -869,11 +946,11 @@ class SimpleStabilityScorer {
     // Compatibility name: this is a throttle/engine-percent movement proxy,
     // not a turbofan spool-rate requirement. Live collection prefers explicit
     // throttle lever percent before falling back to N1-like engine levels.
-    const thrustStableResult = percentageOfPairs(thrustSamples, (previous, current) => {
-          if (!Number.isFinite(previous.thrustPct) || !Number.isFinite(current.thrustPct)) return null;
-          const thrustRate = ratePerSecond(current.thrustPct - previous.thrustPct, current.dtMs);
-          return thrustRate <= criteria.thrustStableMaxPctPerSec;
-        });
+    const thrustStableResult = percentageOfWindowedRates(
+      thrustSamples,
+      sample => sample.thrustPct,
+      criteria.thrustStableMaxPctPerSec,
+    );
     const thrustStableOkPct = thrustStableResult.score;
 
     // Scoring rules
@@ -1512,6 +1589,11 @@ module.exports = {
   VS_MIN_FPM,
   DEFAULT_GLIDEPATH_ANGLE_DEG,
   GLIDEPATH_VS_DELTA_MAX_FPM,
+  STABILITY_VERDICT_POLICY_ID,
+  STABILITY_VERDICT_POLICY_VERSION,
+  STABILITY_VERDICT_MIN_OVERALL_SCORE,
+  STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT,
+  classifyApproachStability,
   getStabilityCriteria,
   resolveGlidepathAngleForApproach,
   targetVerticalSpeedForGlidepath,

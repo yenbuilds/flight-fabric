@@ -4,6 +4,7 @@
 const LANDING_GRADE_SEVERITY = Object.freeze({
   PERFECT: 0,
   BUTTER: 0,
+  SMOOTH: 0,
   GOOD: 0,
   FIRM: 1,
   HARD: 2,
@@ -11,13 +12,20 @@ const LANDING_GRADE_SEVERITY = Object.freeze({
   'RUNWAY EXCURSION': 3,
   SEVERE: 3,
   Outstanding: 0,
+  OUTSTANDING: 0,
   Good: 0,
   Acceptable: 1,
+  ACCEPTABLE: 1,
   Marginal: 1,
+  MARGINAL: 1,
   'Long Landing': 2,
+  'LONG LANDING': 2,
   Poor: 2,
+  POOR: 2,
   Dangerous: 3,
+  DANGEROUS: 3,
   'Short Landing': 3,
+  'SHORT LANDING': 3,
 });
 
 const GRADE_COLOR_HEX = Object.freeze({
@@ -52,10 +60,47 @@ const LATERAL_GRADE_SEVERITY = Object.freeze({
 
 const TOUCHDOWN_ZONE_MAX_FT = 3000;
 const TOUCHDOWN_TARGET_MAX_FT = 1000;
+const RETIRED_STABILITY_FAILURES = new Set(['spoilers_moved_after_gate']);
+const INSUFFICIENT_STABILITY_FAILURES = new Set(['insufficient_data', 'no_gate_sample']);
+const HARD_STABILITY_FAILURES = new Set([
+  'gear_not_down_at_gate',
+  'gear_changed_after_gate',
+  'flaps_not_set_at_gate',
+  'flaps_changed_after_gate',
+]);
+const DIRECT_STABILITY_METRICS = Object.freeze([
+  'speed_ok',
+  'vs_ok',
+  'pitch_ok',
+  'bank_ok',
+  'lateral_offset_ok',
+]);
+const HARD_CONFIGURATION_METRICS = Object.freeze(['config_ok', 'gear_ok', 'flaps_ok']);
+const STABILITY_VERDICT_LABELS = Object.freeze({
+  stable: 'STABLE',
+  marginal: 'MARGINAL',
+  unstable: 'UNSTABLE',
+  no_verdict: 'NO VERDICT',
+});
+const TOUCHDOWN_RATE_GRADE_LABELS = Object.freeze({
+  PERFECT: 'Perfect',
+  GOOD: 'Good',
+  FIRM: 'Firm',
+  HARD: 'Hard',
+  'VERY HARD': 'Very hard',
+});
+
+export function formatTouchdownRateGrade(grade) {
+  const normalized = typeof grade === 'string' ? grade.trim().toUpperCase() : '';
+  return TOUCHDOWN_RATE_GRADE_LABELS[normalized] || null;
+}
 
 export function gradeSeverity(grade) {
   if (!grade) return -1;
-  return LANDING_GRADE_SEVERITY[grade] ?? -1;
+  const normalized = String(grade).trim();
+  return LANDING_GRADE_SEVERITY[normalized]
+    ?? LANDING_GRADE_SEVERITY[normalized.toUpperCase()]
+    ?? -1;
 }
 
 export function gradeHex(severity) {
@@ -103,6 +148,99 @@ export function normalizeBooleanLike(value) {
     if (normalized === 'false' || normalized === 'no') return false;
   }
   return null;
+}
+
+function normalizeStabilityGateFailures(value) {
+  const failures = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split('|')
+      : [];
+  return failures
+    .map((failure) => String(failure || '').trim())
+    .filter((failure) => failure && !RETIRED_STABILITY_FAILURES.has(failure));
+}
+
+export function normalizeStabilityVerdict(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return Object.prototype.hasOwnProperty.call(STABILITY_VERDICT_LABELS, normalized)
+    ? normalized
+    : null;
+}
+
+function finiteStabilityNumber(value) {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+/**
+ * Resolve the durable four-state approach verdict. New recordings persist the
+ * verdict directly. The fallback keeps legacy strict gate failures auditable
+ * without presenting every soft/proxy miss as a safety-significant failure.
+ */
+export function resolveStabilityVerdict(ultimateStability) {
+  if (!ultimateStability || typeof ultimateStability !== 'object') return 'no_verdict';
+
+  const explicit = normalizeStabilityVerdict(
+    ultimateStability.verdict ?? ultimateStability.stabilityVerdict,
+  );
+  if (explicit) return explicit;
+
+  const gateFailures = normalizeStabilityGateFailures(ultimateStability.gateFailures);
+  if (gateFailures.some((failure) => INSUFFICIENT_STABILITY_FAILURES.has(failure))) {
+    return 'no_verdict';
+  }
+
+  const gateStable = normalizeBooleanLike(ultimateStability.gateStable);
+  const score = finiteStabilityNumber(ultimateStability.score);
+  const samples = finiteStabilityNumber(ultimateStability.samples);
+  const breakdown = ultimateStability.breakdown && typeof ultimateStability.breakdown === 'object'
+    ? ultimateStability.breakdown
+    : null;
+  const metricValues = breakdown
+    ? Object.values(breakdown).map(finiteStabilityNumber).filter((value) => value !== null)
+    : [];
+  const hasUsableResult = gateStable !== null
+    || gateFailures.length > 0
+    || score !== null
+    || metricValues.length > 0;
+  if (!hasUsableResult || (samples !== null && samples <= 0 && score === null && metricValues.length === 0)) {
+    return 'no_verdict';
+  }
+
+  if (gateFailures.some((failure) => HARD_STABILITY_FAILURES.has(failure))) return 'unstable';
+  if (score !== null && score < 80) return 'unstable';
+  if (breakdown && DIRECT_STABILITY_METRICS.some((key) => {
+    const value = finiteStabilityNumber(breakdown[key]);
+    return value !== null && value < 60;
+  })) return 'unstable';
+  if (breakdown && HARD_CONFIGURATION_METRICS.some((key) => {
+    const value = finiteStabilityNumber(breakdown[key]);
+    return value !== null && value < 80;
+  })) return 'unstable';
+
+  if (gateStable === true) return 'stable';
+  const rawFailuresWereRecorded = Array.isArray(ultimateStability.gateFailures)
+    || typeof ultimateStability.gateFailures === 'string';
+  if (gateStable !== false && rawFailuresWereRecorded && gateFailures.length === 0) return 'stable';
+  if (gateStable === false || gateFailures.length > 0) return 'marginal';
+  return 'no_verdict';
+}
+
+export function stabilityVerdictLabel(value) {
+  return STABILITY_VERDICT_LABELS[normalizeStabilityVerdict(value) || 'no_verdict'];
+}
+
+export function getStabilityGateAltitudeFt(ultimateStability) {
+  const value = finiteStabilityNumber(ultimateStability?.scoringContext?.criteria?.gateRaFt);
+  return value !== null && value > 0 ? Math.round(value) : 1000;
+}
+
+export function getStabilityPassPct(ultimateStability) {
+  const value = finiteStabilityNumber(ultimateStability?.scoringContext?.criteria?.passPct);
+  return value !== null && value >= 0 && value <= 100 ? Math.round(value) : 80;
 }
 
 export function inferBounceGradeFromCount(count) {
@@ -154,13 +292,11 @@ function bounceSeverity(bounce) {
   return -1;
 }
 
-function stabilitySeverity(score, gateStable) {
-  const numericScore = Number(score);
-  if (!Number.isFinite(numericScore)) return -1;
-  if (gateStable === false) return 1;
-  if (numericScore >= 80) return 0;
-  if (numericScore >= 60) return 1;
-  return 3;
+function stabilitySeverity(verdict) {
+  if (verdict === 'stable') return 0;
+  if (verdict === 'marginal') return 1;
+  if (verdict === 'unstable') return 3;
+  return -1;
 }
 
 export function isShortLanding(data = {}, touchdownDistance = null) {
@@ -175,64 +311,10 @@ export function isRunwayExcursion(data = {}) {
   return normalizeBooleanLike(data.runwayExcursion ?? data.runway_excursion) === true;
 }
 
-export function computeGrade(data = {}) {
-  if (isRunwayExcursion(data)) {
-    return {
-      headlineGrade: 'RUNWAY EXCURSION',
-      headlineSev: 3,
-      headlineColor: gradeHex(3),
-    };
-  }
-
-  const tdz = data.touchdownDistance || null;
-  const vsGrade = data.grade || null;
-  const rawTdzGrade = tdz && tdz.grade
-    ? tdz.grade
-    : null;
-  const tdzGrade = isShortLanding(data, tdz) ? 'Short Landing' : rawTdzGrade;
-  const vsSev = gradeSeverity(vsGrade);
-  const tdzSev = gradeSeverity(tdzGrade);
-  const computedSev = Math.max(vsSev, tdzSev);
-  const computedGrade = tdzSev > vsSev ? tdzGrade : (vsGrade || tdzGrade);
-
-  const explicitGrade = data.headlineGrade || null;
-  const rawExplicitSeverity = data.headlineSev;
-  const numericExplicitSeverity = Number(rawExplicitSeverity);
-  const explicitSeverity = rawExplicitSeverity !== null
-    && rawExplicitSeverity !== undefined
-    && rawExplicitSeverity !== ''
-    && Number.isFinite(numericExplicitSeverity)
-    ? numericExplicitSeverity
-    : null;
-  const explicitColor = data.headlineColor || null;
-  if (explicitGrade || explicitSeverity != null || explicitColor) {
-    const headlineSev = explicitSeverity != null ? explicitSeverity : gradeSeverity(explicitGrade);
-    if (computedSev > headlineSev) {
-      return {
-        headlineGrade: computedGrade,
-        headlineSev: computedSev,
-        headlineColor: gradeHex(computedSev),
-      };
-    }
-    return {
-      headlineGrade: explicitGrade,
-      headlineSev,
-      headlineColor: explicitColor || gradeHex(headlineSev),
-    };
-  }
-
-  return {
-    headlineGrade: computedGrade,
-    headlineSev: computedSev,
-    headlineColor: gradeHex(computedSev),
-  };
-}
-
 export function buildLandingVerdict(data = {}, {
   touchdownDistance = data?.touchdownDistance || null,
   ultimateStability = data?.ultimateStability || null,
 } = {}) {
-  const grade = computeGrade({ ...data, touchdownDistance });
   const shortLanding = isShortLanding(data, touchdownDistance);
   const runwayExcursion = isRunwayExcursion(data);
   const explicitTdzAchieved = normalizeBooleanLike(touchdownDistance?.tdzAchieved);
@@ -250,11 +332,14 @@ export function buildLandingVerdict(data = {}, {
       : (hasTouchdownDistanceFt && touchdownDistanceFt >= 0 && touchdownDistanceFt <= TOUCHDOWN_ZONE_MAX_FT)
   );
 
-  const gateStable = normalizeBooleanLike(ultimateStability?.gateStable);
+  const gateFailures = normalizeStabilityGateFailures(ultimateStability?.gateFailures);
+  const explicitGateStable = normalizeBooleanLike(ultimateStability?.gateStable);
+  const gateStable = explicitGateStable ?? (gateFailures.length > 0 ? false : null);
   const stabilityScore = ultimateStability?.score != null
     ? Number(ultimateStability.score)
     : NaN;
-  const stabilitySev = stabilitySeverity(stabilityScore, gateStable);
+  const stabilityVerdict = resolveStabilityVerdict(ultimateStability);
+  const stabilitySev = stabilitySeverity(stabilityVerdict);
   const bounce = normalizeBounceData(touchdownDistance);
   const bounceSev = bounceSeverity(bounce);
   const criticalTouchdown = runwayExcursion || shortLanding;
@@ -264,16 +349,8 @@ export function buildLandingVerdict(data = {}, {
   return {
     normalized: {
       ...data,
-      ...grade,
       touchdownTargetAchieved,
       tdzAchievedEffective,
-    },
-    headline: {
-      grade: grade.headlineGrade,
-      severity: grade.headlineSev,
-      color: grade.headlineColor,
-      tone: verdictToneForSeverity(grade.headlineSev),
-      textClass: textClassForSeverity(grade.headlineSev),
     },
     flags: {
       runwayExcursion,
@@ -318,13 +395,142 @@ export function buildLandingVerdict(data = {}, {
       data: ultimateStability,
       score: Number.isFinite(stabilityScore) ? stabilityScore : null,
       gateStable,
+      verdict: stabilityVerdict,
       severity: stabilitySev,
       tone: verdictToneForSeverity(stabilitySev),
-      color: Number.isFinite(stabilityScore)
-        ? (gateStable === false ? VERDICT_COLORS.warning : scoreColor(stabilityScore, 80, 60))
-        : VERDICT_COLORS.muted,
+      color: stabilityVerdict === 'stable'
+        ? VERDICT_COLORS.good
+        : stabilityVerdict === 'marginal'
+          ? VERDICT_COLORS.warning
+          : stabilityVerdict === 'unstable'
+            ? VERDICT_COLORS.danger
+            : VERDICT_COLORS.muted,
       textClass: textClassForSeverity(stabilitySev),
     },
+  };
+}
+
+function hasExplicitBounceResult(touchdownDistance) {
+  if (!touchdownDistance || typeof touchdownDistance !== 'object') return false;
+  const rawCount = touchdownDistance.bounceCount;
+  const hasCount = rawCount !== null
+    && rawCount !== undefined
+    && rawCount !== ''
+    && Number.isFinite(Number(rawCount));
+  const hasGrade = typeof touchdownDistance.bounceGrade === 'string'
+    && touchdownDistance.bounceGrade.trim().length > 0;
+  return hasCount || hasGrade;
+}
+
+/**
+ * Build the concise, user-facing landing summary shared by app surfaces.
+ *
+ * The explicit touchdownGrade, gateVerdict, approachScore and bounce fields are
+ * independent facts. This presentation intentionally does not synthesize an
+ * overall landing grade or rewrite the backend-resolved touchdown-rate grade.
+ */
+export function buildLandingPresentation(data = {}, options = {}) {
+  const nestedTouchdownDistance = options.touchdownDistance ?? data?.touchdownDistance ?? null;
+  const hasTopLevelBounce = (
+    data?.bounceCount !== null
+    && data?.bounceCount !== undefined
+    && data?.bounceCount !== ''
+    && Number.isFinite(Number(data.bounceCount))
+  ) || (typeof data?.bounceGrade === 'string' && data.bounceGrade.trim().length > 0);
+  const touchdownDistance = hasTopLevelBounce
+    ? {
+        ...(nestedTouchdownDistance || {}),
+        bounceCount: nestedTouchdownDistance?.bounceCount ?? data.bounceCount,
+        bounceGrade: nestedTouchdownDistance?.bounceGrade ?? data.bounceGrade,
+      }
+    : nestedTouchdownDistance;
+  const ultimateStability = options.ultimateStability ?? data?.ultimateStability ?? null;
+  const verdict = buildLandingVerdict(data, {
+    touchdownDistance,
+    ultimateStability,
+  });
+
+  const stabilityScore = verdict.stability.score != null
+    ? Math.round(verdict.stability.score)
+    : null;
+  const gateFailures = normalizeStabilityGateFailures(ultimateStability?.gateFailures);
+  const stabilityVerdict = verdict.stability.verdict;
+  const approachVerdict = ultimateStability ? stabilityVerdictLabel(stabilityVerdict) : null;
+  // Compatibility alias for older consumers. This is now the four-state
+  // presentation verdict, not a rewrite of the strict gateStable audit flag.
+  const gateVerdict = approachVerdict;
+  const approachText = approachVerdict;
+  const approachScoreText = stabilityScore != null ? `Approach score ${stabilityScore}%` : null;
+  const stabilityPassPct = getStabilityPassPct(ultimateStability);
+  const stabilityGateAltitudeFt = getStabilityGateAltitudeFt(ultimateStability);
+  const approachDetailParts = [];
+  if (gateFailures.length > 0) {
+    if (stabilityVerdict === 'marginal') {
+      approachDetailParts.push(`${gateFailures.length} strict ${gateFailures.length === 1 ? 'check' : 'checks'} below ${stabilityPassPct}%`);
+    } else if (stabilityVerdict === 'unstable') {
+      approachDetailParts.push(`${gateFailures.length} substantial/required ${gateFailures.length === 1 ? 'finding' : 'findings'}`);
+    } else if (stabilityVerdict === 'no_verdict') {
+      approachDetailParts.push('Insufficient stability data');
+    }
+  }
+  if (approachScoreText) approachDetailParts.push(approachScoreText);
+
+  const bounceKnown = hasExplicitBounceResult(touchdownDistance);
+  const bounceText = bounceKnown
+    ? (verdict.bounce.bounceCount === 0 ? 'CLEAN' : `${verdict.bounce.bounceCount}x`)
+    : null;
+  const rawTouchdownGrade = typeof data?.grade === 'string' && data.grade.trim()
+    ? data.grade.trim()
+    : null;
+  const touchdownGrade = rawTouchdownGrade ? rawTouchdownGrade.toUpperCase() : '--';
+  const touchdownSeverity = gradeSeverity(rawTouchdownGrade);
+  const touchdownColor = data?.color
+    || verdictColorForSeverity(touchdownSeverity, VERDICT_COLORS.muted);
+  const touchdownDetailParts = [];
+  const distanceFt = Number(touchdownDistance?.distanceFt);
+  const distanceText = touchdownDistance?.distanceFt != null && Number.isFinite(distanceFt)
+    ? (Math.abs(distanceFt) <= 15000
+        ? `${Math.round(distanceFt).toLocaleString()} ft`
+        : 'Off Airport')
+    : null;
+  const distanceGrade = touchdownDistance?.grade || null;
+  const distanceDetail = [distanceText, distanceGrade].filter(Boolean).join(' · ');
+  if (distanceDetail) touchdownDetailParts.push(`TDZ: ${distanceDetail}`);
+  if (verdict.flags.runwayExcursion) touchdownDetailParts.push('Runway excursion');
+
+  const breakdownParts = [];
+  if (rawTouchdownGrade) breakdownParts.push(`Touchdown rate grade: ${rawTouchdownGrade}`);
+  if (distanceGrade) breakdownParts.push(`TDZ: ${distanceGrade}`);
+  if (approachText) breakdownParts.push(`Approach: ${approachText}`);
+  if (approachScoreText) breakdownParts.push(approachScoreText);
+  if (bounceText) breakdownParts.push(`Bounce: ${bounceText}`);
+
+  return {
+    verdict,
+    touchdownGrade,
+    touchdownColor,
+    touchdownSeverity,
+    touchdownTone: verdictToneForSeverity(touchdownSeverity),
+    touchdownTextClass: textClassForSeverity(touchdownSeverity),
+    touchdownDetailParts,
+    touchdownDetailText: touchdownDetailParts.join(' - ') || '--',
+    gateVerdict,
+    approachVerdict,
+    stabilityVerdict,
+    stabilityPassPct,
+    stabilityGateAltitudeFt,
+    stabilityGateLabel: `${stabilityGateAltitudeFt.toLocaleString()} ft`,
+    stabilityScore,
+    failedCheckCount: gateFailures.length,
+    approachText,
+    approachScoreText,
+    approachDetailParts,
+    approachDetailText: approachDetailParts.join(' · '),
+    bounceKnown,
+    bounceCount: verdict.bounce.bounceCount,
+    bounceText,
+    breakdownParts,
+    breakdownText: breakdownParts.join(' - ') || '--',
   };
 }
 

@@ -225,6 +225,7 @@ export class TelemetryClient {
 
       case MSG.ULTIMATE_STABILITY_SCORE:
         updates.ultimateStabilityScore = msg.score;
+        updates.ultimateStabilityVerdict = msg.verdict ?? null;
         updates.ultimateStabilityBreakdown = msg.breakdown;
         updates.ultimateStabilitySamples = msg.samples;
         break;

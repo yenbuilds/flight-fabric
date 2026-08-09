@@ -1192,6 +1192,194 @@ test('requestTimeline flushes the active CSV before generating a timeline', asyn
   });
 });
 
+test('requestTimeline propagates and echoes the read-only full-analysis preview contract', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const calls: Array<Record<string, any>> = [];
+    const flightCsvStore = {
+      async generateTimelineFromFile(filePath, options) {
+        calls.push({ filePath, options });
+        return {
+          success: true,
+          timeline: {
+            filePath: 'C:/Flight Logs/canonical/telemetry.csv',
+            analysisRescore: { mode: 'current-preview', scope: 'full-landing-analysis' },
+            events: [],
+          },
+        };
+      },
+    };
+    const ws = buildWs({ privileged: true });
+
+    await handleClientMessage(
+      ws,
+      {
+        type: 'requestTimeline',
+        filePath: 'historic.csv',
+        scoringMode: 'current-preview',
+        requestId: 'landing-preview-1',
+      },
+      buildContext(null, { flightCsvStore }),
+    );
+
+    assert.deepEqual(calls, [{
+      filePath: 'historic.csv',
+      options: { requestId: 'landing-preview-1', scoringMode: 'current-preview' },
+    }]);
+    assert.equal(ws.messages.length, 1);
+    assert.equal(ws.messages[0].type, 'timeline');
+    assert.equal(ws.messages[0].requestId, 'landing-preview-1');
+    assert.equal(ws.messages[0].scoringMode, 'current-preview');
+    assert.equal(ws.messages[0].timeline.filePath, 'C:/Flight Logs/canonical/telemetry.csv');
+    assert.equal(ws.messages[0].timeline.analysisRescore.mode, 'current-preview');
+  });
+});
+
+test('requestTimeline preview errors echo correlation fields and reject non-exact modes', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    let receivedOptions: Record<string, any> | null = null;
+    const flightCsvStore = {
+      async generateTimelineForFlightId(_flightId, options) {
+        receivedOptions = options;
+        return { success: false, error: 'Preview unavailable' };
+      },
+    };
+    const ws = buildWs({ privileged: true });
+
+    await handleClientMessage(
+      ws,
+      {
+        type: 'requestTimeline',
+        flightId: 'historic-flight',
+        scoringMode: 'CURRENT-PREVIEW',
+        requestId: 42,
+      },
+      buildContext(null, { flightCsvStore }),
+    );
+
+    assert.deepEqual(receivedOptions, { requestId: 42, scoringMode: 'recorded' });
+    assert.equal(ws.messages.length, 1);
+    assert.equal(ws.messages[0].type, 'timelineError');
+    assert.equal(ws.messages[0].requestId, 42);
+    assert.equal(ws.messages[0].scoringMode, 'recorded');
+    assert.equal(ws.messages[0].error, 'Preview unavailable');
+  });
+});
+
+test('full flight-analysis rescore apply and revert use the guarded flight store contract', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const calls: Array<Record<string, any>> = [];
+    const previewFingerprint = 'a'.repeat(64);
+    const sourceFingerprint = 'b'.repeat(64);
+    const contractFingerprint = 'c'.repeat(64);
+    const snapshotFingerprint = 'd'.repeat(64);
+    const flightCsvStore = {
+      async applyFlightAnalysisRescore(request) {
+        calls.push({ action: 'apply', request });
+        return { success: true, revision: 1, appliedAt: '2026-08-09T00:00:00.000Z', snapshotFingerprint };
+      },
+      revertFlightAnalysisRescore(request) {
+        calls.push({ action: 'revert', request });
+        return { success: true, reverted: true, revision: 1, snapshotFingerprint };
+      },
+    };
+    const ws = buildWs({ privileged: true });
+
+    await handleClientMessage(ws, {
+      type: 'applyFlightAnalysisRescore',
+      filePath: 'historic.csv',
+      flightId: 'historic-flight',
+      requestId: 'apply-1',
+      baseRevision: 0,
+      previewFingerprint,
+      sourceFingerprint,
+      analysisContractFingerprint: contractFingerprint,
+    }, buildContext(null, { flightCsvStore }));
+    await handleClientMessage(ws, {
+      type: 'revertFlightAnalysisRescore',
+      filePath: 'historic.csv',
+      flightId: 'historic-flight',
+      requestId: 'revert-1',
+      expectedRevision: 1,
+      expectedSnapshotFingerprint: snapshotFingerprint,
+    }, buildContext(null, { flightCsvStore }));
+
+    assert.deepEqual(calls, [
+      {
+        action: 'apply',
+        request: {
+          filePath: 'historic.csv',
+          flightId: 'historic-flight',
+          expectedRevision: 0,
+          expectedSourceFingerprint: sourceFingerprint,
+          expectedPreviewFingerprint: previewFingerprint,
+          expectedAnalysisContractFingerprint: contractFingerprint,
+        },
+      },
+      {
+        action: 'revert',
+        request: {
+          filePath: 'historic.csv',
+          flightId: 'historic-flight',
+          expectedRevision: 1,
+          expectedSnapshotFingerprint: snapshotFingerprint,
+        },
+      },
+    ]);
+    assert.deepEqual(ws.messages, [
+      {
+        type: 'flightAnalysisRescoreResult',
+        requestId: 'apply-1',
+        action: 'apply',
+        success: true,
+        revision: 1,
+        appliedAt: '2026-08-09T00:00:00.000Z',
+        snapshotFingerprint,
+      },
+      {
+        type: 'flightAnalysisRescoreResult',
+        requestId: 'revert-1',
+        action: 'revert',
+        success: true,
+        revision: 1,
+        snapshotFingerprint,
+        reverted: true,
+      },
+    ]);
+  });
+});
+
+test('full flight-analysis rescore requires a privileged session and always replies', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    let called = false;
+    const ws = buildWs();
+    await handleClientMessage(ws, {
+      type: 'applyFlightAnalysisRescore',
+      filePath: 'private.csv',
+      requestId: 'denied-1',
+    }, buildContext(null, {
+      flightCsvStore: {
+        async applyFlightAnalysisRescore() {
+          called = true;
+          return { success: true };
+        },
+      },
+    }));
+
+    assert.equal(called, false);
+    assert.deepEqual(ws.messages, [{
+      type: 'flightAnalysisRescoreResult',
+      requestId: 'denied-1',
+      action: 'apply',
+      success: false,
+      error: 'Privileged session required for this action.',
+    }]);
+  });
+});
+
 test('requestTimeline refuses to read active CSV if the writer flush fails', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
@@ -1482,6 +1670,8 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
     'stopRecording',
     'endFlightManual',
     'requestTimeline',
+    'applyFlightAnalysisRescore',
+    'revertFlightAnalysisRescore',
     'requestTimelineList',
     'deleteFlightCsv',
     'setDestinationTarget',

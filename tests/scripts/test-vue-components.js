@@ -1857,17 +1857,29 @@ async function main() {
         const flight = useFlightStore();
         flight.updateLandingPreview({
           final: true,
-          vs: -305,
+          vs: -243,
+          grade: 'PERFECT',
+          runwayExcursion: true,
           icao: 'YSSY',
           runway: '34L',
-          score: 96,
-          ultimateStability: { score: 98 },
+          touchdownDistance: { distanceFt: 600, grade: 'Outstanding', bounceCount: 1, bounceGrade: 'Single Bounce' },
+          ultimateStability: { verdict: 'unstable', score: 84, gateStable: false },
         });
       },
     );
 
     assert.match(html, /id="data-open-landing-btn"/, 'last landing summary should expose the full report action target');
     assert.match(html, /Full Report/, 'last landing summary should render the landing report action label');
+    assert.match(html, /Touchdown[\s\S]*id="data-last-landing-grade"[^>]*>\s*PERFECT\s*</, 'last landing summary should explicitly scope the raw touchdown grade');
+    assert.match(html, /id="data-last-landing-bounce"[^>]*>1x<\//, 'last landing summary should expose bounce as a peer fact');
+    assert.match(html, /id="data-last-landing-stability"[^>]*>UNSTABLE<\//, 'last landing summary should expose the approach verdict independently');
+    assert.match(html, /id="data-last-landing-stability"[^>]*class="[^"]*text-red-400[^"]*"/, 'last landing summary should tone an unstable approach as danger');
+    assert.match(html, /id="data-last-landing-bounce"[^>]*class="[^"]*text-amber-400[^"]*"/, 'last landing summary should tone a single bounce as a warning');
+    assert.match(html, /id="data-last-landing-approach-score"[^>]*>Approach score 84%<\//, 'last landing summary should subordinate and label the approach percentage');
+    assert.match(html, /id="data-last-landing-tdz"[^>]*>600 ft<\//, 'last landing summary should expose TDZ distance as a separate fact');
+    assert.match(html, /Outstanding/, 'last landing summary should retain the separate TDZ grade');
+    assert.match(html, /Runway excursion/, 'last landing summary should retain the separate critical excursion fact');
+    assert.match(html, /Touchdown rate/, 'last landing summary should use a source-neutral touchdown-rate label');
   });
 
   await test('FlightTelemetryPanel renders live telemetry values from the flight store', async () => {
@@ -2922,7 +2934,7 @@ async function main() {
             conservativeRunwayEdgeMarginFt: 27,
             flags: [{ code: 'rollout_bank', label: 'Noticeable bank during rollout' }],
           },
-          ultimateStability: { score: 91 },
+          ultimateStability: { score: 91, gateStable: true },
           flightSummary: {
             max_alt_ft: 12000,
             max_ias_kts: 250,
@@ -2936,8 +2948,11 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="landing-grade"[^>]*>OUTSTANDING</, 'landing grade should render from store state');
-    assert.match(html, /id="landing-grade-breakdown"[^>]*>Touchdown: Firm - Distance: Outstanding</, 'landing grade breakdown should render from store state');
+    assert.match(html, /Touchdown[\s\S]*id="landing-grade"[^>]*>FIRM</, 'landing summary should explicitly scope the raw touchdown-rate grade');
+    assert.match(html, /id="landing-grade-breakdown"[^>]*>TDZ: 305 ft · Outstanding</, 'landing summary should show TDZ distance and quality separately from the touchdown-rate grade');
+    assert.match(html, /id="landing-summary-approach"[^>]*>STABLE</, 'landing summary should show the approach verdict as a peer fact');
+    assert.match(html, /id="landing-summary-approach-score"[^>]*>\s*Approach score 91%\s*</, 'landing summary should label the subordinate approach percentage');
+    assert.match(html, /id="landing-summary-bounce"[^>]*>Clean</, 'landing summary should show bounce as a peer fact');
     assert.match(html, /id="landing-gforce"[^>]*>G: 1\.23</, 'landing gforce should render from store state');
     assert.match(html, /id="landing-vs"[^>]*>-467</, 'landing vertical speed should render from store state');
     assert.match(html, /id="landing-airport"[^>]*>YSSY</, 'landing airport should render from store state');
@@ -2945,7 +2960,7 @@ async function main() {
     assert.match(html, /id="landing-tdz-value"[^>]*>305 ft</, 'landing touchdown distance should render from store state');
     assert.match(html, /1,000 ft target/, 'landing card should label the ideal target separately from the formal TDZ');
     assert.match(html, /id="landing-tdz-achieved"[^>]*>YES</, 'landing first-1,000-ft target should render from store state');
-    assert.match(html, /id="landing-stability-score"[^>]*>91</, 'landing stability score should render from store state');
+    assert.match(html, /id="landing-stability-score"[^>]*>STABLE</, 'landing approach verdict should render from store state');
     assert.match(html, /id="landing-ias"[^>]*>136 kt</, 'landing IAS should render from store state');
     assert.match(html, /id="landing-gs"[^>]*>GS: 142</, 'landing GS should render from store state');
     assert.match(html, /id="landing-crosswind"[^>]*>8 kt L</, 'landing crosswind should render from store state');
@@ -2957,6 +2972,7 @@ async function main() {
     assert.match(html, /id="landing-upset-count"[^>]*>2</, 'landing upset count should render from store state');
     assert.match(html, /id="landing-debrief-factors"/, 'landing debrief factors section should render');
     assert.match(html, /id="landing-debrief-reasons"[\s\S]*Firm touchdown[\s\S]*Stabilized approach/, 'landing debrief reasons should render from store state');
+    assert.match(html, /Telemetry confidence/, 'landing confidence label should explicitly describe telemetry quality');
     assert.match(html, /id="landing-data-confidence"[^>]*>\s*High\s*</, 'landing data confidence should render from store state');
     assert.match(html, /id="landing-rollout-analysis"(?![^>]*hidden)/, 'separate rollout analysis should be visible');
     assert.match(html, /id="landing-rollout-assessment"[^>]*>CAUTION</, 'rollout assessment should render from store state');
@@ -2964,6 +2980,42 @@ async function main() {
     assert.match(html, /Conservative edge margin[\s\S]*27 ft/, 'rollout metrics should render the uncertainty-adjusted runway-edge margin');
     assert.match(html, /id="landing-inflight-stats"[\s\S]*Max Alt[\s\S]*12,000 ft[\s\S]*Possible Go-Arounds[\s\S]*1/, 'in-flight stat rows should render from store state');
     assert.match(html, /id="landing-inflight-violations"[\s\S]*Overspeed[\s\S]*2x[\s\S]*Bank Angle[\s\S]*warning - 4s/, 'in-flight violation rows should render from store state');
+  });
+
+  await test('LandingPanel scopes touchdown, approach, and bounce as equal-weight facts', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LandingPanel.vue'),
+      ({ useLandingStore }) => {
+        useLandingStore().applyLandingCardMessage({
+          final: true,
+          vs: -243,
+          grade: 'PERFECT',
+          touchdownDistance: {
+            distanceFt: 600,
+            grade: 'Outstanding',
+            bounceGrade: 'Single Bounce',
+            bounceCount: 1,
+          },
+          ultimateStability: {
+            verdict: 'unstable',
+            score: 84,
+            gateStable: false,
+            gateFailures: ['speed_ok', 'vs_ok', 'glidepath_ok'],
+          },
+        });
+      },
+    );
+
+    assert.match(html, /Touchdown[\s\S]*id="landing-grade"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>PERFECT</, 'card should explicitly label the raw touchdown grade at peer visual weight');
+    assert.match(html, /Approach[\s\S]*id="landing-summary-approach"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>UNSTABLE</, 'card should give the failed approach verdict equal visual weight');
+    assert.match(html, /Bounce[\s\S]*id="landing-summary-bounce"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>1x</, 'card should give the bounce result equal visual weight');
+    assert.match(
+      html,
+      /id="landing-grade-breakdown"[^>]*>TDZ: 600 ft · Outstanding</,
+      'TDZ distance and quality should remain a separate touchdown-position fact',
+    );
+    assert.match(html, /id="landing-stability-score"[^>]*>UNSTABLE</, 'approach tile should lead with the gate verdict');
+    assert.match(html, /3 substantial\/required findings · Approach score 84%/, 'approach tile should keep the labelled average score as secondary context');
   });
 
   await test('LandingPanel renders stability breakdown rows from the landing store', async () => {
@@ -3050,7 +3102,7 @@ async function main() {
   await test('LandingModal renders landing debrief overlay state', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LandingModal.vue'),
-      ({ useLandingStore }) => {
+      ({ useLandingStore, useTimelineStore }) => {
         const landing = useLandingStore();
         landing.applyLandingCardMessage({
           final: true,
@@ -3060,6 +3112,29 @@ async function main() {
           grade: 'Good',
         });
         landing.openLandingModal({ loading: false });
+        useTimelineStore().setDetail({
+          visible: true,
+          type: 'Landing',
+          title: 'Landing at LFPB 07',
+          selectedLandingEvent: { type: 'landing' },
+          metricSections: [
+            {
+              key: 'landing-snapshot',
+              rows: [
+                { key: 'heading', label: 'Heading', value: '072 deg' },
+                { key: 'position', label: 'Position', value: '48.7262, 2.3652' },
+                { key: 'runway', label: 'Runway', value: '07 (8,858ft)' },
+              ],
+            },
+            {
+              key: 'touchdown-zone-analysis',
+              rows: [
+                { key: 'score', label: 'TDZ Score', value: '91/100' },
+                { key: 'remaining', label: 'Remaining', value: '7,255ft (18.1% down runway)' },
+              ],
+            },
+          ],
+        });
       },
     );
 
@@ -3067,6 +3142,9 @@ async function main() {
     assert.match(html, /Landing Debrief/, 'landing debrief modal should render its title');
     assert.match(html, /LFPB[\s\S]*07/, 'landing debrief modal should render the selected landing airport and runway');
     assert.match(html, /id="landing-card"/, 'landing debrief modal should embed the landing panel content');
+    assert.match(html, /id="landing-modal-recorded-context"/, 'timeline-only saved-event context should move into a collapsed modal section');
+    assert.match(html, /Recorded Context[\s\S]*Heading[\s\S]*072 deg[\s\S]*TDZ Score[\s\S]*91\/100/, 'the modal should retain detailed saved-event fields omitted from the compact timeline panel');
+    assert.doesNotMatch(html, /id="landing-modal-recorded-context"[^>]*\sopen(?:\s|>)/, 'additional recorded context should stay collapsed by default');
 
     const loading = await renderComponent(
       path.join('src', 'vue', 'components', 'LandingModal.vue'),
@@ -3080,6 +3158,17 @@ async function main() {
   });
 
   console.log('\n--- logbook panel ---\n');
+  await test('LogbookPanel forwards every saved touchdown scoring field to shared presentation', async () => {
+    const source = fs.readFileSync(
+      path.join(frontendRoot, 'src', 'vue', 'components', 'LogbookPanel.vue'),
+      'utf8',
+    );
+
+    assert.match(source, /zone:\s*entry\.touchdownDistanceZone/, 'saved TDZ zone should reach the shared touchdown presentation');
+    assert.match(source, /bounceScore:\s*entry\.bounceScore/, 'saved bounce score should reach the shared touchdown presentation');
+    assert.match(source, /hasTouchdownData[\s\S]*entry\.touchdownDistanceZone[\s\S]*entry\.bounceScore\s*!=\s*null/, 'zone- or score-only saved results should not be discarded as empty');
+  });
+
   await test('LogbookPanel renders backend aggregate stats and runway text', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
@@ -3090,6 +3179,7 @@ async function main() {
           stats: {
             total: 4,
             grades: { FIRM: 2, HARD: 1, 'RUNWAY EXCURSION': 1 },
+            longLandingCount: 1,
             avgVsFpm: -592,
             bestVsFpm: -467,
             airports: 2,
@@ -3132,7 +3222,7 @@ async function main() {
               runway: '33R',
               vsFpm: -608.6,
               grade: 'FIRM',
-              gateStable: false,
+              gateStable: null,
               stabilityScore: 72,
               stabilityGateFailures: ['vs_unstable_after_gate'],
               touchdownDistanceFt: 3862,
@@ -3163,24 +3253,25 @@ async function main() {
     assert.match(html, /class="logbook-panel[^"]*overflow-hidden/, 'scored landings panel should use rounded app card styling');
     assert.match(html, />4<\/div>/, 'landings count should render');
     assert.match(html, /-592 fpm/, 'average vertical speed should render');
-    assert.match(html, /Best -467 fpm/, 'best landing text should render');
+    assert.match(html, /Softest touchdown rate -467 fpm/, 'softest touchdown-rate text should remain factual');
     assert.match(html, />2<\/div>/, 'airport count should render');
     assert.match(html, />0<\/div>/, 'aircraft count should render');
-    assert.match(html, /1<\/span><span style="color:\s*#facc15;?">Firm/, 'firm count should reflect outcome grades, not only sink-rate grades');
+    assert.match(html, /2<\/span><span style="color:\s*#facc15;?">Firm/, 'firm count should reflect raw touchdown-rate grades');
     assert.match(html, /1<\/span><span style="color:\s*#f97316;?">Hard/, 'hard count should render');
     assert.match(html, /Long TDZ[\s\S]*>1<\/div>/, 'long touchdown-zone count should render');
-    assert.match(html, /1<\/span><span style="color:\s*#f97316;?">Long/, 'long landing outcome count should render');
+    assert.doesNotMatch(html, /style="color:\s*#f97316;?">Long<\/span>/, 'TDZ outcomes should not be folded into the touchdown-rate legend');
     assert.match(html, /3862 ft/, 'touchdown distance should render in the scored landings table');
     assert.match(html, /Long Landing/, 'touchdown distance grade should render in the scored landings table');
-    assert.match(html, />LONG<\/span>/, 'outcome grade should promote long landings above the V/S grade');
-    assert.match(html, /1<\/span><span style="color:\s*#ef4444;?">Excursion/, 'runway excursion count should render');
-    assert.match(html, /id="logbook-trends"[\s\S]*Recent Trends[\s\S]*Aircraft[\s\S]*PMDG 777[\s\S]*VS improving/, 'aircraft trend rows should render');
-    assert.match(html, /id="logbook-trends"[\s\S]*Airports[\s\S]*YSSY[\s\S]*100% stable/, 'airport trend rows should render');
-    assert.match(html, /LFPG 27R[\s\S]*0% stable/, 'trend rows without a VS comparison should still show stability rate');
+    assert.match(html, /Touchdown Rate Grade/, 'the table should explicitly scope its grade column to touchdown rate');
+    assert.match(html, />FIRM<\/span>/, 'a long TDZ should not rewrite the raw touchdown-rate grade');
+    assert.match(html, /1<\/span><span style="color:\s*#94a3b8;?">Other/, 'non-rate legacy grades should remain outside touchdown-rate grade buckets');
+    assert.match(html, /id="logbook-trends"[\s\S]*Recent Trends[\s\S]*Aircraft[\s\S]*PMDG 777[\s\S]*avg approach score 88%[\s\S]*TD rate improving/, 'aircraft trend rows should scope the average approach percentage');
+    assert.match(html, /id="logbook-trends"[\s\S]*Airports[\s\S]*YSSY[\s\S]*100% strict stable/, 'airport trend rows should identify the legacy strict rate');
+    assert.match(html, /LFPG 27R[\s\S]*0% strict stable/, 'trend rows without a VS comparison should still show the strict stability rate');
     assert.doesNotMatch(html, /VS\s*--/, 'trend rows without a VS comparison should not render a broken-looking VS placeholder');
     assert.match(html, /YPAD[^<]*<span[^>]*>23<\/span>/, 'numeric runway identifier should render as text');
     assert.match(html, /RUNWAY EXCURSION/, 'runway excursion grade should render as a first-class logbook row');
-    assert.match(html, />UNST<\/span>/, 'unstable gate label should render');
+    assert.match(html, />UNSTABLE<\/span>/, 'unstable approach verdict should render');
     assert.doesNotMatch(html, /logbook-mobile-card__top/, 'desktop logbook render should not include hidden mobile row DOM');
   });
 
@@ -3230,7 +3321,7 @@ async function main() {
           type: 'logbook',
           stats: {
             total: 1,
-            outcomeGrades: { Good: 1 },
+            grades: { Good: 1 },
             avgVsFpm: -532,
             airports: 1,
             aircraft: 1,
@@ -3259,7 +3350,7 @@ async function main() {
     assert.match(html, /style="width:100\.0%;min-width:2px;height:100%;"/, 'single known grade segment should fill the grade bar');
   });
 
-  await test('LogbookPanel grade counts fall back to visible entries when aggregate outcome stats are partial', async () => {
+  await test('LogbookPanel grade counts use raw touchdown grades when aggregate stats are unavailable', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
       ({ useLogbookStore }) => {
@@ -3268,7 +3359,7 @@ async function main() {
           type: 'logbook',
           stats: {
             total: 20,
-            outcomeGrades: { Good: 1 },
+            grades: {},
             avgVsFpm: -420,
             airports: 2,
             aircraft: 1,
@@ -3319,27 +3410,19 @@ async function main() {
     );
 
     assert.match(html, /20 landings recorded/, 'aggregate total should remain visible');
-    assert.match(html, /1<\/span><span style="color:\s*#38bdf8;?">Good/, 'visible GOOD row should count as Good');
-    assert.match(html, /1<\/span><span style="color:\s*#facc15;?">Firm/, 'visible Acceptable row should count in the Firm bucket');
-    assert.match(html, /1<\/span><span style="color:\s*#f97316;?">Long/, 'visible Long Landing row should count in the Long bucket');
+    assert.match(html, /3<\/span><span style="color:\s*#38bdf8;?">Good/, 'visible raw GOOD touchdown rows should count as Good');
+    assert.match(html, /0<\/span><span style="color:\s*#facc15;?">Firm/, 'Acceptable TDZ position should not rewrite the touchdown grade');
+    assert.doesNotMatch(html, /style="color:\s*#f97316;?">Long<\/span>/, 'Long Landing TDZ position should stay out of touchdown-rate counts');
     assert.match(html, /17<\/span><span style="color:\s*#94a3b8;?">Other/, 'uncategorized aggregate remainder should be visible as Other');
-    assert.match(html, />\s*ACCEPTABLE\s*<\/span>/, 'title-case touchdown outcomes should render as uppercase grade labels');
-    assert.doesNotMatch(html, /rounded"[^>]*>\s*Acceptable\s*<\/span>/, 'grade pills should not leak title-case outcome labels');
+    assert.match(html, /Acceptable/, 'title-case TDZ outcomes should remain visible in the TDZ column');
+    assert.doesNotMatch(html, /rounded"[^>]*>\s*ACCEPTABLE\s*<\/span>/, 'TDZ outcomes should not replace touchdown-grade pills');
     assert.match(html, /style="[^"]*background:\s*(?!transparent)[^;]+;[^"]*border:\s*1px solid (?!transparent)[^;"]+;?[^"]*"[^>]*>\s*<span>1835 ft/, 'good TDZ rows should use the same boxed badge shell as other TDZ outcomes');
     assert.doesNotMatch(html, /background:\s*transparent;\s*border:\s*1px solid transparent/, 'TDZ badges should not mix boxed and unboxed styling');
-    assert.match(html, /background:\s*#38bdf8;[^"]*min-height:\s*2\.5rem/, 'GOOD rows should render a visible cyan left accent strip');
+    assert.doesNotMatch(html, /min-height:\s*2\.5rem/, 'desktop rows should not render touchdown-grade accent strips');
   });
 
-  await test('LogbookPanel uppercases every touchdown-derived outcome grade label', async () => {
-    const touchdownGrades = [
-      'Outstanding',
-      'Good',
-      'Acceptable',
-      'Marginal',
-      'Poor',
-      'Dangerous',
-      'Short Landing',
-    ];
+  await test('LogbookPanel uppercases every raw touchdown-rate grade label', async () => {
+    const touchdownGrades = ['Perfect', 'Good', 'Firm', 'Hard', 'Very Hard'];
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
       ({ useLogbookStore }) => {
@@ -3347,13 +3430,14 @@ async function main() {
         logbook.ingestMessage({
           type: 'logbook',
           stats: { total: touchdownGrades.length },
-          entries: touchdownGrades.map((touchdownDistanceGrade, index) => ({
+          entries: touchdownGrades.map((grade, index) => ({
             id: `touchdown-grade-${index}`,
             timestamp: `2026-05-${String(index + 1).padStart(2, '0')}T17:16:50.465Z`,
             vsFpm: null,
-            grade: null,
-            touchdownDistanceGrade,
+            grade,
+            touchdownDistanceGrade: 'Outstanding',
             gateStable: null,
+            stabilityScore: index === 0 ? 91 : null,
           })),
         });
       },
@@ -3362,13 +3446,87 @@ async function main() {
       },
     );
 
+    assert.match(html, /Touchdown Rate Grade/, 'the table should explicitly scope the grade column');
+    assert.match(html, />NO VERDICT<\/span>/, 'a score without a gate result should remain explicitly verdict-free');
     for (const grade of touchdownGrades) {
       const label = grade.toUpperCase();
       assert.match(html, new RegExp(`rounded"[^>]*>\\s*${label}\\s*<\\/span>`), `${grade} should render as ${label}`);
     }
   });
 
-  await test('LogbookPanel distinguishes minor gate issues from unstable finals', async () => {
+  await test('LogbookPanel keeps raw touchdown grades separate from approach and bounce facts', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => {
+        useLogbookStore().ingestMessage({
+          type: 'logbook',
+          stats: {
+            total: 1,
+            grades: { PERFECT: 1 },
+            avgVsFpm: -243,
+            airports: 1,
+            aircraft: 1,
+          },
+          entries: [{
+            id: 'capped-perfect',
+            timestamp: '2026-08-07T10:00:00.000Z',
+            aircraft: 'A32NX',
+            icao: 'LFPG',
+            runway: '09L',
+            vsFpm: -243,
+            grade: 'PERFECT',
+            touchdownDistanceFt: 600,
+            touchdownDistanceGrade: 'Outstanding',
+            bounceCount: 1,
+            bounceGrade: 'Single Bounce',
+            runwayExcursion: true,
+            stabilityVerdict: 'unstable',
+            gateStable: false,
+            stabilityScore: 84,
+            stabilityGateFailures: ['speed_proxy_unstable_after_gate'],
+          }],
+        });
+      },
+      { matchMedia: () => ({ matches: true }) },
+    );
+
+    assert.match(html, />PERFECT<\/span>/, 'an unstable or bounced row should preserve its raw touchdown-rate grade');
+    assert.doesNotMatch(html, /min-height:2\.5rem/, 'desktop rows should not render touchdown-grade accent strips');
+    assert.match(html, /RUNWAY EXCURSION/, 'runway excursion should remain visible as a separate TDZ fact');
+    assert.match(html, />1x<\/td>/, 'the row should expose its bounce count in a dedicated column');
+    assert.match(html, />UNSTABLE<\/span>/, 'the failed approach gate should remain prominent');
+    assert.match(html, /1<\/span><span style="color:\s*#22c55e;?">Perfect/, 'raw PERFECT results should remain in the touchdown-grade distribution');
+    assert.match(html, /Touchdown rate grade breakdown/, 'the aggregate chart should explicitly scope its grade counts');
+  });
+
+  await test('LogbookPanel names runway excursions in the mobile TDZ fact', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => {
+        useLogbookStore().ingestMessage({
+          type: 'logbook',
+          stats: { total: 1, grades: { GOOD: 1 }, airports: 1, aircraft: 1 },
+          entries: [{
+            id: 'mobile-excursion',
+            timestamp: '2026-08-07T10:00:00.000Z',
+            aircraft: 'A32NX',
+            icao: 'LFPG',
+            vsFpm: -349,
+            grade: 'GOOD',
+            runwayExcursion: true,
+          }],
+        });
+      },
+    );
+
+    assert.match(
+      html,
+      /logbook-mobile-card__stat-label">TDZ<\/span>[\s\S]*RUNWAY EXCURSION/,
+      'mobile history should name an excursion even when no TDZ geometry is available',
+    );
+  });
+
+  await test('LogbookPanel distinguishes marginal and unstable approaches with visible desktop causes', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
       ({ useLogbookStore }) => {
@@ -3376,8 +3534,8 @@ async function main() {
         logbook.ingestMessage({
           type: 'logbook',
           stats: {
-            total: 3,
-            outcomeGrades: { Good: 3 },
+            total: 4,
+            grades: { Good: 4 },
             avgVsFpm: -260,
             airports: 1,
             aircraft: 1,
@@ -3392,11 +3550,9 @@ async function main() {
               vsFpm: -210,
               grade: 'GOOD',
               gateStable: false,
-              stabilityScore: 91,
-              stabilityGateFailures: [
-                'speed_proxy_unstable_after_gate',
-                'speed_trend_unstable_after_gate',
-              ],
+              stabilityScore: 96,
+              stabilityGateFailures: ['thrust_unstable_after_gate'],
+              stabilityBreakdown: { thrust_ok: 79 },
             },
             {
               id: 'path-rate-issue',
@@ -3412,6 +3568,7 @@ async function main() {
                 'glidepath_proxy_unstable_after_gate',
                 'glidepath_too_low_after_gate',
               ],
+              stabilityBreakdown: { glidepath_ok: 56, glidepath_below_ok: 79 },
             },
             {
               id: 'major-config',
@@ -3425,6 +3582,19 @@ async function main() {
               stabilityScore: 91,
               stabilityGateFailures: ['gear_not_down_at_gate'],
             },
+            {
+              id: 'major-speed',
+              timestamp: '2026-05-19T17:16:50.465Z',
+              aircraft: '737-800',
+              icao: 'LFPG',
+              runway: '09L',
+              vsFpm: -280,
+              grade: 'GOOD',
+              gateStable: false,
+              stabilityScore: 84,
+              stabilityGateFailures: ['speed_proxy_unstable_after_gate'],
+              stabilityBreakdown: { speed_ok: 38 },
+            },
           ],
         });
       },
@@ -3434,12 +3604,71 @@ async function main() {
     );
 
     assert.strictEqual(
-      (html.match(/>1 ISSUE<\/span>/g) || []).length,
+      (html.match(/>MARGINAL<\/span>/g) || []).length,
       2,
-      'related speed and path-rate failures should each collapse to one issue family',
+      'soft/proxy-only misses should render as marginal',
     );
-    assert.doesNotMatch(html, />2 ISSUES<\/span>/, 'related speed failures must not be double-counted');
-    assert.match(html, />UNST<\/span>/, 'major config gate failure should still render as unstable');
+    assert.strictEqual((html.match(/>UNSTABLE<\/span>/g) || []).length, 2, 'hard and substantial direct deviations should remain unstable');
+    assert.match(html, /MARGINAL[\s\S]*Throttle movement 79%/, 'desktop rows should show a marginal throttle cause without requiring a tooltip');
+    assert.match(html, /MARGINAL[\s\S]*Path rate 56% · Path rate steep 79%/, 'desktop rows should show the two leading proxy causes');
+    assert.match(html, /UNSTABLE[\s\S]*Speed 38%/, 'desktop rows should show a substantial direct cause');
+    assert.match(html, /Stable requires every applicable strict check[\s\S]*Marginal means a strict check was missed[\s\S]*no hard or substantial deviation/, 'Logbook should explain the four-state policy');
+  });
+
+  await test('LogbookPanel shows the persisted marginal verdict and cause on mobile', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => {
+        useLogbookStore().ingestMessage({
+          type: 'logbook',
+          stats: { total: 1, grades: { Good: 1 }, airports: 1, aircraft: 1 },
+          entries: [{
+            id: 'mobile-marginal',
+            timestamp: '2026-05-21T17:16:50.465Z',
+            aircraft: '737-800',
+            icao: 'YSCB',
+            runway: '35',
+            vsFpm: -177,
+            grade: 'GOOD',
+            stabilityVerdict: 'marginal',
+            gateStable: false,
+            stabilityScore: 96,
+            stabilityGateFailures: ['thrust_unstable_after_gate'],
+            stabilityBreakdown: { thrust_ok: 79 },
+          }],
+        });
+      },
+      { matchMedia: () => ({ matches: false }) },
+    );
+
+    assert.match(html, /logbook-mobile-card__stat-label">Approach<\/span>[\s\S]*Marginal[\s\S]*Throttle movement 79%/, 'mobile rows should show the verdict and cause directly');
+  });
+
+  await test('LogbookPanel hides breakdown causes when stability has no verdict', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => {
+        useLogbookStore().ingestMessage({
+          type: 'logbook',
+          stats: { total: 1, grades: { Good: 1 }, airports: 1, aircraft: 1 },
+          entries: [{
+            id: 'no-verdict-breakdown',
+            timestamp: '2026-05-21T17:16:50.465Z',
+            aircraft: '737-800',
+            icao: 'YSCB',
+            runway: '35',
+            vsFpm: -177,
+            grade: 'GOOD',
+            stabilityVerdict: 'no_verdict',
+            stabilityScore: null,
+            gateStable: null,
+            stabilityBreakdown: { config_ok: 0, flaps_ok: 0, gear_ok: 0 },
+          }],
+        });
+      },
+    );
+
+    assert.doesNotMatch(html, /Configuration 0%|Flaps 0%|Gear 0%/, 'unavailable stability should not show misleading breakdown causes');
   });
 
   console.log('\n--- simbrief panel ---\n');
@@ -3614,7 +3843,7 @@ async function main() {
     assert.match(html, /timeline-count-badge[^>]*>x2</, 'timeline inspector should render repeat-count badges from store state');
   });
 
-  await test('TimelineDetailPanel renders structured detail sections from the store', async () => {
+  await test('TimelineDetailPanel keeps landing details compact and routes depth to the debrief', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'TimelineDetailPanel.vue'),
       ({ useTimelineStore }) => {
@@ -3623,16 +3852,31 @@ async function main() {
           visible: true,
           type: 'Landing',
           title: 'Landing at YSSY 34L',
-          metricSections: [{
-            key: 'landing-snapshot',
-            title: 'Landing Snapshot',
-            rows: [
-              { key: 'ias', label: 'IAS', value: '136 kts' },
-              { key: 'vs', label: 'V/S', value: '-467 fpm', valueClass: 'text-red-400 font-mono' },
-            ],
-            noteText: 'Touchdown stayed inside the touchdown zone.',
-            emptyText: '',
-          }],
+          metricSections: [
+            {
+              key: 'landing-snapshot',
+              title: 'Landing Snapshot',
+              rows: [
+                { key: 'touchdown-grade', label: 'Touchdown Rate Grade', value: 'FIRM' },
+                { key: 'approach-verdict', label: 'Approach', value: 'STABLE' },
+                { key: 'bounce', label: 'Bounce', value: 'CLEAN' },
+                { key: 'ias', label: 'IAS', value: '136 kts' },
+                { key: 'vs', label: 'V/S', value: '-467 fpm', valueClass: 'text-red-400 font-mono' },
+              ],
+              noteText: 'Touchdown stayed inside the touchdown zone.',
+              emptyText: '',
+            },
+            {
+              key: 'touchdown-zone-analysis',
+              title: 'Touchdown Zone Analysis',
+              rows: [
+                { key: 'distance', label: 'Distance', value: '305ft from threshold' },
+                { key: 'grade', label: 'TDZ Grade', value: 'Outstanding' },
+              ],
+              noteText: '',
+              emptyText: '',
+            },
+          ],
           approachProfileHtml: '<svg viewBox=\"0 0 10 10\"><path d=\"M0 10 L10 0\" /></svg>',
           topdownProfileHtml: '<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"2\" /></svg>',
           landingActionVisible: true,
@@ -3642,14 +3886,75 @@ async function main() {
 
     assert.match(html, /id="timeline-detail-type"[^>]*>Landing</, 'detail type should render from store state');
     assert.match(html, /id="timeline-detail-title"[^>]*>Landing at YSSY 34L</, 'detail title should render from store state');
-    assert.match(html, /Landing Snapshot/, 'detail sections should render their headings');
-    assert.match(html, /IAS:[\s\S]*136 kts/, 'detail sections should render structured metric rows');
-    assert.match(html, /V\/S:[\s\S]*-467 fpm/, 'detail rows should render custom value styling and text');
-    assert.match(html, /Touchdown stayed inside the touchdown zone\./, 'detail note text should render from store state');
-    assert.match(html, /id="timeline-approach-profile"[\s\S]*<svg/, 'detail panel should continue rendering generated approach-profile SVG');
-    assert.match(html, /id="timeline-topdown-profile"[\s\S]*<svg[\s\S]*<circle/, 'detail panel should render generated top-down profile SVG');
+    assert.match(html, /Touchdown Rate Grade[\s\S]*FIRM/, 'compact landing detail should retain the touchdown-rate grade');
+    assert.match(html, /Touchdown Rate[\s\S]*-467 fpm/, 'compact landing detail should retain the touchdown rate');
+    assert.match(html, /TDZ[\s\S]*305ft from threshold · Outstanding/, 'compact landing detail should combine TDZ distance and quality');
+    assert.match(html, /Approach[\s\S]*STABLE[\s\S]*Bounce[\s\S]*CLEAN/, 'compact landing detail should retain approach and bounce essentials');
+    assert.doesNotMatch(html, /136 kts|Landing Snapshot|Touchdown Zone Analysis|Touchdown stayed inside/, 'compact landing detail should omit duplicate secondary information');
+    assert.doesNotMatch(html, /id="timeline-approach-profile"|id="timeline-topdown-profile"/, 'landing profile images should be reserved for the debrief modal');
     assert.match(html, /id="timeline-open-landing-btn"[^>]*>\s*Open Landing Debrief\s*</, 'landing detail action should remain available');
     assert.doesNotMatch(html, /id="timeline-detail-score"/, 'detail panel should not render the unused score-impact side block');
+  });
+
+  await test('TimelineSummaryBar exposes one complete flight-level analysis preview, save, and restore flow', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineSummaryBar.vue'),
+      ({ useTimelineStore }) => {
+        const timeline = useTimelineStore();
+        timeline.bindRequestActions({ onRequestTimeline: () => true });
+        timeline.setLoadedTimelineIdentity({
+          filePath: 'C:/Flights/F-preview.csv',
+          flightId: 'F-preview',
+          analysisRescore: {
+            applied: true,
+            revision: 3,
+            appliedAt: '2026-08-08T00:00:00.000Z',
+            snapshotFingerprint: 'saved-snapshot-3',
+          },
+        });
+        timeline.setSummary({
+          visible: true,
+          eventCountText: '42',
+          violationCountText: '1',
+          durationText: '1h 20m',
+          distanceText: '500 NM',
+        });
+        timeline.analysisRescorePreviewStatus = 'ready';
+        timeline.analysisRescorePreview = {
+          available: true,
+          previewFingerprint: 'preview-fingerprint',
+          baseRevision: 3,
+          sourceFingerprint: 'source-fingerprint',
+          analysisContractFingerprint: 'contract-fingerprint',
+          changedMetricCount: 2,
+          landingCount: 1,
+          groups: [{
+            key: '42',
+            label: 'Landing at LFPG 26L',
+            available: true,
+            reason: null,
+            metrics: [
+              { key: 'touchdown-rate', label: 'Touchdown rate', recorded: 'GOOD', current: 'FIRM', changed: true },
+              { key: 'stability', label: 'Approach stability', recorded: 'Stable 86%', current: 'Unstable 72%', changed: true },
+              { key: 'bounce', label: 'Bounce', recorded: 'Clean', current: 'Clean', changed: false },
+            ],
+          }],
+          reason: null,
+        };
+      },
+    );
+
+    assert.match(html, /id="timeline-analysis-rescore"/, 'analysis rescore belongs to the loaded flight, not a selected landing');
+    assert.match(html, /id="timeline-preview-analysis-rescore-btn"[^>]*>\s*Review current scoring\s*</);
+    assert.match(html, /touchdown-rate, approach stability, TDZ, lateral-offset, bounce, and rollout scoring/);
+    assert.match(html, /original recording and recorded results remain unchanged/i);
+    assert.match(html, /id="timeline-analysis-rescore-applied-badge"[\s\S]*Current scoring saved/);
+    assert.match(html, /id="timeline-analysis-rescore-preview-result"[\s\S]*2 scoring results change across 1 landing/);
+    assert.match(html, /Landing at LFPG 26L[\s\S]*Touchdown rate[\s\S]*GOOD[\s\S]*FIRM/);
+    assert.match(html, /Approach stability[\s\S]*Stable 86%[\s\S]*Unstable 72%/);
+    assert.match(html, /id="timeline-apply-analysis-rescore-btn"[^>]*>\s*Save all current scoring\s*</);
+    assert.match(html, /id="timeline-revert-analysis-rescore-btn"[^>]*>\s*Restore all recorded scoring\s*</);
+    assert.doesNotMatch(html, /Save current grade|Restore recorded grade|touchdown-rate rules/, 'no selected-metric mutation controls should remain');
   });
 
   await test('TimelineTabShell renders the timeline viewer as a mobile fullscreen modal', async () => {
@@ -3982,7 +4287,7 @@ async function main() {
     assert.match(html, />Copied!</, 'copy-path button label should render from the timeline store');
   });
 
-  await test('TimelineSummaryBar keeps fuel burn as secondary modal detail', async () => {
+  await test('TimelineSummaryBar stays on one line and omits score impact', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'TimelineSummaryBar.vue'),
       ({ useTimelineStore }) => {
@@ -3999,8 +4304,9 @@ async function main() {
       },
     );
 
-    assert.match(html, /Estimated fuel burn:\s*<span[^>]*>365 kg<\/span>/, 'timeline modal should still expose fuel burn quietly');
-    assert.doesNotMatch(html, /uppercase tracking-wider[^>]*>Fuel Burn</, 'fuel burn should not be a headline summary metric');
+    assert.match(html, /<dl[^>]*whitespace-nowrap[^>]*>/, 'timeline summary should use a single non-wrapping row');
+    assert.match(html, /Fuel burn<\/dt>[\s\S]*365 kg<\/dd>/, 'fuel burn should remain available inline');
+    assert.doesNotMatch(html, /Score Impact|scoreImpactText|scoreImpactClass/, 'score impact should be removed from the summary UI');
   });
 
   console.log(`\n${'-'.repeat(50)}`);

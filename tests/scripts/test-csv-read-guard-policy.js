@@ -129,7 +129,7 @@ assertBefore(
 const storeLogbook = sectionBody(
   flightCsvStore,
   'async function getLogbook',
-  'return {\n    deleteFlightCsv',
+  'function getHistoryIndexStatus',
 );
 assertBefore(
   storeLogbook,

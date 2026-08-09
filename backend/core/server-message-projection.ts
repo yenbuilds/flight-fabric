@@ -81,6 +81,7 @@ export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Ob
   MSG.RECORDING_STATE,
   MSG.FLIGHT_STATUS,
   MSG.DELETE_FLIGHT_CSV_RESULT,
+  MSG.FLIGHT_ANALYSIS_RESCORE_RESULT,
   MSG.AIRCRAFT_CONTROL_RESULT,
   MSG.FLIGHT_PLAN,
   MSG.DESTINATION_TARGET,
@@ -267,6 +268,11 @@ function safeRequestId(value: unknown): string | null {
   const trimmed = String(value).trim();
   if (!trimmed || trimmed.length > 160 || isSensitivePathLike(trimmed)) return null;
   return trimmed;
+}
+
+function safeTimelineRequestId(value: unknown): string | number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  return safeRequestId(value);
 }
 
 function safeFiniteNumber(value: unknown): number | null {
@@ -846,11 +852,24 @@ function projectPrivilegeDeniedResult(message: ServerMessage): ServerMessage | n
     case MSG.END_FLIGHT_RESULT:
       return { type, success: false, error: PRIVILEGE_REQUIRED_ERROR };
     case MSG.TIMELINE_ERROR:
-      return { type, error: PRIVILEGE_REQUIRED_ERROR };
+      return {
+        type,
+        requestId: safeTimelineRequestId(message.requestId),
+        scoringMode: message.scoringMode === 'current-preview' ? 'current-preview' : 'recorded',
+        error: PRIVILEGE_REQUIRED_ERROR,
+      };
     case MSG.TIMELINE_LIST_ERROR:
       return { type, requestId, error: PRIVILEGE_REQUIRED_ERROR };
     case MSG.HISTORY_INDEX_STATUS:
       return { type, success: false, error: PRIVILEGE_REQUIRED_ERROR };
+    case MSG.FLIGHT_ANALYSIS_RESCORE_RESULT:
+      return {
+        type,
+        requestId: safeTimelineRequestId(message.requestId),
+        action: message.action === 'revert' ? 'revert' : 'apply',
+        success: false,
+        error: PRIVILEGE_REQUIRED_ERROR,
+      };
     default:
       return null;
   }
@@ -914,6 +933,7 @@ export function projectServerMessageForClient(
     case MSG.TIMELINE_LIST_ERROR:
     case MSG.HISTORY_INDEX_STATUS:
     case MSG.PROFILE_ERROR:
+    case MSG.FLIGHT_ANALYSIS_RESCORE_RESULT:
       return projectPrivilegeDeniedResult(value);
     default:
       return null;

@@ -46,7 +46,7 @@ export const RULE_DESCRIPTIONS = Object.freeze({
   [VIOLATION_RULE.GLIDEPATH_DEVIATION]: 'Glideslope deviation exceeded +/-1 dot during the approach.',
   localizer_deviation: 'Localizer deviation exceeded +/-1 dot during the approach.',
   [VIOLATION_RULE.EXCESSIVE_BANK]: 'Bank angle exceeded the configured limit during the approach.',
-  [VIOLATION_RULE.UNSTABLE_APPROACH]: 'One or more stability criteria were not met at the gate (typically 1000 ft RA).',
+  [VIOLATION_RULE.UNSTABLE_APPROACH]: 'One or more stability criteria were not met during the approach after the recorded gate altitude (typically 1,000 ft RA).',
   [VIOLATION_RULE.LATE_GO_AROUND]: 'Possible go-around initiation was recorded below 200 ft AGL. This can indicate a very late missed-approach decision, but go-around detection is inferred from telemetry and may need review.',
   [VIOLATION_RULE.GEAR_NOT_DOWN]: 'Landing gear was not extended by the gate altitude.',
   [VIOLATION_RULE.FLAPS_NOT_SET]: 'Flaps were not in the landing configuration by the gate altitude.',

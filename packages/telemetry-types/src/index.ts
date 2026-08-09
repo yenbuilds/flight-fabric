@@ -28,6 +28,7 @@ export type {
   EnvelopeStatusMessage,
   // Stability
   StabilityBreakdown,
+  ApproachStabilityVerdict,
   StabilityBreakdownDetail,
   StabilityBreakdownDetails,
   StabilityScoreMessage,

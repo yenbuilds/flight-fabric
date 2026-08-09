@@ -253,6 +253,14 @@ const FIELD_MAP: FieldDef[] = [
     format: fmt.str,
   },
   {
+    // Compact snapshot of the exact touchdown-rate policy, recorded aircraft
+    // profile and thresholds used for this result. This is deliberately
+    // landing-only; SAMPLE rows leave the column empty.
+    name: "landing_rate_context",
+    extract: (f) => f.landingRateContext ?? f.landing_rate_context,
+    format: fmt.json,
+  },
+  {
     name: "alt_msl_ft",
     extract: (f) => f.altMsl ?? f.altitude?.msl ?? f.alt_msl_ft,
     format: fmt.real1,
@@ -1242,6 +1250,21 @@ const FIELD_MAP: FieldDef[] = [
     format: fmt.json,
   },
   {
+    name: "runway_reference_elev_ft",
+    extract: (f) => f.runwayReferenceElevFt ?? f.runway_reference_elev_ft,
+    format: fmt.real1,
+  },
+  {
+    name: "runway_reference_elevation_source",
+    extract: (f) => f.runwayReferenceElevationSource ?? f.runway_reference_elevation_source,
+    format: fmt.str,
+  },
+  {
+    name: "runway_reference_elevation_kind",
+    extract: (f) => f.runwayReferenceElevationKind ?? f.runway_reference_elevation_kind,
+    format: fmt.str,
+  },
+  {
     name: "runway_heading_true_deg",
     extract: (f) => f.runwayHeadingTrueDeg ?? f.runway_heading_true_deg,
     format: fmt.real1,
@@ -1425,6 +1448,11 @@ const FIELD_MAP: FieldDef[] = [
     name: "ultimate_stability_score",
     extract: (f) => f.ultimate_stability_score,
     format: fmt.real1,
+  },
+  {
+    name: "ultimate_stability_verdict",
+    extract: (f) => f.ultimate_stability_verdict ?? f.ultimateStabilityVerdict,
+    format: fmt.str,
   },
   {
     name: "ultimate_stability_samples",

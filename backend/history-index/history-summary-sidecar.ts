@@ -33,7 +33,7 @@ type CsvSourceIdentity = {
 const HISTORY_SUMMARY_SCHEMA_VERSION = 1;
 // Bump whenever flight-list or landing extraction semantics change. Old
 // summaries then fall back to their authoritative CSV exactly once.
-const HISTORY_ANALYSIS_VERSION = 1;
+const HISTORY_ANALYSIS_VERSION = 7;
 const HISTORY_SUMMARY_SUFFIX = recordingBundleLayout.BUNDLE_FILES.summary;
 const MAX_HISTORY_SUMMARY_BYTES = 8 * 1024 * 1024;
 

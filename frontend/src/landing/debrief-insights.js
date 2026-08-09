@@ -1,4 +1,4 @@
-import { buildLandingVerdict } from './scoring.js';
+import { buildLandingPresentation, formatTouchdownRateGrade } from './scoring.js';
 
 const GOOD_COLOR = '#00e070';
 const WARNING_COLOR = '#f59e0b';
@@ -20,6 +20,19 @@ function addReason(reasons, text, color, tone = 'neutral') {
   reasons.push(buildReasonTag(text, color, reasons.length, tone));
 }
 
+function touchdownRateReason(presentation) {
+  const label = formatTouchdownRateGrade(presentation?.touchdownGrade);
+  if (!label) return null;
+
+  const tone = presentation.touchdownTone;
+  const color = tone === 'danger'
+    ? DANGER_COLOR
+    : tone === 'warning'
+      ? WARNING_COLOR
+      : GOOD_COLOR;
+  return { text: `${label} touchdown rate`, color, tone };
+}
+
 export function buildDebriefReasons(data, {
   normalized = {},
   ultimateStability = null,
@@ -29,15 +42,12 @@ export function buildDebriefReasons(data, {
   const reasons = [];
   if (!data || typeof data !== 'object') return reasons;
 
-  const verdict = buildLandingVerdict(data, { touchdownDistance, ultimateStability });
+  const presentation = buildLandingPresentation(data, { touchdownDistance, ultimateStability });
+  const verdict = presentation.verdict;
   const shortLanding = verdict.flags.shortLanding;
   const bounce = verdict.bounce;
-  const vs = Number(data.vs);
-  if (Number.isFinite(vs)) {
-    if (vs < -700) addReason(reasons, 'Very hard touchdown', DANGER_COLOR, 'danger');
-    else if (vs < -400) addReason(reasons, 'Firm touchdown', WARNING_COLOR, 'warning');
-    else if (vs >= -250 && vs < 0) addReason(reasons, 'Smooth touchdown', GOOD_COLOR, 'good');
-  }
+  const touchdownReason = touchdownRateReason(presentation);
+  if (touchdownReason) addReason(reasons, touchdownReason.text, touchdownReason.color, touchdownReason.tone);
 
   if (verdict.flags.runwayExcursion) addReason(reasons, 'Runway excursion', DANGER_COLOR, 'danger');
   const rolloutAssessment = String(data?.rolloutAnalysis?.assessment || '').toLowerCase();
@@ -77,9 +87,11 @@ export function buildDebriefReasons(data, {
     addReason(reasons, 'Clean touchdown', GOOD_COLOR, 'good');
   }
 
-  if (verdict.stability.gateStable === false) {
-    addReason(reasons, 'Gate instability observed', WARNING_COLOR, 'warning');
-  } else if (ultimateStability?.score >= 80) {
+  if (verdict.stability.verdict === 'unstable') {
+    addReason(reasons, 'Unstable approach', DANGER_COLOR, 'danger');
+  } else if (verdict.stability.verdict === 'marginal') {
+    addReason(reasons, 'Marginal approach - soft/proxy miss', WARNING_COLOR, 'warning');
+  } else if (verdict.stability.verdict === 'stable') {
     addReason(reasons, 'Stabilized approach', GOOD_COLOR, 'good');
   }
   if ((normalized.touchdownTargetAchieved ?? verdict.flags.touchdownTargetAchieved) && !shortLanding) {

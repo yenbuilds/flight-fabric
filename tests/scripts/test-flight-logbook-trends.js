@@ -32,6 +32,7 @@ delete process.env.OneDriveConsumer;
 delete process.env.OneDriveCommercial;
 
 const flightLogbook = require(resolveBackendRuntimeFile('landing', 'flight-logbook.js'));
+const profileLoader = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-loader.js'));
 
 // Independent calculation fixture for the expected trend math.
 function linearSlope(values) {
@@ -125,10 +126,45 @@ test('addEntry preserves zero timestamp and zero scores', () => {
   assertEqual(entry.timestamp, '1970-01-01T00:00:00.000Z', 'timestamp');
   assertEqual(entry.touchdownDistanceScore, 0, 'touchdownDistanceScore');
   assertEqual(entry.stabilityScore, 0, 'stabilityScore');
+  assertEqual(entry.stabilityVerdict, 'unstable', 'stabilityVerdict');
   assertEqual(entry.stabilityGateFailures[0], 'vs_unstable_after_gate', 'first stabilityGateFailure');
   assertEqual(entry.stabilityGateFailures[1], 'glidepath_proxy_unstable_after_gate', 'second stabilityGateFailure');
   assertEqual(entry.stabilityContext.profile.id, 'generic', 'stabilityContext profile');
   assertEqual(entry.stabilityContext.criteria.speedPlusKts, 100, 'stabilityContext criteria');
+  flightLogbook.clearAll();
+});
+
+test('addEntry preserves nested live stability verdicts', () => {
+  flightLogbook.clearAll();
+  const entry = flightLogbook.addEntry({
+    timestamp_ms: 2,
+    vs_fpm: -180,
+    grade: 'GOOD',
+    ultimate_stability_score: 96,
+    ultimateStability: {
+      verdict: 'marginal',
+      scoringContext: { policy: { id: 'transport-v2', version: 2 } },
+    },
+    ultimate_stability_gate_stable: false,
+    ultimate_stability_gate_failures: ['thrust_unstable_after_gate'],
+  });
+
+  assertEqual(entry.stabilityVerdict, 'marginal', 'nested stability verdict');
+  assertEqual(entry.stabilityContext.policy.id, 'transport-v2', 'nested stability context');
+  flightLogbook.clearAll();
+});
+
+test('addEntry keeps unavailable live stability as no verdict', () => {
+  flightLogbook.clearAll();
+  const entry = flightLogbook.addEntry({
+    timestamp_ms: 3,
+    vs_fpm: -180,
+    grade: 'GOOD',
+  });
+
+  assertNull(entry.stabilityScore, 'stabilityScore');
+  assertEqual(entry.stabilityVerdict, 'no_verdict', 'stabilityVerdict');
+  assertNull(entry.stabilityBreakdown, 'stabilityBreakdown');
   flightLogbook.clearAll();
 });
 
@@ -151,7 +187,7 @@ test('computeStatsFromEntries matches logbook panel aggregate values', () => {
   const stats = flightLogbook.computeStatsFromEntries([
     { vsFpm: -467.3, grade: 'FIRM', icao: null, aircraft: null, timestampMs: 1 },
     { vsFpm: -700.3, grade: 'HARD', icao: 'YPAD', runway: '23', aircraft: 'PMDG 777', stabilityScore: 70, gateStable: false, timestampMs: 2 },
-    { vsFpm: -608.6, grade: 'FIRM', touchdownDistanceGrade: 'Long Landing', icao: 'KBOS', runway: '33R', aircraft: 'PMDG 777', stabilityScore: 84, gateStable: true, timestampMs: 3 },
+    { vsFpm: -608.6, grade: 'FIRM', touchdownDistanceGrade: 'Long Landing', icao: 'KBOS', runway: '33R', aircraft: 'PMDG 777', stabilityScore: 84, stabilityVerdict: 'marginal', gateStable: false, timestampMs: 3 },
     { vsFpm: -420.2, grade: 'GOOD', icao: 'KBOS', runway: '33R', aircraft: 'PMDG 777', stabilityScore: 91, gateStable: true, timestampMs: 4 },
   ]);
 
@@ -169,9 +205,55 @@ test('computeStatsFromEntries matches logbook panel aggregate values', () => {
   assertEqual(stats.trends.aircraft[0].label, 'PMDG 777', 'aircraft trend label');
   assertEqual(stats.trends.aircraft[0].count, 3, 'aircraft trend count');
   assertEqual(stats.trends.aircraft[0].avgStabilityScore, 82, 'aircraft trend avg stability');
-  assertEqual(stats.trends.aircraft[0].stableRatePct, 67, 'aircraft stable rate');
+  assertEqual(stats.trends.aircraft[0].stableRatePct, 33, 'aircraft stable rate');
+  assertEqual(stats.trends.aircraft[0].marginalRatePct, 33, 'aircraft marginal rate');
   assertEqual(stats.trends.airports[0].label, 'KBOS', 'airport trend label');
   assertEqual(stats.trends.runways[0].label, 'KBOS 33R', 'runway trend label');
+});
+
+test('logbook PERFECT outcomes require explicit stable, target, and clean evidence', () => {
+  const verified = {
+    grade: 'PERFECT',
+    gateStable: true,
+    touchdownDistanceFt: 1000,
+    bounceCount: 0,
+    bounceGrade: 'Clean',
+  };
+
+  assertEqual(flightLogbook.logbookOutcomeGrade(verified), 'PERFECT', 'verified PERFECT');
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, gateStable: null }),
+    'SMOOTH',
+    'unknown stability caps PERFECT',
+  );
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, touchdownDistanceFt: 1001 }),
+    'SMOOTH',
+    'outside first 1,000 ft caps PERFECT',
+  );
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, bounceCount: 1, bounceGrade: null }),
+    'SMOOTH',
+    'recorded bounce caps PERFECT',
+  );
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, shortLanding: true }),
+    'Short Landing',
+    'critical touchdown outcome wins',
+  );
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, runwayExcursion: true }),
+    'RUNWAY EXCURSION',
+    'runway excursion wins',
+  );
+
+  const stats = flightLogbook.computeStatsFromEntries([
+    { ...verified, timestampMs: 1 },
+    { ...verified, gateStable: false, timestampMs: 2 },
+    { ...verified, touchdownDistanceFt: null, timestampMs: 3 },
+  ]);
+  assertEqual(stats.outcomeGrades.PERFECT, 1, 'verified PERFECT aggregate');
+  assertEqual(stats.outcomeGrades.SMOOTH, 2, 'capped SMOOTH aggregate');
 });
 
 test('legacy logbook JSON without version is migrated to v1 on next write', () => {
@@ -217,6 +299,34 @@ test('legacy logbook JSON without version is migrated to v1 on next write', () =
   flightLogbook.clearAll();
 });
 
+test('addEntry grades camelCase live payloads through their recorded aircraft profile', () => {
+  flightLogbook.clearAll();
+  const entry = flightLogbook.addEntry({
+    timestamp_ms: 2,
+    vs_fpm: -243.3,
+    grade: 'PERFECT',
+    aircraftProfileId: 'fbw-a32nx',
+    td_sim_trusted: true,
+    td_sim_fresh: true,
+    td_sim_landing_vs_fpm: -349.2,
+  });
+
+  assertEqual(entry.vsFpm, -243.3, 'conventional V/S');
+  assertEqual(entry.grade, 'GOOD', 'recorded A32NX rate grade');
+  assertEqual(entry.aircraftProfileId, 'fbw-a32nx', 'normalized profile id');
+
+  const retiredProfileEntry = flightLogbook.addEntry({
+    timestamp_ms: 3,
+    vs_fpm: -650,
+    grade: 'VERY HARD',
+    aircraftProfileId: 'pmdg-737',
+    td_sim_landing_vs_fpm: -900,
+  });
+  assertEqual(retiredProfileEntry.vsFpm, -650, 'retired-profile conventional V/S');
+  assertEqual(retiredProfileEntry.grade, 'VERY HARD', 'retired-profile saved grade');
+  flightLogbook.clearAll();
+});
+
 test('logbook compatible writes do not downgrade future versions', () => {
   const logbookFile = flightLogbook.LOGBOOK_FILE;
   fs.mkdirSync(path.dirname(logbookFile), { recursive: true });
@@ -245,6 +355,31 @@ test('logbook compatible writes do not downgrade future versions', () => {
 async function runAsyncTests() {
   console.log('\n=== CSV logbook ingestion ===\n');
 
+  await testAsync('getLandingsFromCSVs keeps blank stability columns as no verdict', async () => {
+    const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
+    const logsDir = path.join(logsRoot, 'Flight Logs');
+    fs.rmSync(logsRoot, { recursive: true, force: true });
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const csvPath = createCanonicalCsvPath(logsDir, 'blank-stability');
+    const headers = [
+      'ts',
+      'record_type',
+      'vs_fpm',
+      'aircraft',
+      'ultimate_stability_score',
+      'ultimate_stability_config_ok_pct',
+    ];
+    const rows = [[1, 'LANDING', -420, 'A320', '', '']];
+    fs.writeFileSync(csvPath, [headers.join(','), ...rows.map((row) => row.join(','))].join('\n'), 'utf8');
+
+    const landings = await flightLogbook.getLandingsFromCSVs({ bypassCachePaths: [csvPath] });
+    assertEqual(landings.length, 1, 'landing count');
+    assertNull(landings[0].stabilityScore, 'stabilityScore');
+    assertEqual(landings[0].stabilityVerdict, 'no_verdict', 'stabilityVerdict');
+    assertNull(landings[0].stabilityBreakdown, 'stabilityBreakdown');
+  });
+
   await testAsync('getLandingsFromCSVs reads canonical bundles and preserves ts=0', async () => {
     const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
     const logsDir = path.join(logsRoot, 'Flight Logs');
@@ -263,7 +398,7 @@ async function runAsyncTests() {
     assertEqual(landings[0].aircraft, 'A320', 'aircraft');
   });
 
-  await testAsync('getLandingsFromCSVs preserves authoritative CSV grade over VS fallback', async () => {
+  await testAsync('getLandingsFromCSVs separates a legacy excursion sentinel from the rate grade', async () => {
     const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
     const logsDir = path.join(logsRoot, 'Flight Logs');
     fs.rmSync(logsRoot, { recursive: true, force: true });
@@ -276,7 +411,203 @@ async function runAsyncTests() {
 
     const landings = await flightLogbook.getLandingsFromCSVs({ bypassCachePaths: [csvPath] });
     assertEqual(landings.length, 1, 'landing count');
-    assertEqual(landings[0].grade, 'RUNWAY EXCURSION', 'grade');
+    assertEqual(landings[0].grade, 'GOOD', 'rate grade recomputed from conventional V/S');
+    assertEqual(landings[0].runwayExcursion, true, 'legacy sentinel preserved as separate excursion flag');
+  });
+
+  await testAsync('CSV history preserves conventional V/S and recomputes resolvable recorded-profile grades', async () => {
+    const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
+    const logsDir = path.join(logsRoot, 'Flight Logs');
+    fs.rmSync(logsRoot, { recursive: true, force: true });
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const headers = [
+      'ts',
+      'flight_elapsed_ms',
+      'record_type',
+      'phase',
+      'on_ground',
+      'ias_kts',
+      'vs_fpm',
+      'g_force',
+      'ra_ft',
+      'alt_plane_ft',
+      'grade',
+      'bounce_count',
+      'bounce_grade',
+      'td_sim_trusted',
+      'td_sim_fresh',
+      'td_sim_landing_vs_fpm',
+      'aircraft_profile_id',
+    ];
+    const baseTs = Date.UTC(2026, 7, 7, 1, 2, 3);
+    const sample = (elapsedMs, overrides = {}) => ({
+      ts: baseTs + elapsedMs,
+      flight_elapsed_ms: elapsedMs,
+      record_type: 'SAMPLE',
+      phase: 'APPROACH',
+      on_ground: false,
+      ias_kts: 130,
+      vs_fpm: -500,
+      g_force: 1.05,
+      ra_ft: 100,
+      alt_plane_ft: 800,
+      ...overrides,
+    });
+    const motionRows = (motion) => {
+      if (motion === 'noise') {
+        return [
+          sample(1200, { on_ground: false, vs_fpm: 5, ra_ft: 0.3, alt_plane_ft: 700 }),
+          sample(1700, { on_ground: false, vs_fpm: 10, ra_ft: 0.4, alt_plane_ft: 700 }),
+          sample(2135, { on_ground: true, vs_fpm: -30, g_force: 1.1, ra_ft: 0, alt_plane_ft: 700 }),
+        ];
+      }
+      if (motion === 'hard-radio-height') {
+        return [
+          sample(1200, { on_ground: false, vs_fpm: 80, ra_ft: 4, alt_plane_ft: 703 }),
+          sample(1500, { on_ground: true, vs_fpm: -60, g_force: 1.1, ra_ft: 0, alt_plane_ft: 700 }),
+        ];
+      }
+      if (motion === 'hard-altitude-fallback') {
+        return [
+          sample(1200, { on_ground: false, vs_fpm: 80, ra_ft: null, alt_plane_ft: 703 }),
+          sample(1500, { on_ground: true, vs_fpm: -60, g_force: 1.1, ra_ft: null, alt_plane_ft: 700 }),
+        ];
+      }
+      if (motion === 'delayed-load') {
+        return [
+          sample(1200, { on_ground: false, vs_fpm: 10, ra_ft: 0, alt_plane_ft: 700 }),
+          sample(1400, { on_ground: true, vs_fpm: -20, g_force: 1.1, ra_ft: 0, alt_plane_ft: 700 }),
+          sample(1800, { on_ground: true, vs_fpm: -10, g_force: 1.4, ra_ft: 0, alt_plane_ft: 700 }),
+        ];
+      }
+      if (motion === 'impact-only') {
+        return [
+          sample(1200, { on_ground: false, vs_fpm: 0, ra_ft: 0, alt_plane_ft: 700 }),
+          sample(1500, { on_ground: true, vs_fpm: -150, g_force: 1.1, ra_ft: 0, alt_plane_ft: 700 }),
+        ];
+      }
+      return [
+        sample(1200, { on_ground: false, vs_fpm: 20, ra_ft: 0.1, alt_plane_ft: 700.2 }),
+        sample(1700, { on_ground: false, vs_fpm: 48, ra_ft: 0.4, alt_plane_ft: 700.8 }),
+        sample(2135, { on_ground: true, vs_fpm: -30, g_force: 1.1, ra_ft: 0, alt_plane_ft: 700 }),
+      ];
+    };
+    const readFixture = async (bundleName, {
+      motion = 'shallow',
+      trusted = true,
+      fresh = true,
+      grade = 'PERFECT',
+      landingVsFpm = -243,
+      profileId = 'bundled/msfs/fbw-a32nx',
+      persistedBounceCount = 0,
+      persistedBounceGrade = 'Clean',
+    } = {}) => {
+      const initialRadioHeight = motion === 'hard-altitude-fallback' ? null : 0;
+      const rows = [
+        sample(0, { aircraft_profile_id: profileId }),
+        sample(1000, {
+          on_ground: true,
+          vs_fpm: -180,
+          ra_ft: initialRadioHeight,
+          alt_plane_ft: 700,
+        }),
+        ...motionRows(motion),
+        {
+          ...sample(3000, { on_ground: true, vs_fpm: landingVsFpm, ra_ft: 0, alt_plane_ft: 700 }),
+          record_type: 'LANDING',
+          grade,
+          bounce_count: persistedBounceCount,
+          bounce_grade: persistedBounceGrade,
+          td_sim_trusted: trusted,
+          td_sim_fresh: fresh,
+          td_sim_landing_vs_fpm: -349,
+        },
+      ];
+      const csvPath = createCanonicalCsvPath(logsDir, bundleName);
+      const content = [
+        headers.join(','),
+        ...rows.map((row) => headers.map((header) => row[header] ?? '').join(',')),
+      ].join('\n');
+      fs.writeFileSync(csvPath, content, 'utf8');
+      const landings = await flightLogbook.getLandingsFromCsvFile(csvPath, { bypassCache: true });
+      assertEqual(fs.readFileSync(csvPath, 'utf8'), content, `${bundleName} CSV remains authoritative`);
+      assertEqual(landings.length, 1, `${bundleName} landing count`);
+      return landings[0];
+    };
+
+    const latestStyle = await readFixture('latest-style');
+    assertEqual(latestStyle.vsFpm, -243, 'complete persisted headline V/S');
+    assertEqual(latestStyle.grade, 'GOOD', 'stale persisted grade recomputed from recorded profile');
+    assertEqual(latestStyle.bounceCount, 1, 'sustained shallow hop');
+    assertEqual(latestStyle.bounceGrade, null, 'stale clean bounce grade cleared');
+
+    const stale = await readFixture('stale-simulator-rate', { fresh: false });
+    assertEqual(stale.vsFpm, -243, 'stale simulator V/S ignored');
+    assertEqual(stale.grade, 'GOOD', 'rate grade remains profile-derived');
+    assertEqual(stale.bounceCount, 1, 'bounce evidence remains independent of rate trust');
+
+    const untrusted = await readFixture('untrusted-simulator-rate', { trusted: false });
+    assertEqual(untrusted.vsFpm, -243, 'untrusted simulator V/S ignored');
+    assertEqual(untrusted.grade, 'GOOD', 'rate grade remains profile-derived');
+
+    const noise = await readFixture('sustained-wow-noise', { motion: 'noise' });
+    assertEqual(noise.bounceCount, 0, 'long WOW chatter is not a bounce');
+    assertEqual(noise.bounceGrade, 'Clean', 'clean label remains for rejected chatter');
+
+    const special = await readFixture('special-grade', { grade: 'RUNWAY EXCURSION' });
+    assertEqual(special.vsFpm, -243, 'complete legacy excursion retains persisted V/S');
+    assertEqual(special.grade, 'GOOD', 'legacy excursion sentinel does not replace the rate grade');
+    assertEqual(special.runwayExcursion, true, 'legacy excursion remains a separate fact');
+
+    const retiredProfile = await readFixture('retired-profile', {
+      motion: 'noise',
+      grade: 'VERY HARD',
+      landingVsFpm: -650,
+      profileId: 'pmdg-737',
+    });
+    assertEqual(retiredProfile.vsFpm, -650, 'retired-profile conventional V/S');
+    assertEqual(retiredProfile.grade, 'VERY HARD', 'retired-profile saved grade is not replaced by generic bands');
+
+    const hardRa = await readFixture('hard-radio-height', {
+      motion: 'hard-radio-height',
+      persistedBounceCount: null,
+      persistedBounceGrade: null,
+    });
+    assertEqual(hardRa.bounceCount, 1, 'hard radio-height lift is recovered');
+
+    const hardFallback = await readFixture('hard-altitude-fallback', {
+      motion: 'hard-altitude-fallback',
+      persistedBounceCount: null,
+      persistedBounceGrade: null,
+    });
+    assertEqual(hardFallback.bounceCount, 1, 'RA-absent altitude/VS lift is recovered');
+
+    const delayedLoad = await readFixture('delayed-impact-load', {
+      motion: 'delayed-load',
+      persistedBounceCount: null,
+      persistedBounceGrade: null,
+    });
+    assertEqual(delayedLoad.bounceCount, 1, 'short delayed impact load is recovered');
+
+    const previousProfileId = profileLoader.getActiveProfileId();
+    profileLoader.setActiveProfile('generic');
+    const activeGenericId = profileLoader.getActiveProfileId();
+    try {
+      const recordedA380 = await readFixture('recorded-a380-profile', {
+        motion: 'impact-only',
+        grade: null,
+        landingVsFpm: -180,
+        profileId: 'fbw-a380x',
+        persistedBounceCount: null,
+        persistedBounceGrade: null,
+      });
+      assertEqual(recordedA380.grade, 'GOOD', 'missing grade uses recorded A380 thresholds');
+      assertEqual(recordedA380.bounceCount, 1, 'bounce impact uses recorded A380 thresholds');
+      assertEqual(profileLoader.getActiveProfileId(), activeGenericId, 'history analysis leaves active profile unchanged');
+    } finally {
+      if (previousProfileId) profileLoader.setActiveProfile(previousProfileId);
+    }
   });
 
   await testAsync('getLandingsFromCSVs preserves stability gate failure reasons', async () => {
@@ -350,6 +681,7 @@ async function runAsyncTests() {
     assertEqual(landings[0].stabilityScore, 89, 'stability score');
     assertEqual(landings[0].stabilityBreakdown.config_ok, 100, 'configuration score');
     assertEqual(landings[0].stabilityBreakdown.spoilers_ok, 100, 'retired spoiler metric');
+    assertEqual(landings[0].stabilityVerdict, 'marginal', 'retired spoiler verdict');
     assertEqual(
       landings[0].stabilityGateFailures.join('|'),
       'glidepath_proxy_unstable_after_gate',

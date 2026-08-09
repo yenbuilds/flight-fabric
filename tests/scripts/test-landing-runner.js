@@ -10,6 +10,7 @@ const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 
 const landingRunnerPath = resolveBackendRuntimeFile('landing', 'landing-runner.js');
 const runwayDatabasePath = resolveBackendRuntimeFile('landing', 'runway-database.js');
+const phasePath = resolveBackendRuntimeFile('lifecycle', 'phase.js');
 const configPath = resolveBackendRuntimeFile('core', 'config.js');
 const eventBus = require(resolveBackendRuntimeFile('core', 'event-bus.js'));
 const { getCriticalLandingCsvMappings } = require(resolveBackendRuntimeFile('flight-recording', 'landing-csv-contract.js'));
@@ -130,6 +131,30 @@ function makeFrame(overrides = {}) {
     gforce: 1.25,
     ...overrides,
   };
+}
+
+function withMockPhaseThresholds(getThresholds, fn) {
+  const previousLandingRunner = require.cache[landingRunnerPath];
+  const previousPhase = require.cache[phasePath];
+
+  delete require.cache[landingRunnerPath];
+  require.cache[phasePath] = {
+    id: phasePath,
+    filename: phasePath,
+    loaded: true,
+    exports: { getEffectivePhaseThresholds: getThresholds },
+  };
+
+  try {
+    const { createLandingRunner: createWithMockPhase } = require(landingRunnerPath);
+    fn(createWithMockPhase);
+  } finally {
+    delete require.cache[landingRunnerPath];
+    if (previousLandingRunner) require.cache[landingRunnerPath] = previousLandingRunner;
+
+    delete require.cache[phasePath];
+    if (previousPhase) require.cache[phasePath] = previousPhase;
+  }
 }
 
 function makeCtx(overrides = {}) {
@@ -280,6 +305,186 @@ test('brief WOW dropout without lift or meaningful second impact stays clean', (
   assert.strictEqual(finalPayload.bounce_grade, 'Clean', 'Uncorroborated WOW dropout must remain clean');
   assert.strictEqual(finalPayload.bounce_distance_ft, 0, 'Uncorroborated WOW dropout must not add bounce distance');
   assert.strictEqual(finalPayload.final_touchdown_lat, null, 'Unconfirmed contact must not replace the physical touchdown');
+});
+
+test('conventional V/S and sustained shallow hop agree across final live outputs', () => {
+  const runner = createLandingRunner();
+  const broadcasts = [];
+  const broadcast = (payload) => broadcasts.push(payload);
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_052_000_000;
+  const ctx = makeCtx({ aircraftProfileId: 'fbw-a32nx' });
+  const previousTouchdown = {
+    latDeg: 0.01,
+    lonDeg: 0.01,
+    headingTrueDeg: 20,
+    headingMagDeg: 20,
+    pitchDeg: 2,
+    bankDeg: 1,
+    normalVelocityFps: 4,
+    normalVelocityFpm: 240,
+  };
+  const freshTouchdown = {
+    latDeg: 0.0001,
+    lonDeg: 0,
+    headingTrueDeg: 5,
+    headingMagDeg: 4,
+    pitchDeg: 6.2,
+    bankDeg: -1.5,
+    normalVelocityFps: 5.82,
+    normalVelocityFpm: 349.2,
+  };
+
+  try {
+    runner.update(makeFrame({
+      wow: false,
+      fdm: { altPlaneFt: 1000.5 },
+      simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: previousTouchdown },
+      display: { iasKts: 140, vsFpm: -243.3, raFt: 100 },
+    }), broadcast, { nowEpochMs: t0 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.15,
+      fdm: { altPlaneFt: 1000 },
+      simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: freshTouchdown },
+      display: { iasKts: 138, vsFpm: -243, raFt: 0 },
+    }), broadcast, { nowEpochMs: t0 + 100 }, ctx);
+
+    // Mirrors the sampled signature from the latest flight: WOW remains false
+    // for 935 ms while RA, geometric altitude, and upward VS each rise slightly,
+    // but every signal remains below its existing hard threshold.
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      fdm: { altPlaneFt: 1000.2 },
+      display: { iasKts: 136, vsFpm: 30, raFt: 0.1 },
+    }), broadcast, { nowEpochMs: t0 + 300 }, ctx);
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      fdm: { altPlaneFt: 1000.8 },
+      display: { iasKts: 134, vsFpm: 48, raFt: 0.4 },
+    }), broadcast, { nowEpochMs: t0 + 700 }, ctx);
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      fdm: { altPlaneFt: 1000.5 },
+      display: { iasKts: 132, vsFpm: 10, raFt: 0.2 },
+    }), broadcast, { nowEpochMs: t0 + 1100 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.08,
+      fdm: { altPlaneFt: 1000.1 },
+      display: { iasKts: 130, vsFpm: -15, raFt: 0 },
+    }), broadcast, { nowEpochMs: t0 + 1235 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      fdm: { altPlaneFt: 1000.1 },
+      display: { iasKts: 60, vsFpm: 0, raFt: 0 },
+    }), broadcast, { nowEpochMs: t0 + 120000 }, ctx);
+  } finally {
+    off();
+  }
+
+  const finalBroadcast = broadcasts.find((evt) => evt && evt.type === 'landing' && evt.final === true);
+  const finalPayload = finalPayloads.find((evt) => evt && evt.landing_final === true);
+  assert(finalBroadcast, 'Expected final WebSocket landing broadcast');
+  assert(finalPayload, 'Expected landing:final event');
+  assert.strictEqual(finalBroadcast.vs, -243.3, 'Final WebSocket headline should use conventional recent-airborne V/S');
+  assert.strictEqual(finalBroadcast.grade, 'GOOD', 'Final WebSocket grade should use the recorded A32NX profile');
+  assert.strictEqual(finalBroadcast.touchdownDistance.bounceCount, 1, 'Final WebSocket should report one shallow bounce');
+  assert.strictEqual(finalBroadcast.touchdownDistance.bounceGrade, 'Single Bounce', 'Final WebSocket should report bounce grade');
+  assert.strictEqual(finalPayload.vs_fpm, finalBroadcast.vs, 'Final event-bus and WebSocket rates must agree');
+  assert.strictEqual(finalPayload.grade, finalBroadcast.grade, 'Final event-bus and WebSocket grades must agree');
+  assert.strictEqual(finalPayload.bounce_count, 1, 'Sustained corroborated shallow hop should count once');
+  assert.strictEqual(finalPayload.bounce_grade, 'Single Bounce', 'Shallow hop should no longer be reported as clean');
+  assert.strictEqual(finalPayload.bounce_count, finalBroadcast.touchdownDistance.bounceCount, 'Final outputs must agree on bounce count');
+  assert.strictEqual(finalPayload.bounce_grade, finalBroadcast.touchdownDistance.bounceGrade, 'Final outputs must agree on bounce grade');
+  assert.strictEqual(finalPayload.td_sim_trusted, true, 'Final payload should retain simulator trust');
+  assert.strictEqual(finalPayload.td_sim_fresh, true, 'Final payload should retain simulator freshness');
+  assert.strictEqual(finalPayload.td_sim_landing_vs_fpm, -349.2, 'Final payload should retain simulator rate diagnostic');
+  assert.strictEqual(finalPayload.final_touchdown_vs_fpm, -15, 'Soft recontact rate should be retained');
+});
+
+test('brief weak-signal WOW chatter remains clean', () => {
+  const runner = createLandingRunner();
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_053_000_000;
+  const ctx = makeCtx();
+
+  try {
+    runner.update(makeFrame({ wow: false, fdm: { altPlaneFt: 1000.5 } }), () => {}, { nowEpochMs: t0 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      fdm: { altPlaneFt: 1000 },
+      display: { iasKts: 138, vsFpm: -243, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 100 }, ctx);
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      fdm: { altPlaneFt: 1000.8 },
+      display: { iasKts: 136, vsFpm: 48, raFt: 0.4 },
+    }), () => {}, { nowEpochMs: t0 + 300 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.08,
+      fdm: { altPlaneFt: 1000.1 },
+      display: { iasKts: 134, vsFpm: -15, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 600 }, ctx);
+    runner.update(makeFrame({ wow: true, display: { iasKts: 60, vsFpm: 0, raFt: 0 } }), () => {}, { nowEpochMs: t0 + 120000 }, ctx);
+  } finally {
+    off();
+  }
+
+  const finalPayload = finalPayloads.find((evt) => evt && evt.landing_final === true);
+  assert(finalPayload, 'Expected landing:final event');
+  assert.strictEqual(finalPayload.bounce_count, 0, 'Brief weak-signal WOW chatter must remain suppressed');
+  assert.strictEqual(finalPayload.bounce_grade, 'Clean', 'Brief weak-signal WOW chatter must remain clean');
+});
+
+test('sustained radio-height jitter without corroborating motion remains clean', () => {
+  const runner = createLandingRunner();
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_054_000_000;
+  const ctx = makeCtx();
+
+  try {
+    runner.update(makeFrame({ wow: false, fdm: { altPlaneFt: 1000.5 } }), () => {}, { nowEpochMs: t0 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      fdm: { altPlaneFt: 1000 },
+      display: { iasKts: 138, vsFpm: -243, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 100 }, ctx);
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      fdm: { altPlaneFt: 1000.1 },
+      display: { iasKts: 136, vsFpm: 0, raFt: 0.4 },
+    }), () => {}, { nowEpochMs: t0 + 300 }, ctx);
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      fdm: { altPlaneFt: 1000.1 },
+      display: { iasKts: 134, vsFpm: 0, raFt: 0.4 },
+    }), () => {}, { nowEpochMs: t0 + 1000 }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.08,
+      fdm: { altPlaneFt: 1000.1 },
+      display: { iasKts: 132, vsFpm: 0, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 1235 }, ctx);
+    runner.update(makeFrame({ wow: true, display: { iasKts: 60, vsFpm: 0, raFt: 0 } }), () => {}, { nowEpochMs: t0 + 120000 }, ctx);
+  } finally {
+    off();
+  }
+
+  const finalPayload = finalPayloads.find((evt) => evt && evt.landing_final === true);
+  assert(finalPayload, 'Expected landing:final event');
+  assert.strictEqual(finalPayload.bounce_count, 0, 'Sustained RA jitter alone must remain suppressed');
+  assert.strictEqual(finalPayload.bounce_grade, 'Clean', 'Sustained RA jitter alone must remain clean');
 });
 
 test('cockpit barometer jump cannot corroborate a physical bounce', () => {
@@ -955,9 +1160,62 @@ test('stale MSFS last-touchdown snapshot is persisted as diagnostic but not trus
   assert.strictEqual(finalPayload.td_sim_reject_reason, 'stale', 'expected stale reject reason');
   assert.strictEqual(finalPayload.lat_deg, 0, 'canonical latitude should stay on current frame');
   assert.strictEqual(finalPayload.hdg_true_deg, 0, 'canonical heading should stay on current frame');
+  assert.strictEqual(finalPayload.vs_fpm, -600, 'untrusted MSFS rate should fall back to recent airborne V/S');
 });
 
-test('fresh nearby MSFS touchdown snapshot provides the canonical point but not headline VS', () => {
+test('MSFS normal-velocity changes remain diagnostic-only', () => {
+  const runner = createLandingRunner();
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_112_000_000;
+  const previousTouchdown = {
+    source: 'msfs_last_touchdown',
+    latDeg: 0.0001,
+    lonDeg: 0,
+    headingTrueDeg: 5,
+    headingMagDeg: 4,
+    pitchDeg: 6.2,
+    bankDeg: -1.5,
+    normalVelocityFps: 4,
+    normalVelocityFpm: 240,
+  };
+  const rateOnlyChange = {
+    ...previousTouchdown,
+    normalVelocityFps: 5.82,
+    normalVelocityFpm: 349.2,
+  };
+
+  try {
+    runner.update(makeFrame({
+      wow: false,
+      simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: previousTouchdown },
+      display: { iasKts: 140, vsFpm: -243.3, raFt: 120 },
+    }), () => {}, { nowEpochMs: t0, nowIso: new Date(t0).toISOString() }, makeCtx({ aircraftProfileId: 'fbw-a32nx' }));
+    runner.update(makeFrame({
+      wow: true,
+      simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: rateOnlyChange },
+      display: { iasKts: 138, vsFpm: -80, raFt: 4 },
+    }), () => {}, { nowEpochMs: t0 + 100, nowIso: new Date(t0 + 100).toISOString() }, makeCtx({ aircraftProfileId: 'fbw-a32nx' }));
+    runner.update(makeFrame({
+      wow: true,
+      simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: rateOnlyChange },
+      display: { iasKts: 70, vsFpm: 0, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() }, makeCtx({ aircraftProfileId: 'fbw-a32nx' }));
+  } finally {
+    off();
+  }
+
+  const finalPayload = finalPayloads.find((evt) => evt && evt.landing_final === true);
+  assert(finalPayload, 'Expected landing:final event');
+  assert.strictEqual(finalPayload.touchdown_capture_source, 'frame', 'diagnostic rate changes must not select simulator geometry');
+  assert.strictEqual(finalPayload.td_sim_fresh, false, 'diagnostic rate changes must not make a snapshot fresh');
+  assert.strictEqual(finalPayload.td_sim_reject_reason, 'stale', 'unchanged geometry should remain stale');
+  assert.strictEqual(finalPayload.vs_fpm, -243.3, 'headline must remain conventional V/S');
+  assert.strictEqual(finalPayload.grade, 'GOOD', 'headline grade must remain profile-derived');
+  assert.strictEqual(finalPayload.td_sim_landing_vs_fpm, -349.2, 'simulator-normal rate remains available only as a diagnostic');
+});
+
+test('fresh nearby MSFS touchdown snapshot provides canonical geometry but diagnostic-only VS', () => {
   const runner = createLandingRunner();
   const finalPayloads = [];
   const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
@@ -981,26 +1239,26 @@ test('fresh nearby MSFS touchdown snapshot provides the canonical point but not 
     headingMagDeg: 4,
     pitchDeg: 6.2,
     bankDeg: -1.5,
-    normalVelocityFps: 12,
-    normalVelocityFpm: 720,
+    normalVelocityFps: 5.82,
+    normalVelocityFpm: 349.2,
   };
 
   try {
     runner.update(makeFrame({
       wow: false,
       simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: previousTouchdown },
-      display: { iasKts: 140, vsFpm: -300, raFt: 120 },
-    }), () => {}, { nowEpochMs: t0, nowIso: new Date(t0).toISOString() }, makeCtx());
+      display: { iasKts: 140, vsFpm: -243.3, raFt: 120 },
+    }), () => {}, { nowEpochMs: t0, nowIso: new Date(t0).toISOString() }, makeCtx({ aircraftProfileId: 'fbw-a32nx' }));
     runner.update(makeFrame({
       wow: true,
       simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: freshTouchdown },
       display: { iasKts: 138, vsFpm: -80, raFt: 4 },
-    }), () => {}, { nowEpochMs: t0 + 100, nowIso: new Date(t0 + 100).toISOString() }, makeCtx());
+    }), () => {}, { nowEpochMs: t0 + 100, nowIso: new Date(t0 + 100).toISOString() }, makeCtx({ aircraftProfileId: 'fbw-a32nx' }));
     runner.update(makeFrame({
       wow: true,
       simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0, touchdown: freshTouchdown },
       display: { iasKts: 70, vsFpm: 0, raFt: 0 },
-    }), () => {}, { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() }, makeCtx());
+    }), () => {}, { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() }, makeCtx({ aircraftProfileId: 'fbw-a32nx' }));
   } finally {
     off();
   }
@@ -1014,8 +1272,9 @@ test('fresh nearby MSFS touchdown snapshot provides the canonical point but not 
   assert.strictEqual(finalPayload.hdg_true_deg, 5, 'canonical true heading should use MSFS touchdown heading');
   assert.strictEqual(finalPayload.pitch_deg, 6.2, 'canonical pitch should use MSFS touchdown pitch');
   assert.strictEqual(finalPayload.bank_deg, -1.5, 'canonical bank should use MSFS touchdown bank');
-  assert.strictEqual(finalPayload.vs_fpm, -300, 'recent airborne V/S should remain the conventional headline landing rate');
-  assert.strictEqual(finalPayload.td_sim_landing_vs_fpm, -720, 'MSFS normal velocity should remain available as a diagnostic');
+  assert.strictEqual(finalPayload.vs_fpm, -243.3, 'trusted MSFS normal velocity must not replace conventional V/S');
+  assert.strictEqual(finalPayload.grade, 'GOOD', 'headline grade should use conventional V/S and the recorded A32NX profile');
+  assert.strictEqual(finalPayload.td_sim_landing_vs_fpm, -349.2, 'MSFS normal velocity should remain available as a diagnostic');
 });
 
 test('touchdown VS ignores NaN display sample and emits finite grade data', () => {
@@ -1684,10 +1943,12 @@ test('short landing never counts as TDZ achieved even near the touchdown zone', 
   });
 });
 
-test('runway excursion detection falls back to runwayLike when onRunway is omitted', () => {
+test('runway excursion stays separate from the touchdown-rate grade', () => {
   const runner = createLandingRunner();
   const out = [];
   const broadcast = (payload) => out.push(payload);
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
   const t0 = 1_700_300_000_000;
   const ctx = makeCtx();
   const runwaySurface = {
@@ -1707,37 +1968,237 @@ test('runway excursion detection falls back to runwayLike when onRunway is omitt
     class: 'UNPAVED',
   };
 
-  runner.update(makeFrame({
-    wow: false,
-    surface: runwaySurface,
-    display: { iasKts: 140, vsFpm: -600, raFt: 120 },
-  }), broadcast, { nowEpochMs: t0, nowIso: new Date(t0).toISOString() }, ctx);
+  try {
+    runner.update(makeFrame({
+      wow: false,
+      surface: runwaySurface,
+      display: { iasKts: 140, vsFpm: -500, raFt: 120 },
+    }), broadcast, { nowEpochMs: t0, nowIso: new Date(t0).toISOString() }, ctx);
 
-  runner.update(makeFrame({
-    wow: true,
-    gs: 120,
-    surface: runwaySurface,
-    display: { iasKts: 138, vsFpm: -500, raFt: 4 },
-  }), broadcast, { nowEpochMs: t0 + 100, nowIso: new Date(t0 + 100).toISOString() }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gs: 120,
+      surface: runwaySurface,
+      display: { iasKts: 138, vsFpm: -500, raFt: 4 },
+    }), broadcast, { nowEpochMs: t0 + 100, nowIso: new Date(t0 + 100).toISOString() }, ctx);
 
-  runner.update(makeFrame({
-    wow: true,
-    gs: 70,
-    surface: offRunwaySurface,
-    display: { iasKts: 70, vsFpm: 0, raFt: 0 },
-  }), broadcast, { nowEpochMs: t0 + 500, nowIso: new Date(t0 + 500).toISOString() }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gs: 70,
+      surface: offRunwaySurface,
+      display: { iasKts: 70, vsFpm: 0, raFt: 0 },
+    }), broadcast, { nowEpochMs: t0 + 500, nowIso: new Date(t0 + 500).toISOString() }, ctx);
 
-  runner.update(makeFrame({
-    wow: true,
-    gs: 50,
-    surface: offRunwaySurface,
-    display: { iasKts: 50, vsFpm: 0, raFt: 0 },
-  }), broadcast, { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() }, ctx);
+    runner.update(makeFrame({
+      wow: true,
+      gs: 50,
+      surface: offRunwaySurface,
+      display: { iasKts: 50, vsFpm: 0, raFt: 0 },
+    }), broadcast, { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() }, ctx);
+  } finally {
+    off();
+  }
 
   const finalEvent = out.find((evt) => evt && evt.type === 'landing' && evt.final === true);
+  const finalPayload = finalPayloads.find((evt) => evt && evt.landing_final === true);
   assert(finalEvent, 'Expected final landing event');
+  assert(finalPayload, 'Expected canonical landing:final payload');
   assert.strictEqual(finalEvent.runwayExcursion, true, 'Expected high-speed runway departure to be flagged');
-  assert.strictEqual(finalEvent.grade, 'RUNWAY EXCURSION', 'Excursion should override final landing grade');
+  assert.strictEqual(finalEvent.vs, -500, 'Expected the touchdown-rate headline to remain independent');
+  assert.strictEqual(finalEvent.grade, 'FIRM', 'WebSocket grade should remain the known -500 fpm rate grade');
+  assert.strictEqual(finalEvent.color, 'gold', 'WebSocket color should remain the rate-grade color');
+  assert.strictEqual(finalPayload.runway_excursion, true, 'Canonical payload should preserve runway excursion');
+  assert.strictEqual(finalPayload.grade, 'FIRM', 'Canonical CSV grade should remain the touchdown-rate grade');
+  assert.strictEqual(finalPayload._ui_color, 'gold', 'Canonical payload color should remain the rate-grade color');
+});
+
+test('profile switch after touchdown cannot change final identity, grade, or immediate bounce assessment', () => {
+  const runner = createLandingRunner();
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_500_000_000;
+  const touchdownCtx = makeCtx({
+    aircraftName: 'FlyByWire A380X',
+    aircraftProfileId: 'fbw-a380x',
+  });
+  const changedCtx = makeCtx({
+    aircraftName: 'Generic replacement title',
+    aircraftProfileId: 'generic',
+  });
+
+  try {
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      display: { iasKts: 145, vsFpm: -180, raFt: 100 },
+    }), () => {}, { nowEpochMs: t0 }, touchdownCtx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.2,
+      display: { iasKts: 142, vsFpm: -180, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 100 }, touchdownCtx);
+
+    // The A380 bands classify -180 fpm as GOOD, while generic classifies it
+    // as PERFECT. With no lift/load corroboration, this bounce therefore also
+    // proves that the touchdown profile remains authoritative after the switch.
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      display: { iasKts: 139, vsFpm: -180, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 300 }, changedCtx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.0,
+      display: { iasKts: 136, vsFpm: -180, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 500 }, changedCtx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.0,
+      display: { iasKts: 40, vsFpm: 0, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 120000 }, changedCtx);
+  } finally {
+    off();
+  }
+
+  const finalPayload = finalPayloads.find((payload) => payload?.landing_final === true);
+  assert(finalPayload, 'Expected canonical landing:final payload');
+  assert.strictEqual(finalPayload.grade, 'GOOD', 'Final grade must remain the A380 touchdown grade');
+  assert.strictEqual(finalPayload.aircraft_profile_id, 'fbw-a380x', 'Final profile must remain the touchdown profile');
+  assert.strictEqual(finalPayload.aircraft, 'FlyByWire A380X', 'Final aircraft title must remain the touchdown identity');
+  assert.strictEqual(finalPayload.landing_rate_context?.profile?.id, 'fbw-a380x', 'Persisted rate context must remain tied to touchdown');
+  assert.strictEqual(finalPayload.bounce_count, 1, 'Immediate bounce assessment must use the touchdown profile');
+});
+
+test('pending bounce confirmation cannot borrow a newly selected aircraft profile', () => {
+  const runner = createLandingRunner();
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_501_000_000;
+  const touchdownCtx = makeCtx({ aircraftProfileId: 'generic' });
+  const changedCtx = makeCtx({ aircraftProfileId: 'fbw-a380x' });
+
+  try {
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      display: { iasKts: 145, vsFpm: -180, raFt: 100 },
+    }), () => {}, { nowEpochMs: t0 }, touchdownCtx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.2,
+      display: { iasKts: 142, vsFpm: -180, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 100 }, touchdownCtx);
+    runner.update(makeFrame({
+      wow: false,
+      gforce: 1.0,
+      display: { iasKts: 139, vsFpm: -180, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 300 }, touchdownCtx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.0,
+      display: { iasKts: 136, vsFpm: -180, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 500 }, touchdownCtx);
+
+    // This frame is inside the delayed confirmation window. Regrading the
+    // contact as A380 GOOD would incorrectly turn the generic PERFECT contact
+    // into a confirmed bounce.
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.0,
+      display: { iasKts: 132, vsFpm: 0, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 600 }, changedCtx);
+    runner.update(makeFrame({
+      wow: true,
+      gforce: 1.0,
+      display: { iasKts: 125, vsFpm: 0, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 1700 }, changedCtx);
+    runner.update(makeFrame({
+      wow: true,
+      display: { iasKts: 40, vsFpm: 0, raFt: 0 },
+    }), () => {}, { nowEpochMs: t0 + 120000 }, changedCtx);
+  } finally {
+    off();
+  }
+
+  const finalPayload = finalPayloads.find((payload) => payload?.landing_final === true);
+  assert(finalPayload, 'Expected canonical landing:final payload');
+  assert.strictEqual(finalPayload.aircraft_profile_id, 'generic');
+  assert.strictEqual(finalPayload.grade, 'PERFECT');
+  assert.strictEqual(finalPayload.bounce_count, 0, 'Pending contact must remain assessed with the generic touchdown profile');
+});
+
+test('rollout taxi threshold is frozen at touchdown and reset for the next attempt', () => {
+  let taxiInMaxKts = 35;
+  withMockPhaseThresholds(() => ({ taxi_in_max_kts: taxiInMaxKts }), (createWithMockPhase) => {
+    const runner = createWithMockPhase();
+    const finalPayloads = [];
+    const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+    const t0 = 1_700_502_000_000;
+    const firstCtx = makeCtx({ aircraftName: 'First aircraft', aircraftProfileId: 'fbw-a380x' });
+    const secondCtx = makeCtx({ aircraftName: 'Second aircraft', aircraftProfileId: 'generic' });
+    const rolloutSurface = {
+      onGround: true,
+      valid: true,
+      runwayLike: true,
+      onRunway: true,
+      raw: 1,
+      name: 'Asphalt',
+      class: 'dry',
+    };
+
+    try {
+      // Abandon one accepted touchdown through the public reset path. Its
+      // immutable attempt context must not leak into the next landing.
+      runner.update(makeFrame({ wow: false }), () => {}, { nowEpochMs: t0 }, firstCtx);
+      runner.update(makeFrame({ wow: true }), () => {}, { nowEpochMs: t0 + 100 }, firstCtx);
+      runner.reset();
+
+      runner.update(makeFrame({
+        wow: false,
+        gs: 130,
+        surface: rolloutSurface,
+        display: { iasKts: 140, gsKts: 130, vsFpm: -180, raFt: 100 },
+      }), () => {}, { nowEpochMs: t0 + 1000 }, secondCtx);
+      runner.update(makeFrame({
+        wow: true,
+        gs: 130,
+        surface: rolloutSurface,
+        display: { iasKts: 138, gsKts: 130, vsFpm: -180, raFt: 0 },
+      }), () => {}, { nowEpochMs: t0 + 1100 }, secondCtx);
+
+      // Simulate an active-profile threshold change during rollout.
+      taxiInMaxKts = 80;
+      runner.update(makeFrame({
+        wow: true,
+        gs: 100,
+        surface: rolloutSurface,
+        display: { iasKts: 100, gsKts: 100, vsFpm: 0, raFt: 0 },
+      }), () => {}, { nowEpochMs: t0 + 1600 }, firstCtx);
+      runner.update(makeFrame({
+        wow: true,
+        gs: 70,
+        surface: rolloutSurface,
+        display: { iasKts: 70, gsKts: 70, vsFpm: 0, raFt: 0 },
+      }), () => {}, { nowEpochMs: t0 + 2100 }, firstCtx);
+      runner.update(makeFrame({
+        wow: true,
+        gs: 30,
+        surface: { ...rolloutSurface, onRunway: false },
+        display: { iasKts: 30, gsKts: 30, vsFpm: 0, raFt: 0 },
+      }), () => {}, { nowEpochMs: t0 + 2600 }, firstCtx);
+    } finally {
+      off();
+    }
+
+    const finalPayload = finalPayloads.find((payload) => payload?.landing_final === true);
+    assert(finalPayload, 'Expected canonical landing:final payload');
+    assert.strictEqual(finalPayload.aircraft_profile_id, 'generic', 'Runner reset must discard the prior attempt profile');
+    assert.strictEqual(finalPayload.aircraft, 'Second aircraft', 'Runner reset must discard the prior aircraft title');
+    assert.strictEqual(finalPayload.grade, 'PERFECT', 'Second landing must use its own generic grading bands');
+    assert(finalPayload.rollout_analysis, 'Expected rollout analysis to be persisted');
+    assert.strictEqual(finalPayload.rollout_analysis.taxiInMaxKts, 35, 'Rollout must retain the threshold captured at touchdown');
+    assert.strictEqual(finalPayload.rollout_analysis.sampleCount, 3, '70 kt sample must remain in the rollout under the captured 35 kt threshold');
+  });
 });
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);

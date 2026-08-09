@@ -40,6 +40,7 @@ test('history index schema initializes tables, indexes, and meta', (t) => {
   }
 
   withTempDb((db) => {
+    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v11');
     const result = initializeHistoryIndexSchema(db);
     assert.equal(result.contractInvalidated, false);
     assert.equal(result.schemaVersion, HISTORY_INDEX_SCHEMA_VERSION);
@@ -140,7 +141,7 @@ test('history index schema retains readable rows but invalidates their freshness
       4096,
       JSON.stringify({ aircraft: 'old-derived-value' }),
     );
-    db.prepare("UPDATE history_index_meta SET value = 'flight-csv-history-index-v1' WHERE key = 'source_contract_version'").run();
+    db.prepare("UPDATE history_index_meta SET value = 'flight-bundle-history-index-v7' WHERE key = 'source_contract_version'").run();
 
     const result = initializeHistoryIndexSchema(db);
 

@@ -1,4 +1,4 @@
-import { buildLandingVerdict } from '../landing/scoring.js';
+import { buildLandingPresentation } from '../landing/scoring.js';
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
@@ -27,26 +27,92 @@ function pushMetricRow(rows, key, label, value, valueClass = '') {
   });
 }
 
-function getTouchdownGradeClass(event) {
-  if (!event?.touchdownDistance) return '';
-  const verdict = buildLandingVerdict(event, { touchdownDistance: event.touchdownDistance });
+function finiteNumber(value) {
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function nonEmptyText(value) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
+}
+
+function formatRunway(runway) {
+  if (!runway || typeof runway !== 'object') return null;
+  const runwayId = nonEmptyText(runway.runway_id);
+  const runwayLengthFt = finiteNumber(runway.length_ft);
+  if (runwayId && runwayLengthFt != null) return `${runwayId} (${Math.round(runwayLengthFt)}ft)`;
+  if (runwayId) return runwayId;
+  if (runwayLengthFt != null) return `${Math.round(runwayLengthFt)}ft runway`;
+  return null;
+}
+
+function getTouchdownGradeClass(touchdownDistance, verdict) {
+  if (!touchdownDistance) return '';
   if (verdict.flags.runwayExcursion) return 'text-red-400 font-semibold';
   const severity = verdict.touchdown.severity;
   if (severity >= 3) return 'text-red-400 font-semibold';
   if (severity >= 2) return 'text-orange-400 font-semibold';
   if (severity >= 1) return 'text-yellow-400 font-semibold';
-  if (event.touchdownDistance.score >= 90) return 'text-green-400 font-semibold';
-  if (event.touchdownDistance.score >= 70) return 'text-yellow-400 font-semibold';
+  const score = finiteNumber(touchdownDistance.score);
+  if (score != null && score >= 90) return 'text-green-400 font-semibold';
+  if (score != null && score >= 70) return 'text-yellow-400 font-semibold';
   return 'text-amber-400 font-semibold';
+}
+
+function getStabilityVerdictClass(verdict) {
+  if (verdict === 'unstable') return 'text-red-400 font-semibold';
+  if (verdict === 'marginal') return 'text-amber-400 font-semibold';
+  if (verdict === 'stable') return 'text-green-400 font-semibold';
+  return 'text-gray-400 font-semibold';
+}
+
+function getStabilityMetricClass(value) {
+  const score = finiteNumber(value);
+  if (score == null) return '';
+  if (score < 60) return 'text-red-400 font-semibold';
+  if (score < 80) return 'text-amber-400 font-semibold';
+  return 'text-green-400 font-semibold';
 }
 
 export function buildLandingDetailSections(event) {
   const sections = [];
   if (!event || event.type !== 'landing') return sections;
+  const presentation = buildLandingPresentation(event);
 
   const snapshotRows = [];
+  pushMetricRow(
+    snapshotRows,
+    'touchdown-grade',
+    'Touchdown Rate Grade',
+    presentation.touchdownGrade,
+    presentation.touchdownTextClass,
+  );
+  pushMetricRow(
+    snapshotRows,
+    'approach-verdict',
+    'Approach',
+    presentation.approachText,
+    getStabilityVerdictClass(presentation.stabilityVerdict),
+  );
+  pushMetricRow(
+    snapshotRows,
+    'bounce',
+    'Bounce',
+    presentation.bounceKnown
+      ? `${presentation.bounceText}${presentation.bounceCount > 0 && presentation.verdict.bounce.bounceGrade
+        ? ` (${presentation.verdict.bounce.bounceGrade})`
+        : ''}`
+      : null,
+    presentation.bounceCount > 0 ? presentation.verdict.bounce.textClass : 'text-green-400 font-semibold',
+  );
+  pushMetricRow(snapshotRows, 'approach-score', 'Approach Score', presentation.stabilityScore != null ? `${presentation.stabilityScore}%` : null);
   pushMetricRow(snapshotRows, 'ias', 'IAS', event.ias_kts != null ? `${Math.round(event.ias_kts)} kts` : null);
-  pushMetricRow(snapshotRows, 'vs', 'V/S', event.vs_fpm != null ? `${Math.round(event.vs_fpm)} fpm` : null);
+  pushMetricRow(snapshotRows, 'vs', 'Touchdown Rate', event.vs_fpm != null ? `${Math.round(event.vs_fpm)} fpm` : null);
   pushMetricRow(snapshotRows, 'pitch', 'Pitch', event.pitch_deg != null ? `${event.pitch_deg.toFixed(1)} deg` : null);
   pushMetricRow(snapshotRows, 'bank', 'Bank', event.bank_deg != null ? `${event.bank_deg.toFixed(1)} deg` : null);
   pushMetricRow(snapshotRows, 'heading', 'Heading', event.hdg_true_deg != null ? `${Math.round(event.hdg_true_deg)} deg` : null);
@@ -60,7 +126,7 @@ export function buildLandingDetailSections(event) {
     snapshotRows,
     'runway',
     'Runway',
-    event.runway ? `${event.runway.runway_id} (${event.runway.length_ft}ft)` : null,
+    formatRunway(event.runway),
   );
   if (snapshotRows.length > 0) {
     sections.push({
@@ -72,51 +138,66 @@ export function buildLandingDetailSections(event) {
     });
   }
 
-  if (event.touchdownDistance) {
-    const tdz = event.touchdownDistance;
+  const tdz = event.touchdownDistance && typeof event.touchdownDistance === 'object'
+    ? event.touchdownDistance
+    : null;
+  if (tdz || presentation.verdict.flags.runwayExcursion) {
     const touchdownRows = [];
-    pushMetricRow(touchdownRows, 'distance', 'Distance', `${Math.round(tdz.distanceFt)}ft from threshold`);
+    const distanceFt = finiteNumber(tdz?.distanceFt);
+    const tdzGrade = nonEmptyText(tdz?.grade);
+    const tdzZone = nonEmptyText(tdz?.zone);
+    const touchdownScore = finiteNumber(tdz?.score);
+    pushMetricRow(
+      touchdownRows,
+      'distance',
+      'Distance',
+      distanceFt != null ? `${Math.round(distanceFt)}ft from threshold` : null,
+    );
     pushMetricRow(
       touchdownRows,
       'grade',
-      'Grade',
-      `${tdz.grade}${tdz.zone ? ` (${tdz.zone})` : ''}`,
-      getTouchdownGradeClass(event),
+      'TDZ Grade',
+      tdzGrade ? `${tdzGrade}${tdzZone ? ` (${tdzZone})` : ''}` : null,
+      getTouchdownGradeClass(tdz, presentation.verdict),
     );
-    const touchdownScore = Number(tdz.score);
-    pushMetricRow(touchdownRows, 'score', 'Score', Number.isFinite(touchdownScore) ? `${Math.round(touchdownScore)}/100` : null);
+    pushMetricRow(touchdownRows, 'score', 'TDZ Score', touchdownScore != null ? `${Math.round(touchdownScore)}/100` : null);
     pushMetricRow(
       touchdownRows,
       'runway-excursion',
       'Runway Excursion',
-      buildLandingVerdict(event, { touchdownDistance: tdz }).flags.runwayExcursion ? 'Yes' : null,
+      presentation.verdict.flags.runwayExcursion ? 'Yes' : null,
       'text-red-400 font-semibold',
     );
 
-    if (event.runway && event.runway.length_ft) {
-      const roundedDistance = Math.round(tdz.distanceFt);
-      const remaining = event.runway.length_ft - roundedDistance;
-      const pctUsed = ((roundedDistance / event.runway.length_ft) * 100).toFixed(1);
+    const runwayLengthFt = finiteNumber(event.runway?.length_ft);
+    if (distanceFt != null && runwayLengthFt != null && runwayLengthFt > 0) {
+      const roundedDistance = Math.round(distanceFt);
+      const remaining = Math.round(runwayLengthFt - distanceFt);
+      const pctUsed = ((distanceFt / runwayLengthFt) * 100).toFixed(1);
       pushMetricRow(touchdownRows, 'remaining', 'Remaining', `${remaining}ft (${pctUsed}% down runway)`);
     }
 
-    if (tdz.lateralOffsetFt != null) {
-      const side = tdz.lateralOffsetSide || 'center';
+    const lateralOffsetFt = finiteNumber(tdz?.lateralOffsetFt);
+    if (lateralOffsetFt != null) {
+      const side = nonEmptyText(tdz?.lateralOffsetSide);
+      const lateralGrade = nonEmptyText(tdz?.lateralOffsetGrade);
       pushMetricRow(
         touchdownRows,
         'lateral',
         'Lateral',
-        `${Math.abs(Math.round(tdz.lateralOffsetFt))}ft ${side} (${tdz.lateralOffsetGrade || '--'})`,
+        `${Math.abs(Math.round(lateralOffsetFt))}ft${side ? ` ${side}` : ''}${lateralGrade ? ` (${lateralGrade})` : ''}`,
       );
     }
 
-    sections.push({
-      key: 'touchdown-zone-analysis',
-      title: 'Touchdown Zone Analysis',
-      rows: touchdownRows,
-      noteText: '',
-      emptyText: '',
-    });
+    if (touchdownRows.length > 0) {
+      sections.push({
+        key: 'touchdown-zone-analysis',
+        title: 'Touchdown Zone Analysis',
+        rows: touchdownRows,
+        noteText: '',
+        emptyText: '',
+      });
+    }
   }
 
   if (event.rolloutAnalysis) {
@@ -207,28 +288,30 @@ export function buildLandingDetailSections(event) {
       stability.scoringContext,
       event.aircraftProfileId || event.aircraft_profile_id,
     );
-    const gateStable = buildLandingVerdict(event, { ultimateStability: stability }).stability.gateStable;
     const stabilityRows = [];
-    pushMetricRow(stabilityRows, 'profile', 'Scoring Profile', contextSummary.label);
-    pushMetricRow(stabilityRows, 'score', 'Score', typeof stability.score === 'number' ? `${Math.round(stability.score)}%` : null);
-    pushMetricRow(stabilityRows, 'samples', 'Samples', typeof stability.samples === 'number' ? stability.samples : null);
     pushMetricRow(
       stabilityRows,
       'gate-stable',
-      'Gate Stable',
-      gateStable != null ? (gateStable ? 'Yes' : 'No') : null,
+      'Approach Verdict',
+      presentation.approachText,
+      getStabilityVerdictClass(presentation.stabilityVerdict),
     );
     if (Array.isArray(stability.gateFailures) && stability.gateFailures.length > 0) {
       const visibleGateFailures = stability.gateFailures.filter((failure) => (
         !RETIRED_STABILITY_FAILURES.has(String(failure || '').trim())
       ));
-      pushMetricRow(
-        stabilityRows,
-        'gate-failures',
-        'Gate Failures',
-        visibleGateFailures.map(stabilityFailureLabel).join(', '),
-      );
+      if (visibleGateFailures.length > 0) {
+        pushMetricRow(
+          stabilityRows,
+          'gate-failures',
+          'Strict Check Findings',
+          visibleGateFailures.map(stabilityFailureLabel).join(', '),
+        );
+      }
     }
+    pushMetricRow(stabilityRows, 'score', 'Approach Score', typeof stability.score === 'number' ? `${Math.round(stability.score)}%` : null);
+    pushMetricRow(stabilityRows, 'samples', 'Samples', typeof stability.samples === 'number' ? stability.samples : null);
+    pushMetricRow(stabilityRows, 'profile', 'Scoring Profile', contextSummary.label);
 
     const breakdown = stability.breakdown && typeof stability.breakdown === 'object' ? stability.breakdown : null;
     if (breakdown) {
@@ -257,6 +340,7 @@ export function buildLandingDetailSections(event) {
             key,
             criterion ? `${label} (${criterion})` : label,
             `${Math.round(breakdown[key])}%`,
+            getStabilityMetricClass(breakdown[key]),
           );
         }
       }
@@ -264,9 +348,12 @@ export function buildLandingDetailSections(event) {
 
     sections.push({
       key: 'retrospective-stability',
-      title: 'Retrospective Stability',
+      title: 'Approach Stability',
       rows: stabilityRows,
-      noteText: contextSummary.detail,
+      noteText: [
+        contextSummary.detail,
+        `Stable requires every applicable strict check to meet its recorded ${presentation.stabilityPassPct}% threshold after the ${presentation.stabilityGateLabel} gate. Marginal means only soft/proxy checks missed that strict threshold.`,
+      ].filter(Boolean).join(' '),
       emptyText: '',
     });
   }
@@ -279,15 +366,19 @@ export function buildLandingApproachProfileHtml(event, approachProfileApi) {
     return '';
   }
 
-  const tdzGrade = event.touchdownDistance ? event.touchdownDistance.grade : null;
-  const verdict = buildLandingVerdict(event, { touchdownDistance: event.touchdownDistance });
+  const presentation = buildLandingPresentation(event);
+  const verdict = presentation.verdict;
   const landingForSvg = {
     vs_fpm: event.vs_fpm,
     pitch_deg: event.pitch_deg,
     touchdownDistance: event.touchdownDistance || null,
-    grade: tdzGrade,
-    color: approachProfileApi.gradeToColor(tdzGrade),
+    ultimateStability: event.ultimateStability || null,
+    grade: event.grade || null,
+    color: presentation.touchdownColor,
+    bounceCount: event.bounceCount,
+    bounceGrade: event.bounceGrade,
     shortLanding: verdict.flags.shortLanding,
+    runwayExcursion: verdict.flags.runwayExcursion,
     runwayReferenceElevFt: Number.isFinite(event.runwayReferenceElevFt)
       ? event.runwayReferenceElevFt
       : (Number.isFinite(event.thresholdElevFt) ? event.thresholdElevFt : null),

@@ -89,7 +89,7 @@ export function getStabilityContextSummary(value, fallbackProfileId = null) {
     detail: context.available
       ? (reconstructed
           ? `Criteria were reconstructed with the current policy because this older flight did not record a snapshot.${coverageDetail}`
-          : `Explanations below use the exact game rules recorded with this score.${coverageDetail}`)
+          : `Explanations below use the exact game rules recorded with this approach score.${coverageDetail}`)
       : 'Exact criteria were not saved with this older result; the profile name is shown for context only.',
     isGeneric: id === 'generic' || reliability === 'generic',
     isLegacy: !context.available || reconstructed,
@@ -126,7 +126,7 @@ export function getStabilityMetricPresentation(key, value, fallback = {}) {
   const presentations = {
     config_ok: {
       desc: `Aggregate configuration check at and below the ${gateText}. Gear and flaps must both pass.`,
-      criteria: `Gear and flaps both pass; configuration failures can cap the headline score.`,
+      criteria: `Gear and flaps both pass; configuration failures can cap the approach score.`,
     },
     gear_ok: {
       desc: `Gear must be down at the ${gateText} and its raw value must not change before touchdown.`,
@@ -161,8 +161,8 @@ export function getStabilityMetricPresentation(key, value, fallback = {}) {
       criteria: pathAngle == null || pathDelta == null ? fallback.criteriaText : `No more than ${pathDelta} fpm shallower than the ${pathAngle} deg target path.`,
     },
     thrust_ok: {
-      desc: `Throttle/engine-percent movement is measured from the gate to ${floor} ft AAL. It is not an idle-thrust check.`,
-      criteria: thrustTrend == null ? fallback.criteriaText : `Absolute throttle/engine-percent trend <= ${thrustTrend} percentage points/sec.`,
+      desc: `Throttle/engine-percent movement is measured over rolling one-second windows from the gate to ${floor} ft AAL. It is not an idle-thrust check.`,
+      criteria: thrustTrend == null ? fallback.criteriaText : `Rolling one-second absolute throttle/engine-percent trend <= ${thrustTrend} percentage points/sec.`,
     },
     pitch_ok: {
       desc: `Pitch is checked below the ${gateText} using the recorded scoring-policy limits.`,

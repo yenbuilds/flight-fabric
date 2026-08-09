@@ -661,6 +661,11 @@ async function runTimelineSmoke(windowRef) {
     "document.querySelectorAll('#timeline-event-list .timeline-event').length >= 4",
     'loaded Timeline events',
   );
+  await waitFor(
+    windowRef,
+    "(() => { const row = Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at')); return row?.textContent.includes('TD RATE PERFECT') && row.textContent.includes('APP MARGINAL') && row.textContent.includes('BNC 1x'); })()",
+    'Timeline landing row shows scoped touchdown-rate grade, failed approach, and bounce',
+  );
   await assertTimelineEventLayout(windowRef);
   await click(windowRef, "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at'))", 'Timeline landing event row');
   await waitFor(
@@ -676,7 +681,7 @@ async function runTimelineSmoke(windowRef) {
   ]);
   await waitFor(
     windowRef,
-    "document.getElementById('timeline-detail-metrics')?.textContent.toLowerCase().includes('touchdown zone analysis') && document.getElementById('timeline-open-landing-btn')",
+    "(() => { const detail = document.getElementById('timeline-detail'); const text = document.getElementById('timeline-detail-metrics')?.textContent || ''; return text.includes('Touchdown Rate Grade') && text.includes('PERFECT') && text.includes('TDZ') && text.includes('UNSTABLE') && text.includes('Bounce') && !text.toLowerCase().includes('touchdown zone analysis') && !detail?.querySelector('#timeline-approach-profile, #timeline-topdown-profile') && document.getElementById('timeline-open-landing-btn'); })()",
     'Timeline landing detail metrics and action',
   );
   await click(windowRef, "document.getElementById('timeline-open-landing-btn')", 'Timeline Open Landing Debrief button');
@@ -687,7 +692,7 @@ async function runTimelineSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.querySelector('#landing-modal #landing-card') && document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS')",
+    "document.querySelector('#landing-modal #landing-card') && document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS') && document.querySelector('#landing-modal #landing-grade')?.textContent.includes('PERFECT') && document.querySelector('#landing-modal #landing-summary-approach')?.textContent.includes('UNSTABLE') && document.querySelector('#landing-modal #landing-summary-bounce')?.textContent.includes('1x')",
     'Open Landing Debrief renders selected landing card',
   );
   await assertUsableLayout(windowRef, 'Landing debrief modal', [

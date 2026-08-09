@@ -19,6 +19,7 @@ import type {
   EnginesData,
   SurfaceData,
   StabilityBreakdown,
+  ApproachStabilityVerdict,
   LandingMessage,
   SafetyAccident,
   SafetyReport,
@@ -52,6 +53,7 @@ export interface TelemetryState {
   stabilityScore: number | null;
   stabilityBreakdown: StabilityBreakdown | null;
   ultimateStabilityScore: number | null;
+  ultimateStabilityVerdict: ApproachStabilityVerdict | null;
   ultimateStabilityBreakdown: StabilityBreakdown | null;
   ultimateStabilitySamples: number | null;
 
@@ -129,6 +131,7 @@ export function createInitialState(): TelemetryState {
     stabilityScore: null,
     stabilityBreakdown: null,
     ultimateStabilityScore: null,
+    ultimateStabilityVerdict: null,
     ultimateStabilityBreakdown: null,
     ultimateStabilitySamples: null,
 

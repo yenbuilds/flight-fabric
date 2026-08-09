@@ -193,6 +193,28 @@ function sanitizeAppSettingsPatch(input) {
   });
 }
 
+function sanitizeTimelineRequestId(value: unknown): string | number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const requestId = value.trim().slice(0, 128);
+  return requestId || null;
+}
+
+function resolveTimelineScoringMode(value: unknown): 'recorded' | 'current-preview' {
+  return value === 'current-preview' ? 'current-preview' : 'recorded';
+}
+
+function sanitizeAnalysisRevision(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : null;
+}
+
+function sanitizeAnalysisFingerprint(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const fingerprint = value.trim().toLowerCase();
+  return /^[a-f0-9]{64}$/.test(fingerprint) ? fingerprint : null;
+}
+
 let lastAppSettings;
 
 function refreshAppSettingsMessage(
@@ -326,6 +348,8 @@ function sendPrivilegeDenied(ws: WsLike, msg: AnyRecord) {
     case 'requestTimeline':
       ws.send(JSON.stringify({
         type: MSG.TIMELINE_ERROR,
+        requestId: sanitizeTimelineRequestId(msg.requestId),
+        scoringMode: resolveTimelineScoringMode(msg.scoringMode),
         error,
       }));
       return;
@@ -340,6 +364,16 @@ function sendPrivilegeDenied(ws: WsLike, msg: AnyRecord) {
       ws.send(JSON.stringify({
         type: MSG.DELETE_FLIGHT_CSV_RESULT,
         requestId: msg.requestId || null,
+        success: false,
+        error,
+      }));
+      return;
+    case 'applyFlightAnalysisRescore':
+    case 'revertFlightAnalysisRescore':
+      ws.send(JSON.stringify({
+        type: MSG.FLIGHT_ANALYSIS_RESCORE_RESULT,
+        requestId: sanitizeTimelineRequestId(msg.requestId),
+        action: msg.type === 'revertFlightAnalysisRescore' ? 'revert' : 'apply',
         success: false,
         error,
       }));
@@ -944,25 +978,41 @@ async function handleClientMessage(ws, msg, context) {
     // ========================================
 
     case 'requestTimeline': {
-      Debug.log('ws', 'Timeline requested', { filePath: msg.filePath, flightId: msg.flightId });
+      const requestId = sanitizeTimelineRequestId(msg.requestId);
+      const scoringMode = resolveTimelineScoringMode(msg.scoringMode);
+      const timelineOptions = { requestId, scoringMode };
+      Debug.log('ws', 'Timeline requested', {
+        filePath: msg.filePath,
+        flightId: msg.flightId,
+        requestId,
+        scoringMode,
+      });
       try {
         const result = msg.filePath
-          ? await flightCsvStore.generateTimelineFromFile(msg.filePath)
-          : (msg.flightId ? await flightCsvStore.generateTimelineForFlightId(msg.flightId) : null);
+          ? await flightCsvStore.generateTimelineFromFile(msg.filePath, timelineOptions)
+          : (msg.flightId
+              ? await flightCsvStore.generateTimelineForFlightId(msg.flightId, timelineOptions)
+              : null);
 
         if (!result) {
           ws.send(JSON.stringify({
             type: MSG.TIMELINE_ERROR,
+            requestId,
+            scoringMode,
             error: 'Timeline requests must specify a filePath or flightId for historic data only',
           }));
         } else if (result.success) {
           ws.send(JSON.stringify({
             type: MSG.TIMELINE,
+            requestId,
+            scoringMode,
             timeline: result.timeline,
           }));
         } else {
           ws.send(JSON.stringify({
             type: MSG.TIMELINE_ERROR,
+            requestId,
+            scoringMode,
             error: result.error || 'Timeline not found',
           }));
         }
@@ -970,7 +1020,58 @@ async function handleClientMessage(ws, msg, context) {
         Debug.log('ws', 'requestTimeline error', { error: err.message });
         ws.send(JSON.stringify({
           type: MSG.TIMELINE_ERROR,
+          requestId,
+          scoringMode,
           error: 'Failed to generate timeline',
+        }));
+      }
+      break;
+    }
+
+    case 'applyFlightAnalysisRescore':
+    case 'revertFlightAnalysisRescore': {
+      const action = msg.type === 'revertFlightAnalysisRescore' ? 'revert' : 'apply';
+      const requestId = sanitizeTimelineRequestId(msg.requestId);
+      try {
+        const result = action === 'apply'
+          ? await flightCsvStore.applyFlightAnalysisRescore({
+              filePath: msg.filePath,
+              flightId: msg.flightId,
+              expectedRevision: sanitizeAnalysisRevision(msg.baseRevision),
+              expectedSourceFingerprint: sanitizeAnalysisFingerprint(msg.sourceFingerprint),
+              expectedPreviewFingerprint: sanitizeAnalysisFingerprint(msg.previewFingerprint),
+              expectedAnalysisContractFingerprint: sanitizeAnalysisFingerprint(msg.analysisContractFingerprint),
+            })
+          : await flightCsvStore.revertFlightAnalysisRescore({
+              filePath: msg.filePath,
+              flightId: msg.flightId,
+              expectedRevision: sanitizeAnalysisRevision(msg.expectedRevision),
+              expectedSnapshotFingerprint: sanitizeAnalysisFingerprint(msg.expectedSnapshotFingerprint),
+            });
+        ws.send(JSON.stringify({
+          type: MSG.FLIGHT_ANALYSIS_RESCORE_RESULT,
+          requestId,
+          action,
+          success: result?.success === true,
+          ...(Number.isSafeInteger(result?.revision) ? { revision: result.revision } : {}),
+          ...(typeof result?.appliedAt === 'string' ? { appliedAt: result.appliedAt } : {}),
+          ...(typeof result?.snapshotFingerprint === 'string'
+            ? { snapshotFingerprint: result.snapshotFingerprint }
+            : {}),
+          ...(typeof result?.reverted === 'boolean' ? { reverted: result.reverted } : {}),
+          ...(result?.success === true ? {} : { error: result?.error || 'Could not update the saved flight analysis' }),
+        }));
+      } catch (err) {
+        Debug.log('ws', 'flight analysis rescore error', {
+          action,
+          error: err instanceof Error ? err.message : String(err || 'Unknown error'),
+        });
+        ws.send(JSON.stringify({
+          type: MSG.FLIGHT_ANALYSIS_RESCORE_RESULT,
+          requestId,
+          action,
+          success: false,
+          error: 'Could not update the saved flight analysis',
         }));
       }
       break;

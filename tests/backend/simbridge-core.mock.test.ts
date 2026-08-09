@@ -18,6 +18,12 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 const runnerPath = path.join(__dirname, '..', 'support', 'simbridge-mock-runner.js');
+const landingAircraftChangeRunnerPath = path.join(
+  __dirname,
+  '..',
+  'support',
+  'simbridge-landing-aircraft-change-runner.js',
+);
 const { finalizeRecordingForShutdown, runSimbridgeShutdownSequence } = require('../../backend/core/simbridge-shutdown.js') as {
   finalizeRecordingForShutdown: (options: Record<string, unknown>) => Promise<void>;
   runSimbridgeShutdownSequence: (options: Record<string, unknown>) => Promise<void>;
@@ -271,6 +277,70 @@ test('simbridge-core: provider lifecycle and profile detection smoke test', asyn
   assert.ok(outStr.includes('TEST:provider_stop'), 'Shutdown did not reach provider.stop()');
   assert.ok(outStr.includes('TEST:core_stopped'), 'Core did not escape a non-settling frame acquisition');
   assert.ok(!outStr.includes('TEST:runner_error'), 'Found runner_error marker - unexpected');
+});
+
+test('simbridge-core: aircraft change during accepted rollout waits for frozen landing final', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-simbridge-rollout-aircraft-change-'));
+  const cp = spawn(process.execPath, [landingAircraftChangeRunnerPath], {
+    env: {
+      ...process.env,
+      HOME: tempRoot,
+      USERPROFILE: tempRoot,
+      APPDATA: path.join(tempRoot, 'AppData', 'Roaming'),
+      LOCALAPPDATA: path.join(tempRoot, 'AppData', 'Local'),
+      XDG_CONFIG_HOME: path.join(tempRoot, '.config'),
+      OneDrive: path.join(tempRoot, 'OneDrive'),
+      FLIGHT_FABRIC_SKIP_WINDOWS_KNOWN_DOCUMENTS: '1',
+      FLIGHT_START_REQUIRE_MOVEMENT: '0',
+      FLIGHT_END_PARKED_ENGINES_OFF_ENABLE: '0',
+      UPDATE_CHECKS_ENABLED: '0',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  cp.stdout.on('data', (chunk: Buffer) => stdout.push(chunk.toString()));
+  cp.stderr.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
+
+  let exitCode: number | null = null;
+  try {
+    exitCode = await new Promise<number>((resolve) => {
+      const timer = setTimeout(() => {
+        cp.kill();
+        resolve(-1);
+      }, 8000);
+      cp.on('exit', (code: number | null) => {
+        clearTimeout(timer);
+        resolve(code ?? -1);
+      });
+    });
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+
+  const outStr = stdout.join('');
+  const errStr = stderr.join('');
+  assert.equal(exitCode, 0, `Runner exited with code ${exitCode}; stderr: ${errStr}\nstdout: ${outStr}`);
+  assert.match(outStr, /TEST:initial_profile:fbw-a32nx/);
+  assert.match(outStr, /TEST:touchdown_accepted/);
+  assert.doesNotMatch(outStr, /TEST:aircraft_change_before_touchdown_acceptance/);
+  assert.match(outStr, /TEST:changed_profile:(?!fbw-a32nx)[^\r\n]+/);
+
+  const finalMarker = outStr.match(/TEST:landing_final:(\{[^\r\n]+\})/);
+  assert.ok(finalMarker, `Missing landing:final marker; output:\n${outStr}`);
+  const finalPayload = JSON.parse(finalMarker[1]);
+  assert.equal(finalPayload.aircraft, 'FlyByWire A32NX');
+  assert.equal(finalPayload.aircraftProfileId, 'fbw-a32nx');
+  assert.equal(finalPayload.scoringProfileId, 'fbw-a32nx');
+  assert.ok(finalPayload.grade, 'final landing should retain its touchdown-rate grade');
+
+  const finalIndex = outStr.indexOf('TEST:landing_final:');
+  const endedIndex = outStr.indexOf('TEST:flight_ended:aircraft_change:');
+  assert.ok(endedIndex > finalIndex, `aircraft change ended the flight before landing:final; output:\n${outStr}`);
+  assert.match(outStr, /TEST:scenario_done:true:true/);
+  assert.match(outStr, /TEST:core_stopped/);
+  assert.doesNotMatch(outStr, /TEST:runner_error/);
 });
 
 export {};

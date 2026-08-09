@@ -7,11 +7,16 @@ const path = require('node:path');
 const test = require('node:test');
 const { getBundlePaths } = require('../flight-recording/recording-bundle-layout.js');
 const {
+  HISTORY_ANALYSIS_VERSION,
   getHistorySummaryPath,
   isOwnedHistorySummaryForCsv,
   readHistorySummary,
   writeHistorySummary,
 } = require('./history-summary-sidecar.js');
+
+test('history summary analysis contract is bumped for landing replay parity', () => {
+  assert.equal(HISTORY_ANALYSIS_VERSION, 7);
+});
 
 test('history summary sidecar round-trips portable flight and landing metadata', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-summary-'));
@@ -66,6 +71,28 @@ test('history summary sidecar is rejected when the authoritative CSV identity ch
       mtimeMs: changed.mtimeMs,
       sizeBytes: changed.size,
     }), null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('history summary sidecar rejects an unchanged source analyzed by the prior contract', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-summary-analysis-'));
+  try {
+    const paths = getBundlePaths(root, '2026-08-07_01-02-03Z--11223344');
+    fs.mkdirSync(paths.dir);
+    const csvPath = paths.csv;
+    fs.writeFileSync(csvPath, 'record_type,ts\nLANDING,1\n');
+    const stat = fs.statSync(csvPath);
+    const source = { filePath: csvPath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
+    assert.equal(writeHistorySummary(source, { flight: null, landings: [] }), true);
+
+    const summaryPath = getHistorySummaryPath(csvPath);
+    const stale = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+    stale.analysisVersion = HISTORY_ANALYSIS_VERSION - 1;
+    fs.writeFileSync(summaryPath, JSON.stringify(stale), 'utf8');
+
+    assert.equal(readHistorySummary(source), null);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

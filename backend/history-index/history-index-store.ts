@@ -27,6 +27,9 @@ const {
 const { normalizeRetiredSpoilerStability } = require('../stability/retired-spoiler-compat.js') as {
   normalizeRetiredSpoilerStability: (value: unknown) => AnyRecord | null;
 };
+const { classifyApproachStability } = require('../stability/stability-runner.js') as {
+  classifyApproachStability: (_value: AnyRecord | null | undefined) => string;
+};
 
 type AnyRecord = Record<string, any>;
 type StoreOptions = {
@@ -86,6 +89,7 @@ type LandingIndexInput = {
   outcomeGrade?: string | null;
   gateStable?: boolean | null;
   stabilityScore?: number | null;
+  stabilityVerdict?: string | null;
   stabilityGateFailures?: string[] | null;
   touchdownDistanceFt?: number | null;
   touchdownDistanceGrade?: string | null;
@@ -141,6 +145,7 @@ function nullableString(value: unknown): string | null {
 }
 
 function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -272,13 +277,35 @@ function readLandingRow(row: AnyRecord): AnyRecord {
     gateFailures: stabilityGateFailures,
     breakdown: payload?.stabilityBreakdown,
   }) : null;
-  if (payload && stability) {
+  const recordedVerdict = nullableString(payload?.stabilityVerdict)
+    || nullableString(payload?.ultimate_stability_verdict)
+    || nullableString(payload?.ultimateStabilityVerdict)
+    || nullableString(payload?.ultimateStability?.verdict);
+  const stabilityVerdict = stability?.verdict
+    || (
+      recordedVerdict === 'stable'
+      || recordedVerdict === 'marginal'
+      || recordedVerdict === 'unstable'
+      || recordedVerdict === 'no_verdict'
+        ? recordedVerdict
+        : classifyApproachStability({
+          score: row.stability_score,
+          gateStable: dbBool(row.gate_stable),
+          gateFailures: stabilityGateFailures,
+          breakdown: payload?.stabilityBreakdown,
+          availability: payload?.stabilityAvailability,
+        })
+    );
+  if (payload) {
     payload = {
       ...payload,
-      gateStable: stability.gateStable,
-      stabilityScore: stability.score,
-      stabilityGateFailures: stability.gateFailures,
-      stabilityBreakdown: stability.breakdown,
+      ...(stability ? {
+        gateStable: stability.gateStable,
+        stabilityScore: stability.score,
+        stabilityGateFailures: stability.gateFailures,
+        stabilityBreakdown: stability.breakdown,
+      } : {}),
+      stabilityVerdict,
     };
   }
   return {
@@ -296,6 +323,7 @@ function readLandingRow(row: AnyRecord): AnyRecord {
     outcomeGrade: row.outcome_grade,
     gateStable: stability?.gateStable ?? dbBool(row.gate_stable),
     stabilityScore: stability?.score ?? row.stability_score,
+    stabilityVerdict,
     stabilityGateFailures: stability?.gateFailures ?? stabilityGateFailures,
     touchdownDistanceFt: row.touchdown_distance_ft,
     touchdownDistanceGrade: row.touchdown_distance_grade,
@@ -316,8 +344,8 @@ function parseJsonArray(value: unknown): string[] {
 }
 
 function roundNullableNumber(value: unknown): number | null {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? Math.round(numeric) : null;
+  const numeric = nullableNumber(value);
+  return numeric === null ? null : Math.round(numeric);
 }
 
 function readCountMap(rows: AnyRecord[], labelKey = 'label'): Record<string, number> {
@@ -982,8 +1010,6 @@ function createHistoryIndexStore(db: AnyRecord) {
         COUNT(*) AS count,
         ROUND(AVG(vs_fpm)) AS avg_vs_fpm,
         ROUND(AVG(stability_score)) AS avg_stability_score,
-        SUM(CASE WHEN gate_stable IS NOT NULL THEN 1 ELSE 0 END) AS stable_total,
-        SUM(CASE WHEN gate_stable = 1 THEN 1 ELSE 0 END) AS stable_count,
         MAX(timestamp_ms) AS latest_timestamp_ms
       FROM history_landings
       WHERE ${config.whereSql}
@@ -994,7 +1020,12 @@ function createHistoryIndexStore(db: AnyRecord) {
 
     // nosemgrep: ff.sqlite.dynamic-sql-construction -- the selected predicate is fixed and its values remain bound.
     const trendStatement = db.prepare(`
-      SELECT vs_fpm, stability_score
+      SELECT
+        vs_fpm,
+        stability_score,
+        gate_stable,
+        stability_gate_failures_json,
+        payload_json
       FROM history_landings
       WHERE ${config.trendWhereSql}
       ORDER BY timestamp_ms ASC
@@ -1002,15 +1033,19 @@ function createHistoryIndexStore(db: AnyRecord) {
 
     return (groups || []).map((row: AnyRecord) => {
       const trendRows = trendStatement.all(...config.trendParams(row));
-      const stableTotal = Number(row.stable_total) || 0;
-      const stableCount = Number(row.stable_count) || 0;
+      const verdictValues = trendRows
+        .map((trendRow: AnyRecord) => readLandingRow(trendRow).stabilityVerdict)
+        .filter((verdict: unknown) => verdict !== 'no_verdict');
+      const stableCount = verdictValues.filter((verdict: unknown) => verdict === 'stable').length;
+      const marginalCount = verdictValues.filter((verdict: unknown) => verdict === 'marginal').length;
       return {
         key: nullableString(row.key) || '',
         label: nullableString(row.label) || nullableString(row.key) || '',
         count: Number(row.count) || 0,
         avgVsFpm: roundNullableNumber(row.avg_vs_fpm),
         avgStabilityScore: roundNullableNumber(row.avg_stability_score),
-        stableRatePct: stableTotal > 0 ? Math.round((stableCount / stableTotal) * 100) : null,
+        stableRatePct: verdictValues.length > 0 ? Math.round((stableCount / verdictValues.length) * 100) : null,
+        marginalRatePct: verdictValues.length > 0 ? Math.round((marginalCount / verdictValues.length) * 100) : null,
         trendVs: linearTrend(trendRows.map((trendRow: AnyRecord) => nullableNumber(trendRow.vs_fpm)), 'vs'),
         trendStability: linearTrend(trendRows.map((trendRow: AnyRecord) => nullableNumber(trendRow.stability_score)), 'stability'),
         latestTimestampMs: nullableInteger(row.latest_timestamp_ms),

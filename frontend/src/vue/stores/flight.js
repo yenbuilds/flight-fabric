@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { normalizeLandingData } from '../../landing/scoring.js';
+import { buildLandingPresentation } from '../../landing/scoring.js';
 
 const DEFAULT_GRADE_COLOR = '#4a5e74';
 const RA_DISPLAY_THRESHOLD = 2500;
@@ -242,6 +242,14 @@ function getDefaultLandingPreview() {
     vs: '--',
     runway: '--',
     stability: '--',
+    stabilityScore: '',
+    stabilityTone: 'text-gray-400',
+    bounce: '--',
+    bounceDetail: '',
+    bounceTone: 'text-gray-400',
+    tdz: '--',
+    tdzDetail: '',
+    tdzTone: 'text-gray-400',
     color: DEFAULT_GRADE_COLOR,
   };
 }
@@ -637,24 +645,56 @@ export const useFlightStore = defineStore('flight', {
 
     updateLandingPreview(rawLanding) {
       if (!rawLanding) return null;
-      const normalized = normalizeLandingData(rawLanding);
+      const presentation = buildLandingPresentation(rawLanding);
+      const normalized = presentation.verdict.normalized;
       const vs = Number(rawLanding.vs);
-      const stabilityScore = rawLanding?.ultimateStability?.score != null
-        ? Number(rawLanding.ultimateStability.score)
-        : NaN;
+      const baseStatus = rawLanding.final
+        ? 'Latest touchdown report is ready.'
+        : 'Preview from selected Logbook timeline event.';
+      const stabilityText = presentation.approachVerdict
+        || (presentation.stabilityScore != null ? 'NO VERDICT' : '--');
+      const touchdownDistance = rawLanding.touchdownDistance;
+      const touchdownDistanceFt = Number(touchdownDistance?.distanceFt);
+      const hasTouchdownDistance = touchdownDistance?.distanceFt != null
+        && Number.isFinite(touchdownDistanceFt);
 
       this.lastLanding = {
         available: true,
-        status: rawLanding.final
-          ? 'Latest touchdown report is ready.'
-          : 'Preview from selected Logbook timeline event.',
-        grade: (normalized.headlineGrade || '--').toString().toUpperCase(),
+        status: baseStatus,
+        grade: presentation.touchdownGrade,
         vs: Number.isFinite(vs) ? `${Math.round(vs)} fpm` : '--',
         runway: rawLanding.icao && rawLanding.runway
           ? `${rawLanding.icao} ${rawLanding.runway}`
           : (rawLanding.icao || '--'),
-        stability: Number.isFinite(stabilityScore) ? `${Math.round(stabilityScore)}%` : '--',
-        color: normalized.headlineColor || DEFAULT_GRADE_COLOR,
+        stability: stabilityText,
+        stabilityScore: presentation.approachScoreText || '',
+        stabilityTone: presentation.stabilityVerdict === 'unstable'
+          ? 'text-red-400'
+          : presentation.stabilityVerdict === 'marginal'
+            ? 'text-amber-400'
+            : presentation.stabilityVerdict === 'stable'
+              ? 'text-green-400'
+              : 'text-gray-400',
+        bounce: presentation.bounceText || '--',
+        bounceDetail: presentation.bounceKnown
+          ? (presentation.verdict.bounce.bounceGrade || '')
+          : '',
+        bounceTone: !presentation.bounceKnown
+          ? 'text-gray-400'
+          : presentation.bounceCount === 0
+            ? 'text-green-400'
+            : presentation.verdict.bounce.severity >= 3
+              ? 'text-red-400'
+              : 'text-amber-400',
+        tdz: hasTouchdownDistance
+          ? `${Math.round(touchdownDistanceFt)} ft`
+          : (touchdownDistance?.grade || '--'),
+        tdzDetail: [
+          hasTouchdownDistance ? touchdownDistance?.grade : null,
+          presentation.verdict.flags.runwayExcursion ? 'Runway excursion' : null,
+        ].filter(Boolean).join(' · '),
+        tdzTone: presentation.verdict.touchdown.textClass || 'text-gray-400',
+        color: presentation.touchdownColor || DEFAULT_GRADE_COLOR,
       };
 
       return normalized;

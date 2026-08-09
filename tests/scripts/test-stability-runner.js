@@ -22,6 +22,7 @@ const {
   resolveGlidepathAngleForApproach,
   targetVerticalSpeedForGlidepath,
   verticalSpeedFactorForGlidepath,
+  classifyApproachStability,
 } = require(resolveBackendRuntimeFile('stability', 'stability-runner.js'));
 
 let passed = 0;
@@ -76,6 +77,65 @@ function scoreFrames(frames, thresholdElevFt = null, scoringContext = {}) {
 
 console.log('\n=== stability-runner.js Tests ===');
 
+test('four-state stability verdict keeps strict failures auditable without blanket UNSTABLE', () => {
+  const verdict = (score, gateFailures, breakdown = {}, extra = {}) => classifyApproachStability({
+    score,
+    samples: 100,
+    gateFailures,
+    breakdown,
+    ...extra,
+  });
+
+  assert.strictEqual(verdict(96, ['thrust_unstable_after_gate'], { thrust_stable_ok: 79 }), 'marginal');
+  assert.strictEqual(verdict(94, ['glidepath_proxy_unstable_after_gate'], { glidepath_ok: 56 }), 'marginal');
+  assert.strictEqual(verdict(84, ['speed_proxy_unstable_after_gate'], { speed_ok: 38 }), 'unstable');
+  assert.strictEqual(verdict(92, ['flaps_changed_after_gate'], { flaps_ok: 0 }), 'unstable');
+  assert.strictEqual(verdict(79, ['glidepath_proxy_unstable_after_gate'], { glidepath_ok: 79 }), 'unstable');
+  assert.strictEqual(verdict(90, [], { speed_ok: 90 }), 'stable', 'clean zero-failure result remains stable');
+  assert.strictEqual(
+    verdict(90, [], { speed_ok: 20 }),
+    'unstable',
+    'malformed empty failures must not conceal a severe direct metric',
+  );
+  assert.strictEqual(classifyApproachStability(null), 'no_verdict');
+  assert.strictEqual(classifyApproachStability({ score: null, samples: 100, gateFailures: [] }), 'no_verdict');
+  assert.strictEqual(verdict(90, ['insufficient_data']), 'no_verdict');
+  assert.strictEqual(verdict(90, ['no_gate_sample']), 'no_verdict');
+});
+
+test('stability verdict boundaries are inclusive and automation metadata is neutral', () => {
+  const boundary = {
+    score: 80,
+    samples: 20,
+    gateFailures: ['speed_proxy_unstable_after_gate'],
+    breakdown: { speed_ok: 60 },
+  };
+  assert.strictEqual(classifyApproachStability(boundary), 'marginal');
+  assert.strictEqual(classifyApproachStability({ ...boundary, score: 79.999 }), 'unstable');
+  assert.strictEqual(classifyApproachStability({ ...boundary, breakdown: { speed_ok: 59.999 } }), 'unstable');
+  assert.strictEqual(
+    classifyApproachStability({ ...boundary, automation: { autoland: true, cmdA: true, cmdB: true } }),
+    classifyApproachStability(boundary),
+    'autoland metadata must neither exempt nor penalize an approach',
+  );
+});
+
+test('eight-flight calibration corpus yields three unstable and five marginal verdicts', () => {
+  const corpus = [
+    { score: 84, gateFailures: ['speed_proxy_unstable_after_gate', 'glidepath_proxy_unstable_after_gate', 'glidepath_too_low_after_gate'], breakdown: { speed_ok: 38, glidepath_ok: 60, glidepath_below_ok: 69 } },
+    { score: 86, gateFailures: ['vs_unstable_after_gate', 'glidepath_proxy_unstable_after_gate', 'glidepath_too_low_after_gate'], breakdown: { vs_ok: 51, glidepath_ok: 40, glidepath_below_ok: 45 } },
+    { score: 89, gateFailures: ['glidepath_proxy_unstable_after_gate'], breakdown: { glidepath_ok: 51 } },
+    { score: 89, gateFailures: ['vs_unstable_after_gate', 'glidepath_proxy_unstable_after_gate', 'glidepath_too_low_after_gate'], breakdown: { vs_ok: 76, glidepath_ok: 55, glidepath_below_ok: 73 } },
+    { score: 96, gateFailures: ['thrust_unstable_after_gate'], breakdown: { thrust_stable_ok: 79 } },
+    { score: 94, gateFailures: ['glidepath_proxy_unstable_after_gate', 'glidepath_too_low_after_gate'], breakdown: { glidepath_ok: 56, glidepath_below_ok: 79 } },
+    { score: 70, gateFailures: ['flaps_changed_after_gate', 'speed_proxy_unstable_after_gate', 'glidepath_proxy_unstable_after_gate'], breakdown: { flaps_ok: 0, speed_ok: 7, glidepath_ok: 62 } },
+    { score: 86, gateFailures: ['speed_proxy_unstable_after_gate', 'glidepath_proxy_unstable_after_gate'], breakdown: { speed_ok: 62, glidepath_ok: 37 } },
+  ].map(result => classifyApproachStability({ ...result, samples: 100 }));
+
+  assert.strictEqual(corpus.filter(value => value === 'unstable').length, 3);
+  assert.strictEqual(corpus.filter(value => value === 'marginal').length, 5);
+});
+
 test('runStability shim never returns an ultimate score (CSV-replay scorer owns it)', () => {
   // The shim carries IMC visibility classification and raw-input diagnostics.
   const result = runStability(makeFrame({ ra: 400, wow: true }));
@@ -104,6 +164,7 @@ test('returns perfect score when configuration is stable after gate', () => {
   const result = scoreFrames(frames);
   assert(result.score != null, 'Expected score on touchdown');
   assert.strictEqual(result.score, 100);
+  assert.strictEqual(result.verdict, 'stable');
   assert.strictEqual(result.breakdown.config_ok, 100);
   assert.strictEqual(result.gateStable, true);
   assert.deepStrictEqual(result.gateFailures, []);
@@ -127,7 +188,7 @@ test('normal flare energy changes below 50 ft do not degrade approach stability'
   assert.strictEqual(result.breakdown.speed_ok, 100, 'Flare speed bleed should be excluded');
   assert.strictEqual(result.breakdown.speed_trend_ok, null, 'An approach shorter than one trend window should report the metric unavailable');
   assert.strictEqual(result.breakdown.glidepath_ok, 100, 'Flare sink-rate reduction should be excluded');
-  assert.strictEqual(result.breakdown.thrust_stable_ok, 100, 'Flare thrust reduction should be excluded');
+  assert.strictEqual(result.breakdown.thrust_stable_ok, null, 'Sub-second approach throttle window should be unavailable, not failed');
   assert.strictEqual(result.gateStable, true, `Expected stable approach, failures=${result.gateFailures.join(',')}`);
 });
 
@@ -289,6 +350,40 @@ test('VS, glidepath and throttle movement checks reduce score when unstable', ()
   assert(result.breakdown.thrust_stable_ok < 80, 'Expected throttle-movement degradation');
 });
 
+test('throttle movement uses a cadence-invariant one-second rate window', () => {
+  function rampFrames(intervalsMs, ratePctPerSec, stepAtMs = null) {
+    let elapsedMs = 0;
+    return intervalsMs.map((dtMs, index) => {
+      if (index > 0) elapsedMs += dtMs;
+      const ramp = (elapsedMs / 1000) * ratePctPerSec;
+      const step = stepAtMs !== null && elapsedMs >= stepAtMs ? 25 : 0;
+      // Half-percent quantization models the coarse values exposed by some add-ons.
+      const thrust = Math.round((45 + ramp + step) * 2) / 2;
+      return makeFrame({
+        ra: Math.max(100, 1000 - elapsedMs * 0.25),
+        ias: 145,
+        gs: 140,
+        vs: -740,
+        thrust,
+        dtMs,
+      });
+    });
+  }
+
+  const tenHz = scoreFrames(rampFrames(Array.from({ length: 31 }, () => 100), 8));
+  const irregularIntervals = [100, 80, 170, 120, 230, 90, 210, 140, 160, 200, 110, 190, 130, 220, 150, 250, 180, 200];
+  const irregular = scoreFrames(rampFrames(irregularIntervals, 8));
+  assert.strictEqual(tenHz.breakdown.thrust_stable_ok, 100);
+  assert.strictEqual(irregular.breakdown.thrust_stable_ok, 100);
+  assert.strictEqual(tenHz.gateFailures.includes('thrust_unstable_after_gate'), false);
+  assert.strictEqual(irregular.gateFailures.includes('thrust_unstable_after_gate'), false);
+
+  const stepChange = scoreFrames(rampFrames(Array.from({ length: 31 }, () => 100), 0, 1500));
+  assert(stepChange.breakdown.thrust_stable_ok < 80, 'sustained step must remain visible');
+  assert(stepChange.gateFailures.includes('thrust_unstable_after_gate'));
+  assert.strictEqual(stepChange.verdict, 'marginal', 'throttle-only finding remains soft');
+});
+
 test('does not score with fewer than 5 samples', () => {
   const frames = [
     makeFrame({ ra: 1200 }),
@@ -299,6 +394,7 @@ test('does not score with fewer than 5 samples', () => {
 
   const result = scoreFrames(frames);
   assert.strictEqual(result.score, null);
+  assert.strictEqual(result.verdict, 'no_verdict');
   assert(result.gateFailures.includes('insufficient_data'));
 });
 

@@ -21,6 +21,10 @@ const BUNDLE_FILES = Object.freeze({
   status: 'manifest.json',
   summary: 'summary.json',
   timeline: 'timeline.json',
+  analysisRescore: 'analysis-rescore.json',
+  // Unreleased grade-only prototype. It is never consumed as analysis, but
+  // remains allowlisted so restore/delete cleanup can remove it safely.
+  legacyLandingGradeRescore: 'landing-grade-rescore.json',
 });
 
 type BundleArtifactRole = keyof typeof BUNDLE_FILES;
@@ -58,6 +62,8 @@ function getBundlePaths(outputDir: string, bundleName: string): Record<BundleArt
     status: path.join(dir, BUNDLE_FILES.status),
     summary: path.join(dir, BUNDLE_FILES.summary),
     timeline: path.join(dir, BUNDLE_FILES.timeline),
+    analysisRescore: path.join(dir, BUNDLE_FILES.analysisRescore),
+    legacyLandingGradeRescore: path.join(dir, BUNDLE_FILES.legacyLandingGradeRescore),
   };
 }
 

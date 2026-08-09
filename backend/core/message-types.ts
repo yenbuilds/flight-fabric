@@ -120,6 +120,7 @@ const MSG = Object.freeze({
   TIMELINE_ERROR: 'timelineError',
   TIMELINE_LIST: 'timelineList',
   TIMELINE_LIST_ERROR: 'timelineListError',
+  FLIGHT_ANALYSIS_RESCORE_RESULT: 'flightAnalysisRescoreResult',
   DELETE_FLIGHT_CSV_RESULT: 'deleteFlightCsvResult',
   LOGBOOK: 'logbook',
   HISTORY_INDEX_STATUS: 'historyIndexStatus',

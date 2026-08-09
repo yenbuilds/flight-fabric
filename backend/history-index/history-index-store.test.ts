@@ -60,6 +60,8 @@ test('logbook landing index scopes repeated display ids to their CSV source', ()
     id: 'repeated-landing-id',
     timestampMs: 1000,
     timestamp: '2026-07-09T00:00:01.000Z',
+    stabilityScore: null,
+    stabilityVerdict: 'no_verdict',
   };
   const first = landingToIndexInput(landing, {
     filePath: 'C:/Flight Logs/first.csv',
@@ -74,6 +76,8 @@ test('logbook landing index scopes repeated display ids to their CSV source', ()
   assert.notEqual(first.landingId, second.landingId);
   assert.equal(first.payload.id, 'repeated-landing-id');
   assert.equal(second.payload.id, 'repeated-landing-id');
+  assert.equal(first.stabilityScore, null);
+  assert.equal(second.stabilityScore, null);
 });
 
 test('history index store replaces one source transactionally', (t) => {
@@ -128,10 +132,18 @@ test('history index store replaces one source transactionally', (t) => {
     assert.equal(landings.totalMatching, 1);
     assert.equal(landings.landings[0].landingId, 'landing-a');
     assert.equal(landings.landings[0].gateStable, true);
-    assert.deepEqual(landings.landings[0].payload, { id: 'landing-a', grade: 'Good' });
+    assert.deepEqual(landings.landings[0].payload, {
+      id: 'landing-a',
+      grade: 'Good',
+      stabilityVerdict: 'stable',
+    });
     const latestLanding = store.queryLatestLandingForSource(landings.landings[0].sourceId);
     assert.equal(latestLanding.landingId, 'landing-a');
-    assert.deepEqual(latestLanding.payload, { id: 'landing-a', grade: 'Good' });
+    assert.deepEqual(latestLanding.payload, {
+      id: 'landing-a',
+      grade: 'Good',
+      stabilityVerdict: 'stable',
+    });
 
     store.replaceSourceIndex({
       source: { filePath, mtimeMs: 101, sizeBytes: 1001 },
@@ -167,6 +179,7 @@ test('history index reads retire saved spoiler penalties without rewriting the s
           id: 'legacy-spoiler-landing',
           gateStable: false,
           stabilityScore: 75,
+          stabilityVerdict: 'unstable',
           stabilityGateFailures: ['spoilers_moved_after_gate', 'glidepath_proxy_unstable_after_gate'],
           stabilityBreakdown: {
             config_ok: 0,
@@ -188,9 +201,11 @@ test('history index reads retire saved spoiler penalties without rewriting the s
 
     const landing = store.queryLandings({ limit: 10 }).landings[0];
     assert.equal(landing.stabilityScore, 89);
+    assert.equal(landing.stabilityVerdict, 'marginal');
     assert.equal(landing.gateStable, false);
     assert.deepEqual(landing.stabilityGateFailures, ['glidepath_proxy_unstable_after_gate']);
     assert.equal(landing.payload.stabilityScore, 89);
+    assert.equal(landing.payload.stabilityVerdict, 'marginal');
     assert.equal(landing.payload.stabilityBreakdown.config_ok, 100);
     assert.equal(landing.payload.stabilityBreakdown.spoilers_ok, 100);
   });
@@ -558,9 +573,11 @@ test('history index store computes logbook stats from indexed columns without lo
         grade: 'Good',
         outcomeGrade: 'Long Landing',
         gateStable: false,
-        stabilityScore: 70,
+        stabilityScore: 85,
+        stabilityVerdict: 'marginal',
+        stabilityGateFailures: ['thrust_unstable'],
         touchdownDistanceGrade: 'Long Landing',
-        payload: { id: 'stats-2', heavy: 'payload-two' },
+        payload: { id: 'stats-2', heavy: 'payload-two', stabilityVerdict: 'marginal' },
       }, {
         landingId: 'stats-3',
         timestampMs: 3000,
@@ -609,10 +626,19 @@ test('history index store computes logbook stats from indexed columns without lo
     assert.equal(stats.trends.aircraft[0].key, '737-800');
     assert.equal(stats.trends.aircraft[0].count, 3);
     assert.equal(stats.trends.aircraft[0].avgVsFpm, -240);
-    assert.equal(stats.trends.aircraft[0].avgStabilityScore, 80);
+    assert.equal(stats.trends.aircraft[0].avgStabilityScore, 85);
     assert.equal(stats.trends.aircraft[0].stableRatePct, 67);
+    assert.equal(stats.trends.aircraft[0].marginalRatePct, 33);
     assert.equal(stats.trends.aircraft[0].trendVs, 'improving');
     assert.equal(stats.trends.runways[0].key, 'LFPG:27R');
+    const noVerdictAircraft = stats.trends.aircraft.find((row) => row.key === 'A320');
+    assert.equal(noVerdictAircraft.avgStabilityScore, null);
+    assert.equal(noVerdictAircraft.stableRatePct, null);
+    assert.equal(noVerdictAircraft.marginalRatePct, null);
+    assert.equal(noVerdictAircraft.trendStability, null);
+    const noVerdictAirport = stats.trends.airports.find((row) => row.key === 'KSFO');
+    assert.equal(noVerdictAirport.avgStabilityScore, null);
+    assert.equal(noVerdictAirport.trendStability, null);
   });
 });
 

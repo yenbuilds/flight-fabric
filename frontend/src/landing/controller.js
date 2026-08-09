@@ -27,7 +27,7 @@ const STABILITY_METRIC_LABELS = {
 };
 
 const STABILITY_METRIC_TOOLTIPS = {
-  config_ok: 'AND of Gear and Flaps checks (100% only if both pass). Configuration failures also cap the headline stability score.',
+  config_ok: 'AND of Gear and Flaps checks (100% only if both pass). Configuration failures also cap the approach score.',
   gear_ok: 'Gear reported down at the 1,000 ft RA gate and not changed afterwards',
   flaps_ok: 'Flaps extended beyond 10% (or notch > 0) at the gate and not changed afterwards',
   spoilers_ok: 'Retired neutral compatibility field; spoiler telemetry is not scored',
@@ -47,8 +47,8 @@ const STABILITY_METRIC_TOOLTIPS = {
 
 const STABILITY_METRIC_DESCRIPTIONS = {
   config_ok: {
-    desc: 'Aggregate configuration check. This is a binary 100 / 0 score that is 100 only when Gear and Flaps both pass. Gear/flap failures at the stability gate cap the headline score to 60, and gear/flap changes after the gate cap it to 70.',
-    criteria: 'gear_ok AND flaps_ok both = 100. Configuration failures cap the final headline score even if the other approach metrics are clean.',
+    desc: 'Aggregate configuration check. This is a binary 100 / 0 score that is 100 only when Gear and Flaps both pass. Gear/flap failures at the stability gate cap the approach score to 60, and gear/flap changes after the gate cap it to 70.',
+    criteria: 'gear_ok AND flaps_ok both = 100. Configuration failures cap the final approach score even if the other approach metrics are clean.',
   },
   gear_ok: {
     desc: 'Gear must be "down" at the 1,000 ft RA stability gate and the raw gear value must not change between the gate and touchdown. "Down" is taken from whichever of these the active telemetry exposes: a `gearDown` boolean, `gear.locked`, `gear_locked`, or SimConnect\'s `GEAR TOTAL PCT EXTENDED` = 100 % (`gearDownLocked === 1`). Gear-locked sensing therefore depends on what the aircraft publishes - some 3rd-party aircraft only expose extension percent. The check fails if the gear is not down at the gate, or if the raw extension value changes after the gate (e.g. late retract/extend, or oscillating reads).',
@@ -198,9 +198,6 @@ export function createLandingController({
       vs: verticalSpeed,
       grade,
       color,
-      headlineGrade: event.headlineGrade ?? null,
-      headlineSev: Number.isFinite(event.headlineSev) ? event.headlineSev : null,
-      headlineColor: event.headlineColor ?? null,
       iasKts: event.ias_kts != null ? Math.round(event.ias_kts) : null,
       pitchDeg: event.pitch_deg != null ? event.pitch_deg : null,
       icao: event.runway ? event.runway.airport_icao : null,
@@ -225,6 +222,10 @@ export function createLandingController({
               ?? (event.runway && Number.isFinite(event.runway.width_ft) ? event.runway.width_ft : null),
           }
         : null,
+      bounceCount: event.bounceCount ?? null,
+      bounceGrade: event.bounceGrade ?? null,
+      runwayExcursion: event.runwayExcursion === true,
+      shortLanding: event.shortLanding === true,
       rolloutAnalysis: event.rolloutAnalysis || null,
       ultimateStability: event.ultimateStability || null,
       centerlineDev: event.centerlineDev ?? null,
@@ -276,6 +277,7 @@ export function createLandingController({
       const mergedLandingData = mergeLandingMessageUltimateStability(lastLandingData, msg);
       if (mergedLandingData !== lastLandingData) {
         lastLandingData = mergedLandingData;
+        updateDataLandingPreview(lastLandingData);
         getLandingStore()?.applyLandingCardMessage?.(lastLandingData, {
           flightUpsetCount,
         });
@@ -306,8 +308,8 @@ export function createLandingController({
       const value = msg.breakdown[key];
       if (value == null) continue;
 
-      const valueClass = value >= 90 ? 'text-success' : value >= 75 ? 'text-warning' : 'text-danger';
-      const backgroundClass = value >= 90 ? 'bg-success/10' : value >= 75 ? 'bg-warning/10' : 'bg-danger/10';
+      const valueClass = value >= 80 ? 'text-success' : value >= 60 ? 'text-warning' : 'text-danger';
+      const backgroundClass = value >= 80 ? 'bg-success/10' : value >= 60 ? 'bg-warning/10' : 'bg-danger/10';
       const detail = details[key];
       const explanation = detail && detail.message && value < 100 ? String(detail.message) : '';
       const tooltip = STABILITY_METRIC_TOOLTIPS[key] || '';

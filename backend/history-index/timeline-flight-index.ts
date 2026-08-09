@@ -38,6 +38,89 @@ function finiteNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function knownFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  return finiteNumber(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  return null;
+}
+
+function normalizeIndexedLandingEvent(landing: AnyRecord): AnyRecord {
+  const existingTouchdown = landing.touchdownDistance && typeof landing.touchdownDistance === 'object'
+    ? landing.touchdownDistance
+    : null;
+  const touchdownFallback = {
+    distanceFt: knownFiniteNumber(landing.touchdownDistanceFt),
+    grade: nonEmptyString(landing.touchdownDistanceGrade),
+    score: knownFiniteNumber(landing.touchdownDistanceScore),
+    zone: nonEmptyString(landing.touchdownDistanceZone),
+    lateralOffsetFt: knownFiniteNumber(landing.lateralOffsetFt),
+    lateralOffsetGrade: nonEmptyString(landing.lateralOffsetGrade),
+    lateralOffsetScore: knownFiniteNumber(landing.lateralOffsetScore),
+    lateralOffsetSide: nonEmptyString(landing.lateralOffsetSide),
+    bounceCount: knownFiniteNumber(landing.bounceCount),
+    bounceGrade: nonEmptyString(landing.bounceGrade),
+    bounceScore: knownFiniteNumber(landing.bounceScore),
+    runwayHeadingTrueDeg: knownFiniteNumber(landing.runwayHeadingTrueDeg),
+    runwayLengthFt: knownFiniteNumber(landing.runwayLengthFt),
+    runwayPhysicalLengthFt: knownFiniteNumber(landing.runwayPhysicalLengthFt),
+    runwayThresholdLat: knownFiniteNumber(landing.runwayThresholdLat),
+    runwayThresholdLon: knownFiniteNumber(landing.runwayThresholdLon),
+    runwayWidthFt: knownFiniteNumber(landing.runwayWidthFt),
+  };
+  const hasTouchdownFallback = Object.values(touchdownFallback).some((value) => value !== null);
+  const touchdownDistance = existingTouchdown || hasTouchdownFallback
+    ? Object.fromEntries(Object.entries({
+        ...touchdownFallback,
+        ...(existingTouchdown || {}),
+      }).filter(([, value]) => value !== null && value !== undefined))
+    : null;
+
+  const existingStability = landing.ultimateStability && typeof landing.ultimateStability === 'object'
+    ? landing.ultimateStability
+    : null;
+  const gateFailures = Array.isArray(landing.stabilityGateFailures)
+    ? landing.stabilityGateFailures.filter(Boolean)
+    : [];
+  const stabilityFallback = {
+    score: knownFiniteNumber(landing.stabilityScore),
+    verdict: nonEmptyString(landing.stabilityVerdict),
+    gateStable: booleanOrNull(landing.gateStable),
+    gateFailures: gateFailures.length > 0 ? gateFailures : null,
+    breakdown: landing.stabilityBreakdown && typeof landing.stabilityBreakdown === 'object'
+      ? landing.stabilityBreakdown
+      : null,
+    scoringContext: landing.stabilityContext && typeof landing.stabilityContext === 'object'
+      ? landing.stabilityContext
+      : null,
+  };
+  const hasStabilityFallback = Object.values(stabilityFallback).some((value) => value !== null);
+  const ultimateStability = existingStability || hasStabilityFallback
+    ? Object.fromEntries(Object.entries({
+        ...stabilityFallback,
+        ...(existingStability || {}),
+      }).filter(([, value]) => value !== null && value !== undefined))
+    : null;
+
+  return {
+    ...landing,
+    type: 'landing',
+    vs_fpm: knownFiniteNumber(landing.vs_fpm) ?? knownFiniteNumber(landing.vsFpm),
+    ...(touchdownDistance ? { touchdownDistance } : {}),
+    ...(ultimateStability ? { ultimateStability } : {}),
+  };
+}
+
 function normalizeFuelBurnGal(value: unknown): number | null {
   const numeric = finiteNumber(value);
   return numeric !== null && numeric > 1 ? numeric : null;
@@ -271,10 +354,7 @@ function queryIndexedTimelineFlights(store: AnyRecord, options: TimelineFlightIn
       if (!landingEvent || typeof landingEvent !== 'object') return flight;
       return {
         ...flight,
-        latestLandingEvent: {
-          ...landingEvent,
-          type: 'landing',
-        },
+        latestLandingEvent: normalizeIndexedLandingEvent(landingEvent),
       };
     }),
   };
@@ -282,6 +362,7 @@ function queryIndexedTimelineFlights(store: AnyRecord, options: TimelineFlightIn
 
 module.exports = {
   normalizeTimelineFlightForIndex,
+  normalizeIndexedLandingEvent,
   queryIndexedTimelineFlights,
   queryTimelineFlightsPage,
   refreshTimelineFlightsIndex,

@@ -6,6 +6,18 @@
 
 type AnyRecord = Record<string, any>;
 
+const {
+  STABILITY_VERDICT_POLICY_ID,
+  STABILITY_VERDICT_POLICY_VERSION,
+  STABILITY_VERDICT_MIN_OVERALL_SCORE,
+  STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT,
+} = require('./stability-runner.js') as {
+  STABILITY_VERDICT_POLICY_ID: string;
+  STABILITY_VERDICT_POLICY_VERSION: number;
+  STABILITY_VERDICT_MIN_OVERALL_SCORE: number;
+  STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT: number;
+};
+
 type StabilityPolicyResolution = {
   id: string;
   version: number;
@@ -15,14 +27,14 @@ type StabilityPolicyResolution = {
 };
 
 const TRANSPORT_STABILITY_POLICY = Object.freeze({
-  id: 'transport-v1',
-  version: 1,
+  id: 'transport-v2',
+  version: 2,
   name: 'Common transport rules',
 });
 
 const GA_STABILITY_POLICY = Object.freeze({
-  id: 'ga-profile-v1',
-  version: 1,
+  id: 'ga-profile-v2',
+  version: 2,
   name: 'General aviation profile rules',
 });
 
@@ -83,13 +95,19 @@ function buildStabilityScoringContext({
   });
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     criteriaSource,
     policy: {
       id: resolvedPolicy.id,
       version: resolvedPolicy.version,
       name: resolvedPolicy.name,
       profileCriteriaApplied: resolvedPolicy.profileCriteriaApplied,
+    },
+    verdictPolicy: {
+      id: STABILITY_VERDICT_POLICY_ID,
+      version: STABILITY_VERDICT_POLICY_VERSION,
+      minimumOverallScore: STABILITY_VERDICT_MIN_OVERALL_SCORE,
+      severeMetricFloorPct: STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT,
     },
     profile: {
       id: profileId,

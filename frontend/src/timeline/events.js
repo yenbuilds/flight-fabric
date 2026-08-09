@@ -1,4 +1,4 @@
-import { buildLandingVerdict } from '../landing/scoring.js';
+import { buildLandingPresentation, gradeSeverity } from '../landing/scoring.js';
 import { RULE_END_LABELS, RULE_LABELS, VIOLATION_RULE } from './constants.js';
 
 export function describeViolation(violation, descriptions = {}) {
@@ -127,15 +127,57 @@ export function buildTimelineEventRowState(event, index, startMs, {
   } else if (event.type === 'landing') {
     const runway = event.runway ? `${event.runway.airport_icao} ${event.runway.runway_id}` : 'Unknown';
     title = `Landing at ${runway}`;
+    const presentation = buildLandingPresentation(event);
+    const verdict = presentation.verdict;
 
     const parts = [];
     if (event.ias_kts != null) parts.push(`${Math.round(event.ias_kts)} kts`);
-    if (event.vs_fpm != null) parts.push(`${Math.round(event.vs_fpm)} fpm`);
+    if (event.vs_fpm != null) parts.push(`TD rate ${Math.round(event.vs_fpm)} fpm`);
+
+    if (presentation.touchdownGrade !== '--') {
+      const touchdownTone = presentation.touchdownSeverity >= 3 ? 'negative'
+        : presentation.touchdownSeverity === 0 ? 'positive' : '';
+      badges.push(createBadge(`TD RATE ${presentation.touchdownGrade}`, touchdownTone));
+    }
+
+    if (presentation.approachText) {
+      parts.push(`Approach ${presentation.approachText}`);
+      badges.push(createBadge(
+        `APP ${presentation.approachText}`,
+        verdict.stability.verdict === 'unstable'
+          ? 'negative'
+          : verdict.stability.verdict === 'marginal'
+            ? 'warning'
+            : verdict.stability.verdict === 'stable' ? 'positive' : '',
+      ));
+    }
+    if (presentation.approachScoreText) parts.push(presentation.approachScoreText);
+
+    if (presentation.bounceKnown) {
+      parts.push(`Bounce ${presentation.bounceText}`);
+      badges.push(createBadge(
+        `BNC ${presentation.bounceText}`,
+        presentation.bounceCount > 0 && verdict.bounce.severity >= 3 ? 'negative'
+          : presentation.bounceCount === 0 ? 'positive' : '',
+      ));
+    }
 
     if (event.touchdownDistance) {
       const tdz = event.touchdownDistance;
-      const verdict = buildLandingVerdict(event, { touchdownDistance: tdz });
-      parts.push(`${Math.round(tdz.distanceFt)}ft TDZ`);
+      const tdzDistanceFt = Number(tdz.distanceFt);
+      if (Number.isFinite(tdzDistanceFt)) {
+        parts.push(`${Math.round(tdzDistanceFt)}ft TDZ${tdz.grade ? ` (${tdz.grade})` : ''}`);
+      } else if (tdz.grade) {
+        parts.push(`TDZ ${tdz.grade}`);
+      }
+
+      if (tdz.grade) {
+        const tdzSeverity = gradeSeverity(tdz.grade);
+        badges.push(createBadge(
+          `TDZ ${String(tdz.grade).toUpperCase()}`,
+          tdzSeverity >= 2 ? 'negative' : tdzSeverity === 0 ? 'positive' : '',
+        ));
+      }
 
       if (tdz.lateralOffsetFt != null) {
         const latAbs = Math.abs(tdz.lateralOffsetFt);
@@ -143,32 +185,14 @@ export function buildTimelineEventRowState(event, index, startMs, {
         parts.push(latAbs < 5 ? 'CL' : `${latAbs}ft ${latSide}`);
       }
 
-      if (verdict.bounce.bounceCount > 0) {
-        parts.push(`${verdict.bounce.bounceCount}x bounce`);
-      }
-
-      const headlineTone = verdict.headline.severity >= 3 ? 'negative' : (verdict.headline.severity === 0 ? 'positive' : '');
-      badges.push(createBadge(verdict.headline.grade || '--', headlineTone));
-
       if (tdz.lateralOffsetGrade === 'Poor' || tdz.lateralOffsetGrade === 'Excursion') {
         badges.push(createBadge(tdz.lateralOffsetGrade, 'negative'));
       }
-      if (verdict.bounce.bounceCount > 0) {
-        badges.push(createBadge(verdict.bounce.bounceGrade || 'Bounce', verdict.bounce.severity >= 3 ? 'negative' : ''));
-      }
     }
 
-    if (event.ultimateStability && typeof event.ultimateStability.score === 'number') {
-      const verdict = buildLandingVerdict(event, {
-        ultimateStability: event.ultimateStability,
-      });
-      const stabilityScore = event.ultimateStability.score;
-      parts.push(`Stab ${Math.round(stabilityScore)}%`);
-      const stabilityTone = verdict.stability.gateStable === false ? ''
-        : stabilityScore >= 80 ? 'positive'
-          : stabilityScore >= 60 ? ''
-            : 'negative';
-      badges.push(createBadge(`STAB ${Math.round(stabilityScore)}%`, stabilityTone));
+    if (verdict.flags.runwayExcursion) {
+      parts.push('Runway excursion');
+      badges.push(createBadge('RUNWAY EXCURSION', 'negative'));
     }
 
     if (event.rolloutAnalysis) {

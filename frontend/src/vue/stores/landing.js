@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import '../../../../shared/violation-rules.js';
 import { buildDebriefConfidence, buildDebriefReasons } from '../../landing/debrief-insights.js';
-import { buildLandingVerdict, normalizeBooleanLike } from '../../landing/scoring.js';
+import { buildLandingPresentation, normalizeBooleanLike } from '../../landing/scoring.js';
 import { getStabilityContextSummary } from '../../landing/stability-context.js';
 
 const { VIOLATION_RULE } = globalThis.FlightFabricViolationRules;
@@ -14,13 +14,6 @@ const IN_FLIGHT_UPSET_RULE_IDS = new Set([
   VIOLATION_RULE.GFORCE_HIGH,
   VIOLATION_RULE.GFORCE_NEGATIVE,
 ]);
-const CONFIG_GATE_FAILURES = new Set([
-  'gear_not_down_at_gate',
-  'flaps_not_set_at_gate',
-  'gear_changed_after_gate',
-  'flaps_changed_after_gate',
-]);
-
 function createDefaultLandingCardState() {
   return {
     gradeAnimationNonce: 0,
@@ -52,8 +45,8 @@ function createDefaultLandingCardState() {
     approach: {
       stabilityText: '--',
       stabilityTone: 'text-gray-100',
-      stabilityNoteText: 'Approach stabilisation %',
-      stabilityTooltip: 'Retrospective approach stability score from the configured gate to touchdown.',
+      stabilityNoteText: 'Approach score --',
+      stabilityTooltip: 'Approach score is a retrospective aggregate from the configured gate to touchdown.',
       speedText: '-- kt',
       gsText: 'GS: --',
       crosswindText: '-- kt',
@@ -584,7 +577,8 @@ export const useLandingStore = defineStore('landing', {
     applyLandingCardMessage(msg, options = {}) {
       if (!msg || typeof msg !== 'object') return false;
 
-      const verdict = buildLandingVerdict(msg);
+      const summaryPresentation = buildLandingPresentation(msg);
+      const verdict = summaryPresentation.verdict;
       const normalized = verdict.normalized;
       const tdz = msg.touchdownDistance;
       const landingCard = createDefaultLandingCardState();
@@ -594,21 +588,16 @@ export const useLandingStore = defineStore('landing', {
 
       landingCard.gradeAnimationNonce = this.landingCard.gradeAnimationNonce + 1;
       landingCard.runwayExcursionVisible = verdict.flags.runwayExcursion;
-      landingCard.gradeText = String(normalized.headlineGrade || '--').toUpperCase();
-      landingCard.gradeColor = normalized.headlineColor || DEFAULT_GRADE_COLOR;
+      landingCard.gradeText = summaryPresentation.touchdownGrade;
+      landingCard.gradeColor = summaryPresentation.touchdownColor;
       landingCard.gforceText = msg.gforce ? `G: ${msg.gforce.toFixed(2)}` : 'G: --';
       landingCard.airportText = msg.icao || '--';
       landingCard.runwayText = msg.runway ? `RWY ${msg.runway}` : '--';
       landingCard.vsText = Number.isFinite(Number(msg.vs)) ? String(Math.round(Number(msg.vs))) : '--';
       landingCard.vsColor = msg.color || 'inherit';
 
-      const breakdownParts = [];
-      if (msg.grade) breakdownParts.push(`Touchdown: ${msg.grade}`);
-      if (normalized.headlineGrade !== msg.grade && normalized.headlineGrade) {
-        breakdownParts.push(`Distance: ${normalized.headlineGrade}`);
-      }
-      landingCard.gradeBreakdownText = breakdownParts.join(' - ') || '--';
-      landingCard.gradeBreakdownVisible = breakdownParts.length > 0;
+      landingCard.gradeBreakdownText = summaryPresentation.touchdownDetailText;
+      landingCard.gradeBreakdownVisible = summaryPresentation.touchdownDetailParts.length > 0;
 
       if (tdz && tdz.distanceFt != null) {
         landingCard.touchdown.distanceText = Math.abs(tdz.distanceFt) <= 15000
@@ -628,38 +617,33 @@ export const useLandingStore = defineStore('landing', {
         landingCard.touchdown.achievedTone = verdict.flags.touchdownTargetAchieved ? 'text-gray-100' : 'text-amber-400';
       }
 
-      const stabilityScore = msg?.ultimateStability?.score != null
-        ? Number(msg.ultimateStability.score)
-        : NaN;
-      if (Number.isFinite(stabilityScore)) {
-        const gateFailures = Array.isArray(msg?.ultimateStability?.gateFailures)
-          ? msg.ultimateStability.gateFailures
-          : [];
-        const configCapApplied = gateFailures.some((failure) => CONFIG_GATE_FAILURES.has(String(failure)));
-        const gateFlagged = verdict.stability.gateStable === false;
+      const stabilityScore = summaryPresentation.stabilityScore;
+      if (summaryPresentation.approachText) {
+        const stabilityVerdict = summaryPresentation.stabilityVerdict;
         const contextSummary = getStabilityContextSummary(
           msg?.ultimateStability?.scoringContext,
           msg?.aircraftProfileId || msg?.aircraft_profile_id,
         );
-        landingCard.approach.stabilityText = String(Math.round(stabilityScore));
-        landingCard.approach.stabilityTone = gateFlagged
-          ? 'text-amber-400'
-          : stabilityScore >= 80
-          ? 'text-gray-100'
-          : stabilityScore >= 60
+        landingCard.approach.stabilityText = summaryPresentation.approachText;
+        landingCard.approach.stabilityTone = stabilityVerdict === 'unstable'
+          ? 'text-red-400'
+          : stabilityVerdict === 'marginal'
             ? 'text-amber-400'
-            : 'text-red-400';
-        landingCard.approach.stabilityNoteText = gateFlagged
-          ? (contextSummary.isGeneric ? 'Gate flagged - generic profile' : 'Gate instability observed')
-          : configCapApplied
-          ? 'Config gate cap applied'
-          : (contextSummary.isGeneric ? 'Generic-profile estimate' : 'Approach stabilisation %');
-        const stabilityExplanation = gateFlagged
-          ? 'The approach scored well overall, but the configured stability gate was flagged.'
-          : configCapApplied
-          ? 'Gear, flaps, or spoiler configuration failed the stability gate, so the headline score is capped even if other approach metrics were clean.'
-          : 'Retrospective approach stability score from the configured gate to touchdown.';
-        landingCard.approach.stabilityTooltip = `${contextSummary.label}. ${stabilityExplanation}`;
+            : stabilityVerdict === 'stable'
+              ? 'text-green-400'
+              : 'text-gray-400';
+        landingCard.approach.stabilityNoteText = summaryPresentation.approachDetailText
+          || (contextSummary.isGeneric ? 'Generic-profile estimate' : 'Approach score --');
+        const gateLabel = summaryPresentation.stabilityGateLabel;
+        const passPct = summaryPresentation.stabilityPassPct;
+        const stabilityExplanation = stabilityVerdict === 'unstable'
+          ? `A hard or substantial deviation was recorded after the ${gateLabel} gate.`
+          : stabilityVerdict === 'marginal'
+            ? `Only soft/proxy checks missed the strict ${passPct}% threshold after the ${gateLabel} gate.`
+            : stabilityVerdict === 'stable'
+              ? `Every applicable strict check met its recorded ${passPct}% threshold after the ${gateLabel} gate.`
+              : `There was not enough usable data for an approach verdict after the ${gateLabel} gate.`;
+        landingCard.approach.stabilityTooltip = `${contextSummary.label}. ${stabilityExplanation} Approach score is a separate retrospective aggregate.`;
       }
 
       landingCard.approach.typeText = msg.approachType || 'VISUAL';
@@ -807,7 +791,7 @@ export const useLandingStore = defineStore('landing', {
         }
       }
 
-      if (tdz && (tdz.bounceGrade != null || Number(tdz.bounceCount) > 0)) {
+      if (summaryPresentation.bounceKnown) {
         const bounce = verdict.bounce;
         const bounceCount = bounce.bounceCount;
         landingCard.touchdown.bounceText = bounceCount === 0 ? 'Clean' : `${bounceCount}x`;
@@ -817,10 +801,10 @@ export const useLandingStore = defineStore('landing', {
           : verdict.bounce.severity >= 3
             ? 'text-red-400'
             : 'text-gray-100';
-        landingCard.touchdown.bounceGradeText = tdz.bounceDistanceFt && tdz.bounceDistanceFt > 0
+        landingCard.touchdown.bounceGradeText = tdz?.bounceDistanceFt && tdz.bounceDistanceFt > 0
           ? `${bounceGrade} (${Math.round(tdz.bounceDistanceFt)} ft)`
           : bounceGrade;
-        const bounceScore = Number(tdz.bounceScore);
+        const bounceScore = Number(tdz?.bounceScore);
         landingCard.touchdown.bounceGradeTone = Number.isFinite(bounceScore)
           ? (bounceScore >= 90
               ? 'text-green-400'

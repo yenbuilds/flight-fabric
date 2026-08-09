@@ -41,6 +41,7 @@ onMounted(() => {
       const reconnect = getReconnect();
       return typeof reconnect === 'function' ? reconnect() : false;
     },
+    canPullToReconnect: () => status.websocket === 'disconnected' || status.websocket === 'error',
     windowRef: window,
     documentRef: document,
   });

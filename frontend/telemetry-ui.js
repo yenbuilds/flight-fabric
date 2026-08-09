@@ -192,6 +192,159 @@ function dispatch(msg) {
   });
 }
 
+function booleanLike(value) {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === 'yes') return true;
+    if (normalized === 'false' || normalized === 'no') return false;
+  }
+  return null;
+}
+
+function resolveStabilityVerdict(stability) {
+  if (!stability || typeof stability !== 'object') return 'no_verdict';
+  const explicit = typeof (stability.verdict ?? stability.stabilityVerdict) === 'string'
+    ? String(stability.verdict ?? stability.stabilityVerdict).trim().toLowerCase().replace(/[\s-]+/g, '_')
+    : '';
+  if (['stable', 'marginal', 'unstable', 'no_verdict'].includes(explicit)) return explicit;
+
+  const rawFailures = Array.isArray(stability.gateFailures)
+    ? stability.gateFailures
+    : typeof stability.gateFailures === 'string'
+      ? stability.gateFailures.split('|')
+      : [];
+  const failures = rawFailures
+    .map((failure) => String(failure || '').trim())
+    .filter((failure) => failure && failure !== 'spoilers_moved_after_gate');
+  if (failures.some((failure) => failure === 'insufficient_data' || failure === 'no_gate_sample')) {
+    return 'no_verdict';
+  }
+
+  const score = stability.score != null && Number.isFinite(Number(stability.score))
+    ? Number(stability.score)
+    : null;
+  const breakdown = stability.breakdown && typeof stability.breakdown === 'object'
+    ? stability.breakdown
+    : null;
+  const finiteMetric = (key) => {
+    const value = breakdown?.[key];
+    return value != null && value !== '' && Number.isFinite(Number(value)) ? Number(value) : null;
+  };
+  const gateStable = booleanLike(stability.gateStable);
+  const hardFailures = new Set([
+    'gear_not_down_at_gate',
+    'gear_changed_after_gate',
+    'flaps_not_set_at_gate',
+    'flaps_changed_after_gate',
+  ]);
+  if (failures.some((failure) => hardFailures.has(failure))) return 'unstable';
+  if (score !== null && score < 80) return 'unstable';
+  if (['speed_ok', 'vs_ok', 'pitch_ok', 'bank_ok', 'lateral_offset_ok']
+    .some((key) => finiteMetric(key) !== null && finiteMetric(key) < 60)) return 'unstable';
+  if (['config_ok', 'gear_ok', 'flaps_ok']
+    .some((key) => finiteMetric(key) !== null && finiteMetric(key) < 80)) return 'unstable';
+  if (gateStable === true) return 'stable';
+  const rawFailuresWereRecorded = Array.isArray(stability.gateFailures)
+    || typeof stability.gateFailures === 'string';
+  if (gateStable !== false && rawFailuresWereRecorded && failures.length === 0) return 'stable';
+  if (gateStable === false || failures.length > 0) return 'marginal';
+  return 'no_verdict';
+}
+
+function landingPresentation(data) {
+  const landing = data && typeof data === 'object' ? data : {};
+  const nestedTouchdown = landing.touchdownDistance && typeof landing.touchdownDistance === 'object'
+    ? landing.touchdownDistance
+    : null;
+  const topLevelBounceCount = landing.bounceCount;
+  const hasTopLevelBounce = (
+    topLevelBounceCount !== null
+    && topLevelBounceCount !== undefined
+    && topLevelBounceCount !== ''
+    && Number.isFinite(Number(topLevelBounceCount))
+  ) || (typeof landing.bounceGrade === 'string' && landing.bounceGrade.trim().length > 0);
+  const touchdown = hasTopLevelBounce
+    ? {
+        ...(nestedTouchdown || {}),
+        bounceCount: nestedTouchdown?.bounceCount ?? landing.bounceCount,
+        bounceGrade: nestedTouchdown?.bounceGrade ?? landing.bounceGrade,
+      }
+    : nestedTouchdown;
+  const stability = landing.ultimateStability && typeof landing.ultimateStability === 'object'
+    ? landing.ultimateStability
+    : null;
+  const distanceFt = Number(touchdown?.distanceFt);
+  const hasDistance = touchdown?.distanceFt != null && Number.isFinite(distanceFt);
+  const shortLanding = booleanLike(landing.shortLanding) === true
+    || booleanLike(touchdown?.shortLanding) === true
+    || String(touchdown?.grade || '').trim().toUpperCase() === 'SHORT LANDING'
+    || (hasDistance && distanceFt < 0);
+  const runwayExcursion = booleanLike(landing.runwayExcursion ?? landing.runway_excursion) === true;
+  const touchdownZoneGrade = shortLanding ? 'Short Landing' : touchdown?.grade;
+  const tdzGrade = touchdownZoneGrade ? String(touchdownZoneGrade).trim().toUpperCase() : '--';
+
+  const rawBounceCount = touchdown?.bounceCount;
+  const hasBounceCount = rawBounceCount !== null
+    && rawBounceCount !== undefined
+    && rawBounceCount !== ''
+    && Number.isFinite(Number(rawBounceCount));
+  const bounceGrade = typeof touchdown?.bounceGrade === 'string' && touchdown.bounceGrade.trim()
+    ? touchdown.bounceGrade.trim()
+    : null;
+  const bounceKnown = hasBounceCount || Boolean(bounceGrade);
+  let bounceCount = hasBounceCount ? Math.max(0, Math.round(Number(rawBounceCount))) : 0;
+  const bounceMinimums = { 'Single Bounce': 1, 'Multiple Bounces': 2, 'Repeated Bounces': 3, Porpoise: 4 };
+  if (bounceGrade && bounceGrade !== 'Clean') bounceCount = Math.max(bounceCount, bounceMinimums[bounceGrade] || 1);
+
+  const stabilityScoreValue = Number(stability?.score);
+  const stabilityScore = stability?.score != null && Number.isFinite(stabilityScoreValue)
+    ? Math.round(stabilityScoreValue)
+    : null;
+  const touchdownRateGrade = String(landing.grade || '--').trim().toUpperCase();
+  const stabilityVerdict = resolveStabilityVerdict(stability);
+  const gateVerdict = stability
+    ? ({ stable: 'STABLE', marginal: 'MARGINAL', unstable: 'UNSTABLE', no_verdict: 'NO VERDICT' }[stabilityVerdict])
+    : null;
+  const stabilityLabel = gateVerdict || (stabilityScore != null ? `${stabilityScore}%` : '--');
+  const stabilityDetail = gateVerdict && stabilityScore != null ? `${stabilityScore}%` : '';
+  const approachLabel = gateVerdict || (stabilityScore != null ? 'NO VERDICT' : '--');
+  const approachScoreText = stabilityScore != null ? `${stabilityScore}% score` : '';
+  const bounceLabel = bounceKnown ? (bounceCount === 0 ? 'CLEAN' : `${bounceCount}x`) : '--';
+
+  return {
+    touchdownGrade: touchdownRateGrade,
+    touchdownGradeClass: touchdownRateGrade.replace(/\s+/g, '-'),
+    tdzGrade,
+    runwayExcursion,
+    gateVerdict,
+    stabilityScore,
+    approachLabel,
+    approachScoreText,
+    approachClass: stabilityVerdict === 'unstable'
+      ? 'low'
+      : stabilityVerdict === 'marginal'
+        ? 'medium'
+        : stabilityVerdict === 'stable' ? 'high' : 'neutral',
+    stabilityLabel,
+    stabilityDetail,
+    stabilityText: gateVerdict
+      ? `${gateVerdict}${stabilityScore != null ? ` ${stabilityScore}%` : ''}`
+      : (stabilityScore != null ? `${stabilityScore}%` : ''),
+    stabilityClass: stabilityVerdict === 'unstable'
+      ? 'low'
+      : stabilityVerdict === 'marginal'
+        ? 'medium'
+        : stabilityVerdict === 'stable' ? 'high' : 'neutral',
+    bounceKnown,
+    bounceCount,
+    bounceLabel,
+    bounceClass: !bounceKnown ? 'neutral' : bounceCount === 0 ? 'high' : bounceCount >= 3 ? 'low' : 'medium',
+    bounceText: bounceKnown ? (bounceCount === 0 ? 'CLEAN' : `${bounceCount}x`) : '',
+  };
+}
+
 // ===== Public API =====
 const TelemetryUI = {
   /**
@@ -247,6 +400,9 @@ const TelemetryUI = {
   utils: {
     /** Left-pad a number to 2 digits. */
     pad2: function(n) { return String(n).padStart(2, '0'); },
+
+    /** Build the compact widgets' shared landing verdict presentation. */
+    landingPresentation: landingPresentation,
 
     /**
      * Decompose milliseconds into hours / minutes / seconds.

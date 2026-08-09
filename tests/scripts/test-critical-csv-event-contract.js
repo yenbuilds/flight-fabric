@@ -26,7 +26,10 @@ const {
   readFlightSummary,
 } = require(resolveBackendRuntimeFile('flight-recording', 'read-flight-summary.js'));
 const { parseCsvLine, splitCsvLines } = require(resolveBackendRuntimeFile('utils', 'csv.js'));
-const { gradeLanding } = require(resolveBackendRuntimeFile('landing', 'landing.js'));
+const {
+  gradeLandingForProfile,
+  gradeLandingForRecordedProfile,
+} = require(resolveBackendRuntimeFile('landing', 'landing.js'));
 
 let passed = 0;
 let failed = 0;
@@ -349,6 +352,22 @@ const landingPayload = {
   ias_kts: 132,
   gs_kts: 126,
   grade: 'Good',
+  landing_rate_context: {
+    schemaVersion: 1,
+    criteriaSource: 'recorded',
+    policy: {
+      id: 'landing-rate-v1',
+      version: 1,
+      name: 'Conventional touchdown-rate bands',
+    },
+    profile: { id: 'contract-737', name: 'Contract Test 737', resolved: true },
+    thresholds: {
+      perfectMinFpm: -120,
+      goodMinFpm: -250,
+      firmMinFpm: -400,
+      hardMinFpm: -650,
+    },
+  },
   gforce: 1.23,
   lat_deg: -33.9461,
   lon_deg: 151.1772,
@@ -386,12 +405,13 @@ const landingPayload = {
   td_sim_bank_deg: -1.1,
   td_sim_normal_velocity_fps: 7,
   td_sim_normal_velocity_fpm: 420,
-  td_sim_landing_vs_fpm: -420,
+  td_sim_landing_vs_fpm: -777,
   flaps_notch: 5,
   spoiler_state: 'ARMED',
   phase: 'LANDING',
   stability: 'STABLE',
   ultimate_stability_score: 87,
+  ultimate_stability_verdict: 'marginal',
   ultimate_stability_samples: 42,
   ultimate_stability_gate_stable: false,
   ultimate_stability_gate_failures: ['speed_ok', 'gear_ok'],
@@ -442,6 +462,9 @@ const landingPayload = {
   runway_geometry_provider_chain: 'msfs-facilities:miss,ourairports:hit',
   runway_geometry_fallback_reason: 'msfs-facilities:miss',
   runway_geometry_diagnostics: { providerChain: 'msfs-facilities:miss,ourairports:hit' },
+  runway_reference_elev_ft: 21.4,
+  runway_reference_elevation_source: 'msfs-facilities',
+  runway_reference_elevation_kind: 'runway',
   runway_heading_true_deg: 335.2,
   runway_length_ft: 8000,
   runway_physical_length_ft: 9000,
@@ -556,6 +579,8 @@ test('landing CSV event builder preserves every critical payload key', () => {
     );
   }
   assert(eventData.vs === landingPayload.vs_fpm, 'event data must provide vs alias for schema');
+  assert(eventData.vs !== landingPayload.td_sim_landing_vs_fpm, 'diagnostic simulator V/S must not replace the public rate');
+  assert(eventData.td_sim_landing_vs_fpm === -777, 'simulator V/S must remain available as diagnostic metadata');
   assert(eventData.gForce === landingPayload.gforce, 'event data must provide gForce alias for schema');
 });
 
@@ -1077,6 +1102,85 @@ test('schema writes every critical landing column with a non-empty fixture value
 });
 
 async function main() {
+  await testAsync('LFPG-style conventional touchdown headline stays identical in timeline and logbook', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-landing-headline-parity-'));
+    const csvPath = path.join(tmpDir, 'telemetry.csv');
+    const headers = [
+      'record_type',
+      'flight_id',
+      'ts',
+      'timestamp_utc',
+      'flight_elapsed_ms',
+      'phase',
+      'on_ground',
+      'ias_kts',
+      'vs_fpm',
+      'grade',
+      'aircraft',
+      'aircraft_profile_id',
+      'td_sim_trusted',
+      'td_sim_fresh',
+      'td_sim_landing_vs_fpm',
+    ];
+    const touchdownTs = Date.UTC(2026, 7, 7, 11, 42, 30);
+    const rows = [
+      {
+        record_type: 'SAMPLE',
+        flight_id: 'lfpg-parity',
+        ts: touchdownTs - 100,
+        timestamp_utc: new Date(touchdownTs - 100).toISOString(),
+        flight_elapsed_ms: 1000,
+        phase: 'LANDING',
+        on_ground: false,
+        ias_kts: 129,
+        vs_fpm: -243.3,
+        aircraft: 'FlyByWire A32NX',
+        aircraft_profile_id: 'fbw-a32nx',
+      },
+      {
+        record_type: 'LANDING',
+        flight_id: 'lfpg-parity',
+        ts: touchdownTs,
+        timestamp_utc: new Date(touchdownTs).toISOString(),
+        flight_elapsed_ms: 1100,
+        phase: 'LANDING',
+        on_ground: true,
+        ias_kts: 128,
+        vs_fpm: -243.3,
+        grade: 'PERFECT',
+        aircraft: 'FlyByWire A32NX',
+        aircraft_profile_id: 'fbw-a32nx',
+        td_sim_trusted: true,
+        td_sim_fresh: true,
+        td_sim_landing_vs_fpm: -349.2,
+      },
+    ];
+    const content = [headers.join(','), ...rows.map((row) => csvLine(headers, row))].join('\n');
+    fs.writeFileSync(csvPath, content, 'utf8');
+
+    try {
+      const replay = await timelineGenerator.generateFromCSV(csvPath);
+      assert(replay.success === true, `timeline replay failed: ${replay.error}`);
+      const landing = replay.timeline.events.find((event) => event.type === 'landing');
+      assert(landing?.vs_fpm === -243.3, `timeline used ${landing?.vs_fpm} instead of conventional -243.3`);
+      assert(landing?.grade === 'GOOD', `timeline used ${landing?.grade} instead of recorded-profile GOOD`);
+
+      const entries = flightLogbook.parseLandingsFromContent(
+        content,
+        csvPath,
+        parseCsvLine,
+        gradeLandingForRecordedProfile,
+        splitCsvLines,
+        gradeLandingForProfile,
+      );
+      assert(entries.length === 1, `expected one logbook landing, got ${entries.length}`);
+      assert(entries[0].vsFpm === -243.3, `logbook used ${entries[0].vsFpm} instead of conventional -243.3`);
+      assert(entries[0].grade === 'GOOD', `logbook used ${entries[0].grade} instead of recorded-profile GOOD`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   await testAsync('CSV replay and logbook recover critical landing diagnostics', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-critical-csv-contract-'));
   const csvPath = path.join(tmpDir, 'contract-flight.csv');
@@ -1140,7 +1244,14 @@ async function main() {
       );
     }
 
-    const entries = flightLogbook.parseLandingsFromContent(content, csvPath, parseCsvLine, gradeLanding, splitCsvLines);
+    const entries = flightLogbook.parseLandingsFromContent(
+      content,
+      csvPath,
+      parseCsvLine,
+      gradeLandingForRecordedProfile,
+      splitCsvLines,
+      gradeLandingForProfile,
+    );
     assert(entries.length === 1, `expected one logbook landing, got ${entries.length}`);
     const entry = entries[0];
     assert(entry.assists, 'logbook lost landing assist summary');
@@ -1289,6 +1400,7 @@ async function main() {
       assert(landing.touchdownDistance.lateralOffsetSide === landingPayload.lateral_offset_side, 'merged landing did not preserve LANDING row lateral side');
       assert(landing.touchdownDistance.lateralOffsetSource === 'landing-row', 'merged landing lateral offset should come from LANDING row when present');
       assert(landing.ultimateStability?.score === landingPayload.ultimate_stability_score, 'merged landing lost delayed LANDING stability score');
+      assert(landing.ultimateStability?.verdict === landingPayload.ultimate_stability_verdict, 'merged landing lost delayed LANDING stability verdict');
       assert(landing.ultimateStability?.scoringContext?.criteriaSource === 'reconstructed', 'older merged landing lost reconstructed scoring context');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -1436,7 +1548,14 @@ async function main() {
         `unexpected timeline error: ${replay.error}`,
       );
 
-      const entries = flightLogbook.parseLandingsFromContent(content, csvPath, parseCsvLine, gradeLanding, splitCsvLines);
+      const entries = flightLogbook.parseLandingsFromContent(
+        content,
+        csvPath,
+        parseCsvLine,
+        gradeLandingForRecordedProfile,
+        splitCsvLines,
+        gradeLandingForProfile,
+      );
       assert(entries.length === 0, `logbook should not ingest partial data from a damaged CSV, got ${entries.length}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

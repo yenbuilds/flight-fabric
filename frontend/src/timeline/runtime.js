@@ -94,6 +94,11 @@ export function createTimelineRuntime({
     timelineStore.clearTimelineLoading?.();
   }
 
+  function isCurrentTimelineRequestMessage(message) {
+    return typeof timelineStore.isCurrentTimelineRequestMessage !== 'function'
+      || timelineStore.isCurrentTimelineRequestMessage(message);
+  }
+
   function scheduleTimelineListRequest(delayMs = 500) {
     pendingTimelineListRequestCount += 1;
     return scheduleTrackedTimeout(() => {
@@ -130,13 +135,45 @@ export function createTimelineRuntime({
       }
     }
 
+    if (msg.type === 'flightAnalysisRescoreResult') {
+      const applied = timelineStore.applyFlightAnalysisRescoreResult?.(msg) === true;
+      if (applied && msg.success === true) {
+        timelineStore.requestFlightAnalysisRescoreRefresh?.();
+      }
+      return;
+    }
+
+    if (msg.type === 'timeline' && msg.scoringMode === 'current-preview') {
+      timelineStore.applyAnalysisRescorePreviewMessage?.(msg);
+      return;
+    }
+
     if (msg.type === 'timeline' && msg.timeline) {
+      if (!isCurrentTimelineRequestMessage(msg)) return;
+      const isAnalysisRescoreRefresh = timelineStore.isFlightAnalysisRescoreRefreshMessage?.(msg) === true;
       timelinePage.loadTimeline(msg.timeline);
       finishTimelineLoading();
       timelineStore.openPendingFlightLandingFromTimeline?.(timelinePage.getCurrentTimeline?.() || msg.timeline);
       if (timelineStore.timelineMobileViewerOpen) {
         scheduleTimelineViewerMapRender();
       }
+      if (isAnalysisRescoreRefresh) {
+        timelineStore.finishFlightAnalysisRescoreRefresh?.(msg);
+      }
+    }
+
+    if (msg.type === 'timelineError' && msg.scoringMode === 'current-preview') {
+      timelineStore.applyAnalysisRescorePreviewError?.(msg);
+      return;
+    }
+
+    if (msg.type === 'timelineError' && !isCurrentTimelineRequestMessage(msg)) {
+      return;
+    }
+
+    if (msg.type === 'timelineError'
+        && timelineStore.failFlightAnalysisRescoreRefresh?.(msg) === true) {
+      return;
     }
 
     if (msg.type === 'timelineError') {

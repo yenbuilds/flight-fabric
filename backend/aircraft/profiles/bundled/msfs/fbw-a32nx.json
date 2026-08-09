@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-05-02T00:00:00Z",
-  "updatedAt": "2026-07-27T00:00:00Z",
+  "updatedAt": "2026-08-08T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -46,6 +46,15 @@
     "engines": {
       "count": 2,
       "type": "jet"
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -120,
+        "goodMinFpm": -250,
+        "firmMinFpm": -400,
+        "hardMinFpm": -650,
+        "_comment": "Flight Fabric A320-family touchdown-rate bands aligned with the established Airbus transport grading policy."
+      }
     }
   },
   "integration": {
@@ -138,7 +147,7 @@
       "msfs2024"
     ],
     "contributor": "YenBuilds",
-    "updated": "2026-07-27",
+    "updated": "2026-08-08",
     "status": "partial",
     "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 119 documentation-backed logical read fields and 230 fixed semantic actions spanning FCU mode buttons, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. Irreversible fire/IDG/oxygen actions, presets, pushback motion, delayed landing-light sequences and unsupported custom FCU set events remain excluded."
   },

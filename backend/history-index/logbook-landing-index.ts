@@ -93,7 +93,14 @@ function landingToIndexInput(landing: AnyRecord, source: CsvFileIdentity): AnyRe
     grade: typeof landing.grade === 'string' ? landing.grade : null,
     outcomeGrade: typeof landing.outcomeGrade === 'string' ? landing.outcomeGrade : logbookOutcomeGrade(landing),
     gateStable: typeof landing.gateStable === 'boolean' ? landing.gateStable : null,
-    stabilityScore: Number.isFinite(Number(landing.stabilityScore)) ? Number(landing.stabilityScore) : null,
+    stabilityScore:
+      landing.stabilityScore !== null
+      && landing.stabilityScore !== undefined
+      && !(typeof landing.stabilityScore === 'string' && landing.stabilityScore.trim() === '')
+      && Number.isFinite(Number(landing.stabilityScore))
+        ? Number(landing.stabilityScore)
+        : null,
+    stabilityVerdict: typeof landing.stabilityVerdict === 'string' ? landing.stabilityVerdict : 'no_verdict',
     stabilityGateFailures: Array.isArray(landing.stabilityGateFailures) ? landing.stabilityGateFailures : [],
     touchdownDistanceFt: Number.isFinite(Number(landing.touchdownDistanceFt)) ? Number(landing.touchdownDistanceFt) : null,
     touchdownDistanceGrade: typeof landing.touchdownDistanceGrade === 'string' ? landing.touchdownDistanceGrade : null,

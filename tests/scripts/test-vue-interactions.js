@@ -2573,9 +2573,9 @@ async function main() {
     assert.equal(landingStore.landingCard.gradeText, 'GOOD', 'landing messages should hydrate the store-backed headline grade');
     assert.equal(landingStore.landingCard.airportText, 'YSSY', 'landing messages should hydrate the store-backed airport label');
     assert.equal(landingStore.landingCard.touchdown.distanceText, '305 ft', 'landing messages should hydrate touchdown metrics');
-    assert.equal(landingStore.landingCard.approach.stabilityText, '60', 'landing messages should hydrate approach metrics');
-    assert.equal(landingStore.landingCard.approach.stabilityNoteText, 'Config gate cap applied', 'configuration gate failures should explain capped headline stability');
-    assert.match(landingStore.landingCard.approach.stabilityTooltip, /headline score is capped/, 'configuration cap tooltip should explain why the score is capped');
+    assert.equal(landingStore.landingCard.approach.stabilityText, 'UNSTABLE', 'failed checks should infer an unstable approach when the explicit gate flag is absent');
+    assert.equal(landingStore.landingCard.approach.stabilityNoteText, '1 substantial/required finding · Approach score 60%', 'the approach score should stay secondary to the unstable verdict');
+    assert.match(landingStore.landingCard.approach.stabilityTooltip, /hard or substantial deviation was recorded after the 1,000 ft gate/, 'the tooltip should explain the full post-gate result');
     assert.deepEqual(landingEvents, ['landing-received'], 'landing messages should continue to emit the landing-received event');
     unsubscribeLandingReceived();
 
@@ -2651,6 +2651,7 @@ async function main() {
     setActivePinia(createPinia());
 
     const landingEvents = [];
+    const landingPreviews = [];
     const unsubscribeLandingReceived = subscribeLandingReceived(() => {
       landingEvents.push('landing-received');
     });
@@ -2662,6 +2663,12 @@ async function main() {
       windowRef,
       setText: () => {},
       landingStore,
+      flightStore: {
+        updateLandingPreview(rawLanding) {
+          landingPreviews.push(rawLanding);
+          return rawLanding;
+        },
+      },
     });
 
     controller.handleLandingMessage({
@@ -2676,13 +2683,14 @@ async function main() {
         grade: 'Good',
       },
       ultimateStability: {
-        score: null,
+        score: 84,
+        samples: 900,
       },
     });
 
-    assert.equal(landingStore.landingCard.approach.stabilityText, '--', 'initial live landing can arrive before stability score');
-    assert.equal(landingStore.landingCard.debrief.confidenceText, 'Medium', 'missing initial score lowers live data confidence');
-    assert.match(landingStore.landingCard.debrief.confidenceReason, /No stability data/, 'initial confidence explains missing stability');
+    assert.equal(landingStore.landingCard.approach.stabilityText, 'NO VERDICT', 'an initial score without a gate result must not invent a verdict');
+    assert.equal(landingStore.landingCard.debrief.confidenceText, 'High', 'an initial score with sufficient samples can retain high telemetry confidence');
+    assert.equal(landingPreviews.length, 1, 'initial live landing should populate the Last Landing summary once');
 
     controller.handleUltimateStabilityScoreMessage({
       score: 85,
@@ -2696,10 +2704,12 @@ async function main() {
       approachProfile: [],
     });
 
-    assert.equal(landingStore.landingCard.approach.stabilityText, '85', 'late ultimate stability score should refresh the live landing card');
-    assert.equal(landingStore.landingCard.approach.stabilityNoteText, 'Gate instability observed', 'late gate status should update the stability tile');
+    assert.equal(landingStore.landingCard.approach.stabilityText, 'UNSTABLE', 'late gate verdict should refresh the live landing card');
+    assert.equal(landingStore.landingCard.approach.stabilityNoteText, '2 substantial/required findings · Approach score 84%', 'late gate status should preserve the existing score as secondary context');
     assert.equal(landingStore.landingCard.debrief.confidenceText, 'High', 'late stability score should restore high data confidence when touchdown data exists');
-    assert.doesNotMatch(landingStore.landingCard.debrief.confidenceReason, /No stability data/, 'late stability score should clear the missing-stability reason');
+    assert.equal(landingPreviews.length, 2, 'late stability should refresh the Last Landing summary');
+    assert.equal(landingPreviews.at(-1).ultimateStability.gateStable, false, 'Last Landing should receive the late gate verdict');
+    assert.equal(landingPreviews.at(-1).ultimateStability.score, 84, 'late gate facts should merge without replacing an existing landing score');
     assert.deepEqual(landingEvents, ['landing-received'], 'late stability refresh should not emit a duplicate landing-received event');
 
     unsubscribeLandingReceived();
@@ -3005,6 +3015,16 @@ async function main() {
       cancelAnimationFrame() {},
     };
     let liveMapVisible = false;
+    let targetOverlayUpdates = 0;
+    let destinationProgressUpdates = 0;
+    const routeTargets = {
+      updateTargetOverlay() {
+        targetOverlayUpdates += 1;
+      },
+      updateDestinationProgress() {
+        destinationProgressUpdates += 1;
+      },
+    };
     const controller = createLiveMapController({
       mapEl: { clientWidth: 800, clientHeight: 600, parentElement: null },
       liveMapStore: {
@@ -3016,12 +3036,17 @@ async function main() {
       localStorageRef: createStorage(),
       consoleRef: console,
       isValidCoord: () => true,
-      getRouteTargets: () => null,
+      getRouteTargets: () => routeTargets,
       allowOnlineTiles: () => false,
       isLiveMapVisible: () => liveMapVisible,
     });
 
     controller.handlePositionMessage({ lat: -37.67, lon: 144.84, hdg: 320 });
+    assert.equal(targetOverlayUpdates, 0, 'hidden live-map positions should leave map-only overlay work gated');
+    assert.equal(destinationProgressUpdates, 1, 'hidden live-map positions should keep the global route banner current');
+    controller.handlePositionMessage({ lat: -36.90, lon: 145.50, hdg: 45 });
+    assert.equal(targetOverlayUpdates, 0, 'repeated hidden positions should keep map-only overlay work gated');
+    assert.equal(destinationProgressUpdates, 2, 'each hidden position should refresh the global route banner');
     liveMapVisible = true;
     controller.handleTabActivated();
     controller.handleTabActivated();
@@ -3962,8 +3987,15 @@ async function main() {
     resetGlobals(windowRef, documentRef, createStorage());
 
     const wsHandlers = new Set();
+    const sent = [];
     let currentTimeline = null;
     const rendered = [];
+    timelineStore.bindRequestActions({
+      onRequestTimeline(payload) {
+        sent.push(payload);
+        return true;
+      },
+    });
     const runtime = createTimelineRuntime({
       windowRef,
       subscribeWsMessageSignal(handler) {
@@ -3987,16 +4019,372 @@ async function main() {
     });
 
     const loadedTimeline = {
+      filePath: 'C:/Flights/F2.csv',
       flightId: 'F2',
       events: [{ type: 'landing', lat: 1, lon: 2, timestampMs: 1000 }],
     };
 
     runtime.init();
-    timelineStore.openTimelineMobileViewer();
+    assert.equal(
+      timelineStore.requestTimeline(loadedTimeline.filePath, loadedTimeline.flightId),
+      true,
+      'modal replay should start through the correlated Timeline request bridge',
+    );
     rendered.length = 0;
-    for (const handler of wsHandlers) handler({ type: 'timeline', timeline: loadedTimeline });
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: sent[0].requestId,
+      timeline: loadedTimeline,
+    });
 
     assert.ok(rendered.includes(loadedTimeline), 'loaded timelines should render again after the modal receives data');
+
+    runtime.cleanup();
+  });
+
+  await test('timeline runtime ignores stale normal success and error packets over newer flight selections', () => {
+    setActivePinia(createPinia());
+    const timelineStore = useTimelineStore();
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+
+    const wsHandlers = new Set();
+    const sent = [];
+    const loadedFlightIds = [];
+    const emptyMessages = [];
+    const openedLandings = [];
+    const landingErrors = [];
+    let currentTimeline = null;
+
+    timelineStore.bindRequestActions({
+      onRequestTimeline(payload) {
+        sent.push(payload);
+        return true;
+      },
+    });
+    timelineStore.bindDetailActions({
+      onOpenSelectedLanding(event) {
+        openedLandings.push(event);
+        return true;
+      },
+      onFlightLandingLoadError(error) {
+        landingErrors.push(error);
+      },
+    });
+
+    const runtime = createTimelineRuntime({
+      windowRef,
+      subscribeWsMessageSignal(handler) {
+        wsHandlers.add(handler);
+        return () => wsHandlers.delete(handler);
+      },
+      timelineStore,
+      timelinePage: {
+        loadTimeline(timeline) {
+          currentTimeline = timeline;
+          loadedFlightIds.push(timeline.flightId);
+          timelineStore.setLoadedTimelineIdentity(timeline);
+        },
+        getCurrentTimeline() {
+          return currentTimeline;
+        },
+        showEmpty({ message } = {}) {
+          emptyMessages.push(message);
+        },
+      },
+      timelineMapController: {
+        invalidateSizeStaggered() {},
+        render() {},
+      },
+    });
+
+    runtime.init();
+    assert.equal(timelineStore.requestTimeline('C:/Flights/old.csv', 'OLD', { openViewer: false }), true);
+    assert.equal(timelineStore.requestTimeline('C:/Flights/new.csv', 'NEW', { openViewer: false }), true);
+    const oldRequest = sent[0];
+    const newRequest = sent[1];
+    assert.deepEqual(
+      sent.slice(0, 2).map((payload) => payload.requestId),
+      [1, 2],
+      'ordinary Timeline requests should share one monotonic correlation sequence',
+    );
+
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: newRequest.requestId,
+      timeline: { filePath: newRequest.filePath, flightId: 'NEW', events: [] },
+    });
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: oldRequest.requestId,
+      timeline: { filePath: oldRequest.filePath, flightId: 'OLD', events: [] },
+    });
+
+    assert.deepEqual(loadedFlightIds, ['NEW'], 'a late older success must not replace the newer replay');
+    assert.equal(timelineStore.loadedTimelineFlightId, 'NEW', 'the selected Timeline identity must remain on the newer flight');
+
+    assert.equal(timelineStore.requestTimeline('C:/Flights/error.csv', 'ERROR', { openViewer: false }), true);
+    const staleErrorRequest = sent[2];
+    const requestedLanding = {
+      id: 'landing-newest',
+      type: 'landing',
+      timestampMs: 4000,
+      grade: 'PERFECT',
+    };
+    assert.equal(timelineStore.requestFlightLanding({
+      filePath: 'C:/Flights/debrief.csv',
+      flightId: 'DEBRIEF',
+      origin: 'YSSY',
+      destination: 'YMML',
+      latestLandingEvent: requestedLanding,
+    }), true);
+    const debriefRequest = sent[3];
+    assert.equal(debriefRequest.requestId, 4, 'landing-detail loads should use the same normal Timeline request sequence');
+    assert.equal(timelineStore.timelineLoadStatus, 'loading');
+
+    for (const handler of wsHandlers) handler({
+      type: 'timelineError',
+      scoringMode: 'recorded',
+      requestId: staleErrorRequest.requestId,
+      error: 'late failure for superseded flight',
+    });
+
+    assert.equal(timelineStore.timelineLoadStatus, 'loading', 'a stale error must not clear the newer loading state');
+    assert.deepEqual(emptyMessages, [], 'a stale error must not replace the newer replay with an error state');
+    assert.deepEqual(landingErrors, [], 'a stale error must not fail the newer pending debrief');
+    assert.ok(timelineStore.pendingFlightLandingRequest, 'the newer pending debrief should survive a stale error');
+
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: debriefRequest.requestId,
+      timeline: {
+        filePath: debriefRequest.filePath,
+        flightId: 'DEBRIEF',
+        events: [{ ...requestedLanding }],
+      },
+    });
+
+    assert.deepEqual(loadedFlightIds, ['NEW', 'DEBRIEF'], 'the current debrief response should still load normally');
+    assert.deepEqual(openedLandings.map((event) => event.id), ['landing-newest'], 'only the current response should open the pending debrief');
+    assert.equal(timelineStore.pendingFlightLandingRequest, null, 'the current response should consume the pending debrief once');
+    assert.deepEqual(emptyMessages, []);
+    assert.deepEqual(landingErrors, []);
+
+    runtime.cleanup();
+  });
+
+  await test('normal timeline load retains its canonical path through full-analysis preview, apply, refresh, and revert', () => {
+    setActivePinia(createPinia());
+    const timelineStore = useTimelineStore();
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+
+    const wsHandlers = new Set();
+    const sent = [];
+    let loadedTimelineCount = 0;
+    const recordingPath = 'C:/Flight Logs/2026-08-08_01-02-03Z--abcd1234/telemetry.csv';
+    const recordingFlightId = '2026-08-08T01:02:03.000Z';
+    const recordedLanding = {
+      id: 'landing-preview',
+      type: 'landing',
+      timestampMs: 1000,
+      landingKey: '7',
+      grade: 'GOOD',
+    };
+    const runtime = createTimelineRuntime({
+      windowRef,
+      subscribeWsMessageSignal(handler) {
+        wsHandlers.add(handler);
+        return () => wsHandlers.delete(handler);
+      },
+      timelineStore,
+      timelinePage: {
+        loadTimeline(timeline) {
+          loadedTimelineCount += 1;
+          timelineStore.setLoadedTimelineIdentity(timeline);
+          timelineStore.setDetail({
+            visible: true,
+            type: 'Landing',
+            selectedLandingEvent: timeline.events[0],
+          });
+        },
+        showEmpty() {},
+      },
+      timelineMapController: {
+        invalidateSizeStaggered() {},
+        render() {},
+      },
+    });
+    timelineStore.bindRequestActions({
+      onRequestTimeline(payload) {
+        sent.push(payload);
+        return true;
+      },
+      onRequestList(payload) {
+        sent.push(payload);
+        return true;
+      },
+    });
+
+    runtime.init();
+    assert.equal(
+      timelineStore.requestTimeline(recordingPath, recordingFlightId, { openViewer: false }),
+      true,
+      'the initial recorded replay should start through the correlated normal request path',
+    );
+    assert.deepEqual(sent[0], {
+      type: 'requestTimeline',
+      filePath: recordingPath,
+      flightId: recordingFlightId,
+      requestId: 1,
+    });
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: sent[0].requestId,
+      timeline: {
+        filePath: recordingPath,
+        flightId: recordingFlightId,
+        analysisRescore: { applied: false, revision: 0 },
+        events: [recordedLanding],
+      },
+    });
+    assert.equal(loadedTimelineCount, 1, 'the ordinary recorded timeline should load first');
+    assert.equal(timelineStore.loadedTimelineFilePath, recordingPath);
+    assert.equal(timelineStore.requestAnalysisRescorePreview(), true);
+    assert.deepEqual(sent[1], {
+      type: 'requestTimeline',
+      filePath: recordingPath,
+      flightId: recordingFlightId,
+      requestId: 1,
+      scoringMode: 'current-preview',
+    });
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'current-preview',
+      requestId: 1,
+      timeline: {
+        analysisRescorePreview: {
+          available: true,
+          previewFingerprint: 'preview-fingerprint',
+          baseRevision: 0,
+          sourceFingerprint: 'source-fingerprint',
+          analysisContractFingerprint: 'contract-fingerprint',
+          changedMetricCount: 2,
+          landingCount: 1,
+          landings: [{
+            landingKey: '7',
+            label: 'Landing 1',
+            metrics: [
+              { key: 'touchdown-rate', label: 'Touchdown rate', recorded: 'GOOD', current: 'FIRM', changed: true },
+              { key: 'stability', label: 'Approach stability', recorded: 'Stable 86%', current: 'Unstable 72%', changed: true },
+            ],
+          }],
+        },
+      },
+    });
+
+    assert.equal(loadedTimelineCount, 1, 'preview responses must not replace the recorded timeline');
+    assert.equal(timelineStore.analysisRescorePreviewStatus, 'ready');
+    assert.equal(timelineStore.analysisRescorePreview?.changedMetricCount, 2);
+
+    assert.equal(timelineStore.applyCurrentFlightAnalysisRescore(), true);
+    assert.deepEqual(sent[2], {
+      type: 'applyFlightAnalysisRescore',
+      filePath: recordingPath,
+      flightId: recordingFlightId,
+      requestId: 1,
+      previewFingerprint: 'preview-fingerprint',
+      baseRevision: 0,
+      sourceFingerprint: 'source-fingerprint',
+      analysisContractFingerprint: 'contract-fingerprint',
+    });
+    for (const handler of wsHandlers) handler({
+      type: 'flightAnalysisRescoreResult',
+      requestId: 1,
+      action: 'apply',
+      success: true,
+      revision: 3,
+      appliedAt: '2026-08-08T00:00:00.000Z',
+      snapshotFingerprint: 'saved-snapshot-3',
+    });
+    assert.equal(timelineStore.analysisRescoreStatus, 'refreshing');
+    assert.equal(loadedTimelineCount, 1, 'mutation result itself must not replace the replay');
+    assert.deepEqual(sent[3], {
+      type: 'requestTimeline',
+      filePath: recordingPath,
+      flightId: recordingFlightId,
+      requestId: 2,
+    }, 'the effective Timeline should refresh after the atomic save');
+    assert.equal(sent[4].type, 'requestTimelineList', 'the saved-flight list and history index should refresh');
+    assert.deepEqual(sent[5], { type: 'requestLogbook', limit: 500 }, 'Logbook should refresh after the atomic save');
+
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: sent[3].requestId,
+      timeline: {
+        filePath: recordingPath,
+        flightId: recordingFlightId,
+        analysisRescore: {
+          applied: true,
+          revision: 3,
+          appliedAt: '2026-08-08T00:00:00.000Z',
+          snapshotFingerprint: 'saved-snapshot-3',
+        },
+        events: [{ ...recordedLanding, grade: 'FIRM', analysisSource: 'applied-rescore' }],
+      },
+    });
+    assert.equal(loadedTimelineCount, 2, 'the refreshed effective Timeline should load after saving');
+    assert.equal(timelineStore.analysisRescoreStatus, 'applied');
+    assert.equal(timelineStore.analysisRescore.applied, true);
+
+    assert.equal(timelineStore.revertFlightAnalysisRescore(), true);
+    assert.deepEqual(sent[6], {
+      type: 'revertFlightAnalysisRescore',
+      filePath: recordingPath,
+      flightId: recordingFlightId,
+      requestId: 2,
+      expectedRevision: 3,
+      expectedSnapshotFingerprint: 'saved-snapshot-3',
+    });
+    for (const handler of wsHandlers) handler({
+      type: 'flightAnalysisRescoreResult',
+      requestId: 2,
+      action: 'revert',
+      success: true,
+      revision: 4,
+      reverted: true,
+    });
+    assert.equal(timelineStore.analysisRescoreStatus, 'refreshing');
+    assert.deepEqual(sent[7], {
+      type: 'requestTimeline',
+      filePath: recordingPath,
+      flightId: recordingFlightId,
+      requestId: 3,
+    });
+    assert.equal(sent[8].type, 'requestTimelineList');
+    assert.deepEqual(sent[9], { type: 'requestLogbook', limit: 500 });
+    for (const handler of wsHandlers) handler({
+      type: 'timeline',
+      scoringMode: 'recorded',
+      requestId: sent[7].requestId,
+      timeline: {
+        filePath: recordingPath,
+        flightId: recordingFlightId,
+        analysisRescore: { applied: false, revision: 4 },
+        events: [recordedLanding],
+      },
+    });
+    assert.equal(timelineStore.analysisRescoreStatus, 'reverted');
+    assert.equal(timelineStore.analysisRescore.applied, false);
+    assert.equal(loadedTimelineCount, 3, 'revert should reload the original recorded replay');
 
     runtime.cleanup();
   });
@@ -4751,14 +5139,14 @@ async function main() {
     const landingEvent = {
       type: 'landing',
       vs_fpm: -467,
-      grade: 'Outstanding',
+      grade: 'PERFECT',
       ias_kts: 136,
       pitch_deg: 3.1,
-      touchdownDistance: {
-        distanceFt: 305,
-        grade: 'Outstanding',
-        score: 96,
-      },
+      bounceCount: 1,
+      bounceGrade: 'Single Bounce',
+      runwayExcursion: true,
+      shortLanding: true,
+      ultimateStability: { verdict: 'unstable', score: 84, gateStable: false },
       rolloutAnalysis: {
         assessment: 'caution',
         maxBankDeg: 3.3,
@@ -4794,6 +5182,11 @@ async function main() {
     assert.equal(landingStore.waitingVisible, false, 'timeline landing action should hide the waiting state through the store');
     assert.equal(landingStore.landingCard.rollout.visible, true, 'timeline landing handoff should preserve rollout analysis');
     assert.equal(landingStore.landingCard.rollout.assessmentText, 'CAUTION', 'timeline landing handoff should preserve rollout assessment');
+    assert.equal(landingStore.landingCard.gradeText, 'PERFECT', 'bounce-only timeline handoff should preserve the scoped touchdown grade');
+    assert.equal(landingStore.landingCard.approach.stabilityText, 'UNSTABLE', 'timeline handoff should preserve the approach verdict');
+    assert.equal(landingStore.landingCard.touchdown.bounceText, '1x', 'bounce-only timeline handoff should preserve top-level bounce facts');
+    assert.equal(landingStore.landingCard.runwayExcursionVisible, true, 'timeline handoff should preserve the separate runway-excursion fact');
+    assert(landingStore.landingCard.debrief.reasons.some((reason) => reason.text === 'Short of threshold'), 'timeline handoff should preserve the separate short-landing fact');
     assert.equal(landingCard.classList.contains('hidden'), true, 'wrapper visibility is now owned by Vue store state');
     assert.equal(waitingState.classList.contains('hidden'), false, 'waiting shell DOM is no longer toggled directly by the controller');
     assert.deepEqual(landingEvents, ['landing-received'], 'timeline landing action should emit the landing-received event');
@@ -5257,9 +5650,14 @@ async function main() {
     documentRef.setQuerySelector('.desktop-tab-bar', desktopBar);
     documentRef.setQuerySelector('.mobile-tab-bar', mobileBar);
 
-    initTabsRuntime({
+    let reconnectCalls = 0;
+    let websocketState = 'ready';
+    const cleanupTabsRuntime = initTabsRuntime({
       tabsStore,
-      reconnect: () => {},
+      reconnect: () => {
+        reconnectCalls += 1;
+      },
+      canPullToReconnect: () => websocketState === 'disconnected' || websocketState === 'error',
       windowRef,
       documentRef,
     });
@@ -5318,6 +5716,44 @@ async function main() {
       touches: [{ clientX: 20, clientY: 110 }],
       target: mainEl,
     });
+    assert.equal(tabsStore.pullRefreshVisible, false, 'healthy-socket overscroll should not show a reconnect prompt');
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: 20, clientY: 110 }],
+      target: mainEl,
+    });
+    assert.equal(reconnectCalls, 0, 'healthy-socket overscroll should not reconnect');
+
+    websocketState = 'connecting';
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 110 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: 20, clientY: 110 }],
+      target: mainEl,
+    });
+    assert.equal(tabsStore.pullRefreshVisible, false, 'connecting-socket overscroll should not show a reconnect prompt');
+    assert.equal(reconnectCalls, 0, 'connecting-socket overscroll should not restart the connection');
+
+    websocketState = 'disconnected';
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 110 }],
+      target: mainEl,
+    });
     assert.equal(tabsStore.pullRefreshVisible, true, 'pull-to-refresh prompt should be store-backed');
     assert.equal(tabsStore.pullRefreshLabel, 'Release to reconnect', 'pull-to-refresh release copy should be store-backed');
 
@@ -5326,7 +5762,127 @@ async function main() {
       changedTouches: [{ clientX: 20, clientY: 110 }],
       target: mainEl,
     });
+    assert.equal(reconnectCalls, 1, 'disconnected pull-to-reconnect should reconnect exactly once');
     assert.equal(tabsStore.pullRefreshVisible, false, 'pull-to-refresh prompt should clear after refresh completes');
+
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 70 }],
+      target: mainEl,
+    });
+    assert.equal(tabsStore.pullRefreshVisible, true, 'disconnected partial pull should show the reconnect hint');
+    mainEl.dispatchEvent({ type: 'touchcancel', target: mainEl });
+    assert.equal(tabsStore.pullRefreshVisible, false, 'touch cancellation should clear the reconnect hint');
+    assert.equal(reconnectCalls, 1, 'touch cancellation should not reconnect');
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: -90, clientY: 70 }],
+      target: mainEl,
+    });
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'livemap', 'touch cancellation should also cancel horizontal tab swiping');
+
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 70 }],
+      target: mainEl,
+    });
+    websocketState = 'connecting';
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 90 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: 20, clientY: 90 }],
+      target: mainEl,
+    });
+    assert.equal(tabsStore.pullRefreshVisible, false, 'connection recovery during a pull should cancel the reconnect hint');
+    assert.equal(reconnectCalls, 1, 'connection recovery during a pull should prevent a redundant reconnect');
+
+    websocketState = 'error';
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 70 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [
+        { clientX: 20, clientY: 70 },
+        { clientX: 40, clientY: 70 },
+      ],
+      target: mainEl,
+    });
+    assert.equal(tabsStore.pullRefreshVisible, false, 'multi-touch should cancel an active reconnect hint');
+    assert.equal(reconnectCalls, 1, 'multi-touch cancellation should not reconnect');
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: -90, clientY: 70 }],
+      target: mainEl,
+    });
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'livemap', 'multi-touch should cancel horizontal tab swiping');
+
+    let nextReconnectTimerId = 0;
+    const pendingReconnectTimers = new Map();
+    windowRef.setTimeout = (callback) => {
+      nextReconnectTimerId += 1;
+      pendingReconnectTimers.set(nextReconnectTimerId, callback);
+      return nextReconnectTimerId;
+    };
+    windowRef.clearTimeout = (timerId) => {
+      pendingReconnectTimers.delete(timerId);
+    };
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 110 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: 20, clientY: 110 }],
+      target: mainEl,
+    });
+    assert.equal(reconnectCalls, 2, 'error-state pull should still expose manual recovery');
+    assert.equal(pendingReconnectTimers.size, 1, 'reconnect feedback should schedule one clear timer');
+
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 20, clientY: 20 }],
+      target: mainEl,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchmove',
+      touches: [{ clientX: 20, clientY: 70 }],
+      target: mainEl,
+    });
+    assert.equal(pendingReconnectTimers.size, 0, 'a new eligible pull should cancel stale reconnect feedback timers');
+    assert.equal(tabsStore.pullRefreshVisible, true, 'a rapid retry should keep its own reconnect hint visible');
+    cleanupTabsRuntime();
+    assert.equal(tabsStore.pullRefreshVisible, false, 'tabs cleanup should clear an active reconnect hint');
+    assert.equal(mainEl.listeners.get('touchstart')?.size || 0, 0, 'tabs cleanup should remove touch listeners');
   });
 
   console.log(`\n${'-'.repeat(50)}`);

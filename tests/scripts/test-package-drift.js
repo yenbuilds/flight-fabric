@@ -203,6 +203,7 @@ function getBroadcastFieldsByType(src, msgTypeRef) {
 // ─── Cached sources ────────────────────────────────────────────────────────
 
 const MESSAGES_TS       = read('packages/telemetry-types/src/messages.ts');
+const TELEMETRY_CLIENT_TS = read('packages/telemetry-client/src/client.ts');
 const BROADCASTERS_JS   = read('backend/events/broadcasters.js');
 const SIMBRIDGE_CORE_JS = read('backend/core/simbridge-core.js');
 const ROOT_PACKAGE_JSON = JSON.parse(read('package.json'));
@@ -588,6 +589,15 @@ test('UltimateStabilityScoreMessage fields match MSG.ULTIMATE_STABILITY_SCORE br
   const extra   = [...ifaceFields].filter(f => !bcFields.has(f));
   assert(missing.length === 0, `broadcast fields not in UltimateStabilityScoreMessage: ${missing.join(', ')}`);
   assert(extra.length   === 0, `UltimateStabilityScoreMessage fields not in broadcast: ${extra.join(', ')}`);
+});
+
+test('TelemetryClient stores the ultimate stability verdict from its message', () => {
+  const caseMatch = /case MSG\.ULTIMATE_STABILITY_SCORE:([\s\S]*?)\n\s*case MSG\./.exec(TELEMETRY_CLIENT_TS);
+  assert(caseMatch, 'ULTIMATE_STABILITY_SCORE reducer case not found in telemetry-client');
+  assert(
+    /updates\.ultimateStabilityVerdict\s*=\s*msg\.verdict(?:\s*\?\?\s*null)?\s*;/.test(caseMatch[1]),
+    'ULTIMATE_STABILITY_SCORE must copy msg.verdict into ultimateStabilityVerdict',
+  );
 });
 
 test('VreSamplingMessage fields match MSG.VRE_SAMPLING broadcast (bidirectional)', () => {

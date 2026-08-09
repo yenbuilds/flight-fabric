@@ -33,6 +33,8 @@ export const PRIVILEGED_CLIENT_MESSAGE_TYPES = Object.freeze([
   'stopRecording',
   'endFlightManual',
   'requestTimeline',
+  'applyFlightAnalysisRescore',
+  'revertFlightAnalysisRescore',
   'requestTimelineList',
   'deleteFlightCsv',
   'setDestinationTarget',

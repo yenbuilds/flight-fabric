@@ -303,9 +303,18 @@ test('timeline flight index annotates flights with latest indexed landing payloa
         grade: 'Good',
         payload: {
           id: 'landing-ready',
-          type: 'landing',
-          grade: 'Good',
-          vs_fpm: -210,
+          grade: 'GOOD',
+          vsFpm: -349,
+          touchdownDistanceFt: 129,
+          touchdownDistanceGrade: 'Outstanding',
+          touchdownDistanceScore: 98,
+          touchdownDistanceZone: 'Ideal TDZ',
+          bounceCount: 1,
+          bounceGrade: 'Single Bounce',
+          bounceScore: 72,
+          stabilityScore: 38,
+          gateStable: false,
+          stabilityGateFailures: ['speed_unstable_after_gate'],
         },
       }],
     });
@@ -314,7 +323,14 @@ test('timeline flight index annotates flights with latest indexed landing payloa
     assert.equal(page.flights.length, 1);
     assert.equal(page.flights[0].latestLandingEvent.id, 'landing-ready');
     assert.equal(page.flights[0].latestLandingEvent.type, 'landing');
-    assert.equal(page.flights[0].latestLandingEvent.vs_fpm, -210);
+    assert.equal(page.flights[0].latestLandingEvent.vs_fpm, -349);
+    assert.equal(page.flights[0].latestLandingEvent.grade, 'GOOD');
+    assert.equal(page.flights[0].latestLandingEvent.touchdownDistance.distanceFt, 129);
+    assert.equal(page.flights[0].latestLandingEvent.touchdownDistance.zone, 'Ideal TDZ');
+    assert.equal(page.flights[0].latestLandingEvent.touchdownDistance.bounceCount, 1);
+    assert.equal(page.flights[0].latestLandingEvent.touchdownDistance.bounceScore, 72);
+    assert.equal(page.flights[0].latestLandingEvent.ultimateStability.score, 38);
+    assert.equal(page.flights[0].latestLandingEvent.ultimateStability.gateStable, false);
   });
 });
 

@@ -144,6 +144,7 @@
  * @property {number} bounce_count - Number of bounces detected
  * @property {Object|null} rollout_analysis - Separate high-speed ground-roll control assessment
  * @property {number|null} ultimate_stability_score - Retrospective approach stability score (0-100)
+ * @property {'stable'|'marginal'|'unstable'|'no_verdict'|null} ultimate_stability_verdict - User-facing four-state approach verdict
  */
 
 /**
@@ -378,6 +379,7 @@
  * Produced by SimpleStabilityScorer.getScore() and broadcast from simbridge-core.js.
  * @typedef {Object} UltimateStabilityScoreData
  * @property {number|null} score - Overall score 0–100; null if scorer had insufficient data
+ * @property {'stable'|'marginal'|'unstable'|'no_verdict'} verdict - User-facing approach verdict; gateStable remains the strict audit flag
  * @property {StabilityBreakdown|null} breakdown - Per-criterion score breakdown; null if insufficient data
  * @property {number} samples - Number of approach samples used in scoring
  * @property {boolean|null} gateStable - True if the aircraft was stabilized at the stability gate
@@ -467,6 +469,11 @@
  * @property {string|null} approachType - Approach type when available
  * @property {number|null} vsFpm - Touchdown vertical speed in fpm
  * @property {'PERFECT'|'GOOD'|'FIRM'|'HARD'|'VERY HARD'|null} grade - Landing quality grade
+ * @property {string|null} landingKey - Stable LANDING-row sample identity used by reversible rescoring
+ * @property {'PERFECT'|'GOOD'|'FIRM'|'HARD'|'VERY HARD'|null} recordedGrade - Original recorded touchdown-rate grade
+ * @property {'recorded'|'applied-rescore'} gradeSource - Whether grade is recorded or an explicitly applied rescore
+ * @property {Object|null} analysisRescore - Provenance for an explicitly saved whole-flight analysis snapshot
+ * @property {Object|null} landingRateContext - Recorded or applied landing-rate policy, profile, and exact thresholds
  * @property {number|null} gforce - Peak G-force at touchdown
  * @property {number|null} iasKts - Indicated airspeed in knots
  * @property {number|null} gsKts - Ground speed in knots
@@ -483,6 +490,7 @@
  * @property {number|null} lateralOffsetScore - Lateral offset score
  * @property {string|null} lateralOffsetSide - Lateral offset side label
  * @property {number|null} stabilityScore - Retrospective approach stability score
+ * @property {'stable'|'marginal'|'unstable'|'no_verdict'} stabilityVerdict - User-facing approach verdict
  * @property {string[]} stabilityGateFailures - Stability gate failure reason identifiers
  * @property {StabilityBreakdown|null} [stabilityBreakdown] - Detailed stability breakdown when sourced from landing:final
  * @property {Object|null} stabilityContext - Recorded profile identity, effective limits, and gate reference used for stability scoring
@@ -520,6 +528,7 @@
  * @property {number|null} avgVsFpm - Average touchdown vertical speed
  * @property {number|null} avgStabilityScore - Average stability score
  * @property {number|null} stableRatePct - Percentage of landings with stable gate result
+ * @property {number|null} marginalRatePct - Percentage of landings with marginal verdict
  * @property {'improving'|'regressing'|'stable'|null} trendVs - Touchdown vertical-speed trend label
  * @property {'improving'|'regressing'|'stable'|null} trendStability - Stability-score trend label
  * @property {number|null} latestTimestampMs - Latest landing timestamp in the group

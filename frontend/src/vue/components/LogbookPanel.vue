@@ -7,7 +7,7 @@ import {
   subscribeWsMessage,
   subscribeWsOpen,
 } from '../../app/runtime-signals.js';
-import { buildLandingVerdict, gradeHex, gradeSeverity } from '../../landing/scoring.js';
+import { buildLandingPresentation, gradeHex, gradeSeverity } from '../../landing/scoring.js';
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
@@ -27,6 +27,7 @@ const logbookPanelExpanded = ref(false);
 
 const GRADE_COLORS = {
   PERFECT: '#22c55e',
+  SMOOTH: '#38bdf8',
   GOOD: '#38bdf8',
   FIRM: '#facc15',
   HARD: '#f97316',
@@ -45,6 +46,7 @@ const GRADE_COLORS = {
 
 const GRADE_PILL_BG = {
   PERFECT: 'rgba(34,197,94,0.10)',
+  SMOOTH: 'rgba(56,189,248,0.10)',
   GOOD: 'rgba(56,189,248,0.10)',
   FIRM: 'rgba(250,204,21,0.10)',
   HARD: 'rgba(249,115,22,0.12)',
@@ -63,6 +65,7 @@ const GRADE_PILL_BG = {
 
 const GRADE_BORDER = {
   PERFECT: '#22c55e',
+  SMOOTH: 'transparent',
   GOOD: 'transparent',
   FIRM: '#facc15',
   HARD: '#f97316',
@@ -84,10 +87,7 @@ const gradeKeys = [
   'GOOD',
   'FIRM',
   'HARD',
-  'Long Landing',
   'VERY HARD',
-  'Short Landing',
-  'RUNWAY EXCURSION',
   'OTHER',
 ];
 
@@ -126,30 +126,6 @@ const STABILITY_BREAKDOWN_LABELS = {
   bank_ok: 'Bank',
   lateral_offset_ok: 'Lateral offset',
 };
-
-const STABILITY_PASS_SCORE = 80;
-const STABILITY_ISSUE_FAMILIES = {
-  speed_proxy_unstable_after_gate: 'airspeed-control',
-  speed_trend_unstable_after_gate: 'airspeed-control',
-  glidepath_proxy_unstable_after_gate: 'vertical-path-rate',
-  glidepath_too_low_after_gate: 'vertical-path-rate',
-  glidepath_too_high_after_gate: 'vertical-path-rate',
-  speed_ok: 'airspeed-control',
-  speed_trend_ok: 'airspeed-control',
-  glidepath_ok: 'vertical-path-rate',
-  glidepath_below_ok: 'vertical-path-rate',
-  glidepath_above_ok: 'vertical-path-rate',
-  thrust_ok: 'throttle-movement',
-  thrust_stable_ok: 'throttle-movement',
-};
-const MAJOR_STABILITY_FAILURES = new Set([
-  'insufficient_data',
-  'no_gate_sample',
-  'gear_not_down_at_gate',
-  'gear_changed_after_gate',
-  'flaps_not_set_at_gate',
-  'flaps_changed_after_gate',
-]);
 
 const RETIRED_STABILITY_FAILURES = new Set(['spoilers_moved_after_gate']);
 
@@ -239,14 +215,12 @@ function gradeBucket(grade) {
   if (!grade || typeof grade !== 'string') return null;
   const normalized = grade.trim();
   if (!normalized) return null;
-  if (normalized === 'PERFECT' || normalized === 'BUTTER' || normalized === 'Perfect' || normalized === 'Outstanding') return 'PERFECT';
-  if (normalized === 'GOOD' || normalized === 'Good') return 'GOOD';
-  if (normalized === 'FIRM' || normalized === 'Acceptable' || normalized === 'Marginal') return 'FIRM';
-  if (normalized === 'HARD' || normalized === 'Poor') return 'HARD';
-  if (normalized === 'Long Landing') return 'Long Landing';
-  if (normalized === 'VERY HARD' || normalized === 'Dangerous' || normalized === 'SEVERE') return 'VERY HARD';
-  if (normalized === 'Short Landing') return 'Short Landing';
-  if (normalized === 'RUNWAY EXCURSION' || normalized === 'Excursion') return 'RUNWAY EXCURSION';
+  const upper = normalized.toUpperCase();
+  if (upper === 'PERFECT' || upper === 'BUTTER') return 'PERFECT';
+  if (upper === 'SMOOTH' || upper === 'GOOD') return 'GOOD';
+  if (upper === 'FIRM') return 'FIRM';
+  if (upper === 'HARD') return 'HARD';
+  if (upper === 'VERY HARD' || upper === 'SEVERE') return 'VERY HARD';
   return 'OTHER';
 }
 
@@ -258,10 +232,10 @@ function incrementGradeCount(counts, grade, amount = 1) {
 
 const gradeCounts = computed(() => {
   let counts = null;
-  const statsOutcomeGrades = logbook.stats?.outcomeGrades;
-  if (statsOutcomeGrades && typeof statsOutcomeGrades === 'object' && Object.keys(statsOutcomeGrades).length > 0) {
+  const statsGrades = logbook.stats?.grades;
+  if (statsGrades && typeof statsGrades === 'object' && Object.keys(statsGrades).length > 0) {
     const statsCounts = emptyGradeCounts();
-    for (const [grade, rawCount] of Object.entries(statsOutcomeGrades)) {
+    for (const [grade, rawCount] of Object.entries(statsGrades)) {
       const count = Number(rawCount || 0);
       if (Number.isFinite(count) && count > 0) incrementGradeCount(statsCounts, grade, count);
     }
@@ -272,7 +246,7 @@ const gradeCounts = computed(() => {
   if (!counts) {
     counts = emptyGradeCounts();
     for (const entry of logbook.entries) {
-      incrementGradeCount(counts, outcomeGrade(entry));
+      incrementGradeCount(counts, touchdownGrade(entry));
     }
   }
 
@@ -301,18 +275,18 @@ const gradeSegments = computed(() => {
 });
 
 const longLandingCount = computed(() => {
-  const statsOutcomeGrades = logbook.stats?.outcomeGrades;
+  const statsGrades = logbook.stats?.grades;
   if (
-    statsOutcomeGrades
-    && typeof statsOutcomeGrades === 'object'
-    && Object.keys(statsOutcomeGrades).length > 0
+    statsGrades
+    && typeof statsGrades === 'object'
+    && Object.keys(statsGrades).length > 0
     && Number.isFinite(Number(logbook.stats?.longLandingCount))
   ) {
     return Number(logbook.stats.longLandingCount);
   }
   return logbook.entries.reduce((count, entry) => {
     const grade = entry?.touchdownDistanceGrade || '';
-    return grade === 'Long Landing' || outcomeGrade(entry) === 'Long Landing' ? count + 1 : count;
+    return grade === 'Long Landing' ? count + 1 : count;
   }, 0);
 });
 
@@ -332,10 +306,10 @@ const entryLimitText = computed(() => {
 const butterStreak = computed(() => {
   let streak = 0;
   for (const entry of logbook.entries) {
-    if (outcomeGrade(entry) === 'PERFECT') streak += 1;
+    if (touchdownGrade(entry) === 'PERFECT') streak += 1;
     else break;
   }
-  return streak >= 2 ? `${streak}-landing butter streak` : '';
+  return streak >= 2 ? `${streak}-touchdown-rate PERFECT streak` : '';
 });
 
 const trendGroups = computed(() => {
@@ -362,7 +336,7 @@ const bestInlineText = computed(() => {
   const entry = bestEntry.value;
   if (!entry || typeof entry.vsFpm !== 'number') return '';
   const parts = [entry.icao || '', entry.runway || ''].filter(Boolean);
-  return `Best ${Math.round(entry.vsFpm)} fpm${parts.length ? ` · ${parts.join(' ')}` : ''}`;
+  return `Softest touchdown rate ${Math.round(entry.vsFpm)} fpm${parts.length ? ` · ${parts.join(' ')}` : ''}`;
 });
 
 function requestRefresh() {
@@ -417,20 +391,24 @@ function entryTouchdownDistance(entry) {
   const hasTouchdownData = entry.touchdownDistanceFt != null
     || entry.touchdownDistanceGrade
     || entry.touchdownDistanceScore != null
+    || entry.touchdownDistanceZone
     || entry.lateralOffsetFt != null
     || entry.bounceCount != null
-    || entry.bounceGrade;
+    || entry.bounceGrade
+    || entry.bounceScore != null;
   if (!hasTouchdownData) return null;
   return {
     distanceFt: entry.touchdownDistanceFt,
     grade: entry.touchdownDistanceGrade,
     score: entry.touchdownDistanceScore,
+    zone: entry.touchdownDistanceZone,
     lateralOffsetFt: entry.lateralOffsetFt,
     lateralOffsetGrade: entry.lateralOffsetGrade,
     lateralOffsetScore: entry.lateralOffsetScore,
     lateralOffsetSide: entry.lateralOffsetSide,
     bounceCount: entry.bounceCount,
     bounceGrade: entry.bounceGrade,
+    bounceScore: entry.bounceScore,
     shortLanding: entry.shortLanding,
     runwayLengthFt: entry.runwayLengthFt ?? entry.runwayPhysicalLengthFt,
     runwayWidthFt: entry.runwayWidthFt,
@@ -439,47 +417,59 @@ function entryTouchdownDistance(entry) {
 
 function entryUltimateStability(entry) {
   if (!entry) return null;
-  const gateFailures = normalizeGateFailures(entry.stabilityGateFailures ?? entry.ultimateStability?.gateFailures);
+  const stabilityScore = entry.stabilityScore ?? entry.ultimateStability?.score ?? null;
+  const gateStable = entry.gateStable ?? entry.ultimateStability?.gateStable ?? null;
+  const rawGateFailures = entry.stabilityGateFailures ?? entry.ultimateStability?.gateFailures;
+  const gateFailures = normalizeGateFailures(rawGateFailures);
+  const gateFailuresRecorded = Array.isArray(rawGateFailures) || typeof rawGateFailures === 'string';
   const breakdown = entry.stabilityBreakdown && typeof entry.stabilityBreakdown === 'object'
     ? entry.stabilityBreakdown
-    : null;
+    : entry.ultimateStability?.breakdown && typeof entry.ultimateStability.breakdown === 'object'
+      ? entry.ultimateStability.breakdown
+      : null;
   const scoringContext = entry.stabilityContext && typeof entry.stabilityContext === 'object'
     ? entry.stabilityContext
     : entry.ultimateStability?.scoringContext || null;
-  const hasStabilityData = entry.stabilityScore != null
-    || entry.gateStable === true
-    || entry.gateStable === false
+  const stabilityVerdict = entry.stabilityVerdict ?? entry.ultimateStability?.verdict ?? null;
+  const hasStabilityData = stabilityScore != null
+    || gateStable === true
+    || gateStable === false
+    || Boolean(stabilityVerdict)
     || gateFailures.length > 0
     || Boolean(breakdown)
     || Boolean(scoringContext);
   if (!hasStabilityData) return null;
   return {
-    score: entry.stabilityScore,
-    gateStable: entry.gateStable,
-    gateFailures,
+    score: stabilityScore,
+    gateStable,
+    verdict: stabilityVerdict,
+    ...(gateFailuresRecorded ? { gateFailures } : {}),
     breakdown,
     scoringContext,
   };
 }
 
-function landingVerdict(entry) {
-  return buildLandingVerdict({
+function landingPresentation(entry) {
+  const touchdownDistance = entryTouchdownDistance(entry);
+  const ultimateStability = entryUltimateStability(entry);
+  return buildLandingPresentation({
     grade: entry?.grade || null,
     runwayExcursion: entry?.runwayExcursion,
     shortLanding: entry?.shortLanding,
   }, {
-    touchdownDistance: entryTouchdownDistance(entry),
-    ultimateStability: entryUltimateStability(entry),
+    touchdownDistance,
+    ultimateStability,
   });
 }
 
-function outcomeGrade(entry) {
-  return landingVerdict(entry).headline.grade || entry?.grade || '--';
+function touchdownGrade(entry) {
+  const grade = typeof entry?.grade === 'string' ? entry.grade.trim() : '';
+  return grade ? grade.toUpperCase() : '--';
 }
 
-function outcomeGradeLabel(entry) {
-  const grade = outcomeGrade(entry);
-  return grade === 'Long Landing' ? 'LONG' : String(grade).toUpperCase();
+function touchdownGradeLabel(entry) {
+  const grade = touchdownGrade(entry);
+  return grade === 'Long Landing' || grade === 'LONG LANDING' ? 'LONG' : String(grade).toUpperCase();
 }
 
 function touchdownLabel(entry) {
@@ -493,31 +483,50 @@ function touchdownLabel(entry) {
 
 function touchdownSubLabel(entry) {
   const tdz = entryTouchdownDistance(entry);
-  if (!tdz) return '';
-  if (tdz.grade) return tdz.grade;
-  if (tdz.score != null && Number.isFinite(Number(tdz.score))) return `${Math.round(Number(tdz.score))}/100`;
-  return '';
+  const parts = [];
+  if (tdz?.grade) parts.push(tdz.grade);
+  else if (tdz?.score != null && Number.isFinite(Number(tdz.score))) parts.push(`${Math.round(Number(tdz.score))}/100`);
+  if (landingPresentation(entry).verdict.flags.runwayExcursion) parts.push('RUNWAY EXCURSION');
+  return parts.join(' · ');
+}
+
+function bounceLabel(entry) {
+  const presentation = landingPresentation(entry);
+  return presentation.bounceKnown ? presentation.bounceText : '--';
 }
 
 function touchdownTooltip(entry) {
   const tdz = entryTouchdownDistance(entry);
-  if (!tdz) return '';
+  const presentation = landingPresentation(entry);
   const parts = [];
-  if (tdz.distanceFt != null && Number.isFinite(Number(tdz.distanceFt))) {
+  if (tdz?.distanceFt != null && Number.isFinite(Number(tdz.distanceFt))) {
     parts.push(`${Math.round(Number(tdz.distanceFt))} ft from threshold`);
   }
-  if (tdz.grade) parts.push(tdz.grade);
-  if (tdz.score != null && Number.isFinite(Number(tdz.score))) {
+  if (tdz?.grade) parts.push(tdz.grade);
+  if (tdz?.score != null && Number.isFinite(Number(tdz.score))) {
     parts.push(`${Math.round(Number(tdz.score))}/100`);
   }
-  if (tdz.lateralOffsetFt != null && Number.isFinite(Number(tdz.lateralOffsetFt))) {
+  if (tdz?.lateralOffsetFt != null && Number.isFinite(Number(tdz.lateralOffsetFt))) {
     const side = tdz.lateralOffsetSide || 'center';
     parts.push(`${Math.abs(Math.round(Number(tdz.lateralOffsetFt)))} ft ${side}`);
+  }
+  if (presentation.verdict.flags.runwayExcursion) parts.push('RUNWAY EXCURSION');
+  if (presentation.bounceKnown) {
+    parts.push(presentation.bounceCount === 0 ? 'Bounce clean' : `Bounce ${presentation.bounceText}`);
   }
   return parts.length ? `Touchdown: ${parts.join(' · ')}` : '';
 }
 
 function touchdownStyle(entry) {
+  const presentation = landingPresentation(entry);
+  if (presentation.verdict.flags.runwayExcursion) {
+    const color = '#ef4444';
+    return {
+      color,
+      background: `${color}1f`,
+      border: `1px solid ${color}55`,
+    };
+  }
   if (!entryTouchdownDistance(entry)) {
     return {
       color: '#94a3b8',
@@ -525,7 +534,7 @@ function touchdownStyle(entry) {
       border: '1px solid rgba(148,163,184,0.35)',
     };
   }
-  const verdict = landingVerdict(entry);
+  const verdict = presentation.verdict;
   const color = verdict.touchdown.color;
   return {
     color,
@@ -538,66 +547,40 @@ function gateFailureKeys(entry) {
   return normalizeGateFailures(entry?.stabilityGateFailures ?? entry?.ultimateStability?.gateFailures);
 }
 
-function hasMajorStabilityFailure(entry) {
-  return gateFailureKeys(entry).some((failure) => MAJOR_STABILITY_FAILURES.has(failure));
-}
-
-function stabilityIssueCount(entry) {
-  const failures = gateFailureKeys(entry);
-  if (failures.length > 0) {
-    return new Set(failures.map((failure) => STABILITY_ISSUE_FAMILIES[failure] || failure)).size;
-  }
-
-  const breakdown = entry?.stabilityBreakdown && typeof entry.stabilityBreakdown === 'object'
-    ? entry.stabilityBreakdown
-    : null;
-  if (!breakdown) return 0;
-  const failedFamilies = Object.entries(breakdown)
-    .filter(([key]) => !HIDDEN_STABILITY_METRICS.has(key))
-    .filter(([, value]) => typeof value === 'number' && Number.isFinite(value) && value < STABILITY_PASS_SCORE)
-    .map(([key]) => STABILITY_ISSUE_FAMILIES[key] || key);
-  return new Set(failedFamilies).size;
-}
-
 function stabilityBadge(entry) {
-  if (entry?.gateStable === true) {
+  const presentation = landingPresentation(entry);
+  const approachVerdict = presentation.approachVerdict;
+  const gateText = `${presentation.stabilityGateLabel} gate`;
+  if (approachVerdict === 'STABLE') {
     return {
       tone: 'stable',
       label: 'Stable',
-      shortLabel: 'OK',
-      tooltipLead: 'Stable at the approach gate',
+      shortLabel: 'STABLE',
+      tooltipLead: `Stable after the ${gateText}`,
     };
   }
-  if (entry?.gateStable !== false) {
+  if (approachVerdict === 'MARGINAL') {
+    return {
+      tone: 'marginal',
+      label: 'Marginal',
+      shortLabel: 'MARGINAL',
+      tooltipLead: `Marginal after the ${gateText}`,
+    };
+  }
+  if (approachVerdict !== 'UNSTABLE') {
     return {
       tone: 'unknown',
-      label: 'Unknown',
-      shortLabel: '--',
-      tooltipLead: '',
+      label: approachVerdict === 'NO VERDICT' ? 'No verdict' : '--',
+      shortLabel: approachVerdict || '--',
+      tooltipLead: approachVerdict === 'NO VERDICT' ? `No verdict after the ${gateText}` : '',
     };
   }
 
-  const score = Number(entry.stabilityScore);
-  const issueCount = stabilityIssueCount(entry);
-  const isUnstable = hasMajorStabilityFailure(entry)
-    || (Number.isFinite(score) && score < STABILITY_PASS_SCORE);
-  if (isUnstable) {
-    return {
-      tone: 'unstable',
-      label: 'Unstable',
-      shortLabel: 'UNST',
-      tooltipLead: 'Unstable at the approach gate',
-    };
-  }
-
-  const issueLabel = issueCount > 0
-    ? `${issueCount} issue${issueCount === 1 ? '' : 's'}`
-    : 'Flagged';
   return {
-    tone: 'issue',
-    label: issueLabel,
-    shortLabel: issueCount > 0 ? `${issueCount} ISSUE${issueCount === 1 ? '' : 'S'}` : 'FLAG',
-    tooltipLead: issueCount > 0 ? `${issueLabel} at the approach gate` : 'Flagged at the approach gate',
+    tone: 'unstable',
+    label: 'Unstable',
+    shortLabel: 'UNSTABLE',
+    tooltipLead: `Unstable after the ${gateText}`,
   };
 }
 
@@ -608,21 +591,22 @@ function stableLabel(entry) {
 function stableClass(entry) {
   const tone = stabilityBadge(entry).tone;
   if (tone === 'stable') return 'logbook-mobile-card__stable is-stable';
-  if (tone === 'unstable' || tone === 'issue') return 'logbook-mobile-card__stable is-unstable';
+  if (tone === 'marginal') return 'logbook-mobile-card__stable is-marginal';
+  if (tone === 'unstable') return 'logbook-mobile-card__stable is-unstable';
   return 'logbook-mobile-card__stable';
 }
 
 function stableDesktopClass(entry) {
   const tone = stabilityBadge(entry).tone;
   if (tone === 'stable') return 'text-[10px] text-green-400 font-medium';
-  if (tone === 'unstable' || tone === 'issue') return 'text-[10px] font-medium px-1 rounded';
+  if (tone === 'marginal' || tone === 'unstable') return 'text-[10px] font-medium px-1 rounded';
   return 'text-gray-600 text-[10px]';
 }
 
 function stableDesktopStyle(entry) {
   const tone = stabilityBadge(entry).tone;
-  if (tone === 'unstable') return { color: '#f97316', background: 'rgba(249,115,22,0.12)' };
-  if (tone === 'issue') return { color: '#facc15', background: 'rgba(250,204,21,0.12)' };
+  if (tone === 'marginal') return { color: '#f59e0b', background: 'rgba(245,158,11,0.12)' };
+  if (tone === 'unstable') return { color: '#ef4444', background: 'rgba(239,68,68,0.12)' };
   return null;
 }
 
@@ -634,9 +618,7 @@ function humanizeGateFailure(failure) {
 }
 
 function stabilityBreakdownReasons(entry) {
-  const breakdown = entry?.stabilityBreakdown && typeof entry.stabilityBreakdown === 'object'
-    ? entry.stabilityBreakdown
-    : null;
+  const breakdown = entryUltimateStability(entry)?.breakdown || null;
   if (!breakdown) return [];
   return Object.entries(breakdown)
     .filter(([key]) => !HIDDEN_STABILITY_METRICS.has(key))
@@ -646,18 +628,31 @@ function stabilityBreakdownReasons(entry) {
     .map(([key, value]) => `${STABILITY_BREAKDOWN_LABELS[key] || humanizeGateFailure(key)} ${Math.round(Number(value))}%`);
 }
 
+function stabilityCauseText(entry) {
+  if (!['marginal', 'unstable'].includes(stabilityBadge(entry).tone)) return '';
+  const breakdownReasons = stabilityBreakdownReasons(entry).slice(0, 2);
+  if (breakdownReasons.length > 0) return breakdownReasons.join(' · ');
+  return gateFailureKeys(entry)
+    .map(humanizeGateFailure)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' · ');
+}
+
 function stableTooltip(entry) {
   if (!entry) return '';
   const badge = stabilityBadge(entry);
+  const ultimateStability = entryUltimateStability(entry);
   const profileText = getStabilityContextSummary(
-    entry.stabilityContext ?? entry.ultimateStability?.scoringContext,
+    ultimateStability?.scoringContext,
     entry.aircraftProfileId,
   ).label;
-  const scoreText = entry.stabilityScore != null && Number.isFinite(Number(entry.stabilityScore))
-    ? `Score ${Math.round(Number(entry.stabilityScore))}%`
+  const scoreText = ultimateStability?.score != null && Number.isFinite(Number(ultimateStability.score))
+    ? `Approach score ${Math.round(Number(ultimateStability.score))}%`
     : '';
-  if (entry.gateStable === true) return [badge.tooltipLead, scoreText, profileText].filter(Boolean).join(' · ');
-  if (entry.gateStable !== false) return [badge.tooltipLead, scoreText, profileText].filter(Boolean).join(' · ');
+  if (badge.tone === 'stable' || badge.tone === 'unknown') {
+    return [badge.tooltipLead, scoreText, profileText].filter(Boolean).join(' · ');
+  }
 
   const failureLabels = gateFailureKeys(entry)
     .map(humanizeGateFailure)
@@ -666,6 +661,9 @@ function stableTooltip(entry) {
   const reasons = [...new Set([...failureLabels, ...breakdownLabels])];
   return [
     reasons.length ? `${badge.tooltipLead}: ${reasons.join(', ')}` : badge.tooltipLead,
+    badge.tone === 'marginal'
+      ? `Strict check missed, without a hard or substantial deviation (recorded threshold ${landingPresentation(entry).stabilityPassPct}%)`
+      : '',
     scoreText,
     profileText,
   ].filter(Boolean).join(' · ');
@@ -685,18 +683,13 @@ function gradePillStyle(grade) {
   };
 }
 
+function entryGradePillStyle(entry) {
+  return gradePillStyle(touchdownGrade(entry));
+}
+
 function visibleGradeAccentColor(grade) {
   const border = GRADE_BORDER[grade];
   return border && border !== 'transparent' ? border : gradeColor(grade);
-}
-
-function accentStyle(grade) {
-  return {
-    width: '3px',
-    height: '100%',
-    background: visibleGradeAccentColor(grade),
-    minHeight: '2.5rem',
-  };
 }
 
 function mobileCardVars(grade) {
@@ -704,6 +697,10 @@ function mobileCardVars(grade) {
     '--logbook-border': visibleGradeAccentColor(grade),
     '--logbook-accent': gradeColor(grade),
   };
+}
+
+function entryMobileCardVars(entry) {
+  return mobileCardVars(touchdownGrade(entry));
 }
 
 function trendLabel(value) {
@@ -722,6 +719,23 @@ function trendTone(value) {
   if (value === 'regressing') return 'text-amber-400';
   if (value === 'stable') return 'text-gray-400';
   return 'text-gray-600';
+}
+
+function trendStabilityText(row) {
+  const finiteRate = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const stable = finiteRate(row?.stableRatePct);
+  const marginal = finiteRate(row?.marginalRatePct);
+  const acceptable = finiteRate(row?.acceptableRatePct);
+  if (stable !== null && marginal !== null) {
+    return `${stable}% stable · ${marginal}% marginal`;
+  }
+  if (acceptable !== null) return `${acceptable}% acceptable`;
+  if (stable !== null) return `${stable}% strict stable`;
+  return '';
 }
 </script>
 
@@ -764,11 +778,11 @@ function trendTone(value) {
         <div class="text-lg font-semibold text-gray-200 tabular-nums">{{ knownLandingCount }}</div>
       </div>
       <div>
-        <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">Perfect</div>
+        <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">Perfect touchdown rates</div>
         <div class="text-lg font-semibold tabular-nums" style="color:#22c55e">{{ indexedDetailsUnavailable ? '--' : (gradeCounts.PERFECT || 0) }}</div>
       </div>
       <div>
-        <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">Avg V/S</div>
+        <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">Avg touchdown rate</div>
         <div class="text-lg font-semibold text-gray-200 tabular-nums">
           {{ logbook.stats.avgVsFpm != null ? `${logbook.stats.avgVsFpm} fpm` : '--' }}
         </div>
@@ -789,7 +803,7 @@ function trendTone(value) {
 
     <div v-if="hasEntries" class="px-3 sm:px-4 pt-3 pb-2 border-b border-surface-200">
       <div class="logbook-grade-header">
-        <span class="text-[10px] uppercase tracking-widest text-gray-500">Grade breakdown</span>
+        <span class="text-[10px] uppercase tracking-widest text-gray-500">Touchdown rate grade breakdown</span>
         <div class="logbook-grade-meta">
           <span v-if="bestInlineText" class="logbook-grade-best">{{ bestInlineText }}</span>
           <span v-if="butterStreak">{{ butterStreak }}</span>
@@ -813,10 +827,7 @@ function trendTone(value) {
         <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts.GOOD || 0 }}</span><span style="color:#38bdf8">Good</span></span>
         <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts.FIRM || 0 }}</span><span style="color:#facc15">Firm</span></span>
         <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts.HARD || 0 }}</span><span style="color:#f97316">Hard</span></span>
-        <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts['Long Landing'] || 0 }}</span><span style="color:#f97316">Long</span></span>
         <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts['VERY HARD'] || 0 }}</span><span style="color:#ef4444">Very Hard</span></span>
-        <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts['Short Landing'] || 0 }}</span><span style="color:#ef4444">Short</span></span>
-        <span class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts['RUNWAY EXCURSION'] || 0 }}</span><span style="color:#ef4444">Excursion</span></span>
         <span v-if="gradeCounts.OTHER" class="logbook-grade-legend-item"><span class="logbook-grade-legend-count">{{ gradeCounts.OTHER }}</span><span style="color:#94a3b8">Other</span></span>
       </div>
     </div>
@@ -843,12 +854,12 @@ function trendTone(value) {
                 <div class="text-[10px] text-gray-600">
                   {{ row.count }} landings
                   <span v-if="row.avgVsFpm != null">&middot; avg {{ row.avgVsFpm }} fpm</span>
-                  <span v-if="row.avgStabilityScore != null">&middot; stab {{ row.avgStabilityScore }}%</span>
+                  <span v-if="row.avgStabilityScore != null">&middot; avg approach score {{ row.avgStabilityScore }}%</span>
                 </div>
               </div>
               <div class="shrink-0 text-right">
-                <div v-if="hasTrendVs(row.trendVs)" class="text-[10px]" :class="trendTone(row.trendVs)">VS {{ trendLabel(row.trendVs) }}</div>
-                <div v-if="row.stableRatePct != null" class="text-[10px] text-gray-600">{{ row.stableRatePct }}% stable</div>
+                <div v-if="hasTrendVs(row.trendVs)" class="text-[10px]" :class="trendTone(row.trendVs)">TD rate {{ trendLabel(row.trendVs) }}</div>
+                <div v-if="trendStabilityText(row)" class="text-[10px] text-gray-600">{{ trendStabilityText(row) }}</div>
               </div>
             </div>
           </div>
@@ -864,12 +875,20 @@ function trendTone(value) {
       No landings recorded yet. Complete a flight with a landing to see your history here.
     </div>
 
+    <div
+      v-if="hasEntries"
+      id="logbook-stability-verdict-explanation"
+      class="border-b border-surface-200 px-3 py-2 text-[10px] leading-snug text-gray-500 sm:px-4"
+    >
+      Stable requires every applicable strict check to meet its recorded threshold (normally 80%). Marginal means a strict check was missed, but the approach had no hard or substantial deviation. Unstable identifies a hard configuration failure, a score below 80%, or a severe direct-metric miss.
+    </div>
+
     <div v-if="hasEntries && !isDesktopLayout" class="logbook-mobile-list">
       <article
         v-for="entry in logbook.entries"
         :key="entry.id || `${entry.timestamp}-${entry.vsFpm}`"
         class="logbook-mobile-card"
-        :style="mobileCardVars(outcomeGrade(entry))"
+        :style="entryMobileCardVars(entry)"
       >
         <div class="logbook-mobile-card__top">
           <div>
@@ -881,27 +900,37 @@ function trendTone(value) {
             </div>
           </div>
           <div>
-            <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" :style="gradePillStyle(outcomeGrade(entry))">
-              {{ outcomeGradeLabel(entry) }}
+            <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" :style="entryGradePillStyle(entry)">
+              TD RATE {{ touchdownGradeLabel(entry) }}
             </span>
           </div>
         </div>
         <div class="logbook-mobile-card__stats">
           <div>
-            <span class="logbook-mobile-card__stat-label">Vertical Speed</span>
+            <span class="logbook-mobile-card__stat-label">Touchdown Rate</span>
             <span class="logbook-mobile-card__stat-value logbook-mobile-card__vs">{{ num(entry.vsFpm) }} fpm</span>
           </div>
           <div>
             <span class="logbook-mobile-card__stat-label">TDZ</span>
             <AppTooltip :content="touchdownTooltip(entry)" :disabled="!touchdownTooltip(entry)">
-              <span class="logbook-mobile-card__stat-value" :style="{ color: gradeColor(outcomeGrade(entry)) }">{{ touchdownLabel(entry) }}</span>
+              <span class="inline-flex flex-col">
+                <span class="logbook-mobile-card__stat-value" :style="{ color: landingPresentation(entry).verdict.touchdown.color }">{{ touchdownLabel(entry) }}</span>
+                <span v-if="touchdownSubLabel(entry)" class="text-[9px] font-normal opacity-75 leading-tight">{{ touchdownSubLabel(entry) }}</span>
+              </span>
             </AppTooltip>
           </div>
           <div>
-            <span class="logbook-mobile-card__stat-label">Approach Gate</span>
+            <span class="logbook-mobile-card__stat-label">Approach</span>
             <AppTooltip :content="stableTooltip(entry)" :disabled="!stableTooltip(entry)">
-              <span :class="stableClass(entry)">{{ stableLabel(entry) }}</span>
+              <span class="inline-flex max-w-full flex-col">
+                <span :class="stableClass(entry)">{{ stableLabel(entry) }}</span>
+                <span v-if="stabilityCauseText(entry)" class="mt-0.5 text-[9px] font-normal leading-tight text-gray-500">{{ stabilityCauseText(entry) }}</span>
+              </span>
             </AppTooltip>
+          </div>
+          <div>
+            <span class="logbook-mobile-card__stat-label">Bounce</span>
+            <span class="logbook-mobile-card__stat-value">{{ bounceLabel(entry) }}</span>
           </div>
         </div>
       </article>
@@ -911,13 +940,13 @@ function trendTone(value) {
       <table class="w-full text-xs">
         <thead>
           <tr class="text-[10px] uppercase tracking-widest text-gray-500 border-b border-surface-200 bg-surface-50/40">
-            <th class="w-1 p-0"></th>
             <th class="px-3 py-2 text-left font-medium">Date</th>
             <th class="px-3 py-2 text-left font-medium">Aircraft · Airport</th>
-            <th class="px-3 py-2 text-right font-medium">V/S</th>
+            <th class="px-3 py-2 text-right font-medium">Touchdown Rate</th>
+            <th class="px-3 py-2 text-center font-medium">Touchdown Rate Grade</th>
             <th class="px-3 py-2 text-center font-medium">TDZ</th>
-            <th class="px-3 py-2 text-center font-medium">Grade</th>
-            <th class="px-3 py-2 text-center font-medium">Stable</th>
+            <th class="px-3 py-2 text-center font-medium">Approach</th>
+            <th class="px-3 py-2 text-center font-medium">Bounce</th>
           </tr>
         </thead>
         <tbody>
@@ -926,7 +955,6 @@ function trendTone(value) {
             :key="entry.id || `${entry.timestamp}-${entry.vsFpm}`"
             class="transition-colors hover:bg-surface-50/20"
           >
-            <td class="w-1 p-0"><div :style="accentStyle(outcomeGrade(entry))"></div></td>
             <td class="pl-2 pr-3 py-2.5 whitespace-nowrap text-xs text-gray-400 font-mono">{{ formatDate(entry.timestamp) }}</td>
             <td class="px-3 py-2.5 text-xs">
               <AppTooltip :content="entry.aircraft || ''" :disabled="!entry.aircraft" anchor-class="min-w-0" anchor-tag="div">
@@ -941,6 +969,11 @@ function trendTone(value) {
               {{ num(entry.vsFpm) }} fpm
             </td>
             <td class="px-3 py-2.5 whitespace-nowrap text-center">
+              <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" :style="entryGradePillStyle(entry)">
+                {{ touchdownGradeLabel(entry) }}
+              </span>
+            </td>
+            <td class="px-3 py-2.5 whitespace-nowrap text-center">
               <AppTooltip :content="touchdownTooltip(entry)" :disabled="!touchdownTooltip(entry)">
                 <span class="inline-flex flex-col items-center text-[10px] font-semibold px-1.5 py-0.5 rounded leading-tight" :style="touchdownStyle(entry)">
                   <span>{{ touchdownLabel(entry) }}</span>
@@ -949,14 +982,15 @@ function trendTone(value) {
               </AppTooltip>
             </td>
             <td class="px-3 py-2.5 whitespace-nowrap text-center">
-              <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" :style="gradePillStyle(outcomeGrade(entry))">
-                {{ outcomeGradeLabel(entry) }}
-              </span>
-            </td>
-            <td class="px-3 py-2.5 whitespace-nowrap text-center">
               <AppTooltip :content="stableTooltip(entry)" :disabled="!stableTooltip(entry)">
-                <span :class="stableDesktopClass(entry)" :style="stableDesktopStyle(entry)">{{ stabilityBadge(entry).shortLabel }}</span>
+                <span class="inline-flex flex-col items-center">
+                  <span :class="stableDesktopClass(entry)" :style="stableDesktopStyle(entry)">{{ stabilityBadge(entry).shortLabel }}</span>
+                  <span v-if="stabilityCauseText(entry)" class="mt-0.5 text-[9px] font-normal leading-tight text-gray-500">{{ stabilityCauseText(entry) }}</span>
+                </span>
               </AppTooltip>
+            </td>
+            <td class="px-3 py-2.5 whitespace-nowrap text-center text-[10px] font-semibold text-gray-300">
+              {{ bounceLabel(entry) }}
             </td>
           </tr>
         </tbody>

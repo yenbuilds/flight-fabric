@@ -19,6 +19,7 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
     automation: string;
     aircraftSpecific: string;
     status: string;
+    analysisRescore: string;
   };
   BUNDLE_LAYOUT_VERSION: number;
   getArtifactPathForCsv: (_csvPath: unknown, _role: 'status') => string | null;
@@ -30,6 +31,7 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
       automation: string;
       aircraftSpecific: string;
       status: string;
+      analysisRescore: string;
     };
   } | null;
   getBundlePaths: (_outputDir: string, _bundleName: string) => {
@@ -37,6 +39,7 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
     automation: string;
     aircraftSpecific: string;
     status: string;
+    analysisRescore: string;
   };
 };
 const { TextDecoder } = require('node:util') as typeof import('node:util');
@@ -234,6 +237,9 @@ function inspectCatalogFingerprintSync(csvPath: string): {
   const entries: Array<[string, string]> = [
     ...ARTIFACT_DEFINITIONS.map(({ role }) => [role, artifactPaths[role]] as [string, string]),
     ['status', getBundleStatusPathForCsv(resolvedCsvPath)],
+    // Mutable user analysis is not part of the immutable completion
+    // certificate, but it must advance history/logbook cache identities.
+    ['analysisRescore', bundle.paths.analysisRescore],
   ];
   const revisionParts: string[] = [];
   let bundleSizeBytes = 0;
@@ -243,7 +249,7 @@ function inspectCatalogFingerprintSync(csvPath: string): {
       if (stat.isFile() && !stat.isSymbolicLink()) {
         bundleSizeBytes += stat.size;
       }
-      revisionParts.push([
+      const revisionMetadata: Array<string | number> = [
         role,
         stat.isFile() ? 'file' : (stat.isSymbolicLink() ? 'symlink' : 'other'),
         stat.dev,
@@ -253,7 +259,11 @@ function inspectCatalogFingerprintSync(csvPath: string): {
         // metadata-only activity even when certified bytes and mtime remain
         // unchanged, which must not evict a healthy flight from the catalog.
         stat.mtimeMs,
-      ].join(':'));
+      ];
+      // This optional analysis file is atomically replaced. Include ctime as
+      // an extra cache-buster for same-size rewrites on coarse-mtime filesystems.
+      if (role === 'analysisRescore') revisionMetadata.push(stat.ctimeMs);
+      revisionParts.push(revisionMetadata.join(':'));
     } catch (error) {
       const rawCode = nonEmptyText((error as NodeJS.ErrnoException)?.code);
       const safeCode = rawCode && /^[A-Z0-9_]+$/i.test(rawCode) ? rawCode : 'IO_ERROR';
@@ -1211,6 +1221,25 @@ function inspectRecordingBundleStatusSync(
       statusStat.mtimeMs,
       statusStat.ctimeMs,
     ].join(':'));
+    try {
+      const rescoreStat = fs.lstatSync(bundle.paths.analysisRescore);
+      const rescoreKind = rescoreStat.isFile()
+        ? (rescoreStat.isSymbolicLink() ? 'symlink' : 'file')
+        : 'other';
+      if (rescoreKind === 'file') bundleSizeBytes += rescoreStat.size;
+      revisionParts.push([
+        'analysisRescore',
+        rescoreKind,
+        rescoreStat.dev,
+        rescoreStat.ino,
+        rescoreStat.size,
+        rescoreStat.mtimeMs,
+        rescoreStat.ctimeMs,
+      ].join(':'));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      revisionParts.push(`analysisRescore:${code === 'ENOENT' ? 'missing' : 'unreadable'}`);
+    }
     const catalogRevision = Number.parseInt(
       crypto.createHash('sha256').update(revisionParts.join('|')).digest('hex').slice(0, 12),
       16,

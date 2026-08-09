@@ -170,6 +170,90 @@ function flightIdentityKey(flight) {
   return flight.filePath || flight.flightId || '';
 }
 
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function nonNegativeInteger(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function comparisonDisplayValue(value) {
+  if (value == null || value === '') return '--';
+  if (typeof value === 'string') return value.trim() || '--';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    return comparisonDisplayValue(value.display ?? value.label ?? value.value);
+  }
+  return '--';
+}
+
+function normalizeAnalysisRescoreStatus(value) {
+  if (!value || typeof value !== 'object') {
+    return { applied: false, revision: null, appliedAt: null, snapshotFingerprint: null };
+  }
+  return {
+    applied: value.applied === true,
+    revision: nonNegativeInteger(value.revision),
+    appliedAt: nonEmptyString(value.appliedAt),
+    snapshotFingerprint: nonEmptyString(value.snapshotFingerprint),
+  };
+}
+
+function normalizeAnalysisRescoreMetric(metric, index) {
+  if (!metric || typeof metric !== 'object') return null;
+  const recorded = comparisonDisplayValue(metric.recorded ?? metric.original);
+  const current = comparisonDisplayValue(metric.current ?? metric.rescored);
+  return {
+    key: nonEmptyString(metric.key) || `metric-${index}`,
+    label: nonEmptyString(metric.label) || nonEmptyString(metric.key) || `Result ${index + 1}`,
+    recorded,
+    current,
+    changed: metric.changed === true || recorded !== current,
+  };
+}
+
+function normalizeAnalysisRescorePreview(value) {
+  if (!value || typeof value !== 'object') return null;
+  const sourceGroups = Array.isArray(value.landings)
+    ? value.landings
+    : (Array.isArray(value.groups) ? value.groups : []);
+  const groups = sourceGroups.map((group, groupIndex) => {
+    if (!group || typeof group !== 'object') return null;
+    const metrics = (Array.isArray(group.metrics) ? group.metrics : [])
+      .map(normalizeAnalysisRescoreMetric)
+      .filter(Boolean)
+      .sort((left, right) => Number(right.changed) - Number(left.changed));
+    return {
+      key: nonEmptyString(group.landingKey) || nonEmptyString(group.key) || `landing-${groupIndex}`,
+      label: nonEmptyString(group.label) || `Landing ${groupIndex + 1}`,
+      available: group.available !== false,
+      reason: nonEmptyString(group.reason),
+      metrics,
+    };
+  }).filter(Boolean);
+  const calculatedChanges = groups.reduce(
+    (total, group) => total + group.metrics.filter((metric) => metric.changed).length,
+    0,
+  );
+  const reportedChanges = nonNegativeInteger(value.changedMetricCount);
+  const landingCount = nonNegativeInteger(value.landingCount);
+  const complete = value.complete !== false && groups.every((group) => group.available);
+  return {
+    available: value.available === true && complete,
+    previewFingerprint: nonEmptyString(value.previewFingerprint),
+    baseRevision: nonNegativeInteger(value.baseRevision),
+    sourceFingerprint: nonEmptyString(value.sourceFingerprint),
+    analysisContractFingerprint: nonEmptyString(value.analysisContractFingerprint),
+    changedMetricCount: reportedChanges ?? calculatedChanges,
+    landingCount: landingCount ?? groups.length,
+    saveRequired: value.saveRequired !== false,
+    groups,
+    reason: nonEmptyString(value.reason),
+  };
+}
+
 function mergeFlightRows(existingRows, nextRows) {
   const rows = Array.isArray(existingRows) ? existingRows.slice() : [];
   const seen = new Set(rows.map(flightIdentityKey).filter(Boolean));
@@ -205,6 +289,7 @@ export const useTimelineStore = defineStore('timeline', {
     timelineLoadingFlightLabel: '',
     timelineLoadingStartedAtMs: 0,
     timelineLoadingRequestId: 0,
+    timelineRequestId: 0,
     loadedTimelineFilePath: '',
     loadedTimelineFlightId: '',
     loadedTimelineFlightLabel: '',
@@ -236,6 +321,17 @@ export const useTimelineStore = defineStore('timeline', {
     detailLandingActionVisible: false,
     detailLandingActionBound: false,
     selectedLandingEvent: null,
+    analysisRescore: normalizeAnalysisRescoreStatus(null),
+    analysisRescorePreviewStatus: 'idle',
+    analysisRescorePreviewRequestId: 0,
+    analysisRescorePreview: null,
+    analysisRescorePreviewError: '',
+    analysisRescoreStatus: 'idle',
+    analysisRescoreRequestId: 0,
+    analysisRescorePendingRefreshRequestId: null,
+    analysisRescoreLastAction: '',
+    analysisRescoreMessage: '',
+    analysisRescoreError: '',
     pendingFlightLandingRequest: null,
     timelineMobileViewerOpen: false,
     mapEmptyVisible: true,
@@ -341,6 +437,38 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     timelineLoading: (state) => state.timelineLoadStatus === 'loading',
+
+    analysisRescoreBusy: (state) => Boolean(
+      state.analysisRescorePreviewStatus === 'loading'
+      || ['applying', 'reverting', 'refreshing'].includes(state.analysisRescoreStatus)
+    ),
+
+    canRequestAnalysisRescorePreview: (state) => Boolean(
+      state.requestTimelineActionBound
+      && (state.loadedTimelineFilePath || state.loadedTimelineFlightId)
+      && state.analysisRescorePreviewStatus !== 'loading'
+      && !['applying', 'reverting', 'refreshing'].includes(state.analysisRescoreStatus)
+    ),
+
+    canApplyFlightAnalysisRescore: (state) => Boolean(
+      state.requestTimelineActionBound
+      && state.analysisRescorePreviewStatus === 'ready'
+      && state.analysisRescorePreview?.available === true
+      && state.analysisRescorePreview?.previewFingerprint
+      && state.analysisRescorePreview?.sourceFingerprint
+      && state.analysisRescorePreview?.analysisContractFingerprint
+      && Number.isSafeInteger(state.analysisRescorePreview?.baseRevision)
+      && state.analysisRescorePreview?.saveRequired !== false
+      && !['applying', 'reverting', 'refreshing'].includes(state.analysisRescoreStatus)
+    ),
+
+    canRevertFlightAnalysisRescore: (state) => Boolean(
+      state.requestTimelineActionBound
+      && state.analysisRescore?.applied === true
+      && Number.isSafeInteger(state.analysisRescore?.revision)
+      && state.analysisRescore?.snapshotFingerprint
+      && !['applying', 'reverting', 'refreshing'].includes(state.analysisRescoreStatus)
+    ),
   },
 
   actions: {
@@ -556,6 +684,7 @@ export const useTimelineStore = defineStore('timeline', {
 
     requestTimeline(filePathOrFlightId, legacyFlightId, options = {}) {
       const payload = this.buildTimelineRequestPayload(filePathOrFlightId, legacyFlightId);
+      this.assignTimelineRequestId(payload);
       const openViewer = options.openViewer !== false;
 
       this.beginTimelineLoading({
@@ -657,12 +786,28 @@ export const useTimelineStore = defineStore('timeline', {
         this.loadedTimelineFilePath = '';
         this.loadedTimelineFlightId = '';
         this.loadedTimelineFlightLabel = '';
+        this.analysisRescore = normalizeAnalysisRescoreStatus(null);
+        this.clearAnalysisRescorePreview();
+        this.clearAnalysisRescoreActionState();
         return;
       }
 
-      this.loadedTimelineFilePath = typeof timeline.filePath === 'string' ? timeline.filePath : '';
-      this.loadedTimelineFlightId = typeof timeline.flightId === 'string' ? timeline.flightId : '';
+      const nextFilePath = typeof timeline.filePath === 'string' ? timeline.filePath : '';
+      const nextFlightId = typeof timeline.flightId === 'string' ? timeline.flightId : '';
+      const hadIdentity = Boolean(this.loadedTimelineFilePath || this.loadedTimelineFlightId);
+      const sameIdentity = Boolean(
+        (nextFilePath && this.loadedTimelineFilePath
+          && flightPathMatches(nextFilePath, this.loadedTimelineFilePath))
+        || (nextFlightId && this.loadedTimelineFlightId && nextFlightId === this.loadedTimelineFlightId)
+      );
+      if (hadIdentity && !sameIdentity) {
+        this.clearAnalysisRescorePreview();
+        this.clearAnalysisRescoreActionState();
+      }
+      this.loadedTimelineFilePath = nextFilePath;
+      this.loadedTimelineFlightId = nextFlightId;
       this.loadedTimelineFlightLabel = getFlightRouteLabel(timeline) || this.loadedTimelineFlightId || 'current timeline';
+      this.analysisRescore = normalizeAnalysisRescoreStatus(timeline.analysisRescore);
     },
 
     refreshTimelinePage() {
@@ -937,6 +1082,231 @@ export const useTimelineStore = defineStore('timeline', {
       return this._onOpenSelectedLanding(this.selectedLandingEvent) !== false;
     },
 
+    clearAnalysisRescorePreview() {
+      this.analysisRescorePreviewStatus = 'idle';
+      this.analysisRescorePreview = null;
+      this.analysisRescorePreviewError = '';
+    },
+
+    requestAnalysisRescorePreview() {
+      if (!this.canRequestAnalysisRescorePreview || typeof this._onRequestTimeline !== 'function') {
+        return false;
+      }
+      const payload = this.buildTimelineRequestPayload(
+        this.loadedTimelineFilePath || this.loadedTimelineFlightId,
+        this.loadedTimelineFlightId,
+      );
+      this.analysisRescorePreviewRequestId += 1;
+      payload.requestId = this.analysisRescorePreviewRequestId;
+      payload.scoringMode = 'current-preview';
+      this.analysisRescorePreviewStatus = 'loading';
+      this.analysisRescorePreview = null;
+      this.analysisRescorePreviewError = '';
+      this.analysisRescoreStatus = 'idle';
+      this.analysisRescoreLastAction = '';
+      this.analysisRescoreMessage = '';
+      this.analysisRescoreError = '';
+      try {
+        if (this._onRequestTimeline(payload) === false) {
+          this.failAnalysisRescorePreview('Could not request the current-rules analysis preview');
+          return false;
+        }
+      } catch (error) {
+        this.failAnalysisRescorePreview(error?.message || 'Could not request the current-rules analysis preview');
+        throw error;
+      }
+      return true;
+    },
+
+    applyAnalysisRescorePreviewMessage(message) {
+      if (this.analysisRescorePreviewStatus !== 'loading') return false;
+      if (!Number.isSafeInteger(message?.requestId)
+          || message.requestId !== this.analysisRescorePreviewRequestId) return false;
+      const preview = normalizeAnalysisRescorePreview(message?.timeline?.analysisRescorePreview);
+      if (!preview) {
+        this.failAnalysisRescorePreview('The flight analysis was not available in the current-rules preview');
+        return false;
+      }
+      this.analysisRescorePreview = preview;
+      this.analysisRescorePreviewStatus = 'ready';
+      this.analysisRescorePreviewError = '';
+      return true;
+    },
+
+    failAnalysisRescorePreview(message = '') {
+      this.analysisRescorePreviewStatus = 'error';
+      this.analysisRescorePreview = null;
+      this.analysisRescorePreviewError = String(message || '').trim()
+        || 'Could not preview the current flight-analysis rules';
+    },
+
+    applyAnalysisRescorePreviewError(message) {
+      if (this.analysisRescorePreviewStatus !== 'loading') return false;
+      if (!Number.isSafeInteger(message?.requestId)
+          || message.requestId !== this.analysisRescorePreviewRequestId) return false;
+      this.failAnalysisRescorePreview(message?.error);
+      return true;
+    },
+
+    clearAnalysisRescoreActionState() {
+      this.analysisRescoreStatus = 'idle';
+      this.analysisRescorePendingRefreshRequestId = null;
+      this.analysisRescoreLastAction = '';
+      this.analysisRescoreMessage = '';
+      this.analysisRescoreError = '';
+    },
+
+    requestFlightAnalysisRescore(action = 'apply') {
+      const normalizedAction = action === 'revert' ? 'revert' : 'apply';
+      const allowed = normalizedAction === 'apply'
+        ? this.canApplyFlightAnalysisRescore
+        : this.canRevertFlightAnalysisRescore;
+      if (!allowed || typeof this._onRequestTimeline !== 'function') return false;
+
+      const payload = this.buildTimelineRequestPayload(
+        this.loadedTimelineFilePath || this.loadedTimelineFlightId,
+        this.loadedTimelineFlightId,
+      );
+      payload.type = normalizedAction === 'apply'
+        ? 'applyFlightAnalysisRescore'
+        : 'revertFlightAnalysisRescore';
+      this.analysisRescoreRequestId += 1;
+      payload.requestId = this.analysisRescoreRequestId;
+      if (normalizedAction === 'apply') {
+        payload.previewFingerprint = this.analysisRescorePreview.previewFingerprint;
+        payload.baseRevision = this.analysisRescorePreview.baseRevision;
+        payload.sourceFingerprint = this.analysisRescorePreview.sourceFingerprint;
+        payload.analysisContractFingerprint = this.analysisRescorePreview.analysisContractFingerprint;
+      } else {
+        payload.expectedRevision = this.analysisRescore.revision;
+        payload.expectedSnapshotFingerprint = this.analysisRescore.snapshotFingerprint;
+      }
+      this.analysisRescoreStatus = normalizedAction === 'apply' ? 'applying' : 'reverting';
+      this.analysisRescoreLastAction = normalizedAction;
+      this.analysisRescoreMessage = '';
+      this.analysisRescoreError = '';
+      try {
+        if (this._onRequestTimeline(payload) === false) {
+          this.failFlightAnalysisRescore('Could not update the saved flight analysis');
+          return false;
+        }
+      } catch (error) {
+        this.failFlightAnalysisRescore(error?.message || 'Could not update the saved flight analysis');
+        throw error;
+      }
+      return true;
+    },
+
+    applyCurrentFlightAnalysisRescore() {
+      return this.requestFlightAnalysisRescore('apply');
+    },
+
+    revertFlightAnalysisRescore() {
+      return this.requestFlightAnalysisRescore('revert');
+    },
+
+    applyFlightAnalysisRescoreResult(message) {
+      if (!['applying', 'reverting'].includes(this.analysisRescoreStatus)) return false;
+      if (!Number.isSafeInteger(message?.requestId)
+          || message.requestId !== this.analysisRescoreRequestId) return false;
+      const expectedAction = this.analysisRescoreStatus === 'reverting' ? 'revert' : 'apply';
+      if (message?.action && message.action !== expectedAction) return false;
+      if (message?.success !== true) {
+        this.failFlightAnalysisRescore(message?.error);
+        return false;
+      }
+      const revision = nonNegativeInteger(message.revision);
+      if (expectedAction === 'revert') {
+        this.analysisRescore = {
+          applied: false,
+          revision,
+          appliedAt: null,
+          snapshotFingerprint: null,
+        };
+        this.analysisRescoreMessage = 'Recorded flight analysis restored. Refreshing Timeline and Logbook...';
+      } else {
+        this.analysisRescore = {
+          applied: true,
+          revision,
+          appliedAt: nonEmptyString(message.appliedAt),
+          snapshotFingerprint: nonEmptyString(message.snapshotFingerprint),
+        };
+        this.analysisRescoreMessage = 'Current flight analysis saved. Refreshing Timeline and Logbook...';
+      }
+      this.clearAnalysisRescorePreview();
+      this.analysisRescoreStatus = 'refreshing';
+      this.analysisRescoreLastAction = expectedAction;
+      this.analysisRescoreError = '';
+      return true;
+    },
+
+    requestFlightAnalysisRescoreRefresh() {
+      if (this.analysisRescoreStatus !== 'refreshing'
+          || typeof this._onRequestTimeline !== 'function') return false;
+      const timelinePayload = this.buildTimelineRequestPayload(
+        this.loadedTimelineFilePath || this.loadedTimelineFlightId,
+        this.loadedTimelineFlightId,
+      );
+      if (!timelinePayload.filePath && !timelinePayload.flightId) {
+        this.failFlightAnalysisRescore('The analysis was updated, but the flight could not be refreshed. Select Refresh Page.');
+        return false;
+      }
+      this.assignTimelineRequestId(timelinePayload);
+      this.analysisRescorePendingRefreshRequestId = timelinePayload.requestId;
+      let timelineRequested = false;
+      try {
+        timelineRequested = this._onRequestTimeline(timelinePayload) !== false;
+        this.requestList();
+        this._onRequestTimeline({ type: 'requestLogbook', limit: 500 });
+      } catch (error) {
+        this.failFlightAnalysisRescore(
+          `The analysis was updated, but history refresh failed: ${error?.message || 'unknown error'}`,
+        );
+        throw error;
+      }
+      if (!timelineRequested) {
+        this.failFlightAnalysisRescore('The analysis was updated, but the flight could not be refreshed. Select Refresh Page.');
+        return false;
+      }
+      return true;
+    },
+
+    isFlightAnalysisRescoreRefreshMessage(message) {
+      return this.analysisRescoreStatus === 'refreshing'
+        && Number.isSafeInteger(message?.requestId)
+        && message.requestId === this.analysisRescorePendingRefreshRequestId;
+    },
+
+    finishFlightAnalysisRescoreRefresh(message) {
+      if (!this.isFlightAnalysisRescoreRefreshMessage(message)) return false;
+      this.analysisRescorePendingRefreshRequestId = null;
+      if (this.analysisRescoreLastAction === 'revert') {
+        this.analysisRescoreStatus = 'reverted';
+        this.analysisRescoreMessage = 'All recorded flight-analysis scoring has been restored.';
+      } else {
+        this.analysisRescoreStatus = 'applied';
+        this.analysisRescoreMessage = 'All current flight-analysis scoring has been saved.';
+      }
+      this.analysisRescoreError = '';
+      return true;
+    },
+
+    failFlightAnalysisRescoreRefresh(message) {
+      if (!this.isFlightAnalysisRescoreRefreshMessage(message)) return false;
+      this.analysisRescorePendingRefreshRequestId = null;
+      this.failFlightAnalysisRescore(
+        'The analysis was updated, but the refreshed Timeline could not be loaded. Select Refresh Page.',
+      );
+      return true;
+    },
+
+    failFlightAnalysisRescore(message = '') {
+      this.analysisRescoreStatus = 'error';
+      this.analysisRescoreMessage = '';
+      this.analysisRescoreError = String(message || '').trim()
+        || 'Could not update the saved flight analysis';
+    },
+
     openFlightLanding(flight) {
       if (typeof this._onOpenFlightLanding === 'function') {
         return this._onOpenFlightLanding(flight) !== false;
@@ -948,9 +1318,25 @@ export const useTimelineStore = defineStore('timeline', {
       const requestedFlightId = typeof filePathOrFlightId === 'string' && filePathOrFlightId
         ? filePathOrFlightId
         : legacyFlightId;
-      return typeof filePathOrFlightId === 'string' && filePathOrFlightId.includes('.')
+      const looksLikeCsvPath = typeof filePathOrFlightId === 'string'
+        && (/[\\/]/.test(filePathOrFlightId) || /\.csv$/i.test(filePathOrFlightId));
+      return looksLikeCsvPath
         ? { type: 'requestTimeline', filePath: filePathOrFlightId, flightId: legacyFlightId }
         : { type: 'requestTimeline', flightId: requestedFlightId };
+    },
+
+    assignTimelineRequestId(payload) {
+      this.timelineRequestId += 1;
+      payload.requestId = this.timelineRequestId;
+      // A newer normal Timeline request supersedes any landing-card handoff
+      // that was waiting on an older replay response.
+      this.pendingFlightLandingRequest = null;
+      return payload.requestId;
+    },
+
+    isCurrentTimelineRequestMessage(message) {
+      return Number.isSafeInteger(message?.requestId)
+        && message.requestId === this.timelineRequestId;
     },
 
     requestFlightLanding(flight) {
@@ -963,6 +1349,7 @@ export const useTimelineStore = defineStore('timeline', {
         return false;
       }
       const payload = this.buildTimelineRequestPayload(flight?.filePath, flight?.flightId);
+      this.assignTimelineRequestId(payload);
       const flightKey = flightIdentityKey(flight);
       const flightLabel = getFlightRouteLabel(flight) || flight?.flightId || 'selected flight';
       this.pendingFlightLandingRequest = {

@@ -2,6 +2,10 @@
 
 type AnyRecord = Record<string, any>;
 
+const { classifyApproachStability } = require('./stability-runner.js') as {
+  classifyApproachStability: (_value: AnyRecord | null | undefined) => string;
+};
+
 const RETIRED_SPOILER_FAILURE = 'spoilers_moved_after_gate';
 const SCORE_METRIC_KEYS = Object.freeze([
   'config_ok',
@@ -20,6 +24,7 @@ const CONFIG_SCORE_CAPS: Readonly<Record<string, number>> = Object.freeze({
   gear_changed_after_gate: 70,
   flaps_changed_after_gate: 70,
 });
+const STABILITY_VERDICTS = new Set(['stable', 'marginal', 'unstable', 'no_verdict']);
 
 function finiteNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
@@ -44,15 +49,24 @@ function normalizeRetiredSpoilerStability(value: unknown): AnyRecord | null {
     : null;
   const gateFailures = normalizeGateFailures(input.gateFailures);
   const hadRetiredPenalty = gateFailures.includes(RETIRED_SPOILER_FAILURE);
-  if (!hadRetiredPenalty) return { ...input, gateFailures };
+  if (!hadRetiredPenalty) {
+    const normalized = { ...input, gateFailures };
+    return {
+      ...normalized,
+      verdict: STABILITY_VERDICTS.has(input.verdict)
+        ? input.verdict
+        : classifyApproachStability(normalized),
+    };
+  }
 
   const filteredFailures = gateFailures.filter((failure) => failure !== RETIRED_SPOILER_FAILURE);
   if (!breakdown) {
-    return {
+    const normalized = {
       ...input,
       gateStable: filteredFailures.length === 0,
       gateFailures: filteredFailures,
     };
+    return { ...normalized, verdict: classifyApproachStability(normalized) };
   }
   breakdown.spoilers_ok = 100;
   const gearOk = finiteNumber(breakdown.gear_ok);
@@ -76,13 +90,14 @@ function normalizeRetiredSpoilerStability(value: unknown): AnyRecord | null {
     }
   }
 
-  return {
+  const normalized = {
     ...input,
     score,
     gateStable: filteredFailures.length === 0,
     gateFailures: filteredFailures,
     breakdown,
   };
+  return { ...normalized, verdict: classifyApproachStability(normalized) };
 }
 
 module.exports = {

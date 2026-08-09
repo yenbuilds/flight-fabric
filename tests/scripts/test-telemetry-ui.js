@@ -48,6 +48,26 @@ function getClassicInlineScripts(html) {
   return scripts;
 }
 
+function loadTelemetryUi() {
+  const context = {
+    clearTimeout,
+    console,
+    encodeURIComponent,
+    globalThis: null,
+    location: { hostname: 'localhost', port: '8100', protocol: 'http:', search: '' },
+    Promise,
+    setTimeout,
+    URLSearchParams,
+    WebSocket: { OPEN: 1 },
+    window: null,
+  };
+  context.window = context;
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(source, context, { filename: 'frontend/telemetry-ui.js' });
+  return context.TelemetryUI;
+}
+
 async function testWidgetClientFetchesBootstrapTokenAndRequestsState() {
   let openedUrl = '';
   const sentMessages = [];
@@ -224,6 +244,96 @@ function testHistoryWidgetDoesNotClearBetweenPhaseTransitions() {
   );
 }
 
+function testSharedLandingPresentationKeepsVerdictsFactual() {
+  const { landingPresentation } = loadTelemetryUi().utils;
+  const capped = landingPresentation({
+    grade: 'PERFECT',
+    touchdownDistance: {
+      distanceFt: 600,
+      grade: 'Outstanding',
+      bounceCount: 1,
+      bounceGrade: 'Single Bounce',
+    },
+    ultimateStability: { verdict: 'unstable', score: 84, gateStable: false },
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(capped, 'grade'), false, 'presentation must not expose a hybrid overall grade');
+  assert.equal(Object.prototype.hasOwnProperty.call(capped, 'gradeClass'), false, 'presentation must not expose a hybrid overall grade class');
+  assert.equal(Object.prototype.hasOwnProperty.call(capped, 'perfectCapped'), false, 'presentation must not cap the touchdown-rate grade from peer facts');
+  assert.equal(capped.touchdownGrade, 'PERFECT');
+  assert.equal(capped.touchdownGradeClass, 'PERFECT');
+  assert.equal(capped.tdzGrade, 'OUTSTANDING');
+  assert.equal(capped.runwayExcursion, false);
+  assert.equal(capped.approachLabel, 'UNSTABLE');
+  assert.equal(capped.approachScoreText, '84% score');
+  assert.equal(capped.approachClass, 'low');
+  assert.equal(capped.stabilityLabel, 'UNSTABLE');
+  assert.equal(capped.stabilityDetail, '84%');
+  assert.equal(capped.bounceLabel, '1x');
+  assert.equal(capped.bounceText, '1x');
+
+  const verified = landingPresentation({
+    grade: 'PERFECT',
+    touchdownDistance: { distanceFt: 600, grade: 'Outstanding', bounceCount: 0, bounceGrade: 'Clean' },
+    ultimateStability: { score: 96, gateStable: true },
+  });
+  assert.equal(verified.touchdownGrade, 'PERFECT');
+  assert.equal(verified.stabilityLabel, 'STABLE');
+
+  const topLevelBounce = landingPresentation({ grade: 'PERFECT', bounceCount: 1, bounceGrade: 'Single Bounce' });
+  assert.equal(topLevelBounce.touchdownGrade, 'PERFECT');
+  assert.equal(topLevelBounce.bounceText, '1x');
+
+  const scoreOnly = landingPresentation({ grade: 'GOOD', ultimateStability: { score: 91 } });
+  assert.equal(scoreOnly.approachLabel, 'NO VERDICT');
+  assert.equal(scoreOnly.approachScoreText, '91% score');
+  assert.equal(scoreOnly.approachClass, 'neutral');
+
+  const failedGateWithoutFlag = landingPresentation({
+    grade: 'GOOD',
+    ultimateStability: { score: 91, gateFailures: ['speed_proxy_unstable_after_gate'] },
+  });
+  assert.equal(failedGateWithoutFlag.approachLabel, 'MARGINAL');
+  assert.equal(failedGateWithoutFlag.approachClass, 'medium');
+
+  const retiredFailureOnly = landingPresentation({
+    grade: 'GOOD',
+    ultimateStability: { score: 91, gateFailures: ['spoilers_moved_after_gate'] },
+  });
+  assert.equal(retiredFailureOnly.approachLabel, 'STABLE');
+
+  const excursion = landingPresentation({
+    grade: 'GOOD',
+    runwayExcursion: true,
+    touchdownDistance: { distanceFt: 600, grade: 'Outstanding' },
+  });
+  assert.equal(excursion.touchdownGrade, 'GOOD');
+  assert.equal(excursion.tdzGrade, 'OUTSTANDING');
+  assert.equal(excursion.runwayExcursion, true);
+}
+
+function testLandingWidgetsUseSharedPresentationAndRetainLateFacts() {
+  for (const filename of ['widgets-compact/widget.html', 'widgets-compact/widget-top.html']) {
+    const widgetSource = readWidget(filename);
+    assert.match(widgetSource, /TelemetryUI\.utils\.landingPresentation\(msg\)/, `${filename} should use the shared landing presentation`);
+    assert.match(widgetSource, /let latestFinalLanding = null;/, `${filename} should retain the latest final landing for late stability updates`);
+    assert.match(widgetSource, /\$\('landing-bounce'\)\.textContent = presentation\.bounceLabel;/, `${filename} should retain bounce facts after a late stability update`);
+    assert.match(widgetSource, />TD RATE</, `${filename} should use a source-neutral touchdown-rate label`);
+    assert.match(widgetSource, />TD RATE GRADE</, `${filename} should explicitly scope the grade to touchdown rate`);
+    assert.match(widgetSource, />APPROACH</, `${filename} should show the approach verdict at summary level`);
+    assert.match(widgetSource, />BOUNCE</, `${filename} should show bounce at summary level`);
+    assert.match(widgetSource, /presentation\.touchdownGrade/, `${filename} should not use the capped aggregate as its touchdown grade`);
+    assert.match(widgetSource, /id="landing-tdz-detail"/, `${filename} should show the touchdown-zone grade separately`);
+    assert.match(widgetSource, /presentation\.runwayExcursion \? 'RUNWAY EXCURSION'/, `${filename} should show runway excursions explicitly`);
+  }
+
+  const historySource = readWidget('widgets-compact/widget-history.html');
+  assert.match(historySource, /TelemetryUI\.utils\.landingPresentation\(msg\)/, 'history should use the shared gate and bounce normalization');
+  assert.match(historySource, /const grade = `TD RATE \$\{presentation\.touchdownGrade\}`;/, 'history should explicitly label the raw touchdown-rate grade, not a provisional overall');
+  assert.match(historySource, /TD rate /, 'history should use a source-neutral touchdown-rate label');
+  assert.match(historySource, /`TDZ \$\{Math\.round\(tdzDistance\)\} ft\$\{tdzGrade/, 'history should retain touchdown-zone distance and grade as a separate fact');
+  assert.match(historySource, /presentation\.runwayExcursion \? 'RUNWAY EXCURSION'/, 'history should show runway excursions explicitly');
+}
+
 async function run() {
   await testWidgetClientFetchesBootstrapTokenAndRequestsState();
   testWidgetClassicInlineScriptsParse();
@@ -232,7 +342,9 @@ async function run() {
   testHistoryWidgetDoesNotTreatMissingAutopilotKeysAsOff();
   testHistoryWidgetSquelchesStartupSourceSettling();
   testHistoryWidgetDoesNotClearBetweenPhaseTransitions();
-  console.log('telemetry-ui widget tests: 7 passed, 0 failed');
+  testSharedLandingPresentationKeepsVerdictsFactual();
+  testLandingWidgetsUseSharedPresentationAndRetainLateFacts();
+  console.log('telemetry-ui widget tests: 9 passed, 0 failed');
 }
 
 run().catch((error) => {

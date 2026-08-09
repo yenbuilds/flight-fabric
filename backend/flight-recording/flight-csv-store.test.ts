@@ -19,6 +19,7 @@ function clearModule(modulePath) {
 function clearStoreModules() {
   [
     resolveBackendPath('flight-recording', 'flight-csv-store.js'),
+    resolveBackendPath('flight-recording', 'flight-analysis-rescore-sidecar.js'),
     resolveBackendPath('flight-recording', 'csv-read-guard.js'),
     resolveBackendPath('flight-recording', 'recording-bundle-lifecycle.js'),
     resolveBackendPath('events', 'timeline-generator.js'),
@@ -105,6 +106,8 @@ function makeBundlePaths(logsDir: string, bundleName: string) {
     status: path.join(dir, 'manifest.json'),
     summary: path.join(dir, 'summary.json'),
     timeline: path.join(dir, 'timeline.json'),
+    analysisRescore: path.join(dir, 'analysis-rescore.json'),
+    legacyLandingGradeRescore: path.join(dir, 'landing-grade-rescore.json'),
   };
 }
 
@@ -203,6 +206,11 @@ function writeManifestBundle(logsDir: string, baseName: string, bundleStatusRequ
     'icao',
     'runway',
     'aircraft',
+    'sample_index',
+    'aircraft_profile_id',
+    'schema_version',
+    'flight_elapsed_ms',
+    'timestamp_monotonic',
   ];
   const landingMs = recordingStartEpochMs + 1_000;
   fs.writeFileSync(csvPath, [
@@ -220,6 +228,11 @@ function writeManifestBundle(logsDir: string, baseName: string, bundleStatusRequ
       '',
       '',
       '',
+      0,
+      '',
+      3,
+      0,
+      0,
     ].join(','),
     ...Array.from({ length: 5 }, (_, index) => {
       const sampleMs = recordingStartEpochMs + 100 + index * 100;
@@ -236,6 +249,11 @@ function writeManifestBundle(logsDir: string, baseName: string, bundleStatusRequ
         '',
         '',
         'Opt-out Cache Test',
+        index + 1,
+        '',
+        3,
+        sampleMs - recordingStartEpochMs,
+        sampleMs - recordingStartEpochMs,
       ].join(',');
     }),
     [
@@ -251,6 +269,11 @@ function writeManifestBundle(logsDir: string, baseName: string, bundleStatusRequ
       'YSCB',
       '35',
       'Opt-out Cache Test',
+      6,
+      'bundled/msfs/fbw-a32nx',
+      3,
+      landingMs - recordingStartEpochMs,
+      landingMs - recordingStartEpochMs,
     ].join(','),
   ].join('\n') + '\n', 'utf8');
   const manifestBase = {
@@ -336,6 +359,8 @@ test('deleteFlightCsv deletes the recording sidecars for the same flight', async
     const csvPath = paths.csv;
     const automationSidecarPath = paths.automation;
     const aircraftSpecificSidecarPath = paths.aircraftSpecific;
+    const analysisRescorePath = paths.analysisRescore;
+    const legacyLandingGradeRescorePath = paths.legacyLandingGradeRescore;
     const unrelatedPath = path.join(logsDir, 'unrelated.aircraft-specific.jsonl');
     const flightId = 'delete-flight';
     const flightStartIso = '2026-05-25T00:00:00.000Z';
@@ -347,6 +372,8 @@ test('deleteFlightCsv deletes the recording sidecars for the same flight', async
     const companionIdentity = { flightId, flightStartIso, recordingSessionId };
     fs.writeFileSync(automationSidecarPath, `${JSON.stringify({ type: 'automation_checkpoint', ...companionIdentity })}\n`);
     fs.writeFileSync(aircraftSpecificSidecarPath, `${JSON.stringify({ type: 'aircraft_specific_checkpoint', ...companionIdentity })}\n`);
+    fs.writeFileSync(analysisRescorePath, '{"type":"flight_analysis_rescore_snapshot"}\n');
+    fs.writeFileSync(legacyLandingGradeRescorePath, '{"type":"landing_grade_rescore_overrides"}\n');
     fs.writeFileSync(unrelatedPath, '{"type":"aircraft_specific_checkpoint"}\n');
 
     const result = timelineGenerator.deleteFlightCsv(csvPath, fileIdentity(csvPath));
@@ -355,6 +382,8 @@ test('deleteFlightCsv deletes the recording sidecars for the same flight', async
     assert.equal(fs.existsSync(csvPath), false);
     assert.equal(fs.existsSync(automationSidecarPath), false);
     assert.equal(fs.existsSync(aircraftSpecificSidecarPath), false);
+    assert.equal(fs.existsSync(analysisRescorePath), false);
+    assert.equal(fs.existsSync(legacyLandingGradeRescorePath), false);
     assert.equal(fs.existsSync(unrelatedPath), true);
   });
 });
@@ -675,6 +704,97 @@ test('generateTimelineFromFile flushes the active CSV before parsing', async () 
     assert.equal(flushed, true);
     assert.equal(result.success, true);
     assert.equal(result.timeline.aircraft, 'Store Test');
+    assert.equal(result.timeline.filePath, path.resolve(activeCsvPath));
+  });
+});
+
+test('timeline current-preview reconstructs the complete analysis without creating a cached artifact', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const flightLogbook = require(resolveBackendPath('landing', 'flight-logbook.js'));
+    const sidecar = require(resolveBackendPath('flight-recording', 'flight-analysis-rescore-sidecar.js'));
+    const originalGenerateFromCSV = timelineGenerator.generateFromCSV;
+    const originalGetLandings = flightLogbook.getLandingsFromCsvFile;
+    const originalMaterialize = flightLogbook.materializeFlightAnalysisLandings;
+    const originalGetSource = sidecar.getFlightAnalysisRescoreSource;
+    const originalRead = sidecar.readFlightAnalysisRescoreSidecar;
+    const originalFingerprint = sidecar.buildFlightAnalysisPreviewFingerprint;
+    const calls: Array<{ csvPath: string; options: Record<string, any> }> = [];
+    try {
+      timelineGenerator.generateFromCSV = async (csvPath, options) => {
+        calls.push({ csvPath, options });
+        return {
+          success: true,
+          timeline: {
+            analysisRescore: {
+              mode: options.scoringMode,
+              complete: true,
+              scope: 'full-landing-analysis',
+              landingCount: 1,
+            },
+            events: [{
+              type: 'landing',
+              landingKey: '6',
+              grade: options.scoringMode === 'current-preview' ? 'GOOD' : 'PERFECT',
+              touchdownDistance: {},
+            }],
+          },
+        };
+      };
+      flightLogbook.getLandingsFromCsvFile = async () => [{ landingKey: '6', grade: 'PERFECT' }];
+      flightLogbook.materializeFlightAnalysisLandings = () => ({
+        success: true,
+        landings: [{ landingKey: '6', grade: 'GOOD', gradeSource: 'applied-rescore' }],
+      });
+      sidecar.getFlightAnalysisRescoreSource = () => ({
+        success: true,
+        sourceFingerprint: 'a'.repeat(64),
+      });
+      sidecar.readFlightAnalysisRescoreSidecar = () => ({
+        exists: false,
+        valid: true,
+        document: null,
+      });
+      sidecar.buildFlightAnalysisPreviewFingerprint = () => ({
+        previewFingerprint: 'b'.repeat(64),
+        snapshotFingerprint: 'b'.repeat(64),
+        analysisContractFingerprint: 'c'.repeat(64),
+      });
+      const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+      const logsDir = timelineGenerator.getFlightLogsDir();
+      fs.mkdirSync(logsDir, { recursive: true });
+      const paths = makeBundlePaths(logsDir, '2026-05-25T00-00-00_preview-options');
+      writeTimelineCsv(paths.csv);
+      const options = { requestId: 'preview-store-1', scoringMode: 'current-preview' };
+      const store = createFlightCsvStore();
+
+      const byFile = await store.generateTimelineFromFile(paths.csv, options);
+      const byFlightId = await store.generateTimelineForFlightId(
+        '2026-05-25T00-00-00_preview-options',
+        options,
+      );
+
+      assert.equal(byFile.success, true);
+      assert.equal(byFlightId.success, true);
+      assert.equal(byFile.timeline.filePath, path.resolve(paths.csv));
+      assert.equal(byFlightId.timeline.filePath, path.resolve(paths.csv));
+      assert.equal(calls.length, 4);
+      assert.deepEqual(calls.map((call) => call.options.scoringMode), [
+        'recorded', 'current-preview', 'recorded', 'current-preview',
+      ]);
+      assert.equal(byFile.timeline.analysisRescorePreview.available, true);
+      assert.equal(byFile.timeline.analysisRescorePreview.changedMetricCount, 1);
+      assert.equal(byFile.timeline.analysisRescorePreview.previewFingerprint, 'b'.repeat(64));
+      assert.equal(fs.existsSync(paths.timeline), false, 'preview reads must not write timeline.json');
+      assert.equal(fs.existsSync(paths.summary), false, 'preview reads must not write summary.json');
+    } finally {
+      timelineGenerator.generateFromCSV = originalGenerateFromCSV;
+      flightLogbook.getLandingsFromCsvFile = originalGetLandings;
+      flightLogbook.materializeFlightAnalysisLandings = originalMaterialize;
+      sidecar.getFlightAnalysisRescoreSource = originalGetSource;
+      sidecar.readFlightAnalysisRescoreSidecar = originalRead;
+      sidecar.buildFlightAnalysisPreviewFingerprint = originalFingerprint;
+    }
   });
 });
 
@@ -954,6 +1074,163 @@ test('generateTimelineForFlightId resolves the immutable bundle name', async () 
 
     assert.equal(result.success, true, result.error || 'expected timeline generation to succeed');
     assert.equal(result.timeline.aircraft, 'Store Test');
+    assert.equal(result.timeline.filePath, path.resolve(csvPath));
+  });
+});
+
+test('flight-id lookup uses exact recorded identity and fails closed when it is ambiguous', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const logsDir = timelineGenerator.getFlightLogsDir();
+    fs.mkdirSync(logsDir, { recursive: true });
+    const first = writeOptOutManifestBundle(logsDir, '2026-05-25_00-00-00Z--identity-a');
+    const store = createFlightCsvStore();
+
+    const exact = await store.generateTimelineForFlightId(first.identity.flightId);
+    assert.equal(exact.success, true, exact.error || 'recorded flight identity should resolve');
+    assert.equal(exact.timeline.filePath, path.resolve(first.csvPath));
+
+    writeOptOutManifestBundle(logsDir, '2026-05-25_00-00-00Z--identity-b');
+    const ambiguous = await store.generateTimelineForFlightId(first.identity.flightId);
+    assert.equal(ambiguous.success, false);
+    assert.match(ambiguous.error, /more than one recording/i);
+  });
+});
+
+test('normal historic timeline path survives preview, durable rescore, and revert', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const flightLogbook = require(resolveBackendPath('landing', 'flight-logbook.js'));
+    const originalGenerateFromCSV = timelineGenerator.generateFromCSV;
+    const originalGetLandings = flightLogbook.getLandingsFromCsvFile;
+    const { publishRecordingBundleStatus } = require(
+      resolveBackendPath('flight-recording', 'recording-bundle-status.js')
+    );
+    const logsDir = timelineGenerator.getFlightLogsDir();
+    fs.mkdirSync(logsDir, { recursive: true });
+    const bundleName = '2026-05-25_00-00-00Z--rescore-e2e';
+    const bundle = writeManifestBundle(logsDir, bundleName, true);
+    await publishRecordingBundleStatus({
+      ...bundle.identity,
+      outputDir: logsDir,
+      bundleBaseName: bundleName,
+      status: 'complete',
+      finalizedAtEpochMs: bundle.identity.recordingStartEpochMs + 2_000,
+      finalizedAtIso: new Date(bundle.identity.recordingStartEpochMs + 2_000).toISOString(),
+      endReason: 'test_end',
+    });
+    const landingEvent = (mode) => ({
+      type: 'landing',
+      landingKey: '6',
+      aircraftProfileId: 'bundled/msfs/fbw-a32nx',
+      vs_fpm: -320,
+      grade: mode === 'current-preview' ? 'GOOD' : 'PERFECT',
+      landingRateContext: { policy: { id: 'landing-rate-v1', version: 1 } },
+      ultimateStability: {
+        score: mode === 'current-preview' ? 92 : 80,
+        gateStable: mode === 'current-preview',
+        gateFailures: mode === 'current-preview' ? [] : ['speed'],
+        breakdown: { speed: mode === 'current-preview' ? 95 : 75 },
+        scoringContext: { policy: { id: 'stability', version: 2 } },
+      },
+      touchdownDistance: {
+        distanceFt: 900,
+        grade: mode === 'current-preview' ? 'Outstanding' : 'Good',
+        score: mode === 'current-preview' ? 100 : 85,
+        zone: 'Touchdown Zone',
+        lateralOffsetFt: 12,
+        lateralOffsetGrade: 'Excellent',
+        lateralOffsetScore: 98,
+        lateralOffsetSide: 'right',
+        bounceCount: 0,
+        bounceGrade: 'Clean',
+        bounceScore: 100,
+        shortLanding: false,
+      },
+      runwayExcursion: false,
+      rolloutAnalysis: {
+        schemaVersion: 2,
+        assessment: mode === 'current-preview' ? 'normal' : 'caution',
+        flags: [],
+      },
+    });
+    timelineGenerator.generateFromCSV = async (_csvPath, options) => ({
+      success: true,
+      timeline: {
+        flightId: bundle.identity.flightId,
+        events: [landingEvent(options?.scoringMode)],
+        track: [],
+        analysisRescore: {
+          mode: options?.scoringMode || 'recorded',
+          scope: 'full-landing-analysis',
+          complete: true,
+          landingCount: 1,
+        },
+      },
+    });
+    flightLogbook.getLandingsFromCsvFile = async () => [{
+      landingKey: '6',
+      aircraftProfileId: 'bundled/msfs/fbw-a32nx',
+      vsFpm: -320,
+      grade: 'PERFECT',
+      recordedGrade: 'PERFECT',
+      runwayExcursion: false,
+      shortLanding: false,
+    }];
+
+    try {
+      const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+      const store = createFlightCsvStore();
+      const recorded = await store.generateTimelineFromFile(bundle.csvPath);
+      assert.equal(recorded.success, true, recorded.error || 'recorded timeline should load');
+      const recordedLanding = recorded.timeline.events.find((event) => event.type === 'landing');
+      assert.equal(recordedLanding?.grade, 'PERFECT');
+
+      const preview = await store.generateTimelineFromFile(recorded.timeline.filePath, {
+        requestId: 'e2e-preview',
+        scoringMode: 'current-preview',
+      });
+      assert.equal(preview.success, true, preview.error || 'preview timeline should load');
+      assert.equal(preview.timeline.analysisRescorePreview.available, true);
+      assert(preview.timeline.analysisRescorePreview.changedMetricCount >= 3);
+
+      const previewState = preview.timeline.analysisRescorePreview;
+      const applied = await store.applyFlightAnalysisRescore({
+        filePath: preview.timeline.filePath,
+        flightId: bundle.identity.flightId,
+        expectedRevision: previewState.baseRevision,
+        expectedSourceFingerprint: previewState.sourceFingerprint,
+        expectedPreviewFingerprint: previewState.previewFingerprint,
+        expectedAnalysisContractFingerprint: previewState.analysisContractFingerprint,
+      });
+      assert.equal(applied.success, true, applied.error || 'full analysis should apply atomically');
+
+      const appliedTimeline = await store.generateTimelineFromFile(preview.timeline.filePath);
+      const appliedLanding = appliedTimeline.timeline.events.find((event) => event.type === 'landing');
+      assert.equal(appliedTimeline.timeline.analysisRescore.applied, true);
+      assert.equal(appliedLanding?.grade, 'GOOD');
+      assert.equal(appliedLanding?.ultimateStability?.score, 92);
+      assert.equal(appliedLanding?.touchdownDistance?.score, 100);
+      assert.equal(appliedLanding?.rolloutAnalysis?.assessment, 'normal');
+
+      const reverted = store.revertFlightAnalysisRescore({
+        filePath: appliedTimeline.timeline.filePath,
+        flightId: bundle.identity.flightId,
+        expectedRevision: appliedTimeline.timeline.analysisRescore.revision,
+        expectedSnapshotFingerprint: appliedTimeline.timeline.analysisRescore.snapshotFingerprint,
+      });
+      assert.equal(reverted.success, true, reverted.error || 'full analysis should restore');
+      assert.equal(reverted.reverted, true);
+
+      const restoredTimeline = await store.generateTimelineFromFile(appliedTimeline.timeline.filePath);
+      const restoredLanding = restoredTimeline.timeline.events.find((event) => event.type === 'landing');
+      assert.equal(restoredTimeline.timeline.analysisRescore.applied, false);
+      assert.equal(restoredLanding?.grade, 'PERFECT');
+    } finally {
+      timelineGenerator.generateFromCSV = originalGenerateFromCSV;
+      flightLogbook.getLandingsFromCsvFile = originalGetLandings;
+    }
   });
 });
 
@@ -1090,6 +1367,58 @@ test('listFlights ignores malformed Flight Fabric-looking CSV files', async () =
     assert.equal(fs.existsSync(malformedPath), true, 'malformed CSV should remain untouched');
     assert.equal(result.flights.length, 1);
     assert.equal(result.flights[0].flightId, '2026-05-25T00-01-00');
+  });
+});
+
+test('flight-analysis rescore store facade resolves only owned historic recordings', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const sidecar = require(resolveBackendPath('flight-recording', 'flight-analysis-rescore-sidecar.js'));
+    const logsDir = timelineGenerator.getFlightLogsDir();
+    fs.mkdirSync(logsDir, { recursive: true });
+    const csvPath = makeBundlePaths(logsDir, '2026-05-25T00-00-00_rescore').csv;
+    writeTimelineCsv(csvPath);
+
+    const calls: Array<Record<string, any>> = [];
+    const originalRevert = sidecar.revertFlightAnalysisRescore;
+    sidecar.revertFlightAnalysisRescore = (request) => {
+      calls.push({ action: 'revert', request });
+      return { success: true, reverted: true, revision: 1 };
+    };
+    try {
+      const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+      const store = createFlightCsvStore();
+      const outside = await store.applyFlightAnalysisRescore({
+        filePath: path.join(path.dirname(logsDir), 'outside.csv'),
+        expectedRevision: 0,
+        expectedSourceFingerprint: 'a'.repeat(64),
+        expectedPreviewFingerprint: 'b'.repeat(64),
+        expectedAnalysisContractFingerprint: 'c'.repeat(64),
+      });
+      assert.equal(outside.success, false);
+      assert.equal(calls.length, 0);
+
+      const reverted = store.revertFlightAnalysisRescore({
+        flightId: '2026-05-25T00-00-00_rescore',
+        expectedRevision: 1,
+        expectedSnapshotFingerprint: 'd'.repeat(64),
+      });
+
+      assert.equal(reverted.success, true);
+      assert.deepEqual(calls, [
+        {
+          action: 'revert',
+          request: {
+            csvPath,
+            flightLogsDir: logsDir,
+            expectedRevision: 1,
+            expectedSnapshotFingerprint: 'd'.repeat(64),
+          },
+        },
+      ]);
+    } finally {
+      sidecar.revertFlightAnalysisRescore = originalRevert;
+    }
   });
 });
 
@@ -1684,6 +2013,13 @@ test('getLogbook falls back to completed bundles when the completed SQLite snaps
     assert.equal(indexed.success, true);
     assert.equal(indexed.stats.total, 1);
     assert.equal(indexed.index?.used, true);
+    assert.equal(indexed.entries[0].stabilityScore, null);
+    assert.equal(indexed.entries[0].stabilityVerdict, 'no_verdict');
+    const indexedAircraftTrend = indexed.stats.trends.aircraft[0];
+    assert.equal(indexedAircraftTrend.avgStabilityScore, null);
+    assert.equal(indexedAircraftTrend.stableRatePct, null);
+    assert.equal(indexedAircraftTrend.marginalRatePct, null);
+    assert.equal(indexedAircraftTrend.trendStability, null);
 
     const activeBaseName = '2026-05-25T00-00-00_active-logbook-fallback';
     const activeCsvPath = makeBundlePaths(logsDir, activeBaseName).csv;
@@ -1717,7 +2053,24 @@ test('getLogbook falls back to completed bundles when the completed SQLite snaps
       assert.equal(fallback.success, true);
       assert.equal(fallback.entries.length, 1);
       assert.equal(fallback.entries[0].icao, 'YMML');
+      assert.equal(fallback.entries[0].stabilityScore, null);
+      assert.equal(fallback.entries[0].stabilityVerdict, 'no_verdict');
       assert.equal(fallback.stats.total, 1);
+      const fallbackAircraftTrend = fallback.stats.trends.aircraft[0];
+      assert.deepEqual(
+        {
+          avgStabilityScore: fallbackAircraftTrend.avgStabilityScore,
+          stableRatePct: fallbackAircraftTrend.stableRatePct,
+          marginalRatePct: fallbackAircraftTrend.marginalRatePct,
+          trendStability: fallbackAircraftTrend.trendStability,
+        },
+        {
+          avgStabilityScore: indexedAircraftTrend.avgStabilityScore,
+          stableRatePct: indexedAircraftTrend.stableRatePct,
+          marginalRatePct: indexedAircraftTrend.marginalRatePct,
+          trendStability: indexedAircraftTrend.trendStability,
+        },
+      );
       assert.equal(fallback.index?.used, false);
       assert.equal(fallback.index?.fallback, 'completed_bundle_snapshot');
       assert.equal(fallback.index?.stale, true);

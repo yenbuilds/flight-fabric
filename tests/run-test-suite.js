@@ -11,8 +11,10 @@ const TEST_STEPS = [
   ['npm', ['run', 'test:backend:companions']],
   ['npm', ['run', 'test:cabin-announcements']],
   ['npm', ['run', 'test:backend:compiled-units']],
+  ['node', ['--test', 'dist/backend/landing/landing-replay-analysis.test.js']],
   ['node', [
     '--test',
+    'dist/backend/flight-recording/flight-analysis-rescore-sidecar.test.js',
     'dist/backend/flight-recording/recording-bundle-layout.test.js',
     'dist/backend/flight-recording/flat-flight-log-migration.test.js',
   ]],

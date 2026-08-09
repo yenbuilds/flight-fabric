@@ -556,7 +556,13 @@ export function createLiveMapController({
   }
 
   function renderLatestPosition() {
-    if (!liveMap || !lastPosition || !isLiveMapVisible()) return false;
+    if (!lastPosition) return false;
+
+    // Header route progress is global UI, so keep it current even while the
+    // Leaflet tab is hidden. Map-only work remains visibility-gated below.
+    getRouteTargets()?.updateDestinationProgress?.();
+
+    if (!liveMap || !isLiveMapVisible()) return false;
 
     renderTrack();
     renderTargetLine();
@@ -566,7 +572,6 @@ export function createLiveMapController({
     renderCursor(lastPosition.lat, lastPosition.lon, lastHeading);
     updateMeta(lastPosition.lat, lastPosition.lon, lastHeading);
     getRouteTargets()?.updateTargetOverlay?.();
-    getRouteTargets()?.updateDestinationProgress?.();
     ensureViewportSync();
     setMapEmptyState({ visible: false });
     return true;

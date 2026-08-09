@@ -155,6 +155,45 @@ test('outbound projection keeps privileged payloads intact and sanitizes Trusted
     success: true,
     error: null,
   });
+  assert.deepEqual(projectServerMessageForClient({}, {
+    type: 'flightAnalysisRescoreResult',
+    requestId: 41,
+    action: 'apply',
+    success: false,
+    landingKey: '42',
+    error: 'Privileged session required for this action.',
+    leaked: 'C:\\private',
+  }), {
+    type: 'flightAnalysisRescoreResult',
+    requestId: 41,
+    action: 'apply',
+    success: false,
+    error: 'Privileged session required for this action.',
+  });
+  assert.deepEqual(projectServerMessageForClient({}, {
+    type: 'timelineError',
+    requestId: 42,
+    scoringMode: 'current-preview',
+    filePath: 'C:\\private\\flight.csv',
+    leaked: 'C:\\private',
+    error: 'Privileged session required for this action.',
+  }), {
+    type: 'timelineError',
+    requestId: 42,
+    scoringMode: 'current-preview',
+    error: 'Privileged session required for this action.',
+  });
+  assert.deepEqual(projectServerMessageForClient({}, {
+    type: 'timelineError',
+    requestId: 'C:\\private\\request.csv',
+    scoringMode: 'CURRENT-PREVIEW',
+    error: 'Privileged session required for this action.',
+  }), {
+    type: 'timelineError',
+    requestId: null,
+    scoringMode: 'recorded',
+    error: 'Privileged session required for this action.',
+  });
   assert.equal(projectSerializedServerMessageForClient({}, 'not-json'), null);
   assert.equal(
     projectServerMessageForClient({}, { type: 'futureUnreviewedMessage', path: 'C:\\private' }),

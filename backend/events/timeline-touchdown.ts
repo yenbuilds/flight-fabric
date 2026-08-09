@@ -124,8 +124,9 @@ function buildReplayLandingEvent(input: {
 
   const inferredUltimateStability = scoreResult && scoreResult.breakdown
     && Object.keys(scoreResult.breakdown).length > 0
-    ? {
+      ? {
         score: scoreResult.score,
+        verdict: scoreResult.verdict,
         samples: scoreResult.samples,
         gateStable: scoreResult.gateStable,
         gateFailures: scoreResult.gateFailures,

@@ -17,7 +17,7 @@
  */
 'use strict';
 
-const fs = require('fs') as typeof import('fs');
+const crypto = require('node:crypto') as typeof import('node:crypto');
 const path = require('path') as typeof import('path');
 const recordingBundleLayout = require('./recording-bundle-layout') as {
   getBundleFromCsvPath: (_csvPath: unknown) => {
@@ -27,25 +27,62 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
   } | null;
   listBundleCsvPaths: (_outputDir: string) => string[];
 };
+const flightAnalysisRescoreSidecar = require('./flight-analysis-rescore-sidecar.js') as {
+  buildFlightAnalysisPreviewFingerprint: (_options: AnyRecord) => AnyRecord;
+  getFlightAnalysisRescoreSource: (_csvPath: string, _options?: AnyRecord) => AnyRecord;
+  readFlightAnalysisRescoreSidecar: (_csvPath: string, _options?: AnyRecord) => AnyRecord;
+  saveFlightAnalysisRescore: (_options: {
+    csvPath: string;
+    flightLogsDir: string;
+    timeline: AnyRecord;
+    landings: AnyRecord[];
+    analysisContract: AnyRecord;
+    expectedRevision?: number | null;
+    expectedSourceFingerprint?: string | null;
+    expectedPreviewFingerprint?: string | null;
+    expectedAnalysisContractFingerprint?: string | null;
+  }) => Promise<AnyRecord>;
+  revertFlightAnalysisRescore: (_options: {
+    csvPath: string;
+    flightLogsDir: string;
+    expectedRevision?: number | null;
+    expectedSnapshotFingerprint?: string | null;
+  }) => AnyRecord;
+};
 const timelineGenerator = require('../events/timeline-generator') as {
+  CURRENT_ANALYSIS_RESCORE_CONTRACT?: AnyRecord;
   deleteFlightCsv: (_filePath: string, _expectedIdentity?: { mtimeMs?: unknown; sizeBytes?: unknown } | null) => { success: boolean; error?: string; deleted?: string };
-  generateFromCSV: (_csvPath: string) => Promise<{ success: boolean; timeline?: AnyRecord; error?: string }>;
+  generateFromCSV: (_csvPath: string, _options?: TimelineGenerationOptions) => Promise<{ success: boolean; timeline?: AnyRecord; error?: string }>;
   getFlightLogsDir: () => string;
   getFlightLogsStorageInfo: (_options?: { allowedCsvPaths?: string[] }) => AnyRecord;
   listCSVFlights: (_options?: { allowedCsvPaths?: string[]; skipDeleteRecovery?: boolean }) => AnyRecord[];
   buildListedCsvFlightFromPath: (_filePath: string) => AnyRecord | null;
   recoverInterruptedBundleDeletes: (_dir: string) => void;
 };
-const { getLandingsFromCSVs, computeStatsFromEntries, listLogbookCsvFiles } = require('../landing/flight-logbook') as {
+const {
+  getLandingsFromCSVs,
+  getLandingsFromCsvFile,
+  computeStatsFromEntries,
+  listLogbookCsvFiles,
+  materializeFlightAnalysisLandings,
+} = require('../landing/flight-logbook') as {
   getLandingsFromCSVs: (_options?: { bypassCachePaths?: string[]; allowedCsvPaths?: string[] }) => Promise<AnyRecord[]>;
+  getLandingsFromCsvFile: (_filePath: string, _options?: AnyRecord) => Promise<AnyRecord[]>;
   computeStatsFromEntries: (_entries: AnyRecord[]) => AnyRecord;
   listLogbookCsvFiles: (_options?: { allowedCsvPaths?: string[] }) => AnyRecord[];
+  materializeFlightAnalysisLandings: (
+    _timeline: AnyRecord,
+    _recordedEntries: AnyRecord[],
+  ) => { success: boolean; landings?: AnyRecord[]; error?: string };
 };
 const { openHistoryIndexStore } = require('../history-index/history-index-store') as {
   openHistoryIndexStore: (_options?: AnyRecord) => AnyRecord;
 };
 const { resolveHistoryIndexDatabasePath } = require('../history-index/sqlite-runtime') as {
   resolveHistoryIndexDatabasePath: (_options?: AnyRecord) => string;
+};
+const { classifyApproachStability } = require('../stability/stability-runner.js') as {
+  classifyApproachStability: (_value: AnyRecord | null | undefined) => string;
 };
 const {
   queryIndexedTimelineFlights,
@@ -120,6 +157,19 @@ type StoreOptions = {
 type TimelineReadResult =
   | { success: true; timeline: AnyRecord }
   | { success: false; error: string };
+type TimelineGenerationOptions = {
+  requestId?: string | number | null;
+  scoringMode?: 'recorded' | 'current-preview';
+};
+type FlightAnalysisRescoreRequest = {
+  filePath?: unknown;
+  flightId?: unknown;
+  expectedRevision?: number | null;
+  expectedSourceFingerprint?: string | null;
+  expectedPreviewFingerprint?: string | null;
+  expectedAnalysisContractFingerprint?: string | null;
+  expectedSnapshotFingerprint?: string | null;
+};
 type TimelineListResult =
   | { success: true; flights: AnyRecord[]; storage: AnyRecord }
   | { success: false; error: string };
@@ -188,7 +238,138 @@ function getSharedHistoryIndexCoordinator(
 }
 
 function isSafeFlightId(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0 && /^[a-zA-Z0-9_\-]+$/.test(value);
+  return typeof value === 'string'
+    && value.trim().length > 0
+    && value.trim().length <= 512
+    && /^[a-zA-Z0-9_.:+\-]+$/.test(value.trim());
+}
+
+function analysisMetricText(value: unknown): string {
+  if (value === null || value === undefined || value === '') return 'Unavailable';
+  return String(value);
+}
+
+function analysisContractFingerprint(contract: AnyRecord): string {
+  return crypto.createHash('sha256').update(JSON.stringify(contract)).digest('hex');
+}
+
+function scoreMetricText(grade: unknown, score: unknown): string {
+  const label = analysisMetricText(grade);
+  return Number.isFinite(Number(score)) ? `${label} · ${Math.round(Number(score))}` : label;
+}
+
+function stabilityMetricText(stability: AnyRecord | null | undefined): string {
+  if (!stability || typeof stability !== 'object') return 'Unavailable';
+  const resolvedVerdict = (
+    stability.verdict === 'stable'
+    || stability.verdict === 'marginal'
+    || stability.verdict === 'unstable'
+    || stability.verdict === 'no_verdict'
+  ) ? stability.verdict : classifyApproachStability(stability);
+  const verdict = resolvedVerdict === 'no_verdict'
+    ? 'NO VERDICT'
+    : resolvedVerdict.toUpperCase();
+  return Number.isFinite(Number(stability.score))
+    ? `${verdict} · ${Math.round(Number(stability.score))}`
+    : verdict;
+}
+
+function rolloutMetricText(rollout: AnyRecord | null | undefined): string {
+  if (!rollout || typeof rollout !== 'object') return 'Unavailable';
+  const assessment = typeof rollout.assessment === 'string' && rollout.assessment.trim()
+    ? rollout.assessment.trim().toUpperCase()
+    : 'Unavailable';
+  const flags = Array.isArray(rollout.flags)
+    ? rollout.flags
+        .map((flag) => typeof flag?.code === 'string' ? flag.code : '')
+        .filter(Boolean)
+        .sort()
+    : [];
+  return flags.length > 0 ? `${assessment} · ${flags.join(', ')}` : assessment;
+}
+
+function landingAnalysisMetricRows(recorded: AnyRecord, current: AnyRecord): AnyRecord[] {
+  const recordedDistance = recorded?.touchdownDistance || {};
+  const currentDistance = current?.touchdownDistance || {};
+  const rows = [
+    {
+      key: 'landing-rate-grade',
+      label: 'Touchdown rate',
+      recorded: analysisMetricText(recorded?.grade),
+      current: analysisMetricText(current?.grade),
+    },
+    {
+      key: 'stability',
+      label: 'Approach stability',
+      recorded: stabilityMetricText(recorded?.ultimateStability),
+      current: stabilityMetricText(current?.ultimateStability),
+    },
+    {
+      key: 'touchdown-distance',
+      label: 'Touchdown zone',
+      recorded: scoreMetricText(recordedDistance.grade, recordedDistance.score),
+      current: scoreMetricText(currentDistance.grade, currentDistance.score),
+    },
+    {
+      key: 'lateral-offset',
+      label: 'Centerline',
+      recorded: scoreMetricText(recordedDistance.lateralOffsetGrade, recordedDistance.lateralOffsetScore),
+      current: scoreMetricText(currentDistance.lateralOffsetGrade, currentDistance.lateralOffsetScore),
+    },
+    {
+      key: 'bounce',
+      label: 'Bounce',
+      recorded: scoreMetricText(recordedDistance.bounceGrade, recordedDistance.bounceScore),
+      current: scoreMetricText(currentDistance.bounceGrade, currentDistance.bounceScore),
+    },
+    {
+      key: 'rollout',
+      label: 'Rollout',
+      recorded: rolloutMetricText(recorded?.rolloutAnalysis),
+      current: rolloutMetricText(current?.rolloutAnalysis),
+    },
+  ];
+  return rows.map((row) => ({ ...row, changed: row.recorded !== row.current }));
+}
+
+function buildFlightAnalysisComparison(
+  recordedTimeline: AnyRecord,
+  currentTimeline: AnyRecord,
+): { success: true; landings: AnyRecord[]; changedMetricCount: number }
+  | { success: false; error: string } {
+  const recordedLandings = Array.isArray(recordedTimeline?.events)
+    ? recordedTimeline.events.filter((event) => event?.type === 'landing')
+    : [];
+  const currentLandings = Array.isArray(currentTimeline?.events)
+    ? currentTimeline.events.filter((event) => event?.type === 'landing')
+    : [];
+  const recordedByKey = new Map<string, AnyRecord>();
+  for (const event of recordedLandings) {
+    if (typeof event?.landingKey !== 'string' || !event.landingKey) {
+      return { success: false, error: 'A recorded landing has no durable identity.' };
+    }
+    recordedByKey.set(event.landingKey, event);
+  }
+  if (recordedByKey.size !== recordedLandings.length || currentLandings.length !== recordedLandings.length) {
+    return { success: false, error: 'The current analysis does not match every recorded landing.' };
+  }
+  let changedMetricCount = 0;
+  const landings: AnyRecord[] = [];
+  for (let index = 0; index < currentLandings.length; index += 1) {
+    const current = currentLandings[index];
+    const landingKey = typeof current?.landingKey === 'string' ? current.landingKey : '';
+    const recorded = landingKey ? recordedByKey.get(landingKey) : null;
+    if (!recorded) return { success: false, error: 'A rescored landing could not be matched.' };
+    const metrics = landingAnalysisMetricRows(recorded, current);
+    changedMetricCount += metrics.filter((metric) => metric.changed === true).length;
+    landings.push({
+      landingKey,
+      label: `Landing ${index + 1}`,
+      available: true,
+      metrics,
+    });
+  }
+  return { success: true, landings, changedMetricCount };
 }
 
 function resolveCsvInsideFlightLogs(filePath: unknown): string | null {
@@ -235,6 +416,61 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return DEFAULT_LOGBOOK_ENTRY_LIMIT;
     return Math.max(0, Math.min(MAX_LOGBOOK_ENTRY_LIMIT, Math.floor(numeric)));
+  }
+
+  function resolveHistoricalCsvRequest(
+    filePath: unknown,
+    flightId: unknown,
+  ): { success: true; csvPath: string } | { success: false; error: string } {
+    if (filePath !== undefined && filePath !== null && filePath !== '') {
+      const csvPath = resolveCsvInsideFlightLogs(filePath);
+      return csvPath
+        ? { success: true, csvPath }
+        : { success: false, error: 'The selected flight recording is unavailable' };
+    }
+    if (!isSafeFlightId(flightId)) {
+      return { success: false, error: 'The selected flight recording is unavailable' };
+    }
+    try {
+      const logsDir = timelineGenerator.getFlightLogsDir();
+      const requestedFlightId = flightId.trim();
+      const candidates = recordingBundleLayout.listBundleCsvPaths(logsDir);
+      const catalogEntries = listLogbookCsvFiles({ allowedCsvPaths: candidates });
+      const recordingIdentityMatches = catalogEntries.filter((entry) => (
+        entry.recordingFlightId === requestedFlightId
+      ));
+      if (recordingIdentityMatches.length === 1) {
+        return { success: true, csvPath: recordingIdentityMatches[0].filePath };
+      }
+      if (recordingIdentityMatches.length > 1) {
+        return { success: false, error: 'The selected flight identity matches more than one recording' };
+      }
+
+      // Legacy recordings may not expose a manifest flight identity. Preserve
+      // compatibility only for an exact canonical bundle-name match; prefix
+      // matching can silently select the wrong flight when identifiers share a
+      // date/time stem.
+      const exactBundleMatches = candidates.filter((candidate) => (
+        recordingBundleLayout.getBundleFromCsvPath(candidate)?.bundleName === requestedFlightId
+      ));
+      return exactBundleMatches.length === 1
+        ? { success: true, csvPath: exactBundleMatches[0] }
+        : { success: false, error: exactBundleMatches.length > 1
+            ? 'The selected flight identity matches more than one recording'
+            : 'The selected flight recording was not found' };
+    } catch {
+      return { success: false, error: 'The selected flight recording is unavailable' };
+    }
+  }
+
+  function historicalCsvCanBeMutated(csvPath: string): boolean {
+    try {
+      return recordingBundleGuard?.isOwnedCsvPath?.(csvPath) !== true
+        && !isActiveCsvPath(flightCsvWriter, csvPath)
+        && !isFinalizingCsvPath(flightCsvWriter, csvPath);
+    } catch {
+      return false;
+    }
   }
 
   function readTimelinePageFromIndex(
@@ -496,7 +732,92 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     };
   }
 
-  async function generateTimelineFromFile(filePath: unknown): Promise<TimelineReadResult> {
+  async function buildCurrentFlightAnalysis(csvPath: string): Promise<AnyRecord> {
+    const analysisContract = timelineGenerator.CURRENT_ANALYSIS_RESCORE_CONTRACT || {
+      id: 'flight-fabric-landing-analysis',
+      version: 2,
+      scope: 'full-landing-analysis',
+    };
+    const recordedResult = await timelineGenerator.generateFromCSV(csvPath, { scoringMode: 'recorded' });
+    if (!recordedResult.success || !recordedResult.timeline) {
+      return { success: false, error: recordedResult.error || 'Recorded flight analysis could not be reconstructed' };
+    }
+    const currentResult = await timelineGenerator.generateFromCSV(csvPath, { scoringMode: 'current-preview' });
+    if (!currentResult.success || !currentResult.timeline) {
+      return { success: false, error: currentResult.error || 'Current flight analysis could not be reconstructed' };
+    }
+    const currentStatus = currentResult.timeline.analysisRescore;
+    if (!currentStatus || currentStatus.complete !== true) {
+      return {
+        success: false,
+        error: 'The full current analysis is incomplete for one or more landings.',
+        timeline: currentResult.timeline,
+      };
+    }
+    if (!Number.isSafeInteger(currentStatus.landingCount) || currentStatus.landingCount < 1) {
+      return { success: false, error: 'This flight has no recorded landing analysis to rescore.' };
+    }
+
+    const recordedEntries = await getLandingsFromCsvFile(csvPath, {
+      bypassCache: true,
+      ignoreAnalysisRescore: true,
+    });
+    const projection = materializeFlightAnalysisLandings(currentResult.timeline, recordedEntries);
+    if (!projection.success || !Array.isArray(projection.landings)) {
+      return { success: false, error: projection.error || 'The Logbook analysis could not be reconstructed' };
+    }
+    const comparison = buildFlightAnalysisComparison(recordedResult.timeline, currentResult.timeline);
+    if (!comparison.success) return comparison;
+
+    const source = flightAnalysisRescoreSidecar.getFlightAnalysisRescoreSource(csvPath, {
+      flightLogsDir: timelineGenerator.getFlightLogsDir(),
+    });
+    if (!source || source.success === false || typeof source.sourceFingerprint !== 'string') {
+      return { success: false, error: source?.error || 'The recording source could not be fingerprinted safely' };
+    }
+    const currentSaved = flightAnalysisRescoreSidecar.readFlightAnalysisRescoreSidecar(csvPath, {
+      flightLogsDir: timelineGenerator.getFlightLogsDir(),
+    });
+    if (currentSaved?.exists === true && currentSaved?.valid !== true) {
+      return { success: false, error: 'The saved flight analysis is damaged. Restore it before rescoring.' };
+    }
+    const baseRevision = Number.isSafeInteger(currentSaved?.document?.revision)
+      ? currentSaved.document.revision
+      : 0;
+    const previewFingerprintResult = flightAnalysisRescoreSidecar.buildFlightAnalysisPreviewFingerprint({
+      timeline: currentResult.timeline,
+      landings: projection.landings,
+      analysisContract,
+      sourceFingerprint: source.sourceFingerprint,
+    });
+    const previewFingerprint = typeof previewFingerprintResult === 'string'
+      ? previewFingerprintResult
+      : previewFingerprintResult?.snapshotFingerprint;
+    if (typeof previewFingerprint !== 'string') {
+      return { success: false, error: 'The current analysis could not be fingerprinted safely' };
+    }
+    return {
+      success: true,
+      recordedTimeline: recordedResult.timeline,
+      timeline: currentResult.timeline,
+      landings: projection.landings,
+      analysisContract,
+      analysisContractFingerprint: previewFingerprintResult?.analysisContractFingerprint
+        || analysisContractFingerprint(analysisContract),
+      sourceFingerprint: source.sourceFingerprint,
+      previewFingerprint,
+      baseRevision,
+      baseSnapshotFingerprint: typeof currentSaved?.document?.snapshotFingerprint === 'string'
+        ? currentSaved.document.snapshotFingerprint
+        : null,
+      comparison,
+    };
+  }
+
+  async function generateTimelineFromFile(
+    filePath: unknown,
+    options: TimelineGenerationOptions = {},
+  ): Promise<TimelineReadResult> {
     const csvPath = resolveCsvInsideFlightLogs(filePath);
     if (!csvPath) {
       return {
@@ -526,9 +847,79 @@ function createFlightCsvStore(options: StoreOptions = {}) {
       return { success: false, error: ACTIVE_CSV_NOT_READY };
     }
     try {
-      const result = await timelineGenerator.generateFromCSV(csvPath);
+      if (options.scoringMode === 'current-preview') {
+        const preview = await buildCurrentFlightAnalysis(csvPath);
+        if (!preview.success) {
+          return { success: false, error: preview.error || 'Current flight analysis is unavailable' };
+        }
+        return {
+          success: true,
+          timeline: {
+            ...preview.timeline,
+            filePath: csvPath,
+            analysisRescore: {
+              ...(preview.timeline.analysisRescore || {}),
+              applied: false,
+              revision: preview.baseRevision || null,
+            },
+            analysisRescorePreview: {
+              available: true,
+              previewFingerprint: preview.previewFingerprint,
+              baseRevision: preview.baseRevision,
+              sourceFingerprint: preview.sourceFingerprint,
+              analysisContract: preview.analysisContract,
+              analysisContractFingerprint: preview.analysisContractFingerprint,
+              landingCount: preview.comparison.landings.length,
+              changedMetricCount: preview.comparison.changedMetricCount,
+              saveRequired: preview.previewFingerprint !== preview.baseSnapshotFingerprint,
+              landings: preview.comparison.landings,
+              reason: null,
+            },
+          },
+        };
+      }
+
+      const saved = flightAnalysisRescoreSidecar.readFlightAnalysisRescoreSidecar(csvPath, {
+        flightLogsDir: timelineGenerator.getFlightLogsDir(),
+      });
+      if (saved?.valid === true && saved?.document?.timeline) {
+        return {
+          success: true,
+          timeline: {
+            ...saved.document.timeline,
+            filePath: csvPath,
+            analysisRescore: {
+              applied: true,
+              mode: 'applied',
+              scope: 'full-landing-analysis',
+              revision: saved.document.revision,
+              appliedAt: saved.document.appliedAt,
+              snapshotFingerprint: saved.document.snapshotFingerprint,
+              analysisContract: saved.document.analysisContract,
+            },
+          },
+        };
+      }
+
+      const result = await timelineGenerator.generateFromCSV(csvPath, options);
       if (result.success) {
-        return { success: true, timeline: result.timeline || {} };
+        return {
+          success: true,
+          timeline: {
+            ...(result.timeline || {}),
+            analysisRescore: {
+              ...((result.timeline || {}).analysisRescore || {}),
+              applied: false,
+              revision: null,
+              ...(saved?.exists === true && saved?.valid !== true
+                ? { warning: 'Saved flight analysis is damaged; recorded analysis is shown.' }
+                : {}),
+            },
+            // Keep subsequent preview/apply/revert requests tied to the exact
+            // canonical recording selected for this historic read.
+            filePath: csvPath,
+          },
+        };
       }
       return { success: false, error: result.error || 'Timeline not found' };
     } finally {
@@ -536,36 +927,91 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     }
   }
 
-  async function generateTimelineForFlightId(flightId: unknown): Promise<TimelineReadResult> {
-    if (!isSafeFlightId(flightId)) {
-      return {
-        success: false,
-        error: 'Invalid flightId: must be a non-empty alphanumeric string',
-      };
+  async function generateTimelineForFlightId(
+    flightId: unknown,
+    options: TimelineGenerationOptions = {},
+  ): Promise<TimelineReadResult> {
+    const resolved = resolveHistoricalCsvRequest(undefined, flightId);
+    if (resolved.success === false) {
+      return { success: false, error: resolved.error };
     }
+    return generateTimelineFromFile(resolved.csvPath, options);
+  }
 
-    let matchingFile: string | null = null;
+  async function applyFlightAnalysisRescore(request: FlightAnalysisRescoreRequest = {}): Promise<AnyRecord> {
+    const resolved = resolveHistoricalCsvRequest(request.filePath, request.flightId);
+    if (!resolved.success) return resolved;
+    if (!historicalCsvCanBeMutated(resolved.csvPath)) {
+      return { success: false, error: 'Only a finalized flight recording can be rescored' };
+    }
+    if (
+      !Number.isSafeInteger(request.expectedRevision)
+      || typeof request.expectedSourceFingerprint !== 'string'
+      || typeof request.expectedPreviewFingerprint !== 'string'
+      || typeof request.expectedAnalysisContractFingerprint !== 'string'
+    ) {
+      return { success: false, error: 'Preview the complete current analysis before saving it.' };
+    }
+    const readLease = recordingBundleLease.acquireBundleReadLease({
+      outputDir: timelineGenerator.getFlightLogsDir(),
+      baseName: csvBundleBaseName(resolved.csvPath),
+      purpose: 'flight_analysis_rescore_preview',
+    });
+    if (!readLease.acquired || typeof readLease.release !== 'function') {
+      return { success: false, error: 'The flight recording is currently busy. Try again shortly.' };
+    }
+    let analysis: AnyRecord;
     try {
-      const dir = timelineGenerator.getFlightLogsDir();
-      if (fs.existsSync(dir)) {
-        matchingFile = recordingBundleLayout.listBundleCsvPaths(dir)
-          .find((csvPath) => (
-            recordingBundleLayout.getBundleFromCsvPath(csvPath)?.bundleName.startsWith(flightId)
-          )) || null;
-        if (matchingFile) {
-          const result = await generateTimelineFromFile(matchingFile);
-          if (result.success) return result;
-          return {
-            success: false,
-            error: 'error' in result ? result.error : 'Failed to generate timeline',
-          };
-        }
-      }
-    } catch {
-      return { success: false, error: 'Failed to generate timeline' };
+      analysis = await buildCurrentFlightAnalysis(resolved.csvPath);
+    } finally {
+      readLease.release();
     }
+    if (!analysis.success) return analysis;
+    if (
+      analysis.baseRevision !== request.expectedRevision
+      || analysis.sourceFingerprint !== request.expectedSourceFingerprint
+      || analysis.previewFingerprint !== request.expectedPreviewFingerprint
+      || analysis.analysisContractFingerprint !== request.expectedAnalysisContractFingerprint
+    ) {
+      return { success: false, error: 'The flight or scoring rules changed after the preview. Preview it again.' };
+    }
+    const saved = await flightAnalysisRescoreSidecar.saveFlightAnalysisRescore({
+      csvPath: resolved.csvPath,
+      flightLogsDir: timelineGenerator.getFlightLogsDir(),
+      timeline: analysis.timeline,
+      landings: analysis.landings,
+      analysisContract: analysis.analysisContract,
+      expectedRevision: request.expectedRevision,
+      expectedSourceFingerprint: request.expectedSourceFingerprint,
+      expectedPreviewFingerprint: request.expectedPreviewFingerprint,
+      expectedAnalysisContractFingerprint: request.expectedAnalysisContractFingerprint,
+    });
+    return saved?.success === true
+      ? {
+          ...saved,
+          appliedAt: saved.document?.appliedAt || saved.appliedAt,
+        }
+      : saved;
+  }
 
-    return { success: false, error: 'Timeline not found for flight: ' + flightId };
+  function revertFlightAnalysisRescore(request: FlightAnalysisRescoreRequest = {}): AnyRecord {
+    const resolved = resolveHistoricalCsvRequest(request.filePath, request.flightId);
+    if (!resolved.success) return resolved;
+    if (!historicalCsvCanBeMutated(resolved.csvPath)) {
+      return { success: false, error: 'Only a finalized flight recording can be rescored' };
+    }
+    if (
+      !Number.isSafeInteger(request.expectedRevision)
+      || typeof request.expectedSnapshotFingerprint !== 'string'
+    ) {
+      return { success: false, error: 'The saved flight analysis changed. Reload before restoring.' };
+    }
+    return flightAnalysisRescoreSidecar.revertFlightAnalysisRescore({
+      csvPath: resolved.csvPath,
+      flightLogsDir: timelineGenerator.getFlightLogsDir(),
+      expectedRevision: request.expectedRevision,
+      expectedSnapshotFingerprint: request.expectedSnapshotFingerprint,
+    });
   }
 
   async function listFlights(): Promise<TimelineListResult> {
@@ -860,6 +1306,7 @@ function createFlightCsvStore(options: StoreOptions = {}) {
   }
 
   return {
+    applyFlightAnalysisRescore,
     deleteFlightCsv,
     generateTimelineForFlightId,
     generateTimelineFromFile,
@@ -867,6 +1314,7 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     getLogbook,
     listFlightsIndexed,
     listFlights,
+    revertFlightAnalysisRescore,
     startHistoryIndex,
     stop,
   };

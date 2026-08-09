@@ -6,7 +6,7 @@
 // Subscribers write to their respective stores.
 
 const config = require('../core/config') as ConfigModule;
-const { gradeLanding } = require('./landing') as LandingModule;
+const { gradeLandingForProfile, buildLandingRateScoringContext } = require('./landing') as LandingModule;
 const { makeFlapsObj } = require('../aircraft/flaps') as FlapsModule;
 const { computeCrosswind } = require('../utils/helpers') as HelpersModule;
 const Debug = require('../core/debug') as DebugModule;
@@ -47,6 +47,20 @@ const {
     maxWindowMs: number;
   };
 };
+const { assessRecordedBounceEvidence } = require('./landing-replay-analysis.js') as {
+  assessRecordedBounceEvidence: (
+    _evidence: {
+      airborneDurationMs?: number | null;
+      altitudeLiftFt?: number | null;
+      impactLoadG?: number | null;
+      maxUpwardVsFpm?: number | null;
+      radioHeightLiftFt?: number | null;
+      recontactVsFpm?: number | null;
+    },
+    _gradeFromVs: (_vsFpm: number) => string | null,
+    _options?: { minUpwardVsFpm?: number | null },
+  ) => AnyRecord;
+};
 
 type AnyRecord = Record<string, any>;
 type BroadcastFn = (payload: AnyRecord) => void;
@@ -81,7 +95,8 @@ type ConfigModule = {
   };
 };
 type LandingModule = {
-  gradeLanding: (vsFpm: number) => AnyRecord;
+  buildLandingRateScoringContext: (profileId: unknown) => AnyRecord;
+  gradeLandingForProfile: (vsFpm: number, profileId: unknown) => AnyRecord;
 };
 type HelpersModule = {
   computeCrosswind: (windSpeed: number, windDirDeg: number, headingDeg: number) => number | null;
@@ -144,22 +159,11 @@ const RUNWAY_OCCUPANCY_MAX_WAIT_MS = 60_000;
 const TOUCHDOWN_COOLDOWN_MS = config.landing.touchdownCooldownMs;
 const MSFS_TOUCHDOWN_MAX_POSITION_DELTA_FT = 1500;
 const MSFS_TOUCHDOWN_MAX_ATTITUDE_DEG = 90;
-const MSFS_TOUCHDOWN_MAX_NORMAL_VELOCITY_FPM = 3000;
-const MSFS_TOUCHDOWN_MIN_NORMAL_VELOCITY_FPM = 20;
-// Bounce confirmation uses independent physical signals rather than treating
-// every brief WOW dropout as proof that the airframe bounced. One foot of
-// geometric lift (or two feet of radio-height lift) is above normal near-ground
-// sample noise, while a positive VS floor provides independent motion evidence.
-// A 0.20 G load increase is the conservative fallback evidence for an impact
-// when altitude/VS sampling misses the top of a very short bounce.
-const BOUNCE_MIN_ALTITUDE_LIFT_FT = 1;
-const BOUNCE_MIN_RADIO_HEIGHT_LIFT_FT = 2;
-const BOUNCE_MIN_UPWARD_VS_FPM = 50;
-const BOUNCE_MIN_IMPACT_LOAD_G = 1.20;
 const BOUNCE_POST_IMPACT_CONFIRMATION_MS = 1000;
 
 // Touchdown stability scoring is intentionally disabled.
-// We keep landing grading (VS/G-force/runway excursion) separate from stability scoring.
+// Keep touchdown-rate grading and the separate landing facts (G-force/runway
+// excursion) independent from stability scoring.
 
 function getRunwayComparisonHeading(touchdownSummary: AnyRecord): number | null {
   return getAircraftTrueHeadingDeg(touchdownSummary);
@@ -200,6 +204,9 @@ function getMsfsTouchdownSnapshot(frame: AnyRecord | null | undefined): AnyRecor
   const rawNormalVelocityFpm = finiteNumberOrNull(td.normalVelocityFpm) ?? (
     normalVelocityFps == null ? null : normalVelocityFps * 60
   );
+  // Preserve the simulator-normal rate for telemetry diagnostics only. It is a
+  // different quantity from the conventional V/S headline and must not affect
+  // snapshot selection, landing grading, bounce detection, or history.
   const landingVsFpm = rawNormalVelocityFpm == null ? null : -Math.abs(rawNormalVelocityFpm);
 
   return {
@@ -225,7 +232,6 @@ function getMsfsTouchdownSignature(frame: AnyRecord | null | undefined): string 
     td.lonDeg,
     td.headingTrueDeg,
     td.headingMagDeg,
-    td.normalVelocityFps,
     td.pitchDeg,
     td.bankDeg,
   ];
@@ -274,16 +280,6 @@ function resolveMsfsTouchdownSnapshot(input: {
   if (td.bankDeg != null && Math.abs(td.bankDeg) > MSFS_TOUCHDOWN_MAX_ATTITUDE_DEG) {
     return { ...result, positionDeltaFt, rejectReason: 'invalid_bank' };
   }
-  if (
-    td.landingVsFpm != null &&
-    (
-      Math.abs(td.landingVsFpm) < MSFS_TOUCHDOWN_MIN_NORMAL_VELOCITY_FPM ||
-      Math.abs(td.landingVsFpm) > MSFS_TOUCHDOWN_MAX_NORMAL_VELOCITY_FPM
-    )
-  ) {
-    return { ...result, positionDeltaFt, rejectReason: 'invalid_normal_velocity' };
-  }
-
   return {
     ...result,
     trusted: true,
@@ -379,9 +375,9 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
     flight_elapsed_ms: flightElapsedMs,
 
     // Aircraft & location
-    aircraft: ctx.aircraftName || 'Unknown Aircraft',
+    aircraft: ts.aircraft || ctx.aircraftName || 'Unknown Aircraft',
     sim_version: ctx.simVersion ?? null,
-    aircraft_profile_id: ctx.aircraftProfileId ?? null,
+    aircraft_profile_id: ts.aircraft_profile_id ?? ctx.aircraftProfileId ?? null,
     data_source: ctx.dataSource ?? null,
     assists,
     ...buildAssistCsvFields(assists),
@@ -394,6 +390,7 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
     ias_kts: ts.ias_kts ?? null,
     gs_kts: ts.gs_kts ?? null,
     grade: finalGrade.grade ?? null,
+    landing_rate_context: ts.landing_rate_context ?? ts.landingRateContext ?? null,
     gforce: ts.gforce ?? null,
 
     // Position at touchdown
@@ -451,6 +448,7 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
 
     // Ultimate stability (retrospective)
     ultimate_stability_score: ts.ultimate_stability_score ?? null,
+    ultimate_stability_verdict: ts.ultimate_stability_verdict ?? ts.ultimateStabilityVerdict ?? null,
     ultimate_stability_samples: ts.ultimate_stability_samples ?? null,
     ultimate_stability_gate_stable: ultimateStabilityGateStable,
     ultimate_stability_gate_failures: ts.ultimate_stability_gateFailures ?? null,
@@ -864,6 +862,7 @@ function getBounceVerticalSpeedFpm(frame: AnyRecord | null | undefined): number 
 
 type BounceCandidate = {
   startedEpochMs: number;
+  endedEpochMs: number | null;
   baselineAltitudeFt: number | null;
   baselineRadioHeightFt: number | null;
   peakAltitudeFt: number | null;
@@ -962,46 +961,37 @@ function assessBounceCandidate(input: {
   bounceVsFpm: number;
   bounceGforce: number | null;
   minTouchdownVsFpm: number;
+  aircraftProfileId?: unknown;
 }): AnyRecord {
-  const { candidate, bounceVsFpm, bounceGforce, minTouchdownVsFpm } = input;
+  const { candidate, bounceVsFpm, bounceGforce, minTouchdownVsFpm, aircraftProfileId } = input;
   const altitudeLiftFt = candidate.baselineAltitudeFt != null && candidate.peakAltitudeFt != null
     ? candidate.peakAltitudeFt - candidate.baselineAltitudeFt
     : null;
   const radioHeightLiftFt = candidate.baselineRadioHeightFt != null && candidate.peakRadioHeightFt != null
     ? candidate.peakRadioHeightFt - candidate.baselineRadioHeightFt
     : null;
-  // Keep an independent positive floor even if the general touchdown detector
-  // is configured to accept zero-sink contacts. Otherwise a stationary 0 fpm
-  // sample would count as upward-motion proof for a WOW dropout.
-  const motionNoiseFloorFpm = Math.max(BOUNCE_MIN_UPWARD_VS_FPM, minTouchdownVsFpm);
-  // MSL altitude and vertical speed also rise while rolling up a sloped runway.
-  // When a complete RA comparison exists, it is the runway-relative authority;
-  // use geometric altitude/VS only as fallbacks when RA is unavailable.
-  const radioHeightAuthoritative = radioHeightLiftFt != null;
-  const hasPhysicalLift = radioHeightAuthoritative
-    ? radioHeightLiftFt >= BOUNCE_MIN_RADIO_HEIGHT_LIFT_FT
-    : (altitudeLiftFt != null && altitudeLiftFt >= BOUNCE_MIN_ALTITUDE_LIFT_FT);
-  const hasPositiveMotion = !radioHeightAuthoritative
-    && candidate.maxUpwardVsFpm != null
-    && candidate.maxUpwardVsFpm >= motionNoiseFloorFpm;
-  // Reuse the configured aircraft landing bands instead of inventing a second
-  // sink-rate scale. A contact soft enough to be a PERFECT landing is not, by
-  // itself, proof of a physical bounce; a firmer contact or load impulse is.
-  const impactGrade = gradeLanding(bounceVsFpm).grade;
-  const hasMeaningfulImpact = impactGrade !== 'PERFECT'
-    || (bounceGforce != null && bounceGforce >= BOUNCE_MIN_IMPACT_LOAD_G);
+  const airborneDurationMs = candidate.endedEpochMs == null
+    ? null
+    : Math.max(0, candidate.endedEpochMs - candidate.startedEpochMs);
+  const assessment = assessRecordedBounceEvidence({
+    airborneDurationMs,
+    altitudeLiftFt,
+    impactLoadG: bounceGforce,
+    maxUpwardVsFpm: candidate.maxUpwardVsFpm,
+    radioHeightLiftFt,
+    recontactVsFpm: bounceVsFpm,
+  }, (vsFpm: number) => gradeLandingForProfile(vsFpm, aircraftProfileId)?.grade ?? null, {
+    // Keep the touchdown detector's configured noise floor without duplicating
+    // the shared physical-evidence thresholds.
+    minUpwardVsFpm: minTouchdownVsFpm,
+  });
 
   return {
-    confirmed: hasPhysicalLift || hasPositiveMotion || hasMeaningfulImpact,
-    hasPhysicalLift,
-    hasPositiveMotion,
-    hasMeaningfulImpact,
-    altitudeLiftFt,
-    radioHeightLiftFt,
-    radioHeightAuthoritative,
+    ...assessment,
+    hasCombinedShallowBounceEvidence: assessment.hasCombinedShallowEvidence,
+    weakSupportingSignalCount: assessment.shallowSecondarySignals,
     maxUpwardVsFpm: candidate.maxUpwardVsFpm,
     impactVsFpm: bounceVsFpm,
-    impactGrade,
     impactGforce: bounceGforce,
     airborneDistanceFt: candidate.airborneDistanceFt,
   };
@@ -1108,6 +1098,10 @@ function buildFinalLandingBroadcast(input: {
     },
     ultimateStability: {
       score: touchdownSummary.ultimate_stability_score ?? null,
+      verdict:
+        touchdownSummary.ultimate_stability_verdict
+        ?? touchdownSummary.ultimateStabilityVerdict
+        ?? null,
       scoringContext:
         touchdownSummary.ultimate_stability_context
         ?? touchdownSummary.ultimateStabilityContext
@@ -1246,6 +1240,10 @@ function createLandingRunner(): LandingRunner {
     };
 
     return {
+      ultimate_stability_verdict:
+        ultimateScore && typeof ultimateScore.verdict === 'string'
+          ? ultimateScore.verdict
+          : null,
       ultimate_stability_samples:
         ultimateScore && Number.isFinite(ultimateScore.samples)
           ? ultimateScore.samples
@@ -1315,13 +1313,9 @@ function createLandingRunner(): LandingRunner {
       return { vsFpm: 0, source: 'fallback_zero' };
     }
 
-    // Use the conventional aircraft vertical-speed signal for cross-tool
-    // comparability. The dedicated MSFS ground-normal touchdown velocity remains
-    // persisted in td_sim_* diagnostics, but it measures a different quantity
-    // and must not replace the headline landing rate.
-    //
-    // Prefer the more negative recent sample so a post-impact WOW frame cannot
-    // under-report the sink rate observed immediately before wheel contact.
+    // Prefer the more negative recent conventional sample so a post-impact WOW
+    // frame cannot under-report the sink rate. Simulator touchdown normal
+    // velocity remains diagnostic metadata and never enters this calculation.
     let selected = candidates[0];
     for (const candidate of candidates) {
       if (candidate.value < selected.value) selected = candidate;
@@ -1370,7 +1364,12 @@ function createLandingRunner(): LandingRunner {
     });
   }
 
-  function updatePendingBounceConfirmation(frame: AnyRecord, nowEpochMs: number, minTouchdownVsFpm: number): void {
+  function updatePendingBounceConfirmation(
+    frame: AnyRecord,
+    nowEpochMs: number,
+    minTouchdownVsFpm: number,
+    aircraftProfileId: unknown,
+  ): void {
     const pending = pendingBounceConfirmation;
     if (!pending) return;
 
@@ -1384,6 +1383,7 @@ function createLandingRunner(): LandingRunner {
         bounceVsFpm: pending.bounceVsFpm,
         bounceGforce: pending.bounceGforce,
         minTouchdownVsFpm,
+        aircraftProfileId,
       });
       Debug.log('landing', 'Suppressed unconfirmed bounce before next airborne segment', {
         ...finalAssessment,
@@ -1405,6 +1405,7 @@ function createLandingRunner(): LandingRunner {
         bounceVsFpm: pending.bounceVsFpm,
         bounceGforce: pending.bounceGforce,
         minTouchdownVsFpm,
+        aircraftProfileId,
       });
       if (assessment.confirmed) {
         pendingBounceConfirmation = null;
@@ -1419,6 +1420,7 @@ function createLandingRunner(): LandingRunner {
         bounceVsFpm: pending.bounceVsFpm,
         bounceGforce: pending.bounceGforce,
         minTouchdownVsFpm,
+        aircraftProfileId,
       });
       Debug.log('landing', 'Suppressed unconfirmed bounce (WOW dropout without physical corroboration)', {
         ...finalAssessment,
@@ -1453,7 +1455,8 @@ function createLandingRunner(): LandingRunner {
     // the WOW transition. Let a pending contact use the same one-second impact
     // window as the existing landing G-force capture before deciding it was only
     // a sensor dropout.
-    updatePendingBounceConfirmation(frame, nowEpochMsCurrent, configuredMinVsFpm);
+    const landingAttemptProfileId = touchdownSummary?.aircraft_profile_id ?? ctx.aircraftProfileId;
+    updatePendingBounceConfirmation(frame, nowEpochMsCurrent, configuredMinVsFpm, landingAttemptProfileId);
 
     // Start and update a raw post-touchdown airborne segment independently of
     // whether it is eventually confirmed as a physical bounce. This preserves
@@ -1462,6 +1465,7 @@ function createLandingRunner(): LandingRunner {
       if (!bounceCandidate) {
         bounceCandidate = {
           startedEpochMs: nowEpochMsCurrent,
+          endedEpochMs: null,
           baselineAltitudeFt: lastGroundAltitudeFt,
           baselineRadioHeightFt: lastGroundRadioHeightFt,
           peakAltitudeFt: null,
@@ -1629,6 +1633,7 @@ function createLandingRunner(): LandingRunner {
         // second impact before labeling and scoring a physical bounce.
         if (bounceCandidate) {
           addObservedAirborneDistance(bounceCandidate, finitePosition(frame));
+          bounceCandidate.endedEpochMs = nowEpochMs;
         }
         const bouncePosition = {
           lat_deg: touchdownSnapshot.lat_deg,
@@ -1649,6 +1654,7 @@ function createLandingRunner(): LandingRunner {
             bounceVsFpm,
             bounceGforce,
             minTouchdownVsFpm: minVsFpm,
+            aircraftProfileId: touchdownSummary?.aircraft_profile_id ?? ctx.aircraftProfileId,
           })
           : { confirmed: false, airborneDistanceFt: 0 };
 
@@ -1707,7 +1713,19 @@ function createLandingRunner(): LandingRunner {
         : metersToFeet(ra);
 
       const gforce = getMeasuredGForce(frame);
-      const grade = gradeLanding(typeof vs_fpm === 'number' ? vs_fpm : 0);
+      const grade = gradeLandingForProfile(
+        typeof vs_fpm === 'number' ? vs_fpm : 0,
+        ctx.aircraftProfileId,
+      );
+      const landingRateContext = buildLandingRateScoringContext(ctx.aircraftProfileId);
+      // Everything after an accepted touchdown belongs to this landing attempt,
+      // even if a noisy aircraft-title update changes the process-wide profile
+      // during rollout. Runway/geometry data deliberately remains live.
+      const landingAttemptAircraft = ctx.aircraftName || '';
+      const landingAttemptProfileId = ctx.aircraftProfileId ?? null;
+      const landingAttemptTaxiInMaxKts = finiteNumberOrNull(
+        getEffectivePhaseThresholds().taxi_in_max_kts,
+      );
 
       const stableStr = '--';
       const breakdown = null;
@@ -1772,6 +1790,7 @@ function createLandingRunner(): LandingRunner {
         stability: stableStr,
         ultimate_stability_score: ultimateStabilityScore,
         ultimate_stability_breakdown: ultimateStabilityBreakdown,
+        landing_rate_context: landingRateContext,
         ...ultimateStabilityFlat,
         gforce,
       };
@@ -1816,6 +1835,7 @@ function createLandingRunner(): LandingRunner {
         alt_msl_ft: alt_msl,
         lights,
         grade,
+        landing_rate_context: landingRateContext,
         gforce,
         runway_occupancy_s: null,
         stability: stableStr,
@@ -1832,7 +1852,9 @@ function createLandingRunner(): LandingRunner {
         // when nothing is known. See landing-distance.inferSurfaceCondition.
         ...getFdmSurfaceSnapshot(frame),
         // Aircraft identity retained for landing-event diagnostics.
-        aircraft: ctx.aircraftName || '',
+        aircraft: landingAttemptAircraft,
+        aircraft_profile_id: landingAttemptProfileId,
+        rollout_taxi_in_max_kts: landingAttemptTaxiInMaxKts,
         // Bounce tracking data (set at creation, updated during bounces)
         bounceCount: 0,
         firstTouchdown: firstTouchdown,
@@ -1944,10 +1966,9 @@ function createLandingRunner(): LandingRunner {
       if (shouldFinalizeRollout) {
         rolloutActive = false;
 
-        let finalGrade: AnyRecord = touchdownSummary.grade;
-        if (excursionDetected) {
-          finalGrade = { grade: 'RUNWAY EXCURSION', color: 'red' };
-        }
+        // `grade` is the touchdown-rate grade everywhere. Runway excursion,
+        // short landing, and touchdown-zone results remain separate facts.
+        const finalGrade: AnyRecord = touchdownSummary.grade;
 
         // Calculate bounce scoring regardless of runway lookup availability.
         // Bounce analysis is independent of runway geometry and should fail-safe.
@@ -1962,7 +1983,7 @@ function createLandingRunner(): LandingRunner {
         const { runwayData, runwayReferenceData } = resolveTouchdownGeometry(touchdownSummary, ctx);
         touchdownSummary.xwind_kts = calculateRunwayCrosswind(runwayData, touchdownSummary);
         touchdownSummary.rolloutAnalysis = analyzeRollout(rolloutAnalysisSamples, {
-          taxiInMaxKts: getEffectivePhaseThresholds().taxi_in_max_kts,
+          taxiInMaxKts: touchdownSummary.rollout_taxi_in_max_kts,
           runwayHeadingTrueDeg: getRunwayTrueHeadingDeg(runwayData),
           runwayThreshold: runwayData?.threshold ?? null,
           runwayWidthFt: runwayData?.widthFt ?? null,

@@ -158,18 +158,12 @@ HTTP port.
 
 Flight Fabric serves stream widgets from its local HTTP server. Start Flight
 Fabric, add an OBS **Browser Source**, leave **Local file**
-unchecked, and use one of these URLs:
+unchecked, and use these URLs:
 
 ```text
-http://localhost:8100/widgets-compact/widget.html
 http://localhost:8100/widgets-compact/widget-top.html
 http://localhost:8100/widgets-compact/widget-bottom.html
 ```
-
-The main widget accepts `?tab=flight`, `?tab=systems`, `?tab=landing`, or
-`?tab=lvars`. Autopilot, environment, and history variants are also available
-under `/widgets-compact/`. For OBS on another PC, enable trusted LAN access and
-replace `localhost` with the simulator PC's private LAN IP.
 
 ## AI Use
 

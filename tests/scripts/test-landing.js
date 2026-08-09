@@ -263,6 +263,67 @@ test('gradeLanding 737 MAX: well past HARD threshold = VERY HARD', () => {
 profileLoader.clearCache();
 profileLoader.setActiveProfile('generic');
 
+test('gradeLandingForProfile uses the recorded profile without changing the active aircraft', () => {
+  const activeProfileId = profileLoader.getActiveProfileId();
+  assertEqual(landing.gradeLanding(-180).grade, 'PERFECT', 'Active generic grade');
+  assertEqual(
+    landing.gradeLandingForProfile(-180, 'fbw-a380x').grade,
+    'GOOD',
+    'Recorded A380 grade',
+  );
+  assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Active profile must remain unchanged');
+});
+
+test('gradeLandingForProfile uses A32NX landing bands for the LFPG conventional rate', () => {
+  const activeProfileId = profileLoader.getActiveProfileId();
+  assertEqual(
+    landing.gradeLandingForProfile(-243.3, 'fbw-a32nx').grade,
+    'GOOD',
+    'Recorded A32NX grade',
+  );
+  assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Active profile must remain unchanged');
+});
+
+test('landing-rate scoring context snapshots the recorded policy and exact profile bands', () => {
+  const activeProfileId = profileLoader.getActiveProfileId();
+  const context = landing.buildLandingRateScoringContext('fbw-a32nx');
+  assertEqual(context.schemaVersion, 1, 'Context schema');
+  assertEqual(context.policy.id, 'landing-rate-v1', 'Landing policy id');
+  assertEqual(context.policy.version, 1, 'Landing policy version');
+  assertEqual(context.profile.id, 'fbw-a32nx', 'Recorded profile id');
+  assertEqual(context.profile.resolved, true, 'Recorded profile resolution');
+  assertEqual(context.thresholds.perfectMinFpm, -120, 'A32NX perfect threshold');
+  assertEqual(context.thresholds.goodMinFpm, -250, 'A32NX good threshold');
+  assertEqual(context.thresholds.firmMinFpm, -400, 'A32NX firm threshold');
+  assertEqual(context.thresholds.hardMinFpm, -650, 'A32NX hard threshold');
+  assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Context lookup must not change active profile');
+});
+
+test('recorded-profile grading fails closed instead of applying generic bands to a retired profile', () => {
+  const activeProfileId = profileLoader.getActiveProfileId();
+  assertEqual(
+    landing.gradeLandingForRecordedProfile(-243.3, 'fbw-a32nx').grade,
+    'GOOD',
+    'Resolvable recorded profile grade',
+  );
+  assertEqual(
+    landing.gradeLandingForRecordedProfile(-650, 'pmdg-737'),
+    null,
+    'Retired profile must not be silently regraded as generic',
+  );
+  assertEqual(
+    landing.gradeLandingForRecordedProfile(-650, 737),
+    null,
+    'Numeric-only recorded profile IDs remain explicit instead of looking missing',
+  );
+  assertEqual(
+    landing.gradeLandingForRecordedProfile(-650, null).grade,
+    'FIRM',
+    'Pre-profile recordings retain the historical generic default',
+  );
+  assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Active profile must remain unchanged');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // gradeLanding edge cases
 // ─────────────────────────────────────────────────────────────────────────────

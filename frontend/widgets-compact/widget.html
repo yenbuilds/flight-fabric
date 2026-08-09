@@ -282,6 +282,9 @@
       letter-spacing: 0.01em;
     }
     .grade-PERFECT { background: rgba(34, 197, 94, 0.25); color: #86efac; }
+    .grade-SMOOTH { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
+    .grade-WARNING { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
+    .grade-DANGER { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
     .grade-GOOD { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
     .grade-FIRM { background: rgba(234, 179, 8, 0.25); color: #fcd34d; }
     .grade-HARD { background: rgba(249, 115, 22, 0.25); color: #fdba74; }
@@ -299,6 +302,7 @@
     .stability-value.high { color: #4ade80; }
     .stability-value.medium { color: #fbbf24; }
     .stability-value.low { color: #f87171; }
+    .stability-value.neutral { color: #94a3b8; }
     .stability-mini {
       font-family: var(--font-mono);
       font-size: 11px;
@@ -543,17 +547,17 @@
       
       <!-- LANDING TAB -->
       <div id="section-landing" class="strip-section items-center">
-        <!-- Grade -->
+        <!-- Touchdown-rate grade -->
         <div class="flex items-center gap-3">
-          <span class="sys-label">GRADE</span>
+          <span class="sys-label">TD RATE GRADE</span>
           <span id="landing-grade" class="grade-badge">--</span>
         </div>
         
         <div class="section-divider"></div>
         
-        <!-- V/S -->
+        <!-- Touchdown rate -->
         <div class="data-group">
-          <span class="data-label">V/S</span>
+          <span class="data-label">TD RATE</span>
           <span id="landing-vs" class="data-value tabular">---</span>
           <span class="data-unit">fpm</span>
         </div>
@@ -573,15 +577,23 @@
           <span class="data-label">TDZ</span>
           <span id="landing-tdz" class="data-value secondary tabular">----</span>
           <span class="data-unit">ft</span>
+          <span id="landing-tdz-detail" class="data-unit"></span>
         </div>
         
         <div class="section-divider"></div>
         
-        <!-- Stability -->
+        <!-- Approach verdict -->
         <div class="flex items-center gap-3">
-          <span class="sys-label">STABILITY</span>
+          <span class="sys-label">APPROACH</span>
           <span id="stability-score" class="stability-value high tabular">--</span>
-          <span class="data-unit">%</span>
+          <span id="stability-score-detail" class="data-unit"></span>
+        </div>
+
+        <div class="bar-divider"></div>
+
+        <div class="flex items-center gap-3">
+          <span class="sys-label">BOUNCE</span>
+          <span id="landing-bounce" class="stability-value neutral tabular">--</span>
         </div>
 
         <div class="bar-divider"></div>
@@ -627,6 +639,7 @@
     // ===== Setup =====
     const $ = id => document.getElementById(id);
     let wasSimconnectConnected = false;
+    let latestFinalLanding = null;
     
     // ===== Fuel Unit Preference =====
     const FUEL_UNITS = ['gal', 'lbs', 'kg'];
@@ -843,12 +856,13 @@
       'gear-state': 'UP', 'flaps-value': 'UP', 'spoilers-value': 'RET',
       'eng1-n1': '--', 'eng2-n1': '--', 'eng3-n1': '--', 'eng4-n1': '--',
       'landing-grade': '--', 'landing-vs': '---', 'landing-g': '-.-',
-      'landing-tdz': '----', 'stability-score': '--', 'stability-breakdown-mini': '--',
+      'landing-tdz': '----', 'landing-tdz-detail': '', 'stability-score': '--', 'stability-score-detail': '', 'landing-bounce': '--', 'stability-breakdown-mini': '--',
       'dest-strip-text': '--',
     };
 
     // === Reset strip telemetry to initial state (SimConnect disconnected) ===
     function resetStripTelemetry() {
+      latestFinalLanding = null;
       // Reset all text values from the defaults map
       Object.entries(TEXT_DEFAULTS).forEach(([id, val]) => {
         const el = $(id); if (el) el.textContent = val;
@@ -860,6 +874,7 @@
       $('phase-badge').className = 'phase-badge';
       $('landing-grade').className = 'grade-badge';
       $('stability-score').className = 'stability-value high tabular';
+      $('landing-bounce').className = 'stability-value neutral tabular';
       $('aircraft-name').title = '';
 
       // Hide RA
@@ -1100,8 +1115,10 @@
       
       // Landing
       if (t === 'landing') {
-        $('landing-grade').textContent = msg.grade || '--';
-        $('landing-grade').className = 'grade-badge grade-' + (msg.grade || '').replace(/\s+/g, '-');
+        latestFinalLanding = msg.final ? msg : null;
+        const presentation = TelemetryUI.utils.landingPresentation(msg);
+        $('landing-grade').textContent = presentation.touchdownGrade;
+        $('landing-grade').className = 'grade-badge grade-' + presentation.touchdownGradeClass;
         $('landing-vs').textContent = msg.vs != null ? msg.vs.toFixed(0) : '---';
         $('landing-g').textContent = msg.gforce != null ? msg.gforce.toFixed(1) : '-.-';
         // TDZ is nested under touchdownDistance
@@ -1113,13 +1130,21 @@
           (tdzGrade === 'Outstanding' || tdzGrade === 'Good' ? 'val-normal' :
            tdzGrade === 'Marginal' ? 'val-caution' :
            tdzGrade ? 'val-warning' : 'val-dim');
+        const tdzFacts = [
+          presentation.tdzGrade !== '--' ? presentation.tdzGrade : '',
+          presentation.runwayExcursion ? 'RUNWAY EXCURSION' : '',
+        ].filter(Boolean);
+        $('landing-tdz-detail').textContent = tdzFacts.join(' · ');
+        $('landing-tdz-detail').className = 'data-unit ' +
+          (presentation.runwayExcursion ? 'val-warning' :
+           presentation.tdzGrade === 'MARGINAL' ? 'val-caution' :
+           presentation.tdzGrade !== '--' ? 'val-normal' : 'val-dim');
         // Also show stability if included in landing message
-        const stabScore = msg.ultimateStability?.score;
-        if (stabScore != null) {
-          $('stability-score').textContent = stabScore;
-          $('stability-score').className = 'stability-value ' + 
-            (stabScore >= 80 ? 'high' : stabScore >= 60 ? 'medium' : 'low');
-        }
+        $('stability-score').textContent = presentation.approachLabel;
+        $('stability-score-detail').textContent = presentation.approachScoreText;
+        $('stability-score').className = 'stability-value ' + presentation.approachClass;
+        $('landing-bounce').textContent = presentation.bounceLabel;
+        $('landing-bounce').className = 'stability-value ' + presentation.bounceClass;
         updateStabilityBreakdownMini(msg.ultimateStability);
         
         // Auto-switch to Landing tab on touchdown
@@ -1132,10 +1157,26 @@
       
       // Stability - uses msg.score (not msg.overall)
       if (t === 'ultimateStabilityScore') {
-        const score = msg.score;
-        $('stability-score').textContent = score != null ? score : '--';
-        $('stability-score').className = 'stability-value ' + 
-          (score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low');
+        const landingPayload = latestFinalLanding
+          ? {
+              ...latestFinalLanding,
+              ultimateStability: {
+                ...(latestFinalLanding.ultimateStability || {}),
+                ...msg,
+              },
+            }
+          : { ultimateStability: msg };
+        if (latestFinalLanding) latestFinalLanding = landingPayload;
+        const presentation = TelemetryUI.utils.landingPresentation(landingPayload);
+        if (latestFinalLanding) {
+          $('landing-grade').textContent = presentation.touchdownGrade;
+          $('landing-grade').className = 'grade-badge grade-' + presentation.touchdownGradeClass;
+        }
+        $('stability-score').textContent = presentation.approachLabel;
+        $('stability-score-detail').textContent = presentation.approachScoreText;
+        $('stability-score').className = 'stability-value ' + presentation.approachClass;
+        $('landing-bounce').textContent = presentation.bounceLabel;
+        $('landing-bounce').className = 'stability-value ' + presentation.bounceClass;
         updateStabilityBreakdownMini(msg);
       }
 

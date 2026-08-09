@@ -455,10 +455,19 @@
   // ── Landing
   function onLanding(msg) {
     if (!msg.final) return;
-    const grade = msg.grade || '--';
-    const vs    = msg.vs    != null ? Math.round(msg.vs) + ' fpm' : '';
+    const presentation = TelemetryUI.utils.landingPresentation(msg);
+    const grade = `TD RATE ${presentation.touchdownGrade}`;
+    const vs    = msg.vs    != null ? 'TD rate ' + Math.round(msg.vs) + ' fpm' : '';
     const g     = msg.gforce!= null ? msg.gforce.toFixed(1) + 'G'  : '';
-    const parts = [grade, vs, g].filter(Boolean).join(' · ');
+    const tdzDistance = Number(msg.touchdownDistance?.distanceFt);
+    const tdzGrade = presentation.tdzGrade !== '--' ? presentation.tdzGrade : '';
+    const tdz = msg.touchdownDistance?.distanceFt != null && Number.isFinite(tdzDistance)
+      ? `TDZ ${Math.round(tdzDistance)} ft${tdzGrade ? ` ${tdzGrade}` : ''}`
+      : (tdzGrade ? `TDZ ${tdzGrade}` : '');
+    const excursion = presentation.runwayExcursion ? 'RUNWAY EXCURSION' : '';
+    const approach = `APP ${presentation.approachLabel}${presentation.approachScoreText ? ` ${presentation.approachScoreText}` : ''}`;
+    const bounce = `BNC ${presentation.bounceLabel}`;
+    const parts = [grade, vs, g, tdz, excursion, approach, bounce].filter(Boolean).join(' · ');
     push('🛬', 'Landed · ' + parts, 'landing');
   }
 

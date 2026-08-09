@@ -110,6 +110,8 @@ export interface StabilityBreakdown {
   gear_ok?: number;
 }
 
+export type ApproachStabilityVerdict = 'stable' | 'marginal' | 'unstable' | 'no_verdict';
+
 /** Detail explaining why a stability criterion scored a certain percentage */
 export interface StabilityBreakdownDetail {
   status: 'ok' | 'failed';
@@ -136,6 +138,7 @@ export interface StabilityScoreMessage extends BaseMessage {
 export interface UltimateStabilityScoreMessage extends BaseMessage {
   type: 'ultimateStabilityScore';
   score: number | null;
+  verdict: ApproachStabilityVerdict;
   breakdown: StabilityBreakdown | null;
   samples: number;
   gateStable: boolean | null;
@@ -321,6 +324,7 @@ export interface LandingMessage extends BaseMessage {
   runway_occupancy_s?: number | null;
   bounce_count?: number;
   ultimate_stability_score?: number | null;
+  ultimate_stability_verdict?: ApproachStabilityVerdict | null;
 }
 
 // ============================================================================

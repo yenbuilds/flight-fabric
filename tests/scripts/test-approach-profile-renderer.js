@@ -51,6 +51,7 @@ function profilePoint({
 
 async function main() {
   const { approachProfileApi } = await import(frontendUrl('src', 'landing', 'approach-profile-global.js'));
+  const { buildLandingApproachProfileHtml } = await import(frontendUrl('src', 'timeline', 'landing-detail.js'));
   let passed = 0;
   let failed = 0;
 
@@ -93,8 +94,74 @@ async function main() {
     assert.match(svg, /Altitude \(ft above rwy ref\)/, 'should prefer runway-relative height when altitude and runway references are present');
     assert.match(svg, /1,200 ft/, 'should render rounded touchdown distance label');
     assert.match(svg, /-620 fpm/, 'should render touchdown vertical speed');
-    assert.match(svg, />Good</, 'should render grade label');
+    assert.match(svg, />TD RATE GOOD</, 'should explicitly scope the touchdown-rate grade annotation');
     assertNoBadNumbers(svg, 'side-on SVG');
+
+    const cappedSvg = approachProfileApi.buildSvg(profile, {
+      vs_fpm: -243,
+      grade: 'PERFECT',
+      thresholdElevFt: 5000,
+      touchdownDistance: {
+        distanceFt: 600,
+        grade: 'Outstanding',
+        bounceCount: 1,
+        bounceGrade: 'Single Bounce',
+      },
+      ultimateStability: { verdict: 'unstable', score: 84, gateStable: false },
+    });
+    assert.match(cappedSvg, />TD RATE PERFECT</, 'approach annotation should preserve the explicitly scoped touchdown grade');
+    assert.match(cappedSvg, />APP UNSTABLE · BNC 1x</, 'approach annotation should expose gate and bounce as peer facts');
+    assert.match(cappedSvg, />Approach score 84%</, 'approach annotation should label the secondary percentage');
+
+    const scoreOnlySvg = approachProfileApi.buildSvg(profile, {
+      vs_fpm: -280,
+      grade: 'GOOD',
+      thresholdElevFt: 5000,
+      ultimateStability: { score: 91 },
+    });
+    assert.match(scoreOnlySvg, />APP NO VERDICT</, 'a score-only approach annotation should explicitly state that no verdict is available');
+    assert.match(scoreOnlySvg, />Approach score 91%</, 'the score-only annotation should retain the labelled secondary percentage');
+
+    const peerFactsWithoutGradeSvg = approachProfileApi.buildSvg(profile, {
+      thresholdElevFt: 5000,
+      runwayExcursion: true,
+      bounceCount: 1,
+      bounceGrade: 'Single Bounce',
+      ultimateStability: { verdict: 'unstable', score: 84, gateStable: false },
+    });
+    assert.doesNotMatch(peerFactsWithoutGradeSvg, /TD RATE/, 'missing touchdown-rate grades should not be invented');
+    assert.match(peerFactsWithoutGradeSvg, />APP UNSTABLE · BNC 1x</, 'approach and bounce facts should render without a touchdown-rate grade');
+    assert.match(peerFactsWithoutGradeSvg, />Approach score 84%</, 'approach score should render without a touchdown-rate grade');
+    assert.match(peerFactsWithoutGradeSvg, />RUNWAY EXCURSION</, 'runway excursion should render as a separate critical fact');
+  });
+
+  test('timeline side-on handoff retains the separate runway-excursion fact', () => {
+    const profile = [
+      profilePoint({ alongFt: -6000, crossFt: 0, raFt: 1180, altMslFt: 6200 }),
+      profilePoint({ alongFt: -4500, crossFt: 0, raFt: 900, altMslFt: 5900 }),
+      profilePoint({ alongFt: -3000, crossFt: 0, raFt: 600, altMslFt: 5600 }),
+      profilePoint({ alongFt: -1500, crossFt: 0, raFt: 300, altMslFt: 5300 }),
+      profilePoint({ alongFt: 600, crossFt: 0, raFt: 20, altMslFt: 5020 }),
+    ];
+    let handedLanding = null;
+    const fakeApi = {
+      MIN_PROFILE_POINTS: 5,
+      buildSvg(_profile, landing) {
+        handedLanding = landing;
+        return '<svg></svg>';
+      },
+    };
+    const html = buildLandingApproachProfileHtml({
+      type: 'landing',
+      approachProfile: profile,
+      grade: 'GOOD',
+      runwayExcursion: true,
+    }, fakeApi);
+
+    assert.equal(html, '<svg></svg>');
+    assert.equal(handedLanding?.grade, 'GOOD', 'timeline handoff should retain the touchdown-rate grade');
+    assert.equal(handedLanding?.runwayExcursion, true, 'timeline handoff should retain excursion separately');
+    assert.equal(Object.prototype.hasOwnProperty.call(handedLanding || {}, 'headlineGrade'), false, 'timeline handoff should not carry a hybrid headline grade');
   });
 
   test('side-on renderer honors an approach-locked calibrated reference through a cockpit jump', () => {
@@ -202,7 +269,7 @@ async function main() {
         thresholdElevFt: 5000,
         touchdownDistance: {
           distanceFt: 1200,
-          grade: 'Good',
+          grade: '<script>alert(1)</script>',
           score: 88,
         },
       },
@@ -212,7 +279,7 @@ async function main() {
     assert.doesNotMatch(svg, /<script/i, 'should not emit raw script tags');
     assert.doesNotMatch(svg, /url\(javascript/i, 'should not emit unsafe CSS colors');
     assert.doesNotMatch(svg, /id="[^"]*[<>]/i, 'generated IDs should not contain raw tag characters');
-    assert.match(svg, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/, 'should render escaped grade text');
+    assert.match(svg, /&lt;SCRIPT&gt;ALERT\(1\)&lt;\/SCRIPT&gt;/, 'should render escaped grade text');
     assertNoBadNumbers(svg, 'sanitized side-on SVG');
   });
 

@@ -195,6 +195,79 @@ type FrameAcquisitionResult =
   | { status: 'frame'; frame: AnyRecord }
   | { status: 'shutdown'; frame: null };
 
+function snapshotStabilityScoringInputs({
+  profile,
+  commonCriteria,
+  profileCriteria,
+}: {
+  profile?: AnyRecord | null;
+  commonCriteria?: AnyRecord | null;
+  profileCriteria?: AnyRecord | null;
+}): AnyRecord {
+  const resolvedPolicy = resolveStabilityPolicy({
+    profile,
+    commonCriteria,
+    profileCriteria,
+  });
+  const criteria = Object.freeze({ ...(resolvedPolicy.criteria || {}) });
+  const profileSnapshot = profile && typeof profile === 'object'
+    ? Object.freeze({
+      id: typeof profile.id === 'string' && profile.id.trim() ? profile.id.trim() : 'generic',
+      name: typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim() : null,
+      aircraft: Object.freeze({
+        category: profile.aircraft?.category ?? null,
+      }),
+      signalReliability: Object.freeze({
+        stabilityScore: profile.signalReliability?.stabilityScore ?? null,
+      }),
+    })
+    : null;
+  const policy = Object.freeze({
+    ...resolvedPolicy,
+    criteria,
+  });
+  const engineCount = getProfileEngineCount(profile) || 4;
+
+  return Object.freeze({ profile: profileSnapshot, criteria, policy, engineCount });
+}
+
+function resolveRecordedStabilityScoringInputs(
+  recordedProfileId: unknown,
+  options: {
+    profileLoaderApi?: AnyRecord;
+    commonCriteria?: AnyRecord | null;
+  } = {},
+): AnyRecord {
+  const loader = options.profileLoaderApi || profileLoader;
+  const normalizedProfileId = typeof recordedProfileId === 'string' && recordedProfileId.trim()
+    ? recordedProfileId.trim()
+    : 'generic';
+  let profile = null;
+  try {
+    profile = typeof loader.loadProfile === 'function'
+      ? loader.loadProfile(normalizedProfileId)
+      : null;
+  } catch (_e) {}
+  if (!profile && normalizedProfileId !== 'generic') {
+    try {
+      profile = typeof loader.loadProfile === 'function' ? loader.loadProfile('generic') : null;
+    } catch (_e) {}
+  }
+
+  let profileCriteria = null;
+  try {
+    profileCriteria = typeof loader.getStabilityScoringCriteria === 'function'
+      ? loader.getStabilityScoringCriteria(profile)
+      : null;
+  } catch (_e) {}
+
+  return snapshotStabilityScoringInputs({
+    profile,
+    commonCriteria: options.commonCriteria ?? getStabilityCriteria(),
+    profileCriteria,
+  });
+}
+
 function averageFinite(values) {
   const finite = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
   if (finite.length === 0) return null;
@@ -1113,8 +1186,10 @@ async function runSimbridgeCore({
       // rollout window, which would discard the in-flight landing:final computation.
       if (!landingRunner.isRolloutActive()) {
         landingRunner.reset();
+        currentApproachScorer = null;
+        currentApproachScoringInputs = null;
       } else {
-        Debug.log('landing', 'Skipped landing runner reset on aircraft change (rollout active)');
+        Debug.log('landing', 'Preserved landing and approach scorer context on aircraft change (rollout active)');
       }
 
       // Reset flight violation runner (clears any in-progress upset state)
@@ -1244,6 +1319,11 @@ async function runSimbridgeCore({
       if (!payload) return;
       
       console.log(`[landing] landing:final received — vs=${payload.vs_fpm} fpm, grade=${payload.grade}, icao=${payload.icao}, runway=${payload.runway}, tdz_ft=${payload.touchdown_distance_ft}, tdz_grade=${payload.touchdown_distance_grade}`);
+      // The scorer and these inputs are one approach-scoped unit. The payload
+      // fallback also resolves its recorded profile explicitly; neither path
+      // consults whichever aircraft happens to be selected after touchdown.
+      const landingStabilityScoringInputs = currentApproachScoringInputs
+        || resolveRecordedStabilityScoringInputs(payload.aircraft_profile_id);
       let landingCsvReady = Promise.resolve(false);
       let landingCsvReadPath = null;
       let currentApproachScorePayload: AnyRecord | null = null;
@@ -1268,7 +1348,7 @@ async function runSimbridgeCore({
             airportIcao,
             runwayId: runwayId || payload.runway,
           });
-          const scoringInputs = getActiveStabilityScoringInputs();
+          const scoringInputs = landingStabilityScoringInputs;
 
           const stabScore = currentApproachScorer.getScore(thresholdElevFt, {
             lateralOffsetFt: Number.isFinite(payload.lateral_offset_ft) ? payload.lateral_offset_ft : null,
@@ -1287,10 +1367,12 @@ async function runSimbridgeCore({
           const approachProfile = currentApproachScorer.getApproachProfile(120);
           currentApproachScorer = null; // consumed — prevent accidental re-use
 
+          currentApproachScoringInputs = null;
           const breakdown = stabScore.breakdown || {};
           const pct = (key: string): number | null => Number.isFinite(breakdown[key]) ? breakdown[key] : null;
           Object.assign(payload, {
             ultimate_stability_score: stabScore.score,
+            ultimate_stability_verdict: stabScore.verdict,
             ultimate_stability_samples: stabScore.samples,
             ultimate_stability_gate_stable: stabScore.gateStable,
             ultimate_stability_gate_failures: stabScore.gateFailures,
@@ -1388,6 +1470,7 @@ async function runSimbridgeCore({
             spoiler_state: payload.spoiler_state,
             // Ultimate stability (retrospective)
             ultimate_stability_score: payload.ultimate_stability_score,
+            ultimate_stability_verdict: payload.ultimate_stability_verdict,
             ultimate_stability_samples: payload.ultimate_stability_samples,
             ultimate_stability_gate_stable: payload.ultimate_stability_gate_stable,
             ultimate_stability_gate_failures: payload.ultimate_stability_gate_failures,
@@ -1508,6 +1591,7 @@ async function runSimbridgeCore({
           broadcast({
             type: MSG.ULTIMATE_STABILITY_SCORE,
             score: stabScore.score,
+            verdict: stabScore.verdict,
             breakdown: stabScore.breakdown,
             samples: stabScore.samples,
             gateStable: stabScore.gateStable,
@@ -1552,7 +1636,7 @@ async function runSimbridgeCore({
             airportIcao,
             runwayId: runwayId || payload.runway,
           });
-          const scoringInputs = getActiveStabilityScoringInputs();
+          const scoringInputs = landingStabilityScoringInputs;
           const stabScore = currentApproachScorer.getScore(thresholdElevFt, {
             lateralOffsetFt: Number.isFinite(payload.lateral_offset_ft) ? payload.lateral_offset_ft : null,
             runwayWidthFt,
@@ -1569,6 +1653,7 @@ async function runSimbridgeCore({
           });
           const approachProfile = currentApproachScorer.getApproachProfile(120);
           currentApproachScorer = null; // consumed — prevent accidental re-use
+          currentApproachScoringInputs = null;
           publishCurrentApproachStabilityStatus({
             state: 'scored',
             event: 'landing_scored',
@@ -1583,6 +1668,7 @@ async function runSimbridgeCore({
           broadcast({
             type: MSG.ULTIMATE_STABILITY_SCORE,
             score: stabScore.score,
+            verdict: stabScore.verdict,
             breakdown: stabScore.breakdown,
             samples: stabScore.samples,
             gateStable: stabScore.gateStable,
@@ -1962,6 +2048,9 @@ async function runSimbridgeCore({
   const CURRENT_APPROACH_GATE_ALTITUDE_FT = 1000;
   const CURRENT_APPROACH_COLLECTION_CEILING_FT = 1500;
   let currentApproachScorer = null;
+  // Captured together with the scorer. Post-touchdown profile/title changes
+  // must never reconfigure the approach that the scorer already collected.
+  let currentApproachScoringInputs: AnyRecord | null = null;
   const VRE_SAMPLING_STATUS_INTERVAL_MS = 1000;
   let lastVreSamplingStatusBroadcastMs = 0;
   let lastVreSamplingStatusSignature = '';
@@ -1987,12 +2076,11 @@ async function runSimbridgeCore({
         ? profileLoader.getStabilityScoringCriteria(profile)
         : null;
     } catch (_e) {}
-    const policy = resolveStabilityPolicy({
+    return snapshotStabilityScoringInputs({
       profile,
       commonCriteria: getStabilityCriteria(),
       profileCriteria,
     });
-    return { profile, criteria: policy.criteria, policy };
   }
 
   function getActiveStabilityGateAltitudeFt() {
@@ -2001,11 +2089,19 @@ async function runSimbridgeCore({
   }
 
   function getCurrentApproachCollectionCeilingFt() {
-    return Math.max(CURRENT_APPROACH_COLLECTION_CEILING_FT, getActiveStabilityGateAltitudeFt());
+    const frozenGateRaFt = currentApproachScoringInputs?.criteria?.gateRaFt;
+    const gateRaFt = Number.isFinite(frozenGateRaFt)
+      ? frozenGateRaFt
+      : getActiveStabilityGateAltitudeFt();
+    return Math.max(CURRENT_APPROACH_COLLECTION_CEILING_FT, gateRaFt);
   }
 
   function createCurrentApproachScorer() {
-    return new SimpleStabilityScorer(getActiveStabilityGateAltitudeFt());
+    currentApproachScoringInputs = getActiveStabilityScoringInputs();
+    const gateRaFt = Number.isFinite(currentApproachScoringInputs.criteria?.gateRaFt)
+      ? currentApproachScoringInputs.criteria.gateRaFt
+      : CURRENT_APPROACH_GATE_ALTITUDE_FT;
+    return new SimpleStabilityScorer(gateRaFt);
   }
 
   function publishCurrentApproachStabilityStatus(_status: AnyRecord = {}, _options: { force?: boolean } = {}) {
@@ -2819,6 +2915,7 @@ async function runSimbridgeCore({
     recorderFieldCatalogConfig = null;
     recorderFieldCatalog = [];
     currentApproachScorer = null;     // Discard approach samples after flight ends
+    currentApproachScoringInputs = null;
     publishCurrentApproachStabilityStatus({
       state: 'reset',
       event: 'flight_ended',
@@ -3292,10 +3389,15 @@ async function runSimbridgeCore({
           // Augment with explicit degree fields so normalizeFrame picks them up preferentially.
           const pitchRad = frame.pitch;
           const bankRad  = frame.bank;
-          const activeProfileForThrottle = profileLoader.getActiveProfile();
+          // Explicit throttle telemetry wins. If it is unavailable, cap the
+          // engine/N1 fallback using the same profile snapshot as the scorer.
+          // A later active-profile switch must not change sample construction.
+          const scoringEngineCount = Number.isInteger(currentApproachScoringInputs?.engineCount)
+            ? currentApproachScoringInputs.engineCount
+            : 4;
           const fallbackEngineLevels = getEngineLevels(
             frame,
-            getProfileEngineCount(activeProfileForThrottle) || 4,
+            scoringEngineCount,
           );
           const scoringThrottlePct = resolveApproachScoringThrottlePct(frame, fallbackEngineLevels);
           const augFrame = {
@@ -3406,11 +3508,25 @@ async function runSimbridgeCore({
   // ───────────────────────────────────────────────────────────────────────────
   function processFlightEndAndSafetyGuards(frame, nowEpochMs, simconnectConnectedForLifecycle) {
     if (pendingAircraftChange && flightActive) {
-      const { newTitle } = pendingAircraftChange;
-      if (flightStartAircraftTitle && newTitle !== flightStartAircraftTitle) {
-        endFlight(nowEpochMs, `aircraft_change:${flightStartAircraftTitle}->${newTitle}`);
+      // Aircraft identity polling can briefly churn after touchdown. Keep the
+      // flight alive until landing-runner has emitted the accepted landing's
+      // final rollout result; the pending change is then handled normally on
+      // the first tick outside rollout.
+      if (landingRunner.isRolloutActive()) {
+        if (pendingAircraftChange.deferredForLandingRollout !== true) {
+          pendingAircraftChange.deferredForLandingRollout = true;
+          Debug.log('landing', 'Deferred aircraft-change flight end until rollout finalization', {
+            from: pendingAircraftChange.previousTitle,
+            to: pendingAircraftChange.newTitle,
+          });
+        }
+      } else {
+        const { newTitle } = pendingAircraftChange;
+        if (flightStartAircraftTitle && newTitle !== flightStartAircraftTitle) {
+          endFlight(nowEpochMs, `aircraft_change:${flightStartAircraftTitle}->${newTitle}`);
+        }
+        pendingAircraftChange = null;
       }
-      pendingAircraftChange = null;
     } else if (pendingAircraftChange) {
       pendingAircraftChange = null;
     }
@@ -4621,6 +4737,10 @@ async function runSimbridgeCore({
   }
 }
 
-module.exports = { runSimbridgeCore };
+module.exports = {
+  runSimbridgeCore,
+  snapshotStabilityScoringInputs,
+  resolveRecordedStabilityScoringInputs,
+};
 
 export {};

@@ -26,6 +26,7 @@ const MICRO_REVEAL_SELECTOR = [
 export function initTabsRuntime({
   tabsStore = null,
   reconnect = null,
+  canPullToReconnect = () => true,
   windowRef = window,
   documentRef = document,
 } = {}) {
@@ -138,7 +139,10 @@ export function initTabsRuntime({
     let swiping = false;
 
     addListener(mainEl, 'touchstart', (event) => {
-      if (event.touches.length !== 1) return;
+      if (event.touches.length !== 1) {
+        swiping = false;
+        return;
+      }
       if (event.target && event.target.closest && event.target.closest('.leaflet-container, [data-no-swipe]')) {
         swiping = false;
         return;
@@ -165,28 +169,60 @@ export function initTabsRuntime({
 
     let ptrStartY = 0;
     let ptrActive = false;
+    let ptrClearTimer = null;
+
+    function pullReconnectAvailable() {
+      if (typeof canPullToReconnect !== 'function') return true;
+      try {
+        return canPullToReconnect() === true;
+      } catch {
+        return false;
+      }
+    }
+
+    function clearPullReconnectTimer() {
+      if (ptrClearTimer == null) return;
+      windowRef.clearTimeout?.(ptrClearTimer);
+      ptrClearTimer = null;
+    }
+
+    function cancelPullReconnect() {
+      ptrActive = false;
+      clearPullReconnectTimer();
+      resolvedTabsStore.clearPullRefresh();
+    }
+
+    cleanupFns.push(cancelPullReconnect);
 
     addListener(mainEl, 'touchstart', (event) => {
       if (event.target && event.target.closest && event.target.closest('.leaflet-container, [data-no-swipe]')) {
-        ptrActive = false;
+        cancelPullReconnect();
+        return;
+      }
+      if (!pullReconnectAvailable()) {
+        cancelPullReconnect();
         return;
       }
       if (mainEl.scrollTop <= 0 && event.touches.length === 1) {
+        cancelPullReconnect();
         ptrStartY = event.touches[0].clientY;
         ptrActive = true;
       } else {
-        ptrActive = false;
+        cancelPullReconnect();
       }
     }, { passive: true });
 
     addListener(mainEl, 'touchmove', (event) => {
       if (!ptrActive) return;
+      if (!pullReconnectAvailable()) {
+        cancelPullReconnect();
+        return;
+      }
       const dy = event.touches[0].clientY - ptrStartY;
-      if (dy > 30 && dy < 120) {
+      if (dy > 30) {
         resolvedTabsStore.showPullRefreshPrompt(dy > 80);
       } else if (dy <= 0) {
-        resolvedTabsStore.clearPullRefresh();
-        ptrActive = false;
+        cancelPullReconnect();
       }
     }, { passive: true });
 
@@ -196,18 +232,29 @@ export function initTabsRuntime({
         return;
       }
       ptrActive = false;
+      if (!pullReconnectAvailable()) {
+        cancelPullReconnect();
+        return;
+      }
       const dy = event.changedTouches[0].clientY - ptrStartY;
       if (dy > 80) {
         resolvedTabsStore.startPullRefresh();
         if (typeof reconnect === 'function') {
           reconnect();
         }
-        windowRef.setTimeout(() => {
+        clearPullReconnectTimer();
+        ptrClearTimer = windowRef.setTimeout(() => {
+          ptrClearTimer = null;
           resolvedTabsStore.clearPullRefresh();
         }, 1200);
       } else {
         resolvedTabsStore.clearPullRefresh();
       }
+    }, { passive: true });
+
+    addListener(mainEl, 'touchcancel', () => {
+      swiping = false;
+      cancelPullReconnect();
     }, { passive: true });
   }
 

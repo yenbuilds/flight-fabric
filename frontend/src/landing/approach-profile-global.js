@@ -1,3 +1,5 @@
+import { buildLandingPresentation } from './scoring.js';
+
 /**
  * Approach profile renderer
  * Shared approach profile SVG renderer.
@@ -10,7 +12,7 @@
  *   - Touchdown point with distance label
  *   - Stability gate (1,000 ft above threshold, RA fallback) marker
  *   - Aircraft silhouette at touchdown (rotated to pitch)
- *   - V/S and grade annotations
+ *   - Touchdown-rate and scoped landing-fact annotations
  *   - High-sink-rate highlights (red segments)
  *   - Short-landing warning
  *
@@ -303,11 +305,12 @@ function lateralSideCode(value) {
  * @param {string} [landing.touchdownDistance.grade]
  * @param {number} [landing.vs]           - V/S at touchdown (fpm).
  * @param {number} [landing.vs_fpm]       - Alternate key used by timeline events.
- * @param {string} [landing.grade]        - Landing grade string.
+ * @param {string} [landing.grade]        - Touchdown-rate grade string.
  * @param {string} [landing.color]        - Grade colour (CSS).
  * @param {number} [landing.pitchDeg]     - Pitch at touchdown.
  * @param {number} [landing.pitch_deg]    - Alternate key used by timeline events.
  * @param {boolean}[landing.shortLanding] - Landed short of threshold.
+ * @param {boolean}[landing.runwayExcursion] - Runway excursion recorded after touchdown.
  * @param {string} [opts.idSuffix]        - Suffix appended to SVG IDs to allow
  *                                          multiple independent instances on one page.
  * @returns {string} Complete SVG markup, or '' if profile is too small.
@@ -320,6 +323,7 @@ function buildSvg(profile, landing, opts) {
   const vs = ld.vs != null ? ld.vs : ld.vs_fpm;
   const pitchDeg = ld.pitchDeg != null ? ld.pitchDeg : ld.pitch_deg;
   const tdz = ld.touchdownDistance || null;
+  const presentation = buildLandingPresentation(ld);
   const idSuffix = sanitizeSvgIdSuffix(opts && opts.idSuffix);
 
   // ── Y-axis: height above threshold (preferred) vs RA (fallback) ──────
@@ -553,14 +557,31 @@ function buildSvg(profile, landing, opts) {
   // --- V/S annotation ---
   if (vs != null) {
     const vsVal = Math.round(vs);
-    const vsColor = safeSvgColor(ld.color);
+    const vsColor = safeSvgColor(presentation.touchdownColor || ld.color);
     svg += `<text x="${tdX + 14}" y="${acftY - 2}" fill="${vsColor}" font-size="10" font-weight="600" font-family="system-ui, sans-serif">${vsVal} fpm</text>`;
   }
 
-  // --- Grade badge ---
-  if (ld.grade) {
-    const gradeColor = safeSvgColor(ld.color);
-    svg += `<text x="${tdX + 14}" y="${acftY + 10}" fill="${gradeColor}" font-size="9" font-weight="500" font-family="system-ui, sans-serif">${escapeSvgText(ld.grade)}</text>`;
+  // --- Independent touchdown / approach / bounce / excursion facts ---
+  let annotationY = acftY + 10;
+  if (presentation.touchdownGrade && presentation.touchdownGrade !== '--') {
+    const gradeColor = safeSvgColor(presentation.touchdownColor || ld.color);
+    svg += `<text x="${tdX + 14}" y="${annotationY}" fill="${gradeColor}" font-size="9" font-weight="500" font-family="system-ui, sans-serif">TD RATE ${escapeSvgText(presentation.touchdownGrade)}</text>`;
+    annotationY += 11;
+  }
+  const peerFacts = [
+    presentation.approachText ? `APP ${presentation.approachText}` : null,
+    presentation.bounceKnown ? `BNC ${presentation.bounceText}` : null,
+  ].filter(Boolean);
+  if (peerFacts.length > 0) {
+    svg += `<text x="${tdX + 14}" y="${annotationY}" fill="#94a3b8" font-size="8" font-weight="500" font-family="system-ui, sans-serif">${escapeSvgText(peerFacts.join(' · '))}</text>`;
+    annotationY += 10;
+  }
+  if (presentation.approachScoreText) {
+    svg += `<text x="${tdX + 14}" y="${annotationY}" fill="#64748b" font-size="7" font-family="system-ui, sans-serif">${escapeSvgText(presentation.approachScoreText)}</text>`;
+    annotationY += 10;
+  }
+  if (presentation.verdict.flags.runwayExcursion) {
+    svg += `<text x="${tdX + 14}" y="${annotationY}" fill="#ef4444" font-size="8" font-weight="700" font-family="system-ui, sans-serif">RUNWAY EXCURSION</text>`;
   }
 
   // --- Short landing warning ---

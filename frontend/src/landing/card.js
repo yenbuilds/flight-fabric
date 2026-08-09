@@ -33,10 +33,14 @@ function normalizeUltimateStability(value) {
   const gateStable = value.gateStable === true || value.gateStable === false
     ? value.gateStable
     : null;
+  const verdict = typeof (value.verdict ?? value.stabilityVerdict) === 'string'
+    ? String(value.verdict ?? value.stabilityVerdict).trim().toLowerCase()
+    : null;
 
   const hasData = Number.isFinite(score)
     || Number.isFinite(samples)
     || gateStable !== null
+    || Boolean(verdict)
     || gateFailures.length > 0
     || Boolean(breakdown)
     || Boolean(scoringContext);
@@ -46,6 +50,7 @@ function normalizeUltimateStability(value) {
     score: Number.isFinite(score) ? score : null,
     samples: Number.isFinite(samples) ? samples : null,
     gateStable,
+    ...(verdict ? { verdict } : {}),
     gateFailures,
     ...(breakdown ? { breakdown } : {}),
     ...(scoringContext ? { scoringContext } : {}),
@@ -59,14 +64,22 @@ export function mergeLandingMessageUltimateStability(msg, fallbackUltimateStabil
   const fallback = normalizeUltimateStability(fallbackUltimateStability);
   if (!fallback) return msg;
 
-  const currentHasScore = current?.score != null && Number.isFinite(Number(current.score));
-  if (currentHasScore) return msg;
-
   return {
     ...msg,
     ultimateStability: {
-      ...(current || {}),
-      ...fallback,
+      score: current?.score ?? fallback.score,
+      samples: current?.samples ?? fallback.samples,
+      gateStable: current?.gateStable ?? fallback.gateStable,
+      verdict: current?.verdict ?? fallback.verdict,
+      gateFailures: current?.gateFailures?.length
+        ? current.gateFailures
+        : fallback.gateFailures,
+      ...(current?.breakdown || fallback.breakdown
+        ? { breakdown: current?.breakdown || fallback.breakdown }
+        : {}),
+      ...(current?.scoringContext || fallback.scoringContext
+        ? { scoringContext: current?.scoringContext || fallback.scoringContext }
+        : {}),
     },
   };
 }

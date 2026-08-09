@@ -3,9 +3,16 @@ import { ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import { useLandingStore } from '../stores/landing.js';
 
-const stabilityExpanded = ref(true);
-const approachProfileExpanded = ref(true);
-const topdownProfileExpanded = ref(true);
+const props = defineProps({
+  debriefMode: {
+    type: Boolean,
+    default: false,
+  },
+});
+
+const stabilityExpanded = ref(!props.debriefMode);
+const approachProfileExpanded = ref(!props.debriefMode);
+const topdownProfileExpanded = ref(!props.debriefMode);
 const detailedMetricsExpanded = ref(false);
 const landing = useLandingStore();
 </script>
@@ -62,12 +69,13 @@ const landing = useLandingStore();
 
     <div class="p-6 pb-4 border-b border-surface-200/30">
       <div class="telemetry-label mb-3">Landing Summary</div>
-      <div class="flex flex-col lg:flex-row lg:items-end gap-4 lg:gap-8">
+      <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-4 lg:gap-8">
         <div>
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown rate grade</div>
           <div
             id="landing-grade"
             :key="landing.landingCard.gradeAnimationNonce"
-            class="grade-pop text-5xl sm:text-6xl font-bold"
+            class="grade-pop text-2xl font-semibold"
             :style="[landing.landingGradeStyle, { fontFamily: '\'B612 Mono\', monospace', letterSpacing: '0.08em' }]"
           >{{ landing.landingCard.gradeText }}</div>
           <div
@@ -76,11 +84,36 @@ const landing = useLandingStore();
             :class="{ hidden: !landing.landingCard.gradeBreakdownVisible }"
             style="font-family:'B612 Mono', monospace;"
           >{{ landing.landingCard.gradeBreakdownText }}</div>
-          <div id="landing-gforce" class="text-sm text-gray-400 mt-1">{{ landing.landingCard.gforceText }}</div>
+          <div class="mt-2 flex items-baseline gap-2">
+            <span class="text-[10px] text-gray-500 uppercase tracking-widest">Touchdown rate</span>
+            <span id="landing-vs" class="text-lg font-semibold tabular telemetry-value" :style="landing.landingVsStyle">{{ landing.landingCard.vsText }}</span>
+            <span class="telemetry-unit text-xs">fpm</span>
+          </div>
+          <div id="landing-gforce" class="text-xs text-gray-400 mt-1">{{ landing.landingCard.gforceText }}</div>
         </div>
         <div>
-          <span id="landing-vs" class="text-3xl sm:text-4xl font-semibold tabular telemetry-value" :style="landing.landingVsStyle">{{ landing.landingCard.vsText }}</span>
-          <span class="telemetry-unit text-base ml-1">fpm</span>
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Approach</div>
+          <div
+            id="landing-summary-approach"
+            class="text-2xl font-semibold tabular"
+            :class="landing.landingCard.approach.stabilityTone"
+            style="font-family:'B612 Mono', monospace;"
+          >{{ landing.landingCard.approach.stabilityText }}</div>
+          <div id="landing-summary-approach-score" class="mt-1 text-xs text-gray-500">
+            {{ landing.landingCard.approach.stabilityNoteText }}
+          </div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Bounce</div>
+          <div
+            id="landing-summary-bounce"
+            class="text-2xl font-semibold tabular"
+            :class="landing.landingCard.touchdown.bounceTone"
+            style="font-family:'B612 Mono', monospace;"
+          >{{ landing.landingCard.touchdown.bounceText }}</div>
+          <div id="landing-summary-bounce-detail" class="mt-1 text-xs" :class="landing.landingCard.touchdown.bounceGradeTone">
+            {{ landing.landingCard.touchdown.bounceGradeText }}
+          </div>
         </div>
         <div class="lg:ml-auto text-right">
           <div id="landing-airport" class="text-xl font-semibold">{{ landing.landingCard.airportText }}</div>
@@ -107,7 +140,7 @@ const landing = useLandingStore();
           </div>
         </div>
         <div class="shrink-0 rounded border border-surface-200/50 bg-surface-100/40 px-3 py-2 text-right">
-          <div class="text-[10px] uppercase tracking-widest text-gray-600">Data Confidence</div>
+          <div class="text-[10px] uppercase tracking-widest text-gray-600">Telemetry confidence</div>
           <div id="landing-data-confidence" class="text-sm font-semibold" :class="landing.landingCard.debrief.confidenceToneClass">
             {{ landing.landingCard.debrief.confidenceText }}
           </div>
@@ -343,7 +376,7 @@ const landing = useLandingStore();
           <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Approach</div>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3">
             <div class="text-center">
-              <div class="text-[11px] text-gray-500 mb-0.5">Stability</div>
+              <div class="text-[11px] text-gray-500 mb-0.5">Approach verdict</div>
               <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">{{ landing.landingCard.approach.stabilityNoteText }}</div>
               <div
                 id="landing-stability-score"

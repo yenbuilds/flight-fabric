@@ -299,6 +299,7 @@ function buildFixtureTimeline() {
         lon: -71.0096,
         ias_kts: 134,
         vs_fpm: -182,
+        grade: 'PERFECT',
         pitch_deg: 2.1,
         hdg_true_deg: 44,
         runway: {
@@ -307,20 +308,22 @@ function buildFixtureTimeline() {
           length_ft: 10083,
         },
         touchdownDistance: {
-          distanceFt: 1160,
-          grade: 'Good',
+          distanceFt: 600,
+          grade: 'Outstanding',
           zone: 'within zone',
-          score: 88,
+          score: 96,
           lateralOffsetFt: 12,
           lateralOffsetSide: 'left',
           lateralOffsetGrade: 'Good',
-          bounceCount: 0,
+          bounceCount: 1,
+          bounceGrade: 'Single Bounce',
         },
         ultimateStability: {
-          score: 86,
+          verdict: 'marginal',
+          score: 84,
           samples: 24,
-          gateStable: true,
-          gateFailures: [],
+          gateStable: false,
+          gateFailures: ['speed_proxy_unstable_after_gate'],
         },
       },
     ],
@@ -524,6 +527,8 @@ function createFixtureBackend() {
       case 'requestTimeline': {
         sendJson(ws, {
           type: 'timeline',
+          requestId: message.requestId ?? null,
+          scoringMode: message.scoringMode === 'current-preview' ? 'current-preview' : 'recorded',
           timeline: state.timeline,
         });
         break;

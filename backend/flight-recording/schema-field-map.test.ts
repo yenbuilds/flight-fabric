@@ -596,6 +596,9 @@ test('landing final fields: persist runway and touchdown diagnostics', () => {
     runway_geometry_provider_chain: 'msfs-facilities:miss,ourairports:hit',
     runway_geometry_fallback_reason: 'msfs-facilities:miss',
     runway_geometry_diagnostics: { providerChain: 'msfs-facilities:miss,ourairports:hit' },
+    runway_reference_elev_ft: 21.35,
+    runway_reference_elevation_source: 'msfs-facilities',
+    runway_reference_elevation_kind: 'runway',
     runway_heading_true_deg: 335.2,
     runway_physical_length_ft: 9000,
     runway_surface: 'ASPHALT',
@@ -616,6 +619,7 @@ test('landing final fields: persist runway and touchdown diagnostics', () => {
     runway_width_ft: 150,
     runway_excursion: true,
     landing_final: true,
+    ultimate_stability_verdict: 'marginal',
     ultimate_stability_breakdown: { gear_ok: 100 },
     ultimate_stability_context: {
       schemaVersion: 1,
@@ -654,6 +658,9 @@ test('landing final fields: persist runway and touchdown diagnostics', () => {
   assert(row.runway_geometry_provider_chain === 'msfs-facilities:miss,ourairports:hit', `got "${row.runway_geometry_provider_chain}"`);
   assert(row.runway_geometry_fallback_reason === 'msfs-facilities:miss', `got "${row.runway_geometry_fallback_reason}"`);
   assert(row.runway_geometry_diagnostics === '{"providerChain":"msfs-facilities:miss,ourairports:hit"}', `got "${row.runway_geometry_diagnostics}"`);
+  assert(row.runway_reference_elev_ft === '21.4', `got "${row.runway_reference_elev_ft}"`);
+  assert(row.runway_reference_elevation_source === 'msfs-facilities', `got "${row.runway_reference_elevation_source}"`);
+  assert(row.runway_reference_elevation_kind === 'runway', `got "${row.runway_reference_elevation_kind}"`);
   assert(row.runway_heading_true_deg === '335.2', `got "${row.runway_heading_true_deg}"`);
   assert(row.runway_physical_length_ft === '9000', `got "${row.runway_physical_length_ft}"`);
   assert(row.runway_surface === 'ASPHALT', `got "${row.runway_surface}"`);
@@ -674,6 +681,7 @@ test('landing final fields: persist runway and touchdown diagnostics', () => {
   assert(row.runway_width_ft === '150', `got "${row.runway_width_ft}"`);
   assert(row.runway_excursion === '1', `got "${row.runway_excursion}"`);
   assert(row.landing_final === '1', `got "${row.landing_final}"`);
+  assert(row.ultimate_stability_verdict === 'marginal', `got "${row.ultimate_stability_verdict}"`);
   assert(row.ultimate_stability_breakdown === '{"gear_ok":100}', `got "${row.ultimate_stability_breakdown}"`);
   assert(
     row.ultimate_stability_context === '{"schemaVersion":1,"profile":{"id":"generic","name":"Generic Aircraft","reliability":"generic"},"criteria":{"speedMinusKts":50,"speedPlusKts":100},"reference":{"gateIasKts":145}}',
