@@ -332,6 +332,7 @@ export const useTimelineStore = defineStore('timeline', {
     analysisRescoreLastAction: '',
     analysisRescoreMessage: '',
     analysisRescoreError: '',
+    analysisRescoreModalOpen: false,
     pendingFlightLandingRequest: null,
     timelineMobileViewerOpen: false,
     mapEmptyVisible: true,
@@ -789,6 +790,7 @@ export const useTimelineStore = defineStore('timeline', {
         this.analysisRescore = normalizeAnalysisRescoreStatus(null);
         this.clearAnalysisRescorePreview();
         this.clearAnalysisRescoreActionState();
+        this.analysisRescoreModalOpen = false;
         return;
       }
 
@@ -803,6 +805,7 @@ export const useTimelineStore = defineStore('timeline', {
       if (hadIdentity && !sameIdentity) {
         this.clearAnalysisRescorePreview();
         this.clearAnalysisRescoreActionState();
+        this.analysisRescoreModalOpen = false;
       }
       this.loadedTimelineFilePath = nextFilePath;
       this.loadedTimelineFlightId = nextFlightId;
@@ -1075,6 +1078,18 @@ export const useTimelineStore = defineStore('timeline', {
 
     closeTimelineMobileViewer() {
       this.timelineMobileViewerOpen = false;
+      this.analysisRescoreModalOpen = false;
+      this.clearDetail();
+    },
+
+    openAnalysisRescoreModal() {
+      if (!this.loadedTimelineFilePath && !this.loadedTimelineFlightId) return false;
+      this.analysisRescoreModalOpen = true;
+      return true;
+    },
+
+    closeAnalysisRescoreModal() {
+      this.analysisRescoreModalOpen = false;
     },
 
     openSelectedLanding() {

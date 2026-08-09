@@ -4146,6 +4146,11 @@ async function main() {
       analysisRescore: { applied: false, revision: 0 },
     });
 
+    assert.equal(store.openAnalysisRescoreModal(), true, 'a loaded flight should open the dedicated scoring-review modal');
+    assert.equal(store.analysisRescoreModalOpen, true);
+    store.closeAnalysisRescoreModal();
+    assert.equal(store.analysisRescoreModalOpen, false, 'scoring review should close without changing the loaded flight');
+
     assert.equal(store.canRequestAnalysisRescorePreview, true, 'a loaded historic flight should enable flight-level preview without selecting a landing');
     assert.equal(store.requestAnalysisRescorePreview(), true, 'preview should use the bound timeline request channel');
     assert.deepEqual(timelineSent.shift(), {

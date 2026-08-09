@@ -3843,7 +3843,7 @@ async function main() {
     assert.match(html, /timeline-count-badge[^>]*>x2</, 'timeline inspector should render repeat-count badges from store state');
   });
 
-  await test('TimelineDetailPanel keeps landing details compact and routes depth to the debrief', async () => {
+  await test('TimelineDetailPanel renders selected-event data in a dedicated inspector drawer', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'TimelineDetailPanel.vue'),
       ({ useTimelineStore }) => {
@@ -3888,15 +3888,18 @@ async function main() {
     assert.match(html, /id="timeline-detail-title"[^>]*>Landing at YSSY 34L</, 'detail title should render from store state');
     assert.match(html, /Touchdown Rate Grade[\s\S]*FIRM/, 'compact landing detail should retain the touchdown-rate grade');
     assert.match(html, /Touchdown Rate[\s\S]*-467 fpm/, 'compact landing detail should retain the touchdown rate');
-    assert.match(html, /TDZ[\s\S]*305ft from threshold · Outstanding/, 'compact landing detail should combine TDZ distance and quality');
+    assert.match(html, /TDZ[\s\S]*305ft from threshold \/ Outstanding/, 'compact landing detail should combine TDZ distance and quality');
     assert.match(html, /Approach[\s\S]*STABLE[\s\S]*Bounce[\s\S]*CLEAN/, 'compact landing detail should retain approach and bounce essentials');
     assert.doesNotMatch(html, /136 kts|Landing Snapshot|Touchdown Zone Analysis|Touchdown stayed inside/, 'compact landing detail should omit duplicate secondary information');
     assert.doesNotMatch(html, /id="timeline-approach-profile"|id="timeline-topdown-profile"/, 'landing profile images should be reserved for the debrief modal');
     assert.match(html, /id="timeline-open-landing-btn"[^>]*>\s*Open Landing Debrief\s*</, 'landing detail action should remain available');
+    assert.match(html, /id="timeline-detail"[^>]*timeline-detail-drawer/, 'event details should render in the out-of-flow inspector drawer');
+    assert.match(html, /id="timeline-detail-close"[^>]*>\s*Close\s*</, 'event details should provide a dedicated close action');
+    assert.match(html, /id="timeline-detail-content"[^>]*timeline-detail-drawer-content/, 'large event payloads should own a separate scrolling surface');
     assert.doesNotMatch(html, /id="timeline-detail-score"/, 'detail panel should not render the unused score-impact side block');
   });
 
-  await test('TimelineSummaryBar exposes one complete flight-level analysis preview, save, and restore flow', async () => {
+  await test('TimelineSummaryBar keeps scoring controls compact and out of the event-list flow', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'TimelineSummaryBar.vue'),
       ({ useTimelineStore }) => {
@@ -3919,6 +3922,33 @@ async function main() {
           durationText: '1h 20m',
           distanceText: '500 NM',
         });
+      },
+    );
+
+    assert.match(html, /id="timeline-open-analysis-rescore-btn"/, 'summary should expose one compact scoring-review launcher');
+    assert.match(html, /Scoring saved/, 'saved analysis state should remain visible without expanding the Timeline column');
+    assert.match(html, /aria-haspopup="dialog"/, 'scoring review launcher should identify its modal behavior');
+    assert.doesNotMatch(html, /id="timeline-analysis-rescore-content"|id="timeline-analysis-rescore-preview-result"/, 'scoring results must not render inline below the event list');
+  });
+
+  await test('TimelineAnalysisRescoreModal owns the complete preview, save, and restore flow', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineAnalysisRescoreModal.vue'),
+      ({ useTimelineStore }) => {
+        const timeline = useTimelineStore();
+        timeline.bindRequestActions({ onRequestTimeline: () => true });
+        timeline.setLoadedTimelineIdentity({
+          filePath: 'C:/Flights/F-preview.csv',
+          flightId: 'F-preview',
+          route: 'EGLL-LFPG',
+          analysisRescore: {
+            applied: true,
+            revision: 3,
+            appliedAt: '2026-08-08T00:00:00.000Z',
+            snapshotFingerprint: 'saved-snapshot-3',
+          },
+        });
+        timeline.openAnalysisRescoreModal();
         timeline.analysisRescorePreviewStatus = 'ready';
         timeline.analysisRescorePreview = {
           available: true,
@@ -3944,15 +3974,13 @@ async function main() {
       },
     );
 
-    const disclosureTag = html.match(/<details[^>]*id="timeline-analysis-rescore"[^>]*>/)?.[0] || '';
-    assert.ok(disclosureTag, 'analysis rescore should be a compact flight-level disclosure');
-    assert.doesNotMatch(disclosureTag, /\sopen(?:=|\s|>)/, 'analysis rescore should be collapsed by default to preserve event-list height');
-    assert.match(html, /<summary[^>]*id="timeline-analysis-rescore-toggle"[\s\S]*All landing analysis/, 'analysis rescore disclosure should have an accessible summary');
-    assert.match(html, /id="timeline-analysis-rescore-content"/, 'expanded disclosure should retain the complete rescore flow');
+    assert.match(html, /id="timeline-analysis-rescore-modal"[^>]*role="dialog"/, 'flight-level scoring should render in a dedicated modal');
+    assert.match(html, /id="timeline-analysis-rescore-close"[^>]*>\s*Close\s*</, 'scoring modal should provide a dedicated close action');
+    assert.match(html, /id="timeline-analysis-rescore-content"[^>]*timeline-analysis-modal-content/, 'large scoring comparisons should own a separate scrolling surface');
     assert.match(html, /id="timeline-preview-analysis-rescore-btn"[^>]*>\s*Review current scoring\s*</);
-    assert.match(html, /touchdown-rate, approach stability, TDZ, lateral-offset, bounce, and rollout scoring/);
+    assert.match(html, /touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout scoring/);
     assert.match(html, /original recording and recorded results remain unchanged/i);
-    assert.match(html, /id="timeline-analysis-rescore-applied-badge"[\s\S]*Current scoring saved/);
+    assert.match(html, /id="timeline-analysis-rescore-applied-status"[\s\S]*Saved/);
     assert.match(html, /id="timeline-analysis-rescore-preview-result"[\s\S]*2 scoring results change across 1 landing/);
     assert.match(html, /Landing at LFPG 26L[\s\S]*Touchdown rate[\s\S]*GOOD[\s\S]*FIRM/);
     assert.match(html, /Approach stability[\s\S]*Stable 86%[\s\S]*Unstable 72%/);

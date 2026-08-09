@@ -648,7 +648,7 @@ async function runTimelineSmoke(windowRef) {
   await click(windowRef, "document.querySelector('#tab-timeline .cursor-pointer')", 'first Timeline flight');
   await waitFor(
     windowRef,
-    "document.querySelector('#timeline-card .grid')?.textContent.includes('Violations')",
+    "document.querySelector('#vue-timeline-summary-root dl')?.textContent.includes('Violations')",
     'Timeline summary bar',
   );
   await waitFor(
@@ -667,21 +667,64 @@ async function runTimelineSmoke(windowRef) {
     'Timeline landing row shows scoped touchdown-rate grade, failed approach, and bounce',
   );
   await assertTimelineEventLayout(windowRef);
+  const eventListHeightBeforeOverlays = await evaluate(
+    windowRef,
+    "document.getElementById('timeline-events')?.getBoundingClientRect().height || 0",
+  );
+  await click(windowRef, "document.getElementById('timeline-open-analysis-rescore-btn')", 'Timeline scoring review button');
+  await waitFor(
+    windowRef,
+    "document.getElementById('timeline-analysis-rescore-modal')?.getAttribute('role') === 'dialog'",
+    'Timeline scoring review modal',
+  );
+  await assertUsableLayout(windowRef, 'Timeline scoring review modal', [
+    '#timeline-analysis-rescore-modal',
+    '#timeline-analysis-rescore-modal .timeline-analysis-modal-shell',
+    '#timeline-analysis-rescore-content',
+  ]);
+  await click(windowRef, "document.getElementById('timeline-analysis-rescore-close')", 'Timeline scoring review close button');
+  await waitFor(
+    windowRef,
+    "!document.getElementById('timeline-analysis-rescore-modal')",
+    'closed Timeline scoring review modal',
+  );
   await click(windowRef, "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at'))", 'Timeline landing event row');
   await waitFor(
     windowRef,
     "document.getElementById('timeline-detail') && document.getElementById('timeline-detail-title')?.textContent.includes('Landing at KBOS 27')",
-    'Timeline landing detail panel',
+    'Timeline landing detail drawer',
+  );
+  const overlayLayout = await evaluate(
+    windowRef,
+    `(() => {
+      const events = document.getElementById('timeline-events')?.getBoundingClientRect();
+      const card = document.getElementById('timeline-card')?.getBoundingClientRect();
+      const drawer = document.getElementById('timeline-detail')?.getBoundingClientRect();
+      return {
+        eventListHeight: events?.height || 0,
+        cardRight: card?.right || 0,
+        drawerLeft: drawer?.left || 0,
+      };
+    })();`,
+  );
+  assert.ok(
+    overlayLayout.eventListHeight >= eventListHeightBeforeOverlays - 2,
+    'Timeline overlays must not steal vertical space from the event list',
+  );
+  assert.ok(
+    overlayLayout.drawerLeft >= overlayLayout.cardRight - 2,
+    'Timeline event details should overlay the replay side instead of the event-list column',
   );
   await assertUsableLayout(windowRef, 'Timeline tab', [
     '#tab-timeline.active',
     '#tab-timeline .timeline-split',
     '#timeline-card',
     '#timeline-map-card',
+    '#timeline-detail',
   ]);
   await waitFor(
     windowRef,
-    "(() => { const detail = document.getElementById('timeline-detail'); const text = document.getElementById('timeline-detail-metrics')?.textContent || ''; return text.includes('Touchdown Rate Grade') && text.includes('PERFECT') && text.includes('TDZ') && text.includes('UNSTABLE') && text.includes('Bounce') && !text.toLowerCase().includes('touchdown zone analysis') && !detail?.querySelector('#timeline-approach-profile, #timeline-topdown-profile') && document.getElementById('timeline-open-landing-btn'); })()",
+    "(() => { const detail = document.getElementById('timeline-detail'); const text = document.getElementById('timeline-detail-metrics')?.textContent || ''; return text.includes('Touchdown Rate Grade') && text.includes('PERFECT') && text.includes('TDZ') && text.includes('MARGINAL') && text.includes('Bounce') && !text.toLowerCase().includes('touchdown zone analysis') && !detail?.querySelector('#timeline-approach-profile, #timeline-topdown-profile') && document.getElementById('timeline-open-landing-btn'); })()",
     'Timeline landing detail metrics and action',
   );
   await click(windowRef, "document.getElementById('timeline-open-landing-btn')", 'Timeline Open Landing Debrief button');
@@ -692,7 +735,7 @@ async function runTimelineSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.querySelector('#landing-modal #landing-card') && document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS') && document.querySelector('#landing-modal #landing-grade')?.textContent.includes('PERFECT') && document.querySelector('#landing-modal #landing-summary-approach')?.textContent.includes('UNSTABLE') && document.querySelector('#landing-modal #landing-summary-bounce')?.textContent.includes('1x')",
+    "document.querySelector('#landing-modal #landing-card') && document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS') && document.querySelector('#landing-modal #landing-grade')?.textContent.includes('PERFECT') && document.querySelector('#landing-modal #landing-summary-approach')?.textContent.includes('MARGINAL') && document.querySelector('#landing-modal #landing-summary-bounce')?.textContent.includes('1x')",
     'Open Landing Debrief renders selected landing card',
   );
   await assertUsableLayout(windowRef, 'Landing debrief modal', [

@@ -7,6 +7,7 @@ import {
 } from '../../app/runtime-signals.js';
 import { initTimelinePage } from '../../timeline/bootstrap.js';
 import LogbookPanel from './LogbookPanel.vue';
+import TimelineAnalysisRescoreModal from './TimelineAnalysisRescoreModal.vue';
 import TimelineDetailPanel from './TimelineDetailPanel.vue';
 import TimelineFlightsPanel from './TimelineFlightsPanel.vue';
 import TimelineInspectorShell from './TimelineInspectorShell.vue';
@@ -59,9 +60,16 @@ function closeTimelineMobileViewer() {
 }
 
 function handleTimelineViewerKeydown(event) {
-  if (event?.key === 'Escape' && timeline.timelineMobileViewerOpen) {
-    closeTimelineMobileViewer();
+  if (event?.key !== 'Escape') return;
+  if (timeline.analysisRescoreModalOpen) {
+    timeline.closeAnalysisRescoreModal();
+    return;
   }
+  if (timeline.detailVisible) {
+    timeline.clearDetail();
+    return;
+  }
+  if (timeline.timelineMobileViewerOpen) closeTimelineMobileViewer();
 }
 
 watch(
@@ -158,14 +166,17 @@ onUnmounted(() => {
           <TimelineSummaryBar />
         </div>
 
-        <div id="vue-timeline-detail-root">
-          <TimelineDetailPanel />
-        </div>
       </div>
 
       <div id="vue-timeline-map-shell-root">
         <TimelineMapShell />
       </div>
+
+      <div id="vue-timeline-detail-root">
+        <TimelineDetailPanel />
+      </div>
     </div>
+
+    <TimelineAnalysisRescoreModal />
   </div>
 </template>
