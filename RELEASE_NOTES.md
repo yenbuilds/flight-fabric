@@ -4,9 +4,8 @@ Flight Fabric 0.2.3 adds reversible current-rules rescoring for completed
 landing analysis, makes approach-stability outcomes easier to understand, and
 keeps live and historical results tied to the aircraft that produced them.
 
-This publication is the versioned source release. Windows 0.2.3 binaries are
-not part of this source-only publication and remain subject to the separate
-packaged-artifact verification and release process.
+This publication includes the versioned source and the verified Windows Setup
+installer. The portable executable is intentionally not published.
 
 ## Highlights
 
@@ -38,14 +37,13 @@ packaged-artifact verification and release process.
 - The public telemetry client now exposes the final approach-stability verdict
   to SDK and React consumers alongside its score and breakdown.
 
-## Planned Windows artifacts
-
-When the separately verified Windows release is published, its upload names
-will be:
+## Download
 
 - `Flight Fabric Setup 0.2.3.exe` - Windows installer.
-- `Flight Fabric 0.2.3.exe` - portable Windows build.
-- `SHA256SUMS.txt` - SHA-256 checksums for both executables.
+
+The portable `Flight Fabric 0.2.3.exe`, installer blockmap, and
+`SHA256SUMS.txt` are not part of this installer-only publication. The GitHub
+release notes provide the Setup installer's SHA-256 checksum directly.
 
 Flight Fabric is unsigned experimental alpha software for consumer flight
 simulators. It is not certified, approved, or intended for real-world aviation.
