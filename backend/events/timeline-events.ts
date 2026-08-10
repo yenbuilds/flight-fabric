@@ -172,6 +172,9 @@ function createTimelineStore(options: TimelineStoreOptions = {}): TimelineStore 
   
   /** @type {Array<TimelineEvent>} */
   const events: TimelineEvent[] = [];
+
+  /** @type {number} */
+  let nextEventSequence = 0;
   
   /** @type {Map<string, TimelineEvent>} */
   const activeViolations = new Map<string, TimelineEvent>();
@@ -200,11 +203,12 @@ function createTimelineStore(options: TimelineStoreOptions = {}): TimelineStore 
     const timestampMs = event.timestamp_ms ?? getNow();
     const fullEvent: TimelineEvent = {
       ...event,
-      id: `${flightId}-${events.length}`,
+      id: `${flightId}-${nextEventSequence}`,
       flightId,
       timestamp_ms: timestampMs,
       timestamp_utc: event.timestamp_utc || new Date(timestampMs).toISOString(),
     };
+    nextEventSequence += 1;
     events.push(fullEvent);
     
     // Evict oldest events when cap is reached (keep recent history)
@@ -425,6 +429,7 @@ function createTimelineStore(options: TimelineStoreOptions = {}): TimelineStore 
    */
   function reset(): void {
     events.length = 0;
+    nextEventSequence = 0;
     activeViolations.clear();
     currentPhase = null;
     phaseStartTs = null;

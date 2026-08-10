@@ -262,6 +262,22 @@ test(
   normalizedLegacyProvenanceProfile.provenance.sources.length === 0 &&
     legacyProvenanceProfile.provenance.sources.map(source => source.type).join(',') === legacyProvenanceTypes.join(','),
 );
+const legacyThrottleDetentsProfile = {
+  id: 'legacy-throttle-detents',
+  aircraft: {
+    throttle: {
+      type: 'detent',
+      detents: [{ name: 'CL' }],
+    },
+  },
+};
+const normalizedLegacyThrottleDetentsProfile = profileModel.normalizeProfileDocument(legacyThrottleDetentsProfile);
+test(
+  'Legacy throttle detents are removed without mutating imported JSON',
+  normalizedLegacyThrottleDetentsProfile.aircraft.throttle.detents === undefined &&
+    Array.isArray(legacyThrottleDetentsProfile.aircraft.throttle.detents) &&
+    legacyThrottleDetentsProfile.aircraft.throttle.detents[0]?.name === 'CL',
+);
 test(
   'Schema accepts normalized legacy provenance metadata',
   profileRegistry.validateExternal(legacyProvenanceProfile).validation.valid === true,

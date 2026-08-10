@@ -313,7 +313,7 @@ const THRESHOLDS = Object.freeze({
   ULTRA_FIDELITY_GROUND_SPEED_DISABLE: 30, // Disable ULTRA_FIDELITY when GS < 30 kts on ground
   ULTRA_FIDELITY_EXIT_RA: 100,     // Disable ULTRA_FIDELITY if RA climbs above 100 ft (go-around)
   ULTRA_FIDELITY_MAX_SAMPLES: 600, // Hard cap: 60s at the 10 Hz CSV ceiling
-  ULTRA_FIDELITY_STUCK_THRESHOLD: 100, // Emergency: force decay if stuck for 100+ consecutive evals
+  ULTRA_FIDELITY_STUCK_THRESHOLD: 100, // Deprecated export; consecutive Ultra evals no longer trigger a lockout.
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -397,7 +397,7 @@ function createVreEvaluator(options: VreOptions = {}): VreEvaluator {
   let ultraFidelityHardDisabled = false; // Config/cap safety lockout, reset on flight start.
   let ultraFidelityTransientDisabled = false; // Re-arms after touchdown/go-around recovery.
   let ultraFidelitySampleCount = 0; // Total samples recorded in ULTRA_FIDELITY
-  let ultraFidelityConsecutiveEvals = 0; // Consecutive evals in ULTRA_FIDELITY (stuck detection)
+  let ultraFidelityConsecutiveEvals = 0; // Consecutive evals in ULTRA_FIDELITY (diagnostic only)
   
   // ─────────────────────────────────────────────────────────────────────────
   // Core Evaluation
@@ -478,7 +478,7 @@ function createVreEvaluator(options: VreOptions = {}): VreEvaluator {
       ultraFidelityTotalMs += dtMs;
       ultraFidelityConsecutiveEvals++;
     } else {
-      ultraFidelityConsecutiveEvals = 0; // Reset stuck counter
+      ultraFidelityConsecutiveEvals = 0;
     }
     
     // Track sample count
@@ -498,11 +498,6 @@ function createVreEvaluator(options: VreOptions = {}): VreEvaluator {
     
     // Limit 1b: maximum sample count.
     if (ultraFidelitySampleCount >= THRESHOLDS.ULTRA_FIDELITY_MAX_SAMPLES) {
-      ultraFidelityHardDisabled = true;
-    }
-    
-    // Limit 1c: consecutive-evaluation guard.
-    if (ultraFidelityConsecutiveEvals >= THRESHOLDS.ULTRA_FIDELITY_STUCK_THRESHOLD) {
       ultraFidelityHardDisabled = true;
     }
     

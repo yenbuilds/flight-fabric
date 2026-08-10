@@ -352,12 +352,21 @@ function loadUserSettings(): SettingsObject {
   if (fs.existsSync(SETTINGS_FILE)) {
     try {
       const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
-      userSettings = JSON.parse(raw) as SettingsObject;
+      const parsedSettings: unknown = JSON.parse(raw);
+      if (
+        parsedSettings === null
+        || typeof parsedSettings !== 'object'
+        || Array.isArray(parsedSettings)
+      ) {
+        throw new Error('Settings root must be a JSON object');
+      }
+      userSettings = parsedSettings as SettingsObject;
       removeRetiredRecordingLimitsFromDisk = hasRetiredRecordingLimits(userSettings);
       removeRetiredPollRateFromDisk = hasRetiredPollRate(userSettings);
       removeRetiredDebugModeFromDisk = hasRetiredDebugMode(userSettings);
       removeRetiredLocalAircraftProfileFromDisk = hasRetiredLocalAircraftProfile(userSettings);
     } catch (error) {
+      userSettings = {};
       const err = error as { message?: string };
       console.warn(`[settings] Could not parse ${SETTINGS_FILE}: ${err.message}`);
       console.warn('[settings] Using default settings.');

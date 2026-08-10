@@ -195,6 +195,27 @@ test('recordScoreFinal adds a score_final event', () => {
   assertEqual(ev.final_score, 85, 'final_score');
 });
 
+test('event IDs remain unique after the retained-event cap is exceeded', () => {
+  const store = createTimelineStore({ flightId: 'cap-flight', timeNow: () => 1000 });
+  for (let index = 0; index < 10000; index++) {
+    store.recordScoreFinal('capacity', index);
+  }
+  const worst = store.recordScoreChange('worst', -10);
+  store.recordScoreFinal('after-cap', 1);
+  const timeline = store.finalize();
+  const ids = timeline.events.map((event) => event.id);
+  const worstMarkers = timeline.events.filter((event) => (
+    event.event_type === TIMELINE_EVENT_TYPE.WORST_MOMENT
+  ));
+
+  assertEqual(timeline.events.length, 10000, 'retained event cap');
+  assertEqual(new Set(ids).size, ids.length, 'retained event IDs must be unique');
+  assertEqual(worst.id, 'cap-flight-10000', 'counter continues beyond retained length');
+  assertEqual(worstMarkers.length, 1, 'one worst-moment marker');
+  assertEqual(worstMarkers[0].worst_event_id, worst.id, 'worst marker references the original event');
+  assertEqual(ids.filter((id) => id === worst.id).length, 1, 'worst_event_id resolves unambiguously');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // getEventsInWindow
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,6 +272,13 @@ test('reset clears currentPhase', () => {
   store.recordPhaseChange('CRUISE', { timestampMs: 1000 });
   store.reset();
   assertNull(store.currentPhase, 'currentPhase should be null after reset');
+});
+
+test('reset restarts event IDs for the cleared store', () => {
+  const store = createTimelineStore({ flightId: 'reset-flight' });
+  assertEqual(store.recordScoreFinal('before-reset', 1).id, 'reset-flight-0');
+  store.reset();
+  assertEqual(store.recordScoreFinal('after-reset', 1).id, 'reset-flight-0');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

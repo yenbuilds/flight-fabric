@@ -1,36 +1,35 @@
-# Flight Fabric 0.2.4
+# Flight Fabric 0.2.5
 
-Flight Fabric 0.2.4 makes Timeline Replay substantially easier to use when an
-event or scoring comparison contains a lot of information. The event list now
-remains the primary workspace instead of being squeezed by stacked detail
-panels.
+Flight Fabric 0.2.5 is a defensive maintenance release for several runtime edge
+cases. It improves cold-start phase detection, low-altitude recording,
+settings recovery, legacy profile normalization, and long Timeline sessions.
 
 This publication includes the versioned source and the verified Windows Setup
 installer. The portable executable is intentionally not published.
 
 ## Highlights
 
-- Timeline event details now open in a dedicated inspector drawer over the
-  replay area, so long flap, configuration, landing, or other event payloads no
-  longer consume the event list's vertical space.
-- The full current-rules scoring comparison now opens in a separate review
-  modal. Multi-landing comparisons remain readable without creating nested
-  scroll areas inside the Timeline card.
-- The compact Timeline summary keeps the review action and saved-analysis
-  status accessible without permanently occupying the lower half of the
-  inspector.
-- Desktop, fullscreen, keyboard, and mobile layouts share the same coherent
-  drawer/modal interaction. Escape closes the active overlay before closing
-  Timeline Replay, and focus returns to the control that opened it.
-- This is a presentation-only maintenance release. Recorded flight data,
-  landing analysis, saved rescoring, and scoring rules are unchanged from
-  0.2.3.
+- Starting Flight Fabric during a high-speed runway roll no longer creates a
+  false Landing phase without observed touchdown context. The roll remains
+  Taxi and can still become Takeoff after liftoff.
+- Ultra-fidelity touchdown sampling no longer treats 100 consecutive ordinary
+  ticks as a stuck evaluator. The existing 60-second and 600-sample safety caps
+  remain authoritative.
+- Settings files whose JSON root is null, an array, or another non-object value
+  now fall back to complete defaults instead of failing during nested merges.
+- Legacy throttle-detent metadata is retired from normalized aircraft profiles
+  without modifying the imported profile object.
+- Timeline event IDs remain unique after more than 10,000 events, preserving
+  unambiguous worst-moment references when older retained events are evicted.
+- Published desktop and SDK dependency locks have been refreshed within their
+  declared compatibility ranges, and the blocking OSV audit now covers the
+  exact lockfiles included in the desktop/source release.
 
 ## Download
 
-- `Flight Fabric Setup 0.2.4.exe` - Windows installer.
+- `Flight Fabric Setup 0.2.5.exe` - Windows installer.
 
-The portable `Flight Fabric 0.2.4.exe`, installer blockmap, and
+The portable `Flight Fabric 0.2.5.exe`, installer blockmap, and
 `SHA256SUMS.txt` are not part of this installer-only publication. The GitHub
 release notes provide the Setup installer's SHA-256 checksum directly.
 

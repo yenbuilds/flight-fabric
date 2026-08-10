@@ -410,6 +410,50 @@ test('high-speed ground movement off runway does not become landing', () => {
   );
 });
 
+test('cold start during a high-speed runway roll does not become landing', () => {
+  const clock = makeClock(4_850_000);
+  const runner = createPhaseRunner({ timeNow: clock.now });
+
+  feed(
+    runner,
+    clock,
+    taxiFrame({ iasKts: 130, gsKts: 130, onRunway: true }),
+    9,
+  );
+  assertEqual(
+    runner.getPhase(),
+    PHASES.TAXI,
+    'high-speed on-runway movement without touchdown history should remain TAXI',
+  );
+
+  feed(runner, clock, takeoffFrame({ onRunway: false }), 9);
+  assertEqual(
+    runner.getPhase(),
+    PHASES.TAKEOFF,
+    'the cold-start runway roll should still transition to TAKEOFF after liftoff',
+  );
+});
+
+test('observed touchdown can enter landing while the prior phase is still unknown', () => {
+  const clock = makeClock(4_875_000);
+  const runner = createPhaseRunner({ timeNow: clock.now });
+
+  feed(runner, clock, approachFrame(), 1);
+  assertEqual(runner.getPhase(), PHASES.UNKNOWN, 'one airborne sample should not settle the phase');
+
+  feed(
+    runner,
+    clock,
+    taxiFrame({ iasKts: 120, gsKts: 120, vsFpm: -250, raFt: 3, onRunway: true }),
+    9,
+  );
+  assertEqual(
+    runner.getPhase(),
+    PHASES.LANDING,
+    'an observed air-to-ground transition should provide enough touchdown context',
+  );
+});
+
 test('touchdown from approach can still enter landing when runway flag is false', () => {
   const clock = makeClock(4_900_000);
   const runner = createPhaseRunner({ timeNow: clock.now });

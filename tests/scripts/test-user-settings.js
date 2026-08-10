@@ -91,6 +91,24 @@ function run() {
     assertEqual(mod.settings.debrief.stabilityCriteria.gateRaFt, 1000, 'debrief.stabilityCriteria.gateRaFt default');
     assertEqual(mod.settings.debrief.stabilityCriteria.speedPlusKts, 5, 'debrief.stabilityCriteria.speedPlusKts default');
 
+    // Valid JSON roots that are not settings objects must fail back to defaults.
+    for (const invalidRoot of ['null', '[]', '"settings"', '42', 'true']) {
+      fs.writeFileSync(settingsPath, invalidRoot, 'utf8');
+      const originalConsoleWarn = console.warn;
+      let fallback;
+      try {
+        console.warn = () => {};
+        fallback = loadFreshUserSettingsModule();
+      } finally {
+        console.warn = originalConsoleWarn;
+      }
+      assertEqual(fallback.settings.network.remoteAccess, false, `non-object root ${invalidRoot} uses defaults`);
+      assertEqual(fallback.settings.recording.autoStart, true, `non-object root ${invalidRoot} keeps nested defaults`);
+    }
+
+    // Restore the generated template for the remaining persistence assertions.
+    fs.writeFileSync(settingsPath, JSON.stringify(mod.DEFAULT_SETTINGS, null, 2), 'utf8');
+
     const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     assertEqual(saved.network.remoteAccess, false, 'saved template network.remoteAccess default');
     assertEqual(saved.network.remoteAircraftControl, false, 'saved template network.remoteAircraftControl default');

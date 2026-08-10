@@ -168,6 +168,7 @@ function normalizeAircraft(rawProfile: GenericRecord): GenericRecord {
 
   delete aircraft.callouts;
   if (isObject(aircraft.throttle)) {
+    aircraft.throttle = cloneObject(aircraft.throttle);
     delete aircraft.throttle.detents;
   }
 

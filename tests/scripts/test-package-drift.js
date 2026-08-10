@@ -322,8 +322,8 @@ test('app-owned dependency locks retain the security patch floors', () => {
     ['electron/package-lock.json', 'node_modules/@electron/asar', '4.2.1'],
     ['electron/package-lock.json', 'node_modules/@electron/rebuild', '4.0.4'],
     ['electron/package-lock.json', 'node_modules/electron-builder', '26.15.0'],
+    ['electron/package-lock.json', 'node_modules/brace-expansion', '5.0.8'],
     ['electron/package-lock.json', 'node_modules/minimatch', '10.2.6'],
-    ['electron/package-lock.json', 'node_modules/minimatch/node_modules/brace-expansion', '5.0.8'],
     ['electron/package-lock.json', 'node_modules/postcss', '8.5.18'],
   ];
 

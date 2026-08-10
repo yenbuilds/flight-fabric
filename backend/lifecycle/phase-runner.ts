@@ -492,6 +492,21 @@ function createPhaseRunner(options: CreatePhaseRunnerOptions = {}): PhaseRunner 
     if (
       measured === PHASES.LANDING
       && nowWow
+      && flightPhase === PHASES.UNKNOWN
+      && !taxiInEligible
+    ) {
+      measured = PHASES.TAXI;
+      Debug.log('phase', 'LANDING suppressed: no observed touchdown context', {
+        phase: flightPhase,
+        on_runway: onRunwayValue,
+        ra_ft: raFtValue,
+        gs_kts: gsAvailable ? gs : null,
+      });
+    }
+
+    if (
+      measured === PHASES.LANDING
+      && nowWow
       && onRunwayValue === false
       && !TOUCHDOWN_AIRBORNE_PHASES.has(flightPhase)
     ) {

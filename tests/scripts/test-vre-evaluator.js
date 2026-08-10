@@ -521,6 +521,62 @@ test('ULTRA_FIDELITY never samples faster than 10 Hz', () => {
   assert.ok(result.shouldSample, 'Ultra may sample again after 100ms');
 });
 
+test('continuous ULTRA_FIDELITY survives 100 ticks but respects the 60-second hard cap', () => {
+  let mockTime = 0;
+  const evaluator = createVreEvaluator({ timeNow: () => mockTime });
+
+  let result = evaluator.evaluate({ vs: -50, ra: 40, wow: false, gs: 130 });
+  assert.strictEqual(result.band, BAND.ULTRA_FIDELITY);
+
+  for (let tick = 1; tick < 600; tick++) {
+    mockTime = tick * 100;
+    result = evaluator.evaluate({
+      vs: -50,
+      ra: 35 + ((tick % 20) / 2),
+      wow: false,
+      gs: 130,
+    });
+
+    if (tick === 100) {
+      assert.strictEqual(result.band, BAND.ULTRA_FIDELITY, '100 ordinary Ultra ticks must not be treated as stuck');
+      assert.strictEqual(evaluator.getState().ultraFidelityDisabled, false);
+    }
+  }
+
+  assert.strictEqual(result.band, BAND.ULTRA_FIDELITY, 'Ultra should remain available immediately before the hard cap');
+  assert.strictEqual(evaluator.getState().ultraFidelitySampleCount, 599);
+
+  mockTime = 60000;
+  result = evaluator.evaluate({ vs: -50, ra: 40, wow: false, gs: 130 });
+  assert.strictEqual(result.band, BAND.HIGH_FIDELITY, 'Ultra should step down at the hard cap');
+  assert.strictEqual(evaluator.getState().ultraFidelityDisabled, true);
+  assert.strictEqual(evaluator.getState().ultraFidelitySampleCount, 600);
+});
+
+test('ULTRA_FIDELITY duration cap is independent of sample count and reset re-arms it', () => {
+  let mockTime = 0;
+  const evaluator = createVreEvaluator({ timeNow: () => mockTime });
+
+  let result = evaluator.evaluate({ vs: -50, ra: 40, wow: false, gs: 130 });
+  for (let tick = 1; tick <= 60; tick++) {
+    mockTime = tick * 1000;
+    result = evaluator.evaluate({ vs: -50, ra: 40, wow: false, gs: 130 });
+  }
+
+  let state = evaluator.getState();
+  assert.strictEqual(result.band, BAND.HIGH_FIDELITY, 'duration cap should step Ultra down after 60 seconds');
+  assert.strictEqual(state.ultraFidelityDisabled, true);
+  assert.strictEqual(state.ultraFidelityTotalMs, 60000);
+  assert.strictEqual(state.ultraFidelitySampleCount, 60, 'duration cap should not depend on reaching 600 samples');
+
+  evaluator.reset();
+  state = evaluator.getState();
+  assert.strictEqual(state.ultraFidelityDisabled, false);
+  assert.strictEqual(state.ultraFidelityTotalMs, 0);
+  assert.strictEqual(state.ultraFidelitySampleCount, 0);
+  assert.strictEqual(state.ultraFidelityConsecutiveEvals, 0);
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // Hysteresis Tests
 // ─────────────────────────────────────────────────────────────────────────
