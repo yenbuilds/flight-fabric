@@ -2949,10 +2949,12 @@ async function main() {
     );
 
     assert.match(html, /Touchdown[\s\S]*id="landing-grade"[^>]*>FIRM</, 'landing summary should explicitly scope the raw touchdown-rate grade');
-    assert.match(html, /id="landing-grade-breakdown"[^>]*>TDZ: 305 ft · Outstanding</, 'landing summary should show TDZ distance and quality separately from the touchdown-rate grade');
+    assert.match(html, /Touchdown zone[\s\S]*id="landing-summary-tdz"[^>]*>305 ft</, 'landing summary should present touchdown distance as a peer metric');
+    assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Outstanding</, 'landing summary should subordinate the touchdown-zone quality to its distance');
     assert.match(html, /id="landing-summary-approach"[^>]*>STABLE</, 'landing summary should show the approach verdict as a peer fact');
     assert.match(html, /id="landing-summary-approach-score"[^>]*>\s*Approach score 91%\s*</, 'landing summary should label the subordinate approach percentage');
     assert.match(html, /id="landing-summary-bounce"[^>]*>Clean</, 'landing summary should show bounce as a peer fact');
+    assert.doesNotMatch(html, /id="landing-summary-bounce-detail"/, 'landing summary should not repeat Clean as bounce detail');
     assert.match(html, /id="landing-gforce"[^>]*>G: 1\.23</, 'landing gforce should render from store state');
     assert.match(html, /id="landing-vs"[^>]*>-467</, 'landing vertical speed should render from store state');
     assert.match(html, /id="landing-airport"[^>]*>YSSY</, 'landing airport should render from store state');
@@ -2978,7 +2980,11 @@ async function main() {
     assert.match(html, /id="landing-rollout-assessment"[^>]*>CAUTION</, 'rollout assessment should render from store state');
     assert.match(html, /id="landing-rollout-metrics"[\s\S]*Peak bank[\s\S]*3\.3 deg[\s\S]*Heading deviation[\s\S]*14\.6 deg right/, 'rollout metrics should render independently of touchdown attitude');
     assert.match(html, /Conservative edge margin[\s\S]*27 ft/, 'rollout metrics should render the uncertainty-adjusted runway-edge margin');
-    assert.match(html, /id="landing-inflight-stats"[\s\S]*Max Alt[\s\S]*12,000 ft[\s\S]*Possible Go-Arounds[\s\S]*1/, 'in-flight stat rows should render from store state');
+    assert.match(html, /id="landing-inflight-stats"[^>]*class="[^"]*grid[^"]*xl:grid-cols-4[^"]*"/, 'in-flight stats should use a structured responsive grid');
+    assert.match(html, /id="landing-inflight-stat-max-alt"[\s\S]*Max Alt[\s\S]*12,000 ft/, 'in-flight metrics should render as individually labelled cards');
+    assert.match(html, /id="landing-inflight-stat-go-arounds"[\s\S]*Possible Go-Arounds[\s\S]*1/, 'possible go-arounds should retain their own summary card');
+    assert.doesNotMatch(html, /id="landing-inflight-stats"[^>]*class="[^"]*flex-wrap/, 'in-flight stats should not fall back to the dense inline fact stream');
+    assert.match(html, /Flight Summary[\s\S]*Events[\s\S]*id="landing-inflight-violations"/, 'flight metrics and recorded events should have separate visual hierarchy');
     assert.match(html, /id="landing-inflight-violations"[\s\S]*Overspeed[\s\S]*2x[\s\S]*Bank Angle[\s\S]*warning - 4s/, 'in-flight violation rows should render from store state');
   });
 
@@ -3009,11 +3015,9 @@ async function main() {
     assert.match(html, /Touchdown[\s\S]*id="landing-grade"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>PERFECT</, 'card should explicitly label the raw touchdown grade at peer visual weight');
     assert.match(html, /Approach[\s\S]*id="landing-summary-approach"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>UNSTABLE</, 'card should give the failed approach verdict equal visual weight');
     assert.match(html, /Bounce[\s\S]*id="landing-summary-bounce"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>1x</, 'card should give the bounce result equal visual weight');
-    assert.match(
-      html,
-      /id="landing-grade-breakdown"[^>]*>TDZ: 600 ft · Outstanding</,
-      'TDZ distance and quality should remain a separate touchdown-position fact',
-    );
+    assert.match(html, /id="landing-summary-tdz"[^>]*>600 ft</, 'TDZ distance should remain a separate touchdown-position fact');
+    assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Outstanding</, 'TDZ quality should remain secondary to the touchdown distance');
+    assert.match(html, /id="landing-summary-bounce-detail"[^>]*>Single Bounce</, 'a non-redundant bounce classification should remain visible');
     assert.match(html, /id="landing-stability-score"[^>]*>UNSTABLE</, 'approach tile should lead with the gate verdict');
     assert.match(html, /3 substantial\/required findings · Approach score 84%/, 'approach tile should keep the labelled average score as secondary context');
   });
@@ -3073,6 +3077,41 @@ async function main() {
     assert.doesNotMatch(html, /id="topdown-profile-section"[^>]*hidden/, 'top-down profile section should show when the store provides SVG content');
     assert.doesNotMatch(html, /id="topdown-profile-content"[^>]*hidden/, 'top-down profile SVG body should be expanded by default');
     assert.match(html, /id="topdown-profile-svg-container"[\s\S]*<svg[\s\S]*<circle/, 'top-down profile SVG should render from the store');
+  });
+
+  await test('LandingPanel expands every accordion by default and presents clear toggle controls in debrief mode', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LandingPanel.vue'),
+      ({ useLandingStore }) => {
+        const landing = useLandingStore();
+        landing.setStabilityBreakdown({
+          metrics: [{ key: 'speed_ok', label: 'Airspeed', valueText: '100%' }],
+        });
+        landing.setApproachProfile({ svgHtml: '<svg viewBox="0 0 10 10"></svg>' });
+        landing.setTopdownProfile({ svgHtml: '<svg viewBox="0 0 10 10"></svg>' });
+      },
+      { props: { debriefMode: true } },
+    );
+
+    const accordionPairs = [
+      ['stability-toggle-btn', 'stability-breakdown-content'],
+      ['approach-profile-toggle-btn', 'approach-profile-content'],
+      ['topdown-profile-toggle-btn', 'topdown-profile-content'],
+      ['detailed-metrics-toggle-btn', 'detailed-metrics-content'],
+    ];
+
+    for (const [buttonId, contentId] of accordionPairs) {
+      assert.match(
+        html,
+        new RegExp(`id="${buttonId}"[^>]*class="[^"]*cursor-pointer[^"]*bg-surface-200/60[^"]*text-gray-200[^"]*"[^>]*aria-expanded="true"[^>]*aria-controls="${contentId}"`),
+        `${buttonId} should look interactive and expose its expanded state`,
+      );
+      assert.doesNotMatch(
+        html,
+        new RegExp(`id="${contentId}"[^>]*class="[^"]*hidden`),
+        `${contentId} should be expanded by default`,
+      );
+    }
   });
 
   await test('LandingMetricModal renders store-backed metric detail', async () => {
@@ -4319,7 +4358,7 @@ async function main() {
     assert.match(html, />Copied!</, 'copy-path button label should render from the timeline store');
   });
 
-  await test('TimelineSummaryBar stays on one line and omits score impact', async () => {
+  await test('TimelineSummaryBar wraps responsively without horizontal scrolling and omits score impact', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'TimelineSummaryBar.vue'),
       ({ useTimelineStore }) => {
@@ -4336,7 +4375,9 @@ async function main() {
       },
     );
 
-    assert.match(html, /<dl[^>]*whitespace-nowrap[^>]*>/, 'timeline summary should use a single non-wrapping row');
+    assert.match(html, /<dl[^>]*timeline-summary-stats[^>]*grid[^>]*>/, 'timeline summary should use the responsive metric grid');
+    assert.doesNotMatch(html, /overflow-x-auto|min-w-max|whitespace-nowrap/, 'timeline summary should never require a horizontal scrollbar');
+    assert.match(html, /Events<\/dt>[\s\S]*text-sm[^>]*>63<\/dd>/, 'timeline summary values should use the larger readable text treatment');
     assert.match(html, /Fuel burn<\/dt>[\s\S]*365 kg<\/dd>/, 'fuel burn should remain available inline');
     assert.doesNotMatch(html, /Score Impact|scoreImpactText|scoreImpactClass/, 'score impact should be removed from the summary UI');
   });

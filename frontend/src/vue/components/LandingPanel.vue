@@ -1,20 +1,29 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import { useLandingStore } from '../stores/landing.js';
 
-const props = defineProps({
+defineProps({
   debriefMode: {
     type: Boolean,
     default: false,
   },
 });
 
-const stabilityExpanded = ref(!props.debriefMode);
-const approachProfileExpanded = ref(!props.debriefMode);
-const topdownProfileExpanded = ref(!props.debriefMode);
-const detailedMetricsExpanded = ref(false);
+const stabilityExpanded = ref(true);
+const approachProfileExpanded = ref(true);
+const topdownProfileExpanded = ref(true);
+const detailedMetricsExpanded = ref(true);
 const landing = useLandingStore();
+
+const accordionButtonClass = 'group flex w-full cursor-pointer items-center justify-between gap-3 bg-surface-200/60 px-4 py-3.5 text-sm font-medium text-gray-200 transition-colors hover:bg-surface-300 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
+const accordionIndicatorClass = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-surface-300 bg-surface-100 text-gray-300 transition-colors group-hover:border-gray-500 group-hover:text-gray-100';
+
+const bounceDetailVisible = computed(() => {
+  const bounceValue = String(landing.landingCard.touchdown.bounceText || '').trim().toLowerCase();
+  const bounceDetail = String(landing.landingCard.touchdown.bounceGradeText || '').trim().toLowerCase();
+  return bounceDetail !== '' && bounceDetail !== '--' && bounceDetail !== bounceValue;
+});
 </script>
 
 <template>
@@ -67,10 +76,20 @@ const landing = useLandingStore();
       </div>
     </div>
 
-    <div class="p-6 pb-4 border-b border-surface-200/30">
-      <div class="telemetry-label mb-3">Landing Summary</div>
-      <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-4 lg:gap-8">
-        <div>
+    <div class="p-4 sm:p-6 pb-4 border-b border-surface-200/30">
+      <div class="mb-3 flex items-end justify-between gap-4">
+        <div class="telemetry-label">Landing Summary</div>
+        <div class="min-w-0 text-right">
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Airport / Runway</div>
+          <div class="flex items-baseline justify-end gap-2 text-sm font-semibold tabular text-gray-200" style="font-family:'B612 Mono', monospace;">
+            <span id="landing-airport">{{ landing.landingCard.airportText }}</span>
+            <span class="text-gray-700" aria-hidden="true">/</span>
+            <span id="landing-runway">{{ landing.landingCard.runwayText }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-px overflow-hidden rounded-lg border border-surface-200/50 bg-surface-200/50">
+        <div class="min-w-0 bg-surface-100/80 px-4 py-3">
           <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown rate grade</div>
           <div
             id="landing-grade"
@@ -78,20 +97,32 @@ const landing = useLandingStore();
             class="grade-pop text-2xl font-semibold"
             :style="[landing.landingGradeStyle, { fontFamily: '\'B612 Mono\', monospace', letterSpacing: '0.08em' }]"
           >{{ landing.landingCard.gradeText }}</div>
-          <div
-            id="landing-grade-breakdown"
-            class="text-xs text-gray-400 mt-1"
-            :class="{ hidden: !landing.landingCard.gradeBreakdownVisible }"
-            style="font-family:'B612 Mono', monospace;"
-          >{{ landing.landingCard.gradeBreakdownText }}</div>
-          <div class="mt-2 flex items-baseline gap-2">
-            <span class="text-[10px] text-gray-500 uppercase tracking-widest">Touchdown rate</span>
-            <span id="landing-vs" class="text-lg font-semibold tabular telemetry-value" :style="landing.landingVsStyle">{{ landing.landingCard.vsText }}</span>
+        </div>
+
+        <div class="min-w-0 bg-surface-100/80 px-4 py-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown rate</div>
+          <div class="flex items-baseline gap-2">
+            <span id="landing-vs" class="text-2xl font-semibold tabular telemetry-value" :style="landing.landingVsStyle">{{ landing.landingCard.vsText }}</span>
             <span class="telemetry-unit text-xs">fpm</span>
           </div>
-          <div id="landing-gforce" class="text-xs text-gray-400 mt-1">{{ landing.landingCard.gforceText }}</div>
+          <div id="landing-gforce" class="text-xs text-gray-500 mt-1">{{ landing.landingCard.gforceText }}</div>
         </div>
-        <div>
+
+        <div class="min-w-0 bg-surface-100/80 px-4 py-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown zone</div>
+          <div
+            id="landing-summary-tdz"
+            class="text-2xl font-semibold tabular text-gray-200"
+            style="font-family:'B612 Mono', monospace;"
+          >{{ landing.landingCard.touchdown.distanceText }}</div>
+          <div
+            id="landing-summary-tdz-detail"
+            class="mt-1 text-xs"
+            :class="landing.landingCard.touchdown.distanceGradeTone"
+          >{{ landing.landingCard.touchdown.distanceGradeText }}</div>
+        </div>
+
+        <div class="min-w-0 bg-surface-100/80 px-4 py-3">
           <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Approach</div>
           <div
             id="landing-summary-approach"
@@ -103,7 +134,8 @@ const landing = useLandingStore();
             {{ landing.landingCard.approach.stabilityNoteText }}
           </div>
         </div>
-        <div>
+
+        <div class="min-w-0 bg-surface-100/80 px-4 py-3">
           <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Bounce</div>
           <div
             id="landing-summary-bounce"
@@ -111,13 +143,14 @@ const landing = useLandingStore();
             :class="landing.landingCard.touchdown.bounceTone"
             style="font-family:'B612 Mono', monospace;"
           >{{ landing.landingCard.touchdown.bounceText }}</div>
-          <div id="landing-summary-bounce-detail" class="mt-1 text-xs" :class="landing.landingCard.touchdown.bounceGradeTone">
+          <div
+            v-if="bounceDetailVisible"
+            id="landing-summary-bounce-detail"
+            class="mt-1 text-xs"
+            :class="landing.landingCard.touchdown.bounceGradeTone"
+          >
             {{ landing.landingCard.touchdown.bounceGradeText }}
           </div>
-        </div>
-        <div class="lg:ml-auto text-right">
-          <div id="landing-airport" class="text-xl font-semibold">{{ landing.landingCard.airportText }}</div>
-          <div id="landing-runway" class="text-sm text-gray-400">{{ landing.landingCard.runwayText }}</div>
         </div>
       </div>
     </div>
@@ -190,22 +223,33 @@ const landing = useLandingStore();
       <button
         id="stability-toggle-btn"
         type="button"
-        class="w-full p-3 flex items-center justify-between text-sm text-gray-400 hover:bg-surface-200/30 transition-colors"
+        :class="accordionButtonClass"
+        :aria-expanded="stabilityExpanded"
+        aria-controls="stability-breakdown-content"
         @click="stabilityExpanded = !stabilityExpanded"
       >
         <span>Stability Breakdown</span>
-        <svg
-          id="stability-chevron"
-          class="w-4 h-4 transition-transform"
-          :class="{ 'rotate-180': stabilityExpanded }"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
+        <span :class="accordionIndicatorClass">
+          <svg
+            id="stability-chevron"
+            class="w-4 h-4 transition-transform"
+            :class="{ 'rotate-180': stabilityExpanded }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </span>
       </button>
-      <div id="stability-breakdown-content" class="px-6 pb-4" :class="{ hidden: !stabilityExpanded }">
+      <div
+        id="stability-breakdown-content"
+        class="px-6 pb-4 pt-4"
+        :class="{ hidden: !stabilityExpanded }"
+        role="region"
+        aria-labelledby="stability-toggle-btn"
+      >
         <div
           v-if="landing.stabilityContextText"
           class="mb-3 rounded border px-3 py-2 text-xs"
@@ -258,22 +302,33 @@ const landing = useLandingStore();
       <button
         id="approach-profile-toggle-btn"
         type="button"
-        class="w-full p-3 flex items-center justify-between text-sm text-gray-400 hover:bg-surface-200/30 transition-colors"
+        :class="accordionButtonClass"
+        :aria-expanded="approachProfileExpanded"
+        aria-controls="approach-profile-content"
         @click="approachProfileExpanded = !approachProfileExpanded"
       >
         <span>Approach Profile</span>
-        <svg
-          id="approach-profile-chevron"
-          class="w-4 h-4 transition-transform"
-          :class="{ 'rotate-180': approachProfileExpanded }"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
+        <span :class="accordionIndicatorClass">
+          <svg
+            id="approach-profile-chevron"
+            class="w-4 h-4 transition-transform"
+            :class="{ 'rotate-180': approachProfileExpanded }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </span>
       </button>
-      <div id="approach-profile-content" class="px-4 pb-4" :class="{ hidden: !approachProfileExpanded }">
+      <div
+        id="approach-profile-content"
+        class="px-4 pb-4 pt-4"
+        :class="{ hidden: !approachProfileExpanded }"
+        role="region"
+        aria-labelledby="approach-profile-toggle-btn"
+      >
         <div
           id="approach-profile-gate-label"
           class="mb-2 text-[10px] uppercase tracking-widest text-gray-600"
@@ -293,22 +348,33 @@ const landing = useLandingStore();
       <button
         id="topdown-profile-toggle-btn"
         type="button"
-        class="w-full p-3 flex items-center justify-between text-sm text-gray-400 hover:bg-surface-200/30 transition-colors"
+        :class="accordionButtonClass"
+        :aria-expanded="topdownProfileExpanded"
+        aria-controls="topdown-profile-content"
         @click="topdownProfileExpanded = !topdownProfileExpanded"
       >
         <span>Ground Track</span>
-        <svg
-          id="topdown-profile-chevron"
-          class="w-4 h-4 transition-transform"
-          :class="{ 'rotate-180': topdownProfileExpanded }"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
+        <span :class="accordionIndicatorClass">
+          <svg
+            id="topdown-profile-chevron"
+            class="w-4 h-4 transition-transform"
+            :class="{ 'rotate-180': topdownProfileExpanded }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </span>
       </button>
-      <div id="topdown-profile-content" class="px-4 pb-4" :class="{ hidden: !topdownProfileExpanded }">
+      <div
+        id="topdown-profile-content"
+        class="px-4 pb-4 pt-4"
+        :class="{ hidden: !topdownProfileExpanded }"
+        role="region"
+        aria-labelledby="topdown-profile-toggle-btn"
+      >
         <div
           id="topdown-profile-svg-container"
           class="w-full bg-surface-100/50 rounded-lg overflow-hidden"
@@ -322,22 +388,32 @@ const landing = useLandingStore();
       <button
         id="detailed-metrics-toggle-btn"
         type="button"
-        class="w-full p-3 flex items-center justify-between text-sm text-gray-400 hover:bg-surface-200/30 transition-colors"
+        :class="accordionButtonClass"
+        :aria-expanded="detailedMetricsExpanded"
+        aria-controls="detailed-metrics-content"
         @click="detailedMetricsExpanded = !detailedMetricsExpanded"
       >
         <span>Detailed Metrics</span>
-        <svg
-          id="detailed-metrics-chevron"
-          class="w-4 h-4 transition-transform"
-          :class="{ 'rotate-180': detailedMetricsExpanded }"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
+        <span :class="accordionIndicatorClass">
+          <svg
+            id="detailed-metrics-chevron"
+            class="w-4 h-4 transition-transform"
+            :class="{ 'rotate-180': detailedMetricsExpanded }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </span>
       </button>
-      <div id="detailed-metrics-content" :class="{ hidden: !detailedMetricsExpanded }">
+      <div
+        id="detailed-metrics-content"
+        :class="{ hidden: !detailedMetricsExpanded }"
+        role="region"
+        aria-labelledby="detailed-metrics-toggle-btn"
+      >
         <div class="px-6 pt-4 pb-2">
           <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Touchdown</div>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3">
@@ -441,26 +517,32 @@ const landing = useLandingStore();
     </div>
 
     <div id="landing-inflight-section" class="border-t border-surface-200/30" :class="{ hidden: !landing.landingCard.inflight.visible }">
-      <div class="px-6 pt-4 pb-4">
-        <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Flight Summary &amp; Events</div>
-        <div id="landing-inflight-stats" class="flex flex-wrap gap-x-4 gap-y-1 items-center mb-3">
-          <template v-for="(stat, index) in landing.landingCard.inflight.stats" :key="stat.key">
-            <span v-if="index > 0" class="text-gray-700 mx-1">&middot;</span>
-            <span class="flex items-center gap-1">
-              <span class="text-[10px] text-gray-500 uppercase">{{ stat.label }}</span>
-              <span class="text-sm font-semibold" :class="stat.toneClass">{{ stat.value }}</span>
-            </span>
-          </template>
-        </div>
-        <div id="landing-inflight-violations" class="space-y-1.5">
+      <div class="px-4 py-5 sm:px-6">
+        <div class="mb-3 text-[10px] uppercase tracking-widest text-gray-500">Flight Summary</div>
+        <div id="landing-inflight-stats" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           <div
-            v-for="row in landing.landingCard.inflight.violations"
-            :key="row.key"
-            class="flex justify-between items-center px-2 py-1 rounded border-l-2"
-            :class="row.containerClass"
+            v-for="stat in landing.landingCard.inflight.stats"
+            :id="`landing-inflight-stat-${stat.key}`"
+            :key="stat.key"
+            class="min-w-0 rounded-lg border border-surface-200 bg-surface-100/60 px-3.5 py-3"
           >
-            <span class="text-xs" :class="row.empty ? 'text-gray-600' : 'text-gray-300'">{{ row.label }}</span>
-            <span v-if="row.value" class="text-xs font-medium" :class="row.valueClass">{{ row.value }}</span>
+            <div class="text-[10px] uppercase tracking-widest text-gray-500">{{ stat.label }}</div>
+            <div class="mt-1 text-sm font-semibold leading-5" :class="stat.toneClass">{{ stat.value }}</div>
+          </div>
+        </div>
+
+        <div class="mt-5 border-t border-surface-200/50 pt-4">
+          <div class="mb-2 text-[10px] uppercase tracking-widest text-gray-500">Events</div>
+          <div id="landing-inflight-violations" class="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            <div
+              v-for="row in landing.landingCard.inflight.violations"
+              :key="row.key"
+              class="flex items-start justify-between gap-3 rounded-lg border border-l-2 px-3 py-2.5"
+              :class="[row.containerClass, { 'lg:col-span-2': row.empty }]"
+            >
+              <span class="text-xs leading-5" :class="row.empty ? 'text-gray-500' : 'text-gray-300'">{{ row.label }}</span>
+              <span v-if="row.value" class="shrink-0 text-xs font-medium leading-5" :class="row.valueClass">{{ row.value }}</span>
+            </div>
           </div>
         </div>
       </div>

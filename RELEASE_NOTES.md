@@ -1,35 +1,32 @@
-# Flight Fabric 0.2.5
+# Flight Fabric 0.2.6
 
-Flight Fabric 0.2.5 is a defensive maintenance release for several runtime edge
-cases. It improves cold-start phase detection, low-altitude recording,
-settings recovery, legacy profile normalization, and long Timeline sessions.
+Flight Fabric 0.2.6 is a focused interface-polish release. It makes the landing
+debrief and Timeline summary more consistent, readable, and responsive without
+changing flight analysis or scoring behavior.
 
 This publication includes the versioned source and the verified Windows Setup
 installer. The portable executable is intentionally not published.
 
 ## Highlights
 
-- Starting Flight Fabric during a high-speed runway roll no longer creates a
-  false Landing phase without observed touchdown context. The roll remains
-  Taxi and can still become Takeoff after liftoff.
-- Ultra-fidelity touchdown sampling no longer treats 100 consecutive ordinary
-  ticks as a stuck evaluator. The existing 60-second and 600-sample safety caps
-  remain authoritative.
-- Settings files whose JSON root is null, an array, or another non-object value
-  now fall back to complete defaults instead of failing during nested merges.
-- Legacy throttle-detent metadata is retired from normalized aircraft profiles
-  without modifying the imported profile object.
-- Timeline event IDs remain unique after more than 10,000 events, preserving
-  unambiguous worst-moment references when older retained events are evicted.
-- Published desktop and SDK dependency locks have been refreshed within their
-  declared compatibility ranges, and the blocking OSV audit now covers the
-  exact lockfiles included in the desktop/source release.
+- Landing result labels and values now share one consistent hierarchy and
+  alignment, while redundant status text such as the repeated bounce result is
+  removed.
+- Stability Breakdown, Approach Profile, and Ground Track now start expanded,
+  and their higher-contrast headers have clearer hover, focus, and expanded
+  states.
+- Flight Summary & Events facts are grouped into responsive cards instead of a
+  loose inline stream, making the section easier to scan at every width.
+- Timeline summary text is larger and wraps into tidy rows on narrow windows,
+  avoiding horizontal scrolling while keeping the saved-state control visible.
+- These changes are limited to presentation and component coverage; flight
+  analysis, scoring, data storage, and backend behavior are unchanged.
 
 ## Download
 
-- `Flight Fabric Setup 0.2.5.exe` - Windows installer.
+- `Flight Fabric Setup 0.2.6.exe` - Windows installer.
 
-The portable `Flight Fabric 0.2.5.exe`, installer blockmap, and
+The portable `Flight Fabric 0.2.6.exe`, installer blockmap, and
 `SHA256SUMS.txt` are not part of this installer-only publication. The GitHub
 release notes provide the Setup installer's SHA-256 checksum directly.
 
