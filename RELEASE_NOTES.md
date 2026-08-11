@@ -1,34 +1,32 @@
-# Flight Fabric 0.2.7
+# Flight Fabric 0.2.8
 
-Flight Fabric 0.2.7 is a documentation release. It replaces the repository
-README with a clearer introduction for new users and adds real product
-screenshots to the versioned public source.
-
-The desktop app's telemetry, analysis, scoring, storage, and runtime behaviour
-are unchanged from 0.2.6.
+Flight Fabric 0.2.8 is a presentation-focused release. It makes the live
+telemetry dashboard and landing debrief easier to scan, while preserving the
+underlying telemetry, scoring, storage, and flight-analysis behaviour.
 
 This publication includes the versioned source and the verified Windows Setup
 installer. The portable executable is intentionally not published.
 
 ## Highlights
 
-- The README now begins with a concise description, a direct Windows download,
-  and an animated tour of live telemetry, aircraft pages, SimBrief, Timeline
-  replay, and landing analysis.
-- The tour uses the newer Timeline replay and landing debrief captures, changes
-  scenes at a readable pace, and remains small enough for a repository landing
-  page.
-- Installation, trusted LAN access, OBS widgets, and source build instructions
-  are easier to find without putting technical and legal material ahead of the
-  product overview.
-- The animation and its source images are included with the public source, so
-  they remain available without exposing the private website source tree.
+- Live telemetry cards now have subtle, purpose-built aviation illustrations
+  for airspeed, vertical speed, altitude, radio altitude, ground speed,
+  heading, crosswind, and fuel.
+- Radio altitude now shows a recognizable aircraft-to-terrain range symbol,
+  and ground speed uses a clear directional ground-track vector.
+- Landing summary cards use distinct metric watermarks, including a growing
+  waveform for an unstable approach.
+- Detailed landing metrics now highlight hard problems in red and review items
+  in amber, with a compact count in the section header; healthy metrics remain
+  visually quiet.
+- Timeline replay shows the saved aircraft type beside the route when that
+  information is available.
 
 ## Download
 
-- `Flight Fabric Setup 0.2.7.exe` - Windows installer.
+- `Flight Fabric Setup 0.2.8.exe` - Windows installer.
 
-The portable `Flight Fabric 0.2.7.exe`, installer blockmap, and
+The portable `Flight Fabric 0.2.8.exe`, installer blockmap, and
 `SHA256SUMS.txt` are not part of this installer-only publication. The GitHub
 release notes provide the Setup installer's SHA-256 checksum directly.
 

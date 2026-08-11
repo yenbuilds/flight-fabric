@@ -34,6 +34,11 @@ const timelineViewerTitle = computed(() => {
   }
   return timeline.loadedTimelineFlightLabel || timeline.inspectorFlightIdText;
 });
+const timelineViewerAircraft = computed(() => {
+  if (timeline.timelineLoading) return '';
+  const label = String(timeline.loadedTimelineAircraftLabel || '').trim();
+  return /^(?:unknown|n\/?a|--?)$/i.test(label) ? '' : label;
+});
 const timelineViewerDocumentLockActive = computed(() => (
   tabs.activeTabId === 'timeline' && timeline.timelineMobileViewerOpen
 ));
@@ -144,7 +149,22 @@ onUnmounted(() => {
       >
         <div class="min-w-0">
           <div class="text-[10px] uppercase tracking-widest text-gray-500">Timeline replay</div>
-          <div id="timeline-mobile-viewer-title" class="truncate text-sm font-semibold text-gray-200">{{ timelineViewerTitle }}</div>
+          <div class="flex min-w-0 items-baseline gap-2">
+            <div id="timeline-mobile-viewer-title" class="min-w-0 truncate text-sm font-semibold text-gray-200">{{ timelineViewerTitle }}</div>
+            <span
+              v-if="timelineViewerAircraft"
+              aria-hidden="true"
+              class="shrink-0 text-xs text-gray-600"
+            >•</span>
+            <div
+              v-if="timelineViewerAircraft"
+              id="timeline-mobile-viewer-aircraft"
+              class="min-w-0 truncate text-xs text-gray-400"
+              :title="timelineViewerAircraft"
+            >
+              {{ timelineViewerAircraft }}
+            </div>
+          </div>
         </div>
         <button
           id="timeline-mobile-viewer-close"

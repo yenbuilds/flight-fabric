@@ -1932,6 +1932,15 @@ async function main() {
     assert.match(html, /id="alt-value"[^>]*>3,450</, 'altitude should render with separators');
     assert.match(html, /id="ra-card"/, 'radio altitude card should render');
     assert.match(html, /id="ra-value"[^>]*>175</, 'radio altitude should render');
+    for (const kind of ['airspeed', 'vertical-speed', 'altitude', 'radio-altitude', 'ground-speed', 'heading', 'crosswind', 'fuel']) {
+      assert.match(
+        html,
+        new RegExp(`data-flight-metric-watermark="${kind}"`),
+        `flight telemetry should render the ${kind} metric watermark`,
+      );
+    }
+    assert.match(html, /data-watermark-symbol="aircraft-terrain-range"/, 'radio altitude should use a recognizable aircraft-to-terrain range symbol');
+    assert.match(html, /data-watermark-symbol="ground-track-vector"/, 'ground speed should use a directional ground-track vector');
     assert.match(html, /<details id="flight-altitude-diagnostics"/, 'altitude diagnostics should render as a disclosure');
     assert.doesNotMatch(html, /<details id="flight-altitude-diagnostics"[^>]*\sopen(?:\s|>)/, 'altitude diagnostics should be collapsed by default');
     assert.match(html, /<summary id="flight-altitude-diagnostics-toggle"/, 'altitude diagnostics should expose a native keyboard-accessible toggle');
@@ -3018,8 +3027,49 @@ async function main() {
     assert.match(html, /id="landing-summary-tdz"[^>]*>600 ft</, 'TDZ distance should remain a separate touchdown-position fact');
     assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Outstanding</, 'TDZ quality should remain secondary to the touchdown distance');
     assert.match(html, /id="landing-summary-bounce-detail"[^>]*>Single Bounce</, 'a non-redundant bounce classification should remain visible');
+    for (const kind of ['grade', 'rate', 'zone', 'approach', 'bounce']) {
+      assert.match(
+        html,
+        new RegExp(`data-landing-summary-watermark="${kind}"`),
+        `landing summary should render the ${kind} metric watermark`,
+      );
+    }
     assert.match(html, /id="landing-stability-score"[^>]*>UNSTABLE</, 'approach tile should lead with the gate verdict');
     assert.match(html, /3 substantial\/required findings · Approach score 84%/, 'approach tile should keep the labelled average score as secondary context');
+  });
+
+  await test('LandingPanel visually isolates detailed metrics that need attention', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LandingPanel.vue'),
+      ({ useLandingStore }) => {
+        useLandingStore().applyLandingCardMessage({
+          final: true,
+          vs: -320,
+          grade: 'GOOD',
+          touchdownDistance: {
+            distanceFt: 1603,
+            grade: 'Good',
+            lateralOffsetFt: 2,
+            lateralOffsetGrade: 'Outstanding',
+            lateralOffsetScore: 98,
+            bounceGrade: 'Clean',
+            bounceCount: 0,
+            bounceScore: 100,
+          },
+          ultimateStability: {
+            verdict: 'unstable',
+            score: 86,
+            gateStable: false,
+            gateFailures: ['speed_ok', 'vs_ok', 'glidepath_ok'],
+          },
+        });
+      },
+    );
+
+    assert.match(html, /id="detailed-metrics-attention-count"[^>]*>2 items need attention</, 'detailed metrics should summarize the number of flagged tiles');
+    assert.match(html, /<div(?=[^>]*data-detail-metric="touchdown-target")(?=[^>]*data-attention="warning")(?=[^>]*class="[^"]*landing-detail-metric--warning)[^>]*>/, 'a missed touchdown target should render as a warning callout');
+    assert.match(html, /<div(?=[^>]*data-detail-metric="approach-verdict")(?=[^>]*data-attention="danger")(?=[^>]*class="[^"]*landing-detail-metric--danger)[^>]*>/, 'an unstable approach should render as a danger callout');
+    assert.match(html, /<div(?=[^>]*data-detail-metric="approach-speed")(?![^>]*data-attention)[^>]*>/, 'neutral metrics should remain visually quiet');
   });
 
   await test('LandingPanel renders stability breakdown rows from the landing store', async () => {
@@ -4036,6 +4086,7 @@ async function main() {
         timeline.setLoadedTimelineIdentity({
           flightId: 'F1',
           route: 'YSSY-KJFK',
+          aircraft: 'Boeing 737-800',
         });
         timeline.openTimelineMobileViewer();
         timeline.setInspectorState({
@@ -4086,6 +4137,7 @@ async function main() {
     assert.match(html, /id="timeline-mobile-viewer-header"/, 'mobile timeline viewer should render a fullscreen header');
     assert.match(html, /id="timeline-mobile-viewer-close"[^>]*>\s*Close\s*</, 'mobile timeline viewer should provide a close button');
     assert.match(html, /id="timeline-mobile-viewer-title"[^>]*>YSSY-KJFK</, 'mobile timeline viewer should title itself from the loaded flight');
+    assert.match(html, /id="timeline-mobile-viewer-aircraft"[^>]*[\s\S]*?Boeing 737-800\s*</, 'mobile timeline viewer should show the saved aircraft type beside the route');
     assert.match(html, /Distance[\s\S]*144 NM/, 'mobile timeline viewer should render whole-flight distance in the summary');
     assert.match(html, /id="timeline-card"/, 'mobile fullscreen viewer should include the inspector card');
     assert.match(html, /id="timeline-map-card"/, 'mobile fullscreen viewer should include the replay map');
@@ -4101,6 +4153,7 @@ async function main() {
         timeline.setLoadedTimelineIdentity({
           flightId: 'OLD',
           route: 'EGLL-LFPG',
+          aircraft: 'Old Airbus A320',
         });
         timeline.setInspectorState({
           flightIdText: 'EGLL-LFPG (1h)',
@@ -4153,6 +4206,7 @@ async function main() {
     assert.match(html, /Preparing YSSY-KJFK/, 'loading placeholder should include the requested flight');
     assert.doesNotMatch(html, /Old landing event/, 'loading viewer should not render stale inspector rows');
     assert.doesNotMatch(html, /Old landing detail/, 'loading viewer should not render stale detail content');
+    assert.doesNotMatch(html, /Old Airbus A320/, 'loading viewer should not render the previous flight aircraft');
     assert.doesNotMatch(html, /Distance[\s\S]*144 NM/, 'loading viewer should not render the old summary');
   });
 

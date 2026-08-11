@@ -5067,6 +5067,7 @@ async function main() {
     page.loadTimeline({
       flightId: 'F1',
       route: 'YSSY-KJFK',
+      aircraft: 'Boeing 737-800',
       events: [
         { type: 'phase_start', timestampMs: 1000, newPhase: 'APPROACH', hasPos: true },
         { type: 'landing', timestampMs: 2000, runway: { airport_icao: 'YSSY', runway_id: '34L' } },
@@ -5076,6 +5077,7 @@ async function main() {
 
     assert.equal(timelineStore.inspectorFlightIdText, 'YSSY-KJFK (1m 0s)', 'timeline controller should publish header text into the store');
     assert.equal(timelineStore.inspectorRouteText, 'YSSY-KJFK', 'timeline controller should publish route text into the store');
+    assert.equal(timelineStore.loadedTimelineAircraftLabel, 'Boeing 737-800', 'timeline controller should preserve the saved aircraft type for the replay header');
     assert.equal(timelineStore.inspectorRows.length, 2, 'timeline controller should publish event rows into the store');
     assert.equal(Object.hasOwn(timelineStore.inspectorRows[1] || {}, 'isWorstMoment'), false, 'timeline controller should ignore legacy worst-moment metadata');
     assert.equal(focusedEvents[0].type, 'phase_start', 'timeline controller should still focus the first event with a position');

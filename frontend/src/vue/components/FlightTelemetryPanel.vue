@@ -1,5 +1,6 @@
 <script setup>
 import AppTooltip from './AppTooltip.vue';
+import FlightMetricWatermark from './FlightMetricWatermark.vue';
 import { useFlightStore } from '../stores/flight.js';
 import { usePreferencesStore } from '../stores/preferences.js';
 
@@ -18,12 +19,13 @@ const telemetryValueMediumClass = 'text-2xl sm:text-3xl font-semibold tabular te
 const telemetryValueSystemClass = 'text-xl lg:text-2xl font-semibold telemetry-value';
 const environmentLabelClass = 'flight-card-caption text-xs text-gray-500 uppercase tracking-wider mb-1';
 const environmentUnitClass = 'flight-card-unit text-sm text-gray-500';
+const metricWatermarkCardClass = 'relative isolate min-w-0 overflow-hidden';
 
 const primaryMetricCards = [
-  { cardId: 'ias-card', label: 'Airspeed', valueId: 'ias-value', valueKey: 'ias', unit: 'kt', relative: true, speedWarning: true },
-  { cardId: 'vs-card', label: 'V/S', valueId: 'vs-value', valueKey: 'vs', unit: 'fpm', toneKey: 'vs' },
-  { cardId: 'alt-card', label: 'Altitude', valueId: 'alt-value', valueKey: 'alt', unit: 'ft' },
-  { cardId: 'ra-card', label: 'Radio Alt', valueId: 'ra-value', valueKey: 'ra', unit: 'ft', toneKey: 'ra', visibleKey: 'raVisible' },
+  { cardId: 'ias-card', label: 'Airspeed', valueId: 'ias-value', valueKey: 'ias', unit: 'kt', watermark: 'airspeed', speedWarning: true },
+  { cardId: 'vs-card', label: 'V/S', valueId: 'vs-value', valueKey: 'vs', unit: 'fpm', watermark: 'vertical-speed', toneKey: 'vs' },
+  { cardId: 'alt-card', label: 'Altitude', valueId: 'alt-value', valueKey: 'alt', unit: 'ft', watermark: 'altitude' },
+  { cardId: 'ra-card', label: 'Radio Alt', valueId: 'ra-value', valueKey: 'ra', unit: 'ft', watermark: 'radio-altitude', toneKey: 'ra', visibleKey: 'raVisible' },
 ];
 
 const environmentCards = [
@@ -78,16 +80,19 @@ const lightItems = [
         v-show="!card.visibleKey || flight.telemetry[card.visibleKey]"
         :id="card.cardId"
         :key="card.cardId"
-        :class="[primaryCardClass, { relative: card.relative }]"
+        :class="[primaryCardClass, metricWatermarkCardClass]"
       >
-        <div class="telemetry-label">{{ card.label }}</div>
-        <div class="flex items-baseline gap-1">
-          <span :id="card.valueId" :class="[telemetryValueLargeClass, card.toneKey ? flight.valueToneClass(card.toneKey) : '']">{{ flight.telemetry[card.valueKey] }}</span>
-          <span class="telemetry-unit">{{ card.unit }}</span>
+        <FlightMetricWatermark :kind="card.watermark" />
+        <div class="relative z-10">
+          <div class="telemetry-label">{{ card.label }}</div>
+          <div class="flex items-baseline gap-1">
+            <span :id="card.valueId" :class="[telemetryValueLargeClass, card.toneKey ? flight.valueToneClass(card.toneKey) : '']">{{ flight.telemetry[card.valueKey] }}</span>
+            <span class="telemetry-unit">{{ card.unit }}</span>
+          </div>
         </div>
         <div
           v-if="card.speedWarning"
-          class="warning-banner flight-inline-warning absolute inset-0 flex items-center justify-center bg-red-600/90 rounded-lg z-10 animate-pulse"
+          class="warning-banner flight-inline-warning absolute inset-0 flex items-center justify-center bg-red-600/90 rounded-lg z-20 animate-pulse"
           :class="{ hidden: !flight.speedWarningVisible }"
         >
           <span class="text-white font-bold text-xl tracking-wider">{{ flight.speedWarningLabel }}</span>
@@ -96,47 +101,59 @@ const lightItems = [
     </div>
 
     <div id="flight-secondary-grid" :class="secondaryGridClass">
-      <div id="gs-card" :class="secondaryCardClass">
-        <div class="telemetry-label">Ground Speed</div>
-        <div class="flex items-baseline gap-1">
-          <span id="gs-value" :class="telemetryValueLargeClass">{{ flight.telemetry.gs }}</span>
-          <span class="telemetry-unit">kt</span>
-        </div>
-      </div>
-
-      <div id="hdg-card" :class="secondaryCardClass">
-        <div class="telemetry-label">Heading</div>
-        <div class="flex items-baseline gap-1">
-          <span id="hdg-value" :class="telemetryValueLargeClass">{{ flight.telemetry.hdg }}</span>
-          <span class="telemetry-unit">&deg;</span>
-        </div>
-      </div>
-
-      <div id="xwind-card" :class="[secondaryCardClass, 'col-span-2 sm:col-span-1']">
-        <div class="telemetry-label">Crosswind</div>
-        <div class="flex items-center gap-2">
-          <span id="xwind-arrow" class="text-2xl lg:text-3xl" :style="flight.xwindArrowStyle">{{ flight.telemetry.xwindArrow }}</span>
+      <div id="gs-card" :class="[secondaryCardClass, metricWatermarkCardClass]">
+        <FlightMetricWatermark kind="ground-speed" />
+        <div class="relative z-10">
+          <div class="telemetry-label">Ground Speed</div>
           <div class="flex items-baseline gap-1">
-            <span id="xwind-value" :class="[telemetryValueLargeClass, flight.valueToneClass('xwind')]">{{ flight.telemetry.xwind }}</span>
+            <span id="gs-value" :class="telemetryValueLargeClass">{{ flight.telemetry.gs }}</span>
             <span class="telemetry-unit">kt</span>
           </div>
         </div>
       </div>
 
-      <div id="fuel-card" :class="secondaryCardClass">
-        <div class="flex items-center justify-between mb-1">
-          <div class="telemetry-label">Fuel</div>
-          <AppTooltip content="Toggle fuel unit (gal / lbs / kg)">
-            <button
-              id="fuel-unit-btn"
-              class="flight-unit-toggle transition-colors tabular rounded"
-              @click="preferences.requestFuelUnitCycle()"
-            >{{ flight.telemetry.fuelUnit }}</button>
-          </AppTooltip>
+      <div id="hdg-card" :class="[secondaryCardClass, metricWatermarkCardClass]">
+        <FlightMetricWatermark kind="heading" />
+        <div class="relative z-10">
+          <div class="telemetry-label">Heading</div>
+          <div class="flex items-baseline gap-1">
+            <span id="hdg-value" :class="telemetryValueLargeClass">{{ flight.telemetry.hdg }}</span>
+            <span class="telemetry-unit">&deg;</span>
+          </div>
         </div>
-        <div class="flex items-baseline gap-1">
-          <span id="fuel-value" :class="[telemetryValueLargeClass, flight.valueToneClass('fuel')]">{{ flight.telemetry.fuel }}</span>
-          <span id="fuel-unit-label" class="telemetry-unit">{{ flight.telemetry.fuelUnit }}</span>
+      </div>
+
+      <div id="xwind-card" :class="[secondaryCardClass, metricWatermarkCardClass, 'col-span-2 sm:col-span-1']">
+        <FlightMetricWatermark kind="crosswind" />
+        <div class="relative z-10">
+          <div class="telemetry-label">Crosswind</div>
+          <div class="flex items-center gap-2">
+            <span id="xwind-arrow" class="text-2xl lg:text-3xl" :style="flight.xwindArrowStyle">{{ flight.telemetry.xwindArrow }}</span>
+            <div class="flex items-baseline gap-1">
+              <span id="xwind-value" :class="[telemetryValueLargeClass, flight.valueToneClass('xwind')]">{{ flight.telemetry.xwind }}</span>
+              <span class="telemetry-unit">kt</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="fuel-card" :class="[secondaryCardClass, metricWatermarkCardClass]">
+        <FlightMetricWatermark kind="fuel" />
+        <div class="relative z-10">
+          <div class="flex items-center justify-between mb-1">
+            <div class="telemetry-label">Fuel</div>
+            <AppTooltip content="Toggle fuel unit (gal / lbs / kg)">
+              <button
+                id="fuel-unit-btn"
+                class="flight-unit-toggle transition-colors tabular rounded"
+                @click="preferences.requestFuelUnitCycle()"
+              >{{ flight.telemetry.fuelUnit }}</button>
+            </AppTooltip>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="fuel-value" :class="[telemetryValueLargeClass, flight.valueToneClass('fuel')]">{{ flight.telemetry.fuel }}</span>
+            <span id="fuel-unit-label" class="telemetry-unit">{{ flight.telemetry.fuelUnit }}</span>
+          </div>
         </div>
       </div>
     </div>

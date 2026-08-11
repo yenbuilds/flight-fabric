@@ -260,6 +260,10 @@ async function verifyConcurrentPreparationSerialization(root, wrapper, env) {
     env: { ...env, FF_START_SIMBRIDGE_SKIP_BUILD: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  let firstStdout = '';
+  let firstStderr = '';
+  first.stdout.on('data', (chunk) => { firstStdout += chunk.toString(); });
+  first.stderr.on('data', (chunk) => { firstStderr += chunk.toString(); });
   let second = null;
   try {
     const prepared = await waitForWrapperState(firstNonce, (state) => state.status === 'prepared');
@@ -283,6 +287,10 @@ async function verifyConcurrentPreparationSerialization(root, wrapper, env) {
     writeWrapperControl(firstNonce, 'abort');
     const firstExit = await waitForExit(first, 5000);
     assert.equal(firstExit.code, 0, 'aborting prepared startup should release the lock without spawning a backend');
+  } catch (error) {
+    throw new Error(
+      `${error.message}\nFIRST WRAPPER STDOUT:\n${firstStdout}\nFIRST WRAPPER STDERR:\n${firstStderr}`,
+    );
   } finally {
     forceCleanup(first);
     forceCleanup(second);

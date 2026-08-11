@@ -4410,6 +4410,7 @@ async function main() {
       filePath: 'old-flight.csv',
       flightId: 'OLD',
       route: 'EGLL-LFPG',
+      aircraft: 'Airbus A320',
     });
     store.setSummary({
       visible: true,
@@ -4453,6 +4454,7 @@ async function main() {
     assert.equal(store.timelineLoading, true, 'beginTimelineLoading should put the viewer in loading mode');
     assert.equal(store.timelineLoadingFlightKey, 'new-flight.csv', 'loading state should track the requested flight');
     assert.equal(store.loadedTimelineFlightLabel, '', 'loading a new flight should clear the old loaded title');
+    assert.equal(store.loadedTimelineAircraftLabel, '', 'loading a new flight should clear the old aircraft type');
     assert.equal(store.summaryVisible, false, 'loading a new flight should hide the previous summary');
     assert.equal(store.detailVisible, false, 'loading a new flight should hide the previous detail panel');
     assert.equal(store.inspectorEventListVisible, false, 'loading a new flight should clear stale inspector rows');

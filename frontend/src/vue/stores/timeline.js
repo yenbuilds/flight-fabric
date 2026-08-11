@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import {
+  getFlightAircraftLabel,
   getFlightBundleSizeBytes,
   getFlightRouteLabel,
   sortAndFilterFlights,
@@ -293,6 +294,7 @@ export const useTimelineStore = defineStore('timeline', {
     loadedTimelineFilePath: '',
     loadedTimelineFlightId: '',
     loadedTimelineFlightLabel: '',
+    loadedTimelineAircraftLabel: '',
     summaryVisible: false,
     eventCountText: '--',
     violationCountText: '--',
@@ -787,6 +789,7 @@ export const useTimelineStore = defineStore('timeline', {
         this.loadedTimelineFilePath = '';
         this.loadedTimelineFlightId = '';
         this.loadedTimelineFlightLabel = '';
+        this.loadedTimelineAircraftLabel = '';
         this.analysisRescore = normalizeAnalysisRescoreStatus(null);
         this.clearAnalysisRescorePreview();
         this.clearAnalysisRescoreActionState();
@@ -810,6 +813,7 @@ export const useTimelineStore = defineStore('timeline', {
       this.loadedTimelineFilePath = nextFilePath;
       this.loadedTimelineFlightId = nextFlightId;
       this.loadedTimelineFlightLabel = getFlightRouteLabel(timeline) || this.loadedTimelineFlightId || 'current timeline';
+      this.loadedTimelineAircraftLabel = getFlightAircraftLabel(timeline);
       this.analysisRescore = normalizeAnalysisRescoreStatus(timeline.analysisRescore);
     },
 

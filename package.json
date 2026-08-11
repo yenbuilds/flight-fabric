@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "main": "index.js",
   "engines": {
