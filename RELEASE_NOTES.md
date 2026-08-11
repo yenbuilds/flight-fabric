@@ -1,32 +1,34 @@
-# Flight Fabric 0.2.6
+# Flight Fabric 0.2.7
 
-Flight Fabric 0.2.6 is a focused interface-polish release. It makes the landing
-debrief and Timeline summary more consistent, readable, and responsive without
-changing flight analysis or scoring behavior.
+Flight Fabric 0.2.7 is a documentation release. It replaces the repository
+README with a clearer introduction for new users and adds real product
+screenshots to the versioned public source.
+
+The desktop app's telemetry, analysis, scoring, storage, and runtime behaviour
+are unchanged from 0.2.6.
 
 This publication includes the versioned source and the verified Windows Setup
 installer. The portable executable is intentionally not published.
 
 ## Highlights
 
-- Landing result labels and values now share one consistent hierarchy and
-  alignment, while redundant status text such as the repeated bounce result is
-  removed.
-- Stability Breakdown, Approach Profile, and Ground Track now start expanded,
-  and their higher-contrast headers have clearer hover, focus, and expanded
-  states.
-- Flight Summary & Events facts are grouped into responsive cards instead of a
-  loose inline stream, making the section easier to scan at every width.
-- Timeline summary text is larger and wraps into tidy rows on narrow windows,
-  avoiding horizontal scrolling while keeping the saved-state control visible.
-- These changes are limited to presentation and component coverage; flight
-  analysis, scoring, data storage, and backend behavior are unchanged.
+- The README now begins with a concise description, a direct Windows download,
+  and an animated tour of live telemetry, aircraft pages, SimBrief, Timeline
+  replay, and landing analysis.
+- The tour uses the newer Timeline replay and landing debrief captures, changes
+  scenes at a readable pace, and remains small enough for a repository landing
+  page.
+- Installation, trusted LAN access, OBS widgets, and source build instructions
+  are easier to find without putting technical and legal material ahead of the
+  product overview.
+- The animation and its source images are included with the public source, so
+  they remain available without exposing the private website source tree.
 
 ## Download
 
-- `Flight Fabric Setup 0.2.6.exe` - Windows installer.
+- `Flight Fabric Setup 0.2.7.exe` - Windows installer.
 
-The portable `Flight Fabric 0.2.6.exe`, installer blockmap, and
+The portable `Flight Fabric 0.2.7.exe`, installer blockmap, and
 `SHA256SUMS.txt` are not part of this installer-only publication. The GitHub
 release notes provide the Setup installer's SHA-256 checksum directly.
 
