@@ -284,12 +284,14 @@ async function main(argv = process.argv.slice(2)) {
     );
   }
 
-  const checksumLines = await writeChecksums([installer, portable], checksumPath);
-  await verifyChecksumFile(checksumPath, [installer, portable]);
+  // The portable executable is retained as a local build/test artifact. Only
+  // the installer is published, so the upload checksum file must not list it.
+  const checksumLines = await writeChecksums([installer], checksumPath);
+  await verifyChecksumFile(checksumPath, [installer]);
 
   console.log(`Artifacts directory: ${distPath}`);
   console.log('');
-  console.log('Top-level publishable artifacts:');
+  console.log('Verified build artifacts:');
   for (const artifact of artifacts) {
     console.log(`- ${artifact.name} | ${formatMb(artifact.sizeBytes)} | ${formatTime(artifact.mtime)}`);
   }

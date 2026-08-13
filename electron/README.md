@@ -4,7 +4,8 @@ This directory contains the Windows launcher and packaging configuration.
 
 ## Release artifacts
 
-The `user` release profile produces the Windows installer and portable build:
+The `user` release profile produces a Windows installer and a local portable
+build used for packaging tests:
 
 ```bash
 npm run build
@@ -17,7 +18,8 @@ Output files:
 - `dist/electron/win-unpacked/Flight Fabric.exe`
 
 `npm run electron:release` also runs packaged smoke tests, backend lifecycle
-checks, final content verification, and the release summary.
+checks, final content verification, and the release summary. Publish only the
+installer and `SHA256SUMS.txt`; never upload the portable executable.
 
 ## Features
 

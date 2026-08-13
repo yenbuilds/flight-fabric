@@ -21,7 +21,6 @@ Flight Fabric 0.3.0 expands aircraft controls and improves landing analysis.
 ## Download
 
 - `Flight Fabric Setup 0.3.0.exe`
-- `Flight Fabric 0.3.0.exe`
 - `SHA256SUMS.txt`
 
 Flight Fabric is unsigned experimental alpha software for consumer flight
