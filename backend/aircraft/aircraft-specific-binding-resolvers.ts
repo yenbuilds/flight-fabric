@@ -22,7 +22,12 @@ type ResolverContext = {
 
 type CompileContext = {
   fieldId: string;
-  registerLvar?: (key: string, rawValue: unknown, sourcePath: string) => string | null;
+  registerLvar?: (
+    key: string,
+    rawValue: unknown,
+    sourcePath: string,
+    options?: { dataType?: unknown; unit?: unknown },
+  ) => string | null;
   sourcePath: string;
 };
 
@@ -97,6 +102,7 @@ const SIMVAR_FRAME_PATHS: Readonly<Record<string, string>> = Object.freeze({
   'PRESSURIZATION CABIN ALTITUDE': 'fdm.cabinAltFt',
   'PRESSURIZATION CABIN ALTITUDE RATE': 'fdm.cabinAltRateFpm',
   'PRESSURIZATION PRESSURE DIFFERENTIAL': 'fdm.cabinDeltaPPsi',
+  'SPOILERS ARMED': 'spoilers.armed',
   'SPOILERS HANDLE POSITION': 'spoilers.percent',
   'TOTAL WEIGHT': 'fdm.grossWeightLbs',
   'TRAILING EDGE FLAPS LEFT ANGLE': 'flapsAngleDeg',
@@ -169,7 +175,9 @@ const lvarBindingResolver: BindingResolver = Object.freeze({
       .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
       .replace(/[^A-Za-z0-9]+/g, '_')
       .toLowerCase()}`;
-    const runtimeKey = context.registerLvar(generatedKey, source.name, context.sourcePath);
+    const runtimeKey = context.registerLvar(generatedKey, source.name, context.sourcePath, {
+      unit: source.unit,
+    });
     return runtimeKey ? { type: 'lvar', key: runtimeKey } : null;
   },
   resolve(binding: AnyRecord, context: ResolverContext): BindingResolution {

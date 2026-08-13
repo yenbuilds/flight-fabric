@@ -78,19 +78,48 @@ export type AircraftIntegrationNumberInput = Readonly<{
   type: 'number';
 }>;
 
-export type AircraftIntegrationSdkInputValue = Readonly<{
+export type AircraftIntegrationInputValue = Readonly<{
   offset?: number;
   round?: 'nearest';
   scale?: number;
   source: 'input';
 }>;
 
-export type MobiFlightCalculatorActionRoute = Readonly<{
-  code: string;
+export type AircraftIntegrationSdkInputValue = AircraftIntegrationInputValue;
+
+type MobiFlightCalculatorActionRouteBase = Readonly<{
   id: string;
   readback: AircraftIntegrationReadback;
   transport: 'mobiflight-calculator';
 }>;
+
+export type AircraftIntegrationActionPrecondition = Readonly<{
+  expectedValue: AircraftIntegrationPrimitive;
+  fieldId: string;
+}>;
+
+export type MobiFlightCalculatorActionRoute =
+  | (MobiFlightCalculatorActionRouteBase & Readonly<{
+    /** One fixed, adapter-owned calculator expression. */
+    code: string;
+    mode?: 'single';
+  }>)
+  | (MobiFlightCalculatorActionRouteBase & Readonly<{
+    /** Physical-button press/release expressions executed once, in order. */
+    delayMs: number;
+    mode: 'pulse';
+    pressCode: string;
+    releaseCode: string;
+  }>)
+  | (MobiFlightCalculatorActionRouteBase & Readonly<{
+    /** Repeated trusted increments/decrements from a fresh numeric readback. */
+    circular?: true;
+    decreaseCode: string;
+    increaseCode: string;
+    maxSteps: number;
+    mode: 'step-to-target';
+    precondition?: AircraftIntegrationActionPrecondition;
+  }>);
 
 export type InputEventActionRoute = Readonly<{
   id: string;
@@ -111,9 +140,12 @@ export type LvarActionRoute = Readonly<{
 
 export type SimConnectSequenceOperation = Readonly<
   | {
+    inputValue?: AircraftIntegrationInputValue;
     name: string;
+    /** Fixed secondary SimConnect event parameters after the primary value. */
+    parameters?: readonly number[];
     type: 'event';
-    value: number;
+    value?: number;
   }
   | {
     name: string;
@@ -121,14 +153,35 @@ export type SimConnectSequenceOperation = Readonly<
     unit: string;
     value: boolean | number;
   }
+  | {
+    milliseconds: number;
+    type: 'delay';
+  }
+  | {
+    name: string;
+    type: 'simvar';
+    unit: string;
+    value: boolean | number;
+  }
 >;
 
-export type SimConnectSequenceActionRoute = Readonly<{
+type SimConnectSequenceActionRouteBase = Readonly<{
   id: string;
   operations: readonly SimConnectSequenceOperation[];
-  readback: AircraftIntegrationReadback;
   transport: 'simconnect-sequence';
 }>;
+
+export type SimConnectSequenceActionRoute = SimConnectSequenceActionRouteBase & Readonly<
+  | {
+    /** The sidecar accepted every fixed operation; cockpit state is not inferred. */
+    confirmation: 'transport-acknowledged';
+    readback?: never;
+  }
+  | {
+    confirmation?: never;
+    readback: AircraftIntegrationReadback;
+  }
+>;
 
 export type SdkActionRoute = Readonly<{
   adapter: string;

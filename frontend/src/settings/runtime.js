@@ -63,6 +63,7 @@ export function initSettingsRuntime({
   let lastSavedJson = null;
   let applyingFormState = false;
   let hasLocalEdits = false;
+  let settingsHydrated = false;
 
   const RESTART_REASON_LABELS = {
     simulator: 'Simulator protocol',
@@ -160,6 +161,14 @@ export function initSettingsRuntime({
   }
 
   function submitSettings() {
+    if (!settingsHydrated) {
+      settingsFormStore?.setSaveBusy?.(false);
+      settingsFormStore?.setSaveEnabled?.(false);
+      updatePendingBar(false);
+      setStatus('Waiting for settings from backend...', 'pending');
+      return false;
+    }
+
     const settings = readFormSettings();
 
     if (!sendWs({ type: 'saveAppSettings', settings })) {
@@ -168,14 +177,22 @@ export function initSettingsRuntime({
       if (showAppToast) {
         showAppToast('error', 'Save failed', 'Connect to SimBridge before saving settings.');
       }
-      return;
+      return false;
     }
 
     settingsFormStore?.setSaveBusy?.(true);
     setStatus('Saving settings...', 'pending');
+    return true;
   }
 
   function updateDirtyState() {
+    if (!settingsHydrated) {
+      settingsFormStore?.setSaveEnabled?.(false);
+      updatePendingBar(false);
+      setStatus('Waiting for settings from backend...', 'pending');
+      return;
+    }
+
     const currentSettings = readFormSettings();
     const currentJson = JSON.stringify(currentSettings);
     const isDirty = currentJson !== lastSavedJson;
@@ -210,13 +227,14 @@ export function initSettingsRuntime({
     }
     lastSavedJson = JSON.stringify(readFormSettings());
     hasLocalEdits = false;
+    settingsHydrated = true;
     updateDirtyState();
   }
 
   const stopDirtyWatch = watch(
     () => JSON.stringify(readFormSettings()),
     (currentJson, previousJson) => {
-      if (applyingFormState || currentJson === previousJson) return;
+      if (!settingsHydrated || applyingFormState || currentJson === previousJson) return;
       hasLocalEdits = true;
       updateDirtyState();
     },
@@ -224,10 +242,7 @@ export function initSettingsRuntime({
   cleanupFns.push(stopDirtyWatch);
 
   settingsFormStore?.bindRuntimeActions?.({
-    onSave: () => {
-      submitSettings();
-      return true;
-    },
+    onSave: submitSettings,
     onReload: () => {
       setStatus('Reloading settings...', 'pending');
       requestSettings({ markReloadBusy: true });
@@ -292,7 +307,7 @@ export function initSettingsRuntime({
     cleanupFns.push(subscribeAppSettingsSignal((detail = {}) => {
       const forceApply = settingsFormStore?.reloadBusy === true;
       settingsFormStore?.setReloadBusy?.(false);
-      if (hasDirtyLocalEdits() && !forceApply) {
+      if (settingsHydrated && hasDirtyLocalEdits() && !forceApply) {
         updateDirtyState();
         return;
       }
@@ -373,7 +388,7 @@ export function initSettingsRuntime({
   if (initialSettings) {
     applySettingsToForm(initialSettings);
   } else {
-    setStatus('Waiting for settings from backend...', 'pending');
+    updateDirtyState();
   }
 
   function cleanupSettingsRuntime() {

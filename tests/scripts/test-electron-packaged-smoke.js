@@ -3,6 +3,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  REQUIRED_PACKAGED_BACKEND_STARTUP_FILES,
+  resolvePackagedBackendStartupFile,
+} = require('./electron-packaged-startup-files');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DIST = path.join(ROOT, 'dist', 'electron');
@@ -482,7 +486,12 @@ if (exists(WIN_UNPACKED, 'win-unpacked exists')) {
   } else {
     fail('win-unpacked executable exists');
   }
-  exists(path.join(WIN_UNPACKED, 'resources', 'backend', 'core', 'simbridge.js'), 'backend script bundled');
+  for (const relativePath of REQUIRED_PACKAGED_BACKEND_STARTUP_FILES) {
+    exists(
+      resolvePackagedBackendStartupFile(PACKAGED_BACKEND, relativePath),
+      `backend startup file bundled: ${relativePath}`,
+    );
+  }
   exists(path.join(WIN_UNPACKED, 'resources', 'backend', 'history-index', 'history-index-store.js'), 'history index runtime bundled');
   exists(RUST_SIDECAR_BINARY, 'Rust sidecar executable bundled');
   exists(path.join(WIN_UNPACKED, 'resources', 'frontend', 'index.html'), 'frontend index bundled');

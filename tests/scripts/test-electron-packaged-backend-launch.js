@@ -6,6 +6,10 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const {
+  assertPackagedBackendStartupFiles,
+  resolvePackagedBackendStartupFile,
+} = require('./electron-packaged-startup-files');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_EXE = path.join(ROOT, 'dist', 'electron', 'win-unpacked', 'Flight Fabric.exe');
@@ -142,11 +146,9 @@ async function runPackagedBackendLaunchProbe() {
   const chromiumDebugLogPath = path.join(path.dirname(exePath), 'debug.log');
   const chromiumDebugLogExistedBefore = fs.existsSync(chromiumDebugLogPath);
   const backendRoot = path.join(path.dirname(exePath), 'resources', 'backend');
-  const backendScript = path.join(backendRoot, 'core', 'simbridge.js');
+  assertPackagedBackendStartupFiles(backendRoot, { label: 'Packaged backend' });
+  const backendScript = resolvePackagedBackendStartupFile(backendRoot, 'core/simbridge.js');
   const backendNodeModules = path.join(backendRoot, 'node_modules');
-  if (!fs.existsSync(backendScript)) {
-    throw new Error(`Packaged backend script does not exist: ${backendScript}`);
-  }
   if (!fs.existsSync(backendNodeModules)) {
     throw new Error(`Packaged backend node_modules does not exist: ${backendNodeModules}`);
   }

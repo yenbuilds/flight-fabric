@@ -12,6 +12,9 @@ export function createAircraftControlController({
   getSimconnectConnected,
   aircraftControlsStore = null,
   showToast,
+  now = () => Date.now(),
+  setTimeoutRef = (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeoutRef = (timerId) => clearTimeout(timerId),
 } = {}) {
   if (!aircraftControlsStore) {
     throw new Error('Aircraft controls store is required before aircraft control controller');
@@ -19,6 +22,7 @@ export function createAircraftControlController({
   const controlsStore = aircraftControlsStore;
   let nextRequestId = 1;
   const pendingRequests = new Map();
+  const pendingClearTimers = new Map();
   let activeProfileToken = null;
 
   function createRequestId() {
@@ -54,6 +58,11 @@ export function createAircraftControlController({
   }
 
   function resetProfileState(reason) {
+    // A profile transition invalidates both the native request and ownership of
+    // its UI pending key. Cancel delayed clears before the store accepts
+    // commands for the next aircraft, otherwise an old timer/result could clear
+    // a new command that happens to reuse the same physical-control key.
+    clearPendingRequests();
     clearProfileToken();
     controlsStore?.prepareForAircraftChange?.(reason);
   }
@@ -116,13 +125,18 @@ export function createAircraftControlController({
   }
 
   function clearPendingRequests(reason) {
-    const hadPending = pendingRequests.size > 0;
+    const hadPending = pendingRequests.size > 0 || pendingClearTimers.size > 0;
     for (const pending of pendingRequests.values()) {
       if (pending?.pendingKey) {
         controlsStore?.clearCommandPending?.(pending.pendingKey);
       }
     }
     pendingRequests.clear();
+    for (const [pendingKey, timerEntry] of pendingClearTimers) {
+      clearTimeoutRef(timerEntry?.timerId);
+      controlsStore?.clearCommandPending?.(pendingKey);
+    }
+    pendingClearTimers.clear();
     if (hadPending && typeof reason === 'string' && reason.trim()) {
       setFeedback({
         routeText: reason.trim(),
@@ -130,7 +144,7 @@ export function createAircraftControlController({
     }
   }
 
-  function send(request, { pendingKey = '' } = {}) {
+  function send(request, { pendingKey = '', minimumPendingMs = 0 } = {}) {
     const availability = updateAvailability();
     if (!availability.enabled) {
       const description = describeAircraftControlRequest(request);
@@ -153,11 +167,17 @@ export function createAircraftControlController({
       && typeof controlsStore?.clearCommandPending === 'function'
     );
     if (canStorePending) {
-      controlsStore.setCommandPending(resolvedPendingKey);
+      if (controlsStore.setCommandPending(resolvedPendingKey) === false) return false;
     }
+    const startedAtMs = Number(now());
+    const boundedMinimumPendingMs = Number.isFinite(minimumPendingMs)
+      ? Math.max(0, Math.min(5000, Number(minimumPendingMs)))
+      : 0;
     pendingRequests.set(requestId, {
       pendingKey: canStorePending ? resolvedPendingKey : '',
       description,
+      minimumPendingMs: boundedMinimumPendingMs,
+      startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : 0,
     });
     setFeedback({
       actionText: description,
@@ -176,10 +196,30 @@ export function createAircraftControlController({
 
   function handleResult(msg) {
     const requestId = msg?.requestId || msg?.request?.requestId || null;
+    // Correlated responses are owned only while their request is present in
+    // this controller's pending map. A profile reset clears that ownership,
+    // and the first accepted response consumes it. Ignore late, unknown, and
+    // duplicate IDs before they can mutate feedback, toasts, or pending state.
+    // Keep the request-id-less compatibility path for legacy/local callers.
+    if (requestId && !pendingRequests.has(requestId)) return;
     const pending = requestId ? pendingRequests.get(requestId) : null;
     if (requestId) pendingRequests.delete(requestId);
     if (pending?.pendingKey) {
-      controlsStore?.clearCommandPending?.(pending.pendingKey);
+      const elapsedMs = Number(now()) - pending.startedAtMs;
+      const remainingMs = Number.isFinite(elapsedMs)
+        ? Math.max(0, pending.minimumPendingMs - elapsedMs)
+        : 0;
+      if (remainingMs > 0) {
+        const timerEntry = { timerId: null };
+        pendingClearTimers.set(pending.pendingKey, timerEntry);
+        timerEntry.timerId = setTimeoutRef(() => {
+          if (pendingClearTimers.get(pending.pendingKey) !== timerEntry) return;
+          pendingClearTimers.delete(pending.pendingKey);
+          controlsStore?.clearCommandPending?.(pending.pendingKey);
+        }, remainingMs);
+      } else {
+        controlsStore?.clearCommandPending?.(pending.pendingKey);
+      }
     }
 
     const description = pending?.description || describeAircraftControlRequest(msg?.request);

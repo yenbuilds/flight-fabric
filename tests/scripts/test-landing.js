@@ -4,15 +4,12 @@
  * Regression tests for backend/landing.js functions.
  *
  * Tests:
- * - gradeLanding: VS-based landing grade (now profile-driven)
+ * - gradeLanding: VS-based landing grade under the common transport policy
  *
- * NOTE: gradeLanding() now reads thresholds from the active aircraft profile.
- *       This test file validates both generic fallback and profile-specific behavior.
+ * NOTE: Non-category-A aircraft use one common transport ruleset. Category-A
+ *       aircraft retain the existing profile override mechanism.
  *       Grades: PERFECT, GOOD, FIRM, HARD, VERY HARD
  *       Colors: lime, deepskyblue, gold, orange, red
- *
- * Tests derive thresholds from profileLoader.getLandingGrades()
- * rather than hardcoding values. If profile thresholds change, tests adapt.
  *
  * Run: node tests/scripts/test-landing.js
  */
@@ -20,19 +17,23 @@ const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const landing = require(resolveBackendRuntimeFile('landing', 'landing.js'));
 const profileLoader = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-loader.js'));
 
-// Fallback grades (must match landing.js FALLBACK_GRADES)
-const FALLBACK_GRADES = {
-  perfectMinFpm: -250,
-  goodMinFpm: -450,
-  firmMinFpm: -700,
-  hardMinFpm: -1000,
+// Public scoring contract (must match landing.js COMMON_TRANSPORT_GRADES).
+const COMMON_TRANSPORT_GRADES = {
+  perfectMinFpm: -150,
+  goodMinFpm: -300,
+  firmMinFpm: -400,
+  hardMinFpm: -600,
 };
 
 /**
- * Get effective grades for current profile (profile-specific or fallback)
+ * Mirror the intentional category-A-only profile override for boundary tests.
  */
 function getEffectiveGrades() {
-  return profileLoader.getLandingGrades() || FALLBACK_GRADES;
+  const profile = profileLoader.getActiveProfile();
+  return String(profile?.aircraft?.category || '').toUpperCase() === 'A'
+    && profile?.aircraft?.landing?.grades
+    ? profile.aircraft.landing.grades
+    : COMMON_TRANSPORT_GRADES;
 }
 
 let passed = 0;
@@ -70,9 +71,7 @@ function assertOneOf(actual, allowed, msg = '') {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// gradeLanding tests - GENERIC PROFILE
-// NOTE: Generic is intentionally lenient since we don't know aircraft type
-// Tests derive thresholds from getEffectiveGrades() for antifragility
+// gradeLanding tests - COMMON TRANSPORT POLICY
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Ensure we're using generic profile for baseline tests
@@ -165,14 +164,17 @@ test('gradeLanding GENERIC: well past HARD threshold = VERY HARD', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// gradeLanding tests - iFly 737 MAX PROFILE (firmer jet thresholds)
-// NOTE: Heavy jets land firmer - airline standard
-// Tests derive thresholds from getEffectiveGrades() for antifragility
+// gradeLanding tests - TRANSPORT PROFILE USES THE SAME COMMON POLICY
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Switch to the iFly 737 MAX profile.
 profileLoader.clearCache();
 profileLoader.setActiveProfile('ifly-737-max-8');
+
+test('transport profiles do not activate their retained profile landing bands', () => {
+  assertEqual(profileLoader.getLandingGrades().firmMinFpm, -500, 'Retained profile metadata');
+  assertEqual(landing.gradeLanding(-450).grade, 'HARD', 'Common transport policy must win');
+});
 
 test('gradeLanding 737 MAX: -50 fpm = PERFECT (lime)', () => {
   const result = landing.gradeLanding(-50);
@@ -263,18 +265,18 @@ test('gradeLanding 737 MAX: well past HARD threshold = VERY HARD', () => {
 profileLoader.clearCache();
 profileLoader.setActiveProfile('generic');
 
-test('gradeLandingForProfile uses the recorded profile without changing the active aircraft', () => {
+test('gradeLandingForProfile uses common transport bands without changing the active aircraft', () => {
   const activeProfileId = profileLoader.getActiveProfileId();
-  assertEqual(landing.gradeLanding(-180).grade, 'PERFECT', 'Active generic grade');
+  assertEqual(landing.gradeLanding(-180).grade, 'GOOD', 'Active generic grade');
   assertEqual(
     landing.gradeLandingForProfile(-180, 'fbw-a380x').grade,
     'GOOD',
-    'Recorded A380 grade',
+    'Recorded A380 common transport grade',
   );
   assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Active profile must remain unchanged');
 });
 
-test('gradeLandingForProfile uses A32NX landing bands for the LFPG conventional rate', () => {
+test('gradeLandingForProfile uses common transport bands for the LFPG conventional rate', () => {
   const activeProfileId = profileLoader.getActiveProfileId();
   assertEqual(
     landing.gradeLandingForProfile(-243.3, 'fbw-a32nx').grade,
@@ -284,19 +286,42 @@ test('gradeLandingForProfile uses A32NX landing bands for the LFPG conventional 
   assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Active profile must remain unchanged');
 });
 
-test('landing-rate scoring context snapshots the recorded policy and exact profile bands', () => {
+test('landing-rate scoring context snapshots the common transport policy', () => {
   const activeProfileId = profileLoader.getActiveProfileId();
   const context = landing.buildLandingRateScoringContext('fbw-a32nx');
   assertEqual(context.schemaVersion, 1, 'Context schema');
-  assertEqual(context.policy.id, 'landing-rate-v1', 'Landing policy id');
-  assertEqual(context.policy.version, 1, 'Landing policy version');
+  assertEqual(context.policy.id, 'landing-rate-v2', 'Landing policy id');
+  assertEqual(context.policy.version, 2, 'Landing policy version');
   assertEqual(context.profile.id, 'fbw-a32nx', 'Recorded profile id');
   assertEqual(context.profile.resolved, true, 'Recorded profile resolution');
-  assertEqual(context.thresholds.perfectMinFpm, -120, 'A32NX perfect threshold');
-  assertEqual(context.thresholds.goodMinFpm, -250, 'A32NX good threshold');
-  assertEqual(context.thresholds.firmMinFpm, -400, 'A32NX firm threshold');
-  assertEqual(context.thresholds.hardMinFpm, -650, 'A32NX hard threshold');
+  assertEqual(context.thresholds.perfectMinFpm, -150, 'Common perfect threshold');
+  assertEqual(context.thresholds.goodMinFpm, -300, 'Common good threshold');
+  assertEqual(context.thresholds.firmMinFpm, -400, 'Common firm threshold');
+  assertEqual(context.thresholds.hardMinFpm, -600, 'Common hard threshold');
   assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Context lookup must not change active profile');
+});
+
+test('every bundled non-category-A profile resolves to the common transport bands', () => {
+  let checked = 0;
+  for (const summary of profileLoader.listProfiles()) {
+    if (summary.abstract) continue;
+    const profile = profileLoader.loadProfile(summary.qualifiedId);
+    if (String(profile?.aircraft?.category || '').toUpperCase() === 'A') continue;
+    const context = landing.buildLandingRateScoringContext(summary.qualifiedId);
+    for (const [key, expected] of Object.entries(COMMON_TRANSPORT_GRADES)) {
+      assertEqual(context.thresholds[key], expected, `${summary.qualifiedId} ${key}`);
+    }
+    checked += 1;
+  }
+  if (checked < 30) throw new Error(`Expected broad bundled transport coverage, checked ${checked}`);
+});
+
+test('category-A aircraft retain profile landing-grade overrides', () => {
+  assertEqual(
+    landing.gradeLandingForProfile(-350, 'ga-base').grade,
+    'HARD',
+    'Category-A threshold at -350 fpm',
+  );
 });
 
 test('recorded-profile grading fails closed instead of applying generic bands to a retired profile', () => {
@@ -318,8 +343,8 @@ test('recorded-profile grading fails closed instead of applying generic bands to
   );
   assertEqual(
     landing.gradeLandingForRecordedProfile(-650, null).grade,
-    'FIRM',
-    'Pre-profile recordings retain the historical generic default',
+    'VERY HARD',
+    'Pre-profile recordings use the current common transport default when reconstructed',
   );
   assertEqual(profileLoader.getActiveProfileId(), activeProfileId, 'Active profile must remain unchanged');
 });

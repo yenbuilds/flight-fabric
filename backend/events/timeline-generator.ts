@@ -520,7 +520,7 @@ const ALTITUDE_MARKERS = Object.freeze([
  */
 const CURRENT_ANALYSIS_RESCORE_CONTRACT = Object.freeze({
   id: 'flight-fabric-landing-analysis',
-  version: 2,
+  version: 3,
   scope: 'full-landing-analysis',
 } as const);
 const RESPAWN_GAP_MS = 30000;
@@ -4362,9 +4362,22 @@ async function generateMissing(): Promise<GenerateMissingResult> {
     const csv = path.basename(path.dirname(csvPath));
     const timelinePath = path.join(path.dirname(csvPath), 'timeline.json');
     if (fs.existsSync(timelinePath)) {
-      results.skipped++;
-      results.details.push({ file: csv, status: 'skipped', reason: 'Timeline exists' });
-      continue;
+      let currentContract = false;
+      try {
+        const stat = fs.lstatSync(timelinePath);
+        if (stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= 64 * 1024 * 1024) {
+          const savedTimeline = JSON.parse(fs.readFileSync(timelinePath, 'utf8'));
+          currentContract = JSON.stringify(savedTimeline?.analysisRescore?.contract)
+            === JSON.stringify(CURRENT_ANALYSIS_RESCORE_CONTRACT);
+        }
+      } catch {
+        currentContract = false;
+      }
+      if (currentContract) {
+        results.skipped++;
+        results.details.push({ file: csv, status: 'skipped', reason: 'Current timeline exists' });
+        continue;
+      }
     }
     
     const result = await generateAndSave(csvPath);

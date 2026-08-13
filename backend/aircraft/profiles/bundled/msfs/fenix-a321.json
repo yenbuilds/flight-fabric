@@ -1,0 +1,44 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fenix-a321",
+  "name": "Fenix Airbus A321",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-08-12T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/fenix-a32x-base",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 120,
+      "titleContains": [
+        "Fenix A321",
+        "Fenix Airbus A321",
+        "Fenix Simulations A321",
+        "FNX321",
+        "FNX_321",
+        "FNX A321"
+      ],
+      "titleRegex": "(fenix|fnx).*(a321|321)|(a321|321).*(fenix|fnx)",
+      "configPathContains": [
+        "fnx_321",
+        "fenix-a321",
+        "fenix_a321",
+        "fenix a321"
+      ],
+      "configPathRegex": "(?:^|[\\\\/])(?:fenix|fnx)[^\\\\/]*(?:a?321)[^\\\\/]*[\\\\/]aircraft\\.cfg$"
+    }
+  },
+  "meta": {
+    "developer": "Fenix Simulations",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-08-12",
+    "status": "partial",
+    "notes": "Fenix A321 family profile for CFM, IAE, wingtip-fence, sharklet, and ACT configurations. It activates the shared 118-field, 273-action trusted fenix-a32x adapter while the page hides A319/A320 pack-flow and center-pump controls and exposes the A321 ACT control."
+  }
+}

@@ -2177,7 +2177,7 @@ test('getLogbook caps returned entries while preserving all-time stats', async (
     }
     assert.equal(result.entries.length, 500);
     assert.equal(result.stats.total, 505);
-    assert.equal(result.stats.outcomeGrades.GOOD, 504);
+    assert.equal(result.stats.outcomeGrades.FIRM, 504);
     assert.equal(result.stats.outcomeGrades['Long Landing'], 1);
     assert.equal(result.stats.longLandingCount, 1);
   });

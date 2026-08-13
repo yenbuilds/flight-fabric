@@ -81,6 +81,29 @@ test('context-backed landing-rate headline reconstructs a missing label from sav
   });
 });
 
+test('current common-policy context reconstructs a missing label from its saved thresholds', () => {
+  const row = {
+    vs_fpm: -350,
+    grade: null,
+    landing_rate_context: {
+      schemaVersion: 1,
+      criteriaSource: 'recorded',
+      policy: { id: 'landing-rate-v2', version: 2 },
+      profile: { id: 'fbw-a32nx' },
+      thresholds: {
+        perfectMinFpm: -150,
+        goodMinFpm: -300,
+        firmMinFpm: -400,
+        hardMinFpm: -600,
+      },
+    },
+  };
+  assert.deepEqual(resolveLandingRateHeadline(row, () => 'PERFECT'), {
+    vsFpm: -350,
+    grade: 'FIRM',
+  });
+});
+
 test('context-backed landing-rate headline preserves the saved label and matches live threshold boundaries', () => {
   const row = {
     vs_fpm: -250,

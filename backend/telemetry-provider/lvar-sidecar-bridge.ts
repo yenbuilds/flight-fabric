@@ -1034,13 +1034,24 @@ class LvarSidecarBridge {
    * Fire a named SimConnect event through the Rust sidecar.
    * @param {string} eventName  e.g. 'EYEPOINT_DOWN'
    */
-  sendEvent(eventName: string, value = 0): Promise<PendingAckMessage> {
+  sendEvent(eventName: string, value = 0, parameters: unknown[] = []): Promise<PendingAckMessage> {
     const name = typeof eventName === 'string' ? eventName.trim() : '';
     const numericValue = normalizeFiniteSidecarNumber(value, MAX_SIDECAR_EVENT_DATA_ABS);
-    if (!isSafeSidecarToken(name, MAX_SIDECAR_NAME_LENGTH, SIDECAR_NAME_RE) || numericValue == null) {
+    const numericParameters = Array.isArray(parameters) && parameters.length <= 4
+      ? parameters.map((parameter) => normalizeFiniteSidecarNumber(parameter, MAX_SIDECAR_EVENT_DATA_ABS))
+      : null;
+    if (
+      !isSafeSidecarToken(name, MAX_SIDECAR_NAME_LENGTH, SIDECAR_NAME_RE)
+      || numericValue == null
+      || numericParameters == null
+      || numericParameters.some((parameter) => parameter == null)
+    ) {
       return Promise.resolve(buildRejectedAck('sendEventAck', 'invalid_payload'));
     }
-    return this._sendWithAck({ type: 'sendEvent', name, value: numericValue }, 'sendEventAck');
+    const eventPayload = numericParameters.length > 0
+      ? { name, value: numericValue, parameters: numericParameters }
+      : { name, value: numericValue };
+    return this._sendWithAck({ type: 'sendEvent', ...eventPayload }, 'sendEventAck');
   }
 
   /**

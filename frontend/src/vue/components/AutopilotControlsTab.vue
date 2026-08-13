@@ -2,19 +2,49 @@
 import { computed } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
+import { useFlightStore } from '../stores/flight.js';
 import { getAircraftControlCommandPendingKey } from '../../aircraft/control-ui.js';
 
 const aircraftControls = useAircraftControlsStore();
+const flight = useFlightStore();
 
 const modeButtonClass = 'controls-command-card ap-mode-btn w-full h-full p-4 text-center transition-all hover:border-accent/50';
 const adjustButtonClass = 'controls-adjust-button ap-adj-btn w-8 h-8 text-lg font-bold';
 
-const surfaceCommands = [
-  { id: 'ctrl-gear-up-btn', label: 'Gear', value: 'UP', command: { type: 'preset', id: 'gearUp' } },
-  { id: 'ctrl-gear-down-btn', label: 'Gear', value: 'DOWN', command: { type: 'preset', id: 'gearDown' } },
-  { id: 'ctrl-flaps-dec-btn', label: 'Flaps', value: 'LESS', command: { type: 'preset', id: 'flapsDecrease' } },
-  { id: 'ctrl-flaps-inc-btn', label: 'Flaps', value: 'MORE', command: { type: 'preset', id: 'flapsIncrease' } },
-];
+const surfaceCommands = computed(() => {
+  const telemetry = flight.telemetry;
+  const hasLiveTelemetry = flight.mode === 'live';
+  const gearState = hasLiveTelemetry ? (telemetry.gearState || '---') : '---';
+  const flapsState = !hasLiveTelemetry
+    ? '---'
+    : (telemetry.flaps === 'UP'
+    ? 'UP'
+    : `${telemetry.flaps || '---'}${telemetry.flapsUnit || ''}`);
+  const parkingBrakeState = !hasLiveTelemetry
+    ? '---'
+    : (telemetry.gear.parkingBrake === true ? 'SET' : 'RELEASED');
+  const spoilersState = hasLiveTelemetry ? (telemetry.spoilers || '---') : '---';
+  return [
+    { id: 'ctrl-gear-up-btn', label: 'Gear', value: 'UP', readback: gearState, command: { type: 'preset', id: 'gearUp' } },
+    { id: 'ctrl-gear-down-btn', label: 'Gear', value: 'DOWN', readback: gearState, command: { type: 'preset', id: 'gearDown' } },
+    { id: 'ctrl-flaps-dec-btn', label: 'Flaps', value: 'LESS', readback: flapsState, command: { type: 'preset', id: 'flapsDecrease' } },
+    { id: 'ctrl-flaps-inc-btn', label: 'Flaps', value: 'MORE', readback: flapsState, command: { type: 'preset', id: 'flapsIncrease' } },
+    { id: 'ctrl-park-brake-release-btn', label: 'Park Brake', value: 'RELEASE', readback: parkingBrakeState, command: { type: 'preset', id: 'parkingBrakeRelease' } },
+    { id: 'ctrl-park-brake-set-btn', label: 'Park Brake', value: 'SET', readback: parkingBrakeState, command: { type: 'preset', id: 'parkingBrakeSet' } },
+    { id: 'ctrl-spoilers-retract-btn', label: 'Spoilers', value: 'RETRACT', readback: spoilersState, command: { type: 'preset', id: 'spoilersRetract' } },
+    { id: 'ctrl-spoilers-extend-btn', label: 'Spoilers', value: 'EXTEND', readback: spoilersState, command: { type: 'preset', id: 'spoilersExtend' } },
+    { id: 'ctrl-spoilers-disarm-btn', label: 'Ground Spoilers', value: 'DISARM', readback: spoilersState, command: { type: 'preset', id: 'spoilersDisarm' } },
+    { id: 'ctrl-spoilers-arm-btn', label: 'Ground Spoilers', value: 'ARM', readback: spoilersState, command: { type: 'preset', id: 'spoilersArm' } },
+  ];
+});
+
+const lightControls = Object.freeze([
+  Object.freeze({ key: 'nav', label: 'NAV' }),
+  Object.freeze({ key: 'beacon', label: 'BEACON' }),
+  Object.freeze({ key: 'strobe', label: 'STROBE' }),
+  Object.freeze({ key: 'landing', label: 'LANDING' }),
+  Object.freeze({ key: 'taxi', label: 'TAXI' }),
+]);
 
 const selectors = [
   {
@@ -145,7 +175,7 @@ const hasAnyAutopilotWriteCapability = computed(() => (
 
 const autopilotCapabilityText = computed(() => (
   hasAnyAutopilotWriteCapability.value
-    ? 'Writes are profile-gated.'
+    ? 'Standard simulator writes are enabled for this profile.'
     : 'Readback only for this profile.'
 ));
 
@@ -165,6 +195,20 @@ function getSelectorHoldCommand(mode) {
 
 function getSelectorAdjustCommand(mode, action) {
   return { type: 'selector-adjust', mode, action };
+}
+
+function getLightCommand(light, value) {
+  return { type: 'light-set', light, value };
+}
+
+function getLightState(light) {
+  if (flight.mode !== 'live' || flight.telemetry.lights.available !== true) return null;
+  return flight.telemetry.lights[light] === true;
+}
+
+function getLightStateLabel(light) {
+  const state = getLightState(light);
+  return state === null ? '---' : (state ? 'ON' : 'OFF');
 }
 
 function isCommandBusy(command) {
@@ -204,6 +248,13 @@ function requestSelectorAdjustment(mode, action) {
     pendingKey: getPendingKey(command),
   });
 }
+
+function requestLightSet(light, value) {
+  const command = getLightCommand(light, value);
+  aircraftControls.requestControlCommand(command, {
+    pendingKey: getPendingKey(command),
+  });
+}
 </script>
 
 <template>
@@ -220,7 +271,7 @@ function requestSelectorAdjustment(mode, action) {
         </span>
       </div>
       <p class="text-xs text-gray-500 leading-relaxed max-w-4xl">
-        Send supported controls to the simulator. Availability varies by aircraft.
+        Send fixed standard simulator controls. An unsupported aircraft may simply ignore a command.
       </p>
     </div>
 
@@ -249,7 +300,7 @@ function requestSelectorAdjustment(mode, action) {
       <div class="controls-section-header">
         <div>
           <div class="controls-kicker">Surfaces</div>
-          <div class="text-xs text-gray-500 mt-1">Profile supported simulator surface commands, with fallbacks only where the backend allows for them.</div>
+          <div class="text-xs text-gray-500 mt-1">Live readbacks with fixed, capability-gated standard simulator commands.</div>
         </div>
         <div class="flex items-center gap-2">
           <div
@@ -262,7 +313,7 @@ function requestSelectorAdjustment(mode, action) {
           </span>
         </div>
       </div>
-      <div class="controls-section-body grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="controls-section-body grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
         <button
           v-for="command in surfaceCommands"
           :key="command.id"
@@ -274,10 +325,64 @@ function requestSelectorAdjustment(mode, action) {
         >
           <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">{{ command.label }}</div>
           <div class="text-lg font-semibold text-gray-200">{{ command.value }}</div>
+          <div class="mt-1 text-[10px] uppercase tracking-wider text-gray-500">Now {{ command.readback }}</div>
           <div class="h-4 mt-2 text-[10px]" :class="isCommandBusy(command.command) ? 'text-accent' : 'text-transparent'">
             {{ isCommandBusy(command.command) ? 'Sending...' : '.' }}
           </div>
         </button>
+      </div>
+    </section>
+
+    <section class="controls-section">
+      <div class="controls-section-header">
+        <div>
+          <div class="controls-kicker">Exterior Lights</div>
+          <div class="text-xs text-gray-500 mt-1">Explicit OFF and ON commands remain usable even when an add-on does not publish a reliable switch position.</div>
+        </div>
+      </div>
+      <div class="controls-section-body grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        <div
+          v-for="light in lightControls"
+          :key="light.key"
+          class="generic-light-card"
+          :data-generic-light="light.key"
+          :data-aircraft-control-group="`generic-light-${light.key}`"
+          :data-aircraft-search-label="`${light.label} light`"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold tracking-wider text-gray-300">{{ light.label }}</span>
+            <span
+              class="generic-light-state"
+              :class="getLightState(light.key) === true ? 'text-accent' : 'text-gray-500'"
+            >
+              {{ getLightStateLabel(light.key) }}
+            </span>
+          </div>
+          <div class="generic-light-actions">
+            <button
+              :id="`ctrl-light-${light.key}-off-btn`"
+              class="generic-light-command"
+              :class="getLightState(light.key) === false ? 'is-active' : ''"
+              :disabled="isCommandDisabled(getLightCommand(light.key, false))"
+              :aria-busy="isCommandBusy(getLightCommand(light.key, false)) ? 'true' : 'false'"
+              :aria-pressed="getLightState(light.key) === false ? 'true' : 'false'"
+              @click="requestLightSet(light.key, false)"
+            >
+              OFF
+            </button>
+            <button
+              :id="`ctrl-light-${light.key}-on-btn`"
+              class="generic-light-command"
+              :class="getLightState(light.key) === true ? 'is-active' : ''"
+              :disabled="isCommandDisabled(getLightCommand(light.key, true))"
+              :aria-busy="isCommandBusy(getLightCommand(light.key, true)) ? 'true' : 'false'"
+              :aria-pressed="getLightState(light.key) === true ? 'true' : 'false'"
+              @click="requestLightSet(light.key, true)"
+            >
+              ON
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -448,6 +553,51 @@ function requestSelectorAdjustment(mode, action) {
   border: 1px solid rgb(var(--border) / 0.72);
   border-radius: var(--ff-radius-card);
   box-shadow: var(--ff-shadow-soft);
+}
+
+.generic-light-card {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  border: 1px solid rgb(var(--border) / 0.72);
+  border-radius: var(--ff-radius-card);
+  background: rgb(var(--card) / 0.78);
+  padding: 0.85rem;
+}
+
+.generic-light-state {
+  font-family: var(--ff-font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.generic-light-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.generic-light-command {
+  min-height: 44px;
+  border: 1px solid rgb(var(--border) / 0.78);
+  border-radius: 8px;
+  background: rgb(var(--panel-subtle) / 0.86);
+  color: rgb(var(--muted-foreground));
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.generic-light-command:hover:not(:disabled),
+.generic-light-command.is-active {
+  border-color: rgb(var(--primary) / 0.6);
+  background: rgb(var(--primary) / 0.12);
+  color: rgb(var(--foreground));
+}
+
+.generic-light-command:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .controls-status-panel {

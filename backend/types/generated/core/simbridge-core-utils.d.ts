@@ -177,6 +177,20 @@ type BuildVreEnrichedFrameParams = {
     autopilotReliability?: AutopilotReliability;
     elapsedMs?: number | null;
 };
+export declare function resolveLandingGeometryScoringInputs(payload: UnknownRecord | null | undefined): {
+    thresholdElevFt: number;
+    runwayReferenceElevationSource: string;
+    runwayReferenceElevationKind: string;
+    runwayHdg: number;
+    runwayWidthFt: number;
+    runwayLengthFt: number;
+    runwayThreshold: {
+        lat: number;
+        lon: number;
+    };
+    runwayId: string;
+    airportIcao: string;
+};
 export declare function createRunwayContextDetector({ approachPhases, groundPhases, landingPhase, findRunwayByPosition, findNearbyAirport, lookupThresholdDeg, approachDistanceNm, airportLookupDistanceNm, }: RunwayContextDetectorParams): (lat: number | null, lon: number | null, hdgDeg: number | null, phase: string, context?: GeometryLookupContext) => RunwayContext;
 export declare function resolveAircraftSpecificTemplateId(aircraftSpecificConfig: AircraftSpecificConfigLike, profile?: AircraftSpecificProfileLike): string | null;
 export declare function buildSignalReliabilityPayload(profile: ProfileLike): {

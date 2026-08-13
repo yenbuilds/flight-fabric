@@ -21,7 +21,7 @@ const INIBUILDS_TRISTAR_INTEGRATION = defineAircraftIntegration({
   id: INIBUILDS_TRISTAR_ADAPTER_ID,
   aircraft: {
     vendor: 'iniBuilds',
-    family: 'L-1011 TriStar',
+    family: 'L-1011-500 TriStar',
   },
   trustedProfileKeys: [INIBUILDS_TRISTAR_PROFILE_KEY],
   presentation: {

@@ -5,6 +5,11 @@ const {
   FBW_A32NX_ADAPTER_ID,
   FBW_A32NX_INTEGRATION,
   FBW_A32NX_PROFILE_KEY,
+  FENIX_A32X_ADAPTER_ID,
+  FENIX_A32X_INTEGRATION,
+  FENIX_A319_PROFILE_KEY,
+  FENIX_A320_PROFILE_KEY,
+  FENIX_A321_PROFILE_KEY,
   IFLY_737_MAX_8_ADAPTER_ID,
   IFLY_737_MAX_8_INTEGRATION,
   IFLY_737_MAX_8_PROFILE_KEY,
@@ -324,7 +329,7 @@ test('iFly 737 MAX 8 adapter exposes only its exact monitoring-only contract', (
   }), null, 'the separate Microsoft MAX profile must not activate the iFly adapter');
 });
 
-test('iniBuilds A330 adapter exposes a trusted monitoring-only standard-SimVar contract', () => {
+test('iniBuilds A330 adapter exposes its bounded standard-SimVar read/write contract only for the exact profile', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     INIBUILDS_A330_ADAPTER_ID,
     { profileKey: INIBUILDS_A330_PROFILE_KEY },
@@ -333,8 +338,8 @@ test('iniBuilds A330 adapter exposes a trusted monitoring-only standard-SimVar c
   assert.equal(integration.id, INIBUILDS_A330_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'inibuilds-a330');
   assert.deepEqual(integration.trustedProfileKeys, [INIBUILDS_A330_PROFILE_KEY]);
-  assert.equal(Object.keys(integration.fields).length, 44);
-  assert.equal(Object.keys(integration.actions).length, 0);
+  assert.equal(Object.keys(integration.fields).length, 45);
+  assert.equal(Object.keys(integration.actions).length, 47);
   assert.deepEqual(integration.fields['flightGuidance.altitudeFt'].sources[0], {
     route: { type: 'simvar', name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet' },
     decode: { type: 'number', precision: 0 },
@@ -343,17 +348,176 @@ test('iniBuilds A330 adapter exposes a trusted monitoring-only standard-SimVar c
     route: { type: 'simvar', name: 'BRAKE PARKING POSITION', unit: 'Bool' },
     decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
   });
+  assert.deepEqual(integration.fields['controls.spoilersArmed'].sources[0], {
+    route: { type: 'simvar', name: 'SPOILERS ARMED', unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+  });
+
+  const guidancePairs = [
+    ['apMaster', 'flightGuidance.apMaster', 'AUTOPILOT_OFF', 'AUTOPILOT_ON'],
+    ['flightDirector', 'flightGuidance.flightDirector', 'TOGGLE_FLIGHT_DIRECTOR', 'TOGGLE_FLIGHT_DIRECTOR'],
+    ['autothrottleArmed', 'flightGuidance.autothrottleArmed', 'AUTO_THROTTLE_ARM', 'AUTO_THROTTLE_ARM'],
+    ['speedHold', 'flightGuidance.speedHold', 'AP_AIRSPEED_OFF', 'AP_AIRSPEED_ON'],
+    ['headingHold', 'flightGuidance.headingHold', 'AP_HDG_HOLD_OFF', 'AP_HDG_HOLD_ON'],
+    ['altitudeHold', 'flightGuidance.altitudeHold', 'AP_ALT_HOLD_OFF', 'AP_ALT_HOLD_ON'],
+    ['verticalSpeedHold', 'flightGuidance.verticalSpeedHold', 'AP_VS_OFF', 'AP_VS_ON'],
+    ['navHold', 'flightGuidance.navHold', 'AP_NAV1_HOLD_OFF', 'AP_NAV1_HOLD_ON'],
+    ['approachHold', 'flightGuidance.approachHold', 'AP_APR_HOLD_OFF', 'AP_APR_HOLD_ON'],
+    ['flightLevelChange', 'flightGuidance.flightLevelChange', 'FLIGHT_LEVEL_CHANGE_OFF', 'FLIGHT_LEVEL_CHANGE_ON'],
+  ] as const;
+  for (const [name, fieldId, offEvent, onEvent] of guidancePairs) {
+    for (const [suffix, expectedValue, event] of [
+      ['off', false, offEvent],
+      ['on', true, onEvent],
+    ] as const) {
+      const actionId = `flightGuidance.${name}.${suffix}`;
+      const action = integration.actions[actionId];
+      assert.equal(action?.verification, 'untested');
+      assert.deepEqual(action?.guard, {
+        cooldownMs: 750,
+        groupId: `inibuildsA330.flightGuidance.${name}`,
+        retry: 'never',
+      });
+      assert.deepEqual(action?.routes, [{
+        id: `inibuildsA330.${actionId}.simconnectSequence`,
+        transport: 'simconnect-sequence',
+        operations: [{ type: 'event', name: event, value: 0 }],
+        readback: { fieldId, expectedValue, timeoutMs: 3000 },
+      }]);
+    }
+  }
+
+  for (const [name, fieldId, event, min, max, step] of [
+    ['speed', 'flightGuidance.speedValue', 'AP_SPD_VAR_SET', 100, 399, 1],
+    ['heading', 'flightGuidance.headingDeg', 'HEADING_BUG_SET', 0, 359, 1],
+    ['altitude', 'flightGuidance.altitudeFt', 'AP_ALT_VAR_SET_ENGLISH', 0, 49000, 100],
+    ['verticalSpeed', 'flightGuidance.verticalSpeedFpm', 'AP_VS_VAR_SET_ENGLISH', -6000, 6000, 100],
+  ] as const) {
+    const actionId = `flightGuidance.${name}.set`;
+    const action = integration.actions[actionId];
+    assert.deepEqual(action?.input, { type: 'number', min, max, step });
+    assert.deepEqual(action?.guard, {
+      cooldownMs: 300,
+      groupId: `inibuildsA330.flightGuidance.${name}`,
+      retry: 'never',
+    });
+    assert.deepEqual(action?.routes, [{
+      id: `inibuildsA330.${actionId}.simconnectSequence`,
+      transport: 'simconnect-sequence',
+      operations: [{
+        type: 'event',
+        name: event,
+        inputValue: { source: 'input' },
+        parameters: [0],
+      }],
+      readback: { fieldId, expectedInput: true, timeoutMs: 3000 },
+    }]);
+  }
+
+  for (const [lightId, event] of [
+    ['strobe', 'STROBES_SET'],
+    ['beacon', 'BEACON_LIGHTS_SET'],
+    ['nav', 'NAV_LIGHTS_SET'],
+    ['logo', 'LOGO_LIGHTS_SET'],
+    ['wing', 'WING_LIGHTS_SET'],
+    ['landing', 'LANDING_LIGHTS_SET'],
+    ['taxi', 'TAXI_LIGHTS_SET'],
+  ] as const) {
+    for (const [suffix, expectedValue, value] of [
+      ['off', false, 0],
+      ['on', true, 1],
+    ] as const) {
+      const actionId = `lights.${lightId}.${suffix}`;
+      const action = integration.actions[actionId];
+      assert.deepEqual(action?.guard, {
+        cooldownMs: 750,
+        groupId: `inibuildsA330.lights.${lightId}`,
+        retry: 'never',
+        skipIfSatisfied: false,
+      });
+      assert.deepEqual(action?.routes, [{
+        id: `inibuildsA330.${actionId}.simconnectSequence`,
+        transport: 'simconnect-sequence',
+        operations: [{ type: 'event', name: event, value, parameters: [0] }],
+        readback: { fieldId: `lights.${lightId}`, expectedValue, timeoutMs: 3000 },
+      }]);
+    }
+  }
+
+  for (const [suffix, expectedValue, event] of [
+    ['off', false, 'SPOILERS_ARM_OFF'],
+    ['on', true, 'SPOILERS_ARM_ON'],
+  ] as const) {
+    const actionId = `controls.spoilersArmed.${suffix}`;
+    assert.deepEqual(integration.actions[actionId], {
+      id: actionId,
+      guard: {
+        cooldownMs: 750,
+        groupId: 'inibuildsA330.controls.spoilersArmed',
+        retry: 'never',
+      },
+      routes: [{
+        id: `inibuildsA330.${actionId}.simconnectSequence`,
+        transport: 'simconnect-sequence',
+        operations: [{ type: 'event', name: event, value: 0 }],
+        readback: {
+          fieldId: 'controls.spoilersArmed',
+          expectedValue,
+          timeoutMs: 3000,
+        },
+      }],
+      verification: 'untested',
+    });
+  }
+
+  assert.deepEqual(integration.actions['controls.flaps.increase'], {
+    id: 'controls.flaps.increase',
+    guard: {
+      cooldownMs: 300,
+      groupId: 'inibuildsA330.controls.flaps',
+      retry: 'never',
+      skipIfSatisfied: false,
+    },
+    routes: [{
+      id: 'inibuildsA330.controls.flaps.increase.simconnectSequence',
+      transport: 'simconnect-sequence',
+      operations: [{ type: 'event', name: 'FLAPS_INCR', value: 0 }],
+      readback: { fieldId: 'controls.flapsIndex', confirmation: 'changed', timeoutMs: 3000 },
+    }],
+    verification: 'untested',
+  });
+  assert.deepEqual(integration.actions['controls.speedbrake.set'], {
+    id: 'controls.speedbrake.set',
+    input: { type: 'number', min: 0, max: 100, step: 1 },
+    guard: {
+      cooldownMs: 300,
+      groupId: 'inibuildsA330.controls.speedbrake',
+      retry: 'never',
+    },
+    routes: [{
+      id: 'inibuildsA330.controls.speedbrake.set.simconnectSequence',
+      transport: 'simconnect-sequence',
+      operations: [{
+        type: 'event',
+        name: 'SPOILERS_SET',
+        inputValue: { source: 'input', scale: 163.83, round: 'nearest' },
+      }],
+      readback: { fieldId: 'controls.speedbrakePercent', expectedInput: true, timeoutMs: 3000 },
+    }],
+    verification: 'untested',
+  });
+
   assert.equal(defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: INIBUILDS_A330_ADAPTER_ID,
     profileKey: INIBUILDS_A330_PROFILE_KEY,
-    actionId: 'lights.beacon.on',
-  }), null, 'the A330 adapter must not expose unverified aircraft writes');
+    actionId: 'flightGuidance.localizer.on',
+  }), null, 'LOC must remain unavailable without an independent readback');
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_A330_ADAPTER_ID, {
     profileKey: 'local/msfs/inibuilds-a330',
   }), null, 'untrusted local profiles must not activate the trusted A330 adapter');
 });
 
-test('iniBuilds TriStar adapter exposes only reliable monitoring fields for its exact profile', () => {
+test('iniBuilds TriStar adapter exposes its bounded read/write contract only for the exact profile', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     INIBUILDS_TRISTAR_ADAPTER_ID,
     { profileKey: INIBUILDS_TRISTAR_PROFILE_KEY },
@@ -362,11 +526,23 @@ test('iniBuilds TriStar adapter exposes only reliable monitoring fields for its 
   assert.equal(integration.id, INIBUILDS_TRISTAR_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'inibuilds-tristar');
   assert.deepEqual(integration.trustedProfileKeys, [INIBUILDS_TRISTAR_PROFILE_KEY]);
-  assert.equal(Object.keys(integration.fields).length, 32);
-  assert.equal(Object.keys(integration.actions).length, 0);
+  assert.equal(Object.keys(integration.fields).length, 41);
+  assert.equal(Object.keys(integration.actions).length, 26);
   assert.deepEqual(integration.fields['systems.engine3N1'].sources[0], {
     route: { type: 'simvar', name: 'TURB ENG N1:3', unit: 'Percent' },
     decode: { type: 'number', precision: 1 },
+  });
+  assert.deepEqual(integration.fields['systems.engine3Epr'].sources[0], {
+    route: { type: 'lvar', name: 'A:TURB ENG PRESSURE RATIO:3', unit: 'Ratio' },
+    decode: { type: 'number', precision: 2 },
+  });
+  assert.deepEqual(integration.fields['systems.engine2FuelFlowPph'].sources[0], {
+    route: { type: 'lvar', name: 'A:TURB ENG FUEL FLOW PPH:2', unit: 'Pounds per hour' },
+    decode: { type: 'number', precision: 0 },
+  });
+  assert.deepEqual(integration.fields['lights.wing'].sources[0], {
+    route: { type: 'simvar', name: 'LIGHT WING', unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
   });
   assert.deepEqual(integration.fields['systems.engine3Running'].sources[0], {
     route: { type: 'simvar', name: 'ENG COMBUSTION:3', unit: 'Bool' },
@@ -374,15 +550,110 @@ test('iniBuilds TriStar adapter exposes only reliable monitoring fields for its 
   });
   assert.equal(integration.fields['flightGuidance.apMaster'], undefined);
   assert.equal(integration.fields['flightGuidance.headingHold'], undefined);
+  assert.equal(integration.fields['flightGuidance.speedValue'], undefined);
+  assert.equal(integration.fields['flightGuidance.headingDeg'], undefined);
+  assert.equal(integration.fields['flightGuidance.altitudeFt'], undefined);
+  assert.equal(integration.fields['flightGuidance.verticalSpeedFpm'], undefined);
+  assert.equal(integration.fields['navigation.course1Deg'], undefined);
+  assert.equal(integration.fields['navigation.course2Deg'], undefined);
   assert.equal(integration.fields['controls.speedbrakePercent'], undefined);
+
+  const lightActions = [
+    ['landing', 'LANDING_LIGHTS_OFF', 'LANDING_LIGHTS_ON'],
+    ['taxi', 'TAXI_LIGHTS_OFF', 'TAXI_LIGHTS_ON'],
+    ['strobe', 'STROBES_OFF', 'STROBES_ON'],
+    ['beacon', 'BEACON_LIGHTS_OFF', 'BEACON_LIGHTS_ON'],
+    ['nav', 'NAV_LIGHTS_OFF', 'NAV_LIGHTS_ON'],
+    ['wing', 'WING_LIGHTS_OFF', 'WING_LIGHTS_ON'],
+    ['logo', 'TOGGLE_LOGO_LIGHTS', 'TOGGLE_LOGO_LIGHTS'],
+  ] as const;
+  const selectorActions = [
+    ['afcs.speed', 'AP_SPD_VAR_DEC', 'AP_SPD_VAR_INC'],
+    ['afcs.heading', 'HEADING_BUG_DEC', 'HEADING_BUG_INC'],
+    ['afcs.altitude', 'AP_ALT_VAR_DEC', 'AP_ALT_VAR_INC'],
+    ['afcs.verticalSpeed', 'AP_VS_VAR_DEC', 'AP_VS_VAR_INC'],
+    ['navigation.course1', 'VOR1_OBI_DEC', 'VOR1_OBI_INC'],
+    ['navigation.course2', 'VOR2_OBI_DEC', 'VOR2_OBI_INC'],
+  ] as const;
+  const expectedActionIds: string[] = [];
+
+  for (const [lightId, offEvent, onEvent] of lightActions) {
+    for (const [suffix, expectedValue, event] of [
+      ['setOff', false, offEvent],
+      ['setOn', true, onEvent],
+    ] as const) {
+      const actionId = `lights.${lightId}.${suffix}`;
+      expectedActionIds.push(actionId);
+      const action = defaultAircraftIntegrationRegistry.resolveAction({
+        adapterId: INIBUILDS_TRISTAR_ADAPTER_ID,
+        profileKey: INIBUILDS_TRISTAR_PROFILE_KEY,
+        actionId,
+      });
+      assert.equal(action?.id, actionId);
+      assert.equal(action?.verification, 'untested');
+      assert.deepEqual(action?.guard, {
+        cooldownMs: 750,
+        groupId: `inibuildsTristar.lights.${lightId}`,
+        retry: 'never',
+      });
+      assert.deepEqual(action?.routes, [{
+        id: `inibuildsTristar.${actionId}.simconnectSequence`,
+        transport: 'simconnect-sequence',
+        operations: [{ type: 'event', name: event, value: 0 }],
+        readback: {
+          fieldId: `lights.${lightId}`,
+          expectedValue,
+          timeoutMs: 3000,
+        },
+      }]);
+    }
+  }
+
+  for (const [selectorId, decreaseEvent, increaseEvent] of selectorActions) {
+    for (const [suffix, event] of [
+      ['decrease', decreaseEvent],
+      ['increase', increaseEvent],
+    ] as const) {
+      const actionId = `${selectorId}.${suffix}`;
+      expectedActionIds.push(actionId);
+      const action = defaultAircraftIntegrationRegistry.resolveAction({
+        adapterId: INIBUILDS_TRISTAR_ADAPTER_ID,
+        profileKey: INIBUILDS_TRISTAR_PROFILE_KEY,
+        actionId,
+      });
+      assert.equal(action?.id, actionId);
+      assert.equal(action?.verification, 'untested');
+      assert.deepEqual(action?.guard, {
+        cooldownMs: 300,
+        groupId: `inibuildsTristar.${selectorId}`,
+        retry: 'never',
+        skipIfSatisfied: false,
+      });
+      assert.deepEqual(action?.routes, [{
+        id: `inibuildsTristar.${actionId}.simconnectSequence`,
+        transport: 'simconnect-sequence',
+        operations: [{ type: 'event', name: event, value: 0 }],
+        confirmation: 'transport-acknowledged',
+      }]);
+    }
+  }
+
+  assert.deepEqual(Object.keys(integration.actions).sort(), expectedActionIds.sort());
+  assert.equal(JSON.stringify(integration.actions).includes('TOGGLE_WATER_RUDDER'), false,
+    'INS is a profile AFCS pulse, not an adapter selector action');
+  assert.equal(JSON.stringify(integration.actions).includes('_SET'), false,
+    'unsupported direct selector target events must stay absent');
   assert.equal(defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: INIBUILDS_TRISTAR_ADAPTER_ID,
     profileKey: INIBUILDS_TRISTAR_PROFILE_KEY,
     actionId: 'flightGuidance.master.toggle',
-  }), null, 'the trusted TriStar adapter must remain monitoring-only');
+  }), null, 'undocumented adapter action IDs stay unavailable');
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_TRISTAR_ADAPTER_ID, {
     profileKey: 'local/msfs/inibuilds-tristar',
   }), null, 'untrusted local profiles must not activate the trusted TriStar adapter');
+  assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_TRISTAR_ADAPTER_ID, {
+    profileKey: INIBUILDS_A330_PROFILE_KEY,
+  }), null, 'another bundled iniBuilds profile must not activate the trusted TriStar adapter');
 });
 
 test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profile guards and readback', () => {
@@ -394,8 +665,8 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   assert.equal(integration, defaultAircraftIntegrationRegistry.resolveForProfile(FBW_A32NX_PROFILE_KEY));
   assert.equal(integration.id, FBW_A32NX_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'fbw-a32nx');
-  assert.equal(Object.keys(integration.fields).length, 119);
-  assert.equal(Object.keys(integration.actions).length, 230);
+  assert.equal(Object.keys(integration.fields).length, 124);
+  assert.equal(Object.keys(integration.actions).length, 241);
   assert.deepEqual(integration.fields['lights.strobeMode'].sources[0], {
     route: { type: 'lvar', name: 'L:LIGHTING_STROBE_0', unit: 'Number' },
     decode: { type: 'enum', values: { 0: 'on', 1: 'auto', 2: 'off' } },
@@ -406,6 +677,10 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   });
   assert.deepEqual(integration.fields['lights.strobeActive'].sources[0], {
     route: { type: 'lvar', name: 'A:LIGHT STROBE', unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [1, true], falseValues: [0, false] },
+  });
+  assert.deepEqual(integration.fields['lights.runwayTurnoff'].sources[0], {
+    route: { type: 'lvar', name: 'A:CIRCUIT SWITCH ON:21', unit: 'Bool' },
     decode: { type: 'boolean', trueValues: [1, true], falseValues: [0, false] },
   });
 
@@ -433,6 +708,48 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   });
   assert.equal(strobeAuto.routes[0].readback.fieldId, 'lights.strobeAuto');
   assert.equal(strobeAuto.routes[0].readback.expectedValue, true);
+
+  const runwayTurnoffOn = integration.actions['lights.runwayTurnoff.on'];
+  assert.equal(runwayTurnoffOn.guard.groupId, 'fbwA32nx.lights.runwayTurnoff');
+  assert.equal(runwayTurnoffOn.guard.skipIfSatisfied, false);
+  assert.deepEqual(runwayTurnoffOn.routes[0].operations, [
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:21', unit: 'Bool', value: true },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:22', unit: 'Bool', value: true },
+  ]);
+  assert.equal(runwayTurnoffOn.routes[0].readback.fieldId, 'lights.runwayTurnoff');
+  assert.equal(runwayTurnoffOn.routes[0].readback.expectedValue, true);
+
+  const noseTakeoff = integration.actions['lights.nose.takeoff'];
+  assert.equal(noseTakeoff.guard.groupId, 'fbwA32nx.lights.nose');
+  assert.equal(noseTakeoff.guard.skipIfSatisfied, false);
+  assert.deepEqual(noseTakeoff.routes[0].operations, [
+    { type: 'lvar', name: 'L:LIGHTING_LANDING_1', unit: 'Number', value: 0 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:17', unit: 'Bool', value: 1 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:20', unit: 'Bool', value: 1 },
+  ]);
+  assert.equal(noseTakeoff.routes[0].readback.fieldId, 'lights.noseMode');
+  assert.equal(noseTakeoff.routes[0].readback.expectedValue, 'takeoff');
+
+  const landingLeftOn = integration.actions['lights.landingLeft.on'];
+  assert.equal(landingLeftOn.guard.groupId, 'fbwA32nx.lights.landingLeft');
+  assert.equal(landingLeftOn.guard.skipIfSatisfied, false);
+  assert.deepEqual(landingLeftOn.routes[0].operations, [
+    { type: 'lvar', name: 'L:LIGHTING_LANDING_2', unit: 'Number', value: 0 },
+    { type: 'lvar', name: 'L:LANDING_2_RETRACTED', unit: 'Number', value: 0 },
+    { type: 'delay', milliseconds: 9000 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:18', unit: 'Bool', value: 1 },
+  ]);
+  assert.equal(landingLeftOn.routes[0].readback.fieldId, 'lights.landingLeftCircuitOn');
+  assert.equal(landingLeftOn.routes[0].readback.expectedValue, true);
+
+  const landingRightRetract = integration.actions['lights.landingRight.retract'];
+  assert.deepEqual(landingRightRetract.routes[0].operations, [
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:19', unit: 'Bool', value: 0 },
+    { type: 'lvar', name: 'L:LIGHTING_LANDING_3', unit: 'Number', value: 2 },
+    { type: 'lvar', name: 'L:LANDING_3_RETRACTED', unit: 'Number', value: 1 },
+  ]);
+  assert.equal(landingRightRetract.routes[0].readback.fieldId, 'lights.landingRightRetracted');
+  assert.equal(landingRightRetract.routes[0].readback.expectedValue, true);
 
   const apuStart = integration.actions['systems.apuStart.start'];
   assert.equal(apuStart.guard.groupId, 'fbwA32nx.systems.apuStart');
@@ -472,7 +789,6 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
     'oxygen.masks.deploy',
     'presets.aircraft.load',
     'pushback.move',
-    'lights.landingLeft.on',
   ]) {
     assert.equal(integration.actions[excludedAction], undefined, `${excludedAction} must remain outside the trusted write surface`);
   }
@@ -480,6 +796,280 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(FBW_A32NX_ADAPTER_ID, {
     profileKey: 'local/msfs/fbw-a32nx',
   }), null, 'untrusted local profiles must not activate executable FlyByWire routes');
+});
+
+test('Fenix A32x adapter shares one trusted contract across exact family profiles', () => {
+  for (const profileKey of [
+    FENIX_A319_PROFILE_KEY,
+    FENIX_A320_PROFILE_KEY,
+    FENIX_A321_PROFILE_KEY,
+  ]) {
+    const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
+      FENIX_A32X_ADAPTER_ID,
+      { profileKey },
+    );
+    assert.equal(integration.id, FENIX_A32X_INTEGRATION.id);
+    assert.deepEqual(integration.trustedProfileKeys, FENIX_A32X_INTEGRATION.trustedProfileKeys);
+    assert.equal(integration.presentation.templateId, 'fenix-a32x');
+  }
+
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 118);
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.actions).length, 273);
+  for (const [fieldId, field] of Object.entries(
+    FENIX_A32X_INTEGRATION.fields,
+  ) as Array<[string, any]>) {
+    assert.equal(field.sources.length, 1, `${fieldId} must expose only its minimum reviewed source`);
+    assert.equal(field.sources[0].route.type, 'lvar');
+    assert.match(field.sources[0].route.name, /^L:[A-Z0-9_]+$/);
+    assert.equal(field.sources[0].route.unit, 'Number');
+    assert.deepEqual(
+      Object.keys(field.sources[0].route).sort(),
+      ['name', 'type', 'unit'],
+      `${fieldId} must not carry aircraft-shipped behavior metadata`,
+    );
+  }
+  const fenixFcuActionIds = new Set([
+    'flightGuidance.ap1.off',
+    'flightGuidance.ap1.on',
+    'flightGuidance.ap2.off',
+    'flightGuidance.ap2.on',
+    'flightGuidance.autothrust.off',
+    'flightGuidance.autothrust.on',
+    'flightGuidance.localizer.off',
+    'flightGuidance.localizer.on',
+    'flightGuidance.approach.off',
+    'flightGuidance.approach.on',
+    'flightGuidance.expedite.off',
+    'flightGuidance.expedite.on',
+    'flightGuidance.speedManaged.off',
+    'flightGuidance.speedManaged.on',
+    'flightGuidance.headingManaged.off',
+    'flightGuidance.headingManaged.on',
+    'flightGuidance.altitudeManaged.off',
+    'flightGuidance.altitudeManaged.on',
+    'flightGuidance.speed.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitudeHundred.set',
+    'flightGuidance.altitudeThousand.set',
+  ]);
+  const fenixConfirmationFields = new Set<string>();
+  let fenixLegacyActionCount = 0;
+  for (const [actionId, action] of Object.entries(
+    FENIX_A32X_INTEGRATION.actions,
+  ) as Array<[string, any]>) {
+    assert.equal(action.guard.retry, 'never', `${actionId} must never retry`);
+    assert.equal(action.guard.cooldownMs, 750, `${actionId} must use the family cooldown`);
+    assert.match(action.guard.groupId, /^fenixA32x\./, `${actionId} must use a family-owned guard group`);
+    for (const route of action.routes) {
+      assert.ok(FENIX_A32X_INTEGRATION.fields[route.readback.fieldId]);
+      assert.equal(route.readback.timeoutMs, 3000);
+      fenixConfirmationFields.add(route.readback.fieldId);
+    }
+    if (fenixFcuActionIds.has(actionId)) {
+      assert.equal(action.routes.length, 1, `${actionId} must remain calculator-only`);
+      assert.equal(action.routes[0].transport, 'mobiflight-calculator');
+      continue;
+    }
+    fenixLegacyActionCount += 1;
+    assert.equal(action.routes.length, 2, `${actionId} must expose only the reviewed preferred/fallback pair`);
+    const [mobiflightRoute, directLvarRoute] = action.routes as any[];
+    assert.equal(mobiflightRoute.transport, 'mobiflight-calculator');
+    assert.equal(directLvarRoute.transport, 'lvar');
+    assert.match(directLvarRoute.lvar, /^L:[A-Z0-9_]+$/);
+    assert.equal(directLvarRoute.unit, 'Number');
+    assert.equal(Number.isFinite(directLvarRoute.value), true);
+    assert.equal(directLvarRoute.value >= 0 && directLvarRoute.value <= 2, true);
+    assert.equal(
+      mobiflightRoute.code,
+      `${directLvarRoute.value} (>L:${directLvarRoute.lvar.slice(2)}, Number)`,
+    );
+    assert.deepEqual(mobiflightRoute.readback, directLvarRoute.readback);
+  }
+  assert.equal(fenixLegacyActionCount, 251);
+  assert.equal(fenixFcuActionIds.size, 22);
+  assert.equal(fenixConfirmationFields.size, 117);
+  assert.deepEqual(FENIX_A32X_INTEGRATION.fields['lights.strobeMode'].sources[0], {
+    route: { type: 'lvar', name: 'L:S_OH_EXT_LT_STROBE', unit: 'Number' },
+    decode: { type: 'enum', values: { 0: 'off', 1: 'auto', 2: 'on' } },
+  });
+  assert.deepEqual(FENIX_A32X_INTEGRATION.fields['flightGuidance.baroUnitCaptain'].sources[0], {
+    route: { type: 'lvar', name: 'L:S_FCU_EFIS1_BARO_MODE', unit: 'Number' },
+    decode: { type: 'enum', values: { 0: 'inhg', 1: 'hpa' } },
+  });
+  assert.deepEqual(FENIX_A32X_INTEGRATION.fields['flightGuidance.altitudeIncrementMode'].sources[0], {
+    route: { type: 'lvar', name: 'L:S_FCU_ALTITUDE_SCALE', unit: 'Number' },
+    decode: { type: 'enum', values: { 0: 'thousand', 1: 'hundred' } },
+  });
+  for (const [fieldId, lvar, precision] of [
+    ['flightGuidance.speedValue', 'N_FCU_SPEED', 2],
+    ['flightGuidance.headingDeg', 'N_FCU_HEADING', 0],
+    ['flightGuidance.altitudeFt', 'N_FCU_ALTITUDE', 0],
+    ['flightGuidance.verticalValue', 'N_FCU_VS', 2],
+  ] as const) {
+    assert.deepEqual(FENIX_A32X_INTEGRATION.fields[fieldId].sources[0], {
+      route: { type: 'lvar', name: `L:${lvar}`, unit: 'Number' },
+      decode: { type: 'number', precision },
+    });
+  }
+  for (const [fieldId, lvar] of [
+    ['flightGuidance.speedManaged', 'I_FCU_SPEED_MANAGED'],
+    ['flightGuidance.headingManaged', 'I_FCU_HEADING_MANAGED'],
+    ['flightGuidance.altitudeManaged', 'I_FCU_ALTITUDE_MANAGED'],
+  ] as const) {
+    assert.deepEqual(FENIX_A32X_INTEGRATION.fields[fieldId].sources[0], {
+      route: { type: 'lvar', name: `L:${lvar}`, unit: 'Number' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    });
+  }
+
+  for (const [prefix, fieldId, lvar] of [
+    ['flightGuidance.ap1', 'flightGuidance.ap1', 'S_FCU_AP1'],
+    ['flightGuidance.ap2', 'flightGuidance.ap2', 'S_FCU_AP2'],
+    ['flightGuidance.autothrust', 'flightGuidance.autothrust', 'S_FCU_ATHR'],
+    ['flightGuidance.localizer', 'flightGuidance.localizer', 'S_FCU_LOC'],
+    ['flightGuidance.approach', 'flightGuidance.approach', 'S_FCU_APPR'],
+    ['flightGuidance.expedite', 'flightGuidance.expedite', 'S_FCU_EXPED'],
+  ] as const) {
+    const code = `(L:${lvar}, Number) ++ (>L:${lvar}, Number)`;
+    for (const [suffix, expectedValue] of [['off', false], ['on', true]] as const) {
+      const actionId = `${prefix}.${suffix}`;
+      const action = FENIX_A32X_INTEGRATION.actions[actionId];
+      assert.deepEqual(action.guard, {
+        cooldownMs: 750,
+        groupId: `fenixA32x.${prefix}`,
+        retry: 'never',
+      });
+      assert.equal(action.verification, 'untested');
+      assert.deepEqual(action.routes, [{
+        id: `fenixA32x.${actionId}.mobiflightPulse`,
+        transport: 'mobiflight-calculator',
+        mode: 'pulse',
+        pressCode: code,
+        releaseCode: code,
+        delayMs: 100,
+        readback: { fieldId, expectedValue, timeoutMs: 3000 },
+      }]);
+    }
+  }
+
+  for (const [prefix, fieldId, lvar, groupId] of [
+    ['flightGuidance.speedManaged', 'flightGuidance.speedManaged', 'S_FCU_SPEED', 'flightGuidance.speed'],
+    ['flightGuidance.headingManaged', 'flightGuidance.headingManaged', 'S_FCU_HEADING', 'flightGuidance.heading'],
+    ['flightGuidance.altitudeManaged', 'flightGuidance.altitudeManaged', 'S_FCU_ALTITUDE', 'flightGuidance.altitude'],
+  ] as const) {
+    for (const [suffix, expectedValue, operator] of [
+      ['off', false, '++'],
+      ['on', true, '--'],
+    ] as const) {
+      const actionId = `${prefix}.${suffix}`;
+      const action = FENIX_A32X_INTEGRATION.actions[actionId];
+      assert.equal(action.guard.groupId, `fenixA32x.${groupId}`);
+      assert.deepEqual(action.routes, [{
+        id: `fenixA32x.${actionId}.mobiflight`,
+        transport: 'mobiflight-calculator',
+        mode: 'single',
+        code: `(L:${lvar}, Number) ${operator} (>L:${lvar}, Number)`,
+        readback: { fieldId, expectedValue, timeoutMs: 3000 },
+      }]);
+    }
+  }
+  for (const actionId of [
+    'flightGuidance.altitudeIncrement.hundred',
+    'flightGuidance.altitudeIncrement.thousand',
+    'flightGuidance.altitudeManaged.off',
+    'flightGuidance.altitudeManaged.on',
+    'flightGuidance.altitudeHundred.set',
+    'flightGuidance.altitudeThousand.set',
+  ]) {
+    assert.equal(
+      FENIX_A32X_INTEGRATION.actions[actionId].guard.groupId,
+      'fenixA32x.flightGuidance.altitude',
+      `${actionId} must share the physical altitude-knob lock`,
+    );
+  }
+
+  for (const [actionId, fieldId, lvar, min, max, step, circular, precondition] of [
+    ['flightGuidance.speed.set', 'flightGuidance.speedValue', 'E_FCU_SPEED', 100, 399, 1, false, undefined],
+    ['flightGuidance.heading.set', 'flightGuidance.headingDeg', 'E_FCU_HEADING', 0, 359, 1, true, undefined],
+    ['flightGuidance.altitudeHundred.set', 'flightGuidance.altitudeFt', 'E_FCU_ALTITUDE', 0, 49000, 100, false, {
+      fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'hundred',
+    }],
+    ['flightGuidance.altitudeThousand.set', 'flightGuidance.altitudeFt', 'E_FCU_ALTITUDE', 0, 49000, 1000, false, {
+      fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'thousand',
+    }],
+  ] as const) {
+    const action = FENIX_A32X_INTEGRATION.actions[actionId];
+    assert.deepEqual(action.input, { type: 'number', min, max, step });
+    const route = action.routes[0] as any;
+    assert.equal(route.mode, 'step-to-target');
+    assert.equal(route.decreaseCode, `(L:${lvar}, Number) -- (>L:${lvar}, Number)`);
+    assert.equal(route.increaseCode, `(L:${lvar}, Number) ++ (>L:${lvar}, Number)`);
+    assert.equal(route.maxSteps, 500);
+    assert.equal(route.circular, circular ? true : undefined);
+    assert.deepEqual(route.precondition, precondition);
+    assert.deepEqual(route.readback, { fieldId, expectedInput: true, timeoutMs: 3000 });
+  }
+  assert.equal(FENIX_A32X_INTEGRATION.actions['flightGuidance.vertical.set'], undefined);
+  assert.equal(FENIX_A32X_INTEGRATION.actions['flightGuidance.verticalManaged.on'], undefined);
+  assert.equal(fenixConfirmationFields.has('flightGuidance.verticalValue'), false);
+
+  const noseTaxi = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: FENIX_A32X_ADAPTER_ID,
+    profileKey: FENIX_A320_PROFILE_KEY,
+    actionId: 'lights.nose.taxi',
+  });
+  assert.equal(noseTaxi.guard.groupId, 'fenixA32x.lights.nose');
+  assert.equal(noseTaxi.guard.retry, 'never');
+  assert.equal(noseTaxi.routes[0].transport, 'mobiflight-calculator');
+  assert.equal(noseTaxi.routes[0].code, '1 (>L:S_OH_EXT_LT_NOSE, Number)');
+  assert.equal(noseTaxi.routes[0].readback.fieldId, 'lights.noseMode');
+  assert.equal(noseTaxi.routes[0].readback.expectedValue, 'taxi');
+  assert.equal(noseTaxi.routes[1].transport, 'lvar');
+  assert.equal(noseTaxi.routes[1].lvar, 'L:S_OH_EXT_LT_NOSE');
+  assert.equal(noseTaxi.routes[1].value, 1);
+
+  const engineModeStart = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: FENIX_A32X_ADAPTER_ID,
+    profileKey: FENIX_A320_PROFILE_KEY,
+    actionId: 'systems.engineMode.start',
+  });
+  assert.equal(engineModeStart.guard.groupId, 'fenixA32x.systems.engineMode');
+  assert.equal(engineModeStart.guard.cooldownMs, 750);
+  assert.equal(engineModeStart.routes[0].code, '2 (>L:S_ENG_MODE, Number)');
+  assert.equal(engineModeStart.routes[0].readback.fieldId, 'systems.engineMode');
+  assert.equal(engineModeStart.routes[0].readback.expectedValue, 'start');
+  assert.equal(engineModeStart.routes[0].readback.timeoutMs, 3000);
+
+  const overheadHalf = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: FENIX_A32X_ADAPTER_ID,
+    profileKey: FENIX_A320_PROFILE_KEY,
+    actionId: 'lighting.overhead.half',
+  });
+  assert.equal(overheadHalf.routes[0].code, '0.5 (>L:A_OH_LIGHTING_OVD, Number)');
+  assert.equal(overheadHalf.routes[1].lvar, 'L:A_OH_LIGHTING_OVD');
+  assert.equal(overheadHalf.routes[1].value, 0.5);
+  assert.equal(overheadHalf.routes[1].readback.expectedValue, 0.5);
+
+  for (const excludedAction of [
+    'fire.apu.discharge',
+    'oxygen.crew.off',
+    'systems.rat.deploy',
+    'systems.ditching.on',
+    'systems.flightControlElac1.off',
+    'systems.idg1.disconnect',
+    'evacuation.command.on',
+    'controls.tillerDisconnectCaptain.on',
+  ]) {
+    assert.equal(
+      FENIX_A32X_INTEGRATION.actions[excludedAction],
+      undefined,
+      `${excludedAction} must remain outside the trusted Fenix write surface`,
+    );
+  }
+
+  assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(FENIX_A32X_ADAPTER_ID, {
+    profileKey: 'local/msfs/fenix-a320',
+  }), null, 'copied profiles must not activate executable Fenix routes');
 });
 
 test('adapter resolution requires an exact trusted profile and rejects inherited keys', () => {
@@ -677,6 +1267,79 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   unknownReadback.actions['test.set'].routes[0].readback.fieldId = 'test.missing';
   assert.throws(() => createAircraftIntegrationRegistry([unknownReadback]), /invalid action readback/);
 
+  const validPulse = structuredClone(validBase);
+  validPulse.id = 'valid-pulse';
+  validPulse.trustedProfileKeys = ['bundled/msfs/valid-pulse'];
+  validPulse.actions['test.set'].routes = [{
+    id: 'test.set.pulse',
+    transport: 'mobiflight-calculator',
+    mode: 'pulse',
+    pressCode: '(L:test) ++ (>L:test)',
+    releaseCode: '(L:test) ++ (>L:test)',
+    delayMs: 100,
+    readback: { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+  }];
+  assert.doesNotThrow(() => createAircraftIntegrationRegistry([validPulse]));
+
+  for (const [name, mutate] of [
+    ['unknown-mode', (route: any) => { route.mode = 'unknown'; }],
+    ['missing-release', (route: any) => { delete route.releaseCode; }],
+    ['zero-delay', (route: any) => { route.delayMs = 0; }],
+    ['overlong-delay', (route: any) => { route.delayMs = 1001; }],
+    ['fractional-delay', (route: any) => { route.delayMs = 1.5; }],
+    ['mixed-pulse-code', (route: any) => { route.code = '1 (>L:test)'; }],
+  ] as const) {
+    const invalid = structuredClone(validPulse);
+    invalid.id = name;
+    invalid.trustedProfileKeys = [`bundled/msfs/${name}`];
+    mutate(invalid.actions['test.set'].routes[0]);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid calculator route/,
+      name,
+    );
+  }
+
+  const validStepped = structuredClone(validBase);
+  validStepped.id = 'valid-stepped';
+  validStepped.trustedProfileKeys = ['bundled/msfs/valid-stepped'];
+  validStepped.actions['test.set'].input = { type: 'number', min: 0, max: 500, step: 1 };
+  validStepped.actions['test.set'].routes = [{
+    id: 'test.set.target',
+    transport: 'mobiflight-calculator',
+    mode: 'step-to-target',
+    decreaseCode: '(L:test) -- (>L:test)',
+    increaseCode: '(L:test) ++ (>L:test)',
+    maxSteps: 500,
+    circular: true,
+    precondition: { fieldId: 'test.value', expectedValue: 1 },
+    readback: { fieldId: 'test.value', expectedInput: true, timeoutMs: 100 },
+  }];
+  assert.doesNotThrow(() => createAircraftIntegrationRegistry([validStepped]));
+
+  for (const [name, mutate] of [
+    ['step-without-input', (_route: any, action: any) => { delete action.input; }],
+    ['step-fixed-readback', (route: any) => { route.readback = { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 }; }],
+    ['step-zero-max', (route: any) => { route.maxSteps = 0; }],
+    ['step-over-max', (route: any) => { route.maxSteps = 501; }],
+    ['step-fractional-max', (route: any) => { route.maxSteps = 1.5; }],
+    ['step-false-circular', (route: any) => { route.circular = false; }],
+    ['step-unsafe-increase', (route: any) => { route.increaseCode = '\n'; }],
+    ['step-unsafe-decrease', (route: any) => { route.decreaseCode = '\n'; }],
+    ['step-unknown-precondition', (route: any) => { route.precondition.fieldId = 'test.missing'; }],
+    ['step-extra-precondition', (route: any) => { route.precondition.extra = true; }],
+  ] as const) {
+    const invalid = structuredClone(validStepped);
+    invalid.id = name;
+    invalid.trustedProfileKeys = [`bundled/msfs/${name}`];
+    mutate(invalid.actions['test.set'].routes[0], invalid.actions['test.set']);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid calculator route/,
+      name,
+    );
+  }
+
   const unsafeSequence = structuredClone(validBase);
   unsafeSequence.id = 'unsafe-sequence';
   unsafeSequence.trustedProfileKeys = ['bundled/msfs/unsafe-sequence'];
@@ -689,6 +1352,104 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   assert.throws(
     () => createAircraftIntegrationRegistry([unsafeSequence]),
     /invalid SimConnect sequence route/,
+  );
+
+  const parameterizedSequence = structuredClone(validBase);
+  parameterizedSequence.id = 'parameterized-sequence';
+  parameterizedSequence.trustedProfileKeys = ['bundled/msfs/parameterized-sequence'];
+  parameterizedSequence.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{ type: 'event', name: 'HEADING_BUG_SET', value: 275, parameters: [0] }],
+    readback: { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+  }];
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([parameterizedSequence]),
+    'fixed secondary SimConnect parameters are part of the trusted route',
+  );
+
+  for (const [id, parameters] of [
+    ['too-many-sequence-parameters', [0, 1, 2, 3, 4]],
+    ['non-numeric-sequence-parameter', [0, '1']],
+    ['non-finite-sequence-parameter', [Number.NaN]],
+  ] as const) {
+    const invalid = structuredClone(parameterizedSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    invalid.actions['test.set'].routes[0].operations[0].parameters = parameters;
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
+
+  const overlongSequenceDelay = structuredClone(validBase);
+  overlongSequenceDelay.id = 'overlong-sequence-delay';
+  overlongSequenceDelay.trustedProfileKeys = ['bundled/msfs/overlong-sequence-delay'];
+  overlongSequenceDelay.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{ type: 'delay', milliseconds: 10001 }],
+    readback: { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+  }];
+  assert.throws(
+    () => createAircraftIntegrationRegistry([overlongSequenceDelay]),
+    /invalid SimConnect sequence route/,
+  );
+
+  const unsafeSequenceSimvar = structuredClone(validBase);
+  unsafeSequenceSimvar.id = 'unsafe-sequence-simvar';
+  unsafeSequenceSimvar.trustedProfileKeys = ['bundled/msfs/unsafe-sequence-simvar'];
+  unsafeSequenceSimvar.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{ type: 'simvar', name: 'CIRCUIT SWITCH ON:18;BAD', unit: 'Bool', value: 1 }],
+    readback: { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+  }];
+  assert.throws(
+    () => createAircraftIntegrationRegistry([unsafeSequenceSimvar]),
+    /invalid SimConnect sequence route/,
+  );
+
+  const acknowledgedSequence = structuredClone(validBase);
+  acknowledgedSequence.id = 'acknowledged-sequence';
+  acknowledgedSequence.trustedProfileKeys = ['bundled/msfs/acknowledged-sequence'];
+  acknowledgedSequence.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{ type: 'event', name: 'HEADING_BUG_INC', value: 0 }],
+    confirmation: 'transport-acknowledged',
+  }];
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([acknowledgedSequence]),
+    'fixed documentation-backed pulses may complete on transport acknowledgement',
+  );
+
+  for (const [id, mutate] of [
+    ['unknown-sequence-confirmation', (route: any) => { route.confirmation = 'unknown'; }],
+    ['ambiguous-sequence-confirmation', (route: any) => {
+      route.readback = { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 };
+    }],
+  ] as const) {
+    const invalid = structuredClone(acknowledgedSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    mutate(invalid.actions['test.set'].routes[0]);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
+
+  const unconfirmedSequence = structuredClone(acknowledgedSequence);
+  unconfirmedSequence.id = 'unconfirmed-sequence';
+  unconfirmedSequence.trustedProfileKeys = ['bundled/msfs/unconfirmed-sequence'];
+  delete unconfirmedSequence.actions['test.set'].routes[0].confirmation;
+  assert.throws(
+    () => createAircraftIntegrationRegistry([unconfirmedSequence]),
+    /write routes require readback/,
   );
 
   const unsafeDirectLvar = structuredClone(validBase);

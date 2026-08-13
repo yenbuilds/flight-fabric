@@ -3,6 +3,12 @@ export const AIRCRAFT_CONTROL_BUTTON_SELECTOR = [
   '#ctrl-gear-down-btn',
   '#ctrl-flaps-dec-btn',
   '#ctrl-flaps-inc-btn',
+  '#ctrl-park-brake-release-btn',
+  '#ctrl-park-brake-set-btn',
+  '#ctrl-spoilers-retract-btn',
+  '#ctrl-spoilers-extend-btn',
+  '#ctrl-spoilers-disarm-btn',
+  '#ctrl-spoilers-arm-btn',
   '#ap-master-btn',
   '#ap-athr-btn',
   '#ap-fd-btn',
@@ -47,6 +53,28 @@ export function describeAircraftControlRequest(request) {
       : `Set flaps ${request.value}`;
   }
 
+  if (request.control === 'parkingBrake') {
+    return request.value ? 'Parking brake set' : 'Parking brake release';
+  }
+
+  if (request.control === 'spoilers') {
+    if (request.operation === 'arm') return 'Ground spoilers arm';
+    if (request.operation === 'disarm') return 'Ground spoilers disarm';
+    if (request.operation === 'set') return Number(request.value) > 0 ? 'Spoilers extend' : 'Spoilers retract';
+  }
+
+  if (request.control === 'lights') {
+    const lightLabels = {
+      nav: 'Navigation lights',
+      beacon: 'Beacon',
+      strobe: 'Strobe lights',
+      landing: 'Landing lights',
+      taxi: 'Taxi lights',
+    };
+    const label = lightLabels[request.target] || 'Exterior lights';
+    return `${label} ${request.value ? 'on' : 'off'}`;
+  }
+
   if (request.control === 'aircraft-specific') {
     const actionId = typeof request.actionId === 'string' && request.actionId.trim()
       ? request.actionId.trim()
@@ -67,8 +95,12 @@ export function describeAircraftControlRequest(request) {
     headingHold: 'Heading hold',
     altitudeHold: 'Altitude hold',
     verticalSpeedHold: 'V/S hold',
+    machHold: 'Mach hold',
     loc: 'LOC',
     app: 'APP',
+    nav1: 'VOR/NAV 1',
+    ins: 'INS',
+    backcourse: 'Back course',
     speed: 'Selected speed',
     heading: 'Selected heading',
     altitude: 'Selected altitude',
@@ -106,6 +138,19 @@ export function getAircraftControlCommandPendingKey(command) {
     const action = typeof command.action === 'string' ? command.action.trim() : '';
     if (!mode || !action) return '';
     return `selector-adjust:${mode}:${action}`;
+  }
+
+  if (command.type === 'autopilot-pulse') {
+    const commandId = typeof command.id === 'string' ? command.id.trim() : '';
+    if (!commandId) return '';
+    return commandId === 'apMaster' || commandId === 'apDisconnect'
+      ? 'autopilot-pulse:ap-physical-control'
+      : `autopilot-pulse:${commandId}`;
+  }
+
+  if (command.type === 'light-set') {
+    const light = typeof command.light === 'string' ? command.light.trim() : '';
+    return light ? `light-set:${light}` : '';
   }
 
   return '';

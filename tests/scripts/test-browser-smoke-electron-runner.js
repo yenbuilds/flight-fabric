@@ -552,6 +552,124 @@ async function runSettingsSmoke(windowRef) {
   );
 }
 
+async function runAircraftSearchSmoke(windowRef) {
+  await waitFor(
+    windowRef,
+    "document.querySelector('.desktop-tab[data-tab=\"autopilot\"]')",
+    'desktop Aircraft tab button',
+  );
+  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"autopilot\"]')", 'Aircraft tab');
+  await waitFor(
+    windowRef,
+    "document.getElementById('tab-autopilot')?.classList.contains('active')",
+    'Aircraft tab activation',
+  );
+  await waitFor(
+    windowRef,
+    "document.getElementById('aircraft-find-input')",
+    'Aircraft page search input',
+  );
+
+  const shortcutFocusedSearch = await evaluate(windowRef, `(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'f',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+    return document.activeElement?.id === 'aircraft-find-input';
+  })();`);
+  assert.equal(shortcutFocusedSearch, true, 'Ctrl+F should focus Aircraft search while the Aircraft tab is active');
+
+  await setInputValue(windowRef, 'aircraft-find-input', 'gear');
+  await waitFor(
+    windowRef,
+    "document.getElementById('aircraft-find-status')?.textContent.includes(' of ')",
+    'Aircraft search match count',
+  );
+  await waitFor(
+    windowRef,
+    "document.querySelectorAll('[data-aircraft-find-match=\"true\"]').length >= 2 && document.querySelectorAll('[data-aircraft-find-current=\"true\"]').length === 1",
+    'Aircraft search match highlighting',
+  );
+
+  const navigationAdvanced = await evaluate(windowRef, `(() => {
+    const before = document.querySelector('[data-aircraft-find-current="true"]');
+    document.querySelector('[aria-label="Next match"]')?.click();
+    return before !== document.querySelector('[data-aircraft-find-current="true"]');
+  })();`);
+  assert.equal(navigationAdvanced, true, 'Aircraft search Next should advance to a different match');
+
+  await setInputValue(windowRef, 'aircraft-find-input', 'heading');
+  await waitFor(
+    windowRef,
+    "document.getElementById('aircraft-find-status')?.textContent.includes(' of ')",
+    'Aircraft search common abbreviation matching',
+  );
+  assert.ok(
+    await evaluate(windowRef, "document.querySelector('[data-aircraft-find-current=\"true\"]')?.textContent.includes('HDG')"),
+    'Aircraft search should find the cockpit HDG label from the plain-language heading query',
+  );
+
+  await setInputValue(windowRef, 'aircraft-find-input', 'landing light');
+  await waitFor(
+    windowRef,
+    "document.querySelector('[data-aircraft-find-current=\"true\"]')?.textContent.includes('LANDING')",
+    'generic landing-light control search match',
+  );
+
+  windowRef.setContentSize(390, 844);
+  await wait(150);
+  const mobileSearch = await evaluate(windowRef, `(() => {
+    const bar = document.querySelector('.aircraft-find');
+    const field = document.querySelector('.aircraft-find__field');
+    const buttons = [...document.querySelectorAll('.aircraft-find__navigation button')];
+    const genericLightButtons = [...document.querySelectorAll('.generic-light-command')];
+    if (!bar || !field || buttons.length !== 2) return { missing: true };
+    const barRect = bar.getBoundingClientRect();
+    const fieldRect = field.getBoundingClientRect();
+    return {
+      missing: false,
+      viewportWidth: window.innerWidth,
+      pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
+      barLeft: barRect.left,
+      barRight: barRect.right,
+      fieldHeight: fieldRect.height,
+      buttonSizes: buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }),
+      genericLightButtonCount: genericLightButtons.length,
+      undersizedGenericLightButtons: genericLightButtons.filter((button) => {
+        const rect = button.getBoundingClientRect();
+        return rect.width < 44 || rect.height < 44;
+      }).length,
+      position: getComputedStyle(bar).position,
+    };
+  })();`);
+  assert.equal(mobileSearch.missing, false, 'mobile Aircraft search controls should render');
+  assert.equal(mobileSearch.position, 'sticky', 'Aircraft search should remain reachable while scrolling on a phone');
+  assert.ok(mobileSearch.fieldHeight >= 44, 'mobile Aircraft search field should meet the 44px touch target');
+  assert.deepEqual(
+    mobileSearch.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
+    [],
+    'mobile Aircraft result navigation should use 44px touch targets',
+  );
+  assert.equal(mobileSearch.genericLightButtonCount, 10, 'generic Aircraft page should render explicit OFF/ON controls for five exterior lights');
+  assert.equal(mobileSearch.undersizedGenericLightButtons, 0, 'generic exterior-light controls should keep 44px phone touch targets');
+  assert.ok(mobileSearch.barLeft >= -2 && mobileSearch.barRight <= mobileSearch.viewportWidth + 2, 'mobile Aircraft search should fit the viewport');
+  assert.ok(mobileSearch.pageWidth <= mobileSearch.viewportWidth + 2, 'mobile Aircraft search should not introduce horizontal overflow');
+  windowRef.setContentSize(viewportWidth, viewportHeight);
+  await wait(150);
+
+  await click(windowRef, "document.querySelector('[aria-label=\"Clear Aircraft search\"]')", 'Aircraft search clear button');
+  await waitFor(
+    windowRef,
+    "document.getElementById('aircraft-find-input')?.value === '' && !document.querySelector('[data-aircraft-find-match]')",
+    'cleared Aircraft search state',
+  );
+}
+
 async function runLiveMapSmoke(windowRef) {
   await waitFor(
     windowRef,
@@ -822,6 +940,7 @@ async function runSmoke(windowRef) {
   await assertCompactFlightLayout(windowRef);
   await assertSimbriefLayout(windowRef);
   await runSettingsSmoke(windowRef);
+  await runAircraftSearchSmoke(windowRef);
   await runLiveMapSmoke(windowRef);
   await runTimelineSmoke(windowRef);
   await runReconnectSmoke(windowRef);

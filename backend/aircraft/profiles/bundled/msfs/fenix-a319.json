@@ -1,0 +1,44 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fenix-a319",
+  "name": "Fenix Airbus A319",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-08-12T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/fenix-a32x-base",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 120,
+      "titleContains": [
+        "Fenix A319",
+        "Fenix Airbus A319",
+        "Fenix Simulations A319",
+        "FNX319",
+        "FNX_319",
+        "FNX A319"
+      ],
+      "titleRegex": "(fenix|fnx).*(a319|319)|(a319|319).*(fenix|fnx)",
+      "configPathContains": [
+        "fnx_319",
+        "fenix-a319",
+        "fenix_a319",
+        "fenix a319"
+      ],
+      "configPathRegex": "(?:^|[\\\\/])(?:fenix|fnx)[^\\\\/]*(?:a?319)[^\\\\/]*[\\\\/]aircraft\\.cfg$"
+    }
+  },
+  "meta": {
+    "developer": "Fenix Simulations",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-08-12",
+    "status": "partial",
+    "notes": "Fenix A319 family profile for CFM, IAE, wingtip-fence, and sharklet variants. It activates the shared 118-field, 273-action trusted fenix-a32x adapter; variant-missing controls fail closed without live readback."
+  }
+}

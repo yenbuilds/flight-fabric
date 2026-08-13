@@ -798,7 +798,7 @@ async function main() {
     assert.equal(batcher.queuedCount(), 0, 'coalesced indexes should reset after the frame flush');
   });
 
-  await test('live positions bypass frame batching so background trail samples are retained', () => {
+  await test('authorization scope and live positions bypass frame batching', () => {
     const flushed = [];
     const rafCallbacks = [];
     const windowRef = {
@@ -822,6 +822,7 @@ async function main() {
 
     batcher.enqueue({ type: 'ias', value: 120 });
     batcher.enqueue({ type: 'ias', value: 124 });
+    batcher.enqueue({ type: 'authorizationScope', scope: 'aircraft-control' });
     batcher.enqueue({ type: 'position', lat: -37.67, lon: 144.84 });
     batcher.enqueue({ type: 'position', lat: -37.66, lon: 144.83 });
     batcher.enqueue({ type: 'position', lat: -37.65, lon: 144.82 });
@@ -829,11 +830,12 @@ async function main() {
     assert.deepEqual(
       flushed,
       [
+        { type: 'authorizationScope', scope: 'aircraft-control' },
         { type: 'position', lat: -37.67, lon: 144.84 },
         { type: 'position', lat: -37.66, lon: 144.83 },
         { type: 'position', lat: -37.65, lon: 144.82 },
       ],
-      'position history should not wait for a render frame that may be suspended',
+      'authorization changes and position history should not wait for a render frame that may be suspended',
     );
     assert.equal(batcher.queuedCount(), 1, 'display telemetry should remain bounded and frame-coalesced');
 
@@ -993,6 +995,51 @@ async function main() {
         style: 'standard',
       }],
       'message handler should forward cabin announcements through the injected runtime service',
+    );
+  });
+
+  await test('app message handler refreshes aircraft-control availability when authorization changes', () => {
+    let availabilityRefreshes = 0;
+    const handler = createAppMessageHandler({
+      alertRef: () => {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
+      getSimconnectTelemetryConnected: () => true,
+      setSimconnectTelemetryConnected: () => {},
+      getWasSimconnectConnected: () => false,
+      setWasSimconnectConnected: () => {},
+      getHasSeenFlightTelemetry: () => false,
+      markFlightTelemetryActive: () => {},
+      resetTelemetryDisplay: () => {},
+      setFlightState: () => {},
+      telemetryDisplay: {},
+      appPreferences: {},
+      autopilotPanel: {},
+      aircraftControl: {
+        updateAvailability() {
+          availabilityRefreshes += 1;
+        },
+      },
+      landingController: {},
+      telemetryWarnings: {},
+      statusIndicators: {},
+      lvarInspector: {},
+      appSettingsController: { apply() {} },
+      updateEngines: () => {},
+      flightStore: null,
+    });
+
+    handler({ type: 'authorizationScope', scope: 'aircraft-control' });
+    assert.equal(
+      availabilityRefreshes,
+      1,
+      'an acknowledged authorization upgrade should immediately refresh aircraft-control availability',
+    );
+
+    handler({ type: 'authorizationScope', scope: 'read-only' });
+    assert.equal(
+      availabilityRefreshes,
+      2,
+      'an authorization downgrade should immediately disable aircraft controls',
     );
   });
 
@@ -1677,6 +1724,8 @@ async function main() {
 
     const sent = [];
     const toasts = [];
+    let aircraftControlNowMs = 1000;
+    const aircraftControlTimers = [];
     let authorizationScope = 'read-only';
     const ws = {
       readyState: 1,
@@ -1732,6 +1781,15 @@ async function main() {
       showToast(kind, title, message) {
         toasts.push({ kind, title, message });
       },
+      now: () => aircraftControlNowMs,
+      setTimeoutRef(callback, delayMs) {
+        const timer = { callback, delayMs, cancelled: false };
+        aircraftControlTimers.push(timer);
+        return timer;
+      },
+      clearTimeoutRef(timer) {
+        if (timer) timer.cancelled = true;
+      },
     });
 
     const autopilotPanel = createAutopilotPanel({
@@ -1739,6 +1797,7 @@ async function main() {
       aircraftControl: controller,
       aircraftControlsStore,
       getCurrentState: () => ({ ias: 141, hdg: 92, alt: 11050, vs: -650 }),
+      now: () => aircraftControlNowMs,
     });
     autopilotPanel.bindControls();
     controller.setActiveProfileToken({
@@ -1928,6 +1987,60 @@ async function main() {
     });
     assert.equal(controller.updateAvailability().enabled, true, 'a fresh profile token should restore write availability');
 
+    aircraftControlsStore.applyControlCapabilities({
+      surface: {
+        parkingBrake: true,
+        spoilersPosition: true,
+        spoilersArm: true,
+      },
+      lights: {
+        landing: true,
+      },
+    });
+    const genericBaselineCommands = [
+      {
+        command: { type: 'preset', id: 'parkingBrakeSet' },
+        request: { control: 'parkingBrake', operation: 'set', value: true },
+      },
+      {
+        command: { type: 'preset', id: 'spoilersExtend' },
+        request: { control: 'spoilers', operation: 'set', value: 16383 },
+      },
+      {
+        command: { type: 'preset', id: 'spoilersArm' },
+        request: { control: 'spoilers', operation: 'arm' },
+      },
+      {
+        command: { type: 'light-set', light: 'landing', value: false },
+        request: { control: 'lights', target: 'landing', operation: 'set', value: false },
+      },
+    ];
+    for (const { command, request } of genericBaselineCommands) {
+      const requestIndex = sent.length;
+      assert.equal(
+        await aircraftControlsStore.requestControlCommand(command),
+        true,
+        `${command.id || command.light} should use the bounded generic control command path`,
+      );
+      assert.deepEqual(
+        sent[requestIndex],
+        {
+          type: 'executeAircraftControl',
+          requestId: sent[requestIndex].requestId,
+          profileKey: 'bundled/msfs/pmdg-777',
+          profileRevision: 4,
+          ...request,
+        },
+        `${command.id || command.light} should map to one fixed logical request`,
+      );
+    }
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({ type: 'light-set', light: 'logo', value: true }),
+      false,
+      'unknown light names should fail before reaching the websocket controller',
+    );
+    controller.clearPendingRequests();
+
     authorizationScope = 'full-control';
     assert.equal(controller.updateAvailability().enabled, true, 'a full-control session should retain aircraft-control availability');
 
@@ -1974,9 +2087,277 @@ async function main() {
       'an aircraft-specific result should clear the shared cockpit-control group pending state',
     );
 
+    const pulseRequests = {
+      autothrottle: { target: 'autothrottle', operation: 'toggle' },
+      verticalSpeedHold: { target: 'verticalSpeedHold', operation: 'toggle' },
+      altitudeHold: { target: 'altitudeHold', operation: 'toggle' },
+      machHold: { target: 'machHold', operation: 'toggle' },
+      headingHold: { target: 'headingHold', operation: 'toggle' },
+      flightDirector: { target: 'flightDirector', operation: 'toggle' },
+      apMaster: { target: 'master', operation: 'toggle' },
+      apDisconnect: { target: 'master', operation: 'set', value: false },
+      app: { target: 'app', operation: 'toggle' },
+      loc: { target: 'loc', operation: 'toggle' },
+      nav1: { target: 'nav1', operation: 'toggle' },
+      ins: { target: 'ins', operation: 'toggle' },
+      backcourse: { target: 'backcourse', operation: 'toggle' },
+    };
+    aircraftControlsStore.applyControlCapabilities({
+      autopilotPulse: Object.fromEntries(Object.keys(pulseRequests).map((commandId) => [commandId, true])),
+    });
+
+    for (const [commandId, expectedRequest] of Object.entries(pulseRequests)) {
+      const command = { type: 'autopilot-pulse', id: commandId };
+      const sentBeforePulse = sent.length;
+      assert.equal(
+        await aircraftControlsStore.requestControlCommand(command),
+        true,
+        `${commandId} should resolve through the Vue-owned autopilot pulse command path`,
+      );
+      assert.deepEqual(
+        sent[sentBeforePulse],
+        {
+          type: 'executeAircraftControl',
+          requestId: sent[sentBeforePulse].requestId,
+          profileKey: 'bundled/msfs/pmdg-777',
+          profileRevision: 4,
+          control: 'autopilot',
+          ...expectedRequest,
+        },
+        `${commandId} should map to its exact bounded autopilot request`,
+      );
+      assert.equal(
+        aircraftControlsStore.isCommandPending(command),
+        true,
+        `${commandId} should reserve its command-specific pending key`,
+      );
+      assert.equal(
+        aircraftControlsStore.isCommandDisabled(command),
+        true,
+        `${commandId} should block a duplicate UI dispatch while pending`,
+      );
+      assert.equal(
+        await aircraftControlsStore.requestControlCommand(command),
+        false,
+        `${commandId} duplicate dispatch should fail closed before reaching the controller`,
+      );
+      assert.equal(sent.length, sentBeforePulse + 1, `${commandId} duplicate must not reach the websocket bridge`);
+      controller.handleResult({
+        requestId: sent[sentBeforePulse].requestId,
+        ok: true,
+        resolvedBy: 'profile',
+        action: { type: 'key-event', name: `TRISTAR_${commandId.toUpperCase()}` },
+        backendSource: 'SimConnect',
+        profileKey: 'bundled/msfs/inibuilds-tristar',
+      });
+      assert.equal(
+        aircraftControlsStore.isCommandPending(command),
+        true,
+        `${commandId} result should preserve pending state through the physical-button cooldown`,
+      );
+      assert.equal(
+        aircraftControlsStore.isCommandDisabled(command),
+        true,
+        `${commandId} should stay disabled until the physical-button cooldown ends`,
+      );
+      const cooldownTimer = aircraftControlTimers.shift();
+      assert.ok(cooldownTimer, `${commandId} should schedule a minimum pending window`);
+      assert.equal(cooldownTimer.delayMs, 600, `${commandId} should use the bounded 600 ms pulse cooldown`);
+      aircraftControlNowMs += cooldownTimer.delayMs;
+      cooldownTimer.callback();
+      assert.equal(
+        aircraftControlsStore.isCommandPending(command),
+        false,
+        `${commandId} should become available when the cooldown window ends`,
+      );
+    }
+
+    assert.equal(
+      aircraftControlsStore.resolvePendingKey({ type: 'autopilot-pulse', id: 'apMaster' }),
+      aircraftControlsStore.resolvePendingKey({ type: 'autopilot-pulse', id: 'apDisconnect' }),
+      'AP A and AP DISC should share one physical-control pending key',
+    );
+
+    const sharedApPendingKey = aircraftControlsStore.resolvePendingKey({ type: 'autopilot-pulse', id: 'apMaster' });
+    const oldProfileRequestIndex = sent.length;
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({ type: 'autopilot-pulse', id: 'apMaster' }),
+      true,
+      'old profile should be able to reserve the shared AP key',
+    );
+    controller.resetProfileState('Aircraft changed. Waiting for profile capabilities.');
+    assert.equal(aircraftControlsStore.isCommandPending(sharedApPendingKey), false, 'profile reset should release old pending ownership');
+
+    controller.setActiveProfileToken({
+      _profileKey: 'bundled/msfs/inibuilds-tristar',
+      profileRevision: 5,
+    });
+    controller.applyControlCapabilities({ autopilotPulse: { apMaster: true, apDisconnect: true } });
+    controller.updateAvailability();
+    aircraftControlNowMs += 600;
+    const newProfileRequestIndex = sent.length;
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({ type: 'autopilot-pulse', id: 'apDisconnect' }),
+      true,
+      'new profile should acquire the same physical AP key after reset',
+    );
+    controller.handleResult({
+      requestId: sent[oldProfileRequestIndex].requestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'key-event', name: 'AP_MASTER' },
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+    });
+    assert.equal(aircraftControlsStore.isCommandPending(sharedApPendingKey), true, 'late old-profile result must not clear the new command');
+
+    controller.handleResult({
+      requestId: sent[newProfileRequestIndex].requestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'key-event', name: 'AUTOPILOT_OFF' },
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+    });
+    const staleCooldownTimer = aircraftControlTimers.shift();
+    assert.ok(staleCooldownTimer, 'new-profile acknowledgement should schedule its cooldown clear');
+    controller.resetProfileState('Aircraft changed again.');
+    assert.equal(staleCooldownTimer.cancelled, true, 'profile reset should cancel controller-owned cooldown timers');
+
+    controller.setActiveProfileToken({
+      _profileKey: 'bundled/msfs/inibuilds-tristar',
+      profileRevision: 6,
+    });
+    controller.applyControlCapabilities({ autopilotPulse: { apMaster: true, apDisconnect: true } });
+    controller.updateAvailability();
+    aircraftControlNowMs += 600;
+    const latestRequestIndex = sent.length;
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({ type: 'autopilot-pulse', id: 'apMaster' }),
+      true,
+      'latest profile should acquire the shared AP key',
+    );
+    staleCooldownTimer.callback();
+    assert.equal(aircraftControlsStore.isCommandPending(sharedApPendingKey), true, 'stale cancelled timer must not clear a later profile command');
+    controller.handleResult({
+      requestId: sent[latestRequestIndex].requestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'key-event', name: 'AP_MASTER' },
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+    });
+    const latestCooldownTimer = aircraftControlTimers.shift();
+    aircraftControlNowMs += latestCooldownTimer.delayMs;
+    latestCooldownTimer.callback();
+    assert.equal(aircraftControlsStore.isCommandPending(sharedApPendingKey), false, 'latest command should clear only through its own cooldown timer');
+
     autopilotPanel.resetState();
     assert.equal(aircraftControlsStore.autopilot.master, null, 'autopilot reset should clear the store-backed AP state to unknown');
     assert.equal(aircraftControlsStore.autopilot.spdDisplay, '---', 'autopilot reset should restore default selector values');
+  });
+
+  await test('aircraft control results require live request ownership across reset and replay', () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    setActivePinia(createPinia());
+
+    const aircraftControlsStore = useAircraftControlsStore();
+    const sent = [];
+    const toasts = [];
+    const controller = createAircraftControlController({
+      WebSocketRef: { OPEN: 1 },
+      getWs: () => ({ readyState: 1 }),
+      getWsSend: () => (payload) => sent.push(payload),
+      getAuthorizationScope: () => 'aircraft-control',
+      getSimconnectConnected: () => true,
+      aircraftControlsStore,
+      showToast(kind, title, message) {
+        toasts.push({ kind, title, message });
+      },
+    });
+    const pendingKey = 'preset:autopilotMasterToggle';
+
+    controller.setActiveProfileToken({
+      _profileKey: 'bundled/msfs/inibuilds-tristar',
+      profileRevision: 1,
+    });
+    controller.send(
+      { control: 'autopilot', target: 'master', operation: 'toggle' },
+      { pendingKey },
+    );
+    const staleRequestId = sent.at(-1).requestId;
+
+    controller.resetProfileState('Aircraft changed. Waiting for profile capabilities.');
+    controller.setActiveProfileToken({
+      _profileKey: 'bundled/msfs/inibuilds-tristar',
+      profileRevision: 2,
+    });
+    controller.updateAvailability();
+    controller.send(
+      { control: 'autopilot', target: 'master', operation: 'set', value: false },
+      { pendingKey },
+    );
+    const currentRequestId = sent.at(-1).requestId;
+    const feedbackBeforeRejectedResults = { ...aircraftControlsStore.feedback };
+    const pendingBeforeRejectedResults = { ...aircraftControlsStore.pendingCommands };
+    const toastCountBeforeRejectedResults = toasts.length;
+
+    controller.handleResult({
+      requestId: staleRequestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'key-event', name: 'AP_MASTER' },
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+    });
+    assert.deepEqual(
+      aircraftControlsStore.feedback,
+      feedbackBeforeRejectedResults,
+      'a late result invalidated by profile reset must not overwrite current request feedback',
+    );
+    assert.deepEqual(
+      aircraftControlsStore.pendingCommands,
+      pendingBeforeRejectedResults,
+      'a late result invalidated by profile reset must not mutate current pending ownership',
+    );
+    assert.equal(toasts.length, toastCountBeforeRejectedResults, 'a late result invalidated by profile reset must not emit a toast');
+
+    controller.handleResult({
+      requestId: 'ctrl-unknown-result',
+      ok: false,
+      code: 'unknown',
+      error: 'This unowned result must be ignored.',
+    });
+    assert.deepEqual(aircraftControlsStore.feedback, feedbackBeforeRejectedResults, 'an unknown request ID must fail closed without feedback');
+    assert.deepEqual(aircraftControlsStore.pendingCommands, pendingBeforeRejectedResults, 'an unknown request ID must fail closed without pending effects');
+    assert.equal(toasts.length, toastCountBeforeRejectedResults, 'an unknown request ID must fail closed without a toast');
+
+    controller.handleResult({
+      requestId: currentRequestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'key-event', name: 'AUTOPILOT_OFF' },
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+    });
+    assert.equal(aircraftControlsStore.isCommandPending(pendingKey), false, 'the currently owned result should still complete normally');
+    assert.equal(toasts.at(-1)?.kind, 'success', 'the currently owned result should still emit its success toast');
+
+    controller.send(
+      { control: 'autopilot', target: 'master', operation: 'toggle' },
+      { pendingKey },
+    );
+    const feedbackBeforeDuplicate = { ...aircraftControlsStore.feedback };
+    const pendingBeforeDuplicate = { ...aircraftControlsStore.pendingCommands };
+    const toastCountBeforeDuplicate = toasts.length;
+    controller.handleResult({
+      requestId: currentRequestId,
+      ok: false,
+      code: 'duplicate',
+      error: 'A replayed result must be ignored.',
+    });
+    assert.deepEqual(aircraftControlsStore.feedback, feedbackBeforeDuplicate, 'a consumed request ID must not overwrite newer feedback');
+    assert.deepEqual(aircraftControlsStore.pendingCommands, pendingBeforeDuplicate, 'a consumed request ID must not clear a newer pending command');
+    assert.equal(toasts.length, toastCountBeforeDuplicate, 'a consumed request ID must not emit a duplicate toast');
+
+    controller.clearPendingRequests();
   });
 
   console.log('\n--- status indicators ---\n');
@@ -5570,6 +5951,76 @@ async function main() {
     assert.equal(sent[0].settings.aircraft.profile, 'pmdg-777', 'store-backed save should serialize the Pinia settings editor state');
     runtimeApi.cleanup();
     assert.equal(settingsFormStore.saveActionBound, false, 'settings runtime cleanup should unbind save actions with missing optional field IDs');
+  });
+
+  await test('settings runtime never saves defaults before the first backend hydration', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+
+    const sent = [];
+    const ws = {
+      readyState: 1,
+      send(payload) {
+        sent.push(JSON.parse(payload));
+      },
+    };
+    const settingsEditorStore = useSettingsEditorStore();
+    const settingsFormStore = useSettingsFormStore();
+    const runtimeApi = initSettingsRuntime({
+      $: (id) => documentRef.getElementById(id),
+      getAppSettings: () => null,
+      getWs: () => ws,
+      settingsEditorStore,
+      settingsFormStore,
+      settingsUiStore: useSettingsUiStore(),
+      subscribeAppSettingsSignal: subscribeAppSettings,
+      appSettingsShared: sharedSettings,
+      windowRef,
+      WebSocketRef: { OPEN: 1 },
+      consoleRef: { warn() {} },
+    });
+
+    settingsEditorStore.remoteAccess = true;
+    await nextTick();
+    await nextTick();
+
+    assert.equal(settingsFormStore.saveEnabled, false, 'pre-hydration edits must not enable settings persistence');
+    assert.equal(await settingsFormStore.requestSave(), false, 'pre-hydration form submission must be rejected');
+    assert.equal(sent.length, 0, 'pre-hydration defaults must never reach the backend save route');
+
+    const persistedSettings = sharedSettings.normalizeAppSettings({
+      network: {
+        wsPort: 9123,
+        httpPort: 9124,
+        remoteAccess: false,
+      },
+      recording: { autoStart: false },
+    }, {
+      defaults: sharedSettings.APP_SETTINGS_DEFAULTS,
+    });
+    emitAppSettings({ settings: persistedSettings });
+    await nextTick();
+    await nextTick();
+
+    assert.equal(settingsEditorStore.remoteAccess, false, 'the first backend snapshot must replace pre-hydration form defaults and edits');
+    assert.equal(settingsEditorStore.wsPort, '9123', 'the first backend snapshot must hydrate persisted network settings');
+    assert.equal(settingsEditorStore.recordingAutoStart, false, 'the first backend snapshot must hydrate persisted non-network settings');
+    assert.equal(settingsFormStore.saveEnabled, false, 'initial hydration must establish a clean save baseline');
+
+    settingsEditorStore.remoteAccess = true;
+    await nextTick();
+    await nextTick();
+    assert.equal(settingsFormStore.saveEnabled, true, 'post-hydration edits should enable persistence normally');
+    assert.equal(await settingsFormStore.requestSave(), true, 'post-hydration settings should save normally');
+    assert.equal(sent.length, 1, 'post-hydration save should send one request');
+    assert.equal(sent[0].settings.network.remoteAccess, true, 'post-hydration save should include the trusted-LAN edit');
+    assert.equal(sent[0].settings.network.wsPort, 9123, 'post-hydration save should preserve the persisted network baseline');
+    assert.equal(sent[0].settings.recording.autoStart, false, 'post-hydration save should preserve unrelated persisted settings');
+
+    runtimeApi.cleanup();
   });
 
   console.log('\n--- section motion ---\n');

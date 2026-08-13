@@ -46,7 +46,7 @@ export const FRAME_COALESCED_MESSAGE_TYPES = new Set([
 // requestAnimationFrame for a minimized/backgrounded window. These messages
 // bypass the render-frame queue; all display-oriented telemetry remains
 // coalesced above.
-export const IMMEDIATE_MESSAGE_TYPES = new Set(['position']);
+export const IMMEDIATE_MESSAGE_TYPES = new Set(['authorizationScope', 'position']);
 
 function requireRuntimeStore(stores, storeName) {
   const store = stores?.[storeName] || null;

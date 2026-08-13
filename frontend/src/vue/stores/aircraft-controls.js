@@ -19,6 +19,16 @@ const DEFAULT_CONTROL_CAPABILITIES = Object.freeze({
     gearDown: true,
     flapsDecrease: true,
     flapsIncrease: true,
+    parkingBrake: false,
+    spoilersPosition: false,
+    spoilersArm: false,
+  }),
+  lights: Object.freeze({
+    nav: false,
+    beacon: false,
+    strobe: false,
+    landing: false,
+    taxi: false,
   }),
   autopilot: Object.freeze({
     master: true,
@@ -35,6 +45,21 @@ const DEFAULT_CONTROL_CAPABILITIES = Object.freeze({
     flightLevelChange: true,
     loc: true,
     app: true,
+  }),
+  autopilotPulse: Object.freeze({
+    autothrottle: false,
+    verticalSpeedHold: false,
+    altitudeHold: false,
+    machHold: false,
+    headingHold: false,
+    flightDirector: false,
+    apMaster: false,
+    apDisconnect: false,
+    app: false,
+    loc: false,
+    nav1: false,
+    ins: false,
+    backcourse: false,
   }),
 });
 
@@ -70,6 +95,12 @@ const PRESET_CAPABILITY_TARGETS = Object.freeze({
   gearDown: Object.freeze({ group: 'surface', key: 'gearDown' }),
   flapsDecrease: Object.freeze({ group: 'surface', key: 'flapsDecrease' }),
   flapsIncrease: Object.freeze({ group: 'surface', key: 'flapsIncrease' }),
+  parkingBrakeRelease: Object.freeze({ group: 'surface', key: 'parkingBrake' }),
+  parkingBrakeSet: Object.freeze({ group: 'surface', key: 'parkingBrake' }),
+  spoilersRetract: Object.freeze({ group: 'surface', key: 'spoilersPosition' }),
+  spoilersExtend: Object.freeze({ group: 'surface', key: 'spoilersPosition' }),
+  spoilersDisarm: Object.freeze({ group: 'surface', key: 'spoilersArm' }),
+  spoilersArm: Object.freeze({ group: 'surface', key: 'spoilersArm' }),
   autopilotMasterToggle: Object.freeze({ group: 'autopilot', key: 'master' }),
   autothrottleToggle: Object.freeze({ group: 'autopilot', key: 'autothrottle' }),
   flightDirectorToggle: Object.freeze({ group: 'autopilot', key: 'flightDirector' }),
@@ -90,6 +121,22 @@ const SELECTOR_ADJUST_CAPABILITY_KEYS = Object.freeze({
   hdg: 'heading',
   alt: 'altitude',
   vs: 'verticalSpeed',
+});
+
+const AUTOPILOT_PULSE_CAPABILITY_KEYS = Object.freeze({
+  autothrottle: 'autothrottle',
+  verticalSpeedHold: 'verticalSpeedHold',
+  altitudeHold: 'altitudeHold',
+  machHold: 'machHold',
+  headingHold: 'headingHold',
+  flightDirector: 'flightDirector',
+  apMaster: 'apMaster',
+  apDisconnect: 'apDisconnect',
+  app: 'app',
+  loc: 'loc',
+  nav1: 'nav1',
+  ins: 'ins',
+  backcourse: 'backcourse',
 });
 
 function cloneDefaults(defaults) {
@@ -137,6 +184,16 @@ function getCommandCapabilityTarget(commandOrKey) {
       const key = SELECTOR_ADJUST_CAPABILITY_KEYS[mode];
       return key ? { group: 'autopilot', key } : null;
     }
+    if (commandOrKey.startsWith('autopilot-pulse:')) {
+      const key = AUTOPILOT_PULSE_CAPABILITY_KEYS[commandOrKey.slice('autopilot-pulse:'.length)];
+      return key ? { group: 'autopilotPulse', key } : null;
+    }
+    if (commandOrKey.startsWith('light-set:')) {
+      const key = commandOrKey.slice('light-set:'.length);
+      return Object.prototype.hasOwnProperty.call(DEFAULT_CONTROL_CAPABILITIES.lights, key)
+        ? { group: 'lights', key }
+        : null;
+    }
     return null;
   }
 
@@ -150,6 +207,16 @@ function getCommandCapabilityTarget(commandOrKey) {
   if (commandOrKey.type === 'selector-adjust') {
     const key = SELECTOR_ADJUST_CAPABILITY_KEYS[commandOrKey.mode];
     return key ? { group: 'autopilot', key } : null;
+  }
+  if (commandOrKey.type === 'autopilot-pulse') {
+    const key = AUTOPILOT_PULSE_CAPABILITY_KEYS[commandOrKey.id];
+    return key ? { group: 'autopilotPulse', key } : null;
+  }
+  if (commandOrKey.type === 'light-set') {
+    const key = typeof commandOrKey.light === 'string' ? commandOrKey.light.trim() : '';
+    return Object.prototype.hasOwnProperty.call(DEFAULT_CONTROL_CAPABILITIES.lights, key)
+      ? { group: 'lights', key }
+      : null;
   }
   return null;
 }
@@ -226,11 +293,15 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
     applyControlCapabilities(capabilities = {}) {
       const defaults = getDefaultControlCapabilities();
       const incomingSurface = capabilities?.surface;
+      const incomingLights = capabilities?.lights;
       const incomingAutopilot = capabilities?.autopilot;
+      const incomingAutopilotPulse = capabilities?.autopilotPulse;
       this.controlCapabilities = {
         ...defaults,
         surface: mergeBooleanCapabilities(defaults.surface, incomingSurface),
+        lights: mergeBooleanCapabilities(defaults.lights, incomingLights),
         autopilot: mergeBooleanCapabilities(defaults.autopilot, incomingAutopilot),
+        autopilotPulse: mergeBooleanCapabilities(defaults.autopilotPulse, incomingAutopilotPulse),
       };
     },
 

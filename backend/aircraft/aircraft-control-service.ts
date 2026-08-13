@@ -86,9 +86,20 @@ const GENERIC_MSFS_ACTIONS: Record<string, any> = Object.freeze({
     increment: { type: 'key-event', name: 'FLAPS_INCR' },
     decrement: { type: 'key-event', name: 'FLAPS_DECR' },
   }),
+  parkingBrake: Object.freeze({
+    set: { type: 'key-event', name: 'PARKING_BRAKE_SET' },
+  }),
   spoilers: Object.freeze({
     arm: { type: 'key-event', name: 'SPOILERS_ARM_ON' },
     disarm: { type: 'key-event', name: 'SPOILERS_ARM_OFF' },
+    set: { type: 'key-event', name: 'SPOILERS_SET' },
+  }),
+  lights: Object.freeze({
+    nav: { type: 'key-event', name: 'NAV_LIGHTS_SET' },
+    beacon: { type: 'key-event', name: 'BEACON_LIGHTS_SET' },
+    strobe: { type: 'key-event', name: 'STROBES_SET' },
+    landing: { type: 'key-event', name: 'LANDING_LIGHTS_SET' },
+    taxi: { type: 'key-event', name: 'TAXI_LIGHTS_SET' },
   }),
   autobrake: Object.freeze({
     increment: { type: 'key-event', name: 'INCREASE_AUTOBRAKE_CONTROL' },
@@ -126,10 +137,14 @@ const GENERIC_MSFS_ACTIONS: Record<string, any> = Object.freeze({
     flightLevelChangeOff: { type: 'key-event', name: 'FLIGHT_LEVEL_CHANGE_OFF' },
   }),
   autopilotSelectors: Object.freeze({
-    speedSet: { type: 'key-event', name: 'AP_SPD_VAR_SET' },
-    headingSet: { type: 'key-event', name: 'HEADING_BUG_SET' },
-    altitudeSet: { type: 'key-event', name: 'AP_ALT_VAR_SET_ENGLISH' },
-    verticalSpeedSet: { type: 'key-event', name: 'AP_VS_VAR_SET_ENGLISH' },
+    // Slot 0 writes every managed selector slot. The current MSFS event
+    // contracts expose that slot as their second parameter, so keep it
+    // explicit instead of relying on the single-parameter API's implicit
+    // default (which some aircraft do not honor).
+    speedSet: { type: 'key-event', name: 'AP_SPD_VAR_SET', parameters: [0] },
+    headingSet: { type: 'key-event', name: 'HEADING_BUG_SET', parameters: [0] },
+    altitudeSet: { type: 'key-event', name: 'AP_ALT_VAR_SET_ENGLISH', parameters: [0] },
+    verticalSpeedSet: { type: 'key-event', name: 'AP_VS_VAR_SET_ENGLISH', parameters: [0] },
   }),
 });
 
@@ -180,6 +195,9 @@ const AUTOPILOT_ACTION_KEYS: Record<string, { setFalse?: string; setTrue?: strin
   }),
   nav1: Object.freeze({
     toggle: 'nav1Toggle',
+  }),
+  ins: Object.freeze({
+    toggle: 'insToggle',
   }),
   backcourse: Object.freeze({
     toggle: 'backcourseToggle',
@@ -245,11 +263,62 @@ const UI_AUTOPILOT_CAPABILITY_REQUESTS: Record<string, GenericRecord | readonly 
   ]),
 });
 
+const UI_AUTOPILOT_PULSE_CAPABILITY_REQUESTS: Record<string, GenericRecord> = Object.freeze({
+  autothrottle: Object.freeze({ control: 'autopilot', target: 'autothrottle', operation: 'toggle' }),
+  verticalSpeedHold: Object.freeze({ control: 'autopilot', target: 'verticalSpeedHold', operation: 'toggle' }),
+  altitudeHold: Object.freeze({ control: 'autopilot', target: 'altitudeHold', operation: 'toggle' }),
+  machHold: Object.freeze({ control: 'autopilot', target: 'machHold', operation: 'toggle' }),
+  headingHold: Object.freeze({ control: 'autopilot', target: 'headingHold', operation: 'toggle' }),
+  flightDirector: Object.freeze({ control: 'autopilot', target: 'flightDirector', operation: 'toggle' }),
+  apMaster: Object.freeze({ control: 'autopilot', target: 'master', operation: 'toggle' }),
+  apDisconnect: Object.freeze({ control: 'autopilot', target: 'master', operation: 'set', value: false }),
+  app: Object.freeze({ control: 'autopilot', target: 'app', operation: 'toggle' }),
+  loc: Object.freeze({ control: 'autopilot', target: 'loc', operation: 'toggle' }),
+  nav1: Object.freeze({ control: 'autopilot', target: 'nav1', operation: 'toggle' }),
+  ins: Object.freeze({ control: 'autopilot', target: 'ins', operation: 'toggle' }),
+  backcourse: Object.freeze({ control: 'autopilot', target: 'backcourse', operation: 'toggle' }),
+});
+
 const UI_SURFACE_CAPABILITY_REQUESTS: Record<string, GenericRecord | readonly GenericRecord[]> = Object.freeze({
   gearUp: Object.freeze({ control: 'gear', operation: 'up' }),
   gearDown: Object.freeze({ control: 'gear', operation: 'down' }),
   flapsDecrease: Object.freeze({ control: 'flaps', operation: 'decrement' }),
   flapsIncrease: Object.freeze({ control: 'flaps', operation: 'increment' }),
+  parkingBrake: Object.freeze([
+    Object.freeze({ control: 'parkingBrake', operation: 'set', value: false }),
+    Object.freeze({ control: 'parkingBrake', operation: 'set', value: true }),
+  ]),
+  spoilersPosition: Object.freeze([
+    Object.freeze({ control: 'spoilers', operation: 'set', value: 0 }),
+    Object.freeze({ control: 'spoilers', operation: 'set', value: 16383 }),
+  ]),
+  spoilersArm: Object.freeze([
+    Object.freeze({ control: 'spoilers', operation: 'disarm' }),
+    Object.freeze({ control: 'spoilers', operation: 'arm' }),
+  ]),
+});
+
+const UI_LIGHT_CAPABILITY_REQUESTS: Record<string, readonly GenericRecord[]> = Object.freeze({
+  nav: Object.freeze([
+    Object.freeze({ control: 'lights', target: 'nav', operation: 'set', value: false }),
+    Object.freeze({ control: 'lights', target: 'nav', operation: 'set', value: true }),
+  ]),
+  beacon: Object.freeze([
+    Object.freeze({ control: 'lights', target: 'beacon', operation: 'set', value: false }),
+    Object.freeze({ control: 'lights', target: 'beacon', operation: 'set', value: true }),
+  ]),
+  strobe: Object.freeze([
+    Object.freeze({ control: 'lights', target: 'strobe', operation: 'set', value: false }),
+    Object.freeze({ control: 'lights', target: 'strobe', operation: 'set', value: true }),
+  ]),
+  landing: Object.freeze([
+    Object.freeze({ control: 'lights', target: 'landing', operation: 'set', value: false }),
+    Object.freeze({ control: 'lights', target: 'landing', operation: 'set', value: true }),
+  ]),
+  taxi: Object.freeze([
+    Object.freeze({ control: 'lights', target: 'taxi', operation: 'set', value: false }),
+    Object.freeze({ control: 'lights', target: 'taxi', operation: 'set', value: true }),
+  ]),
 });
 
 const STANDARD_MSFS_SURFACE_FALLBACKS: Record<string, Set<string>> = Object.freeze({
@@ -289,6 +358,7 @@ const ALLOWED_XPLANE_VALUE_TYPES = new Set<string>([
 const MAX_ACTION_NAME_LENGTH = 160;
 const MAX_ACTION_UNIT_LENGTH = 48;
 const MAX_ACTION_PARAMETERS = 8;
+const MAX_KEY_EVENT_SECONDARY_PARAMETERS = 4;
 const MAX_STRING_ARGUMENT_LENGTH = 120;
 const MAX_NUMERIC_ARGUMENT_ABS = 1_000_000;
 const MAX_PROFILE_KEY_LENGTH = 180;
@@ -801,11 +871,26 @@ function resolveGenericMsfsActions(request: NormalizedControlRequest): GenericRe
     return cloneActionCandidates(GENERIC_MSFS_ACTIONS.flaps[request.operation]);
   }
 
+  if (request.control === 'parkingBrake') {
+    const normalizedValue = normalizeBoolean(request.value);
+    return request.operation === 'set' && normalizedValue !== null
+      ? applyActionValueCandidates(GENERIC_MSFS_ACTIONS.parkingBrake.set, normalizedValue)
+      : [];
+  }
+
   if (request.control === 'spoilers') {
+    if (request.operation === 'set') {
+      return applyActionValueCandidates(GENERIC_MSFS_ACTIONS.spoilers.set, request.value);
+    }
     const action = cloneAction(GENERIC_MSFS_ACTIONS.spoilers[request.operation]);
-    if (action) return [action];
-    return request.operation === 'set'
-      ? applyActionValueCandidates({ type: 'key-event', name: 'SPOILERS_SET' }, request.value)
+    return action ? [action] : [];
+  }
+
+  if (request.control === 'lights') {
+    const lightAction = GENERIC_MSFS_ACTIONS.lights[request.target];
+    const normalizedValue = normalizeBoolean(request.value);
+    return request.operation === 'set' && lightAction && normalizedValue !== null
+      ? applyActionValueCandidates(lightAction, normalizedValue)
       : [];
   }
 
@@ -973,6 +1058,19 @@ function validateResolvedAction(
       normalizedParameters.push(normalizedParameter.value as boolean | number | string);
     }
     action.parameters = normalizedParameters;
+
+    if (action.type === 'key-event') {
+      const hasExplicitValue = Object.prototype.hasOwnProperty.call(action, 'value');
+      const secondaryParameterCount = hasExplicitValue
+        ? normalizedParameters.length
+        : Math.max(0, normalizedParameters.length - 1);
+      if (secondaryParameterCount > MAX_KEY_EVENT_SECONDARY_PARAMETERS) {
+        return {
+          code: 'invalid_action',
+          error: 'Aircraft control key-event parameters exceed the native SimConnect limit.',
+        };
+      }
+    }
   }
 
   if (request.control === 'autobrake' && request.operation === 'set' && !isFiniteNumber(action.value)) {
@@ -981,11 +1079,21 @@ function validateResolvedAction(
       error: 'A numeric autobrake value is required.',
     };
   }
-  if (request.control === 'spoilers' && request.operation === 'set' && !isFiniteNumber(action.value)) {
-    return {
-      code: 'invalid_value',
-      error: 'A numeric spoiler value is required.',
-    };
+  if (request.control === 'spoilers' && request.operation === 'set') {
+    if (!isFiniteNumber(action.value) || Number(action.value) < 0 || Number(action.value) > 16383) {
+      return {
+        code: 'invalid_value',
+        error: 'A numeric spoiler value between 0 and 16383 is required.',
+      };
+    }
+  }
+  if (request.control === 'parkingBrake' || request.control === 'lights') {
+    if (request.operation !== 'set' || normalizeBoolean(request.value) === null) {
+      return {
+        code: 'invalid_value',
+        error: 'An explicit on or off value is required for this control.',
+      };
+    }
   }
   return null;
 }
@@ -1305,7 +1413,9 @@ function buildAircraftControlCapabilities(profile: unknown, options: ResolveOpti
 
   return {
     surface: buildControlCapabilityGroup(UI_SURFACE_CAPABILITY_REQUESTS, profile, options),
+    lights: buildControlCapabilityGroup(UI_LIGHT_CAPABILITY_REQUESTS, profile, options),
     autopilot: buildControlCapabilityGroup(UI_AUTOPILOT_CAPABILITY_REQUESTS, profile, options),
+    autopilotPulse: buildControlCapabilityGroup(UI_AUTOPILOT_PULSE_CAPABILITY_REQUESTS, profile, options),
     aircraftSpecific,
     aircraftSpecificDependencies: buildAircraftSpecificDependencies(profile, options),
   };

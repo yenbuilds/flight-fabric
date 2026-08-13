@@ -147,9 +147,9 @@
       "msfs2024"
     ],
     "contributor": "YenBuilds",
-    "updated": "2026-08-08",
+    "updated": "2026-08-12",
     "status": "partial",
-    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 119 documentation-backed logical read fields and 230 fixed semantic actions spanning FCU mode buttons, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. Irreversible fire/IDG/oxygen actions, presets, pushback motion, delayed landing-light sequences and unsupported custom FCU set events remain excluded."
+    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 124 documentation-backed logical read fields and 241 fixed semantic actions spanning FCU mode buttons, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Irreversible fire/IDG/oxygen actions, presets, pushback motion and unsupported custom FCU set events remain excluded."
   },
   "provenance": {
     "sources": [
@@ -160,8 +160,8 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A32NX Flight Deck API",
         "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-flightdeck-api/",
-        "retrievedAt": "2026-07-27",
-        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 and SPOILERS_SET. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build."
+        "retrievedAt": "2026-08-12",
+        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, LANDING_2_RETRACTED, LANDING_3_RETRACTED, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 and SPOILERS_SET. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build."
       },
       {
         "type": "official-docs",
@@ -170,7 +170,7 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A32NX Systems API",
         "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-systems-api/",
-        "retrievedAt": "2026-07-27",
+        "retrievedAt": "2026-08-12",
         "notes": "Documents A32NX_FLAPS_HANDLE_INDEX and the system-state variables used by the aircraft-specific page."
       },
       {
@@ -203,12 +203,12 @@
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-07-27",
+      "lastVerified": "2026-08-12",
       "knownIssues": [
         "Most expanded routes are documentation-backed but have not been live-validated across every stable and development A32NX release. A selector-only or otherwise cosmetic write fails with a confirmation timeout when the configured logical field does not reach the requested value; a matching selector readback still does not prove every downstream aircraft-system effect.",
         "FlyByWire states that its Flight Deck API table can lag current development. The adapter therefore uses only fixed bounded values, requires a fresh decodable preflight, serializes each physical control group, applies a 750 ms cooldown, never retries, and requires a newer confirming readback after dispatch.",
         "Strobe coordinates LIGHTING_STROBE_0, STROBE_0_AUTO and STROBES_SET, then confirms actual LIGHT STROBE output for OFF/ON or the AUTO flag for AUTO. It still needs combined selector, AUTO and exterior-output validation on current aircraft builds.",
-        "Landing, nose and runway-turnoff lights remain monitoring-only because FlyByWire documents coordinated circuit, retraction and 8-10 second extension behavior that the bounded sequence transport cannot perform atomically.",
+        "Landing, nose and runway-turnoff controls follow FlyByWire's documented selector, retraction and circuit contract. Landing-light ON waits 9 seconds before circuit energization; every delayed step revalidates the active profile generation and aborts if the aircraft changes. An interrupted sidecar or simulator connection can still leave a selector or retraction command partially applied, and these routes need live validation on current Stable and Development builds.",
         "Toggle-only standard events are presented as explicit targets only because the provider first requires a fresh matching readback and skips dispatch when the requested target is already satisfied. A changed target is dispatched once and must confirm.",
         "FlyByWire custom FCU set/push/pull events are not exposed because the current native runtime does not advertise custom InputEvent execution. Only the documented standard SimConnect FCU mode events with direct light readback are enabled.",
         "Fire, oxygen, irreversible IDG disconnect, flight-control-computer, preset loading/saving, pushback motion, raw flight axes and momentary controls without durable readback remain excluded.",

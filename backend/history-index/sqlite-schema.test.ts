@@ -40,7 +40,7 @@ test('history index schema initializes tables, indexes, and meta', (t) => {
   }
 
   withTempDb((db) => {
-    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v11');
+    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v12');
     const result = initializeHistoryIndexSchema(db);
     assert.equal(result.contractInvalidated, false);
     assert.equal(result.schemaVersion, HISTORY_INDEX_SCHEMA_VERSION);

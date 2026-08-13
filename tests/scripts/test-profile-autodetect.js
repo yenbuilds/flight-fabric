@@ -98,6 +98,74 @@ test('detects FBW A32NX from config-path hint when title lacks vendor', () => {
   assertEqual(profile.id, 'fbw-a32nx', 'profile ID');
 });
 
+test('detects Fenix A32x variants from product titles and package paths', () => {
+  const cases = [
+    ['Fenix Simulations A319 IAE Sharklets', undefined, 'fenix-a319'],
+    ['Fenix A320 CFM', undefined, 'fenix-a320'],
+    ['Fenix Simulations Airbus A321 LR', undefined, 'fenix-a321'],
+    [
+      'Unknown repaint',
+      'Community\\fnx-aircraft-319\\SimObjects\\Airplanes\\FNX_319\\aircraft.cfg',
+      'fenix-a319',
+    ],
+    [
+      'Unknown repaint',
+      'Community/fnx-aircraft-320/SimObjects/Airplanes/FNX_32X/aircraft.cfg',
+      'fenix-a320',
+    ],
+    [
+      'Unknown repaint',
+      'Community\\fnx-aircraft-321\\SimObjects\\Airplanes\\FNX_321\\aircraft.cfg',
+      'fenix-a321',
+    ],
+    [
+      'Fenix A320 CFM',
+      'C:\\MSFS FSLTL Addons\\Community\\fnx-aircraft-320\\SimObjects\\Airplanes\\FNX_32X\\aircraft.cfg',
+      'fenix-a320',
+    ],
+    [
+      'Fenix A320 CFM',
+      'C:\\PassiveAircraft Backup\\Community\\fnx-aircraft-320\\SimObjects\\Airplanes\\FNX_32X\\aircraft.cfg',
+      'fenix-a320',
+    ],
+  ];
+  for (const [title, hint, expectedId] of cases) {
+    const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
+    assertEqual(profile.id, expectedId, `${title} profile ID`);
+  }
+});
+
+test('Fenix A32x matchers reject traffic and passive-aircraft identities', () => {
+  const cases = [
+    ['FSLTL Fenix A319', undefined],
+    ['FSLTL Fenix A320', undefined],
+    ['FSLTL Fenix A321', undefined],
+    ['PassiveAircraft Fenix A320', undefined],
+    [
+      'Fenix A319 CFM',
+      'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_FNX_A319/aircraft.cfg',
+    ],
+    [
+      'Fenix A320 CFM',
+      'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_FNX_A320/aircraft.cfg',
+    ],
+    [
+      'Fenix A321 CFM',
+      'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_FNX_A321/aircraft.cfg',
+    ],
+    [
+      'Fenix A320 CFM',
+      'Official/OneStore/PassiveAircraft/SimObjects/Airplanes/FNX_A320/aircraft.cfg',
+    ],
+  ];
+  for (const [title, hint] of cases) {
+    const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
+    assertNotEqual(profile.id, 'fenix-a319', `${title} A319 profile ID`);
+    assertNotEqual(profile.id, 'fenix-a320', `${title} A320 profile ID`);
+    assertNotEqual(profile.id, 'fenix-a321', `${title} A321 profile ID`);
+  }
+});
+
 test('detects the Microsoft / iniBuilds A320neo V2 and A321LR from documented identity and package paths', () => {
   const cases = [
     ['Airbus A320neo (v2) - Microsoft / iniBuilds', undefined, 'inibuilds-a320neo-v2'],
@@ -288,6 +356,23 @@ test('detects iniBuilds TriStar from config-path hint when the title is generic'
     hint: 'Official/OneStore/inibuilds-aircraft-tristar/SimObjects/Airplanes/iniBuilds L1011/aircraft.cfg',
   });
   assertEqual(profile.id, 'inibuilds-tristar', 'profile ID');
+});
+
+test('iniBuilds TriStar matcher rejects traffic and passive-aircraft identities', () => {
+  const cases = [
+    [
+      'FSLTL iniBuilds L-1011 traffic',
+      'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_L1011/aircraft.cfg',
+    ],
+    [
+      'iniBuilds TriStar PassiveAircraft',
+      'Official/OneStore/fs-base-aircraft-common/PassiveAircraft/SimObjects/Airplanes/iniBuilds L1011/aircraft.cfg',
+    ],
+  ];
+  for (const [title, hint] of cases) {
+    const profile = profileLoader.detectProfile(title, { hint });
+    assertNotEqual(profile.id, 'inibuilds-tristar', `${title} profile ID`);
+  }
 });
 
 test('detects TFDi Design MD-11 from vendor-qualified titles and official path identifiers', () => {

@@ -70,7 +70,8 @@ Basic shape:
 Put aircraft behavior under `aircraft.*`:
 
 - flap detents
-- landing grade thresholds
+- landing grade thresholds (currently applied as profile overrides only for
+  category-A aircraft; other categories use the common transport policy)
 - landing configuration and telemetry used by debriefs
 - category A stability metadata and compatibility fields
 - engine count/type

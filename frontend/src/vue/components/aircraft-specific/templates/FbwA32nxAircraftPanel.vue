@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 
 const props = defineProps({
   values: { type: Object, default: () => ({}) },
@@ -11,7 +12,12 @@ const props = defineProps({
   isActionPending: { type: Function, default: () => false },
 });
 
+const aircraftControls = useAircraftControlsStore();
 const unavailableFields = computed(() => new Set(props.unavailable));
+const controlSessionReady = computed(() => (
+  props.sourceStatus === 'connected'
+  && aircraftControls.availability.enabled === true
+));
 
 const guidanceModes = [
   { id: 'flightGuidance.ap1', label: 'AP 1' },
@@ -95,7 +101,7 @@ const controlSections = [
   {
     id: 'lights-signs',
     title: 'Exterior Lights & Signs',
-    note: 'Landing, nose and runway turnoff lights are read-only.',
+    note: 'Landing lights take about 9 seconds to extend before they illuminate.',
     controls: [
       detentControl('STROBE', 'lights.strobeMode', 'lights.strobe', [
         ['off', 'OFF', 'off'],
@@ -104,6 +110,22 @@ const controlSections = [
       ]),
       toggleControl('BEACON', 'lights.beacon', 'lights.beacon'),
       toggleControl('WING', 'lights.wing', 'lights.wing'),
+      toggleControl('RWY TURNOFF', 'lights.runwayTurnoff', 'lights.runwayTurnoff'),
+      detentControl('NOSE', 'lights.noseMode', 'lights.nose', [
+        ['off', 'OFF', 'off'],
+        ['taxi', 'TAXI', 'taxi'],
+        ['takeoff', 'T.O.', 'takeoff'],
+      ]),
+      detentControl('LANDING LEFT', 'lights.landingLeftMode', 'lights.landingLeft', [
+        ['retract', 'RETRACT', 'retract'],
+        ['off', 'OFF', 'off'],
+        ['on', 'ON', 'on'],
+      ]),
+      detentControl('LANDING RIGHT', 'lights.landingRightMode', 'lights.landingRight', [
+        ['retract', 'RETRACT', 'retract'],
+        ['off', 'OFF', 'off'],
+        ['on', 'ON', 'on'],
+      ]),
       toggleControl('NAV', 'lights.nav', 'lights.nav'),
       toggleControl('LOGO', 'lights.logo', 'lights.logo'),
       toggleControl('SEAT BELTS', 'cabin.seatBelts', 'cabin.seatBelts'),
@@ -348,10 +370,13 @@ const exteriorIndicators = [
   { id: 'lights.nav', label: 'NAV' },
   { id: 'lights.logo', label: 'LOGO' },
   { id: 'lights.wing', label: 'WING' },
-  { id: 'lights.runwayTurnoff', label: 'RWY TURNOFF' },
+  { id: 'lights.runwayTurnoff', label: 'RWY L' },
+  { id: 'lights.runwayTurnoffRight', label: 'RWY R' },
   { id: 'lights.noseMode', label: 'NOSE' },
   { id: 'lights.landingLeftMode', label: 'LANDING L' },
   { id: 'lights.landingRightMode', label: 'LANDING R' },
+  { id: 'lights.landingLeftCircuitOn', label: 'LAND L LIT' },
+  { id: 'lights.landingRightCircuitOn', label: 'LAND R LIT' },
 ];
 
 const electricalIndicators = [
@@ -454,10 +479,26 @@ function groupPending(groupId) {
 }
 
 function actionDisabled(control, actionId) {
-  return props.sourceStatus !== 'connected'
+  return !controlSessionReady.value
     || controlValue(control) === null
     || !actionSupported(actionId)
     || groupPending(control.groupId);
+}
+
+function controlStatusId(control) {
+  return `fbw-control-status-${control.groupId.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+}
+
+function actionDisabledReason(control, actionId) {
+  if (!actionDisabled(control, actionId)) return '';
+  if (groupPending(control.groupId)) return 'Command pending.';
+  if (props.sourceStatus !== 'connected') return 'Waiting for live aircraft data.';
+  if (aircraftControls.availability.enabled !== true) {
+    return aircraftControls.availability.reason || 'Aircraft control is unavailable in this browser session.';
+  }
+  if (controlValue(control) === null) return 'Current aircraft state unavailable.';
+  if (!actionSupported(actionId)) return 'Compatible write transport unavailable.';
+  return 'Control temporarily unavailable.';
 }
 
 function requestControlAction(control, actionId) {
@@ -474,6 +515,9 @@ function actionButtonClass(selected) {
 function controlStatus(control) {
   if (groupPending(control.groupId)) return 'Command pending…';
   if (props.sourceStatus !== 'connected') return 'Waiting for the simulator.';
+  if (aircraftControls.availability.enabled !== true) {
+    return aircraftControls.availability.reason || 'Aircraft control is unavailable in this browser session.';
+  }
   if (controlValue(control) === null) return 'Current aircraft state unavailable.';
   if (!control.actions.some((action) => actionSupported(action.id))) {
     return 'This control is unavailable.';
@@ -599,13 +643,20 @@ function alignmentText() {
               :class="actionButtonClass(controlValue(control) === action.value)"
               :data-aircraft-action="action.id"
               :aria-pressed="controlValue(control) === action.value"
+              :aria-describedby="controlStatusId(control)"
+              :title="actionDisabledReason(control, action.id) || undefined"
               :disabled="actionDisabled(control, action.id)"
               @click="requestControlAction(control, action.id)"
             >
               {{ action.label }}
             </button>
           </div>
-          <p class="mt-2 text-[10px] leading-relaxed text-gray-500">{{ controlStatus(control) }}</p>
+          <p
+            :id="controlStatusId(control)"
+            class="mt-2 text-[10px] leading-relaxed text-gray-500"
+          >
+            {{ controlStatus(control) }}
+          </p>
         </div>
       </div>
     </div>
@@ -613,7 +664,7 @@ function alignmentText() {
     <div>
       <div class="dashboard-section-kicker">Exterior Light Readback</div>
       <p class="mb-2 text-[10px] leading-relaxed text-gray-500">
-        Landing, nose and runway turnoff lights are read-only.
+        Landing-light selector and illuminated-circuit states are tracked independently.
       </p>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div

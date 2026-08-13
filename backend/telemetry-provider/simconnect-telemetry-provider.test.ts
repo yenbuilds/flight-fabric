@@ -13,6 +13,7 @@ const {
   STANDARD_LIGHT_FALLBACK_SUBSCRIPTIONS,
 } = require('./simconnect-telemetry-provider');
 const aircraftIntegrationCatalog = require('../aircraft/aircraft-integrations');
+const { deepStrictEqual } = require('node:assert');
 const { 
   REQUIRED_DISPLAY_FIELDS,
   REQUIRED_SOURCE_FIELDS,
@@ -613,6 +614,26 @@ test('SimConnect provider preserves missing G-force and wind telemetry as unknow
   assertEqual(frame.flapsConfigurationAvailable, false, 'missing flap channels must stay unavailable');
 });
 
+test('SimConnect frame preserves the independent spoilers-armed readback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  provider._data = { spoilers: 0, spoilersArmed: 1 };
+
+  const frame = await provider.nextFrame();
+
+  assertEqual(frame.spoilers.armed, true, 'SPOILERS ARMED remains available beside normalized lever state');
+  assertEqual(frame.spoilers.state, 'ARMED', 'the shared spoiler state remains consistent with the armed flag');
+});
+
+test('SimConnect frame keeps missing spoilers-armed telemetry unavailable', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  provider._data = { spoilers: 0 };
+
+  const frame = await provider.nextFrame();
+
+  assertEqual(frame.spoilers.armed, null, 'missing SPOILERS ARMED must not be presented as disarmed');
+  assertEqual(frame.spoilers.state, 'STOWED', 'surface deployment state can still use the known handle position');
+});
+
 test('MSFS Facilities probe warms the nearest local airport once SimConnect is live', async () => {
   const provider = new SimConnectTelemetryProvider();
   const requested = [];
@@ -906,6 +927,39 @@ test('executeAircraftControlAction dispatches when the post-bridge profile gener
     profileKey: 'bundled/msfs/generic',
     profileRevision: 29,
   };
+  const sendEventCalls = [];
+  provider._getActiveAircraftControlProfileGeneration = () => ({ ...profileOptions });
+  provider._ensureControlWriteBridge = async () => ({
+    getSnapshot() {
+      return { source: 'mock-sidecar' };
+    },
+    async sendEvent(name, value, parameters) {
+      sendEventCalls.push({ name, value, parameters });
+      return { ok: true };
+    },
+  });
+
+  const result = await provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'HEADING_BUG_SET',
+    value: 275,
+    parameters: [0],
+  }, profileOptions);
+
+  assertEqual(result.ok, true, 'matching profile generation should dispatch');
+  assertDeepEqual(sendEventCalls, [{
+    name: 'HEADING_BUG_SET',
+    value: 275,
+    parameters: [0],
+  }], 'matching multi-parameter request should reach the native bridge once');
+});
+
+test('executeAircraftControlAction rejects key events that exceed the native five-parameter contract', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const profileOptions = {
+    profileKey: 'bundled/msfs/generic',
+    profileRevision: 30,
+  };
   let sendEventCalls = 0;
   provider._getActiveAircraftControlProfileGeneration = () => ({ ...profileOptions });
   provider._ensureControlWriteBridge = async () => ({
@@ -920,11 +974,95 @@ test('executeAircraftControlAction dispatches when the post-bridge profile gener
 
   const result = await provider.executeAircraftControlAction({
     type: 'key-event',
-    name: 'BEACON_LIGHTS_ON',
+    name: 'HEADING_BUG_SET',
+    value: 275,
+    parameters: [0, 1, 2, 3, 4],
   }, profileOptions);
 
-  assertEqual(result.ok, true, 'matching profile generation should dispatch');
-  assertEqual(sendEventCalls, 1, 'matching request should reach the native bridge once');
+  assertEqual(result.ok, false, 'too many additional event parameters should fail closed');
+  assertEqual(result.code, 'invalid_value', 'oversized event parameter payload code');
+  assertEqual(sendEventCalls, 0, 'invalid event parameters must not reach the native bridge');
+});
+
+test('TriStar AFCS pulses serialize physical controls and enforce a profile-scoped cooldown', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const tristarOptions = {
+    profileKey: 'bundled/msfs/inibuilds-tristar',
+    profileRevision: 31,
+  };
+  let activeGeneration = { ...tristarOptions };
+  let releaseFirstEvent = () => {};
+  let signalFirstEvent = () => {};
+  const firstEventGate = new Promise<void>((resolve) => {
+    releaseFirstEvent = resolve;
+  });
+  const firstEventStarted = new Promise<void>((resolve) => {
+    signalFirstEvent = resolve;
+  });
+  const events: string[] = [];
+  provider._getActiveAircraftControlProfileGeneration = () => ({ ...activeGeneration });
+  provider._ensureControlWriteBridge = async () => ({
+    getSnapshot() {
+      return { source: 'mock-sidecar' };
+    },
+    async sendEvent(name) {
+      events.push(name);
+      if (events.length === 1) {
+        signalFirstEvent();
+        await firstEventGate;
+      }
+      return { ok: true };
+    },
+  });
+
+  const firstMaster = provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'AP_MASTER',
+  }, tristarOptions);
+  await firstEventStarted;
+
+  const concurrentDisconnect = await provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'AUTOPILOT_OFF',
+  }, tristarOptions);
+  assertEqual(concurrentDisconnect.ok, false, 'AP disconnect must not race AP A');
+  assertEqual(concurrentDisconnect.code, 'action_in_flight', 'shared physical AP group rejects concurrent pulse');
+  assertEqual(events.length, 1, 'concurrent shared-group request never reaches SimConnect');
+
+  releaseFirstEvent();
+  assertEqual((await firstMaster).ok, true, 'first AP A pulse should complete');
+
+  const duplicateMaster = await provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'AP_MASTER',
+  }, tristarOptions);
+  assertEqual(duplicateMaster.ok, false, 'rapid duplicate AP A pulse must fail closed');
+  assertEqual(duplicateMaster.code, 'action_cooldown', 'rapid duplicate reports cooldown');
+  assertEqual(events.length, 1, 'cooldown request never reaches SimConnect');
+
+  const distinctHeading = await provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'AP_HDG_HOLD',
+  }, tristarOptions);
+  assertEqual(distinctHeading.ok, true, 'a distinct AFCS physical button keeps its own group');
+  assertEqual(events.length, 2, 'distinct AFCS pulse reaches SimConnect once');
+
+  const otherProfileOptions = {
+    profileKey: 'bundled/msfs/fenix-a320',
+    profileRevision: 32,
+  };
+  activeGeneration = { ...otherProfileOptions };
+  const otherFirst = await provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'AP_MASTER',
+  }, otherProfileOptions);
+  const otherSecond = await provider.executeAircraftControlAction({
+    type: 'key-event',
+    name: 'AP_MASTER',
+  }, otherProfileOptions);
+  assertEqual(otherFirst.ok, true, 'other profiles retain their existing AP behavior');
+  assertEqual(otherSecond.ok, true, 'TriStar cooldown does not leak into other profiles');
+  assertEqual(events.length, 4, 'both non-TriStar calls reach SimConnect');
 });
 
 const FBW_A32NX_PROFILE_KEY = 'bundled/msfs/fbw-a32nx';
@@ -990,6 +1128,256 @@ function stubFbwA32nxStrobeFields(provider) {
   );
 }
 
+const FENIX_A320_PROFILE_KEY = 'bundled/msfs/fenix-a320';
+const FENIX_A320_PROFILE_REVISION = 23;
+const FENIX_A32X_ADAPTER_ID = 'fenix-a32x';
+
+function fenixA320IntegrationOptions(actionId, value = undefined) {
+  return {
+    profileKey: FENIX_A320_PROFILE_KEY,
+    profileRevision: FENIX_A320_PROFILE_REVISION,
+    request: { actionId, ...(value === undefined ? {} : { value }) },
+  };
+}
+
+function stubFenixA320IntegrationFields(provider) {
+  const fields = {
+    'lights.beacon': {
+      id: 'lights.beacon',
+      source: { type: 'lvar', key: 'fenix_beacon' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.ap1': {
+      id: 'flightGuidance.ap1',
+      source: { type: 'lvar', key: 'fenix_ap1' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.speedValue': {
+      id: 'flightGuidance.speedValue',
+      source: { type: 'lvar', key: 'fenix_speed' },
+      decode: { type: 'number', precision: 2 },
+    },
+    'flightGuidance.speedManaged': {
+      id: 'flightGuidance.speedManaged',
+      source: { type: 'lvar', key: 'fenix_speed_managed' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.headingDeg': {
+      id: 'flightGuidance.headingDeg',
+      source: { type: 'lvar', key: 'fenix_heading' },
+      decode: { type: 'number', precision: 0 },
+    },
+    'flightGuidance.altitudeFt': {
+      id: 'flightGuidance.altitudeFt',
+      source: { type: 'lvar', key: 'fenix_altitude' },
+      decode: { type: 'number', precision: 0 },
+    },
+    'flightGuidance.altitudeIncrementMode': {
+      id: 'flightGuidance.altitudeIncrementMode',
+      source: { type: 'lvar', key: 'fenix_altitude_scale' },
+      decode: { type: 'enum', values: { 0: 'thousand', 1: 'hundred' } },
+    },
+  };
+  provider._getActiveAircraftIntegrationConfig = (profileKey, adapterId, profileRevision) => (
+    profileKey === FENIX_A320_PROFILE_KEY
+    && adapterId === FENIX_A32X_ADAPTER_ID
+    && profileRevision === FENIX_A320_PROFILE_REVISION
+      ? { profileKey, integrationId: adapterId, profileRevision }
+      : null
+  );
+  provider._getAircraftIntegrationFieldConfig = (profileKey, adapterId, fieldId, profileRevision) => (
+    profileKey === FENIX_A320_PROFILE_KEY
+    && adapterId === FENIX_A32X_ADAPTER_ID
+    && profileRevision === FENIX_A320_PROFILE_REVISION
+      ? fields[fieldId] || null
+      : null
+  );
+}
+
+function assertDeepEqual(actual, expected, msg) {
+  deepStrictEqual(actual, expected, msg);
+}
+
+const INIBUILDS_TRISTAR_PROFILE_KEY = 'bundled/msfs/inibuilds-tristar';
+const INIBUILDS_TRISTAR_PROFILE_REVISION = 31;
+const INIBUILDS_TRISTAR_ADAPTER_ID = 'inibuilds-tristar';
+
+function tristarIntegrationOptions(actionId, value = undefined) {
+  return {
+    profileKey: INIBUILDS_TRISTAR_PROFILE_KEY,
+    profileRevision: INIBUILDS_TRISTAR_PROFILE_REVISION,
+    request: { actionId, ...(value === undefined ? {} : { value }) },
+  };
+}
+
+function stubTriStarIntegrationFields(provider) {
+  const fields = {
+    'lights.beacon': {
+      id: 'lights.beacon',
+      source: { type: 'simvar', name: 'LIGHT BEACON', path: 'lights.beacon' },
+      decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+    },
+    'lights.logo': {
+      id: 'lights.logo',
+      source: { type: 'simvar', name: 'LIGHT LOGO', path: 'lights.logo' },
+      decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+    },
+  };
+  provider._getActiveAircraftIntegrationConfig = (profileKey, adapterId, profileRevision) => (
+    profileKey === INIBUILDS_TRISTAR_PROFILE_KEY
+    && adapterId === INIBUILDS_TRISTAR_ADAPTER_ID
+    && profileRevision === INIBUILDS_TRISTAR_PROFILE_REVISION
+      ? { profileKey, integrationId: adapterId, profileRevision }
+      : null
+  );
+  provider._getAircraftIntegrationFieldConfig = (profileKey, adapterId, fieldId, profileRevision) => (
+    profileKey === INIBUILDS_TRISTAR_PROFILE_KEY
+    && adapterId === INIBUILDS_TRISTAR_ADAPTER_ID
+    && profileRevision === INIBUILDS_TRISTAR_PROFILE_REVISION
+      ? fields[fieldId] || null
+      : null
+  );
+}
+
+const INIBUILDS_A330_PROFILE_KEY = 'bundled/msfs/inibuilds-a330';
+const INIBUILDS_A330_PROFILE_REVISION = 37;
+const INIBUILDS_A330_ADAPTER_ID = 'inibuilds-a330';
+
+function inibuildsA330IntegrationOptions(actionId, value = undefined) {
+  return {
+    profileKey: INIBUILDS_A330_PROFILE_KEY,
+    profileRevision: INIBUILDS_A330_PROFILE_REVISION,
+    request: { actionId, ...(value === undefined ? {} : { value }) },
+  };
+}
+
+function stubIniBuildsA330IntegrationFields(provider, fields) {
+  provider._getActiveAircraftIntegrationConfig = (profileKey, adapterId, profileRevision) => (
+    profileKey === INIBUILDS_A330_PROFILE_KEY
+    && adapterId === INIBUILDS_A330_ADAPTER_ID
+    && profileRevision === INIBUILDS_A330_PROFILE_REVISION
+      ? { profileKey, integrationId: adapterId, profileRevision }
+      : null
+  );
+  provider._getAircraftIntegrationFieldConfig = (profileKey, adapterId, fieldId, profileRevision) => (
+    profileKey === INIBUILDS_A330_PROFILE_KEY
+    && adapterId === INIBUILDS_A330_ADAPTER_ID
+    && profileRevision === INIBUILDS_A330_PROFILE_REVISION
+      ? fields[fieldId] || null
+      : null
+  );
+}
+
+test('iniBuilds A330 typed FCU target forwards the managed index and requires exact newer readback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const rustSnapshot: any = {
+    status: 'running',
+    updatedAt: new Date().toISOString(),
+  };
+  const events = [];
+  provider._data = { apHdgTargetDeg: 180 };
+  provider._rustSimvarSnapshotSequence = 4;
+  provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      provider._data.apHdgTargetDeg = value;
+      provider._rustSimvarSnapshotSequence += 1;
+      rustSnapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubIniBuildsA330IntegrationFields(provider, {
+    'flightGuidance.headingDeg': {
+      id: 'flightGuidance.headingDeg',
+      source: {
+        type: 'simvar',
+        name: 'AUTOPILOT HEADING LOCK DIR',
+        path: 'fdm.apHdgTargetDeg',
+      },
+      decode: { type: 'number', precision: 0 },
+    },
+  });
+
+  const action = {
+    type: 'aircraft-integration',
+    name: INIBUILDS_A330_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const result = await provider.executeAircraftControlAction(
+    action,
+    inibuildsA330IntegrationOptions('flightGuidance.heading.set', 273),
+  );
+  assertEqual(result.ok, true, 'typed A330 heading target should confirm');
+  assertEqual(result.confirmedValue, 273, 'confirmation uses the exact requested heading');
+  assertDeepEqual(events, [{
+    name: 'HEADING_BUG_SET',
+    value: 273,
+    parameters: [0],
+  }], 'the validated heading and fixed managed index dispatch once');
+
+  const invalid = await provider.executeAircraftControlAction(
+    action,
+    inibuildsA330IntegrationOptions('flightGuidance.heading.set', 360),
+  );
+  assertEqual(invalid.ok, false, 'out-of-domain A330 heading should fail closed');
+  assertEqual(invalid.code, 'invalid_value', 'invalid typed target retains its validation code');
+  assertEqual(events.length, 1, 'invalid input never reaches SimConnect');
+});
+
+test('iniBuilds A330 light targets always dispatch despite a satisfied output readback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const events = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubIniBuildsA330IntegrationFields(provider, {});
+  provider._captureAircraftIntegrationReadback = () => ({
+    observed: false,
+    sequence: 7,
+    fresh: true,
+    sourceId: 'simvar:lightStates',
+  });
+  provider._waitForAircraftIntegrationReadback = async () => ({
+    confirmed: true,
+    observed: false,
+    sequence: 8,
+    fresh: true,
+    sequenceAdvanced: true,
+  });
+
+  const result = await provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: INIBUILDS_A330_ADAPTER_ID,
+    verification: 'untested',
+  }, inibuildsA330IntegrationOptions('lights.beacon.off'));
+
+  assertEqual(result.ok, true, 'newer output readback should confirm the requested light state');
+  assertEqual(result.noOp, undefined, 'output state alone must not suppress selector reconciliation');
+  assertDeepEqual(events, [{
+    name: 'BEACON_LIGHTS_SET',
+    value: 0,
+    parameters: [0],
+  }], 'the deterministic light event dispatches exactly once');
+});
+
 test('initial LVAR bridge start establishes provider subscriptions only once', async (t) => {
   const provider = new SimConnectTelemetryProvider();
   const reloadReasons: string[] = [];
@@ -1014,6 +1402,169 @@ test('initial LVAR bridge start establishes provider subscriptions only once', a
 
   assertEqual(reloadReasons.length, 1, 'initial bridge start should load subscriptions once');
   assertEqual(reloadReasons[0], 'provider-start', 'initial subscription load reason');
+});
+
+test('TriStar light actions require fresh readback, confirm once, and preserve toggle idempotence', async () => {
+  const integrationAction = {
+    type: 'aircraft-integration',
+    name: INIBUILDS_TRISTAR_ADAPTER_ID,
+    verification: 'untested',
+  };
+
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: INIBUILDS_TRISTAR_PROFILE_KEY,
+    values: { standard_light_states: 0 },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+  };
+  const events = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value) {
+      events.push({ name, value });
+      snapshot.values.standard_light_states = 1 << 1;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubTriStarIntegrationFields(provider);
+
+  const beaconOn = await provider.executeAircraftControlAction(
+    integrationAction,
+    tristarIntegrationOptions('lights.beacon.setOn'),
+  );
+  assertEqual(beaconOn.ok, true, 'fresh deterministic light action should confirm');
+  assertEqual(beaconOn.confirmedValue, true, 'beacon readback confirms ON');
+  assertEqual(events.length, 1, 'deterministic light event executes exactly once');
+  assertEqual(events[0].name, 'BEACON_LIGHTS_ON', 'adapter owns the documented beacon ON event');
+  assertEqual(events[0].value, 0, 'adapter owns the fixed bounded event payload');
+
+  const satisfiedProvider = new SimConnectTelemetryProvider();
+  const satisfiedSnapshot: any = {
+    source: 'mock-sidecar',
+    profileId: INIBUILDS_TRISTAR_PROFILE_KEY,
+    values: { standard_light_states: 1 << 8 },
+    snapshotSequence: 7,
+    updatedAt: new Date().toISOString(),
+  };
+  let toggleCalls = 0;
+  const satisfiedBridge = {
+    _started: true,
+    getSnapshot: () => satisfiedSnapshot,
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent() {
+      toggleCalls += 1;
+      return { ok: true };
+    },
+  };
+  satisfiedProvider._lvarBridge = satisfiedBridge;
+  satisfiedProvider._ensureControlWriteBridge = async () => satisfiedBridge;
+  stubTriStarIntegrationFields(satisfiedProvider);
+  const logoAlreadyOn = await satisfiedProvider.executeAircraftControlAction(
+    integrationAction,
+    tristarIntegrationOptions('lights.logo.setOn'),
+  );
+  assertEqual(logoAlreadyOn.ok, true, 'already-satisfied logo intent should succeed');
+  assertEqual(logoAlreadyOn.idempotent, true, 'toggle-backed logo intent is an idempotent no-op');
+  assertEqual(logoAlreadyOn.noOp, true, 'same-state logo intent reports no native write');
+  assertEqual(toggleCalls, 0, 'same-state logo intent must not fire TOGGLE_LOGO_LIGHTS');
+
+  const staleProvider = new SimConnectTelemetryProvider();
+  const staleSnapshot = {
+    source: 'mock-sidecar',
+    profileId: INIBUILDS_TRISTAR_PROFILE_KEY,
+    values: { standard_light_states: 0 },
+    snapshotSequence: 3,
+    updatedAt: '2020-01-01T00:00:00.000Z',
+  };
+  let staleDispatches = 0;
+  const staleBridge = {
+    _started: true,
+    getSnapshot: () => staleSnapshot,
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent() {
+      staleDispatches += 1;
+      return { ok: true };
+    },
+  };
+  staleProvider._lvarBridge = staleBridge;
+  staleProvider._ensureControlWriteBridge = async () => staleBridge;
+  stubTriStarIntegrationFields(staleProvider);
+  const staleResult = await staleProvider.executeAircraftControlAction(
+    integrationAction,
+    tristarIntegrationOptions('lights.beacon.setOn'),
+  );
+  assertEqual(staleResult.ok, false, 'stale light output must fail closed');
+  assertEqual(staleResult.code, 'aircraft_integration_readback_unavailable', 'stale preflight code');
+  assertEqual(staleDispatches, 0, 'stale preflight cannot dispatch a light event');
+});
+
+test('TriStar selector step completes on transport acknowledgement without inventing readback', async () => {
+  const integrationAction = {
+    type: 'aircraft-integration',
+    name: INIBUILDS_TRISTAR_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const buildSelectorProvider = (accepted = true) => {
+    const provider = new SimConnectTelemetryProvider();
+    const bridgeSnapshot = {
+      source: 'mock-sidecar',
+      profileId: INIBUILDS_TRISTAR_PROFILE_KEY,
+      values: {},
+      snapshotSequence: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    const events = [];
+    const bridge = {
+      _started: true,
+      getSnapshot: () => bridgeSnapshot,
+      async setNamedVar() {
+        return { ok: true };
+      },
+      async sendEvent(name, value) {
+        events.push({ name, value });
+        return accepted ? { ok: true } : { ok: false, error: 'Rejected for test.' };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubTriStarIntegrationFields(provider);
+    return { provider, bridge, events };
+  };
+
+  const accepted = buildSelectorProvider();
+  const acceptedResult = await accepted.provider.executeAircraftControlAction(
+    integrationAction,
+    tristarIntegrationOptions('afcs.heading.increase'),
+  );
+  assertEqual(acceptedResult.ok, true, 'accepted selector event should complete');
+  assertEqual(acceptedResult.transportAcknowledged, true, 'result should identify acknowledgement-only completion');
+  assertEqual(acceptedResult.confirmedValue, undefined, 'selector result must not invent a cockpit value');
+  assertEqual(accepted.events.length, 1, 'selector event dispatches exactly once');
+  assertEqual(accepted.events[0].name, 'HEADING_BUG_INC', 'adapter owns the documented heading event');
+  assertEqual(accepted.events[0].value, 0, 'selector event payload is fixed');
+
+  const rejected = buildSelectorProvider(false);
+  const rejectedResult = await rejected.provider.executeAircraftControlAction(
+    integrationAction,
+    tristarIntegrationOptions('afcs.heading.increase'),
+  );
+  assertEqual(rejectedResult.ok, false, 'a rejected selector event should fail');
+  assertEqual(rejectedResult.code, 'simconnect_sequence_execution_failed', 'transport rejection should retain its exact failure code');
+  assertEqual(rejected.events.length, 1, 'a rejected selector event is never retried');
 });
 
 test('FBW strobe uses a native coordinated sequence and confirms actual light output', async () => {
@@ -1070,6 +1621,106 @@ test('FBW strobe uses a native coordinated sequence and confirms actual light ou
   assertEqual(operations[0].name, 'L:LIGHTING_STROBE_0', 'selector position is first');
   assertEqual(operations[1].name, 'L:STROBE_0_AUTO', 'AUTO mode flag is second');
   assertEqual(operations[2].name, 'STROBES_SET', 'actual light event is last');
+});
+
+test('coordinated aircraft sequence supports bounded SimVar writes and delays', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const writes = [];
+  const bridge = {
+    async sendEvent() {
+      return { ok: true };
+    },
+    async setNamedVar(operation) {
+      writes.push(operation);
+      return { ok: true };
+    },
+  };
+
+  const result = await provider._executeAircraftIntegrationSimConnectSequence(bridge, [
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:18', unit: 'Bool', value: 0 },
+    { type: 'delay', milliseconds: 1 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:18', unit: 'Bool', value: 1 },
+  ]);
+
+  assertEqual(result.ok, true, 'bounded delayed SimVar sequence should execute');
+  assertEqual(writes.length, 2, 'the delay must not create an extra native write');
+  assertEqual(writes[0].name, 'CIRCUIT SWITCH ON:18', 'the writable SimVar name stays adapter-owned');
+  assertEqual(writes[0].dataType, 'bool', 'boolean circuit writes use the native bool data type');
+  assertEqual(writes[1].value, 1, 'the post-delay target is dispatched last');
+});
+
+test('coordinated aircraft sequence forwards at most four trusted secondary event parameters', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const events = [];
+  const bridge = {
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      return { ok: true };
+    },
+    async setNamedVar() {
+      return { ok: true };
+    },
+  };
+
+  const accepted = await provider._executeAircraftIntegrationSimConnectSequence(bridge, [{
+    type: 'event',
+    name: 'HEADING_BUG_SET',
+    value: 275,
+    parameters: [0],
+  }]);
+  assertEqual(accepted.ok, true, 'one fixed managed-index parameter should execute');
+  assertDeepEqual(events, [{
+    name: 'HEADING_BUG_SET',
+    value: 275,
+    parameters: [0],
+  }], 'the native bridge receives the adapter-owned secondary parameter');
+
+  const rejected = await provider._executeAircraftIntegrationSimConnectSequence(bridge, [{
+    type: 'event',
+    name: 'HEADING_BUG_SET',
+    value: 275,
+    parameters: [0, 1, 2, 3, 4],
+  }]);
+  assertEqual(rejected.ok, false, 'five secondary parameters exceed the native contract');
+  assertEqual(events.length, 1, 'an oversized parameter list never reaches the bridge');
+});
+
+test('delayed aircraft sequence aborts before its final write when the profile changes', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const writes = [];
+  let generationChecks = 0;
+  provider._getActiveAircraftIntegrationConfig = () => {
+    generationChecks += 1;
+    return generationChecks < 3 ? {} : null;
+  };
+  const bridge = {
+    async sendEvent() {
+      return { ok: true };
+    },
+    async setNamedVar(operation) {
+      writes.push(operation);
+      return { ok: true };
+    },
+  };
+
+  const result = await provider._executeAircraftIntegrationSimConnectSequence(
+    bridge,
+    [
+      { type: 'lvar', name: 'L:LANDING_2_RETRACTED', unit: 'Number', value: 0 },
+      { type: 'delay', milliseconds: 1 },
+      { type: 'simvar', name: 'CIRCUIT SWITCH ON:18', unit: 'Bool', value: 1 },
+    ],
+    {
+      profileKey: FBW_A32NX_PROFILE_KEY,
+      profileRevision: FBW_A32NX_PROFILE_REVISION,
+      adapterId: FBW_A32NX_ADAPTER_ID,
+    },
+  );
+
+  assertEqual(result.ok, false, 'profile change must abort a delayed sequence');
+  assertEqual(/profile changed/.test(result.error), true, 'abort should explain the stale aircraft generation');
+  assertEqual(writes.length, 1, 'the final circuit write must not reach a different aircraft');
+  assertEqual(writes[0].name, 'L:LANDING_2_RETRACTED', 'only the pre-delay write is accepted');
 });
 
 test('FBW strobe selector movement cannot confirm while actual light output stays off', async () => {
@@ -1338,6 +1989,510 @@ test('FBW fixed LVAR actions confirm once and same-target toggle actions are saf
   assertEqual(events.length, 1, 'changed target dispatches exactly once');
   assertEqual(events[0].name, 'ENGINE_BLEED_AIR_SOURCE_TOGGLE', 'adapter owns the documented event');
   assertEqual(events[0].value, 1, 'engine index remains fixed and bounded');
+});
+
+function buildFenixFcuProvider(initialValues, executeCode) {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FENIX_A320_PROFILE_KEY,
+    values: { ...initialValues },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+    mobiflight: {
+      state: 'connected',
+      connected: true,
+      available: true,
+      error: null,
+    },
+  };
+  const codes = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async executeMobiFlightCode(code) {
+      codes.push(code);
+      return executeCode
+        ? executeCode({ code, codes, provider, snapshot })
+        : { ok: true };
+    },
+    async setNamedVar() {
+      throw new Error('Fenix FCU actions must never fall through to direct LVAR writes.');
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFenixA320IntegrationFields(provider);
+  return { bridge, codes, provider, snapshot };
+}
+
+test('Fenix FCU momentary targets emit one press/release pair and same-state requests are no-ops', async () => {
+  const pulseCode = '(L:S_FCU_AP1, Number) ++ (>L:S_FCU_AP1, Number)';
+  const changed = buildFenixFcuProvider({ fenix_ap1: 0 }, ({ codes, snapshot }) => {
+    if (codes.length === 2) {
+      snapshot.values.fenix_ap1 = 1;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+    }
+    return { ok: true };
+  });
+  const action = {
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const result = await changed.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.ap1.on'),
+  );
+  assertEqual(result.ok, true, 'newer AP1 state should confirm the momentary target');
+  assertEqual(JSON.stringify(changed.codes), JSON.stringify([pulseCode, pulseCode]), 'press and release use the audited counter increment');
+
+  const satisfied = buildFenixFcuProvider({ fenix_ap1: 1 }, () => {
+    throw new Error('same-state AP1 target must not dispatch');
+  });
+  const noOp = await satisfied.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.ap1.on'),
+  );
+  assertEqual(noOp.ok, true, 'same-state AP1 target should succeed');
+  assertEqual(noOp.noOp, true, 'same-state AP1 target is an explicit no-op');
+  assertEqual(satisfied.codes.length, 0, 'same-state AP1 target emits no pulse');
+
+  const releaseFailure = buildFenixFcuProvider({ fenix_ap1: 0 }, ({ codes }) => (
+    codes.length === 2 ? { ok: false, error: 'release rejected' } : { ok: true }
+  ));
+  const failed = await releaseFailure.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.ap1.on'),
+  );
+  assertEqual(failed.ok, false, 'release failure must remain explicit');
+  assertEqual(failed.code, 'mobiflight_execution_failed', 'release failure maps through MobiFlight diagnostics');
+  assertEqual(releaseFailure.codes.length, 2, 'failed release is never retried or followed by fallback');
+});
+
+test('Fenix FCU pulse best-effort releases after an aircraft generation change', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  let active = true;
+  const codes = [];
+  provider._getActiveAircraftIntegrationConfig = () => (active ? {} : null);
+  const code = '(L:S_FCU_AP1, Number) ++ (>L:S_FCU_AP1, Number)';
+  const result = await provider._executeAircraftIntegrationMobiFlightRoute(
+    {
+      async executeMobiFlightCode(value) {
+        codes.push(value);
+        if (codes.length === 1) active = false;
+        return { ok: true };
+      },
+    },
+    {
+      mode: 'pulse',
+      pressCode: code,
+      releaseCode: code,
+      delayMs: 1,
+    },
+    {},
+    undefined,
+    { observed: false },
+    { profileKey: FENIX_A320_PROFILE_KEY, adapterId: FENIX_A32X_ADAPTER_ID, profileRevision: 1 },
+  );
+  assertEqual(result.ok, false, 'generation change after press must report stale');
+  assertEqual(result.code, 'stale_profile', 'generation failure stays distinguishable');
+  assertEqual(JSON.stringify(codes), JSON.stringify([code, code]), 'accepted press still gets one best-effort release');
+
+  const changedDuringReleaseProvider = new SimConnectTelemetryProvider();
+  let releaseActive = true;
+  let releaseCalls = 0;
+  changedDuringReleaseProvider._getActiveAircraftIntegrationConfig = () => (
+    releaseActive ? {} : null
+  );
+  const changedDuringRelease = await changedDuringReleaseProvider._executeAircraftIntegrationMobiFlightRoute(
+    {
+      async executeMobiFlightCode() {
+        releaseCalls += 1;
+        if (releaseCalls === 2) releaseActive = false;
+        return { ok: true };
+      },
+    },
+    { mode: 'pulse', pressCode: code, releaseCode: code, delayMs: 1 },
+    {},
+    undefined,
+    { observed: false },
+    { profileKey: FENIX_A320_PROFILE_KEY, adapterId: FENIX_A32X_ADAPTER_ID, profileRevision: 1 },
+  );
+  assertEqual(changedDuringRelease.ok, false, 'generation change while release awaits acknowledgement must report stale');
+  assertEqual(changedDuringRelease.code, 'stale_profile', 'post-release generation failure stays distinguishable');
+  assertEqual(releaseCalls, 2, 'generation change during release emits no extra calculator command');
+
+  const failedProvider = new SimConnectTelemetryProvider();
+  let failedActive = true;
+  let failedCalls = 0;
+  failedProvider._getActiveAircraftIntegrationConfig = () => (failedActive ? {} : null);
+  const failedRelease = await failedProvider._executeAircraftIntegrationMobiFlightRoute(
+    {
+      async executeMobiFlightCode() {
+        failedCalls += 1;
+        if (failedCalls === 1) {
+          failedActive = false;
+          return { ok: true };
+        }
+        return { ok: false, error: 'release rejected after profile change' };
+      },
+    },
+    { mode: 'pulse', pressCode: code, releaseCode: code, delayMs: 1 },
+    {},
+    undefined,
+    { observed: false },
+    { profileKey: FENIX_A320_PROFILE_KEY, adapterId: FENIX_A32X_ADAPTER_ID, profileRevision: 1 },
+  );
+  assertEqual(failedRelease.ok, false, 'failed best-effort release must remain explicit');
+  assertEqual(failedRelease.error, 'release rejected after profile change', 'release failure must not be masked as stale');
+  assertEqual(failedCalls, 2, 'combined stale/failure path still attempts exactly one release');
+});
+
+test('Fenix FCU numeric targets use bounded shortest-path calculator steps and exact readback', async () => {
+  const increaseSpeed = '(L:E_FCU_SPEED, Number) ++ (>L:E_FCU_SPEED, Number)';
+  const action = {
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  };
+
+  const satisfiedSpeed = buildFenixFcuProvider({ fenix_speed: 250 }, () => {
+    throw new Error('same-target speed must not dispatch');
+  });
+  const speedNoOp = await satisfiedSpeed.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 250),
+  );
+  assertEqual(speedNoOp.ok, true, 'same-target speed should succeed');
+  assertEqual(speedNoOp.idempotent, true, 'same-target speed is reported as idempotent');
+  assertEqual(speedNoOp.noOp, true, 'same-target speed is an explicit no-op');
+  assertEqual(satisfiedSpeed.codes.length, 0, 'same-target speed emits no calculator step');
+
+  // Preconditions protect physical dispatch, not a target that is already
+  // satisfied. A same-target altitude request must remain a true no-op even
+  // if the pilot has since changed the 100/1000 selector.
+  const satisfiedAltitude = buildFenixFcuProvider({
+    fenix_altitude: 10000,
+    fenix_altitude_scale: 0,
+  }, () => {
+    throw new Error('same-target altitude must not dispatch');
+  });
+  const altitudeNoOp = await satisfiedAltitude.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.altitudeHundred.set', 10000),
+  );
+  assertEqual(altitudeNoOp.ok, true, 'same-target altitude should succeed without a rotary write');
+  assertEqual(altitudeNoOp.noOp, true, 'same-target altitude is an explicit no-op');
+  assertEqual(satisfiedAltitude.codes.length, 0, 'same-target altitude bypasses an irrelevant step precondition');
+
+  const speed = buildFenixFcuProvider({ fenix_speed: 250 }, ({ snapshot }) => {
+    snapshot.values.fenix_speed += 1;
+    snapshot.snapshotSequence += 1;
+    snapshot.updatedAt = new Date().toISOString();
+    return { ok: true };
+  });
+  const speedResult = await speed.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+  );
+  assertEqual(speedResult.ok, true, 'three trusted speed increments should confirm');
+  assertEqual(speedResult.confirmedValue, 253, 'numeric confirmation requires the exact target');
+  assertEqual(JSON.stringify(speed.codes), JSON.stringify([increaseSpeed, increaseSpeed, increaseSpeed]), 'speed uses an exact bounded step count');
+
+  const decreaseSpeed = '(L:E_FCU_SPEED, Number) -- (>L:E_FCU_SPEED, Number)';
+  const descendingSpeed = buildFenixFcuProvider({ fenix_speed: 253 }, ({ snapshot }) => {
+    snapshot.values.fenix_speed -= 1;
+    snapshot.snapshotSequence += 1;
+    snapshot.updatedAt = new Date().toISOString();
+    return { ok: true };
+  });
+  const descendingResult = await descendingSpeed.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 250),
+  );
+  assertEqual(descendingResult.ok, true, 'three trusted speed decrements should confirm');
+  assertEqual(
+    JSON.stringify(descendingSpeed.codes),
+    JSON.stringify([decreaseSpeed, decreaseSpeed, decreaseSpeed]),
+    'descending speed uses the exact decrement count',
+  );
+
+  const increaseHeading = '(L:E_FCU_HEADING, Number) ++ (>L:E_FCU_HEADING, Number)';
+  const heading = buildFenixFcuProvider({ fenix_heading: 359 }, ({ snapshot }) => {
+    snapshot.values.fenix_heading = (snapshot.values.fenix_heading + 1) % 360;
+    snapshot.snapshotSequence += 1;
+    snapshot.updatedAt = new Date().toISOString();
+    return { ok: true };
+  });
+  const headingResult = await heading.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.heading.set', 1),
+  );
+  assertEqual(headingResult.ok, true, 'circular heading target should confirm');
+  assertEqual(JSON.stringify(heading.codes), JSON.stringify([increaseHeading, increaseHeading]), '359 to 1 takes the two-step circular path');
+});
+
+test('Fenix FCU managed and numeric actions share one physical-knob in-flight guard', async () => {
+  let releaseStep;
+  const target = buildFenixFcuProvider({
+    fenix_speed: 250,
+    fenix_speed_managed: 0,
+  }, ({ snapshot }) => new Promise((resolve) => {
+    releaseStep = () => {
+      snapshot.values.fenix_speed = 251;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      resolve({ ok: true });
+    };
+  }));
+  const action = {
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const stepping = target.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 251),
+  );
+  while (typeof releaseStep !== 'function') {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const managed = await target.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speedManaged.on'),
+  );
+  assertEqual(managed.ok, false, 'managed push must not race an in-flight speed rotation');
+  assertEqual(managed.code, 'action_in_progress', 'shared physical knob reports one in-flight group');
+  assertEqual(target.codes.length, 1, 'blocked managed push emits no second calculator command');
+  releaseStep();
+  const completed = await stepping;
+  assertEqual(completed.ok, true, 'original numeric target should still confirm');
+});
+
+test('Fenix FCU stepped targets fail closed on mode drift, failed ack, and unsupported baselines', async () => {
+  const action = {
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const altitude = buildFenixFcuProvider({
+    fenix_altitude: 10000,
+    fenix_altitude_scale: 1,
+  }, ({ codes, snapshot }) => {
+    snapshot.values.fenix_altitude += 100;
+    snapshot.snapshotSequence += 1;
+    snapshot.updatedAt = new Date().toISOString();
+    if (codes.length === 1) snapshot.values.fenix_altitude_scale = 0;
+    return { ok: true };
+  });
+  const modeDrift = await altitude.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.altitudeHundred.set', 10300),
+  );
+  assertEqual(modeDrift.ok, false, 'altitude scale drift must abort a target burst');
+  assertEqual(modeDrift.code, 'aircraft_integration_precondition_failed', 'scale drift reports its precondition');
+  assertEqual(altitude.codes.length, 1, 'no second altitude step is sent after scale drift');
+
+  const wrongScale = buildFenixFcuProvider({
+    fenix_altitude: 10000,
+    fenix_altitude_scale: 0,
+  }, () => {
+    throw new Error('wrong altitude scale must fail before dispatch');
+  });
+  const mismatch = await wrongScale.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.altitudeHundred.set', 10100),
+  );
+  assertEqual(mismatch.ok, false, 'wrong initial altitude scale must fail closed');
+  assertEqual(mismatch.code, 'aircraft_integration_precondition_failed', 'wrong scale reports its precondition');
+  assertEqual(wrongScale.codes.length, 0, 'wrong initial altitude scale emits no calculator step');
+
+  const failedAck = buildFenixFcuProvider({ fenix_speed: 250 }, ({ codes, snapshot }) => {
+    if (codes.length === 2) return { ok: false, error: 'step rejected' };
+    snapshot.values.fenix_speed += 1;
+    snapshot.snapshotSequence += 1;
+    snapshot.updatedAt = new Date().toISOString();
+    return { ok: true };
+  });
+  const ackResult = await failedAck.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+  );
+  assertEqual(ackResult.ok, false, 'failed selector step must abort the target');
+  assertEqual(ackResult.code, 'mobiflight_execution_failed', 'failed step maps through MobiFlight diagnostics');
+  assertEqual(failedAck.codes.length, 2, 'failed selector step is never retried');
+
+  const machBaseline = buildFenixFcuProvider({ fenix_speed: 0.82 }, () => {
+    throw new Error('Mach-mode baseline must fail before dispatch');
+  });
+  const unsupported = await machBaseline.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 250),
+  );
+  assertEqual(unsupported.ok, false, 'off-domain speed baseline must fail closed');
+  assertEqual(unsupported.code, 'aircraft_integration_selector_mode_unsupported', 'Mach mode is distinguishable');
+  assertEqual(machBaseline.codes.length, 0, 'off-domain baseline emits no calculator step');
+
+  const staleBaseline = buildFenixFcuProvider({ fenix_speed: 250 }, () => {
+    throw new Error('stale selector baseline must fail before dispatch');
+  });
+  staleBaseline.snapshot.updatedAt = new Date(Date.now() - 10_000).toISOString();
+  const stale = await staleBaseline.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 251),
+  );
+  assertEqual(stale.ok, false, 'stale selector baseline must fail closed');
+  assertEqual(stale.code, 'aircraft_integration_readback_unavailable', 'stale baseline uses the preflight error');
+  assertEqual(staleBaseline.codes.length, 0, 'stale baseline emits no calculator step');
+
+  const changedGeneration = buildFenixFcuProvider({ fenix_speed: 250 }, ({ codes, provider }) => {
+    if (codes.length === 1) provider._getActiveAircraftIntegrationConfig = () => null;
+    return { ok: true };
+  });
+  const staleDuringSteps = await changedGeneration.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+  );
+  assertEqual(staleDuringSteps.ok, false, 'profile change must stop a long selector target');
+  assertEqual(staleDuringSteps.code, 'stale_profile', 'profile change remains distinguishable');
+  assertEqual(changedGeneration.codes.length, 1, 'no second step reaches a different aircraft generation');
+
+  const provider = new SimConnectTelemetryProvider();
+  const bounded = await provider._executeAircraftIntegrationMobiFlightRoute(
+    { async executeMobiFlightCode() { throw new Error('501-step route must not dispatch'); } },
+    {
+      mode: 'step-to-target',
+      decreaseCode: 'DEC',
+      increaseCode: 'INC',
+      maxSteps: 500,
+    },
+    { input: { type: 'number', min: 0, max: 501, step: 1 } },
+    501,
+    { observed: 0 },
+  );
+  assertEqual(bounded.ok, false, 'runtime must retain the 500-step hard cap');
+  assertEqual(bounded.code, 'aircraft_integration_selector_mode_unsupported', 'overlong target is rejected');
+});
+
+test('Fenix direct LVAR route is available only as the guarded MobiFlight fallback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FENIX_A320_PROFILE_KEY,
+    values: { fenix_beacon: 0 },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+    mobiflight: {
+      state: 'missing',
+      connected: false,
+      available: false,
+      error: null,
+    },
+  };
+  const writes = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async setNamedVar(operation) {
+      writes.push({ ...operation });
+      snapshot.values.fenix_beacon = Number(operation.value);
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFenixA320IntegrationFields(provider);
+
+  const capabilities = provider.getAircraftControlCapabilities();
+  assertEqual(capabilities.integrationTransports.lvar, true, 'live native sidecar exposes direct LVAR integration writes');
+  assertEqual(capabilities.integrationTransports['mobiflight-calculator'], false, 'missing Event Module does not advertise calculator execution');
+
+  const result = await provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  }, fenixA320IntegrationOptions('lights.beacon.on'));
+
+  assertEqual(result.ok, true, 'direct LVAR fallback should retain guarded confirmation');
+  assertEqual(result.transportMode, 'direct-lvar', 'result should expose only the bounded diagnostic mode');
+  assertEqual(result.confirmedValue, true, 'newer decoded logical readback should confirm the fallback write');
+  assertEqual(writes.length, 1, 'fallback must dispatch exactly once');
+  assertEqual(writes[0].name, 'L:S_OH_EXT_LT_BEACON', 'trusted adapter owns the exact direct LVAR target');
+  assertEqual(writes[0].unit, 'Number', 'direct route preserves the adapter unit');
+  assertEqual(writes[0].value, 1, 'direct route preserves the adapter detent');
+  assertEqual(writes[0].dataType, 'float64', 'SimConnect LVAR writes must use the documented FLOAT64 representation');
+});
+
+test('healthy MobiFlight remains preferred and a failed dispatch never falls through to direct LVAR', async () => {
+  function buildProvider(mobiflightResult) {
+    const provider = new SimConnectTelemetryProvider();
+    const snapshot: any = {
+      source: 'mock-sidecar',
+      profileId: FENIX_A320_PROFILE_KEY,
+      values: { fenix_beacon: 0 },
+      snapshotSequence: 1,
+      updatedAt: new Date().toISOString(),
+      mobiflight: {
+        state: 'connected',
+        connected: true,
+        available: true,
+        error: null,
+      },
+    };
+    let mobiflightCalls = 0;
+    let directLvarCalls = 0;
+    const bridge = {
+      _started: true,
+      getSnapshot: () => snapshot,
+      async executeMobiFlightCode() {
+        mobiflightCalls += 1;
+        if (mobiflightResult.ok === true) {
+          snapshot.values.fenix_beacon = 1;
+          snapshot.snapshotSequence += 1;
+          snapshot.updatedAt = new Date().toISOString();
+        }
+        return mobiflightResult;
+      },
+      async setNamedVar() {
+        directLvarCalls += 1;
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubFenixA320IntegrationFields(provider);
+    return {
+      provider,
+      getMobiflightCalls: () => mobiflightCalls,
+      getDirectLvarCalls: () => directLvarCalls,
+    };
+  }
+
+  const healthy = buildProvider({ ok: true });
+  const success = await healthy.provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  }, fenixA320IntegrationOptions('lights.beacon.on'));
+  assertEqual(success.ok, true, 'healthy MobiFlight route should continue to execute');
+  assertEqual(success.transportMode, 'mobiflight', 'primary transport should be visible in diagnostics');
+  assertEqual(healthy.getMobiflightCalls(), 1, 'preferred MobiFlight route dispatches once');
+  assertEqual(healthy.getDirectLvarCalls(), 0, 'direct fallback must not run while MobiFlight is healthy');
+
+  const failing = buildProvider({ ok: false, error: 'calculator rejected command' });
+  const failure = await failing.provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  }, fenixA320IntegrationOptions('lights.beacon.on'));
+  assertEqual(failure.ok, false, 'failed preferred dispatch should report failure');
+  assertEqual(failure.code, 'mobiflight_execution_failed', 'preferred transport failure should remain explicit');
+  assertEqual(failing.getMobiflightCalls(), 1, 'failed preferred route is never retried');
+  assertEqual(failing.getDirectLvarCalls(), 0, 'one command must never fall through after a MobiFlight dispatch');
 });
 
 test('aircraft change telemetry reset clears stale numeric state and restarts warmup', () => {

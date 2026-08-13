@@ -411,7 +411,7 @@ async function runAsyncTests() {
 
     const landings = await flightLogbook.getLandingsFromCSVs({ bypassCachePaths: [csvPath] });
     assertEqual(landings.length, 1, 'landing count');
-    assertEqual(landings[0].grade, 'GOOD', 'rate grade recomputed from conventional V/S');
+    assertEqual(landings[0].grade, 'HARD', 'rate grade recomputed from conventional V/S');
     assertEqual(landings[0].runwayExcursion, true, 'legacy sentinel preserved as separate excursion flag');
   });
 

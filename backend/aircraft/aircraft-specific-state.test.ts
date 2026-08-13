@@ -307,6 +307,90 @@ test('strict SimVar bindings project only approved normalized frame paths', () =
   });
 });
 
+test('TriStar standard A-var gauge bindings preserve zero and omit unavailable samples', () => {
+  const resolverRegistry = createAircraftSpecificBindingResolverRegistry();
+  const registeredRows: Record<string, string> = {};
+  const runtimeKeys: Record<string, string> = {
+    'A:TURB ENG PRESSURE RATIO:3': 'tristar_engine3_epr',
+    'A:NAV OBS:1': 'tristar_course1',
+    'A:TURB ENG FUEL FLOW PPH:2': 'tristar_engine2_fuel_flow',
+  };
+  const registerLvar = (generatedKey: string, rawValue: unknown) => {
+    registeredRows[generatedKey] = String(rawValue);
+    return runtimeKeys[String(rawValue)] || null;
+  };
+  const compile = (id: string, name: string, unit: string) => resolverRegistry.compile(
+    { type: 'lvar', name, unit },
+    { fieldId: id, sourcePath: `integration.fields.${id}`, registerLvar },
+  );
+  const eprBinding = compile('systems.engine3Epr', 'A:TURB ENG PRESSURE RATIO:3', 'Ratio');
+  const courseBinding = compile('navigation.course1Deg', 'A:NAV OBS:1', 'Degrees');
+  const fuelFlowBinding = compile(
+    'systems.engine2FuelFlowPph',
+    'A:TURB ENG FUEL FLOW PPH:2',
+    'Pounds per hour',
+  );
+
+  assert.deepEqual(eprBinding, { type: 'lvar', key: 'tristar_engine3_epr' });
+  assert.deepEqual(courseBinding, { type: 'lvar', key: 'tristar_course1' });
+  assert.deepEqual(fuelFlowBinding, { type: 'lvar', key: 'tristar_engine2_fuel_flow' });
+  assert.equal(
+    registeredRows.aircraft_specific_systems_engine3_epr,
+    'A:TURB ENG PRESSURE RATIO:3',
+  );
+  assert.equal(registeredRows.aircraft_specific_navigation_course1_deg, 'A:NAV OBS:1');
+
+  const updatedAt = '2026-08-12T02:00:00.000Z';
+  const message = buildAircraftSpecificState({
+    config: {
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+      profileRevision: 8,
+      templateId: 'inibuilds-tristar',
+      fields: [
+        {
+          id: 'systems.engine3Epr',
+          source: eprBinding,
+          decode: { type: 'number', precision: 2 },
+        },
+        {
+          id: 'navigation.course1Deg',
+          source: courseBinding,
+          decode: { type: 'number', precision: 0 },
+        },
+        {
+          id: 'systems.engine2FuelFlowPph',
+          source: fuelFlowBinding,
+          decode: { type: 'number', precision: 0 },
+        },
+      ],
+    },
+    frame: {
+      simconnect: { connected: true },
+      lvars: {
+        enabled: true,
+        profileId: 'bundled/msfs/inibuilds-tristar',
+        status: 'running',
+        updatedAt,
+        values: {
+          tristar_engine3_epr: 0,
+          tristar_course1: 0,
+          // A missing sample is unavailable; it must not be coerced to zero.
+        },
+      },
+    },
+    simState: { simconnectConnected: true, inMenu: false },
+    nowEpochMs: Date.parse(updatedAt),
+    resolverRegistry,
+  });
+
+  assert.deepEqual(message.values, {
+    'systems.engine3Epr': 0,
+    'navigation.course1Deg': 0,
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(message.values, 'systems.engine2FuelFlowPph'), false);
+  assert.equal(message.unavailable.includes('systems.engine2FuelFlowPph'), true);
+});
+
 test('LVAR mode-light projection preserves false and rejects unexpected values', () => {
   const resolverRegistry = createAircraftSpecificBindingResolverRegistry();
   const registeredRows: Record<string, string> = {};

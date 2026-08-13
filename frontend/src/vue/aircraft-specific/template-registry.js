@@ -2,6 +2,7 @@ import { defineAsyncComponent } from 'vue';
 
 const trustedAircraftSpecificTemplates = Object.freeze({
   'asobo-787': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftBoeing787_10AircraftPanel.vue')),
+  'fenix-a32x': defineAsyncComponent(() => import('../components/aircraft-specific/templates/FenixA32xAircraftPanel.vue')),
   'fbw-a32nx': defineAsyncComponent(() => import('../components/aircraft-specific/templates/FbwA32nxAircraftPanel.vue')),
   'ifly-737-max-8': defineAsyncComponent(() => import('../components/aircraft-specific/templates/Ifly737Max8AircraftPanel.vue')),
   'inibuilds-a310': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftIniBuildsA310AircraftPanel.vue')),

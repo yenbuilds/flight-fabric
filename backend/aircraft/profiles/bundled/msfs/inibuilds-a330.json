@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-06-09T00:00:00Z",
-  "updatedAt": "2026-07-14T22:00:00Z",
+  "updatedAt": "2026-08-12T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -55,7 +55,7 @@
     "telemetry": {
       "preferred": "simconnect",
       "lvars": {
-        "_comment": "This profile uses documented standard SimVars only; no iniBuilds-specific telemetry routes are enabled."
+        "_comment": "This profile uses documented standard SimVars only. It subscribes to zero iniBuilds-specific LVARs or Input Events."
       },
       "lights": {
         "source": "simconnect"
@@ -65,7 +65,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Only standard gear/flaps surface fallback is allowed. FCU, managed/selected-mode, light, autothrust, cargo-door, and system writes remain unavailable pending vendor documentation and independent in-sim effect readbacks."
+      "_comment": "The exact-profile trusted adapter exposes 47 bounded actions using only Microsoft-documented MSFS 2024 key events. Fixed OFF/ON targets and four numeric selectors require fresh standard-SimVar preflight, one guarded dispatch, no retry, and a newer matching logical readback. Generic fallback remains disabled; the narrow standard gear/flap fallback stays enabled. AP1/AP2 channel selection, Airbus managed/selected push-pull, EXPED, vendor-private Input Events/LVARs, raw axes, macros, and deep systems remain excluded pending exact live interaction evidence."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -98,9 +98,9 @@
     "platforms": [
       "msfs2024"
     ],
-    "updated": "2026-07-14",
-    "status": "partial",
-    "notes": "Dedicated monitoring-first aircraft page for the included MSFS 2024 Airbus A330-200, A330-300, and A330-300P2F family. A trusted A330 adapter exposes an explicit standard-SimVar field set for modes, lights, configuration, gear and brakes, engines, fuel, weight, and pressurization. It is intentionally separate from the Headwind A330-900neo and exposes no aircraft-specific writes or vendor-specific telemetry routes."
+    "updated": "2026-08-12",
+    "status": "experimental",
+    "notes": "Dedicated exact-profile aircraft page for the included MSFS 2024 Airbus A330-200, A330-300, and A330-300P2F family. The trusted adapter exposes 45 standard-SimVar logical fields, 47 fixed or bounded standard-event actions, and 26 distinct confirmation fields. It has zero custom LVAR subscriptions and remains intentionally separate from the Headwind A330-900neo. Every action is untested pending live variant validation."
   },
   "provenance": {
     "sources": [
@@ -130,17 +130,59 @@
         "name": "MSFS 2024 Avionics Framework - Key Events",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
         "retrievedAt": "2026-07-15",
-        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+        "notes": "Documents the simulator key-event transport used by this exact-profile adapter. The active event IDs and their parameters are enumerated by the category-specific Microsoft SDK sources below."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft Autopilot and Flight Assist Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm",
+        "retrievedAt": "2026-08-12",
+        "notes": "Source for every active flight-guidance event: AUTOPILOT_OFF, AUTOPILOT_ON, TOGGLE_FLIGHT_DIRECTOR, AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON, AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON, AP_APR_HOLD_OFF, AP_APR_HOLD_ON, FLIGHT_LEVEL_CHANGE_OFF, FLIGHT_LEVEL_CHANGE_ON, AP_SPD_VAR_SET, HEADING_BUG_SET, AP_ALT_VAR_SET_ENGLISH, and AP_VS_VAR_SET_ENGLISH. These are standard simulator events, not an A330-specific AP1/AP2 or Airbus managed/selected FCU contract."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft Electrical Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-08-12",
+        "notes": "Source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each uses a fixed 0/1 target and confirms the corresponding standard light-output SimVar; no A330 selector-position semantics are inferred."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft Flight Control Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm",
+        "retrievedAt": "2026-08-12",
+        "notes": "Source for every active flap and spoiler event: FLAPS_DECR, FLAPS_INCR, SPOILERS_ARM_OFF, SPOILERS_ARM_ON, and SPOILERS_SET. The numeric spoiler target is bounded to the SDK's 0..16383 event range and confirmed through normalized standard spoiler-handle readback."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft General Systems Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
+        "retrievedAt": "2026-08-12",
+        "notes": "Source for every active gear and parking-brake event: GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET. Flight Fabric exposes fixed semantic targets only and confirms the newer standard handle/state readback."
       }
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-07-15",
+      "lastVerified": "2026-08-12",
       "knownIssues": [
         "Exact MSFS 2024 aircraft title strings for each A330 variant remain unverified in-sim.",
-        "The cited sources do not define an A330-specific LVAR, B-var, or input-event integration map.",
-        "The dedicated page is monitoring-only. Its 44 standard-SimVar fields are source-backed but still require live A330 verification; complex-aircraft FCU and mode mirrors may be unavailable or incomplete.",
-        "No aircraft-specific control is exposed until a vendor-documented route and independent in-sim effect readback are available.",
+        "The 45 standard-SimVar fields and all 47 standard-event actions remain untested against the six supported A330 variants; a documented simulator event can still be ignored or incompletely mirrored by a custom aircraft.",
+        "Standard AUTOPILOT_ON/OFF controls only the simulator's generic autopilot master and cannot select or independently confirm Airbus AP1 versus AP2. AP1/AP2 remain excluded.",
+        "Airbus managed/selected FCU push-pull, EXPED, and exact A330 light-selector positions remain excluded because the official SDK events and boolean output readbacks do not express those aircraft-specific semantics.",
+        "The cited public sources do not define a complete A330-specific LVAR, B-var, or InputEvent integration map. The adapter subscribes to zero custom variables and does not activate candidate INI_* names from package snapshots or community presets.",
+        "Standard light readback confirms lamp output, not every multi-position cockpit selector state. OFF/ON actions therefore make no claim about AUTO or combined selector positions.",
         "Flap detents are intentionally absent; do not inherit or reintroduce broad Airbus base detents without A330-specific evidence.",
         "This profile intentionally does not cover the Headwind A330-900neo, which has its own profile."
       ]

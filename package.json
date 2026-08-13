@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.2.8",
+  "version": "0.3.0",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "main": "index.js",
   "engines": {
@@ -34,6 +34,7 @@
     "test:http-server-simbrief": "npm run build:backend:runtime && node --test dist/backend/core/http-server.test.js",
     "test:user-identity": "node tests/scripts/test-user-identity.js",
     "test:electron": "node electron/test-electron.js",
+    "test:electron:output-guard": "node --test tests/scripts/test-electron-release-output-failure-guard.js",
     "test:electron:ipc-runtime": "node tests/scripts/test-electron-ipc-runtime.js",
     "test:electron:sqlite": "node tests/scripts/test-electron-sqlite-runtime.js",
     "test:sqlite:doctor": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/history-index/sqlite-doctor.test.js",

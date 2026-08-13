@@ -9,7 +9,7 @@ type InitializeResult = {
 };
 
 const HISTORY_INDEX_SCHEMA_VERSION = 2;
-const HISTORY_INDEX_SOURCE_CONTRACT_VERSION = 'flight-bundle-history-index-v11';
+const HISTORY_INDEX_SOURCE_CONTRACT_VERSION = 'flight-bundle-history-index-v12';
 const HISTORY_INDEX_TABLES = [
   'history_index_meta',
   'history_source_files',

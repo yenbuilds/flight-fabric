@@ -2246,6 +2246,21 @@ async function main() {
   await test('aircraft controls store centralizes availability, feedback, autopilot readouts, and runtime-bound commands', async () => {
     resetStoreTestContext();
     const controls = useAircraftControlsStore();
+    const autopilotPulseIds = [
+      'autothrottle',
+      'verticalSpeedHold',
+      'altitudeHold',
+      'machHold',
+      'headingHold',
+      'flightDirector',
+      'apMaster',
+      'apDisconnect',
+      'app',
+      'loc',
+      'nav1',
+      'ins',
+      'backcourse',
+    ];
 
     assert.equal(controls.availability.enabled, false, 'availability should start disabled');
     assert.equal(controls.feedback.actionText, 'No command sent yet.', 'feedback should start with the default action copy');
@@ -2254,6 +2269,12 @@ async function main() {
     assert.equal(controls.autopilot.spdDisplay, '---', 'autopilot selectors should start reset');
     assert.equal(controls.isCommandPending({ type: 'preset', id: 'gearUp' }), false, 'control pending state should start cleared');
     assert.equal(await controls.requestControlCommand({ type: 'preset', id: 'gearUp' }), false, 'control requests should report when no runtime action is bound');
+    for (const pulseId of autopilotPulseIds) {
+      assert.equal(controls.controlCapabilities.autopilotPulse[pulseId], false, `${pulseId} pulse capability should default closed`);
+      assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: pulseId }), false, `${pulseId} should require an explicit active-profile capability`);
+    }
+    assert.equal(controls.controlCapabilities.lights.landing, false, 'generic light writes should default closed until profile capabilities arrive');
+    assert.equal(controls.isCommandSupported({ type: 'light-set', light: 'landing', value: true }), false, 'light commands should require an explicit active-profile capability');
 
     controls.setAvailability({
       enabled: true,
@@ -2338,19 +2359,43 @@ async function main() {
     controls.applyControlCapabilities({
       surface: {
         gearUp: false,
+        parkingBrake: true,
+      },
+      lights: {
+        landing: true,
       },
       autopilot: {
         flightLevelChange: false,
         loc: false,
         heading: false,
       },
+      autopilotPulse: {
+        autothrottle: false,
+        apMaster: true,
+        ins: true,
+      },
     });
     assert.equal(controls.isCommandSupported({ type: 'preset', id: 'gearUp' }), false, 'unsupported surface writes should be capability-gated');
     assert.equal(controls.isCommandDisabled({ type: 'preset', id: 'gearUp' }), true, 'unsupported surface writes should render disabled');
+    assert.equal(controls.isCommandSupported({ type: 'preset', id: 'parkingBrakeSet' }), true, 'explicit parking-brake capability should enable both fixed directions');
+    assert.equal(controls.isCommandSupported({ type: 'light-set', light: 'landing', value: true }), true, 'explicit light capability should enable the matching light command');
+    assert.equal(controls.setCommandPending({ type: 'light-set', light: 'landing', value: true }), true, 'light writes should reserve one shared pending key per physical light');
+    assert.equal(controls.isCommandDisabled({ type: 'light-set', light: 'landing', value: false }), true, 'a pending ON write should block a concurrent OFF write for the same light');
+    assert.equal(controls.clearCommandPending('light-set:landing'), true, 'canonical light pending keys should clear cleanly');
     assert.equal(controls.isCommandSupported({ type: 'preset', id: 'flcToggle' }), false, 'unsupported AP mode writes should be capability-gated');
     assert.equal(controls.isCommandDisabled({ type: 'preset', id: 'flcToggle' }), true, 'unsupported AP mode writes should render disabled');
     assert.equal(controls.isCommandDisabled({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' }), true, 'unsupported selector writes should render disabled');
     assert.equal(controls.isCommandDisabled({ type: 'selector-hold', mode: 'alt' }), false, 'omitted capabilities should keep legacy enabled behavior');
+    assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: 'apMaster' }), true, 'explicit pulse capabilities should enable the matching command object');
+    assert.equal(controls.isCommandSupported('autopilot-pulse:ins'), true, 'pulse capability lookup should support canonical pending keys');
+    assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: 'autothrottle' }), false, 'an explicit false pulse capability should fail closed');
+    assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: 'machHold' }), false, 'omitted pulse capabilities should retain their default-closed state');
+    assert.equal(controls.setCommandPending({ type: 'autopilot-pulse', id: 'ins' }), true, 'a supported pulse should reserve its canonical pending key');
+    assert.equal(controls.setCommandPending('autopilot-pulse:ins'), false, 'a duplicate pulse reservation should be rejected');
+    assert.equal(controls.isCommandPending({ type: 'autopilot-pulse', id: 'ins' }), true, 'pulse pending state should resolve from command metadata');
+    assert.equal(controls.isCommandDisabled({ type: 'autopilot-pulse', id: 'ins' }), true, 'a pending pulse should disable duplicate UI dispatch');
+    assert.equal(controls.clearCommandPending('autopilot-pulse:ins'), true, 'canonical pulse pending keys should clear cleanly');
+    assert.equal(controls.isCommandDisabled({ type: 'autopilot-pulse', id: 'ins' }), false, 'clearing pulse pending state should restore a supported command');
     controls.resetControlCapabilities();
 
     controls.setCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' });
@@ -2360,6 +2405,8 @@ async function main() {
     assert.equal(controls.isCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' }), false, 'aircraft change reset should clear pending commands from the previous aircraft');
     assert.equal(controls.isCommandSupported({ type: 'preset', id: 'gearUp' }), false, 'surface controls should be gated while the replacement profile is unknown');
     assert.equal(controls.isCommandSupported({ type: 'preset', id: 'autopilotMasterToggle' }), false, 'AP controls should be gated while the replacement profile is unknown');
+    assert.equal(controls.isCommandSupported({ type: 'light-set', light: 'landing', value: true }), false, 'light controls should be gated while the replacement profile is unknown');
+    assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: 'apMaster' }), false, 'momentary AP keys should stay gated while the replacement profile is unknown');
     controls.resetControlCapabilities();
 
     controls.setCommandPending({ type: 'preset', id: 'gearUp' });

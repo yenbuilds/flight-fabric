@@ -12,6 +12,7 @@ const PROFILES_DIR = path.resolve(__dirname, '../backend/aircraft/profiles/bundl
 const AIRLINER_PROFILE_PATTERNS = [
   /fbw/i,
   /flybywire/i,
+  /fenix/i,
   /inibuilds/i,
   /ifly/i,
   /toliss/i,
@@ -89,6 +90,7 @@ function loadProfiles() {
 function isAirlinerProfile(profile) {
   if (['generic', 'ga-base', 'turboprop-base'].includes(profile.id)) return false;
   if (BASE_PROFILES.includes(profile.id)) return false;
+  if (profile.abstract === true) return false;
   if (profile.simulator !== 'msfs') return false;
 
   for (const pattern of AIRLINER_PROFILE_PATTERNS) {

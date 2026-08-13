@@ -112,6 +112,9 @@ const FIRST_PARTY_MODEL_PROFILE_IDS = new Set([
 const VENDOR_SPECIFIC_MATCH_TOKENS = new Map([
   ['fbw-a32nx', ['flybywire', 'fbw', 'a32nx']],
   ['fbw-a380x', ['flybywire', 'fbw', 'a380x']],
+  ['fenix-a319', ['fenix', 'fnx']],
+  ['fenix-a320', ['fenix', 'fnx']],
+  ['fenix-a321', ['fenix', 'fnx']],
   ['fss-e175', ['flightsimstudio', 'fss']],
   ['headwind-a330', ['headwind', 'a339x']],
   ['horizon-787-9', ['horizon']],
@@ -363,6 +366,11 @@ test('Generic profile has _loaded flag', generic?._loaded === true);
 test('Generic profile has _qualifiedId', generic?._qualifiedId === 'bundled/msfs/generic');
 test('Generic profile is loaded from built-in bundled profiles', typeof generic?._source === 'string' && generic._source.startsWith(loader.BUILTIN_BUNDLED_DIR));
 test('MSFS generic does not assert flap notches', generic?.flaps == null && generic?.aircraft?.flaps == null);
+test(
+  'MSFS generic explicitly enables the fixed standard control baseline',
+  generic?.integration?.controls?.backend === 'simconnect' &&
+    generic?.integration?.controls?.genericFallback === true,
+);
 
 const builtinGenericPath = path.join(loader.BUILTIN_BUNDLED_DIR, 'msfs', 'generic.json');
 const legacyBundledGenericDir = path.join(retiredBundledProfilesDir, 'msfs');
@@ -381,6 +389,20 @@ test(
 const a32nx = loader.loadProfile('fbw-a32nx');
 test('Can load fbw-a32nx profile', a32nx !== null);
 test('A32NX has local source-backed flap detents for its flap LVAR', JSON.stringify(a32nx?.flaps?.notches?.map((notch) => notch.label)) === '["0","1/1+F","2","3","FULL"]');
+
+for (const variant of ['a319', 'a320', 'a321']) {
+  const fenixProfile = loader.loadProfile(`fenix-${variant}`);
+  test(`Can load Fenix ${variant.toUpperCase()} profile`, fenixProfile !== null);
+  test(
+    `Fenix ${variant.toUpperCase()} activates the shared trusted adapter`,
+    fenixProfile?.integration?.aircraftSpecific?.adapter === 'fenix-a32x',
+  );
+  test(
+    `Fenix ${variant.toUpperCase()} uses guarded aircraft-specific writes and narrow surface fallback`,
+    fenixProfile?.integration?.controls?.genericFallback === false
+      && fenixProfile?.integration?.controls?.standardSurfaceFallback === true,
+  );
+}
 
 const inibuildsA320neoV2 = loader.loadProfile('inibuilds-a320neo-v2');
 test('Can load inibuilds-a320neo-v2 profile', inibuildsA320neoV2 !== null);
@@ -518,7 +540,11 @@ test(
   tristar?.integration?.controls?.genericFallback === false &&
     tristar?.integration?.controls?.standardSurfaceFallback === true &&
     tristar?.integration?.controls?.autopilot?.actions?.masterToggle?.name === 'AP_MASTER' &&
-    tristar?.integration?.controls?.autopilot?.actions?.headingHoldToggle?.name === 'AP_HDG_HOLD'
+    tristar?.integration?.controls?.autopilot?.actions?.headingHoldToggle?.name === 'AP_HDG_HOLD' &&
+    tristar?.integration?.controls?.autopilot?.actions?.autothrottleToggle?.name === 'AP_AIRSPEED_HOLD' &&
+    tristar?.integration?.controls?.autopilot?.actions?.insToggle?.name === 'TOGGLE_WATER_RUDDER' &&
+    tristar?.integration?.controls?.autopilot?.actions?.speedHoldToggle === undefined &&
+    tristar?.integration?.controls?.autopilot?.actions?.yawDamperToggle === undefined
 );
 test(
   'TriStar suppresses generic spoiler telemetry because the value can include DLC movement',
@@ -1281,6 +1307,7 @@ const structuredA32xCollisionCases = [
   },
   {
     name: 'Fenix A320',
+    expectedId: 'fenix-a320',
     forbiddenId: 'inibuilds-a320neo-v2',
     lines: [
       '[GENERAL]',
@@ -1303,6 +1330,7 @@ const structuredA32xCollisionCases = [
   },
   {
     name: 'Fenix A321',
+    expectedId: 'fenix-a321',
     forbiddenId: 'inibuilds-a321lr',
     lines: [
       '[GENERAL]',
@@ -1710,6 +1738,90 @@ test('getThrottleConfig returns throttle', throttleConfig !== null);
 test('Throttle type is detent', throttleConfig?.type === 'detent');
 
 section('LVAR Subscriptions');
+loader.setActiveProfile('fenix-a320');
+const fenixA320Lvars = loader.getLvarConfig();
+test(
+  'Fenix A320 compiles its exact trusted page, field contract, confirmations, actions, and subscriptions',
+  fenixA320Lvars?.aircraftSpecific?.templateId === 'fenix-a32x' &&
+    fenixA320Lvars?.aircraftSpecific?.integrationId === 'fenix-a32x' &&
+    fenixA320Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fenix-a320' &&
+    fenixA320Lvars?.aircraftSpecific?.fields?.length === 118 &&
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 117 &&
+    fenixA320Lvars?.subscriptions?.length === 118 &&
+    Object.keys(defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
+      profileKey: 'bundled/msfs/fenix-a320',
+    })?.actions || {}).length === 273 &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
+      profileKey: 'local/msfs/fenix-a320',
+    }) === null,
+);
+test(
+  'Fenix A320 subscribes AP2 under the canonical channel-B key for aggregate AP engagement',
+  fenixA320Lvars?.subscriptions?.some(s => (
+    s.key === 'ap_channel_b' &&
+    s.expression === '(L:I_FCU_AP2)' &&
+    s.sourcePath === 'integration.telemetry.lvars.mcp.cmdB'
+  )) === true,
+);
+const fenixIntegration = defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
+  profileKey: 'bundled/msfs/fenix-a320',
+});
+const fenixAltitudeTargetRoute = fenixIntegration?.actions?.['flightGuidance.altitudeHundred.set']?.routes?.[0];
+test(
+  'Fenix A320 compiles FCU target confirmations and generic route preconditions but keeps V/S display-only',
+  ['flightGuidance.ap1', 'flightGuidance.ap2', 'flightGuidance.autothrust',
+    'flightGuidance.localizer', 'flightGuidance.approach', 'flightGuidance.expedite',
+    'flightGuidance.speedManaged', 'flightGuidance.headingManaged',
+    'flightGuidance.altitudeManaged', 'flightGuidance.speedValue',
+    'flightGuidance.headingDeg', 'flightGuidance.altitudeFt'].every(fieldId => (
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => field.id === fieldId)
+  )) &&
+    fenixAltitudeTargetRoute?.precondition?.fieldId === 'flightGuidance.altitudeIncrementMode' &&
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => (
+      field.id === fenixAltitudeTargetRoute.precondition.fieldId
+    )) &&
+    fenixA320Lvars?.aircraftSpecific?.fields?.some(field => field.id === 'flightGuidance.verticalValue') &&
+    !fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => (
+      field.id === 'flightGuidance.verticalValue'
+    )) &&
+    fenixIntegration?.actions?.['flightGuidance.vertical.set'] === undefined,
+);
+const fenixFamilyContractMatches = ['a319', 'a320', 'a321'].every((variant) => {
+  loader.setActiveProfile(`fenix-${variant}`);
+  const config = loader.getLvarConfig();
+  return config?.aircraftSpecific?.fields?.length === 118 &&
+    config?.aircraftSpecific?.confirmationFields?.length === 117 &&
+    config?.subscriptions?.length === 118;
+});
+loader.setActiveProfile('fenix-a320');
+test('All exact Fenix family profiles compile the same 118/273/117 FCU contract', fenixFamilyContractMatches);
+
+const tristarAutothrottleToggle = controlService.resolveAircraftControl(
+  { control: 'autopilot', target: 'autothrottle', operation: 'toggle' },
+  { profile: tristar, capabilities: { simulator: 'msfs', actionTypes: ['key-event', 'lvar', 'simvar'] } }
+);
+test(
+  'TriStar AT pulse resolves to the vendor-documented AP_AIRSPEED_HOLD event',
+  tristarAutothrottleToggle?.ok === true &&
+    tristarAutothrottleToggle?.resolvedBy === 'profile' &&
+    tristarAutothrottleToggle?.action?.name === 'AP_AIRSPEED_HOLD'
+);
+
+const tristarInsToggle = controlService.resolveAircraftControl(
+  { control: 'autopilot', target: 'ins', operation: 'toggle' },
+  { profile: tristar, capabilities: { simulator: 'msfs', actionTypes: ['key-event', 'lvar', 'simvar'] } }
+);
+test(
+  'TriStar INS pulse owns the repurposed water-rudder event without exposing a yaw-damper control',
+  tristarInsToggle?.ok === true &&
+    tristarInsToggle?.resolvedBy === 'profile' &&
+    tristarInsToggle?.action?.name === 'TOGGLE_WATER_RUDDER' &&
+    controlService.resolveAircraftControl(
+      { control: 'autopilot', target: 'yawDamper', operation: 'toggle' },
+      { profile: tristar, capabilities: { simulator: 'msfs', actionTypes: ['key-event', 'lvar', 'simvar'] } }
+    )?.ok === false
+);
+
 loader.setActiveProfile('fbw-a32nx');
 const a32nxLvars = loader.getLvarConfig();
 test('A32NX subscribes documented flap handle LVAR under canonical key', a32nxLvars?.subscriptions?.some(s =>
@@ -1725,7 +1837,7 @@ test(
   fbwA32nxLvars?.aircraftSpecific?.templateId === 'fbw-a32nx' &&
     fbwA32nxLvars?.aircraftSpecific?.integrationId === 'fbw-a32nx' &&
     fbwA32nxLvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fbw-a32nx' &&
-    fbwA32nxLvars?.aircraftSpecific?.fields?.length === 119 &&
+    fbwA32nxLvars?.aircraftSpecific?.fields?.length === 124 &&
     fbwA32nxLvars.aircraftSpecific.fields.some(field => (
       field.id === 'lights.strobeMode' &&
       field.source?.type === 'lvar' &&
@@ -1742,14 +1854,23 @@ test(
       field.id === 'lights.strobeActive' &&
       field.source?.type === 'lvar'
     )) &&
+    fbwA32nxLvars.aircraftSpecific.fields.some(field => (
+      field.id === 'lights.runwayTurnoff' &&
+      field.source?.type === 'lvar'
+    )) &&
+    fbwA32nxLvars.aircraftSpecific.fields.some(field => field.id === 'lights.landingLeftCircuitOn') &&
     fbwA32nxLvars.aircraftSpecific.fields.some(field => field.id === 'systems.adirsAlignmentSeconds')
 );
 test(
   'FlyByWire A32NX write confirmations cover broad fixed commands while strobe proves output or AUTO mode',
-  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 87 &&
+  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 95 &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.strobeActive') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.strobeAuto') &&
     !fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.strobeMode') &&
+    fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.runwayTurnoff') &&
+    fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.noseMode') &&
+    fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.landingLeftCircuitOn') &&
+    fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.landingRightRetracted') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'systems.apuStart') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'systems.autobrakeMode') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'navigation.ndCaptainMode') &&
@@ -1837,11 +1958,11 @@ test(
 loader.setActiveProfile('inibuilds-a330');
 const iniA330Config = loader.getLvarConfig();
 test(
-  'iniBuilds A330 activates a dedicated monitoring-only standard-SimVar page',
+  'iniBuilds A330 activates its exact standard-SimVar and standard-event contract',
   iniA330Config?.aircraftSpecific?.templateId === 'inibuilds-a330' &&
     iniA330Config?.aircraftSpecific?.integrationId === 'inibuilds-a330' &&
     iniA330Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a330' &&
-    iniA330Config?.aircraftSpecific?.fields?.length === 44 &&
+    iniA330Config?.aircraftSpecific?.fields?.length === 45 &&
     iniA330Config.aircraftSpecific.fields.some(field => (
       field.id === 'flightGuidance.altitudeFt' &&
       field.source?.type === 'simvar' &&
@@ -1852,13 +1973,27 @@ test(
       field.source?.type === 'simvar' &&
       field.source?.path === 'brake'
     )) &&
+    iniA330Config.aircraftSpecific.fields.some(field => (
+      field.id === 'controls.spoilersArmed' &&
+      field.source?.type === 'simvar'
+    )) &&
     iniA330Config.aircraftSpecific.fields.some(field => field.id === 'systems.cabinDeltaPressurePsi')
 );
+const iniA330Integration = defaultAircraftIntegrationRegistry.resolveIntegration('inibuilds-a330', {
+  profileKey: 'bundled/msfs/inibuilds-a330',
+});
 test(
-  'iniBuilds A330 uses standard telemetry and exposes no aircraft-specific writes',
+  'iniBuilds A330 exposes 47 guarded standard-event actions with 26 unique confirmations and no custom subscriptions',
   iniA330Config.enabled === false &&
     iniA330Config.subscriptions.length === 0 &&
-    iniA330Config.aircraftSpecific.confirmationFields.length === 0 &&
+    iniA330Config.aircraftSpecific.confirmationFields.length === 26 &&
+    new Set(iniA330Config.aircraftSpecific.confirmationFields.map(field => field.id)).size === 26 &&
+    Object.keys(iniA330Integration?.actions || {}).length === 47 &&
+    Object.values(iniA330Integration?.actions || {}).every(action => (
+      action.verification === 'untested' &&
+      action.guard?.retry === 'never' &&
+      action.routes?.every(route => route.transport === 'simconnect-sequence')
+    )) &&
     loader.getActiveProfile()?.integration?.controls?.genericFallback === false &&
     loader.getActiveProfile()?.integration?.controls?.standardSurfaceFallback === true &&
     loader.getActiveProfile()?.integration?.telemetry?.aircraftSpecific === undefined &&
@@ -1866,7 +2001,26 @@ test(
       adapterId: 'inibuilds-a330',
       profileKey: 'bundled/msfs/inibuilds-a330',
       actionId: 'lights.beacon.on',
-    }) === null
+    })?.routes?.[0]?.operations?.[0]?.name === 'BEACON_LIGHTS_SET'
+);
+test(
+  'iniBuilds A330 bounds typed selectors and excludes Airbus-private FCU semantics',
+  iniA330Integration?.actions?.['flightGuidance.speed.set']?.input?.min === 100 &&
+    iniA330Integration?.actions?.['flightGuidance.speed.set']?.input?.max === 399 &&
+    iniA330Integration?.actions?.['flightGuidance.heading.set']?.input?.min === 0 &&
+    iniA330Integration?.actions?.['flightGuidance.heading.set']?.input?.max === 359 &&
+    iniA330Integration?.actions?.['flightGuidance.altitude.set']?.input?.max === 49000 &&
+    iniA330Integration?.actions?.['flightGuidance.altitude.set']?.input?.step === 100 &&
+    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set']?.input?.min === -6000 &&
+    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set']?.input?.max === 6000 &&
+    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set']?.input?.step === 100 &&
+    iniA330Integration?.actions?.['controls.speedbrake.set']?.input?.min === 0 &&
+    iniA330Integration?.actions?.['controls.speedbrake.set']?.input?.max === 100 &&
+    iniA330Integration?.actions?.['controls.speedbrake.set']?.routes?.[0]?.operations?.[0]?.inputValue?.scale === 163.83 &&
+    iniA330Integration?.actions?.['flightGuidance.ap1.on'] === undefined &&
+    iniA330Integration?.actions?.['flightGuidance.ap2.on'] === undefined &&
+    iniA330Integration?.actions?.['flightGuidance.speed.managed'] === undefined &&
+    iniA330Integration?.actions?.['flightGuidance.exped.on'] === undefined
 );
 test(
   'untrusted local iniBuilds A330 profiles cannot activate its trusted adapter',
@@ -2012,14 +2166,30 @@ test(
 
 loader.setActiveProfile('inibuilds-tristar');
 const tristarLvars = loader.getLvarConfig();
-test('TriStar LVAR config stays disabled without vendor-published readbacks', tristarLvars?.enabled === false);
-test('TriStar has no LVAR telemetry subscriptions', Array.isArray(tristarLvars?.subscriptions) && tristarLvars.subscriptions.length === 0);
 test(
-  'TriStar activates its trusted monitoring-only three-engine page',
+  'TriStar enables only bounded standard A-var gauge subscriptions, not vendor-private LVARs',
+  tristarLvars?.enabled === true &&
+    Array.isArray(tristarLvars?.subscriptions) &&
+    tristarLvars.subscriptions.length === 12 &&
+    tristarLvars.subscriptions.every(subscription => /^\(A:[^)]+\)$/.test(subscription.expression)) &&
+    tristarLvars.subscriptions.some(subscription => (
+      subscription.key === 'aircraft_specific_systems_engine3_epr' &&
+      subscription.expression === '(A:TURB ENG PRESSURE RATIO:3)' &&
+      subscription.unit === 'Ratio'
+    )) &&
+    tristarLvars.subscriptions.some(subscription => (
+      subscription.key === 'aircraft_specific_systems_engine2_fuel_flow_pph' &&
+      subscription.unit === 'Pounds per hour'
+    )) &&
+    new Set(tristarLvars.subscriptions.map(subscription => subscription.key)).size === 12 &&
+    new Set(tristarLvars.subscriptions.map(subscription => subscription.expression)).size === 12
+);
+test(
+  'TriStar activates its trusted L-1011-500 three-engine page',
   tristarLvars?.aircraftSpecific?.templateId === 'inibuilds-tristar' &&
     tristarLvars?.aircraftSpecific?.integrationId === 'inibuilds-tristar' &&
     tristarLvars?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-tristar' &&
-    tristarLvars?.aircraftSpecific?.fields?.length === 32 &&
+    tristarLvars?.aircraftSpecific?.fields?.length === 41 &&
     tristarLvars.aircraftSpecific.fields.some(field => (
       field.id === 'systems.engine3N1' &&
       field.source?.type === 'simvar' &&
@@ -2030,23 +2200,51 @@ test(
       field.id === 'systems.engine3Running' &&
       field.source?.type === 'simvar' &&
       field.source?.path === 'fdm.eng3Running'
+    )) &&
+    tristarLvars.aircraftSpecific.fields.some(field => (
+      field.id === 'systems.engine3Epr' &&
+      field.source?.type === 'lvar' &&
+      field.source?.key === 'aircraft_specific_systems_engine3_epr' &&
+      field.decode?.precision === 2
     ))
 );
 test(
-  'TriStar page excludes unsupported AFCS modes and DLC-inclusive generic spoiler state',
+  'TriStar page excludes unsupported AFCS selector/mode readbacks and DLC-inclusive generic spoiler state',
   !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.apMaster') &&
     !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.headingHold') &&
+    !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.speedValue') &&
+    !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.headingDeg') &&
+    !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.altitudeFt') &&
+    !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.verticalSpeedFpm') &&
+    !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'navigation.course1Deg') &&
+    !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'navigation.course2Deg') &&
     !tristarLvars.aircraftSpecific.fields.some(field => field.id === 'controls.speedbrakePercent') &&
-    tristarLvars.aircraftSpecific.fields.some(field => field.id === 'flightGuidance.altitudeFt') &&
-    tristarLvars.aircraftSpecific.confirmationFields.length === 0
+    tristarLvars.aircraftSpecific.confirmationFields.length === 7 &&
+    new Set(tristarLvars.aircraftSpecific.confirmationFields.map(field => field.id)).size === 7 &&
+    tristarLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.wing')
 );
 test(
-  'TriStar trusted adapter exposes no writes and untrusted local profiles cannot activate it',
+  'TriStar trusted adapter exposes confirmed lights and acknowledged selector steps only to its exact bundled profile',
   defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: 'inibuilds-tristar',
     profileKey: 'bundled/msfs/inibuilds-tristar',
-    actionId: 'flightGuidance.master.toggle',
-  }) === null &&
+    actionId: 'lights.wing.setOn',
+  })?.routes?.[0]?.readback?.fieldId === 'lights.wing' &&
+    defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: 'inibuilds-tristar',
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+      actionId: 'navigation.course1.increase',
+    })?.routes?.[0]?.confirmation === 'transport-acknowledged' &&
+    defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: 'inibuilds-tristar',
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+      actionId: 'afcs.altitude.set',
+    }) === null &&
+    defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: 'inibuilds-tristar',
+      profileKey: 'bundled/msfs/inibuilds-tristar',
+      actionId: 'flightGuidance.master.toggle',
+    }) === null &&
     defaultAircraftIntegrationRegistry.resolveIntegration('inibuilds-tristar', {
       profileKey: 'local/msfs/inibuilds-tristar',
     }) === null
@@ -2054,7 +2252,9 @@ test(
 test(
   'TriStar keeps its source-backed profile-level AFCS controls separate from the adapter',
   loader.getActiveProfile()?.integration?.controls?.autopilot?.actions?.masterToggle?.name === 'AP_MASTER' &&
-    loader.getActiveProfile()?.integration?.controls?.autopilot?.actions?.headingHoldToggle?.name === 'AP_HDG_HOLD'
+    loader.getActiveProfile()?.integration?.controls?.autopilot?.actions?.headingHoldToggle?.name === 'AP_HDG_HOLD' &&
+    loader.getActiveProfile()?.integration?.controls?.autopilot?.actions?.autothrottleToggle?.name === 'AP_AIRSPEED_HOLD' &&
+    loader.getActiveProfile()?.integration?.controls?.autopilot?.actions?.insToggle?.name === 'TOGGLE_WATER_RUDDER'
 );
 
 loader.setActiveProfile('microsoft-atr-72-600');

@@ -1,5 +1,5 @@
 const profileLoader = require('../aircraft/aircraft-profile-loader.js') as {
-  getLandingGrades: () => LandingGradeThresholds | null;
+  getActiveProfile: () => Record<string, any> | null;
   loadProfile: (profileId: unknown) => {
     id?: string;
     name?: string;
@@ -32,18 +32,31 @@ type LandingRateScoringContext = {
   thresholds: LandingGradeThresholds;
 };
 
-const FALLBACK_GRADES: LandingGradeThresholds = {
-  perfectMinFpm: -250,
-  goodMinFpm: -450,
-  firmMinFpm: -700,
-  hardMinFpm: -1000,
-};
+const COMMON_TRANSPORT_GRADES: LandingGradeThresholds = Object.freeze({
+  perfectMinFpm: -150,
+  goodMinFpm: -300,
+  firmMinFpm: -400,
+  hardMinFpm: -600,
+});
 
 const LANDING_RATE_POLICY = Object.freeze({
-  id: 'landing-rate-v1',
-  version: 1,
-  name: 'Conventional touchdown-rate bands',
+  id: 'landing-rate-v2',
+  version: 2,
+  name: 'Common transport bands with light-aircraft profile overrides',
 });
+
+function isLightAircraftProfile(profile: Record<string, any> | null | undefined): boolean {
+  return String(profile?.aircraft?.category || '').trim().toUpperCase() === 'A';
+}
+
+function resolveGradesForProfile(
+  profile: Record<string, any> | null | undefined,
+): LandingGradeThresholds {
+  const profileGrades = profile?.aircraft?.landing?.grades;
+  return isLightAircraftProfile(profile) && profileGrades
+    ? profileGrades
+    : COMMON_TRANSPORT_GRADES;
+}
 
 function normalizeProfileId(profileId: unknown): string | null {
   if (profileId === null || profileId === undefined || profileId === '') return null;
@@ -75,7 +88,7 @@ function resolveLandingRateRules(profileId: unknown): {
     const profile = profileLoader.loadProfile(lookupId);
     if (!profile && !legacyOrGeneric) return null;
     return {
-      grades: profile?.aircraft?.landing?.grades || FALLBACK_GRADES,
+      grades: resolveGradesForProfile(profile),
       profile,
       profileId: requestedProfileId || profile?.id || 'generic',
       resolved: Boolean(profile),
@@ -83,7 +96,7 @@ function resolveLandingRateRules(profileId: unknown): {
   } catch (_error) {
     if (!legacyOrGeneric) return null;
     return {
-      grades: FALLBACK_GRADES,
+      grades: COMMON_TRANSPORT_GRADES,
       profile: null,
       profileId: 'generic',
       resolved: false,
@@ -93,7 +106,7 @@ function resolveLandingRateRules(profileId: unknown): {
 
 function gradeLandingWithGrades(
   vs: number,
-  grades: LandingGradeThresholds = FALLBACK_GRADES,
+  grades: LandingGradeThresholds = COMMON_TRANSPORT_GRADES,
 ): LandingGrade {
   if (!Number.isFinite(vs)) {
     return { grade: 'FIRM', color: 'gold' };
@@ -107,7 +120,7 @@ function gradeLandingWithGrades(
 }
 
 function gradeLanding(vs: number): LandingGrade {
-  return gradeLandingWithGrades(vs, profileLoader.getLandingGrades() || FALLBACK_GRADES);
+  return gradeLandingWithGrades(vs, resolveGradesForProfile(profileLoader.getActiveProfile()));
 }
 
 /**
@@ -127,7 +140,7 @@ function gradeLandingForRecordedProfile(vs: number, profileId: unknown): Landing
  */
 function gradeLandingForProfile(vs: number, profileId: unknown): LandingGrade {
   return gradeLandingForRecordedProfile(vs, profileId)
-    || gradeLandingWithGrades(vs, FALLBACK_GRADES);
+    || gradeLandingWithGrades(vs, COMMON_TRANSPORT_GRADES);
 }
 
 /**
@@ -137,7 +150,7 @@ function gradeLandingForProfile(vs: number, profileId: unknown): LandingGrade {
  */
 function buildLandingRateScoringContext(profileId: unknown): LandingRateScoringContext {
   const rules = resolveLandingRateRules(profileId) || {
-    grades: FALLBACK_GRADES,
+    grades: COMMON_TRANSPORT_GRADES,
     profile: null,
     profileId: normalizeProfileId(profileId) || 'generic',
     resolved: false,
@@ -157,6 +170,7 @@ function buildLandingRateScoringContext(profileId: unknown): LandingRateScoringC
 }
 
 const landingApi = {
+  COMMON_TRANSPORT_GRADES,
   LANDING_RATE_POLICY,
   buildLandingRateScoringContext,
   gradeLanding,

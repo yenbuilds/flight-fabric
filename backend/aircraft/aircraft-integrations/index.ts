@@ -19,6 +19,19 @@ const {
   ) => Readonly<{ ok: true; value?: number } | { ok: false; error: string }>;
 };
 const {
+  FENIX_A32X_ADAPTER_ID,
+  FENIX_A32X_INTEGRATION,
+  FENIX_A319_PROFILE_KEY,
+  FENIX_A320_PROFILE_KEY,
+  FENIX_A321_PROFILE_KEY,
+} = require('./fenix-a32x') as {
+  FENIX_A32X_ADAPTER_ID: string;
+  FENIX_A32X_INTEGRATION: AircraftIntegrationDefinition;
+  FENIX_A319_PROFILE_KEY: string;
+  FENIX_A320_PROFILE_KEY: string;
+  FENIX_A321_PROFILE_KEY: string;
+};
+const {
   FBW_A32NX_ADAPTER_ID,
   FBW_A32NX_INTEGRATION,
   FBW_A32NX_PROFILE_KEY,
@@ -121,6 +134,7 @@ const {
 };
 
 const defaultAircraftIntegrationRegistry = createAircraftIntegrationRegistry([
+  FENIX_A32X_INTEGRATION,
   FBW_A32NX_INTEGRATION,
   IFLY_737_MAX_8_INTEGRATION,
   INIBUILDS_A310_INTEGRATION,
@@ -135,6 +149,11 @@ const defaultAircraftIntegrationRegistry = createAircraftIntegrationRegistry([
 ]);
 
 module.exports = {
+  FENIX_A32X_ADAPTER_ID,
+  FENIX_A32X_INTEGRATION,
+  FENIX_A319_PROFILE_KEY,
+  FENIX_A320_PROFILE_KEY,
+  FENIX_A321_PROFILE_KEY,
   FBW_A32NX_ADAPTER_ID,
   FBW_A32NX_INTEGRATION,
   FBW_A32NX_PROFILE_KEY,

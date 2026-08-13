@@ -45,7 +45,9 @@ const {
   shouldExcludeRuntimeModuleEntry,
 } = require('./after-pack');
 const {
+  assertBackendRuntimeInventoriesMatch,
   selectSimConnectDllSource,
+  snapshotBackendRuntimeProfile,
 } = require('./build-electron');
 
 let passed = 0;
@@ -1380,6 +1382,120 @@ test(
     buildScript.includes('Missing locked backend dependency') &&
     buildScript.includes('run npm ci --prefix backend'),
 );
+
+const backendStagingFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-backend-staging-'));
+try {
+  const sourceRoot = path.join(backendStagingFixture, 'source');
+  const stagedRoot = path.join(backendStagingFixture, 'staged');
+  const fixtureProfile = {
+    name: 'fixture',
+    include: {
+      backend: ['entry.js'],
+      backend_dirs: ['utils'],
+    },
+    exclude_patterns: [],
+  };
+  fs.mkdirSync(path.join(sourceRoot, 'utils'), { recursive: true });
+  fs.mkdirSync(path.join(stagedRoot, 'utils'), { recursive: true });
+  fs.writeFileSync(path.join(sourceRoot, 'entry.js'), 'module.exports = 1;\n');
+  fs.writeFileSync(path.join(sourceRoot, 'utils', 'storage-paths.js'), 'module.exports = 2;\n');
+  fs.copyFileSync(path.join(sourceRoot, 'entry.js'), path.join(stagedRoot, 'entry.js'));
+  fs.copyFileSync(
+    path.join(sourceRoot, 'utils', 'storage-paths.js'),
+    path.join(stagedRoot, 'utils', 'storage-paths.js')
+  );
+
+  const expectedInventory = snapshotBackendRuntimeProfile(sourceRoot, fixtureProfile, {
+    rootLabel: 'fixture source',
+  });
+  const exactStagedInventory = snapshotBackendRuntimeProfile(stagedRoot, fixtureProfile, {
+    rootLabel: 'fixture staging',
+  });
+  let exactStagingAccepted = true;
+  try {
+    assertBackendRuntimeInventoriesMatch(
+      expectedInventory,
+      exactStagedInventory,
+      'Fixture staging mismatch'
+    );
+  } catch {
+    exactStagingAccepted = false;
+  }
+  test('backend staging inventory accepts an exact filtered copy', exactStagingAccepted);
+
+  fs.unlinkSync(path.join(stagedRoot, 'utils', 'storage-paths.js'));
+  const incompleteStagedInventory = snapshotBackendRuntimeProfile(stagedRoot, fixtureProfile, {
+    rootLabel: 'fixture staging',
+  });
+  let incompleteStagingError = null;
+  try {
+    assertBackendRuntimeInventoriesMatch(
+      expectedInventory,
+      incompleteStagedInventory,
+      'Fixture staging mismatch'
+    );
+  } catch (err) {
+    incompleteStagingError = err;
+  }
+  test(
+    'backend staging inventory rejects a silently omitted runtime module with its exact path',
+    incompleteStagingError?.code === 'FF_BACKEND_STAGING_UNSTABLE'
+      && incompleteStagingError.message.includes('missing utils/storage-paths.js')
+  );
+
+  fs.writeFileSync(path.join(sourceRoot, 'utils', 'storage-paths.js'), 'module.exports = 3;\n');
+  const mutatedSourceInventory = snapshotBackendRuntimeProfile(sourceRoot, fixtureProfile, {
+    rootLabel: 'fixture source',
+  });
+  let sourceMutationError = null;
+  try {
+    assertBackendRuntimeInventoriesMatch(
+      expectedInventory,
+      mutatedSourceInventory,
+      'Compiled backend runtime changed while staging'
+    );
+  } catch (err) {
+    sourceMutationError = err;
+  }
+  test(
+    'backend staging inventory rejects source mutation during the copy window',
+    sourceMutationError?.code === 'FF_BACKEND_STAGING_UNSTABLE'
+      && sourceMutationError.message.includes('changed utils/storage-paths.js')
+  );
+
+  let missingRequiredDirectoryError = null;
+  try {
+    snapshotBackendRuntimeProfile(sourceRoot, {
+      ...fixtureProfile,
+      include: { backend: [], backend_dirs: ['lifecycle'] },
+    }, { rootLabel: 'compiled backend runtime' });
+  } catch (err) {
+    missingRequiredDirectoryError = err;
+  }
+  test(
+    'backend staging refuses a missing required profile directory with a precise retry error',
+    missingRequiredDirectoryError?.code === 'FF_BACKEND_STAGING_UNSTABLE'
+      && missingRequiredDirectoryError.message.includes('lifecycle')
+      && missingRequiredDirectoryError.message.includes('Stop other builds and retry')
+  );
+
+  let missingRequiredFileError = null;
+  try {
+    snapshotBackendRuntimeProfile(sourceRoot, {
+      ...fixtureProfile,
+      include: { backend: ['missing-entry.js'], backend_dirs: [] },
+    }, { rootLabel: 'compiled backend runtime' });
+  } catch (err) {
+    missingRequiredFileError = err;
+  }
+  test(
+    'backend staging refuses a missing required profile file instead of skipping it',
+    missingRequiredFileError?.code === 'FF_BACKEND_STAGING_UNSTABLE'
+      && missingRequiredFileError.message.includes('missing-entry.js')
+  );
+} finally {
+  fs.rmSync(backendStagingFixture, { recursive: true, force: true });
+}
 test(
   'build rejects links, reparse points, and non-regular backend dependency entries',
   buildScript.includes('assertSafeDependencyTree') &&

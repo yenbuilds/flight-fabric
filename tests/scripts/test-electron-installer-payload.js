@@ -5,6 +5,9 @@ const childProcess = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  REQUIRED_PACKAGED_BACKEND_STARTUP_FILES,
+} = require('./electron-packaged-startup-files');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DIST = path.join(ROOT, 'dist', 'electron');
@@ -14,7 +17,9 @@ const EXTRACT_ROOT = getRepoScratchPath('electron-installer-payload');
 const REQUIRED_PAYLOAD_FILES = [
   'Flight Fabric.exe',
   path.join('resources', 'app.asar'),
-  path.join('resources', 'backend', 'core', 'simbridge.js'),
+  ...REQUIRED_PACKAGED_BACKEND_STARTUP_FILES.map((relativePath) => (
+    path.join('resources', 'backend', ...relativePath.split('/'))
+  )),
   path.join('resources', 'frontend', 'index.html'),
   path.join('resources', 'shared', 'app-settings-shared.js'),
   path.join('resources', 'shared', 'flight-phases.js'),

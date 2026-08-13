@@ -21,6 +21,9 @@ const {
   getRepoScratchPath,
   resetRepoScratchDirectory,
 } = require('../scripts/repo-scratch');
+const {
+  installElectronOutputFailureGuard,
+} = require('./release-output-failure-guard');
 
 const ROOT = path.resolve(__dirname, '..');
 const ELECTRON_DIR = __dirname;
@@ -31,12 +34,13 @@ const BACKEND_RUNTIME = path.join(ROOT, 'dist', 'backend');
 const BACKEND_BUILD = path.join(ROOT, 'backend-build');
 const FRONTEND_SRC = path.join(ROOT, 'frontend');
 const FRONTEND_DIST = path.join(ROOT, 'frontend-dist');
+const ELECTRON_OUTPUT_DIR = path.join(ROOT, 'dist', 'electron');
 const OURAIRPORTS_DIR = path.join(BACKEND_SOURCE, 'data-sync', 'data', 'ourairports');
-const PACKAGED_OURAIRPORTS_DIR = path.join(ROOT, 'dist', 'electron', 'win-unpacked', 'resources', 'backend', 'data-sync', 'data', 'ourairports');
+const PACKAGED_OURAIRPORTS_DIR = path.join(ELECTRON_OUTPUT_DIR, 'win-unpacked', 'resources', 'backend', 'data-sync', 'data', 'ourairports');
 const REQUIRED_OURAIRPORTS_FILES = ['airports.csv', 'runways.csv'];
 const OURAIRPORTS_MANIFEST_FILE = 'manifest.json';
 const DEFAULT_OURAIRPORTS_DATA_MAX_AGE_DAYS = 30;
-const PACKAGED_LEGAL_DIR = path.join(ROOT, 'dist', 'electron', 'win-unpacked', 'resources', 'legal');
+const PACKAGED_LEGAL_DIR = path.join(ELECTRON_OUTPUT_DIR, 'win-unpacked', 'resources', 'legal');
 const REQUIRED_LEGAL_FILES = [
   'SAFETY-NOTICE.md',
   'THIRD_PARTY_NOTICES.md',
@@ -73,9 +77,7 @@ const SIMCONNECT_DEFAULT_SDK_PATHS = process.platform === 'win32'
     ]
   : [];
 const PACKAGED_RUST_SIDECAR_BINARY = path.join(
-  ROOT,
-  'dist',
-  'electron',
+  ELECTRON_OUTPUT_DIR,
   'win-unpacked',
   'resources',
   'backend',
@@ -815,6 +817,157 @@ async function copyBackend() {
   copyBackendFiltered();
 }
 
+function createBackendStagingError(message) {
+  const err = new Error(
+    `${message} The compiled backend runtime may be incomplete or another build may be `
+    + 'writing dist/backend. Stop other builds and retry.'
+  );
+  err.code = 'FF_BACKEND_STAGING_UNSTABLE';
+  return err;
+}
+
+function matchesProfileExcludePattern(relPath, profile) {
+  for (const pattern of profile?.exclude_patterns || []) {
+    if (matchesPattern(relPath, pattern)) return true;
+  }
+  return false;
+}
+
+function readBackendRuntimeFileRecord(filePath, relativePath, rootLabel) {
+  let before;
+  let contents;
+  let after;
+  try {
+    before = fs.lstatSync(filePath);
+    if (!before.isFile() || before.isSymbolicLink()) {
+      throw createBackendStagingError(
+        `Required ${rootLabel} file is not a regular file: ${relativePath}.`
+      );
+    }
+    contents = fs.readFileSync(filePath);
+    after = fs.lstatSync(filePath);
+  } catch (err) {
+    if (err?.code === 'FF_BACKEND_STAGING_UNSTABLE') throw err;
+    throw createBackendStagingError(
+      `Could not read required ${rootLabel} file ${relativePath}: ${err.message}.`
+    );
+  }
+
+  if (
+    before.size !== after.size
+    || before.mtimeMs !== after.mtimeMs
+    || before.ctimeMs !== after.ctimeMs
+  ) {
+    throw createBackendStagingError(
+      `Required ${rootLabel} file changed while it was being read: ${relativePath}.`
+    );
+  }
+
+  return `file:${contents.length}:${crypto.createHash('sha256').update(contents).digest('hex')}`;
+}
+
+/**
+ * Capture the exact filtered runtime tree represented by a release profile.
+ * File content hashes make this suitable for comparing the source before and
+ * after staging as well as proving the staged copy is complete.
+ */
+function snapshotBackendRuntimeProfile(rootDir, profile, options = {}) {
+  const rootLabel = options.rootLabel || 'backend runtime';
+  const inventory = new Map();
+
+  function requireEntry(entryPath, relativePath, expectedType) {
+    let stat;
+    try {
+      stat = fs.lstatSync(entryPath);
+    } catch (err) {
+      throw createBackendStagingError(
+        `Missing required ${rootLabel} ${expectedType}: ${relativePath} (${err.code || err.message}).`
+      );
+    }
+    const valid = expectedType === 'directory'
+      ? stat.isDirectory() && !stat.isSymbolicLink()
+      : stat.isFile() && !stat.isSymbolicLink();
+    if (!valid) {
+      throw createBackendStagingError(
+        `Required ${rootLabel} ${expectedType} is not a regular ${expectedType}: ${relativePath}.`
+      );
+    }
+  }
+
+  function visitDirectory(currentDir, relativeDir) {
+    const normalizedDir = normalizeRelPath(relativeDir);
+    requireEntry(currentDir, normalizedDir, 'directory');
+    inventory.set(`${normalizedDir}/`, 'directory');
+
+    let entries;
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true })
+        .sort((left, right) => left.name.localeCompare(right.name));
+    } catch (err) {
+      throw createBackendStagingError(
+        `Could not enumerate required ${rootLabel} directory ${normalizedDir}: ${err.message}.`
+      );
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentDir, entry.name);
+      const relativePath = normalizeRelPath(path.join(relativeDir, entry.name));
+      if (
+        isRustSidecarSourcePath(relativePath)
+        || matchesProfileExcludePattern(relativePath, profile)
+        || isDocumentationFile(entry.name)
+        || isRuntimeJunkFile(entry.name)
+      ) {
+        continue;
+      }
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        visitDirectory(entryPath, relativePath);
+        continue;
+      }
+      inventory.set(
+        relativePath,
+        readBackendRuntimeFileRecord(entryPath, relativePath, rootLabel)
+      );
+    }
+  }
+
+  for (const file of profile?.include?.backend || []) {
+    const relativePath = normalizeRelPath(file);
+    if (matchesProfileExcludePattern(relativePath, profile)) continue;
+    const filePath = path.join(rootDir, file);
+    requireEntry(filePath, relativePath, 'file');
+    inventory.set(
+      relativePath,
+      readBackendRuntimeFileRecord(filePath, relativePath, rootLabel)
+    );
+  }
+
+  for (const dir of profile?.include?.backend_dirs || []) {
+    visitDirectory(path.join(rootDir, dir), dir);
+  }
+
+  return inventory;
+}
+
+function assertBackendRuntimeInventoriesMatch(expected, actual, message) {
+  const expectedPaths = [...expected.keys()].sort();
+  const actualPaths = [...actual.keys()].sort();
+  const missing = expectedPaths.find((relativePath) => !actual.has(relativePath));
+  if (missing) {
+    throw createBackendStagingError(`${message}: missing ${missing}.`);
+  }
+  const unexpected = actualPaths.find((relativePath) => !expected.has(relativePath));
+  if (unexpected) {
+    throw createBackendStagingError(`${message}: unexpected ${unexpected}.`);
+  }
+  const changed = expectedPaths.find(
+    (relativePath) => expected.get(relativePath) !== actual.get(relativePath)
+  );
+  if (changed) {
+    throw createBackendStagingError(`${message}: changed ${changed}.`);
+  }
+}
+
 /**
  * Copy backend files without obfuscation (filtered by profile)
  */
@@ -822,34 +975,77 @@ function copyBackendFiltered() {
   log('Copying backend files (filtered by profile)...');
   let count = 0;
 
-  // Copy individual files
-  for (const file of resolvedProfile.include.backend) {
-    const srcPath = path.join(BACKEND_RUNTIME, file);
-    const destPath = path.join(BACKEND_BUILD, file);
-    
-    if (matchesExcludePattern(file)) continue;
-    if (!fs.existsSync(srcPath)) continue;
-    
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    fs.copyFileSync(srcPath, destPath);
-    count++;
+  const sourceInventoryBefore = snapshotBackendRuntimeProfile(
+    BACKEND_RUNTIME,
+    resolvedProfile,
+    { rootLabel: 'compiled backend runtime' }
+  );
+
+  try {
+    // Copy individual files
+    for (const file of resolvedProfile.include.backend) {
+      const srcPath = path.join(BACKEND_RUNTIME, file);
+      const destPath = path.join(BACKEND_BUILD, file);
+
+      if (matchesExcludePattern(file)) continue;
+      if (!fs.existsSync(srcPath)) {
+        throw createBackendStagingError(
+          `Required compiled backend runtime file disappeared before staging: ${normalizeRelPath(file)}.`
+        );
+      }
+
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      fs.copyFileSync(srcPath, destPath);
+      count++;
+    }
+
+    // Copy directories (respecting exclude patterns)
+    for (const dir of resolvedProfile.include.backend_dirs) {
+      const srcDir = path.join(BACKEND_RUNTIME, dir);
+      const destDir = path.join(BACKEND_BUILD, dir);
+
+      if (!fs.existsSync(srcDir)) {
+        throw createBackendStagingError(
+          `Required compiled backend runtime directory disappeared before staging: ${normalizeRelPath(dir)}.`
+        );
+      }
+      copyDirectoryFiltered(srcDir, destDir);
+      count++;
+    }
+  } catch (err) {
+    if (err?.code === 'FF_BACKEND_STAGING_UNSTABLE') throw err;
+    throw createBackendStagingError(`Could not copy the backend runtime into staging: ${err.message}.`);
   }
 
-  // Copy directories (respecting exclude patterns)
-  for (const dir of resolvedProfile.include.backend_dirs) {
-    const srcDir = path.join(BACKEND_RUNTIME, dir);
-    const destDir = path.join(BACKEND_BUILD, dir);
-    
-    if (!fs.existsSync(srcDir)) continue;
-    copyDirectoryFiltered(srcDir, destDir);
-    count++;
-  }
+  const sourceInventoryAfter = snapshotBackendRuntimeProfile(
+    BACKEND_RUNTIME,
+    resolvedProfile,
+    { rootLabel: 'compiled backend runtime' }
+  );
+  assertBackendRuntimeInventoriesMatch(
+    sourceInventoryBefore,
+    sourceInventoryAfter,
+    'Compiled backend runtime changed while staging'
+  );
+  const stagedInventory = snapshotBackendRuntimeProfile(
+    BACKEND_BUILD,
+    resolvedProfile,
+    { rootLabel: 'staged backend runtime' }
+  );
+  assertBackendRuntimeInventoriesMatch(
+    sourceInventoryBefore,
+    stagedInventory,
+    'Staged backend runtime does not match the compiled source'
+  );
 
   // Copy package.json
   const pkgSrc = path.join(BACKEND_RUNTIME, 'package.json');
-  if (fs.existsSync(pkgSrc)) {
-    copyPackagedBackendPackageJson(pkgSrc, path.join(BACKEND_BUILD, 'package.json'));
+  if (!fs.existsSync(pkgSrc)) {
+    throw createBackendStagingError(
+      'Missing required compiled backend runtime file: package.json.'
+    );
   }
+  copyPackagedBackendPackageJson(pkgSrc, path.join(BACKEND_BUILD, 'package.json'));
 
   buildRustSidecar();
   copySimConnectRuntime();
@@ -1081,12 +1277,7 @@ function copySimConnectRuntime() {
  * Check if path matches profile exclude patterns
  */
 function matchesExcludePattern(relPath) {
-  for (const pattern of resolvedProfile.exclude_patterns || []) {
-    if (matchesPattern(relPath, pattern)) {
-      return true;
-    }
-  }
-  return false;
+  return matchesProfileExcludePattern(relPath, resolvedProfile);
 }
 
 /**
@@ -1199,7 +1390,7 @@ function buildTailwindCss() {
  * that block electron-builder from overwriting them.
  */
 function ensureCleanElectronOutput() {
-  const distDir = path.join(ROOT, 'dist', 'electron');
+  const distDir = ELECTRON_OUTPUT_DIR;
   const unpackedDir = path.join(distDir, 'win-unpacked');
   const failedArtifactRemovals = [];
 
@@ -1461,6 +1652,11 @@ async function main() {
   loadReleaseProfile();
   // Invalidate prior canonical artifacts before any fallible build step so a
   // failed rebuild cannot leave a stale executable available for summarizing.
+  const outputFailureGuard = installElectronOutputFailureGuard(ELECTRON_OUTPUT_DIR, {
+    reportError: (err) => error(
+      `Failed to invalidate incomplete Electron output during shutdown: ${err.message}`
+    ),
+  });
   ensureCleanElectronOutput();
   ensureOurAirportsData();
   syncElectronVersion();
@@ -1477,6 +1673,7 @@ async function main() {
   verifyPackagedRustSidecar();
   verifyReleaseOutput();
   verifyVirginInstallerPayload();
+  outputFailureGuard.disarm();
   
   log('');
   log('=== Build Complete ===');
@@ -1491,7 +1688,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  assertBackendRuntimeInventoriesMatch,
   getSimConnectDllCandidates,
   normalizeSimConnectDllCandidate,
   selectSimConnectDllSource,
+  snapshotBackendRuntimeProfile,
 };

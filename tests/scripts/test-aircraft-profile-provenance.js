@@ -48,6 +48,51 @@ const ACTIVE_MAPPING_AUTHORITIES = new Set([
   'simulator-vendor',
   'aircraft-vendor',
 ]);
+const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
+  ['inibuilds-a330', {
+    profileKey: 'bundled/msfs/inibuilds-a330',
+    verification: 'untested',
+    events: [
+      'AUTOPILOT_OFF',
+      'AUTOPILOT_ON',
+      'TOGGLE_FLIGHT_DIRECTOR',
+      'AUTO_THROTTLE_ARM',
+      'AP_AIRSPEED_OFF',
+      'AP_AIRSPEED_ON',
+      'AP_HDG_HOLD_OFF',
+      'AP_HDG_HOLD_ON',
+      'AP_ALT_HOLD_OFF',
+      'AP_ALT_HOLD_ON',
+      'AP_VS_OFF',
+      'AP_VS_ON',
+      'AP_NAV1_HOLD_OFF',
+      'AP_NAV1_HOLD_ON',
+      'AP_APR_HOLD_OFF',
+      'AP_APR_HOLD_ON',
+      'FLIGHT_LEVEL_CHANGE_OFF',
+      'FLIGHT_LEVEL_CHANGE_ON',
+      'AP_SPD_VAR_SET',
+      'HEADING_BUG_SET',
+      'AP_ALT_VAR_SET_ENGLISH',
+      'AP_VS_VAR_SET_ENGLISH',
+      'STROBES_SET',
+      'BEACON_LIGHTS_SET',
+      'NAV_LIGHTS_SET',
+      'LOGO_LIGHTS_SET',
+      'WING_LIGHTS_SET',
+      'LANDING_LIGHTS_SET',
+      'TAXI_LIGHTS_SET',
+      'GEAR_UP',
+      'GEAR_DOWN',
+      'FLAPS_DECR',
+      'FLAPS_INCR',
+      'PARKING_BRAKE_SET',
+      'SPOILERS_ARM_OFF',
+      'SPOILERS_ARM_ON',
+      'SPOILERS_SET',
+    ],
+  }],
+]);
 const EXPLANATION_RE = /\b(suppress|suppressed|unreliable|not authoritative|n\/a|fallback|rather than (showing|guessing)|intentionally|requires)\b/i;
 
 function listFiles(rootDir, predicate) {
@@ -227,9 +272,18 @@ function collectAdapterRouteTokens(route) {
   if (route.transport === 'lvar') return [String(route.lvar || '').replace(/^L:/i, '')].filter(Boolean);
   if (route.transport === 'input-event') return [route.inputEvent].filter(Boolean);
   if (route.transport === 'mobiflight-calculator') {
-    return [...String(route.code || '').matchAll(/\(?L:([^,\)]+)/gi)]
-      .map((match) => match[1].trim())
-      .filter(Boolean);
+    const calculatorCodes = [
+      route.code,
+      route.pressCode,
+      route.releaseCode,
+      route.increaseCode,
+      route.decreaseCode,
+    ].filter((code) => typeof code === 'string');
+    return [...new Set(calculatorCodes.flatMap((code) => (
+      [...code.matchAll(/\(?L:([^,\)]+)/gi)]
+        .map((match) => match[1].trim())
+        .filter(Boolean)
+    )))];
   }
   if (route.transport === 'simconnect-sequence') {
     return (route.operations || []).map((operation) => {
@@ -276,6 +330,30 @@ function validateTrustedAdapterEvidence(failures) {
       if (sources.length === 0) {
         failures.push(`${integration.id} (${profileKey}): custom adapter routes require authoritative active-mapping evidence`);
         continue;
+      }
+
+      const exactStandardContract = EXACT_STANDARD_EVENT_CONTRACTS.get(integration.id);
+      if (exactStandardContract && profileKey === exactStandardContract.profileKey) {
+        const expectedEvents = [...exactStandardContract.events].sort();
+        const activeEvents = [...new Set(actionRoutes.flatMap(collectAdapterRouteTokens))].sort();
+        if (JSON.stringify(activeEvents) !== JSON.stringify(expectedEvents)) {
+          failures.push(`${integration.id} (${profileKey}): standard-event contract drifted; expected ${expectedEvents.length} exact events, got ${activeEvents.length}`);
+        }
+
+        const officialSdkEvidenceText = JSON.stringify(sources.filter((source) => (
+          source.type === 'official-sdk' && source.authority === 'simulator-vendor'
+        )));
+        for (const eventName of expectedEvents) {
+          if (!sourceCoversName(officialSdkEvidenceText, eventName)) {
+            failures.push(`${integration.id} (${profileKey}): standard event lacks Microsoft SDK active-mapping evidence: ${eventName}`);
+          }
+        }
+
+        for (const action of Object.values(integration.actions || {})) {
+          if (action.verification !== exactStandardContract.verification) {
+            failures.push(`${integration.id} (${profileKey}): every standard-event action must remain ${exactStandardContract.verification}: ${action.id}`);
+          }
+        }
       }
 
       for (const route of customFieldRoutes) {

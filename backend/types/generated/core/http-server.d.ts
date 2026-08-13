@@ -7,6 +7,29 @@ type RequestLike = import('http').IncomingMessage & {
     headers: import('http').IncomingHttpHeaders;
     method?: string | null;
 };
+type SimbriefLimiterLease = {
+    allowed: true;
+    release: () => void;
+};
+type SimbriefLimiterRejection = {
+    allowed: false;
+    statusCode: 429 | 503;
+    retryAfterSeconds: number;
+    error: string;
+};
+export declare function createSimbriefRequestLimiter({ now, cooldownMs, retentionMs, maxKeys, maxInFlight, maxInFlightPerClient, attemptWindowMs, maxAttemptsPerWindow, maxAttemptsPerClientWindow, }?: {
+    now?: () => number;
+    cooldownMs?: number;
+    retentionMs?: number;
+    maxKeys?: number;
+    maxInFlight?: number;
+    maxInFlightPerClient?: number;
+    attemptWindowMs?: number;
+    maxAttemptsPerWindow?: number;
+    maxAttemptsPerClientWindow?: number;
+}): {
+    acquire: (username: string, remoteAddress: string | null | undefined) => SimbriefLimiterLease | SimbriefLimiterRejection;
+};
 export declare function resolvePackagedFrontendDir(moduleDir: string, packaged: boolean): string | null;
 export declare function getLocalIPsFromInterfaces(nets: ReturnType<typeof os.networkInterfaces>): string[];
 export declare function isTrustedHttpRequest(req: RequestLike, remoteAccessEnable: boolean): boolean;

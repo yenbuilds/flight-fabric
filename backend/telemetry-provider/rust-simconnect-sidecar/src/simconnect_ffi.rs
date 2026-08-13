@@ -97,6 +97,9 @@ pub(crate) type SimConnectMapClientEventToSimEvent =
     unsafe extern "system" fn(Handle, Dword, *const c_char) -> Hresult;
 pub(crate) type SimConnectTransmitClientEvent =
     unsafe extern "system" fn(Handle, Dword, Dword, Dword, Dword, Dword) -> Hresult;
+pub(crate) type SimConnectTransmitClientEventEx1 = unsafe extern "system" fn(
+    Handle, Dword, Dword, Dword, Dword, Dword, Dword, Dword, Dword, Dword,
+) -> Hresult;
 pub(crate) type SimConnectGetLastSentPacketId =
     unsafe extern "system" fn(Handle, *mut Dword) -> Hresult;
 pub(crate) type SimConnectSetDataOnSimObject =

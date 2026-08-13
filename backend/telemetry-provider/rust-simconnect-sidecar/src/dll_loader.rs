@@ -43,6 +43,7 @@ pub(crate) struct SimConnectApi {
     pub(crate) request_data_on_sim_object: SimConnectRequestDataOnSimObject,
     pub(crate) map_client_event_to_sim_event: SimConnectMapClientEventToSimEvent,
     pub(crate) transmit_client_event: SimConnectTransmitClientEvent,
+    pub(crate) transmit_client_event_ex1: Option<SimConnectTransmitClientEventEx1>,
     pub(crate) get_last_sent_packet_id: SimConnectGetLastSentPacketId,
     pub(crate) set_data_on_sim_object: SimConnectSetDataOnSimObject,
     pub(crate) camera_set_relative_6dof: SimConnectCameraSetRelative6Dof,
@@ -122,6 +123,10 @@ impl SimConnectApi {
             b"SimConnect_TransmitClientEvent\0",
             "SimConnect_TransmitClientEvent",
         )?;
+        let transmit_client_event_ex1 = load_optional_symbol::<SimConnectTransmitClientEventEx1>(
+            &lib,
+            b"SimConnect_TransmitClientEvent_EX1\0",
+        );
         let get_last_sent_packet_id = load_symbol::<SimConnectGetLastSentPacketId>(
             &lib,
             b"SimConnect_GetLastSentPacketID\0",
@@ -197,6 +202,7 @@ impl SimConnectApi {
             request_data_on_sim_object,
             map_client_event_to_sim_event,
             transmit_client_event,
+            transmit_client_event_ex1,
             get_last_sent_packet_id,
             set_data_on_sim_object,
             camera_set_relative_6dof,

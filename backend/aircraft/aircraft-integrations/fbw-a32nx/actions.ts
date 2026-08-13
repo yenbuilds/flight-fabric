@@ -274,6 +274,111 @@ for (const [prefix, fieldId, event] of [
   });
 }
 
+// FlyByWire documents dedicated circuit writes for the A320's coupled nose,
+// landing and runway-turnoff lights. Landing-light ON additionally requires
+// the lamp to extend for 8-10 seconds before its circuit is energized. These
+// adapter-owned sequences use the midpoint (9 seconds), keep each physical
+// selector serialized, and never retry a partially completed command.
+const LANDING_LIGHT_EXTENSION_DELAY_MS = 9000;
+
+for (const [suffix, expectedValue, operations] of [
+  ['off', 'off', [
+    { type: 'lvar', name: 'L:LIGHTING_LANDING_1', unit: 'Number', value: 2 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:17', unit: 'Bool', value: 0 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:20', unit: 'Bool', value: 0 },
+  ]],
+  ['taxi', 'taxi', [
+    { type: 'lvar', name: 'L:LIGHTING_LANDING_1', unit: 'Number', value: 1 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:20', unit: 'Bool', value: 0 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:17', unit: 'Bool', value: 1 },
+  ]],
+  ['takeoff', 'takeoff', [
+    { type: 'lvar', name: 'L:LIGHTING_LANDING_1', unit: 'Number', value: 0 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:17', unit: 'Bool', value: 1 },
+    { type: 'simvar', name: 'CIRCUIT SWITCH ON:20', unit: 'Bool', value: 1 },
+  ]],
+] as const) {
+  const actionId = `lights.nose.${suffix}`;
+  actions[actionId] = setSequenceAction({
+    actionId,
+    expectedValue,
+    fieldId: 'lights.noseMode',
+    groupId: 'lights.nose',
+    operations,
+    skipIfSatisfied: false,
+  });
+}
+
+for (const [suffix, expectedValue] of [
+  ['off', false],
+  ['on', true],
+] as const) {
+  const actionId = `lights.runwayTurnoff.${suffix}`;
+  actions[actionId] = setSequenceAction({
+    actionId,
+    expectedValue,
+    fieldId: 'lights.runwayTurnoff',
+    groupId: 'lights.runwayTurnoff',
+    operations: [
+      { type: 'simvar', name: 'CIRCUIT SWITCH ON:21', unit: 'Bool', value: expectedValue },
+      { type: 'simvar', name: 'CIRCUIT SWITCH ON:22', unit: 'Bool', value: expectedValue },
+    ],
+    // The logical state reads the left circuit; always dispatch so the paired
+    // right circuit is reconciled even when the left side is already correct.
+    skipIfSatisfied: false,
+  });
+}
+
+for (const [prefix, selectorLvar, retractedLvar, circuitIndex, modeField, circuitField, retractedField] of [
+  [
+    'lights.landingLeft',
+    'LIGHTING_LANDING_2',
+    'LANDING_2_RETRACTED',
+    18,
+    'lights.landingLeftMode',
+    'lights.landingLeftCircuitOn',
+    'lights.landingLeftRetracted',
+  ],
+  [
+    'lights.landingRight',
+    'LIGHTING_LANDING_3',
+    'LANDING_3_RETRACTED',
+    19,
+    'lights.landingRightMode',
+    'lights.landingRightCircuitOn',
+    'lights.landingRightRetracted',
+  ],
+] as const) {
+  for (const [suffix, expectedValue, fieldId, operations] of [
+    ['retract', true, retractedField, [
+      { type: 'simvar', name: `CIRCUIT SWITCH ON:${circuitIndex}`, unit: 'Bool', value: 0 },
+      { type: 'lvar', name: `L:${selectorLvar}`, unit: 'Number', value: 2 },
+      { type: 'lvar', name: `L:${retractedLvar}`, unit: 'Number', value: 1 },
+    ]],
+    ['off', 'off', modeField, [
+      { type: 'simvar', name: `CIRCUIT SWITCH ON:${circuitIndex}`, unit: 'Bool', value: 0 },
+      { type: 'lvar', name: `L:${selectorLvar}`, unit: 'Number', value: 1 },
+      { type: 'lvar', name: `L:${retractedLvar}`, unit: 'Number', value: 0 },
+    ]],
+    ['on', true, circuitField, [
+      { type: 'lvar', name: `L:${selectorLvar}`, unit: 'Number', value: 0 },
+      { type: 'lvar', name: `L:${retractedLvar}`, unit: 'Number', value: 0 },
+      { type: 'delay', milliseconds: LANDING_LIGHT_EXTENSION_DELAY_MS },
+      { type: 'simvar', name: `CIRCUIT SWITCH ON:${circuitIndex}`, unit: 'Bool', value: 1 },
+    ]],
+  ] as const) {
+    const actionId = `${prefix}.${suffix}`;
+    actions[actionId] = setSequenceAction({
+      actionId,
+      expectedValue,
+      fieldId,
+      groupId: prefix,
+      operations,
+      skipIfSatisfied: false,
+    });
+  }
+}
+
 addStandardDetents({
   fieldId: 'cabin.noSmokingMode',
   lvar: 'XMLVAR_SWITCH_OVHD_INTLT_NOSMOKING_POSITION',

@@ -45,8 +45,10 @@ const SHALLOW_BOUNCE_EVIDENCE_THRESHOLDS = Object.freeze({
 
 const LEGACY_RUNWAY_EXCURSION_GRADE = 'RUNWAY EXCURSION';
 const LANDING_RATE_CONTEXT_SCHEMA_VERSION = 1;
-const LANDING_RATE_POLICY_ID = 'landing-rate-v1';
-const LANDING_RATE_POLICY_VERSION = 1;
+const RECORDED_LANDING_RATE_POLICIES = Object.freeze([
+  Object.freeze({ id: 'landing-rate-v1', version: 1 }),
+  Object.freeze({ id: 'landing-rate-v2', version: 2 }),
+]);
 
 function toFiniteNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
@@ -103,8 +105,12 @@ function gradeLandingRateFromRecordedContext(
 ): string | null {
   if (!hasRecordedLandingRateContext(row)) return null;
   const context = parseLandingRateContext(row?.landing_rate_context ?? row?.landingRateContext);
-  if (context?.policy?.id !== LANDING_RATE_POLICY_ID
-      || Number(context?.policy?.version) !== LANDING_RATE_POLICY_VERSION) {
+  const policyId = toNonEmptyString(context?.policy?.id);
+  const policyVersion = Number(context?.policy?.version);
+  const recognizedPolicy = RECORDED_LANDING_RATE_POLICIES.some(
+    (policy) => policy.id === policyId && policy.version === policyVersion,
+  );
+  if (!recognizedPolicy) {
     return null;
   }
   const thresholds = context.thresholds as GenericRecord;

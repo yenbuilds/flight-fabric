@@ -206,6 +206,13 @@ export function createAppMessageHandler({
     }
 
     switch (message.type) {
+      case 'authorizationScope':
+        // The connection applies the acknowledged scope before enqueueing this
+        // message. Recompute control availability now so read-only sessions
+        // fail closed immediately and newly authorized sessions do not remain
+        // disabled until an unrelated simulator/profile update arrives.
+        aircraftControl.updateAvailability?.();
+        break;
       case 'ias':
         telemetryDisplay.updateSpeedDisplay({ ias: message.value }, { updateFlightStore: false });
         break;

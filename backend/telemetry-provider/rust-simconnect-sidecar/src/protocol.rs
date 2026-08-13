@@ -70,6 +70,8 @@ pub(crate) struct Command {
     #[serde(default)]
     pub(crate) value: Option<f64>,
     #[serde(default)]
+    pub(crate) parameters: Vec<f64>,
+    #[serde(default)]
     pub(crate) x: Option<f64>,
     #[serde(default)]
     pub(crate) y: Option<f64>,
@@ -111,6 +113,7 @@ impl Command {
             code: None,
             unit: None,
             value: None,
+            parameters: Vec::new(),
             x: None,
             y: None,
             z: None,
@@ -254,7 +257,21 @@ mod tests {
         assert!(command.name.is_none());
         assert!(command.code.is_none());
         assert!(command.value.is_none());
+        assert!(command.parameters.is_empty());
         assert!(command.icao.is_none());
+    }
+
+    #[test]
+    fn event_command_deserialization_preserves_additional_parameters() {
+        let command: Command = serde_json::from_str(
+            r#"{"type":"sendEvent","name":"HEADING_BUG_SET","value":275,"parameters":[0]}"#,
+        )
+        .expect("event command should parse");
+
+        assert_eq!(command.command_type, "sendEvent");
+        assert_eq!(command.name.as_deref(), Some("HEADING_BUG_SET"));
+        assert_eq!(command.value, Some(275.0));
+        assert_eq!(command.parameters, vec![0.0]);
     }
 
     #[test]

@@ -60,6 +60,36 @@ const PRESET_CONTROL_COMMANDS = Object.freeze({
     request: { control: 'flaps', operation: 'increment' },
     busyLabel: 'Sending\u2026',
   },
+  parkingBrakeRelease: {
+    request: { control: 'parkingBrake', operation: 'set', value: false },
+    busyLabel: 'Releasing\u2026',
+    minimumPendingMs: 350,
+  },
+  parkingBrakeSet: {
+    request: { control: 'parkingBrake', operation: 'set', value: true },
+    busyLabel: 'Setting\u2026',
+    minimumPendingMs: 350,
+  },
+  spoilersRetract: {
+    request: { control: 'spoilers', operation: 'set', value: 0 },
+    busyLabel: 'Retracting\u2026',
+    minimumPendingMs: 350,
+  },
+  spoilersExtend: {
+    request: { control: 'spoilers', operation: 'set', value: 16383 },
+    busyLabel: 'Extending\u2026',
+    minimumPendingMs: 350,
+  },
+  spoilersDisarm: {
+    request: { control: 'spoilers', operation: 'disarm' },
+    busyLabel: 'Disarming\u2026',
+    minimumPendingMs: 350,
+  },
+  spoilersArm: {
+    request: { control: 'spoilers', operation: 'arm' },
+    busyLabel: 'Arming\u2026',
+    minimumPendingMs: 350,
+  },
   autopilotMasterToggle: {
     request: { control: 'autopilot', target: 'master', operation: 'toggle' },
     busyLabel: 'Toggling\u2026',
@@ -79,6 +109,70 @@ const PRESET_MODE_TOGGLE_TARGETS = Object.freeze({
   locToggle: 'loc',
   appToggle: 'app',
 });
+
+const GENERIC_LIGHT_TARGETS = Object.freeze({
+  nav: true,
+  beacon: true,
+  strobe: true,
+  landing: true,
+  taxi: true,
+});
+
+const AUTOPILOT_PULSE_COMMANDS = Object.freeze({
+  autothrottle: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'autothrottle', operation: 'toggle' }),
+    busyLabel: 'Toggling\u2026',
+  }),
+  verticalSpeedHold: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'verticalSpeedHold', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  altitudeHold: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'altitudeHold', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  machHold: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'machHold', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  headingHold: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'headingHold', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  flightDirector: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'flightDirector', operation: 'toggle' }),
+    busyLabel: 'Toggling\u2026',
+  }),
+  apMaster: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'master', operation: 'toggle' }),
+    busyLabel: 'Toggling\u2026',
+  }),
+  apDisconnect: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'master', operation: 'set', value: false }),
+    busyLabel: 'Disconnecting\u2026',
+  }),
+  app: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'app', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  loc: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'loc', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  nav1: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'nav1', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  ins: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'ins', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+  backcourse: Object.freeze({
+    request: Object.freeze({ control: 'autopilot', target: 'backcourse', operation: 'toggle' }),
+    busyLabel: 'Sending\u2026',
+  }),
+});
+const AUTOPILOT_PULSE_COOLDOWN_MS = 600;
 
 function toNullableBoolean(value) {
   if (value === true) return true;
@@ -100,12 +194,15 @@ export function createAutopilotPanel({
   aircraftControl,
   getCurrentState = () => ({}),
   aircraftControlsStore = null,
+  now = () => Date.now(),
 } = {}) {
   if (!aircraftControlsStore) {
     throw new Error('Aircraft controls store is required before autopilot panel');
   }
   const controlsStore = aircraftControlsStore;
+  const getNow = typeof now === 'function' ? now : () => Date.now();
   let lastAutopilotState = { ...DEFAULT_AUTOPILOT_STATE };
+  const autopilotPulseLastSentAt = new Map();
 
   function update(msg) {
     const currentState = getCurrentState() || {};
@@ -131,6 +228,7 @@ export function createAutopilotPanel({
 
   function resetState() {
     lastAutopilotState = { ...DEFAULT_AUTOPILOT_STATE };
+    autopilotPulseLastSentAt.clear();
     controlsStore?.resetAutopilot?.();
   }
 
@@ -198,6 +296,7 @@ export function createAutopilotPanel({
       const command = { type: 'preset', id: commandId };
       return aircraftControl.send(preset.request, {
         ...getSendOptions(command, button, preset.busyLabel),
+        minimumPendingMs: preset.minimumPendingMs || 0,
       });
     }
 
@@ -236,6 +335,46 @@ export function createAutopilotPanel({
     );
   }
 
+  function sendAutopilotPulseCommand(commandId, button = null) {
+    const pulse = Object.prototype.hasOwnProperty.call(AUTOPILOT_PULSE_COMMANDS, commandId)
+      ? AUTOPILOT_PULSE_COMMANDS[commandId]
+      : null;
+    if (!pulse) return false;
+
+    const command = { type: 'autopilot-pulse', id: commandId };
+    const pendingKey = getAircraftControlCommandPendingKey(command);
+    const lastSentAt = Number(autopilotPulseLastSentAt.get(pendingKey) || 0);
+    const nowMs = Number(getNow());
+    if (controlsStore?.isCommandPending?.(pendingKey) === true) return false;
+    if (lastSentAt > 0 && Number.isFinite(nowMs) && nowMs - lastSentAt < AUTOPILOT_PULSE_COOLDOWN_MS) return false;
+
+    const sent = aircraftControl.send(
+      pulse.request,
+      {
+        ...getSendOptions(command, button, pulse.busyLabel),
+        pendingKey,
+        minimumPendingMs: AUTOPILOT_PULSE_COOLDOWN_MS,
+      },
+    );
+    if (sent !== false && Number.isFinite(nowMs)) autopilotPulseLastSentAt.set(pendingKey, nowMs);
+    return sent;
+  }
+
+  function sendLightSetCommand(light, value, button = null) {
+    const target = typeof light === 'string' ? light.trim() : '';
+    if (!Object.prototype.hasOwnProperty.call(GENERIC_LIGHT_TARGETS, target)) return false;
+    if (value !== true && value !== false) return false;
+
+    const command = { type: 'light-set', light: target, value };
+    return aircraftControl.send(
+      { control: 'lights', target, operation: 'set', value },
+      {
+        ...getSendOptions(command, button, value ? 'Turning on\u2026' : 'Turning off\u2026'),
+        minimumPendingMs: 350,
+      },
+    );
+  }
+
   function executeControlCommand(command = {}, { button = null } = {}) {
     if (!command || typeof command !== 'object') return false;
 
@@ -249,6 +388,14 @@ export function createAutopilotPanel({
 
     if (command.type === 'selector-adjust') {
       return sendSelectorAdjustCommand(command.mode, command.action, button);
+    }
+
+    if (command.type === 'autopilot-pulse') {
+      return sendAutopilotPulseCommand(command.id, button);
+    }
+
+    if (command.type === 'light-set') {
+      return sendLightSetCommand(command.light, command.value, button);
     }
 
     return false;

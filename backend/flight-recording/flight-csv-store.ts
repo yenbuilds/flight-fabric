@@ -735,7 +735,7 @@ function createFlightCsvStore(options: StoreOptions = {}) {
   async function buildCurrentFlightAnalysis(csvPath: string): Promise<AnyRecord> {
     const analysisContract = timelineGenerator.CURRENT_ANALYSIS_RESCORE_CONTRACT || {
       id: 'flight-fabric-landing-analysis',
-      version: 2,
+      version: 3,
       scope: 'full-landing-analysis',
     };
     const recordedResult = await timelineGenerator.generateFromCSV(csvPath, { scoringMode: 'recorded' });

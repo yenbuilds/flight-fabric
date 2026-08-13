@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2024-12-20T00:00:00Z",
-  "updatedAt": "2025-01-15T00:00:00Z",
+  "updatedAt": "2026-08-12T00:00:00Z",
   "visibility": "public",
   "extends": null,
   "abstract": false,
@@ -34,13 +34,13 @@
       }
     },
     "landing": {
-      "_comment": "Broad fallback landing bands are used when aircraft-specific thresholds are unavailable.",
+      "_comment": "Common transport landing-rate bands. Runtime policy applies these to every non-category-A aircraft while retaining category-A profile overrides.",
       "grades": {
-        "perfectMinFpm": -250,
-        "goodMinFpm": -450,
-        "firmMinFpm": -700,
-        "hardMinFpm": -1000,
-        "_comment": "Aircraft-specific profiles should replace these generic landing bands."
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -400,
+        "hardMinFpm": -600,
+        "_comment": "Rate-only grading: touchdown-zone, float, runway-use, bounce, and load assessments remain separate."
       }
     },
     "phaseThresholds": {

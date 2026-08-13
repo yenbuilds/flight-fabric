@@ -1,0 +1,45 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fenix-a320",
+  "name": "Fenix Airbus A320",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2024-12-20T00:00:00Z",
+  "updatedAt": "2026-08-12T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/fenix-a32x-base",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 110,
+      "titleContains": [
+        "Fenix A320",
+        "Fenix Airbus A320",
+        "Fenix Simulations A320",
+        "FNX320",
+        "FNX_320",
+        "FNX A320",
+        "FNX_32X"
+      ],
+      "titleRegex": "(fenix|fnx).*(a320|320)|(a320|320).*(fenix|fnx)",
+      "configPathContains": [
+        "fnx-aircraft-320",
+        "fenix-a320",
+        "fenix_a320",
+        "fenixsim-a320"
+      ],
+      "configPathRegex": "(fenix|fnx).*(a320|320)|(a320|320).*(fenix|fnx)"
+    }
+  },
+  "meta": {
+    "developer": "Fenix Simulations",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-08-12",
+    "status": "partial",
+    "notes": "Fenix A320 family profile for CFM, IAE, wingtip-fence, and sharklet variants. It activates the shared 118-field, 273-action trusted Fenix A32x aircraft page."
+  }
+}

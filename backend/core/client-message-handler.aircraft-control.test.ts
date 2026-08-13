@@ -246,11 +246,12 @@ test('executeAircraftControl WebSocket message returns normalized success envelo
   });
 });
 
-test('executeAircraftControl WebSocket message blocks broad generic cockpit writes without profile opt-in', async () => {
+test('executeAircraftControl WebSocket message blocks broad generic cockpit writes for a matched profile without opt-in', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
     const profileLoader = require(resolveBackendPath('aircraft', 'aircraft-profile-loader.js'));
-    profileLoader.setActiveProfile('bundled/msfs/generic');
+    const profile = profileLoader.setActiveProfile('bundled/msfs/asobo-787');
+    assert.equal(profile?.integration?.controls?.genericFallback, false);
 
     let called = false;
     const provider = {

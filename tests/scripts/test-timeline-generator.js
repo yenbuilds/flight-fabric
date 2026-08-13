@@ -1261,6 +1261,24 @@ async function runAsyncTests() {
     const result = await timelineGenerator.generateMissing();
     assert(result.generated === 1, `expected one generated timeline, got ${JSON.stringify(result)}`);
     assert(fs.existsSync(fixture.timelinePath), 'expected canonical timeline sidecar');
+
+    const current = await timelineGenerator.generateMissing();
+    assert(current.generated === 0 && current.skipped === 1, `expected current timeline to be reused, got ${JSON.stringify(current)}`);
+
+    const staleTimeline = JSON.parse(fs.readFileSync(fixture.timelinePath, 'utf8'));
+    staleTimeline.analysisRescore.contract = {
+      ...staleTimeline.analysisRescore.contract,
+      version: CURRENT_ANALYSIS_RESCORE_CONTRACT.version - 1,
+    };
+    fs.writeFileSync(fixture.timelinePath, `${JSON.stringify(staleTimeline)}\n`, 'utf8');
+
+    const regenerated = await timelineGenerator.generateMissing();
+    assert(regenerated.generated === 1 && regenerated.skipped === 0, `expected stale timeline regeneration, got ${JSON.stringify(regenerated)}`);
+    const refreshedTimeline = JSON.parse(fs.readFileSync(fixture.timelinePath, 'utf8'));
+    assert(
+      JSON.stringify(refreshedTimeline.analysisRescore?.contract) === JSON.stringify(CURRENT_ANALYSIS_RESCORE_CONTRACT),
+      'regenerated timeline must carry the current landing-analysis contract',
+    );
   });
 
   console.log('\ngenerateFromCSV: touchdown scoring');
@@ -3320,7 +3338,7 @@ async function runAsyncTests() {
       assert(landings[0].grade !== 'VERY HARD', 'expected first attempt to remain unmerged');
       assert(landings[1].bounceCount === 1, `expected second attempt to own its bounce, got ${landings[1].bounceCount}`);
       assert(landings[1].touchdownDistance?.bounceCount === 1, 'expected second attempt nested bounce count 1');
-      assert(landings[1].grade === 'PERFECT', `expected conventional V/S to replace the stale LANDING row grade, got ${landings[1].grade}`);
+      assert(landings[1].grade === 'GOOD', `expected conventional V/S to replace the stale LANDING row grade, got ${landings[1].grade}`);
       assert(landings[1].touchdownDistance?.distanceFt === 2222, `expected LANDING row distance 2222, got ${landings[1].touchdownDistance?.distanceFt}`);
       assert(!landings.some((landing) => Object.prototype.hasOwnProperty.call(landing, '_landingRowMerged')), 'expected no internal merge markers in output');
     });

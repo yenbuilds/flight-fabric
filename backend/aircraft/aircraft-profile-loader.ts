@@ -115,9 +115,11 @@ type AircraftCfgMetadata = {
   identity: string | null;
 };
 type LvarSubscription = {
+  dataType?: string;
   expression: string;
   key: string;
   sourcePath: string;
+  unit?: string;
 };
 type AircraftSpecificFieldConfig = {
   decode: GenericRecord;
@@ -1427,13 +1429,26 @@ function getLvarConfig(): {
     return `(L:${trimmed})`;
   };
 
-  const pushSub = (key: string, rawValue: unknown, sourcePath: string): string | null => {
+  const pushSub = (
+    key: string,
+    rawValue: unknown,
+    sourcePath: string,
+    options: { dataType?: unknown; unit?: unknown } = {},
+  ): string | null => {
     if (seenKeys.has(key)) return key;
     const expression = normalizeExpression(rawValue);
     if (!expression) return null;
     const existingKey = keysByExpression.get(expression.toLowerCase());
     if (existingKey) return existingKey;
-    subscriptions.push({ key, expression, sourcePath });
+    const unit = typeof options.unit === 'string' ? options.unit.trim() : '';
+    const dataType = typeof options.dataType === 'string' ? options.dataType.trim().toLowerCase() : '';
+    subscriptions.push({
+      key,
+      expression,
+      sourcePath,
+      ...(unit ? { unit } : {}),
+      ...(dataType ? { dataType } : {}),
+    });
     seenKeys.add(key);
     keysByExpression.set(expression.toLowerCase(), key);
     return key;
@@ -1595,6 +1610,10 @@ function getLvarConfig(): {
       for (const route of (action as GenericRecord).routes) {
         const fieldId = route?.readback?.fieldId;
         if (typeof fieldId === 'string' && fieldId) confirmationFieldIds.add(fieldId);
+        const preconditionFieldId = route?.precondition?.fieldId;
+        if (typeof preconditionFieldId === 'string' && preconditionFieldId) {
+          confirmationFieldIds.add(preconditionFieldId);
+        }
       }
     }
   }

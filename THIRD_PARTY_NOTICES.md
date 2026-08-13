@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Last reviewed: 2026-08-03.
+Last reviewed: 2026-08-12.
 
 The GNU Affero General Public License version 3 in `LICENSE.md` applies to
 Flight Fabric source code and its AGPL-covered modifications. Other third-party
@@ -132,6 +132,27 @@ source as third-party code.
 - Used for: optional user-installed MSFS event/LVar transport for supported
   aircraft integrations. Flight Fabric detects and interoperates with the
   module over SimConnect but does not copy, install, modify, or redistribute it.
+
+## Fenix A32X compatibility (not bundled)
+
+- Product: FenixSim A319, A320, and A321 aircraft for Microsoft Flight
+  Simulator.
+- External-control documentation:
+  https://support.fenixsim.com/hc/en-us/articles/12466468901135-Example-of-How-to-Bind-Switches-Knobs-and-Buttons-on-FenixSim-Aircraft-to-External-Hardware
+- Consumer terms: https://fenixsim.com/assets/docs/2024-terms-and-conditions.pdf
+- Used for: unofficial interoperability through aircraft-exposed LVARs and
+  fixed control mappings. Users must obtain and install the applicable FenixSim
+  aircraft under its own licence.
+- Transport boundary: the integration uses the local simulator's named-variable
+  interface and the optional documented MobiFlight transport. It uses no Fenix
+  network endpoint or private internal protocol.
+- Bundling: Flight Fabric includes only independently written integration code
+  and the minimum interface names, value meanings, and mappings needed for
+  interoperability. It does not copy, install, modify, or redistribute Fenix
+  aircraft software, behavior XML, scripts, documentation, or visual assets.
+- Naming: "Unofficial compatibility with the Fenix A32X; not affiliated with
+  or endorsed by FenixSim." FenixSim and A319/A320/A321 product names identify
+  compatibility only.
 
 ## Packaged Rust SimConnect Sidecar
 

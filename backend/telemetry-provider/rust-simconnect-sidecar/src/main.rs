@@ -745,6 +745,7 @@ mod sidecar {
                 code: None,
                 unit: None,
                 value: None,
+                parameters: Vec::new(),
                 x: None,
                 y: None,
                 z: None,
@@ -2659,7 +2660,8 @@ mod sidecar {
             &mut self,
             name: &str,
             view_event: bool,
-            data: u32,
+            data: [u32; 5],
+            parameter_count: usize,
         ) -> Result<(bool, Option<Dword>), String> {
             let Some(event_id) = self.map_event(name) else {
                 return Ok((false, None));
@@ -2672,15 +2674,50 @@ mod sidecar {
                     SIMCONNECT_EVENT_FLAG_GROUPID_IS_PRIORITY,
                 )
             };
-            let hr = unsafe {
-                (self.api.transmit_client_event)(
-                    self.handle,
-                    object_id,
-                    event_id,
-                    data,
-                    SIMCONNECT_GROUP_PRIORITY_HIGHEST,
-                    flags,
-                )
+            let hr = if parameter_count > 1 {
+                if let Some(transmit_client_event_ex1) = self.api.transmit_client_event_ex1 {
+                    unsafe {
+                        transmit_client_event_ex1(
+                            self.handle,
+                            object_id,
+                            event_id,
+                            SIMCONNECT_GROUP_PRIORITY_HIGHEST,
+                            flags,
+                            data[0],
+                            data[1],
+                            data[2],
+                            data[3],
+                            data[4],
+                        )
+                    }
+                } else if data[1..parameter_count].iter().all(|value| *value == 0) {
+                    // Older compatible DLLs may not export EX1. A zero-only
+                    // trailing parameter has the same implicit default on the
+                    // legacy single-parameter call.
+                    unsafe {
+                        (self.api.transmit_client_event)(
+                            self.handle,
+                            object_id,
+                            event_id,
+                            data[0],
+                            SIMCONNECT_GROUP_PRIORITY_HIGHEST,
+                            flags,
+                        )
+                    }
+                } else {
+                    return Err("SimConnect_TransmitClientEvent_EX1 is unavailable".to_string());
+                }
+            } else {
+                unsafe {
+                    (self.api.transmit_client_event)(
+                        self.handle,
+                        object_id,
+                        event_id,
+                        data[0],
+                        SIMCONNECT_GROUP_PRIORITY_HIGHEST,
+                        flags,
+                    )
+                }
             };
             let mut send_id = 0;
             let packet_hr = unsafe {
@@ -3268,18 +3305,42 @@ mod sidecar {
                     "sendSdkEvent" => "sendSdkEventAck",
                     _ => "sendEventAck",
                 };
+                if command.parameters.len() > 4
+                    || (command.command_type != "sendEvent" && !command.parameters.is_empty())
+                {
+                    emit_value(
+                        json!({ "type": ack_type, "name": name, "ok": false, "error": "invalid_payload", "requestId": command.request_id }),
+                    );
+                    return true;
+                }
+                let mut event_data = [0_u32; 5];
                 let value = command.value.unwrap_or(0.0);
-                let event_data = if command.command_type == "sendSdkEvent" {
+                let primary_data = if command.command_type == "sendSdkEvent" {
                     bounded_sdk_event_data(value)
                 } else {
                     bounded_event_data(value)
                 };
-                let Some(event_data) = event_data else {
+                let Some(primary_data) = primary_data else {
                     emit_value(
                         json!({ "type": ack_type, "name": name, "ok": false, "error": "invalid_payload", "requestId": command.request_id }),
                     );
                     return true;
                 };
+                event_data[0] = primary_data;
+                let mut parameters_valid = true;
+                for (index, parameter) in command.parameters.iter().enumerate() {
+                    let Some(parameter_data) = bounded_event_data(*parameter) else {
+                        parameters_valid = false;
+                        break;
+                    };
+                    event_data[index + 1] = parameter_data;
+                }
+                if !parameters_valid {
+                    emit_value(
+                        json!({ "type": ack_type, "name": name, "ok": false, "error": "invalid_payload", "requestId": command.request_id }),
+                    );
+                    return true;
+                }
                 if !is_safe_control_name(name)
                     || (command.command_type == "sendSdkEvent" && !is_safe_sdk_event_name(name))
                 {
@@ -3293,6 +3354,7 @@ mod sidecar {
                         name,
                         command.command_type == "sendViewEvent",
                         event_data,
+                        command.parameters.len() + 1,
                     );
                     match result {
                         Ok((ok, send_id)) => emit_value(

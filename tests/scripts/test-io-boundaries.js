@@ -22,7 +22,7 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/core/user-settings.ts', 'guarded-settings', 'existsSync=2,readFileSync=1'],
   ['backend/events/timeline-csv-helpers.ts', 'recording-storage', 'promises.lstat=1'],
   ['backend/events/timeline-events.ts', 'recording-storage', 'existsSync=1,mkdirSync=1'],
-  ['backend/events/timeline-generator.ts', 'recording-storage', 'closeSync=7,existsSync=8,fstatSync=1,lstatSync=8,openSync=3,readFileSync=2,readSync=4,readdirSync=3,renameSync=1,rmdirSync=1,statSync=1'],
+  ['backend/events/timeline-generator.ts', 'recording-storage', 'closeSync=7,existsSync=8,fstatSync=1,lstatSync=9,openSync=3,readFileSync=3,readSync=4,readdirSync=3,renameSync=1,rmdirSync=1,statSync=1'],
   ['backend/flight-recording/aircraft-specific-jsonl-reader.ts', 'recording-storage', 'promises.lstat=1,promises.open=1'],
   ['backend/flight-recording/aircraft-specific-jsonl-recorder.ts', 'recording-storage', 'closeSync=1,createWriteStream=1,existsSync=3,fdatasync=1,fdatasyncSync=1,fstatSync=2,lstatSync=1,openSync=1,rmdirSync=1,statSync=2,unlinkSync=1,writeFileSync=1'],
   ['backend/flight-recording/automation-jsonl-reader.ts', 'recording-storage', 'promises.lstat=1,promises.open=1'],
@@ -67,7 +67,9 @@ const EXPECTED_NATIVE_WRITES = {
     camera_set_relative_6dof: 1,
     set_client_data: 1,
     set_data_on_sim_object: 4,
-    transmit_client_event: 1,
+    // The normal single-parameter path and the reviewed EX1-unavailable
+    // fallback are separate native call sites.
+    transmit_client_event: 2,
   },
 };
 

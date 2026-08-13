@@ -1305,7 +1305,8 @@ test('touchdown VS ignores NaN display sample and emits finite grade data', () =
   assert(finalEvent, 'Expected final landing event');
   assert(Number.isFinite(finalEvent.vs), `Expected finite VS, got ${finalEvent.vs}`);
   assert(Number.isFinite(finalEvent.gforce), `Expected finite gforce, got ${finalEvent.gforce}`);
-  assert.notStrictEqual(finalEvent.grade, 'VERY HARD', 'NaN VS should not be graded as VERY HARD');
+  assert.strictEqual(finalEvent.vs, -600, 'Last finite airborne V/S must survive the NaN touchdown sample');
+  assert.strictEqual(finalEvent.grade, 'VERY HARD', 'Finite -600 fpm rate must use the common transport band');
 });
 
 test('bounce touchdown VS prefers recent airborne sample when WOW frame is damped', () => {
@@ -2005,11 +2006,11 @@ test('runway excursion stays separate from the touchdown-rate grade', () => {
   assert(finalPayload, 'Expected canonical landing:final payload');
   assert.strictEqual(finalEvent.runwayExcursion, true, 'Expected high-speed runway departure to be flagged');
   assert.strictEqual(finalEvent.vs, -500, 'Expected the touchdown-rate headline to remain independent');
-  assert.strictEqual(finalEvent.grade, 'FIRM', 'WebSocket grade should remain the known -500 fpm rate grade');
-  assert.strictEqual(finalEvent.color, 'gold', 'WebSocket color should remain the rate-grade color');
+  assert.strictEqual(finalEvent.grade, 'HARD', 'WebSocket grade should remain the known -500 fpm rate grade');
+  assert.strictEqual(finalEvent.color, 'orange', 'WebSocket color should remain the rate-grade color');
   assert.strictEqual(finalPayload.runway_excursion, true, 'Canonical payload should preserve runway excursion');
-  assert.strictEqual(finalPayload.grade, 'FIRM', 'Canonical CSV grade should remain the touchdown-rate grade');
-  assert.strictEqual(finalPayload._ui_color, 'gold', 'Canonical payload color should remain the rate-grade color');
+  assert.strictEqual(finalPayload.grade, 'HARD', 'Canonical CSV grade should remain the touchdown-rate grade');
+  assert.strictEqual(finalPayload._ui_color, 'orange', 'Canonical payload color should remain the rate-grade color');
 });
 
 test('profile switch after touchdown cannot change final identity, grade, or immediate bounce assessment', () => {
@@ -2075,33 +2076,33 @@ test('pending bounce confirmation cannot borrow a newly selected aircraft profil
   const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
   const t0 = 1_700_501_000_000;
   const touchdownCtx = makeCtx({ aircraftProfileId: 'generic' });
-  const changedCtx = makeCtx({ aircraftProfileId: 'fbw-a380x' });
+  const changedCtx = makeCtx({ aircraftProfileId: 'ga-base' });
 
   try {
     runner.update(makeFrame({
       wow: false,
       gforce: 1.0,
-      display: { iasKts: 145, vsFpm: -180, raFt: 100 },
+      display: { iasKts: 145, vsFpm: -120, raFt: 100 },
     }), () => {}, { nowEpochMs: t0 }, touchdownCtx);
     runner.update(makeFrame({
       wow: true,
       gforce: 1.2,
-      display: { iasKts: 142, vsFpm: -180, raFt: 0 },
+      display: { iasKts: 142, vsFpm: -120, raFt: 0 },
     }), () => {}, { nowEpochMs: t0 + 100 }, touchdownCtx);
     runner.update(makeFrame({
       wow: false,
       gforce: 1.0,
-      display: { iasKts: 139, vsFpm: -180, raFt: 0 },
+      display: { iasKts: 139, vsFpm: -120, raFt: 0 },
     }), () => {}, { nowEpochMs: t0 + 300 }, touchdownCtx);
     runner.update(makeFrame({
       wow: true,
       gforce: 1.0,
-      display: { iasKts: 136, vsFpm: -180, raFt: 0 },
+      display: { iasKts: 136, vsFpm: -120, raFt: 0 },
     }), () => {}, { nowEpochMs: t0 + 500 }, touchdownCtx);
 
     // This frame is inside the delayed confirmation window. Regrading the
-    // contact as A380 GOOD would incorrectly turn the generic PERFECT contact
-    // into a confirmed bounce.
+    // contact with the category-A profile override would incorrectly turn the
+    // common-policy PERFECT contact into GOOD and could confirm a bounce.
     runner.update(makeFrame({
       wow: true,
       gforce: 1.0,
@@ -2194,7 +2195,7 @@ test('rollout taxi threshold is frozen at touchdown and reset for the next attem
     assert(finalPayload, 'Expected canonical landing:final payload');
     assert.strictEqual(finalPayload.aircraft_profile_id, 'generic', 'Runner reset must discard the prior attempt profile');
     assert.strictEqual(finalPayload.aircraft, 'Second aircraft', 'Runner reset must discard the prior aircraft title');
-    assert.strictEqual(finalPayload.grade, 'PERFECT', 'Second landing must use its own generic grading bands');
+    assert.strictEqual(finalPayload.grade, 'GOOD', 'Second landing must use the common transport grading bands');
     assert(finalPayload.rollout_analysis, 'Expected rollout analysis to be persisted');
     assert.strictEqual(finalPayload.rollout_analysis.taxiInMaxKts, 35, 'Rollout must retain the threshold captured at touchdown');
     assert.strictEqual(finalPayload.rollout_analysis.sampleCount, 3, '70 kt sample must remain in the rollout under the captured 35 kt threshold');

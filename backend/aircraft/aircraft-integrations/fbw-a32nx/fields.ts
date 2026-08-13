@@ -150,7 +150,8 @@ const FBW_A32NX_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'lights.nav': booleanSimvarField('lights.nav', 'LIGHT NAV'),
   'lights.logo': booleanSimvarField('lights.logo', 'LIGHT LOGO'),
   'lights.wing': booleanSimvarField('lights.wing', 'LIGHT WING'),
-  'lights.runwayTurnoff': booleanSimvarField('lights.runwayTurnoff', 'LIGHT TAXI:2'),
+  'lights.runwayTurnoff': booleanGaugeField('lights.runwayTurnoff', 'CIRCUIT SWITCH ON:21'),
+  'lights.runwayTurnoffRight': booleanGaugeField('lights.runwayTurnoffRight', 'CIRCUIT SWITCH ON:22'),
   'lights.noseMode': enumField('lights.noseMode', 'LIGHTING_LANDING_1', {
     0: 'takeoff',
     1: 'taxi',
@@ -166,6 +167,10 @@ const FBW_A32NX_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
     1: 'off',
     2: 'retract',
   }),
+  'lights.landingLeftCircuitOn': booleanGaugeField('lights.landingLeftCircuitOn', 'CIRCUIT SWITCH ON:18'),
+  'lights.landingRightCircuitOn': booleanGaugeField('lights.landingRightCircuitOn', 'CIRCUIT SWITCH ON:19'),
+  'lights.landingLeftRetracted': booleanField('lights.landingLeftRetracted', 'LANDING_2_RETRACTED'),
+  'lights.landingRightRetracted': booleanField('lights.landingRightRetracted', 'LANDING_3_RETRACTED'),
 
   'cabin.noSmokingMode': enumField('cabin.noSmokingMode', 'XMLVAR_SWITCH_OVHD_INTLT_NOSMOKING_POSITION', {
     0: 'on',

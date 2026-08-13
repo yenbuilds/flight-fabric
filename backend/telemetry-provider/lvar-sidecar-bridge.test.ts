@@ -33,7 +33,7 @@ type LvarSidecarBridgeTestInstance = {
     mobiflight?: { state: string; connected: boolean; available: boolean; error: string | null; updatedAt?: string | null };
   };
   setSubscriptions: (subscriptions?: Array<Record<string, unknown>>, profileId?: string) => void;
-  sendEvent: (eventName: string, value?: unknown) => Promise<{ ok?: boolean; error?: string | null }>;
+  sendEvent: (eventName: string, value?: unknown, parameters?: unknown[]) => Promise<{ ok?: boolean; error?: string | null }>;
   sendSdkEvent: (eventName: string, value?: unknown) => Promise<{ ok?: boolean; error?: string | null }>;
   setNamedVar: (options?: Record<string, unknown>) => Promise<{ ok?: boolean; error?: string | null }>;
   executeMobiFlightCode: (code: string) => Promise<{ ok?: boolean; error?: string | null }>;
@@ -692,6 +692,32 @@ test('LvarSidecarBridge gives SDK DWORD payloads a narrow event-only path', asyn
   assert.deepEqual(calls, [{
     message: { type: 'sendSdkEvent', name: '#12345', value: 0x20000000 },
     ackType: 'sendSdkEventAck',
+  }]);
+});
+
+test('LvarSidecarBridge sends bounded multi-parameter generic events only', async () => {
+  const calls = [];
+  let results = [];
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    bridge._sendWithAck = async (message, ackType) => {
+      calls.push({ message, ackType });
+      return { ok: true };
+    };
+    results = [
+      bridge.sendEvent('HEADING_BUG_SET', 275, [0]),
+      bridge.sendEvent('HEADING_BUG_SET', 275, [0, 1, 2, 3, 4]),
+      bridge.sendEvent('HEADING_BUG_SET', 275, [Number.NaN]),
+    ];
+  });
+
+  const acknowledgements = await Promise.all(results);
+  assert.equal(acknowledgements[0].ok, true, 'a bounded second event parameter should pass');
+  assert.equal(acknowledgements[1].ok, false, 'more than four additional parameters should fail closed');
+  assert.equal(acknowledgements[2].ok, false, 'non-finite additional parameters should fail closed');
+  assert.deepEqual(calls, [{
+    message: { type: 'sendEvent', name: 'HEADING_BUG_SET', value: 275, parameters: [0] },
+    ackType: 'sendEventAck',
   }]);
 });
 

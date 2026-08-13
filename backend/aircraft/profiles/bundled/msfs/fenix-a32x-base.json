@@ -1,0 +1,153 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "fenix-a32x-base",
+  "name": "Fenix Airbus A32x Base",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-08-12T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": true,
+  "aircraft": {
+    "category": "C",
+    "flaps": {
+      "notches": [
+        { "value": 0, "label": "0" },
+        { "value": 1, "label": "1" },
+        { "value": 2, "label": "1+F" },
+        { "value": 3, "label": "2" },
+        { "value": 4, "label": "3" },
+        { "value": 5, "label": "FULL" }
+      ],
+      "landingNotches": [4, 5]
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "titleExcludes": [
+        "FSLTL",
+        "PassiveAircraft"
+      ],
+      "configPathExcludes": [
+        "fsltl-traffic-base/SimObjects/Airplanes",
+        "FSLTL_FNX",
+        "PassiveAircraft/SimObjects/Airplanes"
+      ]
+    },
+    "aircraftSpecific": {
+      "adapter": "fenix-a32x"
+    },
+    "telemetry": {
+      "preferred": "fenix",
+      "lvars": {
+        "_comment": "Shared Fenix A32x FCU annunciator and parking-brake readbacks. The trusted fenix-a32x adapter owns the larger aircraft-specific field and action surface.",
+        "autopilot": "I_FCU_AP1",
+        "autothrottle": "I_FCU_ATHR",
+        "parkingBrake": "S_MIP_PARKING_BRAKE",
+        "mcp": {
+          "loc": "I_FCU_LOC",
+          "app": "I_FCU_APPR",
+          "exped": "I_FCU_EXPED",
+          "cmdB": "I_FCU_AP2"
+        }
+      },
+      "lights": {
+        "simVarReliable": false
+      }
+    },
+    "controls": {
+      "backend": "fenix",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "Aircraft-specific cockpit writes are selected only from the trusted fenix-a32x adapter. Persistent switches/selectors retain fixed targets and exact readback. The reviewed FCU subset adds bounded MobiFlight-only press/release pulses, managed push/pull commands, and stepped speed/heading/altitude targets; unrelated momentary, guarded emergency, breaker, maintenance, raw-axis, preset, and macro controls remain excluded. Standard gear/flap actions remain available on the narrow shared surface."
+    },
+    "presentation": {
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "turnoff": "RWY",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "Fenix Simulations",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-08-12",
+    "status": "partial",
+    "notes": "Shared trusted integration for the Fenix A319, A320, and A321. The adapter exposes 118 live fields, 273 trusted actions, and 117 action-confirmation fields across persistent exterior/cockpit lighting, cabin, electrical, fuel, pneumatic, hydraulic, ADIRS, EFIS, switching, radio, weather-radar, transponder, brake, engine-mode, GPWS, and the reviewed FCU subset. Every write is cooldown-guarded, never retries automatically, and requires exact logical readback."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "FenixSim Support Hub - binding switches, knobs and buttons",
+        "url": "https://support.fenixsim.com/hc/en-us/articles/12466468901135-Example-of-How-to-Bind-Switches-Knobs-and-Buttons-on-FenixSim-Aircraft-to-External-Hardware",
+        "retrievedAt": "2026-08-12",
+        "notes": "Fenix identifies its shipped Cockpit_Behavior.xml and interaction templates as the authoritative LVar/control source and publicly demonstrates fixed 0/1 writes plus bounded A_*_LIGHTING values. The adapter's I_FCU_*, N_FCU_*, S_*, E_FCU_*, and A_* fields, raw detents, and fixed or bounded write recipes were reviewed against licensed Fenix A320 MSFS 2024 package version 2.4.0.4720: the legacy cockpit file, modular panel *Behavior.xml files, and FNX32X interaction templates. The reviewed FCU contract uses stable I_FCU_AP1/AP2/ATHR/LOC/APPR/EXPED readback for paired S_FCU_* press/release counter increments; I_FCU_SPEED/HEADING/ALTITUDE_MANAGED for S_FCU_SPEED/HEADING/ALTITUDE push (decrement) and pull (increment); and fresh N_FCU_SPEED/HEADING/ALTITUDE baselines for bounded repeated E_FCU_SPEED/HEADING/ALTITUDE increments or decrements. N_FCU_VS is display-only because its raw value does not identify VS versus FPA mode. S_MIP_PARKING_BRAKE uses 0=released and 1=set; S_FCU_EFIS*_BARO_MODE uses 0=INHG and 1=HPA; S_FCU_ALTITUDE_SCALE uses 0=1000 ft and 1=100 ft."
+      },
+      {
+        "type": "official-docs",
+        "name": "Fenix A319 and A321 Expansion",
+        "url": "https://fenixsim.com/blog/entries/2024-08-15_introducing_a319_and_a321/",
+        "retrievedAt": "2026-07-27",
+        "notes": "Confirms the supported A319 and A321 family variants and their shared family development baseline. Variant-only controls still fail closed when their live LVar is unavailable; the page hides A319/A320 center-pump and pack-flow controls on A321 and shows the ACT control only on A321."
+      },
+      {
+        "type": "official-docs",
+        "name": "Fenix A320 V2 Block 2 release",
+        "url": "https://fenixsim.com/blog/entries/2024-02-28_v2b2_release/",
+        "retrievedAt": "2026-07-27",
+        "notes": "Documents Fenix's expanded hardware LVar and internal input-event work. This adapter uses only source-audited persistent or bounded LVar counter contracts and does not assume custom InputEvents are executable."
+      },
+      {
+        "type": "official-docs",
+        "name": "MSFS 2024 SimConnect Input Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimConnect/API_Reference/InputEvents/Input_Events.htm",
+        "retrievedAt": "2026-07-14",
+        "notes": "Documents native Input Event discovery/read/write support. The adapter can add proven Input Event routes later; current Fenix writes use its vendor-documented LVar interaction contract."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-08-12",
+      "knownIssues": [
+        "The expanded write routes were audited against a current licensed A320 package but still require live in-simulator validation before being promoted from untested.",
+        "A319 and A321 matching and common/variant LVar compatibility require live validation with the expansion installed.",
+        "The A321 uses ECON FLOW in place of the A319/A320 pack-flow selector; the shared template hides the A319/A320 pack-flow readout for the A321 profile.",
+        "The new AP1/AP2, A/THR, LOC, APPR, EXPED, managed push/pull, and speed/heading/altitude target actions are source-audited but remain untested in the live aircraft.",
+        "A numeric FCU target can require hundreds of calculator increments from a fresh baseline. The bounded route stops on the first failed acknowledgement or profile-generation change and never retries, so an interrupted sequence can leave an intermediate target.",
+        "N_FCU_VS is exposed for display only; no vertical target action is enabled because the raw value is ambiguous between VS and FPA mode.",
+        "Logical readback proves the vendor LVar reached its fixed target; it does not independently prove every downstream aircraft-system effect."
+      ]
+    }
+  }
+}
