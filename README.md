@@ -27,9 +27,9 @@ approach and landing debrief with a full flight timeline.
 
 ## What Flight Fabric does
 
-| While you fly | After you land | On another screen |
+| Fly and control | After you land | On another screen |
 | --- | --- | --- |
-| Follow position, route progress, speed, altitude, aircraft state, and warnings. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
+| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable, guarded aircraft controls for supported aircraft. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
 
 ## Get flying
 
