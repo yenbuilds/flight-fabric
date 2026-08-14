@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-06-09T00:00:00Z",
-  "updatedAt": "2026-07-19T00:00:00Z",
+  "updatedAt": "2026-08-13T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -72,7 +72,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "The dedicated page is monitoring-only. Only Flight Fabric's narrow standard MSFS gear/flaps surface fallback is allowed; FCU, managed/selected-mode, autothrust, and other Airbus-specific writes remain unavailable until exact interactions and readbacks are verified in-sim."
+      "_comment": "The exact-profile trusted adapter exposes 42 guarded actions backed by 32 Microsoft-documented MSFS 2024 standard events and 23 confirmation fields over 44 standard-SimVar fields. OFF/ON intents, including flight-director and autothrottle-arm toggles, require fresh standard readback; four FCU targets are bounded; each unsatisfied route dispatches at most once without retry and requires newer matching or changed readback. Generic fallback remains disabled and the narrow standard gear/flap fallback stays enabled. These are generic simulator semantics, not an Airbus managed/selected or AP1/AP2 contract. FLC, spoilers, runway turnoff, vendor-private interfaces, and deep systems remain write-disabled."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -105,9 +105,9 @@
     "platforms": [
       "msfs2024"
     ],
-    "updated": "2026-07-19",
-    "status": "partial",
-    "notes": "Dedicated monitoring-first identity profile for the Microsoft / iniBuilds Airbus A321LR included with every Microsoft Flight Simulator 2024 edition. Package matching uses identifiers documented by official Microsoft and iniBuilds sources. The page exposes only an explicit standard-SimVar read allowlist and no aircraft-specific writes because no vendor-published A321LR integration contract is available. Flap detents remain intentionally absent until A321LR-specific handle mapping is documented or verified in-sim."
+    "updated": "2026-08-13",
+    "status": "experimental",
+    "notes": "Dedicated exact-profile page for the Microsoft / iniBuilds Airbus A321LR included with MSFS 2024. The shared trusted adapter exposes 44 standard-SimVar fields, 42 guarded actions, 23 confirmation fields, and 32 unique Microsoft-documented standard events with zero custom subscriptions. It prioritizes generic flight guidance and FCU targets, seven exterior-light outputs, gear, relative flap steps, and parking brake. Flap detents remain intentionally absent, and every action remains untested pending live A321LR validation."
   },
   "provenance": {
     "sources": [
@@ -136,26 +136,71 @@
         "type": "official-sdk",
         "name": "MSFS 2024 Avionics Framework - SimVars",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
-        "retrievedAt": "2026-07-19",
-        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The dedicated adapter uses an explicit read-only standard-SimVar allowlist and activates no aircraft-specific L: or B: variables."
+        "retrievedAt": "2026-08-13",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted adapter exposes an explicit 44-field standard-SimVar allowlist and activates no aircraft-specific L: or B: variables."
       },
       {
         "type": "official-sdk",
         "name": "MSFS 2024 Avionics Framework - Key Events",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
-        "retrievedAt": "2026-07-19",
-        "notes": "Documents simulator key events. No A321LR-specific key-event mappings are activated; only Flight Fabric's narrow existing gear/flaps surface fallback remains allowed."
+        "retrievedAt": "2026-08-13",
+        "notes": "Documents the simulator key-event transport used by this exact-profile adapter. The active event IDs and parameters are enumerated by the category-specific Microsoft SDK sources below."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft Autopilot and Flight Assist Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for every active flight-guidance event: AUTOPILOT_OFF, AUTOPILOT_ON, TOGGLE_FLIGHT_DIRECTOR, AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON, AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON, AP_APR_HOLD_OFF, AP_APR_HOLD_ON, AP_SPD_VAR_SET, HEADING_BUG_SET, AP_ALT_VAR_SET_ENGLISH, and AP_VS_VAR_SET_ENGLISH. Toggle events serve guarded OFF/ON logical intents only after fresh readback. These are generic simulator semantics, not an A321LR AP1/AP2 or Airbus managed/selected contract."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft Electrical Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each uses a fixed 0/1 target and confirms the corresponding standard light-output SimVar; no Airbus selector or AUTO semantics are inferred."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft Flight Control Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active FLAPS_DECR and FLAPS_INCR mappings. These are relative handle steps with newer changed standard flap-handle readback, not aircraft-specific detents."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft General Systems Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. Flight Fabric exposes fixed semantic targets and confirms newer standard handle/state readback."
       }
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-07-19",
+      "lastVerified": "2026-08-13",
       "knownIssues": [
         "The exact SimConnect TITLE has not been verified in-sim; matching covers documented product-name and package-identity variants.",
-        "The cited sources do not define an A321LR LVAR, B-var, input-event, or hardware-integration map.",
-        "Standard simulator mirrors may be unavailable or differ from aircraft-internal managed/selected state and remain non-authoritative pending in-sim verification.",
+        "The 44 standard-SimVar fields, 42 actions, and 23 confirmation fields remain untested against live MSFS 2024 A321LR variants; a documented standard event can still be ignored or incompletely mirrored by a custom aircraft.",
+        "AUTOPILOT_ON and AUTOPILOT_OFF expose only generic simulator master behavior. They cannot select or independently confirm Airbus AP1 versus AP2, so AP1/AP2 channel controls remain excluded.",
+        "Flight-director and autothrottle-arm OFF/ON intents share documented toggle events behind fresh readback. Standard state may still differ from the aircraft's internal annunciation or selector state.",
+        "Standard FCU mode and target events do not express Airbus managed/selected push-pull semantics. Flight-level-change write control remains excluded even though its standard state is readable.",
+        "Exterior-light actions confirm seven standard lamp outputs only. Runway-turnoff write control and Airbus AUTO or multi-position selector semantics remain excluded.",
+        "Spoiler state remains read-only; no spoiler, raw-axis, vendor-private, macro, or deep-system writes are enabled.",
+        "The cited sources do not define an A321LR LVAR, B-var, InputEvent, or hardware-integration map, and the adapter subscribes to zero custom variables.",
         "Flap detents are intentionally absent; do not inherit or reintroduce broad Airbus base detents without A321LR-specific evidence.",
-        "Aircraft-specific cockpit writes intentionally remain unavailable until exact controls and independent readbacks are verified."
+        "All active write routes retain untested verification until each supported live A321LR variant is validated."
       ]
     }
   }

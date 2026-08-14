@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "main": "index.js",
   "engines": {
@@ -23,6 +23,7 @@
     "typecheck:backend:watch": "node node_modules/typescript/bin/tsc -p tsconfig.backend.json --watch --preserveWatchOutput",
     "test:dry-guards": "node tests/scripts/test-dry-guards.js",
     "test:io-boundaries": "node tests/scripts/test-io-boundaries.js",
+    "test:aircraft-visuals": "node tests/scripts/test-aircraft-visuals.js",
     "test:vue-stores": "node tests/scripts/test-vue-stores.js",
     "test:vue-components": "node tests/scripts/test-vue-components.js",
     "test:vue-interactions": "node tests/scripts/test-vue-interactions.js",

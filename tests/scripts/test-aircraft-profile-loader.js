@@ -678,11 +678,13 @@ test(
 const vendorProfilesWithLooseTitleContains = vendorSpecificBundledProfiles
   .filter(profile => {
     const tokens = VENDOR_SPECIFIC_MATCH_TOKENS.get(profile.id) || [];
-    return !matchingArrayHasEvidence(profile.integration?.matching?.titleContains, tokens);
+    const titleContains = profile.integration?.matching?.titleContains;
+    return Array.isArray(titleContains) && titleContains.length > 0 &&
+      !matchingArrayHasEvidence(titleContains, tokens);
   })
   .map(profile => profile.id);
 test(
-  'Vendor-specific bundled profile titleContains entries require vendor/product evidence',
+  'Vendor-specific bundled profile titleContains entries require vendor/product evidence when present',
   vendorProfilesWithLooseTitleContains.length === 0
 );
 
@@ -811,6 +813,60 @@ test(
   ))
 );
 
+const fbwA380xIdentityCases = [
+  ['FlyByWire A380X', undefined],
+  ['FBW A380X', undefined],
+  ['FlyByWire A380X (A380-842)', undefined],
+  ['FlyByWire A380X (A380-842) No Cabin', undefined],
+  [
+    'Unknown repaint',
+    'Community/flybywire-aircraft-a380-842/SimObjects/Airplanes/FlyByWire_A380_842/aircraft.cfg',
+  ],
+  [
+    'Unknown repaint',
+    'Community/fbw-a380x/SimObjects/Airplanes/FlyByWire_A380_842/aircraft.cfg',
+  ],
+  [
+    'Unknown repaint',
+    'SimObjects/Airplanes/FlyByWire_A380X/presets/flybywire/FlyByWire_A380_842_NoCabin/config/aircraft.cfg',
+  ],
+];
+test(
+  'Detects FlyByWire A380X only from vendor-qualified titles or documented package paths',
+  fbwA380xIdentityCases.every(([title, hint]) => (
+    loader.detectProfile(title, hint ? { hint } : undefined)?.id === 'fbw-a380x'
+  ))
+);
+
+const fbwA380xCollisionCases = [
+  ['A380X', undefined],
+  ['Airbus A380X', undefined],
+  ['Generic A380X', undefined],
+  ['Headwind A380X', undefined],
+  ['iniBuilds Airbus A380X', undefined],
+  ['SomeVendor FlyByWire A380X', undefined],
+  ['FlyByWire A380X SomeVendor', undefined],
+  ['FSLTL FlyByWire A380X', undefined],
+  [
+    'FlyByWire A380X',
+    'Community/headwind-aircraft-a380x/SimObjects/Airplanes/Headwind_A380X/aircraft.cfg',
+  ],
+  [
+    'Unknown repaint',
+    'Community/generic-aircraft-a380x/SimObjects/Airplanes/A380X/aircraft.cfg',
+  ],
+  [
+    'Unknown repaint',
+    'Community/somevendor/SimObjects/Airplanes/FlyByWire_A380X_Copy/aircraft.cfg',
+  ],
+];
+test(
+  'FlyByWire A380X matcher rejects bare, generic, competing-vendor, traffic, and conflicting-path identities',
+  fbwA380xCollisionCases.every(([title, hint]) => (
+    loader.detectProfile(title, hint ? { hint } : undefined)?.id !== 'fbw-a380x'
+  ))
+);
+
 const detectedMicrosoftIniBuildsA320neoV2 = loader.detectProfile('Airbus A320neo (v2) - Microsoft / iniBuilds');
 test(
   'Detects the observed Microsoft / iniBuilds Airbus A320neo V2 aircraft-card title',
@@ -849,6 +905,19 @@ test(
 
 const microsoftIniBuildsA32xCollisionCases = [
   ['Fenix A320neo', undefined, 'inibuilds-a320neo-v2'],
+  ['Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+  ['Airbus A320neo (v2)', undefined, 'inibuilds-a320neo-v2'],
+  ['Fenix Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+  ['FlyByWire Airbus A320neo (v2)', undefined, 'inibuilds-a320neo-v2'],
+  ['LatinVFR Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+  ['SomeVendor Airbus A320neo V2 - Microsoft / iniBuilds', undefined, 'inibuilds-a320neo-v2'],
+  ['Airbus A320neo V2 - Microsoft / iniBuilds SomeVendor', undefined, 'inibuilds-a320neo-v2'],
+  ['FSLTL Airbus A320neo V2 - Microsoft / iniBuilds', undefined, 'inibuilds-a320neo-v2'],
+  [
+    'Airbus A320neo (v2) - Microsoft / iniBuilds',
+    'Community/fenix-aircraft-a320/SimObjects/Airplanes/Fenix_A320/aircraft.cfg',
+    'inibuilds-a320neo-v2',
+  ],
   ['Airbus A320neo', 'Community/flybywire-aircraft-a320-neo/SimObjects/Airplanes/FlyByWire_A320_NEO/aircraft.cfg', 'inibuilds-a320neo-v2'],
   ['Asobo_A320_NEO', 'Official/OneStore/asobo-aircraft-a320-neo/SimObjects/Airplanes/Asobo_A320_NEO/aircraft.cfg', 'inibuilds-a320neo-v2'],
   ['Airbus A320neo', undefined, 'inibuilds-a320neo-v2'],
@@ -877,6 +946,14 @@ test('Detects included MSFS 2024 737 MAX 8 without iFly identity', detectedNonIf
 const detectedAsoboUnderscore737Max8 = loader.detectProfile('Asobo_B737_MAX8');
 test('Detects included 737 MAX 8 from the Asobo underscore title', detectedAsoboUnderscore737Max8?.id === 'microsoft-737-max-8');
 
+const detectedMicrosoft737Max8FromRuntimePath = loader.detectProfile('Unknown repaint', {
+  hint: 'SimObjects\\Airplanes\\Asobo_B737_MAX8\\aircraft.cfg',
+});
+test(
+  'Detects included 737 MAX 8 from the narrowly supported partial AircraftLoaded path shape',
+  detectedMicrosoft737Max8FromRuntimePath?.id === 'microsoft-737-max-8',
+);
+
 const detectedGeneric737800 = loader.detectProfile('Boeing 737-800');
 test('Does not confuse a generic 737-800 with the Microsoft 737 MAX 8', detectedGeneric737800?.id !== 'microsoft-737-max-8');
 
@@ -887,6 +964,8 @@ const microsoft737MaxCollisionCases = [
   ['iFly Boeing 737 MAX 8', undefined],
   ['Unknown repaint', 'Community/bredok3d-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
   ['Unknown traffic', 'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_B38M/aircraft.cfg'],
+  ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX80/aircraft.cfg'],
+  ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX9/aircraft.cfg'],
 ];
 test(
   'Microsoft 737 MAX 8 matcher rejects explicit third-party and traffic identities',
@@ -1465,6 +1544,8 @@ fs.writeFileSync(microsoft737MaxCfgPath, [
   'ui_manufacturer = "Boeing"',
   'ui_type = "737 MAX 8"',
   'ui_createdby = "Asobo Studio"',
+  'isairtraffic = 0',
+  'isuserselectable = 1',
 ].join('\n'), 'utf8');
 try {
   loader.clearCache();
@@ -1491,6 +1572,8 @@ fs.writeFileSync(thirdParty737MaxCfgPath, [
   'ui_manufacturer = "Boeing"',
   'ui_type = "737 MAX 8"',
   'ui_createdby = "Microsoft / Asobo Studio"',
+  'isairtraffic = 0',
+  'isuserselectable = 1',
 ].join('\n'), 'utf8');
 try {
   loader.clearCache();
@@ -1896,7 +1979,7 @@ test('FlyByWire A32NX aircraft-specific reads stay within the sidecar subscripti
 loader.setActiveProfile('inibuilds-a320neo-v2');
 const microsoftIniBuildsA320neoV2Config = loader.getLvarConfig();
 test(
-  'Microsoft / iniBuilds A320neo V2 activates the shared trusted 44-field monitoring page',
+  'Microsoft / iniBuilds A320neo V2 activates the shared trusted 44-field compact page',
   microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.templateId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.integrationId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a320neo-v2' &&
@@ -1910,26 +1993,13 @@ test(
       field.id === 'flightGuidance.navHold' &&
       field.source?.type === 'simvar'
     )) &&
-    microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.length === 0
-);
-test(
-  'Microsoft / iniBuilds A320neo V2 page uses standard telemetry and exposes no aircraft-specific writes',
-  microsoftIniBuildsA320neoV2Config.enabled === false &&
-    microsoftIniBuildsA320neoV2Config.subscriptions.length === 0 &&
-    defaultAircraftIntegrationRegistry.resolveAction({
-      adapterId: 'microsoft-inibuilds-a32x',
-      profileKey: 'bundled/msfs/inibuilds-a320neo-v2',
-      actionId: 'flightGuidance.apMaster.toggle',
-    }) === null &&
-    defaultAircraftIntegrationRegistry.resolveIntegration('microsoft-inibuilds-a32x', {
-      profileKey: 'local/msfs/inibuilds-a320neo-v2',
-    }) === null
+    microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.length === 23
 );
 
 loader.setActiveProfile('inibuilds-a321lr');
 const microsoftIniBuildsA321lrConfig = loader.getLvarConfig();
 test(
-  'Microsoft / iniBuilds A321LR reuses the shared trusted 44-field monitoring page under its exact profile key',
+  'Microsoft / iniBuilds A321LR reuses the shared trusted 44-field compact page under its exact profile key',
   microsoftIniBuildsA321lrConfig?.aircraftSpecific?.templateId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA321lrConfig?.aircraftSpecific?.integrationId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA321lrConfig?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a321lr' &&
@@ -1939,20 +2009,161 @@ test(
       field.source?.type === 'simvar' &&
       field.source?.path === 'fdm.apAltTargetFt'
     )) &&
-    microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.length === 0
+    microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.length === 23
+);
+const microsoftIniBuildsA32xIntegration = defaultAircraftIntegrationRegistry.resolveIntegration(
+  'microsoft-inibuilds-a32x',
+  { profileKey: 'bundled/msfs/inibuilds-a320neo-v2' },
+);
+const microsoftIniBuildsA321lrIntegration = defaultAircraftIntegrationRegistry.resolveIntegration(
+  'microsoft-inibuilds-a32x',
+  { profileKey: 'bundled/msfs/inibuilds-a321lr' },
+);
+const expectedMicrosoftIniBuildsA32xActionIds = [
+  ...[
+    'flightGuidance.apMaster',
+    'flightGuidance.flightDirector',
+    'flightGuidance.autothrottleArmed',
+    'flightGuidance.speedHold',
+    'flightGuidance.headingHold',
+    'flightGuidance.altitudeHold',
+    'flightGuidance.verticalSpeedHold',
+    'flightGuidance.navHold',
+    'flightGuidance.approachHold',
+  ].flatMap(prefix => [`${prefix}.off`, `${prefix}.on`]),
+  'flightGuidance.speed.set',
+  'flightGuidance.heading.set',
+  'flightGuidance.altitude.set',
+  'flightGuidance.verticalSpeed.set',
+  ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'].flatMap(name => [
+    `lights.${name}.off`,
+    `lights.${name}.on`,
+  ]),
+  'controls.gear.up',
+  'controls.gear.down',
+  'controls.flaps.decrease',
+  'controls.flaps.increase',
+  'controls.parkingBrake.off',
+  'controls.parkingBrake.on',
+].sort();
+const expectedMicrosoftIniBuildsA32xConfirmationIds = [
+  'flightGuidance.apMaster',
+  'flightGuidance.flightDirector',
+  'flightGuidance.autothrottleArmed',
+  'flightGuidance.speedHold',
+  'flightGuidance.headingHold',
+  'flightGuidance.altitudeHold',
+  'flightGuidance.verticalSpeedHold',
+  'flightGuidance.navHold',
+  'flightGuidance.approachHold',
+  'fcu.speedKts',
+  'fcu.headingDeg',
+  'fcu.altitudeFt',
+  'fcu.verticalSpeedFpm',
+  'lights.strobe',
+  'lights.beacon',
+  'lights.nav',
+  'lights.logo',
+  'lights.wing',
+  'lights.landing',
+  'lights.taxi',
+  'controls.gearHandleDown',
+  'controls.flapsIndex',
+  'controls.parkingBrake',
+].sort();
+test(
+  'Microsoft / iniBuilds A320neo V2 and A321LR expose the exact same 42-action contract only to both trusted keys',
+  expectedMicrosoftIniBuildsA32xActionIds.length === 42 &&
+    JSON.stringify(Object.keys(microsoftIniBuildsA32xIntegration?.actions || {}).sort()) === JSON.stringify(expectedMicrosoftIniBuildsA32xActionIds) &&
+    JSON.stringify(Object.keys(microsoftIniBuildsA321lrIntegration?.actions || {}).sort()) === JSON.stringify(expectedMicrosoftIniBuildsA32xActionIds) &&
+    JSON.stringify(microsoftIniBuildsA32xIntegration?.trustedProfileKeys || []) === JSON.stringify([
+      'bundled/msfs/inibuilds-a320neo-v2',
+      'bundled/msfs/inibuilds-a321lr',
+    ])
 );
 test(
-  'Microsoft / iniBuilds A321LR page uses standard telemetry and rejects untrusted profile copies',
-  microsoftIniBuildsA321lrConfig.enabled === false &&
+  'Microsoft / iniBuilds A32x uses no custom subscriptions and compiles exactly 23 unique confirmations for both aircraft',
+  microsoftIniBuildsA320neoV2Config.enabled === false &&
+    microsoftIniBuildsA320neoV2Config.subscriptions.length === 0 &&
+    microsoftIniBuildsA321lrConfig.enabled === false &&
     microsoftIniBuildsA321lrConfig.subscriptions.length === 0 &&
+    JSON.stringify(microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.map(field => field.id).sort()) === JSON.stringify(expectedMicrosoftIniBuildsA32xConfirmationIds) &&
+    JSON.stringify(microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.map(field => field.id).sort()) === JSON.stringify(expectedMicrosoftIniBuildsA32xConfirmationIds) &&
+    new Set(microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.map(field => field.id)).size === 23 &&
+    new Set(microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.map(field => field.id)).size === 23
+);
+test(
+  'Microsoft / iniBuilds A32x actions use one guarded untested SimConnect sequence and logical readback each',
+  Object.keys(microsoftIniBuildsA32xIntegration?.actions || {}).length === 42 &&
+    Object.values(microsoftIniBuildsA32xIntegration?.actions || {}).every(action => (
+      action.verification === 'untested' &&
+      action.guard?.retry === 'never' &&
+      action.guard?.groupId?.startsWith('microsoftIniBuildsA32x.') &&
+      action.routes?.length === 1 &&
+      action.routes[0]?.id?.startsWith('microsoftIniBuildsA32x.') &&
+      action.routes[0]?.transport === 'simconnect-sequence' &&
+      action.routes[0]?.operations?.length === 1 &&
+      action.routes[0]?.operations?.[0]?.type === 'event' &&
+      typeof action.routes[0]?.readback?.fieldId === 'string'
+    )) &&
+    new Set(Object.values(microsoftIniBuildsA32xIntegration.actions).map(action => (
+      action.routes[0].operations[0].name
+    ))).size === 32 &&
     defaultAircraftIntegrationRegistry.resolveAction({
       adapterId: 'microsoft-inibuilds-a32x',
       profileKey: 'bundled/msfs/inibuilds-a321lr',
-      actionId: 'flightGuidance.apMaster.toggle',
+      actionId: 'flightGuidance.altitude.set',
+    })?.routes?.[0]?.operations?.[0]?.name === 'AP_ALT_VAR_SET_ENGLISH'
+);
+const microsoftIniBuildsA32xTypedActions = [
+  ['flightGuidance.speed.set', 'fcu.speedKts', 'AP_SPD_VAR_SET', 100, 399, 1],
+  ['flightGuidance.heading.set', 'fcu.headingDeg', 'HEADING_BUG_SET', 0, 359, 1],
+  ['flightGuidance.altitude.set', 'fcu.altitudeFt', 'AP_ALT_VAR_SET_ENGLISH', 0, 49000, 100],
+  ['flightGuidance.verticalSpeed.set', 'fcu.verticalSpeedFpm', 'AP_VS_VAR_SET_ENGLISH', -6000, 6000, 100],
+];
+test(
+  'Microsoft / iniBuilds A32x typed FCU targets keep exact bounds, standard events, parameter zero, and matching readbacks',
+  microsoftIniBuildsA32xTypedActions.every(([actionId, fieldId, event, min, max, step]) => {
+    const action = microsoftIniBuildsA32xIntegration?.actions?.[actionId];
+    return action?.input?.type === 'number' &&
+      action.input.min === min &&
+      action.input.max === max &&
+      action.input.step === step &&
+      action.routes?.[0]?.operations?.[0]?.name === event &&
+      JSON.stringify(action.routes[0].operations[0].parameters) === '[0]' &&
+      action.routes[0].operations[0].inputValue?.source === 'input' &&
+      action.routes[0].readback?.fieldId === fieldId &&
+      action.routes[0].readback?.expectedInput === true;
+  })
+);
+test(
+  'Microsoft / iniBuilds A32x keeps Airbus-private and non-priority controls excluded and rejects all untrusted copies',
+  [
+    'flightGuidance.apMaster.toggle',
+    'flightGuidance.ap1.on',
+    'flightGuidance.ap2.on',
+    'flightGuidance.localizer.on',
+    'flightGuidance.flightLevelChange.on',
+    'flightGuidance.speed.managed',
+    'lights.strobe.auto',
+    'lights.runwayTurnoff.on',
+    'controls.spoilersArmed.on',
+    'controls.speedbrake.set',
+    'systems.apuMaster.on',
+  ].every(actionId => microsoftIniBuildsA32xIntegration?.actions?.[actionId] === undefined) &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('microsoft-inibuilds-a32x', {
+      profileKey: 'local/msfs/inibuilds-a320neo-v2',
     }) === null &&
     defaultAircraftIntegrationRegistry.resolveIntegration('microsoft-inibuilds-a32x', {
       profileKey: 'local/msfs/inibuilds-a321lr',
-    }) === null
+    }) === null &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('microsoft-inibuilds-a32x', {
+      profileKey: 'bundled/msfs/inibuilds-a330',
+    }) === null &&
+    [
+      microsoftIniBuildsA32xIntegration,
+      microsoftIniBuildsA321lrIntegration,
+    ].every(integration => integration?.id === 'microsoft-inibuilds-a32x')
 );
 
 loader.setActiveProfile('inibuilds-a330');
@@ -2031,8 +2242,66 @@ test(
 
 loader.setActiveProfile('microsoft-737-max-8');
 const microsoftMaxConfig = loader.getLvarConfig();
+const microsoftMaxIntegration = defaultAircraftIntegrationRegistry.resolveIntegration(
+  'microsoft-737-max-8',
+  { profileKey: 'bundled/msfs/microsoft-737-max-8' },
+);
+const expectedMicrosoftMaxActionIds = [
+  ...[
+    'flightGuidance.apMaster',
+    'flightGuidance.flightDirector',
+    'flightGuidance.autothrottleArmed',
+    'flightGuidance.speedHold',
+    'flightGuidance.headingHold',
+    'flightGuidance.altitudeHold',
+    'flightGuidance.verticalSpeedHold',
+    'flightGuidance.navHold',
+    'flightGuidance.approachHold',
+    'flightGuidance.flightLevelChange',
+  ].flatMap(prefix => [`${prefix}.off`, `${prefix}.on`]),
+  'flightGuidance.speed.set',
+  'flightGuidance.heading.set',
+  'flightGuidance.altitude.set',
+  'flightGuidance.verticalSpeed.set',
+  ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'].flatMap(name => [
+    `lights.${name}.off`,
+    `lights.${name}.on`,
+  ]),
+  'controls.gear.up',
+  'controls.gear.down',
+  'controls.flaps.decrease',
+  'controls.flaps.increase',
+  'controls.parkingBrake.off',
+  'controls.parkingBrake.on',
+].sort();
+const expectedMicrosoftMaxConfirmationIds = [
+  'afds.apMaster',
+  'afds.flightDirector',
+  'afds.autothrottleArmed',
+  'afds.speed',
+  'afds.headingSelect',
+  'afds.altitudeHold',
+  'afds.verticalSpeed',
+  'afds.lnav',
+  'afds.approach',
+  'afds.levelChange',
+  'mcp.speedKts',
+  'mcp.headingDeg',
+  'mcp.altitudeFt',
+  'mcp.verticalSpeedFpm',
+  'lights.strobe',
+  'lights.beacon',
+  'lights.nav',
+  'lights.logo',
+  'lights.wing',
+  'lights.landing',
+  'lights.taxi',
+  'controls.gearHandleDown',
+  'controls.flapsIndex',
+  'controls.parkingBrake',
+].sort();
 test(
-  'Microsoft 737 MAX 8 activates its exact trusted monitoring page',
+  'Microsoft 737 MAX 8 activates its exact trusted compact control page',
   microsoftMaxConfig?.aircraftSpecific?.templateId === 'microsoft-737-max-8' &&
     microsoftMaxConfig?.aircraftSpecific?.integrationId === 'microsoft-737-max-8' &&
     microsoftMaxConfig?.aircraftSpecific?.profileKey === 'bundled/msfs/microsoft-737-max-8' &&
@@ -2042,16 +2311,80 @@ test(
       field.source?.type === 'simvar' &&
       field.source?.path === 'fdm.apAltTargetFt'
     )) &&
-    microsoftMaxConfig.aircraftSpecific.confirmationFields.length === 0
+    microsoftMaxConfig.aircraftSpecific.confirmationFields.length === 24 &&
+    JSON.stringify(Object.keys(microsoftMaxIntegration?.actions || {}).sort()) === JSON.stringify(expectedMicrosoftMaxActionIds) &&
+    JSON.stringify(microsoftMaxConfig.aircraftSpecific.confirmationFields.map(field => field.id).sort()) === JSON.stringify(expectedMicrosoftMaxConfirmationIds)
 );
 test(
-  'Microsoft 737 MAX 8 page has no custom subscriptions or aircraft-specific writes',
+  'Microsoft 737 MAX 8 owns 44 guarded standard actions without custom subscriptions',
   microsoftMaxConfig.enabled === false &&
     microsoftMaxConfig.subscriptions.length === 0 &&
+    expectedMicrosoftMaxActionIds.length === 44 &&
+    Object.values(microsoftMaxIntegration?.actions || {}).every(action => (
+      action.verification === 'untested' &&
+      action.guard?.retry === 'never' &&
+      action.guard?.groupId?.startsWith('microsoft737Max8.') &&
+      action.routes?.length === 1 &&
+      action.routes[0]?.id?.startsWith('microsoft737Max8.') &&
+      action.routes[0]?.transport === 'simconnect-sequence' &&
+      action.routes[0]?.operations?.length === 1 &&
+      action.routes[0]?.operations?.[0]?.type === 'event' &&
+      typeof action.routes[0]?.readback?.fieldId === 'string'
+    )) &&
+    new Set(Object.values(microsoftMaxIntegration.actions).map(action => (
+      action.routes[0].operations[0].name
+    ))).size === 34 &&
     defaultAircraftIntegrationRegistry.resolveAction({
       adapterId: 'microsoft-737-max-8',
       profileKey: 'bundled/msfs/microsoft-737-max-8',
-      actionId: 'afds.lnav.toggle',
+      actionId: 'flightGuidance.altitude.set',
+    })?.routes?.[0]?.operations?.[0]?.name === 'AP_ALT_VAR_SET_ENGLISH' &&
+    microsoftMaxIntegration.actions['flightGuidance.flightLevelChange.on']?.routes?.[0]?.operations?.[0]?.name === 'FLIGHT_LEVEL_CHANGE_ON' &&
+    microsoftMaxIntegration.actions['lights.nav.on']?.guard?.skipIfSatisfied === false &&
+    microsoftMaxIntegration.actions['afds.cmdA.on'] === undefined &&
+    microsoftMaxIntegration.actions['afds.cmdB.on'] === undefined &&
+    microsoftMaxIntegration.actions['afds.vnav.on'] === undefined &&
+    microsoftMaxIntegration.actions['controls.speedbrake.set'] === undefined &&
+    microsoftMaxIntegration.actions['lights.runwayTurnoff.on'] === undefined
+);
+const microsoftMaxTypedActions = [
+  ['flightGuidance.speed.set', 'mcp.speedKts', 'AP_SPD_VAR_SET', 100, 399, 1],
+  ['flightGuidance.heading.set', 'mcp.headingDeg', 'HEADING_BUG_SET', 0, 359, 1],
+  ['flightGuidance.altitude.set', 'mcp.altitudeFt', 'AP_ALT_VAR_SET_ENGLISH', 0, 49000, 100],
+  ['flightGuidance.verticalSpeed.set', 'mcp.verticalSpeedFpm', 'AP_VS_VAR_SET_ENGLISH', -6000, 6000, 100],
+];
+test(
+  'Microsoft 737 MAX 8 typed MCP targets retain exact bounds, parameters, and confirmation fields',
+  microsoftMaxTypedActions.every(([actionId, fieldId, event, min, max, step]) => {
+    const action = microsoftMaxIntegration?.actions?.[actionId];
+    return action?.input?.type === 'number' &&
+      action.input.min === min &&
+      action.input.max === max &&
+      action.input.step === step &&
+      action.routes?.[0]?.operations?.[0]?.name === event &&
+      JSON.stringify(action.routes[0].operations[0].parameters) === '[0]' &&
+      action.routes[0].operations[0].inputValue?.source === 'input' &&
+      action.routes[0].readback?.fieldId === fieldId &&
+      action.routes[0].readback?.expectedInput === true;
+  })
+);
+test(
+  'Microsoft 737 MAX 8 rejects untrusted copies and keeps Boeing-private or non-priority controls excluded',
+  [
+    'afds.cmdA.on',
+    'afds.cmdB.on',
+    'afds.vnav.on',
+    'flightGuidance.vnav.on',
+    'controls.autobrake.set',
+    'controls.speedbrake.set',
+    'lights.runwayTurnoff.on',
+    'systems.engine1.start',
+  ].every(actionId => microsoftMaxIntegration?.actions?.[actionId] === undefined) &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('microsoft-737-max-8', {
+      profileKey: 'local/msfs/microsoft-737-max-8',
+    }) === null &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('microsoft-737-max-8', {
+      profileKey: 'bundled/msfs/ifly-737-max-8',
     }) === null
 );
 
@@ -2379,7 +2712,38 @@ loader.setActiveProfile('fbw-a380x');
 const a380Lvars = loader.getLvarConfig();
 test('A380X LVAR config is enabled from documented FBW A380X API variables', a380Lvars?.enabled === true);
 test(
-  'A380X subscribes documented AP, A/THR, FCU, flaps, spoilers, and parking brake LVARs',
+  'A380X activates its exact trusted compact page and representative custom, gauge, light, and four-engine fields',
+  a380Lvars?.aircraftSpecific?.templateId === 'fbw-a380x' &&
+    a380Lvars?.aircraftSpecific?.integrationId === 'fbw-a380x' &&
+    a380Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fbw-a380x' &&
+    a380Lvars?.aircraftSpecific?.fields?.length === 42 &&
+    a380Lvars.aircraftSpecific.fields.some(field => (
+      field.id === 'flightGuidance.altitudeFt' &&
+      field.source?.type === 'lvar' &&
+      field.source?.key === 'aircraft_specific_flight_guidance_altitude_ft' &&
+      field.decode?.type === 'number' &&
+      field.decode?.precision === 0
+    )) &&
+    a380Lvars.aircraftSpecific.fields.some(field => (
+      field.id === 'flightGuidance.autothrust' &&
+      field.source?.type === 'lvar' &&
+      field.source?.key === 'autothrottle' &&
+      JSON.stringify(field.decode?.trueValues) === '[1,2]'
+    )) &&
+    a380Lvars.aircraftSpecific.fields.some(field => (
+      field.id === 'lights.strobe' &&
+      field.source?.type === 'simvar' &&
+      field.source?.path === 'lights.strobe'
+    )) &&
+    a380Lvars.aircraftSpecific.fields.some(field => (
+      field.id === 'systems.engine4N1' &&
+      field.source?.type === 'simvar' &&
+      field.source?.path === 'fdm.eng4N1' &&
+      field.decode?.precision === 1
+    ))
+);
+test(
+  'A380X subscribes documented AP, A/THR, FCU, gauge-altitude, flaps, spoilers, and parking-brake readbacks without duplicates',
   a380Lvars?.subscriptions?.some(s => s.key === 'autopilot' && s.expression === '(L:A32NX_AUTOPILOT_1_ACTIVE)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'autothrottle' && s.expression === '(L:A32NX_AUTOTHRUST_STATUS)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'flaps' && s.expression === '(L:A32NX_FLAPS_HANDLE_INDEX)') === true &&
@@ -2388,11 +2752,99 @@ test(
     a380Lvars?.subscriptions?.some(s => s.key === 'selected_vertical_speed' && s.expression === '(L:A32NX_AUTOPILOT_VS_SELECTED)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'mode_loc' && s.expression === '(L:A32NX_FCU_LOC_MODE_ACTIVE)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'mode_app' && s.expression === '(L:A32NX_FCU_APPR_MODE_ACTIVE)') === true &&
-    a380Lvars?.subscriptions?.some(s => s.key === 'selected_altitude') !== true &&
+    a380Lvars?.subscriptions?.some(s => (
+      s.key === 'aircraft_specific_flight_guidance_altitude_ft' &&
+      s.expression === '(A:AUTOPILOT ALTITUDE LOCK VAR:3)' &&
+      s.unit === 'Feet'
+    )) === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'spoilers_armed' && s.expression === '(L:A32NX_SPOILERS_ARMED)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'spoilers_handle' && s.expression === '(L:A32NX_SPOILERS_HANDLE_POSITION)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'parking_brake' && s.expression === '(L:A32NX_PARK_BRAKE_LEVER_POS)') === true &&
-    a380Lvars?.subscriptions?.some(s => s.key === 'parkingBrake') === false
+    a380Lvars?.subscriptions?.some(s => s.key === 'parkingBrake') === false &&
+    new Set(a380Lvars.subscriptions.map(subscription => subscription.key)).size === a380Lvars.subscriptions.length &&
+    new Set(a380Lvars.subscriptions.map(subscription => subscription.expression.toLowerCase())).size === a380Lvars.subscriptions.length
+);
+const a380Integration = defaultAircraftIntegrationRegistry.resolveIntegration('fbw-a380x', {
+  profileKey: 'bundled/msfs/fbw-a380x',
+});
+const expectedA380ActionIds = [
+  ...['ap1', 'autothrust', 'localizer', 'approach'].flatMap(name => [
+    `flightGuidance.${name}.off`,
+    `flightGuidance.${name}.on`,
+  ]),
+  'flightGuidance.speed.set',
+  'flightGuidance.heading.set',
+  'flightGuidance.altitude.set',
+  ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'].flatMap(name => [
+    `lights.${name}.off`,
+    `lights.${name}.on`,
+  ]),
+  'controls.parkingBrake.released',
+  'controls.parkingBrake.set',
+  'controls.spoilersArmed.off',
+  'controls.spoilersArmed.on',
+  'controls.spoilers.set',
+  'controls.flaps.decrease',
+  'controls.flaps.increase',
+  'controls.gear.up',
+  'controls.gear.down',
+].sort();
+test(
+  'A380X exposes exactly 34 guarded untested SimConnect-sequence actions with 19 unique confirmation fields',
+  JSON.stringify(Object.keys(a380Integration?.actions || {}).sort()) === JSON.stringify(expectedA380ActionIds) &&
+    expectedA380ActionIds.length === 34 &&
+    a380Lvars.aircraftSpecific.confirmationFields.length === 19 &&
+    new Set(a380Lvars.aircraftSpecific.confirmationFields.map(field => field.id)).size === 19 &&
+    Object.values(a380Integration?.actions || {}).every(action => (
+      action.verification === 'untested' &&
+      action.guard?.retry === 'never' &&
+      action.routes?.length === 1 &&
+      action.routes[0]?.transport === 'simconnect-sequence' &&
+      typeof action.routes[0]?.readback?.fieldId === 'string'
+    ))
+);
+test(
+  'A380X bounds typed FCU and spoiler inputs and keeps deliberately unsupported semantics absent',
+  a380Integration?.actions?.['flightGuidance.speed.set']?.input?.min === 100 &&
+    a380Integration.actions['flightGuidance.speed.set'].input.max === 399 &&
+    a380Integration.actions['flightGuidance.speed.set'].input.step === 1 &&
+    a380Integration.actions['flightGuidance.heading.set'].input.min === 0 &&
+    a380Integration.actions['flightGuidance.heading.set'].input.max === 359 &&
+    a380Integration.actions['flightGuidance.heading.set'].input.step === 1 &&
+    a380Integration.actions['flightGuidance.altitude.set'].input.min === 0 &&
+    a380Integration.actions['flightGuidance.altitude.set'].input.max === 49000 &&
+    a380Integration.actions['flightGuidance.altitude.set'].input.step === 100 &&
+    a380Integration.actions['controls.spoilers.set'].input.min === 0 &&
+    a380Integration.actions['controls.spoilers.set'].input.max === 1 &&
+    a380Integration.actions['controls.spoilers.set'].input.step === 0.25 &&
+    [
+      'flightGuidance.ap2.on',
+      'flightGuidance.verticalSpeed.set',
+      'flightGuidance.speed.managed',
+      'flightGuidance.altitude.selected',
+      'lights.strobe.auto',
+      'lights.runwayTurnoff.on',
+      'systems.apuMaster.on',
+      'systems.engine1Master.on',
+    ].every(actionId => a380Integration.actions[actionId] === undefined)
+);
+test(
+  'A380X keeps generic controls disabled, retains standard surface fallback, and rejects untrusted profile copies',
+  loader.getActiveProfile()?.integration?.controls?.genericFallback === false &&
+    loader.getActiveProfile()?.integration?.controls?.standardSurfaceFallback === true &&
+    loader.getActiveProfile()?.integration?.controls?.autopilot === undefined &&
+    loader.getActiveProfile()?.integration?.aircraftSpecific?.adapter === 'fbw-a380x' &&
+    defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: 'fbw-a380x',
+      profileKey: 'bundled/msfs/fbw-a380x',
+      actionId: 'lights.beacon.on',
+    })?.routes?.[0]?.operations?.[0]?.name === 'BEACON_LIGHTS_SET' &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('fbw-a380x', {
+      profileKey: 'local/msfs/fbw-a380x',
+    }) === null &&
+    defaultAircraftIntegrationRegistry.resolveIntegration('fbw-a380x', {
+      profileKey: 'bundled/msfs/fbw-a32nx',
+    }) === null
 );
 
 loader.setActiveProfile('tfdi-md-11');

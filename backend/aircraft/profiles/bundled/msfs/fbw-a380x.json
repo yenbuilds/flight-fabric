@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-05-15T00:00:00Z",
-  "updatedAt": "2026-07-24T00:00:00Z",
+  "updatedAt": "2026-08-13T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -80,21 +80,34 @@
     }
   },
   "integration": {
+    "aircraftSpecific": {
+      "adapter": "fbw-a380x"
+    },
     "matching": {
       "priority": 90,
-      "titleContains": [
-        "FlyByWire A380X",
-        "FBW A380X",
-        "A380X"
+      "titleRegex": "^(?:flybywire|fbw)[\\s_/-]*(?:airbus[\\s_/-]*)?a380(?:x|[\\s_-]*842)(?:[\\s_/-]*\\([\\s_-]*a380[\\s_-]*842(?:r[\\s_-]*rr)?[\\s_-]*\\))?(?:[\\s_/-]+no[\\s_-]*cabin)?$",
+      "titleExcludes": [
+        "headwind",
+        "inibuilds",
+        "fenix",
+        "latinvfr",
+        "fsltl",
+        "passiveaircraft"
       ],
-      "titleRegex": "FlyByWire.*A380|A380X|FBW.*A380",
       "configPathContains": [
         "flybywire-aircraft-a380-842",
         "flybywire-aircraft-a380x",
-        "fbw-a380x",
-        "a380x"
+        "fbw-a380x"
       ],
-      "configPathRegex": "(flybywire|fbw|a380x).*a380|a380.*(flybywire|fbw|a380x)"
+      "configPathRegex": "(?:^|[/\\\\])(?:flybywire-aircraft-a380(?:-842|x)|fbw-a380x|flybywire_a380(?:x|_842(?:_no_?cabin)?))(?:[/\\\\]|$)",
+      "configPathExcludes": [
+        "headwind",
+        "inibuilds",
+        "fenix",
+        "latinvfr",
+        "fsltl",
+        "passiveaircraft"
+      ]
     },
     "telemetry": {
       "preferred": "simconnect",
@@ -122,8 +135,36 @@
       },
       "lights": {}
     },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "The exact-profile trusted adapter exposes a compact set of 34 guarded actions: three bounded FCU targets, a direct AP1 toggle plus guarded A/THR/LOC/APPR intents, seven exterior-light output targets, gear, relative flaps, parking brake, spoiler arm, and a bounded spoiler handle target. Every action requires fresh logical readback, at most one dispatch, no retry, and a newer matching or changed readback. AP2 remains read-only. V/S-FPA writes, managed/selected push-pull, light AUTO/detents, engines/APU, presets, and deep systems remain excluded."
+    },
     "presentation": {
-      "visualSupport": "basic"
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "turnoff",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
     }
   },
   "meta": {
@@ -132,9 +173,9 @@
       "msfs2020",
       "msfs2024"
     ],
-    "updated": "2026-07-24",
+    "updated": "2026-08-13",
     "status": "experimental",
-    "notes": "FlyByWire A380X (Airbus A380-842), four-engine wide-body. Speed values are based on public FlyByWire material and remain pending in-sim verification. AP/AT and FCU selected-value LVARs are documented in the FlyByWire A380X Flight Deck API. Selected altitude remains on the documented MSFS AUTOPILOT ALTITUDE LOCK VAR:3 path."
+    "notes": "Dedicated exact-profile FlyByWire A380X page with 42 logical fields and 34 guarded, untested actions. The compact write surface prioritizes FCU/autopilot and exterior lights, then gear, flaps, parking brake, and spoilers. Direct AP1 OFF/ON intents use the documented A32NX.FCU_AP_1_PUSH toggle behind fresh AP1 readback; AP2 and V/S-FPA remain read-only. Selected altitude uses the documented AUTOPILOT ALTITUDE LOCK VAR:3 confirmation path."
   },
   "provenance": {
     "sources": [
@@ -158,8 +199,88 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A380X Flight Deck API",
         "url": "https://docs.flybywiresim.com/aircraft/a380x/a380x-api/a380x-flight-deck-api/",
-        "retrievedAt": "2026-06-05",
-        "notes": "Documents A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX as a 0..4 flap handle position, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED as selected FCU speed 0..399, A32NX_AUTOPILOT_HEADING_SELECTED as selected FCU heading 0..359, A32NX_AUTOPILOT_VS_SELECTED as selected FCU vertical speed -6000..6000, A32NX_FCU_LOC_MODE_ACTIVE as LOC 0..1, A32NX_FCU_APPR_MODE_ACTIVE as APPR 0..1, and AUTOPILOT ALTITUDE LOCK VAR:3 as the FCU altitude target for A380X flight deck state."
+        "retrievedAt": "2026-08-13",
+        "notes": "Documents the active A380X readback contract: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED, A32NX_AUTOPILOT_HEADING_SELECTED, A32NX_AUTOPILOT_VS_SELECTED, A32NX_FCU_LOC_MODE_ACTIVE, A32NX_FCU_APPR_MODE_ACTIVE, and A:AUTOPILOT ALTITUDE LOCK VAR:3. It also documents A32NX.FCU_AP_1_PUSH, the active direct AP1 push event used for both guarded logical intents. Generic standard-event provenance is supplied by the Microsoft SDK sources below."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2020 SDK - Aircraft Autopilot and Flight Assist Events",
+        "url": "https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Autopilot_Flight_Assist_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "MSFS 2020 source for the active standard flight-guidance events: AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, AP_LOC_HOLD, AP_APR_HOLD, AP_SPD_VAR_SET, HEADING_BUG_SET, and AP_ALT_VAR_SET_ENGLISH. Direct AP1 control, A380X-specific readback, and exclusions remain defined by the FlyByWire source above."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2020 SDK - Aircraft Electrical Events",
+        "url": "https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "MSFS 2020 source for the active exterior-light events: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. These actions target standard light output only and do not claim A380X AUTO or selector-detent semantics."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2020 SDK - Aircraft Flight Control Events",
+        "url": "https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Flight_Control_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "MSFS 2020 source for the active flap and spoiler events: FLAPS_DECR, FLAPS_INCR, SPOILERS_ARM_OFF, SPOILERS_ARM_ON, and SPOILERS_SET. The spoiler target is bounded to 0..16383 and confirmed through the documented A380X 0..1 handle readback."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2020 SDK - Aircraft Miscellaneous Events",
+        "url": "https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Misc_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "MSFS 2020 source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. Flight Fabric exposes fixed semantic targets and requires a newer A380X or standard handle-state readback."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft Autopilot and Flight Assist Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active standard flight-guidance events: AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, AP_LOC_HOLD, AP_APR_HOLD, AP_SPD_VAR_SET, HEADING_BUG_SET, and AP_ALT_VAR_SET_ENGLISH. Direct AP1 control, A380X-specific readback, and exclusions remain defined by the FlyByWire source above."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft Electrical Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active exterior-light events: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. These actions target standard light output only and do not claim A380X AUTO or selector-detent semantics."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft Flight Control Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the remaining active standard flap and spoiler events: FLAPS_DECR, FLAPS_INCR, SPOILERS_ARM_OFF, SPOILERS_ARM_ON, and SPOILERS_SET. The spoiler target is bounded to 0..16383 and confirmed through the documented A380X 0..1 handle readback."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK - Aircraft General Systems Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. Flight Fabric exposes fixed semantic targets and requires a newer A380X or standard handle-state readback."
       },
       {
         "type": "official-docs",
@@ -170,12 +291,17 @@
       }
     ],
     "verification": {
-      "status": "unverified",
+      "status": "partial",
+      "lastVerified": "2026-08-13",
       "testedTitles": [],
       "knownIssues": [
         "Gear limits are estimated pending a reviewable vendor or manufacturer source.",
         "Flap handle value mapping (0-4 lever indices) not confirmed in MSFS",
-        "The profile relies on the FLAPS HANDLE INDEX path; its five detent positions still need in-sim verification."
+        "The profile relies on the FLAPS HANDLE INDEX path; its five detent positions still need in-sim verification.",
+        "All 34 write actions remain untested in the live aircraft. A documented standard simulator event can still be ignored or incompletely mirrored by a complex aircraft.",
+        "A32NX.FCU_AP_1_PUSH is a direct AP1 toggle. OFF/ON intents require fresh A32NX_AUTOPILOT_1_ACTIVE readback before dispatch and a newer matching result afterward; AP2 remains read-only.",
+        "Exterior-light readback confirms lamp output, not Airbus AUTO or selector-detent position. Only explicit OFF and ON output targets are exposed.",
+        "V/S-FPA writes, managed/selected push-pull, runway-turnoff writes, engines, APU, presets, guarded/emergency controls, and deep systems remain excluded."
       ]
     },
     "dataQuality": {

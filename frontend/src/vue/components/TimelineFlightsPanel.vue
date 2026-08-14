@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import AppTooltip from './AppTooltip.vue';
+import AircraftArtwork from './AircraftArtwork.vue';
 import { useLogbookStore } from '../stores/logbook.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTimelineStore } from '../stores/timeline.js';
@@ -77,15 +78,20 @@ async function copyStoragePath() {
 }
 
 function flightTimestampDate(flight) {
-  return new Date(flight.timestamp);
+  const recordingStart = new Date(flight?.recordingStartIso);
+  if (Number.isFinite(recordingStart.getTime())) return recordingStart;
+  return new Date(flight?.timestamp);
 }
 
-function flightDateLabel(flight) {
-  return flightTimestampDate(flight).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+function flightTimestampKind(flight) {
+  return Number.isFinite(new Date(flight?.recordingStartIso).getTime()) ? 'Recorded' : 'Saved';
 }
 
-function flightTimeLabel(flight) {
-  return flightTimestampDate(flight).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+function flightDateTimeLabel(flight) {
+  const date = flightTimestampDate(flight);
+  if (!Number.isFinite(date.getTime())) return '--';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 </script>
 
@@ -223,6 +229,11 @@ function flightTimeLabel(flight) {
             class="flex flex-1 min-w-0 items-center justify-between gap-2 appearance-none border-0 bg-transparent p-0 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
             @click="openFlight(flight)"
           >
+            <AircraftArtwork
+              class="timeline-aircraft-thumb"
+              :profile-id="flight.aircraftProfileId || flight.aircraft_profile_id || ''"
+              :aircraft-name="getFlightAircraftLabel(flight)"
+            />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <div
@@ -234,7 +245,7 @@ function flightTimeLabel(flight) {
                 <div v-if="isFlightLoading(flight)" class="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin flex-shrink-0" aria-label="Loading timeline"></div>
               </div>
               <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                <div class="text-xs text-gray-500">{{ flightDateLabel(flight) }} {{ flightTimeLabel(flight) }}</div>
+                <div class="text-xs text-gray-500">{{ flightTimestampKind(flight) }} {{ flightDateTimeLabel(flight) }}</div>
                 <div v-if="getFlightAircraftLabel(flight)" class="text-xs text-gray-400">• {{ getFlightAircraftLabel(flight) }}</div>
                 <div v-if="flight.durationFormatted || flight.durationMs" class="text-xs text-gray-500">• {{ flight.durationFormatted || formatDuration(flight.durationMs) }}</div>
                 <div v-if="getFiniteDistanceNm(flight.distanceNm) !== null" class="text-xs text-gray-500">• {{ formatDistanceNm(flight.distanceNm) }}</div>

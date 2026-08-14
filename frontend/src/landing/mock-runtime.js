@@ -102,7 +102,7 @@ const SCENARIOS = {
       vs: -180, grade: 'GOOD', color: '#4ade80',
       gforce: 1.25, icao: 'EGLL', runway: '27L',
       pitchDeg: 3.2, bankDeg: -1.1, centerlineDev: 1.2,
-      crosswind: 8, windSpeed: 14, iasKts: 138, gsKts: 148,
+      crosswind: 8, windSpeed: 14, windDirectionTrueDeg: 305, iasKts: 138, gsKts: 148,
       approachType: 'ILS', final: true,
       runwayExcursion: false, shortLanding: false,
       touchdownDistance: {
@@ -139,7 +139,7 @@ const SCENARIOS = {
       vs: -68, grade: 'PERFECT', color: '#4ade80',
       gforce: 1.05, icao: 'KJFK', runway: '31L',
       pitchDeg: 4.1, bankDeg: 0.3, centerlineDev: 0.4,
-      crosswind: 3, windSpeed: 8, iasKts: 136, gsKts: 144,
+      crosswind: 3, windSpeed: 8, windDirectionTrueDeg: 330, iasKts: 136, gsKts: 144,
       approachType: 'ILS CAT III', final: true,
       runwayExcursion: false, shortLanding: false,
       touchdownDistance: {
@@ -176,7 +176,7 @@ const SCENARIOS = {
       vs: -520, grade: 'HARD', color: '#ef4444',
       gforce: 2.1, icao: 'KLAX', runway: '25L',
       pitchDeg: 1.1, bankDeg: -4.2, centerlineDev: 6.8,
-      crosswind: 18, windSpeed: 24, iasKts: 152, gsKts: 162,
+      crosswind: 18, windSpeed: 24, windDirectionTrueDeg: 299, iasKts: 152, gsKts: 162,
       approachType: 'VISUAL', final: true,
       runwayExcursion: false, shortLanding: false,
       touchdownDistance: {
@@ -214,7 +214,7 @@ const SCENARIOS = {
       vs: -380, grade: 'FIRM', color: '#fbbf24',
       gforce: 1.65, icao: 'EDDM', runway: '08R',
       pitchDeg: 1.8, bankDeg: 3.5, centerlineDev: 4.1,
-      crosswind: 12, windSpeed: 20, iasKts: 148, gsKts: 160,
+      crosswind: 12, windSpeed: 20, windDirectionTrueDeg: 117, iasKts: 148, gsKts: 160,
       approachType: 'VISUAL', final: true,
       runwayExcursion: false, shortLanding: false,
       touchdownDistance: {

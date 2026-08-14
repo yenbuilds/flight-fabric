@@ -30,8 +30,9 @@ function numberField(id: string, name: string, unit: string, precision = 0): Air
 }
 
 // This exact-profile adapter intentionally uses only documented standard MSFS
-// SimVars. Complex-aircraft MCP/mode mirrors may be unavailable; the projector
-// reports those fields as unavailable instead of substituting unverified routes.
+// SimVars. Its compact write layer confirms against these same fields; it makes
+// no claims about Boeing CMD-channel or VNAV semantics, and unavailable mirrors
+// are never replaced with guessed routes.
 const MICROSOFT_737_MAX_8_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'mcp.speedKts': numberField('mcp.speedKts', 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots'),
   'mcp.headingDeg': numberField('mcp.headingDeg', 'AUTOPILOT HEADING LOCK DIR', 'Degrees'),

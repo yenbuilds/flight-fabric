@@ -136,7 +136,7 @@ export function createTimelinePageController({
     });
 
     syncInspectorState({
-      flightIdText: routeStr ? `${routeStr} (${durationStr})` : (normalizedTimeline.flightId || 'Unknown Flight'),
+      flightIdText: routeStr ? durationStr : (normalizedTimeline.flightId || 'Unknown Flight'),
       routeText: routeStr,
       routeVisible: Boolean(routeStr),
       rows: displayedTimelineRows,

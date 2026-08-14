@@ -48,6 +48,11 @@ function formatConfidenceBadge(confidence) {
   return createBadge(humanizeAutomationToken(value));
 }
 
+function formatSimulatorDateTime(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(value || '').trim());
+  return match ? `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}` : '';
+}
+
 export function buildTimelineEventRowState(event, index, startMs, {
   typeLabels = {},
   markerLabels = {},
@@ -221,6 +226,9 @@ export function buildTimelineEventRowState(event, index, startMs, {
     title: String(title || '--'),
     subtitle: String(subtitle || ''),
     timeOffsetText,
+    localDateTimeText: formatSimulatorDateTime(event.simDateTimeLocal ?? event.sim_datetime_local),
+    utcDateTimeText: formatSimulatorDateTime(event.simDateTimeUtc ?? event.sim_datetime_utc),
+    showEndpointDateTime: false,
     badges,
     countText: count > 1 ? `x${count}` : '',
     originalIndexStart: Number(event?._originalIndexStart ?? index),
@@ -232,6 +240,11 @@ export function buildTimelineEventRows(events, {
   startMs,
   rowOptions = {},
 } = {}) {
-  return (Array.isArray(events) ? events : []).map((event, index) =>
+  const rows = (Array.isArray(events) ? events : []).map((event, index) =>
     buildTimelineEventRowState(event, index, startMs, rowOptions));
+  if (rows.length > 0) {
+    rows[0].showEndpointDateTime = true;
+    rows[rows.length - 1].showEndpointDateTime = true;
+  }
+  return rows;
 }

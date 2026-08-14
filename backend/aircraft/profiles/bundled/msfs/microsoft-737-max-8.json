@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-06-10T00:00:00Z",
-  "updatedAt": "2026-07-20T00:00:00Z",
+  "updatedAt": "2026-08-13T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/boeing-base",
   "abstract": false,
@@ -25,44 +25,39 @@
       "adapter": "microsoft-737-max-8"
     },
     "matching": {
-      "priority": 72,
-      "titleContains": [],
+      "priority": 96,
       "titleExcludes": [
         "iFly",
         "PMDG",
         "Bredok3D",
         "FSLTL",
         "AIG Traffic",
-        "IVAO MTL"
+        "IVAO MTL",
+        "PassiveAircraft",
+        "Generic",
+        "SomeVendor"
       ],
-      "titleRegex": "^(?!.*(?:ifly|pmdg|bredok3d|fsltl|aig[\\s_-]*traffic|ivao[\\s_-]*mtl))(?:(?:(?:microsoft|asobo(?:[\\s_-]*studio)?)[\\s_/-]+){0,2})(?:boeing[\\s_/-]+)?(?:b?737[\\s_-]*(?:max[\\s_-]*8|8[\\s_-]*max)|b38m|737[\\s_-]*8)$",
-      "configPathContains": [
-        "asobo-b737-max8",
-        "asobo-aircraft-b737-max8",
-        "asobo-aircraft-b737max8",
-        "asobo-aircraft-737-max8",
-        "microsoft-b737-max8",
-        "microsoft-aircraft-b737-max8",
-        "microsoft-aircraft-b737max8",
-        "microsoft-aircraft-737max8"
-      ],
+      "titleRegex": "^(?:boeing[\\s_/-]+737[\\s_-]*max[\\s_-]*8|(?:microsoft(?:[\\s_/+-]*asobo(?:[\\s_-]*studio)?)?|asobo(?:[\\s_-]*studio)?)[\\s_/-]+(?:boeing[\\s_/-]+)?b?737[\\s_-]*max[\\s_-]*8)$",
       "configPathExcludes": [
         "ifly",
         "pmdg",
         "bredok3d",
         "fsltl",
         "aig-traffic",
-        "ivao-mtl"
+        "ivao-mtl",
+        "passiveaircraft",
+        "community",
+        "generic"
       ],
-      "configPathRegex": "(asobo|microsoft).*(737[-_ ]?max[-_ ]?8|737max8|b38m)|(737[-_ ]?max[-_ ]?8|737max8|b38m).*(asobo|microsoft)",
+      "configPathRegex": "(?:^|[/\\\\])(?:fs24-)?asobo-aircraft-b737max8(?:[/\\\\]|$)|(?:^|[/\\\\])SimObjects[/\\\\]Airplanes[/\\\\]Asobo_B737_MAX8[/\\\\]aircraft\\.cfg$",
       "aircraftCfg": {
-        "_comment": "Use aircraft.cfg as high-confidence fallback only when the B38M type designator is paired with Microsoft/Asobo creator evidence.",
+        "_comment": "Use aircraft.cfg only when B38M is paired with an exact canonical or Microsoft/Asobo-qualified MAX 8 title and an exact first-party creator. B38M alone is intentionally insufficient. Optional traffic/selectability fields are not required because Microsoft permits them to be omitted.",
         "equals": {
           "icao_type_designator": "B38M"
         },
         "regex": {
-          "title": "^(?!.*(?:ifly|pmdg|bredok3d|fsltl|aig[\\s_-]*traffic|ivao[\\s_-]*mtl)).*(?:b?737[\\s_-]*(?:max[\\s_-]*8|8[\\s_-]*max)|b38m|737[\\s_-]*8).*$",
-          "ui_createdby": "(?:microsoft|asobo)"
+          "title": "^(?:boeing[\\s_/-]+737[\\s_-]*max[\\s_-]*8|(?:microsoft(?:[\\s_/+-]*asobo(?:[\\s_-]*studio)?)?|asobo(?:[\\s_-]*studio)?)[\\s_/-]+(?:boeing[\\s_/-]+)?b?737[\\s_-]*max[\\s_-]*8)$",
+          "ui_createdby": "^(?:microsoft(?: corporation)?|asobo(?: studio)?)$"
         }
       }
     },
@@ -82,7 +77,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Only standard gear/flaps surface fallback is allowed. Boeing-specific autopilot, MCP, autothrottle, spoiler, and lighting writes remain unavailable until exact variables/events are verified."
+      "_comment": "The exact-profile trusted adapter exposes 44 guarded actions backed by 34 Microsoft-documented MSFS 2024 standard events and 24 confirmation fields over 44 standard-SimVar fields. OFF/ON intents require fresh standard readback; four MCP targets are bounded; every unsatisfied route dispatches at most once without retry and requires newer matching or changed readback. Generic fallback remains disabled and the narrow standard gear/flap fallback stays enabled. These are generic simulator semantics, not a Boeing CMD A/B, MCP selector, or proprietary autothrottle contract. Spoilers, runway turnoff, vendor-private interfaces, and deep systems remain write-disabled."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -115,9 +110,9 @@
     "platforms": [
       "msfs2024"
     ],
-    "updated": "2026-07-20",
-    "status": "partial",
-    "notes": "Dedicated monitoring-first page and identity profile for the included MSFS 2024 Boeing 737 MAX 8. The trusted Microsoft/Asobo adapter exposes an explicit standard-SimVar monitoring surface while aircraft-specific telemetry and cockpit writes remain inactive pending vendor documentation and in-sim verification."
+    "updated": "2026-08-13",
+    "status": "experimental",
+    "notes": "Dedicated exact-profile page for the Microsoft / Asobo Studio Boeing 737 MAX 8 included with MSFS 2024. The trusted adapter exposes 44 standard-SimVar fields, 44 guarded actions, 24 confirmation fields, and 34 unique Microsoft-documented standard events with zero custom subscriptions. It prioritizes generic flight guidance and MCP targets, seven exterior-light outputs, gear, relative flap steps, and parking brake. Every action remains untested pending live MSFS 2024 validation."
   },
   "provenance": {
     "sources": [
@@ -125,15 +120,15 @@
         "type": "official-docs",
         "name": "Microsoft Flight Simulator 2024 FAQ - aircraft matrix",
         "url": "https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ",
-        "retrievedAt": "2026-07-19",
+        "retrievedAt": "2026-08-13",
         "notes": "Lists the Boeing 737 Max 8 under manufacturer Boeing and confirms it is included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium Deluxe, and Aviator editions."
       },
       {
         "type": "official-docs",
         "name": "Microsoft Flight Simulator 2024 Sim Update 2 release notes",
         "url": "https://www.flightsimulator.com/msfs2024-sim-update-2/",
-        "retrievedAt": "2026-07-19",
-        "notes": "Uses the official Boeing 737 MAX 8 product heading and documented package identifiers; it does not define an external custom-variable contract."
+        "retrievedAt": "2026-08-13",
+        "notes": "Uses the official Boeing 737 MAX 8 product heading and provides first-party product-specific update history; it does not publish a package identifier or external custom-variable contract."
       },
       {
         "type": "official-docs",
@@ -146,26 +141,72 @@
         "type": "official-sdk",
         "name": "MSFS 2024 Avionics Framework - SimVars",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
-        "retrievedAt": "2026-07-19",
-        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted monitoring adapter uses an explicit standard-SimVar allowlist and activates no aircraft-specific L: or B: variables."
+        "retrievedAt": "2026-08-13",
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted adapter uses an explicit 44-field standard-SimVar allowlist and activates no aircraft-specific L: or B: variables."
       },
       {
         "type": "official-sdk",
         "name": "MSFS 2024 Avionics Framework - Key Events",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
-        "retrievedAt": "2026-07-19",
-        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+        "retrievedAt": "2026-08-13",
+        "notes": "Documents the simulator key-event transport used by this exact-profile adapter. Active event IDs and parameters are enumerated by the category-specific Microsoft SDK sources below."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft Autopilot and Flight Assist Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for every active flight-guidance event: AUTOPILOT_OFF, AUTOPILOT_ON, TOGGLE_FLIGHT_DIRECTOR, AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON, AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON, AP_APR_HOLD_OFF, AP_APR_HOLD_ON, FLIGHT_LEVEL_CHANGE_OFF, FLIGHT_LEVEL_CHANGE_ON, AP_SPD_VAR_SET, HEADING_BUG_SET, AP_ALT_VAR_SET_ENGLISH, and AP_VS_VAR_SET_ENGLISH. Toggle events serve guarded OFF/ON logical intents only after fresh readback. These are generic simulator semantics, not independent Boeing CMD A/B, MCP selector, LNAV/VNAV, or proprietary autothrottle behavior."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft Electrical Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each uses a fixed 0/1 target and confirms the corresponding standard lamp-output SimVar; runway-turnoff and Boeing multi-position switch semantics remain excluded."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft Flight Control Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active FLAPS_DECR and FLAPS_INCR mappings. These are relative handle steps with newer changed standard flap-handle readback, not verified MAX 8 detents."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 SDK - Aircraft General Systems Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
+        "retrievedAt": "2026-08-13",
+        "notes": "Source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. Flight Fabric exposes fixed semantic targets and confirms newer standard handle/state readback."
       }
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-07-19",
+      "lastVerified": "2026-08-13",
       "knownIssues": [
-        "Exact MSFS 2024 737 MAX 8 TITLE strings remain unverified in-sim.",
+        "The exact SimConnect TITLE and package/runtime paths have not been captured in-sim. The Asobo_B737_MAX8 SimObject segment and asobo-aircraft-b737max8 package segments are provisional identity hints based on existing runtime conventions; the cited public sources do not publish those identifiers.",
         "The Microsoft Flight Simulator aircraft manuals page does not list a 737 MAX 8 manual.",
+        "The 44 standard-SimVar fields, 44 actions, and 24 confirmation fields remain untested against the live MSFS 2024 737 MAX 8; a documented standard event can still be ignored or incompletely mirrored by a complex aircraft.",
+        "AUTOPILOT_ON and AUTOPILOT_OFF expose only generic simulator master behavior. They cannot select or independently confirm Boeing CMD A versus CMD B.",
+        "Flight-director and autothrottle-arm OFF/ON intents share documented toggle events behind fresh readback. Standard state may still differ from the aircraft's internal annunciation or switch state.",
+        "Standard mode and target events do not reproduce proprietary Boeing MCP or autothrottle semantics. NAV hold is only a generic standard-state contract, and VNAV remains excluded; generic flight-level change is not asserted to reproduce every Boeing LVL CHG transition.",
+        "Exterior-light actions confirm seven standard lamp outputs only. Runway-turnoff writes and Boeing multi-position or split-light switch semantics remain excluded.",
+        "Spoiler state remains read-only; no spoiler, raw-axis, vendor-private, macro, engine, or deep-system writes are enabled.",
+        "The cited sources do not define a 737 MAX 8 LVAR, B-var, InputEvent, or hardware-integration map, and the adapter subscribes to zero custom variables.",
         "Flap handle indexes are not confirmed, so this profile intentionally defines no local flap notch table.",
-        "The dedicated page is monitoring-only. Complex-aircraft MCP, AFDS, light, and system standard-SimVar mirrors remain non-authoritative pending in-sim verification.",
-        "Boeing-specific autopilot, MCP, autothrottle, spoiler, and lighting writes remain unavailable until exact variables/events and independent effect readbacks are verified."
+        "All active write routes retain untested verification until the included MSFS 2024 aircraft is validated live."
       ]
     }
   }

@@ -2,6 +2,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  safeRemoveRootChildDirectorySync,
+} = require('./safe-directory-removal');
 
 const PUBLISHABLE_FILE_PATTERN = /\.(?:exe|blockmap|ya?ml)$/i;
 const CHECKSUM_FILE_PATTERN = /^SHA256SUMS(?:\.txt)?$/i;
@@ -44,7 +47,12 @@ function invalidateElectronOutputArtifacts(outputDir) {
     const entryPath = path.join(outputDir, entry.name);
     if (entry.name === 'win-unpacked') {
       assertSafeRegularDirectory(entryPath, 'Electron unpacked output directory');
-      fs.rmSync(entryPath, { recursive: true, force: true });
+      safeRemoveRootChildDirectorySync({
+        allowedChildNames: ['win-unpacked'],
+        childName: entry.name,
+        operation: 'Electron output invalidation',
+        rootDir: outputDir,
+      });
       if (fs.existsSync(entryPath)) {
         throw new Error(`Could not invalidate incomplete Electron output: ${entryPath}`);
       }

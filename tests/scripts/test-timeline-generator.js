@@ -147,6 +147,7 @@ test('flight listing converts CSV coordinates before deriving airport route labe
     'ts',
     'flight_elapsed_ms',
     'aircraft',
+    'aircraft_profile_id',
     'lat_deg',
     'lon_deg',
     'ias_kts',
@@ -162,6 +163,7 @@ test('flight listing converts CSV coordinates before deriving airport route labe
       startTs + index * 1000,
       index * 1000,
       'Route Test',
+      index === 0 ? '' : 'inibuilds-tristar',
       departure ? -37.6706 : -35.3072,
       departure ? 144.8462 : 149.1912,
       140,
@@ -184,9 +186,39 @@ test('flight listing converts CSV coordinates before deriving airport route labe
       flights[0].displayRouteLabel === 'YMML \u2192 YSCB',
       `expected YMML to YSCB, got ${flights[0].displayRouteLabel}`,
     );
+    assert(
+      flights[0].aircraftProfileId === 'inibuilds-tristar',
+      `expected recorded aircraft profile identity, got ${flights[0].aircraftProfileId}`,
+    );
   } finally {
     fs.rmSync(csvPath, { force: true });
   }
+});
+
+test('generated timeline preserves the earliest non-empty recorded aircraft profile identity', () => {
+  const startTs = Date.parse('2026-07-22T00:00:00.000Z');
+  const sample = (offsetMs, aircraftProfileId) => ({
+    flight_id: 'profile-identity-replay',
+    record_type: 'SAMPLE',
+    timestamp_utc: new Date(startTs + offsetMs).toISOString(),
+    ts: startTs + offsetMs,
+    flight_elapsed_ms: offsetMs,
+    aircraft: 'L1011-500 Standard Cabin',
+    aircraft_profile_id: aircraftProfileId,
+    lat_deg: -37.6706,
+    lon_deg: 144.8462,
+    phase: 'CRUISE',
+  });
+  const result = generateTimelineFromRows('profile-identity-replay.csv', [
+    sample(0, ''),
+    sample(1000, 'inibuilds-tristar'),
+  ]);
+
+  assert(result.success === true, `expected timeline success, got ${result.error}`);
+  assert(
+    result.timeline.aircraftProfileId === 'inibuilds-tristar',
+    `expected inibuilds-tristar, got ${result.timeline.aircraftProfileId}`,
+  );
 });
 
 console.log('\ncsvRowToStabilityFrame: basic fields');
@@ -407,6 +439,54 @@ test('missing ra → null', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 console.log('\ngenerateTimelineFromRows: track thinning');
+
+test('timeline exposes the first valid simulator-local and UTC flight datetimes', () => {
+  const baseTs = 1700000350000;
+  const rows = [
+    {
+      flight_id: 'sim-datetime',
+      timestamp_utc: new Date(baseTs).toISOString(),
+      ts: baseTs,
+      flight_elapsed_ms: 0,
+      record_type: 'SAMPLE',
+      phase: 'PARKED',
+      sim_datetime_valid: 0,
+      sim_datetime_local: '1999-01-01T00:00:00',
+      sim_datetime_utc: '1998-12-31T23:00:00Z',
+    },
+    {
+      flight_id: 'sim-datetime',
+      timestamp_utc: new Date(baseTs + 1000).toISOString(),
+      ts: baseTs + 1000,
+      flight_elapsed_ms: 1000,
+      record_type: 'SAMPLE',
+      phase: 'PARKED',
+      sim_datetime_valid: 1,
+      sim_datetime_local: '2026-08-13T19:24:36',
+      sim_datetime_utc: '2026-08-13T09:24:36Z',
+    },
+    {
+      flight_id: 'sim-datetime',
+      timestamp_utc: new Date(baseTs + 61_000).toISOString(),
+      ts: baseTs + 61_000,
+      flight_elapsed_ms: 61_000,
+      record_type: 'SAMPLE',
+      phase: 'TAXI',
+      sim_datetime_valid: 1,
+      sim_datetime_local: '2026-08-13T19:25:36',
+      sim_datetime_utc: '2026-08-13T09:25:36Z',
+    },
+  ];
+
+  const result = generateTimelineFromRows('sim-datetime.csv', rows);
+  assert(result.success === true, `expected success, got ${result.error}`);
+  assert(result.timeline.simDateTimeLocal === '2026-08-13T19:24:36', `unexpected local datetime ${result.timeline.simDateTimeLocal}`);
+  assert(result.timeline.simDateTimeUtc === '2026-08-13T09:24:36Z', `unexpected UTC datetime ${result.timeline.simDateTimeUtc}`);
+  assert(result.timeline.events[0].simDateTimeLocal === '2026-08-13T19:24:36', 'first timeline dot should use the nearest valid simulator-local sample');
+  assert(result.timeline.events[0].simDateTimeUtc === '2026-08-13T09:24:36Z', 'first timeline dot should use the nearest valid simulator UTC sample');
+  assert(result.timeline.events.at(-1).simDateTimeLocal === '2026-08-13T19:25:36', 'last timeline dot should retain its own simulator-local sample');
+  assert(result.timeline.events.at(-1).simDateTimeUtc === '2026-08-13T09:25:36Z', 'last timeline dot should retain its own simulator UTC sample');
+});
 
 test('high-frequency moving samples produce timed breadcrumb track points', () => {
   const baseTs = 1700000400000;
@@ -2516,9 +2596,35 @@ async function runAsyncTests() {
         ...overrides,
       });
 
+      const sampleOnlyWind = timelineGenerator._generateTimelineFromRows('sample-only-wind.csv', [
+        sample('sample-only-wind', 0, { wind_dir_deg: 240 }),
+        sample('sample-only-wind', 1000, {
+          ra_ft: 0,
+          on_ground: true,
+          vs_fpm: -180,
+          alt_plane_ft: 700,
+          wind_dir_deg: 250,
+          wind_speed_kts: 14,
+          xwind_kts: 4,
+        }),
+      ]);
+      assert(sampleOnlyWind.success === true, `expected sample-only wind success, got ${sampleOnlyWind.error}`);
+      const sampleOnlyLanding = sampleOnlyWind.timeline.events.find((event) => event.type === 'landing');
+      assert(sampleOnlyLanding?.wind_dir_deg === 250, 'SAMPLE touchdown should retain true wind direction');
+      assert(sampleOnlyLanding?.wind_speed_kts === 14, 'SAMPLE touchdown should retain total wind speed');
+      assert(sampleOnlyLanding?.xwind_kts === -13.2, 'SAMPLE touchdown should recompute crosswind against runway heading');
+
       const shallowHop = timelineGenerator._generateTimelineFromRows('shallow-hop-replay.csv', [
         sample('shallow-hop-replay', 0),
-        sample('shallow-hop-replay', 1000, { ra_ft: 0, on_ground: true, vs_fpm: -180, alt_plane_ft: 700 }),
+        sample('shallow-hop-replay', 1000, {
+          ra_ft: 0,
+          on_ground: true,
+          vs_fpm: -180,
+          alt_plane_ft: 700,
+          wind_speed_kts: 10,
+          wind_dir_deg: 270,
+          xwind_kts: 3,
+        }),
         sample('shallow-hop-replay', 1200, { ra_ft: 0.1, on_ground: false, vs_fpm: 20, alt_plane_ft: 700.2 }),
         sample('shallow-hop-replay', 1700, { ra_ft: 0.4, on_ground: false, vs_fpm: 48, alt_plane_ft: 700.8 }),
         sample('shallow-hop-replay', 2135, { ra_ft: 0, on_ground: true, vs_fpm: -30, g_force: 1.1, alt_plane_ft: 700 }),
@@ -2532,6 +2638,7 @@ async function runAsyncTests() {
           td_sim_trusted: true,
           td_sim_fresh: true,
           td_sim_landing_vs_fpm: -349,
+          wind_dir_deg: 280,
         },
       ]);
       assert(shallowHop.success === true, `expected shallow-hop success, got ${shallowHop.error}`);
@@ -2542,6 +2649,8 @@ async function runAsyncTests() {
       assert(shallowLanding?.touchdownDistance?.bounceScore == null, 'expected stale 100 bounce score to be cleared');
       assert(shallowLanding?.vs_fpm === -243, `expected persisted landing V/S, got ${shallowLanding?.vs_fpm}`);
       assert(shallowLanding?.grade === 'GOOD', `expected recorded-profile landing grade, got ${shallowLanding?.grade}`);
+      assert(shallowLanding?.wind_dir_deg === 280, 'merged LANDING row should override true wind direction');
+      assert(shallowLanding?.xwind_kts === -9.8, 'LANDING wind overrides should recompute the runway component coherently');
 
       const legacyExcursion = timelineGenerator._generateTimelineFromRows('legacy-excursion-replay.csv', [
         sample('legacy-excursion-replay', 0),
@@ -2597,11 +2706,22 @@ async function runAsyncTests() {
         td_sim_trusted: true,
         td_sim_fresh: true,
         td_sim_landing_vs_fpm: -349,
+        wind_dir_deg: 310,
+        wind_speed_kts: 12,
+        icao: 'TEST',
+        runway: '36',
+        runway_heading_true_deg: 360,
       }]);
       assert(diagnosticOnly.success === true, `expected diagnostic-only success, got ${diagnosticOnly.error}`);
       const diagnosticOnlyLanding = diagnosticOnly.timeline.events.find((event) => event.type === 'landing');
       assert(diagnosticOnlyLanding?.vs_fpm == null, 'simulator diagnostic must not fill a missing conventional V/S');
       assert(diagnosticOnlyLanding?.grade === 'FIRM', 'persisted rate grade is the fallback only when conventional V/S is absent');
+      assert(diagnosticOnlyLanding?.wind_dir_deg === 310, 'standalone LANDING row should retain true wind direction');
+      assert(diagnosticOnlyLanding?.wind_speed_kts === 12, 'standalone LANDING row should retain total wind speed');
+      assert(
+        Math.abs(diagnosticOnlyLanding?.xwind_kts - (-9.2)) < 0.01,
+        `standalone LANDING row should derive runway crosswind when absent, got ${diagnosticOnlyLanding?.xwind_kts}`,
+      );
     });
   });
 

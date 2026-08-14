@@ -17,6 +17,16 @@ function assertNoBadNumbers(svg, label) {
   assert.doesNotMatch(svg, /Infinity/, `${label} should not contain Infinity`);
 }
 
+function findTopdownWindVector(svg) {
+  return svg.match(/<g\b[^>]*\bdata-topdown-wind-vector="true"[^>]*>/)?.[0] || null;
+}
+
+function getSvgAttribute(tag, name) {
+  if (!tag) return null;
+  const match = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
+  return match ? match[1] : null;
+}
+
 function profilePoint({
   alongFt,
   crossFt,
@@ -346,6 +356,157 @@ async function main() {
     assert(yValues.length >= 5, 'expected y coordinate for every profile point');
     const ySpread = Math.max(...yValues) - Math.min(...yValues);
     assert(ySpread < 0.001, `straight right-offset path should be horizontal, spread=${ySpread}`);
+  });
+
+  test('top-down wind vector shows airflow for every runway-relative wind direction', () => {
+    const profile = [-6000, -4000, -2000, -500, 1000].map((alongFt, index) =>
+      profilePoint({
+        alongFt,
+        crossFt: 0,
+        raFt: [1200, 900, 600, 250, 20][index],
+        altMslFt: [1200, 900, 600, 250, 20][index],
+      })
+    );
+    const landing = {
+      runwayHdg: 90,
+      runway: '09',
+      runwayThreshold: { lat: 0, lon: 0 },
+      touchdownDistance: {
+        distanceFt: 1000,
+        lateralOffsetFt: 0,
+        lateralOffsetSide: 'center',
+        lateralOffsetGrade: 'Good',
+        runwayWidthFt: 150,
+        runwayLengthFt: 8000,
+      },
+    };
+
+    const fromLeftSvg = approachProfileApi.buildTopDownSvg(profile, {
+      ...landing,
+      windDirectionTrueDeg: 0,
+      windSpeed: 14,
+      crosswind: -14,
+    });
+    const fromLeftVector = findTopdownWindVector(fromLeftSvg);
+    assert(fromLeftVector, 'wind from the runway left should render a vector group');
+    assert.equal(Number(getSvgAttribute(fromLeftVector, 'data-wind-relative-deg')), -90, 'north wind on runway 09 should be 90 degrees left of the runway axis');
+    assert.equal(Number(getSvgAttribute(fromLeftVector, 'data-wind-flow-relative-deg')), 90, 'wind from the left should flow toward the aircraft right');
+    assert.equal(getSvgAttribute(fromLeftVector, 'data-wind-side'), 'left', 'negative runway-relative wind angle should identify the source as left');
+    assert.match(getSvgAttribute(fromLeftVector, 'transform') || '', /rotate\(90(?:\.0+)?(?:[ ,)]|$)/, 'wind from the left should draw an airflow arrow pointing down');
+    assert.match(fromLeftSvg, /WIND FROM (?:000|360)°T/, 'left-source vector should retain its true wind-from direction');
+    assert.match(fromLeftSvg, /14 kt/, 'left-source vector should show touchdown wind speed');
+    assertNoBadNumbers(fromLeftSvg, 'left-crosswind top-down SVG');
+
+    const fromRightSvg = approachProfileApi.buildTopDownSvg(profile, {
+      ...landing,
+      windDirectionTrueDeg: 180,
+      windSpeed: 14,
+      crosswind: 14,
+    });
+    const fromRightVector = findTopdownWindVector(fromRightSvg);
+    assert(fromRightVector, 'wind from the runway right should render a vector group');
+    assert.equal(Number(getSvgAttribute(fromRightVector, 'data-wind-relative-deg')), 90, 'south wind on runway 09 should be 90 degrees right of the runway axis');
+    assert.equal(Number(getSvgAttribute(fromRightVector, 'data-wind-flow-relative-deg')), -90, 'wind from the right should flow toward the aircraft left');
+    assert.equal(getSvgAttribute(fromRightVector, 'data-wind-side'), 'right', 'positive runway-relative wind angle should identify the source as right');
+    assert.match(getSvgAttribute(fromRightVector, 'transform') || '', /rotate\(-90(?:\.0+)?(?:[ ,)]|$)/, 'wind from the right should draw an airflow arrow pointing up');
+    assert.match(fromRightSvg, /WIND FROM 180°T/, 'right-source vector should retain its true wind-from direction');
+    assert.match(fromRightSvg, /14 kt/, 'right-source vector should show touchdown wind speed');
+    assertNoBadNumbers(fromRightSvg, 'right-crosswind top-down SVG');
+
+    const headwindSvg = approachProfileApi.buildTopDownSvg(profile, {
+      ...landing,
+      windDirectionTrueDeg: 90,
+      windSpeed: 14,
+      crosswind: 0,
+    });
+    const headwindVector = findTopdownWindVector(headwindSvg);
+    assert.equal(Number(getSvgAttribute(headwindVector, 'data-wind-relative-deg')), 0, 'wind aligned with the runway heading should be sourced ahead');
+    assert.equal(Number(getSvgAttribute(headwindVector, 'data-wind-flow-relative-deg')), -180, 'a headwind should draw airflow opposite the aircraft direction');
+    assert.match(getSvgAttribute(headwindVector, 'transform') || '', /rotate\(-180(?:\.0+)?(?:[ ,)]|$)/, 'a headwind arrow should point left');
+
+    const tailwindSvg = approachProfileApi.buildTopDownSvg(profile, {
+      ...landing,
+      windDirectionTrueDeg: 270,
+      windSpeed: 14,
+      crosswind: 0,
+    });
+    const tailwindVector = findTopdownWindVector(tailwindSvg);
+    assert.equal(Number(getSvgAttribute(tailwindVector, 'data-wind-relative-deg')), -180, 'wind opposite the runway heading should be sourced behind');
+    assert.equal(Number(getSvgAttribute(tailwindVector, 'data-wind-flow-relative-deg')), 0, 'a tailwind should draw airflow with the aircraft direction');
+    assert.match(getSvgAttribute(tailwindVector, 'transform') || '', /rotate\(0(?:\.0+)?(?:[ ,)]|$)/, 'a tailwind arrow should point right');
+
+    const arbitraryRunwaySvg = approachProfileApi.buildTopDownSvg(profile, {
+      ...landing,
+      runwayHdg: 248.8,
+      runway: '24R',
+      windDirectionTrueDeg: 340,
+      windSpeed: 3,
+      crosswind: 3,
+    });
+    const arbitraryRunwayVector = findTopdownWindVector(arbitraryRunwaySvg);
+    assert.equal(Number(getSvgAttribute(arbitraryRunwayVector, 'data-wind-relative-deg')), 91.2, 'wind source should be rotated against the actual true runway heading');
+    assert.equal(Number(getSvgAttribute(arbitraryRunwayVector, 'data-wind-flow-relative-deg')), -88.8, 'the arbitrary-heading airflow should point opposite its source');
+    assert.equal(getSvgAttribute(arbitraryRunwayVector, 'data-wind-side'), 'right', '340 true on runway heading 248.8 true should remain a right crosswind');
+    assert.match(getSvgAttribute(arbitraryRunwayVector, 'transform') || '', /rotate\(-88\.8(?:0+)?(?:[ ,)]|$)/, 'the reported right crosswind should draw an airflow arrow pointing upward');
+    assertNoBadNumbers(arbitraryRunwaySvg, 'arbitrary-runway top-down SVG');
+  });
+
+  test('top-down wind vector suppresses calm, incomplete, and unsafe wind inputs', () => {
+    const profile = [-6000, -4000, -2000, -500, 1000].map((alongFt, index) =>
+      profilePoint({
+        alongFt,
+        crossFt: 0,
+        raFt: [1200, 900, 600, 250, 20][index],
+        altMslFt: [1200, 900, 600, 250, 20][index],
+      })
+    );
+    const landing = {
+      runwayHdg: 90,
+      runway: '09',
+      runwayThreshold: { lat: 0, lon: 0 },
+      touchdownDistance: {
+        distanceFt: 1000,
+        runwayWidthFt: 150,
+        runwayLengthFt: 8000,
+      },
+    };
+    const suppressedInputs = [
+      { label: 'missing wind', input: {} },
+      { label: 'missing direction', input: { windSpeed: 14 } },
+      { label: 'missing speed', input: { windDirectionTrueDeg: 0 } },
+      { label: 'calm wind', input: { windDirectionTrueDeg: 0, windSpeed: 0.2, crosswind: 0 } },
+      { label: 'negative speed', input: { windDirectionTrueDeg: 0, windSpeed: -14 } },
+      { label: 'non-finite direction', input: { windDirectionTrueDeg: Infinity, windSpeed: 14 } },
+      { label: 'non-finite speed', input: { windDirectionTrueDeg: 0, windSpeed: NaN } },
+      {
+        label: 'unsafe strings',
+        input: {
+          windDirectionTrueDeg: '0"><script>alert(1)</script>',
+          windSpeed: '14"><image href=x onerror=alert(1)>',
+        },
+      },
+    ];
+
+    for (const { label, input } of suppressedInputs) {
+      const svg = approachProfileApi.buildTopDownSvg(profile, { ...landing, ...input });
+      assert.equal(findTopdownWindVector(svg), null, `${label} should not render a directional wind vector`);
+      assert.doesNotMatch(svg, /<script|<image/i, `${label} should not inject executable SVG markup`);
+      assert.doesNotMatch(svg, /alert\(1\)/i, `${label} should reject unsafe wind values instead of interpolating them`);
+      assertNoBadNumbers(svg, `${label} top-down SVG`);
+    }
+
+    const withoutTrueRunwayHeading = { ...landing };
+    delete withoutTrueRunwayHeading.runwayHdg;
+    const designatorOnlySvg = approachProfileApi.buildTopDownSvg(profile, {
+      ...withoutTrueRunwayHeading,
+      windDirectionTrueDeg: 0,
+      windSpeed: 14,
+    });
+    assert.equal(
+      findTopdownWindVector(designatorOnlySvg),
+      null,
+      'true wind must not be rotated against a runway-designator-derived heading',
+    );
   });
 
   test('top-down fallback renderer anchors touchdown offset without GPS', () => {

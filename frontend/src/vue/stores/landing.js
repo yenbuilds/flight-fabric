@@ -3,6 +3,7 @@ import '../../../../shared/violation-rules.js';
 import { buildDebriefConfidence, buildDebriefReasons } from '../../landing/debrief-insights.js';
 import { buildLandingPresentation, normalizeBooleanLike } from '../../landing/scoring.js';
 import { getStabilityContextSummary } from '../../landing/stability-context.js';
+import { buildLandingWindPresentation } from '../../landing/wind.js';
 
 const { VIOLATION_RULE } = globalThis.FlightFabricViolationRules;
 
@@ -27,6 +28,7 @@ function createDefaultLandingCardState() {
     runwayText: '--',
     vsText: '--',
     vsColor: 'inherit',
+    wind: buildLandingWindPresentation(),
     touchdown: {
       distanceText: '-- ft',
       distanceGradeText: '--',
@@ -648,19 +650,12 @@ export const useLandingStore = defineStore('landing', {
 
       landingCard.approach.typeText = msg.approachType || 'VISUAL';
 
-      if (msg.crosswind != null) {
-        const numericCrosswind = Number(msg.crosswind);
-        if (Number.isFinite(numericCrosswind)) {
-          const xwDir = numericCrosswind >= 0 ? 'R' : 'L';
-          const xwAbs = Math.abs(Math.round(numericCrosswind));
-          landingCard.approach.crosswindText = `${xwAbs} kt ${xwDir}`;
-          landingCard.approach.crosswindTone = 'text-gray-100';
-          const dirLabel = xwDir === 'R' ? 'From right' : 'From left';
-          landingCard.approach.windTotalText = msg.windSpeed != null
-            ? `${dirLabel} - ${msg.windSpeed} kt total`
-            : dirLabel;
-        }
-      }
+      landingCard.wind = buildLandingWindPresentation(msg);
+      landingCard.approach.crosswindText = landingCard.wind.crosswindText;
+      landingCard.approach.crosswindTone = landingCard.wind.crosswindText === '-- kt'
+        ? 'text-gray-500'
+        : 'text-gray-100';
+      landingCard.approach.windTotalText = landingCard.wind.totalText;
 
       if (msg.iasKts != null) {
         landingCard.approach.speedText = `${msg.iasKts} kt`;

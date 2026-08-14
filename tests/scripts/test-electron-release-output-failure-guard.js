@@ -11,6 +11,9 @@ const {
   installElectronOutputFailureGuard,
   invalidateElectronOutputArtifacts,
 } = require('../../electron/release-output-failure-guard');
+const {
+  safeRemoveRootChildDirectorySync,
+} = require('../../electron/safe-directory-removal');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -67,6 +70,51 @@ test('invalidation refuses a redirected unpacked artifact', () => {
     assert.equal(fs.readFileSync(path.join(outputDir, 'win-unpacked'), 'utf8'), 'not a directory');
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('safe directory removal refuses a child-name escape from the allowed root', () => {
+  const outputDir = makeOutputFixture();
+  const outsideDir = makeOutputFixture();
+  try {
+    fs.writeFileSync(path.join(outsideDir, 'preserved.txt'), 'outside');
+    assert.throws(
+      () => safeRemoveRootChildDirectorySync({
+        allowedChildNames: ['../escape'],
+        childName: '../escape',
+        operation: 'Test output invalidation',
+        rootDir: outputDir,
+      }),
+      /invalid root child name/,
+    );
+    assert.equal(fs.readFileSync(path.join(outsideDir, 'preserved.txt'), 'utf8'), 'outside');
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  }
+});
+
+test('invalidation refuses links nested inside the unpacked artifact tree', () => {
+  const outputDir = makeOutputFixture();
+  const outsideDir = makeOutputFixture();
+  try {
+    const unpackedDir = path.join(outputDir, 'win-unpacked');
+    fs.mkdirSync(unpackedDir);
+    fs.writeFileSync(path.join(outsideDir, 'preserved.txt'), 'outside');
+    fs.symlinkSync(
+      outsideDir,
+      path.join(unpackedDir, 'redirected'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+
+    assert.throws(
+      () => invalidateElectronOutputArtifacts(outputDir),
+      /tree entry is (?:a symbolic link|a link, junction, or reparse point)/,
+    );
+    assert.equal(fs.readFileSync(path.join(outsideDir, 'preserved.txt'), 'utf8'), 'outside');
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   }
 });
 

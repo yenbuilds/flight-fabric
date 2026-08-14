@@ -771,13 +771,36 @@ async function runTimelineSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.getElementById('timeline-flight-id')?.textContent.includes('KPHL -> KBOS')",
+    "document.getElementById('timeline-flight-route')?.textContent.includes('KPHL -> KBOS')",
     'loaded Timeline header route',
   );
   await waitFor(
     windowRef,
     "document.querySelectorAll('#timeline-event-list .timeline-event').length >= 4",
     'loaded Timeline events',
+  );
+  const replayColumnLayout = await evaluate(
+    windowRef,
+    `(() => {
+      const shell = document.getElementById('vue-timeline-map-shell-root')?.getBoundingClientRect();
+      const card = document.getElementById('timeline-map-card')?.getBoundingClientRect();
+      const map = document.querySelector('.timeline-map-wrap')?.getBoundingClientRect();
+      return {
+        shellHeight: shell?.height || 0,
+        shellBottom: shell?.bottom || 0,
+        cardBottom: card?.bottom || 0,
+        mapHeight: map?.height || 0,
+      };
+    })();`,
+  );
+  assert.ok(
+    replayColumnLayout.shellHeight > 0
+      && replayColumnLayout.cardBottom >= replayColumnLayout.shellBottom - 2,
+    'Timeline replay card should fill the available modal row height',
+  );
+  assert.ok(
+    replayColumnLayout.mapHeight >= Math.min(360, replayColumnLayout.shellHeight * 0.45),
+    'Timeline replay map should receive a useful share of the available vertical space',
   );
   await waitFor(
     windowRef,
@@ -853,7 +876,7 @@ async function runTimelineSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.querySelector('#landing-modal #landing-card') && document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS') && document.querySelector('#landing-modal #landing-grade')?.textContent.includes('PERFECT') && document.querySelector('#landing-modal #landing-summary-approach')?.textContent.includes('MARGINAL') && document.querySelector('#landing-modal #landing-summary-bounce')?.textContent.includes('1x')",
+    "document.querySelector('#landing-modal #landing-card') && document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS') && document.querySelector('#landing-modal #landing-grade')?.textContent.includes('PERFECT') && document.querySelector('#landing-modal #landing-summary-approach')?.textContent.includes('MARGINAL') && document.querySelector('#landing-modal #landing-summary-bounce')?.textContent.includes('1x') && document.querySelector('#landing-modal #landing-wind-direction')?.textContent.includes('240°T') && document.querySelector('#landing-modal #landing-wind-speed')?.textContent.includes('14 kt') && document.querySelector('#landing-modal #landing-wind-crosswind')?.textContent.includes('XW 8 kt from left')",
     'Open Landing Debrief renders selected landing card',
   );
   await assertUsableLayout(windowRef, 'Landing debrief modal', [

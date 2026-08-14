@@ -1242,6 +1242,16 @@ function stubTriStarIntegrationFields(provider) {
 const INIBUILDS_A330_PROFILE_KEY = 'bundled/msfs/inibuilds-a330';
 const INIBUILDS_A330_PROFILE_REVISION = 37;
 const INIBUILDS_A330_ADAPTER_ID = 'inibuilds-a330';
+const FBW_A380X_PROFILE_KEY = 'bundled/msfs/fbw-a380x';
+const FBW_A380X_PROFILE_REVISION = 41;
+const FBW_A380X_ADAPTER_ID = 'fbw-a380x';
+const MICROSOFT_INIBUILDS_A320_PROFILE_KEY = 'bundled/msfs/inibuilds-a320neo-v2';
+const MICROSOFT_INIBUILDS_A321_PROFILE_KEY = 'bundled/msfs/inibuilds-a321lr';
+const MICROSOFT_INIBUILDS_A32X_PROFILE_REVISION = 43;
+const MICROSOFT_INIBUILDS_A32X_ADAPTER_ID = 'microsoft-inibuilds-a32x';
+const MICROSOFT_737_MAX_8_PROFILE_KEY = 'bundled/msfs/microsoft-737-max-8';
+const MICROSOFT_737_MAX_8_PROFILE_REVISION = 47;
+const MICROSOFT_737_MAX_8_ADAPTER_ID = 'microsoft-737-max-8';
 
 function inibuildsA330IntegrationOptions(actionId, value = undefined) {
   return {
@@ -1263,6 +1273,86 @@ function stubIniBuildsA330IntegrationFields(provider, fields) {
     profileKey === INIBUILDS_A330_PROFILE_KEY
     && adapterId === INIBUILDS_A330_ADAPTER_ID
     && profileRevision === INIBUILDS_A330_PROFILE_REVISION
+      ? fields[fieldId] || null
+      : null
+  );
+}
+
+function fbwA380xIntegrationOptions(actionId, value = undefined) {
+  return {
+    profileKey: FBW_A380X_PROFILE_KEY,
+    profileRevision: FBW_A380X_PROFILE_REVISION,
+    request: { actionId, ...(value === undefined ? {} : { value }) },
+  };
+}
+
+function stubFbwA380xIntegrationFields(provider, fields) {
+  provider._getActiveAircraftIntegrationConfig = (profileKey, adapterId, profileRevision) => (
+    profileKey === FBW_A380X_PROFILE_KEY
+    && adapterId === FBW_A380X_ADAPTER_ID
+    && profileRevision === FBW_A380X_PROFILE_REVISION
+      ? { profileKey, integrationId: adapterId, profileRevision }
+      : null
+  );
+  provider._getAircraftIntegrationFieldConfig = (profileKey, adapterId, fieldId, profileRevision) => (
+    profileKey === FBW_A380X_PROFILE_KEY
+    && adapterId === FBW_A380X_ADAPTER_ID
+    && profileRevision === FBW_A380X_PROFILE_REVISION
+      ? fields[fieldId] || null
+      : null
+  );
+}
+
+function microsoftIniBuildsA32xIntegrationOptions(profileKey, actionId, value = undefined) {
+  return {
+    profileKey,
+    profileRevision: MICROSOFT_INIBUILDS_A32X_PROFILE_REVISION,
+    request: { actionId, ...(value === undefined ? {} : { value }) },
+  };
+}
+
+function stubMicrosoftIniBuildsA32xIntegrationFields(provider, profileKey, fields) {
+  provider._getActiveAircraftIntegrationConfig = (requestedProfileKey, adapterId, profileRevision) => (
+    requestedProfileKey === profileKey
+    && adapterId === MICROSOFT_INIBUILDS_A32X_ADAPTER_ID
+    && profileRevision === MICROSOFT_INIBUILDS_A32X_PROFILE_REVISION
+      ? { profileKey, integrationId: adapterId, profileRevision }
+      : null
+  );
+  provider._getAircraftIntegrationFieldConfig = (
+    requestedProfileKey,
+    adapterId,
+    fieldId,
+    profileRevision,
+  ) => (
+    requestedProfileKey === profileKey
+    && adapterId === MICROSOFT_INIBUILDS_A32X_ADAPTER_ID
+    && profileRevision === MICROSOFT_INIBUILDS_A32X_PROFILE_REVISION
+      ? fields[fieldId] || null
+      : null
+  );
+}
+
+function microsoft737Max8IntegrationOptions(actionId, value = undefined) {
+  return {
+    profileKey: MICROSOFT_737_MAX_8_PROFILE_KEY,
+    profileRevision: MICROSOFT_737_MAX_8_PROFILE_REVISION,
+    request: { actionId, ...(value === undefined ? {} : { value }) },
+  };
+}
+
+function stubMicrosoft737Max8IntegrationFields(provider, fields) {
+  provider._getActiveAircraftIntegrationConfig = (profileKey, adapterId, profileRevision) => (
+    profileKey === MICROSOFT_737_MAX_8_PROFILE_KEY
+    && adapterId === MICROSOFT_737_MAX_8_ADAPTER_ID
+    && profileRevision === MICROSOFT_737_MAX_8_PROFILE_REVISION
+      ? { profileKey, integrationId: adapterId, profileRevision }
+      : null
+  );
+  provider._getAircraftIntegrationFieldConfig = (profileKey, adapterId, fieldId, profileRevision) => (
+    profileKey === MICROSOFT_737_MAX_8_PROFILE_KEY
+    && adapterId === MICROSOFT_737_MAX_8_ADAPTER_ID
+    && profileRevision === MICROSOFT_737_MAX_8_PROFILE_REVISION
       ? fields[fieldId] || null
       : null
   );
@@ -1376,6 +1466,573 @@ test('iniBuilds A330 light targets always dispatch despite a satisfied output re
     value: 0,
     parameters: [0],
   }], 'the deterministic light event dispatches exactly once');
+});
+
+test('FBW A380X altitude target writes and confirms the documented slot-three value only', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FBW_A380X_PROFILE_KEY,
+    values: { a380_altitude_slot_3: 12000 },
+    snapshotSequence: 5,
+    updatedAt: new Date().toISOString(),
+  };
+  const events = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      snapshot.values.a380_altitude_slot_3 = value;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFbwA380xIntegrationFields(provider, {
+    'flightGuidance.altitudeFt': {
+      id: 'flightGuidance.altitudeFt',
+      source: { type: 'lvar', key: 'a380_altitude_slot_3' },
+      decode: { type: 'number', precision: 0 },
+    },
+  });
+
+  const action = {
+    type: 'aircraft-integration',
+    name: FBW_A380X_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const result = await provider.executeAircraftControlAction(
+    action,
+    fbwA380xIntegrationOptions('flightGuidance.altitude.set', 12300),
+  );
+  assertEqual(result.ok, true, 'A380X altitude should confirm against a fresh slot-three readback');
+  assertEqual(result.confirmedValue, 12300, 'A380X altitude confirmation retains the exact requested target');
+  assertDeepEqual(events, [{
+    name: 'AP_ALT_VAR_SET_ENGLISH',
+    value: 12300,
+    parameters: [3],
+  }], 'A380X altitude dispatch owns the fixed slot-three parameter');
+
+  const invalid = await provider.executeAircraftControlAction(
+    action,
+    fbwA380xIntegrationOptions('flightGuidance.altitude.set', 12350),
+  );
+  assertEqual(invalid.ok, false, 'off-step A380X altitude targets fail closed');
+  assertEqual(invalid.code, 'invalid_value', 'off-step altitude retains its validation error');
+  assertEqual(events.length, 1, 'invalid A380X targets never reach SimConnect');
+});
+
+test('FBW A380X AP1 targets guard the vendor toggle with fresh logical readback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FBW_A380X_PROFILE_KEY,
+    values: { a380_ap1: 0 },
+    snapshotSequence: 9,
+    updatedAt: new Date().toISOString(),
+  };
+  const events = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      if (name === 'A32NX.FCU_AP_1_PUSH') {
+        snapshot.values.a380_ap1 = snapshot.values.a380_ap1 ? 0 : 1;
+      }
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFbwA380xIntegrationFields(provider, {
+    'flightGuidance.ap1': {
+      id: 'flightGuidance.ap1',
+      source: { type: 'lvar', key: 'a380_ap1' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+  });
+
+  const action = {
+    type: 'aircraft-integration',
+    name: FBW_A380X_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const alreadyOff = await provider.executeAircraftControlAction(
+    action,
+    fbwA380xIntegrationOptions('flightGuidance.ap1.off'),
+  );
+  assertEqual(alreadyOff.ok, true, 'fresh same-state AP1 OFF should succeed');
+  assertEqual(alreadyOff.noOp, true, 'same-state AP1 OFF should be an explicit no-op');
+  assertEqual(alreadyOff.idempotent, true, 'same-state AP1 OFF should retain idempotent diagnostics');
+  assertEqual(events.length, 0, 'same-state AP1 OFF must not dispatch the vendor toggle event');
+
+  const turnOn = await provider.executeAircraftControlAction(
+    action,
+    fbwA380xIntegrationOptions('flightGuidance.ap1.on'),
+  );
+  assertEqual(turnOn.ok, true, 'a newer A380X AP1 logical state should confirm the vendor AP1 push');
+  assertEqual(turnOn.confirmedValue, true, 'AP1 confirmation should use the decoded A380X AP1 state');
+  assertDeepEqual(events, [{
+    name: 'A32NX.FCU_AP_1_PUSH',
+    value: 0,
+    parameters: [],
+  }], 'A380X AP1 ON dispatches the vendor-documented toggle event exactly once');
+
+  // The compact action owns AP1 only. It does not expose an independent AP2
+  // channel and must not imply control over AP2.
+  assertEqual(Object.prototype.hasOwnProperty.call(snapshot.values, 'a380_ap2'), false,
+    'direct AP1 coverage must not fabricate an independent AP2 control channel');
+});
+
+for (const profileKey of [
+  MICROSOFT_INIBUILDS_A320_PROFILE_KEY,
+  MICROSOFT_INIBUILDS_A321_PROFILE_KEY,
+]) {
+  test(`${profileKey} typed heading target dispatches once and requires exact newer readback`, async () => {
+    const provider = new SimConnectTelemetryProvider();
+    const rustSnapshot: any = {
+      status: 'running',
+      updatedAt: new Date().toISOString(),
+    };
+    const events = [];
+    provider._data = { apHdgTargetDeg: 180 };
+    provider._rustSimvarSnapshotSequence = 2;
+    provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+    const bridge = {
+      _started: true,
+      getSnapshot: () => ({ source: 'mock-sidecar' }),
+      async setNamedVar() {
+        return { ok: true };
+      },
+      async sendEvent(name, value, parameters) {
+        events.push({ name, value, parameters });
+        provider._data.apHdgTargetDeg = value;
+        provider._rustSimvarSnapshotSequence += 1;
+        rustSnapshot.updatedAt = new Date().toISOString();
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubMicrosoftIniBuildsA32xIntegrationFields(provider, profileKey, {
+      'fcu.headingDeg': {
+        id: 'fcu.headingDeg',
+        source: {
+          type: 'simvar',
+          name: 'AUTOPILOT HEADING LOCK DIR',
+          path: 'fdm.apHdgTargetDeg',
+        },
+        decode: { type: 'number', precision: 0 },
+      },
+    });
+
+    const action = {
+      type: 'aircraft-integration',
+      name: MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
+      verification: 'untested',
+    };
+    const result = await provider.executeAircraftControlAction(
+      action,
+      microsoftIniBuildsA32xIntegrationOptions(profileKey, 'flightGuidance.heading.set', 271),
+    );
+    assertEqual(result.ok, true, `${profileKey} heading should confirm`);
+    assertEqual(result.confirmedValue, 271, 'heading confirmation retains the exact target');
+    assertDeepEqual(events, [{ name: 'HEADING_BUG_SET', value: 271, parameters: [0] }],
+      'shared adapter dispatches one standard heading event');
+
+    const invalid = await provider.executeAircraftControlAction(
+      action,
+      microsoftIniBuildsA32xIntegrationOptions(profileKey, 'flightGuidance.heading.set', 360),
+    );
+    assertEqual(invalid.ok, false, 'out-of-range shared A32x heading fails closed');
+    assertEqual(invalid.code, 'invalid_value', 'invalid shared heading retains its validation code');
+    assertEqual(events.length, 1, 'invalid shared heading never reaches SimConnect');
+  });
+}
+
+for (const profileKey of [
+  MICROSOFT_INIBUILDS_A320_PROFILE_KEY,
+  MICROSOFT_INIBUILDS_A321_PROFILE_KEY,
+]) {
+  test(`${profileKey} fixed light intent dispatches despite a satisfied lamp output`, async () => {
+    const provider = new SimConnectTelemetryProvider();
+    const events = [];
+    const bridge = {
+      _started: true,
+      getSnapshot: () => ({ source: 'mock-sidecar' }),
+      async setNamedVar() {
+        return { ok: true };
+      },
+      async sendEvent(name, value, parameters) {
+        events.push({ name, value, parameters });
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubMicrosoftIniBuildsA32xIntegrationFields(provider, profileKey, {});
+
+    const baseline = {
+      observed: true,
+      sequence: 14,
+      fresh: true,
+      sourceId: 'simvar:lightStates',
+    };
+    let confirmationCalls = 0;
+    provider._captureAircraftIntegrationReadback = () => baseline;
+    provider._waitForAircraftIntegrationReadback = async (_bridge, _readback, context, captured) => {
+      confirmationCalls += 1;
+      assertEqual(context.profileKey, profileKey, 'light confirmation stays on the requested family profile');
+      assertEqual(captured, baseline, 'light confirmation retains the satisfied pre-dispatch baseline');
+      return {
+        confirmed: true,
+        observed: true,
+        sequence: 15,
+        fresh: true,
+        sequenceAdvanced: true,
+      };
+    };
+
+    const result = await provider.executeAircraftControlAction({
+      type: 'aircraft-integration',
+      name: MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
+      verification: 'untested',
+    }, microsoftIniBuildsA32xIntegrationOptions(profileKey, 'lights.nav.on'));
+
+    assertEqual(result.ok, true, 'a newer matching lamp output should confirm fixed NAV light ON');
+    assertEqual(result.noOp, undefined,
+      'skipIfSatisfied false must prevent a satisfied lamp output from suppressing selector reconciliation');
+    assertEqual(result.confirmedValue, true, 'the newer logical lamp output confirms the fixed intent');
+    assertEqual(confirmationCalls, 1, 'the dispatched light intent waits for one newer readback confirmation');
+    assertDeepEqual(events, [{
+      name: 'NAV_LIGHTS_SET',
+      value: 1,
+      parameters: [0],
+    }], 'the shared A32x fixed NAV light intent dispatches exactly once');
+  });
+}
+
+test('Microsoft 737 MAX 8 typed MCP target dispatches once and requires exact newer readback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const rustSnapshot: any = {
+    status: 'running',
+    updatedAt: new Date().toISOString(),
+  };
+  const events = [];
+  provider._data = { apAltTargetFt: 12000 };
+  provider._rustSimvarSnapshotSequence = 6;
+  provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      provider._data.apAltTargetFt = value;
+      provider._rustSimvarSnapshotSequence += 1;
+      rustSnapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubMicrosoft737Max8IntegrationFields(provider, {
+    'mcp.altitudeFt': {
+      id: 'mcp.altitudeFt',
+      source: {
+        type: 'simvar',
+        name: 'AUTOPILOT ALTITUDE LOCK VAR',
+        path: 'fdm.apAltTargetFt',
+      },
+      decode: { type: 'number', precision: 0 },
+    },
+  });
+
+  const action = {
+    type: 'aircraft-integration',
+    name: MICROSOFT_737_MAX_8_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const result = await provider.executeAircraftControlAction(
+    action,
+    microsoft737Max8IntegrationOptions('flightGuidance.altitude.set', 12300),
+  );
+  assertEqual(result.ok, true, 'a fresh exact MAX altitude target should confirm');
+  assertEqual(result.confirmedValue, 12300, 'MAX altitude confirmation retains the exact requested target');
+  assertDeepEqual(events, [{
+    name: 'AP_ALT_VAR_SET_ENGLISH',
+    value: 12300,
+    parameters: [0],
+  }], 'the bounded MAX altitude target dispatches exactly once');
+
+  const invalid = await provider.executeAircraftControlAction(
+    action,
+    microsoft737Max8IntegrationOptions('flightGuidance.altitude.set', 12350),
+  );
+  assertEqual(invalid.ok, false, 'off-step MAX altitude targets fail closed');
+  assertEqual(invalid.code, 'invalid_value', 'off-step MAX altitude retains its validation code');
+  assertEqual(events.length, 1, 'invalid MAX targets never reach SimConnect');
+});
+
+test('Microsoft 737 MAX 8 NAV light dispatches despite satisfied output and requires newer confirmation', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const events = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubMicrosoft737Max8IntegrationFields(provider, {});
+
+  const baseline = {
+    observed: true,
+    sequence: 18,
+    fresh: true,
+    sourceId: 'simvar:lightStates',
+  };
+  let confirmationCalls = 0;
+  provider._captureAircraftIntegrationReadback = () => baseline;
+  provider._waitForAircraftIntegrationReadback = async (_bridge, _readback, context, captured) => {
+    confirmationCalls += 1;
+    assertEqual(context.profileKey, MICROSOFT_737_MAX_8_PROFILE_KEY,
+      'MAX light confirmation remains bound to the exact bundled profile');
+    assertEqual(captured, baseline, 'MAX light confirmation retains the satisfied pre-dispatch baseline');
+    return {
+      confirmed: true,
+      observed: true,
+      sequence: 19,
+      fresh: true,
+      sequenceAdvanced: true,
+    };
+  };
+
+  const result = await provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: MICROSOFT_737_MAX_8_ADAPTER_ID,
+    verification: 'untested',
+  }, microsoft737Max8IntegrationOptions('lights.nav.on'));
+
+  assertEqual(result.ok, true, 'a newer matching MAX lamp output should confirm fixed NAV light ON');
+  assertEqual(result.noOp, undefined,
+    'skipIfSatisfied false must not suppress the MAX NAV light selector reconciliation');
+  assertEqual(result.confirmedValue, true, 'the newer MAX lamp output confirms the fixed intent');
+  assertEqual(confirmationCalls, 1, 'the MAX light intent waits for one newer confirmation');
+  assertDeepEqual(events, [{
+    name: 'NAV_LIGHTS_SET',
+    value: 1,
+    parameters: [0],
+  }], 'the fixed MAX NAV light intent dispatches exactly once');
+});
+
+test('Microsoft 737 MAX 8 FLC targets no-op on same state and confirm standard events with newer readback', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const rustSnapshot: any = {
+    status: 'running',
+    updatedAt: new Date().toISOString(),
+  };
+  const events = [];
+  provider._data = { apFlcHold: false };
+  provider._rustSimvarSnapshotSequence = 11;
+  provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      return { ok: true };
+    },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      if (name === 'FLIGHT_LEVEL_CHANGE_ON') provider._data.apFlcHold = true;
+      if (name === 'FLIGHT_LEVEL_CHANGE_OFF') provider._data.apFlcHold = false;
+      provider._rustSimvarSnapshotSequence += 1;
+      rustSnapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubMicrosoft737Max8IntegrationFields(provider, {
+    'afds.levelChange': {
+      id: 'afds.levelChange',
+      source: {
+        type: 'simvar',
+        name: 'AUTOPILOT FLIGHT LEVEL CHANGE',
+        path: 'fdm.apFlcHold',
+      },
+      decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+    },
+  });
+
+  const action = {
+    type: 'aircraft-integration',
+    name: MICROSOFT_737_MAX_8_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const alreadyOff = await provider.executeAircraftControlAction(
+    action,
+    microsoft737Max8IntegrationOptions('flightGuidance.flightLevelChange.off'),
+  );
+  assertEqual(alreadyOff.ok, true, 'fresh same-state MAX FLC OFF should succeed');
+  assertEqual(alreadyOff.noOp, true, 'same-state MAX FLC OFF should be an explicit no-op');
+  assertEqual(alreadyOff.idempotent, true, 'same-state MAX FLC OFF retains idempotent diagnostics');
+  assertEqual(events.length, 0, 'same-state MAX FLC OFF must not dispatch');
+
+  const turnOn = await provider.executeAircraftControlAction(
+    action,
+    microsoft737Max8IntegrationOptions('flightGuidance.flightLevelChange.on'),
+  );
+  assertEqual(turnOn.ok, true, 'a newer MAX FLC state should confirm standard FLC ON');
+  assertEqual(turnOn.confirmedValue, true, 'MAX FLC ON confirmation uses decoded standard state');
+
+  // Exercise the opposite fixed target as a separate settled request without
+  // adding wall-clock delay to the test.
+  provider._aircraftIntegrationActionLastAttemptAt.clear();
+  const turnOff = await provider.executeAircraftControlAction(
+    action,
+    microsoft737Max8IntegrationOptions('flightGuidance.flightLevelChange.off'),
+  );
+  assertEqual(turnOff.ok, true, 'a newer MAX FLC state should confirm standard FLC OFF');
+  assertEqual(turnOff.confirmedValue, false, 'MAX FLC OFF confirmation uses decoded standard state');
+  assertDeepEqual(events, [{
+    name: 'FLIGHT_LEVEL_CHANGE_ON',
+    value: 0,
+    parameters: [],
+  }, {
+    name: 'FLIGHT_LEVEL_CHANGE_OFF',
+    value: 0,
+    parameters: [],
+  }], 'unsatisfied MAX FLC targets dispatch each standard event exactly once');
+});
+
+test('Microsoft 737 MAX 8 toggle-only FD and A/T targets stay bound to exact events and newer readbacks', async () => {
+  for (const {
+    actionPrefix,
+    dataKey,
+    eventName,
+    fieldId,
+    path,
+    simvarName,
+  } of [
+    {
+      actionPrefix: 'flightGuidance.flightDirector',
+      dataKey: 'apFdActive',
+      eventName: 'TOGGLE_FLIGHT_DIRECTOR',
+      fieldId: 'afds.flightDirector',
+      path: 'fdm.apFdActive',
+      simvarName: 'AUTOPILOT FLIGHT DIRECTOR ACTIVE',
+    },
+    {
+      actionPrefix: 'flightGuidance.autothrottleArmed',
+      dataKey: 'athrArmed',
+      eventName: 'AUTO_THROTTLE_ARM',
+      fieldId: 'afds.autothrottleArmed',
+      path: 'fdm.athrArmed',
+      simvarName: 'AUTOPILOT THROTTLE ARM',
+    },
+  ]) {
+    const provider = new SimConnectTelemetryProvider();
+    const rustSnapshot: any = {
+      status: 'running',
+      updatedAt: new Date().toISOString(),
+    };
+    const events = [];
+    provider._data = { [dataKey]: false };
+    provider._rustSimvarSnapshotSequence = 21;
+    provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+    const bridge = {
+      _started: true,
+      getSnapshot: () => ({ source: 'mock-sidecar' }),
+      async setNamedVar() {
+        return { ok: true };
+      },
+      async sendEvent(name, value, parameters) {
+        events.push({ name, value, parameters });
+        assertEqual(name, eventName, `${actionPrefix} must remain bound to its documented toggle event`);
+        provider._data[dataKey] = !provider._data[dataKey];
+        provider._rustSimvarSnapshotSequence += 1;
+        rustSnapshot.updatedAt = new Date().toISOString();
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubMicrosoft737Max8IntegrationFields(provider, {
+      [fieldId]: {
+        id: fieldId,
+        source: {
+          type: 'simvar',
+          name: simvarName,
+          path,
+        },
+        decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+      },
+    });
+
+    const action = {
+      type: 'aircraft-integration',
+      name: MICROSOFT_737_MAX_8_ADAPTER_ID,
+      verification: 'untested',
+    };
+    const alreadyOff = await provider.executeAircraftControlAction(
+      action,
+      microsoft737Max8IntegrationOptions(`${actionPrefix}.off`),
+    );
+    assertEqual(alreadyOff.ok, true, `${actionPrefix} fresh same-state OFF should succeed`);
+    assertEqual(alreadyOff.noOp, true, `${actionPrefix} same-state OFF should be an explicit no-op`);
+    assertEqual(events.length, 0, `${actionPrefix} same-state OFF must not fire its toggle event`);
+
+    const turnOn = await provider.executeAircraftControlAction(
+      action,
+      microsoft737Max8IntegrationOptions(`${actionPrefix}.on`),
+    );
+    assertEqual(turnOn.ok, true, `${actionPrefix} ON should confirm from newer exact-profile readback`);
+    assertEqual(turnOn.confirmedValue, true, `${actionPrefix} ON should confirm the requested target`);
+    assertDeepEqual(events, [{ name: eventName, value: 0, parameters: [] }],
+      `${actionPrefix} ON should dispatch its documented toggle exactly once`);
+
+    provider._aircraftIntegrationActionLastAttemptAt.clear();
+    const alreadyOn = await provider.executeAircraftControlAction(
+      action,
+      microsoft737Max8IntegrationOptions(`${actionPrefix}.on`),
+    );
+    assertEqual(alreadyOn.ok, true, `${actionPrefix} fresh same-state ON should succeed`);
+    assertEqual(alreadyOn.noOp, true, `${actionPrefix} same-state ON should be an explicit no-op`);
+    assertEqual(events.length, 1, `${actionPrefix} same-state ON must not fire its toggle event`);
+
+    provider._aircraftIntegrationActionLastAttemptAt.clear();
+    const turnOff = await provider.executeAircraftControlAction(
+      action,
+      microsoft737Max8IntegrationOptions(`${actionPrefix}.off`),
+    );
+    assertEqual(turnOff.ok, true, `${actionPrefix} OFF should confirm from newer exact-profile readback`);
+    assertEqual(turnOff.confirmedValue, false, `${actionPrefix} OFF should confirm the requested target`);
+    assertDeepEqual(events, [
+      { name: eventName, value: 0, parameters: [] },
+      { name: eventName, value: 0, parameters: [] },
+    ], `${actionPrefix} differing targets should each dispatch one toggle and no more`);
+  }
 });
 
 test('initial LVAR bridge start establishes provider subscriptions only once', async (t) => {

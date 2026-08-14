@@ -3026,6 +3026,168 @@ body.sim-in-menu .menu-overlay {
   font-family: var(--ff-font-mono);
 }
 
+.aircraft-artwork {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  contain: layout paint;
+}
+
+.aircraft-artwork__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.aircraft-artwork--thumbnail {
+  aspect-ratio: 3 / 2;
+}
+
+.landing-aircraft-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-height: 7.25rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgb(var(--border) / 0.64);
+  border-radius: 10px;
+  background:
+    linear-gradient(105deg, rgb(var(--panel-elevated) / 0.92), rgb(var(--card) / 0.72)),
+    rgb(var(--card));
+}
+
+.landing-aircraft-hero--debrief {
+  min-height: 9rem;
+}
+
+.landing-aircraft-hero::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgb(var(--card) / 0.96) 0%, transparent 68%);
+  content: '';
+  pointer-events: none;
+}
+
+.landing-aircraft-hero__copy {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  min-width: 0;
+  max-width: 58%;
+  padding: 1rem 1.1rem;
+}
+
+.landing-aircraft-hero__name {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 0.35rem;
+  color: rgb(var(--foreground));
+  font-size: clamp(1rem, 2.2vw, 1.35rem);
+  font-weight: 700;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.landing-aircraft-hero__context {
+  overflow: hidden;
+  margin-top: 0.3rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.landing-aircraft-hero__art {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 5.5rem;
+  width: min(52%, 31rem);
+  height: 100%;
+  opacity: 0.58;
+  filter: contrast(0.94) brightness(0.9);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 92%, transparent 100%);
+}
+
+.landing-aircraft-hero--debrief .landing-aircraft-hero__art {
+  width: min(58%, 36rem);
+  opacity: 0.68;
+}
+
+.landing-aircraft-hero__airport {
+  position: relative;
+  z-index: 2;
+  align-self: end;
+  justify-self: end;
+  margin: 0.65rem;
+  border: 1px solid rgb(var(--border) / 0.54);
+  border-radius: 7px;
+  background: rgb(var(--card) / 0.78);
+  padding: 0.45rem 0.6rem;
+  text-align: right;
+  backdrop-filter: blur(7px);
+}
+
+.logbook-aircraft-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.logbook-aircraft-thumb,
+.timeline-aircraft-thumb {
+  width: 4.25rem;
+  border: 1px solid rgb(var(--border) / 0.5);
+  border-radius: 7px;
+  background: rgb(var(--panel-elevated) / 0.48);
+}
+
+.logbook-aircraft-thumb .aircraft-artwork__image,
+.timeline-aircraft-thumb .aircraft-artwork__image {
+  padding: 0.18rem;
+  opacity: 0.9;
+}
+
+.logbook-aircraft-thumb--desktop {
+  width: 3.75rem;
+}
+
+.timeline-aircraft-thumb {
+  width: 4.75rem;
+}
+
+.timeline-inspector-aircraft-art {
+  width: 8rem;
+  aspect-ratio: 3 / 2;
+  opacity: 0.72;
+}
+
+.timeline-mobile-aircraft-thumb {
+  width: 4rem;
+  aspect-ratio: 3 / 2;
+  border: 1px solid rgb(var(--border) / 0.5);
+  border-radius: 7px;
+  background: rgb(var(--panel-elevated) / 0.44);
+}
+
+.timeline-mobile-aircraft-thumb .aircraft-artwork__image {
+  padding: 0.12rem;
+  opacity: 0.9;
+}
+
 .logbook-mobile-list {
   display: grid;
   gap: 0.75rem;
@@ -3055,8 +3217,42 @@ body.sim-in-menu .menu-overlay {
 }
 
 @media (max-width: 420px) {
+  .landing-aircraft-hero__copy {
+    max-width: 72%;
+    padding-inline: 0.8rem;
+  }
+
+  .landing-aircraft-hero__art {
+    right: -8%;
+    width: 72%;
+    opacity: 0.42;
+  }
+
+  .landing-aircraft-hero__airport {
+    margin: 0.5rem;
+    padding: 0.35rem 0.45rem;
+  }
+
+  .logbook-aircraft-thumb {
+    width: 3.4rem;
+  }
+
+  .timeline-aircraft-thumb {
+    width: 3.25rem;
+  }
+
+  .timeline-mobile-aircraft-thumb {
+    width: 3.25rem;
+  }
+
   .logbook-mobile-card__stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (forced-colors: active) {
+  .aircraft-artwork {
+    display: none !important;
   }
 }
 
@@ -3827,6 +4023,8 @@ body.ff-app-shell.timeline-viewer-modal-open {
   grid-column: 2;
   grid-row: 2;
   display: flex;
+  align-self: stretch;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -3908,6 +4106,10 @@ body.ff-app-shell.timeline-viewer-modal-open {
 }
 
 @media (max-width: 760px) {
+  .timeline-inspector-aircraft-art {
+    display: none;
+  }
+
   .timeline-split.timeline-mobile-viewer-open {
     inset: 0;
     grid-template-columns: minmax(0, 1fr);

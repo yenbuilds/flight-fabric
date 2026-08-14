@@ -1,7 +1,7 @@
 <div align="center">
   <img src="readme-assets/flight-fabric-icon.png" width="112" alt="Flight Fabric logo">
   <h1>Flight Fabric</h1>
-  <p><strong>Your second screen and flight recorder for Microsoft Flight Simulator 2024.</strong></p>
+  <p><strong>Your second screen and flight recorder for airline flying in Microsoft Flight Simulator 2024.</strong></p>
   <p>See the flight as it happens, then review it when you are back on the ground.</p>
   <p>
     <a href="https://github.com/yenbuilds/flight-fabric/releases/latest"><strong>Download for Windows</strong></a>
@@ -14,9 +14,10 @@
 
 ![Animated tour of Flight Fabric showing the live map, telemetry, aircraft controls, SimBrief, Timeline replay, and landing debrief](readme-assets/flight-fabric-tour.gif)
 
-Flight Fabric puts useful simulator data on a separate screen. During the
-flight, it shows the aircraft, route, and systems in real time. Afterwards, it
-turns the recording into an approach and landing debrief with a flight timeline.
+Flight Fabric is built for airline flying in Microsoft Flight Simulator 2024.
+It puts useful simulator data on a separate screen, showing your aircraft,
+route, and systems in real time. After landing, it turns the recording into an
+approach and landing debrief with a full flight timeline.
 
 > [!IMPORTANT]
 > Flight Fabric is free, experimental alpha software for consumer flight

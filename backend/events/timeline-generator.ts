@@ -69,6 +69,9 @@ const airportSearch = require('../landing/airport-search');
 const landingDistance = require('../landing/landing-distance');
 const { MARKER_TYPE, VIOLATION_RULE } = require('./timeline-events');
 const { parseCsvLine, splitCsvLines } = require('../utils/csv');
+const { computeCrosswind } = require('../utils/helpers') as {
+  computeCrosswind: (windSpeed: unknown, windDirectionDeg: unknown, headingDeg: unknown) => number | null;
+};
 const { getFlightLogsStorageInfo: getFlightLogsStorageSummary, resolveFlightLogsDir } = require('../utils/flight-logs-dir');
 const recordingBundleLayout = require('../flight-recording/recording-bundle-layout') as {
   BUNDLE_FILES: {
@@ -370,6 +373,7 @@ type QuickPeekResult = {
   lastRow: CsvRow | null;
   firstCoordRow: CsvRow | null;
   lastCoordRow: CsvRow | null;
+  aircraftProfileId: string | null;
   firstFuelRow: CsvRow | null;
   lastFuelRow: CsvRow | null;
   distanceNm: number | null;
@@ -384,6 +388,7 @@ type CsvExactScanResult = {
   lastRow: CsvRow | null;
   firstCoordRow: CsvRow | null;
   lastCoordRow: CsvRow | null;
+  aircraftProfileId: string | null;
   rowCount: number;
   sampleCount: number;
   firstFuelRow: CsvRow | null;
@@ -411,6 +416,7 @@ type ListingMetadataColumnIndexes = {
   ts: number;
   flightElapsedMs: number;
   aircraft: number;
+  aircraftProfileId: number;
   lat: number;
   lon: number;
   flightId: number;
@@ -422,9 +428,12 @@ type GeneratedTimeline = {
   flightId: string;
   startTime: string | number | null;
   endTime: string | number | null;
+  simDateTimeLocal: string | null;
+  simDateTimeUtc: string | null;
   durationMs: number;
   durationFormatted: string;
   aircraft: string;
+  aircraftProfileId: string | null;
   departureAirport: AirportSummary | null;
   arrivalAirport: AirportSummary | null;
   route: string | null;
@@ -1993,6 +2002,83 @@ function toNonEmptyString(value: unknown): string | null {
   return text ? text : null;
 }
 
+type SimulatorDateTimes = {
+  local: string | null;
+  utc: string | null;
+};
+
+function getSimulatorDateTimes(row: CsvRow | null | undefined): SimulatorDateTimes | null {
+  const validity = row?.sim_datetime_valid;
+  if (validity === false || validity === 0 || validity === '0' || validity === 'false') return null;
+
+  const localDate = toNonEmptyString(row?.sim_date_local);
+  const localTime = toNonEmptyString(row?.sim_time_local_hms);
+  const utcDate = toNonEmptyString(row?.sim_date_utc);
+  const utcTime = toNonEmptyString(row?.sim_time_zulu_hms);
+  const local = toNonEmptyString(row?.sim_datetime_local)
+    ?? (localDate && localTime ? `${localDate}T${localTime}` : null);
+  const utc = toNonEmptyString(row?.sim_datetime_utc)
+    ?? (utcDate && utcTime ? `${utcDate}T${utcTime}Z` : null);
+
+  return local || utc ? { local, utc } : null;
+}
+
+function getSimulatorStartDateTimes(rows: CsvRow[]): SimulatorDateTimes {
+  for (const row of rows) {
+    const dateTimes = getSimulatorDateTimes(row);
+    if (dateTimes) return dateTimes;
+  }
+
+  return { local: null, utc: null };
+}
+
+function attachSimulatorDateTimesToEvents(
+  events: AnyRecord[],
+  rows: CsvRow[],
+  startTimestampMs: number,
+): void {
+  let rowIndex = 0;
+  const readNextPoint = () => {
+    while (rowIndex < rows.length) {
+      const row = rows[rowIndex++];
+      const dateTimes = getSimulatorDateTimes(row);
+      if (dateTimes) {
+        return {
+          elapsedMs: getRowElapsedMs(row, startTimestampMs),
+          ...dateTimes,
+        };
+      }
+    }
+    return null;
+  };
+
+  let before = null;
+  let after = readNextPoint();
+  const nearestPoint = (elapsedMs: number) => {
+    while (after && after.elapsedMs < elapsedMs) {
+      before = after;
+      after = readNextPoint();
+    }
+    if (!before) return after;
+    if (!after) return before;
+    return elapsedMs - before.elapsedMs <= after.elapsedMs - elapsedMs ? before : after;
+  };
+
+  for (const event of events) {
+    const elapsedMs = toFiniteNumber(event?.elapsedMs)
+      ?? (
+        Number.isFinite(event?.timestampMs) && Number.isFinite(startTimestampMs)
+          ? Math.max(0, event.timestampMs - startTimestampMs)
+          : null
+      );
+    if (elapsedMs === null) continue;
+    const point = nearestPoint(elapsedMs);
+    if (!point) continue;
+    if (point.local) event.simDateTimeLocal = point.local;
+    if (point.utc) event.simDateTimeUtc = point.utc;
+  }
+}
+
 const RECORDED_FLIGHT_VIOLATION_STRING_CONTEXT = [
   'risk_level',
   'confidence_level',
@@ -2137,6 +2223,7 @@ function stripTimelineExtension(fileName: string): string {
 function createInitialTimeline(csvPath: string, rows: CsvRow[]): GeneratedTimeline {
   const firstRow = rows[0];
   const lastRow = rows[rows.length - 1];
+  const simulatorStart = getSimulatorStartDateTimes(rows);
   const startTimestampMs = getRowTimestampMs(firstRow);
   const endTimestampMs = getRowTimestampMs(lastRow);
   const durationMs = Number.isFinite(startTimestampMs) && Number.isFinite(endTimestampMs)
@@ -2147,6 +2234,11 @@ function createInitialTimeline(csvPath: string, rows: CsvRow[]): GeneratedTimeli
   const flightId = firstRow.flight_id
     || recordingBundleLayout.getBundleFromCsvPath(csvPath)?.bundleName
     || stripCsvExtension(path.basename(csvPath));
+  let aircraftProfileId: string | null = null;
+  for (const row of rows) {
+    aircraftProfileId = getReplayAircraftProfileId(row);
+    if (aircraftProfileId) break;
+  }
 
   const departureAirport = findNearestAirport(firstRow.lat_deg, firstRow.lon_deg);
   const arrivalAirport = findNearestAirport(lastRow.lat_deg, lastRow.lon_deg);
@@ -2155,9 +2247,12 @@ function createInitialTimeline(csvPath: string, rows: CsvRow[]): GeneratedTimeli
     flightId,
     startTime: firstRow.timestamp_utc || firstRow.ts || null,
     endTime: lastRow.timestamp_utc || lastRow.ts || null,
+    simDateTimeLocal: simulatorStart.local,
+    simDateTimeUtc: simulatorStart.utc,
     durationMs,
     durationFormatted: formatDuration(durationMs),
     aircraft: firstRow.aircraft || 'Unknown',
+    aircraftProfileId,
     departureAirport: departureAirport ? {
       icao: departureAirport.icao,
       name: departureAirport.name,
@@ -3677,7 +3772,8 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       // The LANDING record is written by landing-runner.js at rollout completion and contributes:
       //   - icao/runway: heading-filtered position lookup (authoritative)
       //   - touchdown_distance_ft + scoring: calculated against correct runway threshold
-      //   - xwind_kts: crosswind component (not available in SAMPLE rows)
+      //   - xwind_kts: authoritative runway-relative component; the SAMPLE
+      //     fallback is independently reconstructed against resolved runway heading
       //   - grade: touchdown-rate grade resolved from persisted touchdown inputs
       //   - runway_excursion/short_landing: independent landing-outcome facts
       //   - ultimate_stability_*: written by the live current-approach scorer when
@@ -3789,6 +3885,18 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           const rebuiltStability = analysisRescoreMode === 'current-preview'
             ? rebuildCurrentReplayStability(existing, row, replayPolicy)
             : null;
+          const mergedWindSpeedKts = toFiniteNumber(row.wind_speed_kts) ?? existing.wind_speed_kts ?? null;
+          const mergedWindDirectionDeg = toFiniteNumber(row.wind_dir_deg) ?? existing.wind_dir_deg ?? null;
+          const recordedCrosswindKts = toFiniteNumber(row.xwind_kts);
+          const mergedCrosswindKts = recordedCrosswindKts ?? (
+            toFiniteNumber(row.wind_speed_kts) !== null || toFiniteNumber(row.wind_dir_deg) !== null
+              ? computeCrosswind(
+                  mergedWindSpeedKts,
+                  mergedWindDirectionDeg,
+                  getRunwayTrueHeadingDeg(finalizedRunway),
+                )
+              : existing.xwind_kts ?? null
+          );
           generatedTimeline.events[candidateIndex] = applyReplayLandingGrade({
             ...existing,
             _landingRowMerged: true,
@@ -3840,8 +3948,9 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             gforce: toFiniteNumber(row.g_force) ?? toFiniteNumber(row.gforce) ?? existing.gforce ?? null,
             bank_deg: toFiniteNumber(row.bank_deg) ?? existing.bank_deg ?? null,
             gs_kts: toFiniteNumber(row.gs_kts) ?? existing.gs_kts ?? null,
-            xwind_kts: toFiniteNumber(row.xwind_kts) ?? null,
-            wind_speed_kts: toFiniteNumber(row.wind_speed_kts) ?? existing.wind_speed_kts ?? null,
+            xwind_kts: mergedCrosswindKts,
+            wind_speed_kts: mergedWindSpeedKts,
+            wind_dir_deg: mergedWindDirectionDeg,
             rolloutAnalysis: analysisRescoreMode === 'current-preview'
               ? null
               : parseJsonObject(row.rollout_analysis) || existing.rolloutAnalysis || null,
@@ -3891,8 +4000,13 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             gforce: toFiniteNumber(row.g_force) ?? toFiniteNumber(row.gforce),
             bank_deg: toFiniteNumber(row.bank_deg),
             gs_kts: toFiniteNumber(row.gs_kts),
-            xwind_kts: toFiniteNumber(row.xwind_kts),
+            xwind_kts: toFiniteNumber(row.xwind_kts) ?? computeCrosswind(
+              toFiniteNumber(row.wind_speed_kts),
+              toFiniteNumber(row.wind_dir_deg),
+              runwayInfo ? toFiniteNumber(runwayInfo.runway_heading) : null,
+            ),
             wind_speed_kts: toFiniteNumber(row.wind_speed_kts),
+            wind_dir_deg: toFiniteNumber(row.wind_dir_deg),
             grade: landingHeadline.grade,
             runwayExcursion,
             aircraftProfileId: toNonEmptyString(row.aircraft_profile_id),
@@ -3966,6 +4080,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
 
   // Sort events by timestamp (violations may have been inserted out of order)
   generatedTimeline.events.sort((a, b) => a.timestampMs - b.timestampMs);
+  attachSimulatorDateTimesToEvents(generatedTimeline.events, rows, startTimestampMs);
   finalizeAnalysisRescore(generatedTimeline, analysisRescoreMode);
   
   // Compute summary stats
@@ -4407,6 +4522,7 @@ function createEmptyQuickPeekResult(): QuickPeekResult {
     lastRow: null,
     firstCoordRow: null,
     lastCoordRow: null,
+    aircraftProfileId: null,
     firstFuelRow: null,
     lastFuelRow: null,
     distanceNm: null,
@@ -4421,7 +4537,7 @@ function createEmptyQuickPeekResult(): QuickPeekResult {
 // Auto-start can leave tiny CSV fragments if the lifecycle gate opens and then
 // immediately ends. Keep them on disk, but don't promote them to timeline items.
 const MIN_LISTED_FLIGHT_SAMPLE_COUNT = 5;
-const FLIGHT_LIST_METADATA_CACHE_VERSION = 8;
+const FLIGHT_LIST_METADATA_CACHE_VERSION = 9;
 const FLIGHT_LIST_METADATA_CACHE_FILE = 'timeline-flight-list-cache.json';
 const LISTED_FLIGHT_TIMESTAMP_COLUMNS = ['timestamp_utc', 'ts'];
 const LISTED_FLIGHT_TELEMETRY_COLUMNS = [
@@ -4591,6 +4707,7 @@ function createEmptyCsvExactScanResult(): CsvExactScanResult {
     lastRow: null,
     firstCoordRow: null,
     lastCoordRow: null,
+    aircraftProfileId: null,
     rowCount: 0,
     sampleCount: 0,
     firstFuelRow: null,
@@ -4632,6 +4749,7 @@ function getListingMetadataColumnIndexes(headers: string[]): ListingMetadataColu
     ts: findFirstHeaderIndex(headers, ['ts', 'timestamp_ms', 'timestampMs']),
     flightElapsedMs: findFirstHeaderIndex(headers, ['flight_elapsed_ms', 'flightElapsedMs']),
     aircraft: findFirstHeaderIndex(headers, ['aircraft']),
+    aircraftProfileId: findFirstHeaderIndex(headers, ['aircraft_profile_id', 'aircraftProfileId']),
     lat: findFirstHeaderIndex(headers, ['lat_deg']),
     lon: findFirstHeaderIndex(headers, ['lon_deg']),
     flightId: findFirstHeaderIndex(headers, ['flight_id']),
@@ -4673,6 +4791,7 @@ function buildListingMetadataScanRow(
     ts: getCsvCell(values, indexes.ts),
     flight_elapsed_ms: getCsvCell(values, indexes.flightElapsedMs),
     aircraft: getCsvCell(values, indexes.aircraft),
+    aircraft_profile_id: getCsvCell(values, indexes.aircraftProfileId),
     // The exact scanner reads raw CSV cells, unlike mapCsvRow(), so preserve
     // the normal parsed-row contract explicitly. Passing coordinate strings
     // into airport-search makes additions such as `lat + latRange` concatenate
@@ -4700,6 +4819,7 @@ function countCsvRowsExact(filePath: string): CsvExactScanResult {
   let lastRow: CsvRow | null = null;
   let firstCoordRow: CsvRow | null = null;
   let lastCoordRow: CsvRow | null = null;
+  let aircraftProfileId: string | null = null;
   const fuelSelector = createFuelUsageRowSelector();
   let previousCoord: Coordinate | null = null;
   let totalDistanceFt = 0;
@@ -4759,6 +4879,7 @@ function countCsvRowsExact(filePath: string): CsvExactScanResult {
       if (!isRecordingManifestRow(metadataRow)) {
         firstRow ||= metadataRow;
         lastRow = metadataRow;
+        aircraftProfileId ||= getReplayAircraftProfileId(metadataRow);
       }
 
       const lat = toFiniteNumber(metadataRow.lat_deg);
@@ -4868,6 +4989,7 @@ function countCsvRowsExact(filePath: string): CsvExactScanResult {
       lastRow,
       firstCoordRow,
       lastCoordRow,
+      aircraftProfileId,
       rowCount,
       sampleCount,
       firstFuelRow,
@@ -4913,6 +5035,7 @@ function buildListedCsvFlight(filePath: string, fileName: string, stat: AnyRecor
       lastRow,
       firstCoordRow,
       lastCoordRow,
+      aircraftProfileId,
       firstFuelRow,
       lastFuelRow,
       distanceNm,
@@ -4985,6 +5108,7 @@ function buildListedCsvFlight(filePath: string, fileName: string, stat: AnyRecor
         : (typeof firstCoordRow?.aircraft === 'string' && firstCoordRow.aircraft.trim()
           ? firstCoordRow.aircraft.trim()
           : null),
+      aircraftProfileId: aircraftProfileId || getReplayAircraftProfileId(firstRow, firstCoordRow),
       route,
       displayRouteLabel,
       departureAirport: departureAirport ? { icao: departureAirport.icao, name: departureAirport.name } : null,

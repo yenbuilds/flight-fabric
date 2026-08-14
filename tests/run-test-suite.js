@@ -50,6 +50,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-windows-process-cleanup.js']],
   ['node', ['tests/scripts/test-runtime-owner-lock.js']],
   ['node', ['tests/scripts/test-shutdown-smoke.js']],
+  ['node', ['tests/scripts/test-aircraft-visuals.js']],
   ['node', ['tests/scripts/test-vue-stores.js']],
   ['node', ['tests/scripts/test-vue-components.js']],
   ['node', ['tests/scripts/test-vue-interactions.js']],

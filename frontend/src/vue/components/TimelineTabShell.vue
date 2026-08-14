@@ -6,6 +6,7 @@ import {
   subscribeWsMessage,
 } from '../../app/runtime-signals.js';
 import { initTimelinePage } from '../../timeline/bootstrap.js';
+import AircraftArtwork from './AircraftArtwork.vue';
 import LogbookPanel from './LogbookPanel.vue';
 import TimelineAnalysisRescoreModal from './TimelineAnalysisRescoreModal.vue';
 import TimelineDetailPanel from './TimelineDetailPanel.vue';
@@ -39,6 +40,25 @@ const timelineViewerAircraft = computed(() => {
   const label = String(timeline.loadedTimelineAircraftLabel || '').trim();
   return /^(?:unknown|n\/?a|--?)$/i.test(label) ? '' : label;
 });
+function formatFlightDateTime(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(value || '').trim());
+  return match ? `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}` : '';
+}
+function formatRecordedDateTime(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+const timelineViewerRecordingStartTime = computed(() => (
+  timeline.timelineLoading ? '' : formatRecordedDateTime(timeline.loadedTimelineRecordingStartTime)
+));
+const timelineViewerLocalDateTime = computed(() => (
+  timeline.timelineLoading ? '' : formatFlightDateTime(timeline.loadedTimelineSimDateTimeLocal)
+));
+const timelineViewerUtcDateTime = computed(() => (
+  timeline.timelineLoading ? '' : formatFlightDateTime(timeline.loadedTimelineSimDateTimeUtc)
+));
 const timelineViewerDocumentLockActive = computed(() => (
   tabs.activeTabId === 'timeline' && timeline.timelineMobileViewerOpen
 ));
@@ -147,34 +167,87 @@ onUnmounted(() => {
         id="timeline-mobile-viewer-header"
         class="timeline-mobile-viewer-header"
       >
-        <div class="min-w-0">
-          <div class="text-[10px] uppercase tracking-widest text-gray-500">Timeline replay</div>
-          <div class="flex min-w-0 items-baseline gap-2">
-            <div id="timeline-mobile-viewer-title" class="min-w-0 truncate text-sm font-semibold text-gray-200">{{ timelineViewerTitle }}</div>
-            <span
-              v-if="timelineViewerAircraft"
-              aria-hidden="true"
-              class="shrink-0 text-xs text-gray-600"
-            >•</span>
+        <div class="flex min-w-0 items-center gap-2.5">
+          <AircraftArtwork
+            v-if="timelineViewerAircraft"
+            class="timeline-mobile-aircraft-thumb"
+            :profile-id="timeline.loadedTimelineAircraftProfileId"
+            :aircraft-name="timelineViewerAircraft"
+          />
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-widest text-gray-500">Timeline replay</div>
+            <div class="flex min-w-0 items-baseline gap-2">
+              <div id="timeline-mobile-viewer-title" class="min-w-0 truncate text-sm font-semibold text-gray-200">{{ timelineViewerTitle }}</div>
+              <span
+                v-if="timelineViewerAircraft"
+                aria-hidden="true"
+                class="shrink-0 text-xs text-gray-600"
+              >•</span>
+              <div
+                v-if="timelineViewerAircraft"
+                id="timeline-mobile-viewer-aircraft"
+                class="min-w-0 truncate text-xs text-gray-400"
+                :title="timelineViewerAircraft"
+              >
+                {{ timelineViewerAircraft }}
+              </div>
+            </div>
             <div
-              v-if="timelineViewerAircraft"
-              id="timeline-mobile-viewer-aircraft"
-              class="min-w-0 truncate text-xs text-gray-400"
-              :title="timelineViewerAircraft"
+              v-if="timelineViewerLocalDateTime || timelineViewerUtcDateTime || timelineViewerRecordingStartTime"
+              id="timeline-mobile-viewer-flight-times"
+              class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-400"
             >
-              {{ timelineViewerAircraft }}
+              <span v-if="timelineViewerLocalDateTime">
+                <span class="uppercase tracking-wide text-gray-500">Flight start local</span>
+                <time
+                  id="timeline-mobile-viewer-local-time"
+                  class="ml-1 font-mono text-gray-300"
+                  :datetime="timeline.loadedTimelineSimDateTimeLocal"
+                >{{ timelineViewerLocalDateTime }}</time>
+              </span>
+              <span v-if="timelineViewerUtcDateTime">
+                <span class="uppercase tracking-wide text-gray-500">Flight start UTC</span>
+                <time
+                  id="timeline-mobile-viewer-utc-time"
+                  class="ml-1 font-mono text-gray-300"
+                  :datetime="timeline.loadedTimelineSimDateTimeUtc"
+                >{{ timelineViewerUtcDateTime }}</time>
+              </span>
+              <span
+                v-if="timelineViewerRecordingStartTime"
+                title="Recording start in this device's local timezone"
+              >
+                <span class="uppercase tracking-wide text-gray-500">Recorded</span>
+                <time
+                  id="timeline-mobile-viewer-recording-time"
+                  class="ml-1 font-mono text-gray-300"
+                  :datetime="timeline.loadedTimelineRecordingStartTime"
+                >{{ timelineViewerRecordingStartTime }}</time>
+              </span>
             </div>
           </div>
         </div>
-        <button
-          id="timeline-mobile-viewer-close"
-          type="button"
-          class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded border border-surface-300 text-gray-200 hover:bg-surface-300/50 transition-colors"
-          aria-label="Close timeline replay"
-          @click="closeTimelineMobileViewer"
-        >
-          Close
-        </button>
+        <div class="flex shrink-0 items-center gap-2">
+          <button
+            v-if="timeline.latestLandingInspectorRow"
+            id="timeline-mobile-viewer-landing-shortcut"
+            type="button"
+            class="rounded border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold tracking-wide text-emerald-300 transition-colors hover:border-emerald-400/70 hover:bg-emerald-500/20 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            aria-label="Show landing event"
+            @click="timeline.selectLatestLandingRow()"
+          >
+            LANDING DEBRIEF
+          </button>
+          <button
+            id="timeline-mobile-viewer-close"
+            type="button"
+            class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded border border-surface-300 text-gray-200 hover:bg-surface-300/50 transition-colors"
+            aria-label="Close timeline replay"
+            @click="closeTimelineMobileViewer"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       <div id="timeline-card" class="ff-card overflow-hidden">

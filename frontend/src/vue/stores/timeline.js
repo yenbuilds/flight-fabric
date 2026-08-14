@@ -175,6 +175,16 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function dateTimeValue(value) {
+  const text = nonEmptyString(value);
+  if (text) return text;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+  }
+  return '';
+}
+
 function nonNegativeInteger(value) {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
@@ -295,6 +305,10 @@ export const useTimelineStore = defineStore('timeline', {
     loadedTimelineFlightId: '',
     loadedTimelineFlightLabel: '',
     loadedTimelineAircraftLabel: '',
+    loadedTimelineAircraftProfileId: '',
+    loadedTimelineRecordingStartTime: '',
+    loadedTimelineSimDateTimeLocal: '',
+    loadedTimelineSimDateTimeUtc: '',
     summaryVisible: false,
     eventCountText: '--',
     violationCountText: '--',
@@ -437,6 +451,14 @@ export const useTimelineStore = defineStore('timeline', {
       const total = Number(state.inspectorTotalRowCount) || 0;
       const shown = Math.min(total, Math.max(0, Number(state.inspectorRows.length) || 0));
       return total > shown ? `Showing ${shown} of ${total} events` : '';
+    },
+
+    latestLandingInspectorRow(state) {
+      for (let index = state.inspectorAllRows.length - 1; index >= 0; index -= 1) {
+        const row = state.inspectorAllRows[index];
+        if (row?.event?.type === 'landing') return row;
+      }
+      return null;
     },
 
     timelineLoading: (state) => state.timelineLoadStatus === 'loading',
@@ -735,7 +757,7 @@ export const useTimelineStore = defineStore('timeline', {
       this.resetScrubberState();
       this.resetAltitudeProfileState();
       this.setInspectorState({
-        flightIdText: `Opening ${this.timelineLoadingFlightLabel}`,
+        flightIdText: 'Opening timeline...',
         routeText: this.timelineLoadingFlightLabel,
         routeVisible: Boolean(this.timelineLoadingFlightLabel),
         rows: [],
@@ -790,6 +812,10 @@ export const useTimelineStore = defineStore('timeline', {
         this.loadedTimelineFlightId = '';
         this.loadedTimelineFlightLabel = '';
         this.loadedTimelineAircraftLabel = '';
+        this.loadedTimelineAircraftProfileId = '';
+        this.loadedTimelineRecordingStartTime = '';
+        this.loadedTimelineSimDateTimeLocal = '';
+        this.loadedTimelineSimDateTimeUtc = '';
         this.analysisRescore = normalizeAnalysisRescoreStatus(null);
         this.clearAnalysisRescorePreview();
         this.clearAnalysisRescoreActionState();
@@ -814,6 +840,18 @@ export const useTimelineStore = defineStore('timeline', {
       this.loadedTimelineFlightId = nextFlightId;
       this.loadedTimelineFlightLabel = getFlightRouteLabel(timeline) || this.loadedTimelineFlightId || 'current timeline';
       this.loadedTimelineAircraftLabel = getFlightAircraftLabel(timeline);
+      this.loadedTimelineAircraftProfileId = nonEmptyString(timeline.aircraftProfileId)
+        || nonEmptyString(timeline.aircraft_profile_id)
+        || '';
+      this.loadedTimelineRecordingStartTime = dateTimeValue(
+        timeline.startTime ?? timeline.start_time ?? timeline.recordingStartIso,
+      );
+      this.loadedTimelineSimDateTimeLocal = nonEmptyString(
+        timeline.simDateTimeLocal ?? timeline.sim_datetime_local,
+      ) || '';
+      this.loadedTimelineSimDateTimeUtc = nonEmptyString(
+        timeline.simDateTimeUtc ?? timeline.sim_datetime_utc,
+      ) || '';
       this.analysisRescore = normalizeAnalysisRescoreStatus(timeline.analysisRescore);
     },
 
@@ -1028,6 +1066,11 @@ export const useTimelineStore = defineStore('timeline', {
       this.inspectorSelectedRowKey = key;
       this._onInspectorRowSelect?.(row);
       return true;
+    },
+
+    selectLatestLandingRow() {
+      const rowKey = this.latestLandingInspectorRow?.rowKey;
+      return rowKey ? this.selectEventRow(rowKey) : false;
     },
 
     refreshInspectorRows() {

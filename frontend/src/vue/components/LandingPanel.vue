@@ -1,10 +1,13 @@
 <script setup>
 import { computed, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
+import AircraftArtwork from './AircraftArtwork.vue';
 import LandingSummaryWatermark from './LandingSummaryWatermark.vue';
 import { useLandingStore } from '../stores/landing.js';
+import { useStatusStore } from '../stores/status.js';
+import { useTimelineStore } from '../stores/timeline.js';
 
-defineProps({
+const props = defineProps({
   debriefMode: {
     type: Boolean,
     default: false,
@@ -16,6 +19,77 @@ const approachProfileExpanded = ref(true);
 const topdownProfileExpanded = ref(true);
 const detailedMetricsExpanded = ref(true);
 const landing = useLandingStore();
+const status = useStatusStore();
+const timeline = useTimelineStore();
+
+const landingAircraftEvent = computed(() => (
+  props.debriefMode && timeline.selectedLandingEvent
+    ? timeline.selectedLandingEvent
+    : null
+));
+const landingAircraftFlight = computed(() => {
+  if (!props.debriefMode) return null;
+  const flights = Array.isArray(timeline.flights) ? timeline.flights : [];
+  const loadedFlightId = String(timeline.loadedTimelineFlightId || '').trim();
+  const loadedFilePath = String(timeline.loadedTimelineFilePath || '')
+    .trim()
+    .replaceAll('\\', '/')
+    .toLowerCase();
+
+  if (loadedFilePath) {
+    const pathMatch = flights.find((flight) => String(flight?.filePath || flight?.file_path || '')
+      .trim()
+      .replaceAll('\\', '/')
+      .toLowerCase() === loadedFilePath);
+    if (pathMatch) return pathMatch;
+  }
+
+  if (!loadedFlightId) return null;
+  const idMatches = flights.filter((flight) => (
+    String(flight?.flightId || flight?.flight_id || '').trim() === loadedFlightId
+  ));
+  return idMatches.length === 1 ? idMatches[0] : null;
+});
+const landingAircraftName = computed(() => {
+  const event = landingAircraftEvent.value;
+  const flight = landingAircraftFlight.value;
+  const historicalName = props.debriefMode
+    ? event?.aircraft
+      || event?.aircraftName
+      || timeline.loadedTimelineAircraftLabel
+      || flight?.aircraft
+      || flight?.aircraftName
+    : '';
+  const liveName = props.debriefMode
+    ? ''
+    : status.aircraftProfile.aircraftName || status.aircraftProfile.aircraftTitle;
+  const name = String(historicalName || liveName || '').trim();
+  if (name && name !== '--') return name;
+  return props.debriefMode ? 'Recorded aircraft' : 'Aircraft';
+});
+const landingAircraftProfileId = computed(() => {
+  const event = landingAircraftEvent.value;
+  const flight = landingAircraftFlight.value;
+  const profileId = props.debriefMode
+    ? event?.aircraftProfileId
+      || event?.aircraft_profile_id
+      || flight?.aircraftProfileId
+      || flight?.aircraft_profile_id
+    : status.aircraftProfile.profileId;
+  return String(profileId || '').trim();
+});
+const landingAircraftProfileKey = computed(() => (
+  props.debriefMode ? '' : String(status.aircraftProfile.profileKey || '').trim()
+));
+const landingAircraftContext = computed(() => {
+  if (props.debriefMode) {
+    return landingAircraftName.value === 'Recorded aircraft'
+      ? 'Aircraft identity unavailable in this record'
+      : 'Recorded aircraft';
+  }
+  const profileName = String(status.aircraftProfile.profileName || '').trim();
+  return profileName && profileName !== landingAircraftName.value ? profileName : 'Current aircraft';
+});
 
 const accordionButtonClass = 'group flex w-full cursor-pointer items-center justify-between gap-3 bg-surface-200/60 px-4 py-3.5 text-sm font-medium text-gray-200 transition-colors hover:bg-surface-300 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
 const accordionIndicatorClass = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-surface-300 bg-surface-100 text-gray-300 transition-colors group-hover:border-gray-500 group-hover:text-gray-100';
@@ -113,9 +187,24 @@ const bounceDetailVisible = computed(() => {
     </div>
 
     <div class="p-4 sm:p-6 pb-4 border-b border-surface-200/30">
-      <div class="mb-3 flex items-end justify-between gap-4">
-        <div class="telemetry-label">Landing Summary</div>
-        <div class="min-w-0 text-right">
+      <div
+        class="landing-aircraft-hero mb-3"
+        :class="{ 'landing-aircraft-hero--debrief': props.debriefMode }"
+      >
+        <div class="landing-aircraft-hero__copy">
+          <div class="telemetry-label">Landing Summary</div>
+          <div class="landing-aircraft-hero__name">{{ landingAircraftName }}</div>
+          <div class="landing-aircraft-hero__context">{{ landingAircraftContext }}</div>
+        </div>
+        <AircraftArtwork
+          class="landing-aircraft-hero__art"
+          :profile-id="landingAircraftProfileId"
+          :profile-key="landingAircraftProfileKey"
+          :aircraft-name="landingAircraftName"
+          variant="hero"
+          loading="eager"
+        />
+        <div class="landing-aircraft-hero__airport">
           <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Airport / Runway</div>
           <div class="flex items-baseline justify-end gap-2 text-sm font-semibold tabular text-gray-200" style="font-family:'B612 Mono', monospace;">
             <span id="landing-airport">{{ landing.landingCard.airportText }}</span>
@@ -124,6 +213,81 @@ const bounceDetailVisible = computed(() => {
           </div>
         </div>
       </div>
+      <section
+        v-if="landing.landingCard.wind.available"
+        id="landing-wind-context"
+        class="mb-3 flex flex-col gap-3 rounded-lg border border-accent/30 bg-accent/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        role="group"
+        :aria-label="landing.landingCard.wind.ariaLabel"
+      >
+        <div class="flex min-w-0 items-center gap-3">
+          <div
+            id="landing-wind-compass"
+            class="relative h-16 w-16 shrink-0 rounded-full border border-surface-300 bg-surface-100/80 text-[8px] font-semibold text-gray-500"
+            aria-hidden="true"
+          >
+            <span class="absolute left-1/2 top-0.5 -translate-x-1/2">N</span>
+            <span class="absolute right-1 top-1/2 -translate-y-1/2">E</span>
+            <span class="absolute bottom-0.5 left-1/2 -translate-x-1/2">S</span>
+            <span class="absolute left-1 top-1/2 -translate-y-1/2">W</span>
+            <svg class="absolute inset-0 h-full w-full" viewBox="0 0 64 64">
+              <circle cx="32" cy="32" r="22" fill="none" stroke="currentColor" stroke-width="1" class="text-surface-300" />
+              <g
+                v-if="landing.landingCard.wind.arrowVisible"
+                class="text-accent"
+                :style="{
+                  transform: `rotate(${landing.landingCard.wind.arrowRotationDeg}deg)`,
+                  transformOrigin: '32px 32px',
+                }"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2.5"
+              >
+                <path d="M32 55V19" />
+                <path d="m25 27 7-8 7 8" />
+              </g>
+              <circle v-if="landing.landingCard.wind.arrowVisible" cx="32" cy="32" r="2" class="fill-accent" />
+            </svg>
+            <span
+              v-if="!landing.landingCard.wind.arrowVisible"
+              class="absolute inset-0 flex items-center justify-center text-[9px] tracking-wider text-gray-400"
+            >{{ landing.landingCard.wind.calm ? 'CALM' : '--' }}</span>
+          </div>
+
+          <div class="min-w-0">
+            <div class="mb-1 text-[10px] font-semibold uppercase tracking-widest text-accent">Wind at touchdown</div>
+            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5" style="font-family:'B612 Mono', monospace;">
+              <span
+                v-if="landing.landingCard.wind.directionPrefixText"
+                id="landing-wind-direction-prefix"
+                class="text-xs font-semibold tracking-wider text-gray-400"
+              >{{ landing.landingCard.wind.directionPrefixText }}</span>
+              <span id="landing-wind-direction" class="text-2xl font-semibold tabular text-gray-100">
+                {{ landing.landingCard.wind.directionText }}
+              </span>
+              <span class="text-gray-600" aria-hidden="true">·</span>
+              <span id="landing-wind-speed" class="text-2xl font-semibold tabular text-gray-100">
+                {{ landing.landingCard.wind.speedText }}
+              </span>
+            </div>
+            <div v-if="landing.landingCard.wind.cardinalText" id="landing-wind-reference" class="mt-0.5 text-[11px] text-gray-500">
+              True north · wind source {{ landing.landingCard.wind.cardinalText }}
+            </div>
+            <div v-else-if="!landing.landingCard.wind.calm" id="landing-wind-reference" class="mt-0.5 text-[11px] text-gray-500">
+              Direction unavailable
+            </div>
+          </div>
+        </div>
+
+        <div class="shrink-0 border-t border-surface-300/70 pt-2 sm:min-w-[11rem] sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0 sm:text-right">
+          <div class="text-[9px] uppercase tracking-widest text-gray-600">Runway component</div>
+          <div id="landing-wind-crosswind" class="mt-0.5 text-sm font-semibold text-gray-300" style="font-family:'B612 Mono', monospace;">
+            {{ landing.landingCard.wind.crosswindDetailText }}
+          </div>
+        </div>
+      </section>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-px overflow-hidden rounded-lg border border-surface-200/50 bg-surface-200/50">
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="grade" />

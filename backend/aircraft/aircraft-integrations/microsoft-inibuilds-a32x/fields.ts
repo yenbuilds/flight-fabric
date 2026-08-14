@@ -30,10 +30,10 @@ function numberField(id: string, name: string, unit: string, precision = 0): Air
 }
 
 // The cited Microsoft and iniBuilds material does not define an A320neo V2 or
-// A321LR custom integration catalogue. This shared adapter therefore exposes
-// only an explicit standard-SimVar monitoring allowlist.
-// Complex-aircraft mirrors remain unavailable when the aircraft does not
-// publish them through the standard simulator surface.
+// A321LR custom integration catalogue. This shared adapter therefore keeps its
+// reads to an explicit standard-SimVar allowlist. The compact action layer can
+// confirm standard-event requests against these fields without claiming
+// Airbus-private selector or managed-mode semantics.
 const MICROSOFT_INIBUILDS_A32X_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'fcu.speedKts': numberField('fcu.speedKts', 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots'),
   'fcu.headingDeg': numberField('fcu.headingDeg', 'AUTOPILOT HEADING LOCK DIR', 'Degrees'),

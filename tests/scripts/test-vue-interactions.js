@@ -3142,6 +3142,21 @@ async function main() {
     assert.equal(landingStore.topdownProfile.visible, true, 'ultimate stability messages should expose the rendered top-down profile through the store');
     assert.match(landingStore.topdownProfile.svgHtml, /<svg/, 'rendered top-down profile should store SVG markup');
 
+    controller.handleLandingMessage({
+      final: true,
+      vs: -467,
+      grade: 'PERFECT',
+      runway: '34L',
+      runwayHdg: 335,
+      windDirectionTrueDeg: 245,
+      windSpeed: 14,
+      crosswind: -14,
+    });
+    assert.match(landingStore.topdownProfile.svgHtml, /data-topdown-wind-vector="true"/, 'the final live landing packet should add its wind vector to the retained approach profile');
+    assert.match(landingStore.topdownProfile.svgHtml, /data-wind-relative-deg="-90(?:\.0+)?"/, 'the live wind vector should be rotated relative to the detected runway');
+    assert.match(landingStore.topdownProfile.svgHtml, /WIND FROM 245°T/, 'the live wind vector should retain true direction at touchdown');
+    assert.match(landingStore.topdownProfile.svgHtml, /14 kt/, 'the live wind vector should retain speed at touchdown');
+
     controller.resetSession();
     assert.equal(landingStore.approachProfile.visible, false, 'resetSession should clear the rendered approach profile state');
     assert.equal(landingStore.topdownProfile.visible, false, 'resetSession should clear the rendered top-down profile state');
@@ -5448,7 +5463,8 @@ async function main() {
     page.loadTimeline({
       flightId: 'F1',
       route: 'YSSY-KJFK',
-      aircraft: 'Boeing 737-800',
+      aircraft: 'Standard Cabin',
+      aircraftProfileId: 'inibuilds-tristar',
       events: [
         { type: 'phase_start', timestampMs: 1000, newPhase: 'APPROACH', hasPos: true },
         { type: 'landing', timestampMs: 2000, runway: { airport_icao: 'YSSY', runway_id: '34L' } },
@@ -5456,9 +5472,10 @@ async function main() {
       worstMoment: { index: 1 },
     });
 
-    assert.equal(timelineStore.inspectorFlightIdText, 'YSSY-KJFK (1m 0s)', 'timeline controller should publish header text into the store');
+    assert.equal(timelineStore.inspectorFlightIdText, '1m 0s', 'timeline controller should publish duration without repeating the route');
     assert.equal(timelineStore.inspectorRouteText, 'YSSY-KJFK', 'timeline controller should publish route text into the store');
-    assert.equal(timelineStore.loadedTimelineAircraftLabel, 'Boeing 737-800', 'timeline controller should preserve the saved aircraft type for the replay header');
+    assert.equal(timelineStore.loadedTimelineAircraftLabel, 'Standard Cabin', 'timeline controller should preserve the saved aircraft type for the replay header');
+    assert.equal(timelineStore.loadedTimelineAircraftProfileId, 'inibuilds-tristar', 'timeline controller should preserve the recorded profile id for deterministic artwork');
     assert.equal(timelineStore.inspectorRows.length, 2, 'timeline controller should publish event rows into the store');
     assert.equal(Object.hasOwn(timelineStore.inspectorRows[1] || {}, 'isWorstMoment'), false, 'timeline controller should ignore legacy worst-moment metadata');
     assert.equal(focusedEvents[0].type, 'phase_start', 'timeline controller should still focus the first event with a position');
@@ -5525,6 +5542,10 @@ async function main() {
       grade: 'PERFECT',
       ias_kts: 136,
       pitch_deg: 3.1,
+      wind_dir_deg: '',
+      windDirDeg: 240,
+      windSpeedKts: 14,
+      xwindKts: -8,
       bounceCount: 1,
       bounceGrade: 'Single Bounce',
       runwayExcursion: true,
@@ -5567,6 +5588,9 @@ async function main() {
     assert.equal(landingStore.landingCard.rollout.assessmentText, 'CAUTION', 'timeline landing handoff should preserve rollout assessment');
     assert.equal(landingStore.landingCard.gradeText, 'PERFECT', 'bounce-only timeline handoff should preserve the scoped touchdown grade');
     assert.equal(landingStore.landingCard.approach.stabilityText, 'UNSTABLE', 'timeline handoff should preserve the approach verdict');
+    assert.equal(landingStore.landingCard.wind.directionText, '240°T', 'indexed-logbook fallback should preserve true touchdown wind direction');
+    assert.equal(landingStore.landingCard.wind.speedText, '14 kt', 'indexed-logbook fallback should preserve touchdown wind speed');
+    assert.equal(landingStore.landingCard.wind.crosswindDetailText, 'XW 8 kt from left', 'indexed-logbook fallback should preserve runway-relative crosswind context');
     assert.equal(landingStore.landingCard.touchdown.bounceText, '1x', 'bounce-only timeline handoff should preserve top-level bounce facts');
     assert.equal(landingStore.landingCard.runwayExcursionVisible, true, 'timeline handoff should preserve the separate runway-excursion fact');
     assert(landingStore.landingCard.debrief.reasons.some((reason) => reason.text === 'Short of threshold'), 'timeline handoff should preserve the separate short-landing fact');
@@ -5611,6 +5635,9 @@ async function main() {
       vs_fpm: -520,
       pitch_deg: 3.1,
       centerlineDev: 1.5,
+      wind_dir_deg: 245,
+      wind_speed_kts: 14,
+      xwind_kts: -14,
       thresholdElevFt: 500,
       runway: {
         airport_icao: 'YSSY',
@@ -5643,6 +5670,11 @@ async function main() {
     assert.doesNotMatch(detailState.topdownProfileHtml, /NaN|Infinity/, 'top-down detail SVG should not contain invalid coordinates');
     assert.match(detailState.topdownProfileHtml, /GPS pts: 5\/5/, 'top-down detail SVG should use CSV GPS profile points when available');
     assert.match(detailState.topdownProfileHtml, /RWY hdg: 335\.0/, 'top-down detail SVG should preserve runway heading');
+    assert.match(detailState.topdownProfileHtml, /data-topdown-wind-vector="true"/, 'top-down detail SVG should preserve the CSV touchdown wind vector');
+    assert.match(detailState.topdownProfileHtml, /data-wind-relative-deg="-90(?:\.0+)?"/, 'timeline wind vector should be runway-relative');
+    assert.match(detailState.topdownProfileHtml, /data-wind-side="left"/, 'timeline wind vector should identify wind from the runway left');
+    assert.match(detailState.topdownProfileHtml, /WIND FROM 245°T/, 'timeline wind vector should preserve true wind direction');
+    assert.match(detailState.topdownProfileHtml, /14 kt/, 'timeline wind vector should preserve touchdown wind speed');
   });
 
   console.log('--- settings runtime ---\n');

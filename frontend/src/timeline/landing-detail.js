@@ -1,4 +1,5 @@
 import { buildLandingPresentation } from '../landing/scoring.js';
+import { buildLandingWindPresentation } from '../landing/wind.js';
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
@@ -83,6 +84,9 @@ export function buildLandingDetailSections(event) {
   const sections = [];
   if (!event || event.type !== 'landing') return sections;
   const presentation = buildLandingPresentation(event);
+  const windPresentation = buildLandingWindPresentation(event);
+  const hasCrosswind = [event.xwind_kts, event.xwindKts, event.crosswind]
+    .some((value) => finiteNumber(value) != null);
 
   const snapshotRows = [];
   pushMetricRow(
@@ -116,6 +120,14 @@ export function buildLandingDetailSections(event) {
   pushMetricRow(snapshotRows, 'pitch', 'Pitch', event.pitch_deg != null ? `${event.pitch_deg.toFixed(1)} deg` : null);
   pushMetricRow(snapshotRows, 'bank', 'Bank', event.bank_deg != null ? `${event.bank_deg.toFixed(1)} deg` : null);
   pushMetricRow(snapshotRows, 'heading', 'Heading', event.hdg_true_deg != null ? `${Math.round(event.hdg_true_deg)} deg` : null);
+  pushMetricRow(
+    snapshotRows,
+    'wind',
+    'Wind at touchdown',
+    windPresentation.available
+      ? `${windPresentation.totalText}${hasCrosswind ? ` · ${windPresentation.crosswindDetailText}` : ''}`
+      : null,
+  );
   pushMetricRow(
     snapshotRows,
     'position',
@@ -408,6 +420,10 @@ export function buildLandingTopdownProfileHtml(event, approachProfileApi) {
   const runwayThreshold = touchdownDistance?.runwayThresholdLat != null && touchdownDistance?.runwayThresholdLon != null
     ? { lat: touchdownDistance.runwayThresholdLat, lon: touchdownDistance.runwayThresholdLon }
     : event.runway?.threshold || null;
+  const runwayHeadingTrueDeg = finiteNumber(touchdownDistance?.runwayHeadingTrueDeg)
+    ?? finiteNumber(event.runway?.heading_true_deg)
+    ?? finiteNumber(event.runway?.heading);
+  const wind = buildLandingWindPresentation(event);
 
   const landingForSvg = {
     runwayReferenceElevFt: Number.isFinite(event.runwayReferenceElevFt)
@@ -416,13 +432,14 @@ export function buildLandingTopdownProfileHtml(event, approachProfileApi) {
     thresholdElevFt: Number.isFinite(event.thresholdElevFt)
       ? event.thresholdElevFt
       : (Number.isFinite(event.runwayReferenceElevFt) ? event.runwayReferenceElevFt : null),
-    runwayHdg: Number.isFinite(touchdownDistance?.runwayHeadingTrueDeg)
-      ? touchdownDistance.runwayHeadingTrueDeg
-      : (Number.isFinite(event.runway?.heading) ? event.runway.heading : null),
+    runwayHdg: runwayHeadingTrueDeg,
     runway: event.runway?.runway_id || null,
     runwayThreshold,
     touchdownDistance,
     centerlineDev: Number.isFinite(event.centerlineDev) ? event.centerlineDev : null,
+    windDirectionTrueDeg: wind.directionDeg,
+    windSpeed: wind.speedKts,
+    crosswind: wind.crosswindKts,
   };
 
   return approachProfileApi.buildTopDownSvg(event.approachProfile, landingForSvg, { idSuffix: '-tl-td' });

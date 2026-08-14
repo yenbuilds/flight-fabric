@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
+import AircraftArtwork from './AircraftArtwork.vue';
 import { getAuthorizationScope, sendWs } from '../../../app-shared.js';
 import {
   subscribeLandingReceived,
@@ -891,12 +892,19 @@ function trendStabilityText(row) {
         :style="entryMobileCardVars(entry)"
       >
         <div class="logbook-mobile-card__top">
-          <div>
-            <div class="logbook-mobile-card__date">{{ formatDate(entry.timestamp) }}</div>
-            <div class="logbook-mobile-card__title">{{ shortAircraft(entry.aircraft) }}</div>
-            <div class="logbook-mobile-card__meta">
-              {{ entry.icao || '--' }}
-              <span v-if="entry.runway" style="color:#64748b">{{ entry.runway }}</span>
+          <div class="logbook-aircraft-cell min-w-0">
+            <AircraftArtwork
+              class="logbook-aircraft-thumb"
+              :profile-id="entry.aircraftProfileId || entry.aircraft_profile_id || ''"
+              :aircraft-name="entry.aircraft || ''"
+            />
+            <div class="min-w-0">
+              <div class="logbook-mobile-card__date">{{ formatDate(entry.timestamp) }}</div>
+              <div class="logbook-mobile-card__title">{{ shortAircraft(entry.aircraft) }}</div>
+              <div class="logbook-mobile-card__meta">
+                {{ entry.icao || '--' }}
+                <span v-if="entry.runway" style="color:#64748b">{{ entry.runway }}</span>
+              </div>
             </div>
           </div>
           <div>
@@ -957,13 +965,22 @@ function trendStabilityText(row) {
           >
             <td class="pl-2 pr-3 py-2.5 whitespace-nowrap text-xs text-gray-400 font-mono">{{ formatDate(entry.timestamp) }}</td>
             <td class="px-3 py-2.5 text-xs">
-              <AppTooltip :content="entry.aircraft || ''" :disabled="!entry.aircraft" anchor-class="min-w-0" anchor-tag="div">
-                <div class="text-gray-200">{{ shortAircraft(entry.aircraft) }}</div>
-                <div class="text-[10px] text-gray-500 mt-0.5 font-mono">
-                  {{ entry.icao || '--' }}
-                  <span v-if="entry.runway" class="text-gray-600">{{ entry.runway }}</span>
-                </div>
-              </AppTooltip>
+              <div class="logbook-aircraft-cell">
+                <AircraftArtwork
+                  class="logbook-aircraft-thumb logbook-aircraft-thumb--desktop"
+                  :profile-id="entry.aircraftProfileId || entry.aircraft_profile_id || ''"
+                  :aircraft-name="entry.aircraft || ''"
+                />
+                <AppTooltip :content="entry.aircraft || ''" :disabled="!entry.aircraft" anchor-class="min-w-0 flex-1" anchor-tag="div">
+                  <div class="min-w-0">
+                    <div class="truncate text-gray-200">{{ shortAircraft(entry.aircraft) }}</div>
+                    <div class="mt-0.5 text-[10px] text-gray-500 font-mono">
+                      {{ entry.icao || '--' }}
+                      <span v-if="entry.runway" class="text-gray-600">{{ entry.runway }}</span>
+                    </div>
+                  </div>
+                </AppTooltip>
+              </div>
             </td>
             <td class="px-3 py-2.5 whitespace-nowrap text-xs text-right font-mono font-semibold" :style="{ color: gradeColor(entry.grade) }">
               {{ num(entry.vsFpm) }} fpm

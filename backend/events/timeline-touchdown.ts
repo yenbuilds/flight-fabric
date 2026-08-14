@@ -3,6 +3,7 @@
 const landingDistance = require('../landing/landing-distance');
 const { findRunwayByPosition } = require('../landing/airport-geometry-service');
 const { buildStabilityScoringContext } = require('../stability/stability-policy');
+const { computeCrosswind } = require('../utils/helpers');
 const {
   buildTouchdownRunwayAnalysis,
 } = require('../analysis/flight-analysis') as {
@@ -57,6 +58,11 @@ function buildReplayLandingEvent(input: {
   } = input;
 
   const runway = findRunwayByPosition(eventCoordinates.lat, eventCoordinates.lon, 2, row.hdg_true_deg);
+  const replayCrosswindKts = computeCrosswind(
+    toFiniteNumber(row.wind_speed_kts),
+    toFiniteNumber(row.wind_dir_deg),
+    runway ? toFiniteNumber(runway.heading_true_deg ?? runway.heading) : null,
+  );
 
   let touchdownScore = null;
   let touchdownDistanceFt = null;
@@ -179,7 +185,10 @@ function buildReplayLandingEvent(input: {
     bank_deg: toFiniteNumber(row.bank_deg),
     gs_kts: toFiniteNumber(row.gs_kts),
     wind_speed_kts: toFiniteNumber(row.wind_speed_kts),
-    xwind_kts: null,
+    wind_dir_deg: toFiniteNumber(row.wind_dir_deg),
+    // SAMPLE xwind is aircraft-heading-relative. Recompute against the resolved
+    // runway so the debrief never labels a crab-relative value as a runway component.
+    xwind_kts: replayCrosswindKts,
     grade: computeGradeFromVs(row.vs_fpm),
     centerlineDev: runway ? computeCenterlineDev(row.hdg_true_deg, runway.heading_true_deg ?? runway.heading) : null,
     runway: runway ? {

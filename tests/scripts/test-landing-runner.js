@@ -1851,7 +1851,20 @@ test('landing crosswind is recomputed against true runway heading', () => {
     );
 
     assert.strictEqual(finalEvent.crosswind, 20, 'Expected full 20 kt runway-relative crosswind');
+    assert.strictEqual(finalEvent.windDirectionTrueDeg, 90, 'Expected true wind-from direction at touchdown');
     assert.strictEqual(finalEvent.runwayHdg, 0, 'Expected explicit true runway heading in landing broadcast');
+
+    const leftHalfKnotEvent = finalizeLanding(
+      createWithMockRunway,
+      {
+        simconnect: { lat: 0, lon: 0, hdgTrueDeg: 330, hdgMagDeg: 330 },
+        windSpeed: 8.5,
+        windDir: 270,
+        display: { iasKts: 138, vsFpm: -500, raFt: 4 },
+      },
+      { xwind_kts: -8.5 },
+    );
+    assert.strictEqual(leftHalfKnotEvent.crosswind, -9, 'Expected left half-knot crosswind to round by magnitude');
   });
 });
 

@@ -49,6 +49,37 @@ const ACTIVE_MAPPING_AUTHORITIES = new Set([
   'aircraft-vendor',
 ]);
 const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
+  ['fbw-a380x', {
+    profileKey: 'bundled/msfs/fbw-a380x',
+    verification: 'untested',
+    vendorEvents: [
+      'A32NX.FCU_AP_1_PUSH',
+    ],
+    events: [
+      'AUTO_THROTTLE_DISCONNECT',
+      'AUTO_THROTTLE_ARM',
+      'AP_LOC_HOLD',
+      'AP_APR_HOLD',
+      'AP_SPD_VAR_SET',
+      'HEADING_BUG_SET',
+      'AP_ALT_VAR_SET_ENGLISH',
+      'STROBES_SET',
+      'BEACON_LIGHTS_SET',
+      'NAV_LIGHTS_SET',
+      'LOGO_LIGHTS_SET',
+      'WING_LIGHTS_SET',
+      'LANDING_LIGHTS_SET',
+      'TAXI_LIGHTS_SET',
+      'GEAR_UP',
+      'GEAR_DOWN',
+      'FLAPS_DECR',
+      'FLAPS_INCR',
+      'PARKING_BRAKE_SET',
+      'SPOILERS_ARM_OFF',
+      'SPOILERS_ARM_ON',
+      'SPOILERS_SET',
+    ],
+  }],
   ['inibuilds-a330', {
     profileKey: 'bundled/msfs/inibuilds-a330',
     verification: 'untested',
@@ -90,6 +121,87 @@ const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
       'SPOILERS_ARM_OFF',
       'SPOILERS_ARM_ON',
       'SPOILERS_SET',
+    ],
+  }],
+  ['microsoft-inibuilds-a32x', {
+    profileKeys: [
+      'bundled/msfs/inibuilds-a320neo-v2',
+      'bundled/msfs/inibuilds-a321lr',
+    ],
+    verification: 'untested',
+    events: [
+      'AUTOPILOT_OFF',
+      'AUTOPILOT_ON',
+      'TOGGLE_FLIGHT_DIRECTOR',
+      'AUTO_THROTTLE_ARM',
+      'AP_AIRSPEED_OFF',
+      'AP_AIRSPEED_ON',
+      'AP_HDG_HOLD_OFF',
+      'AP_HDG_HOLD_ON',
+      'AP_ALT_HOLD_OFF',
+      'AP_ALT_HOLD_ON',
+      'AP_VS_OFF',
+      'AP_VS_ON',
+      'AP_NAV1_HOLD_OFF',
+      'AP_NAV1_HOLD_ON',
+      'AP_APR_HOLD_OFF',
+      'AP_APR_HOLD_ON',
+      'AP_SPD_VAR_SET',
+      'HEADING_BUG_SET',
+      'AP_ALT_VAR_SET_ENGLISH',
+      'AP_VS_VAR_SET_ENGLISH',
+      'STROBES_SET',
+      'BEACON_LIGHTS_SET',
+      'NAV_LIGHTS_SET',
+      'LOGO_LIGHTS_SET',
+      'WING_LIGHTS_SET',
+      'LANDING_LIGHTS_SET',
+      'TAXI_LIGHTS_SET',
+      'GEAR_UP',
+      'GEAR_DOWN',
+      'FLAPS_DECR',
+      'FLAPS_INCR',
+      'PARKING_BRAKE_SET',
+    ],
+  }],
+  ['microsoft-737-max-8', {
+    profileKey: 'bundled/msfs/microsoft-737-max-8',
+    verification: 'untested',
+    events: [
+      'AUTOPILOT_OFF',
+      'AUTOPILOT_ON',
+      'TOGGLE_FLIGHT_DIRECTOR',
+      'AUTO_THROTTLE_ARM',
+      'AP_AIRSPEED_OFF',
+      'AP_AIRSPEED_ON',
+      'AP_HDG_HOLD_OFF',
+      'AP_HDG_HOLD_ON',
+      'AP_ALT_HOLD_OFF',
+      'AP_ALT_HOLD_ON',
+      'AP_VS_OFF',
+      'AP_VS_ON',
+      'AP_NAV1_HOLD_OFF',
+      'AP_NAV1_HOLD_ON',
+      'AP_APR_HOLD_OFF',
+      'AP_APR_HOLD_ON',
+      'FLIGHT_LEVEL_CHANGE_OFF',
+      'FLIGHT_LEVEL_CHANGE_ON',
+      'AP_SPD_VAR_SET',
+      'HEADING_BUG_SET',
+      'AP_ALT_VAR_SET_ENGLISH',
+      'AP_VS_VAR_SET_ENGLISH',
+      'STROBES_SET',
+      'BEACON_LIGHTS_SET',
+      'NAV_LIGHTS_SET',
+      'LOGO_LIGHTS_SET',
+      'WING_LIGHTS_SET',
+      'LANDING_LIGHTS_SET',
+      'TAXI_LIGHTS_SET',
+      'GEAR_UP',
+      'GEAR_DOWN',
+      'FLAPS_DECR',
+      'FLAPS_INCR',
+      'PARKING_BRAKE_SET',
     ],
   }],
 ]);
@@ -333,8 +445,12 @@ function validateTrustedAdapterEvidence(failures) {
       }
 
       const exactStandardContract = EXACT_STANDARD_EVENT_CONTRACTS.get(integration.id);
-      if (exactStandardContract && profileKey === exactStandardContract.profileKey) {
-        const expectedEvents = [...exactStandardContract.events].sort();
+      const exactStandardProfileKeys = exactStandardContract?.profileKeys
+        || [exactStandardContract?.profileKey].filter(Boolean);
+      if (exactStandardContract && exactStandardProfileKeys.includes(profileKey)) {
+        const standardEvents = [...exactStandardContract.events].sort();
+        const vendorEvents = [...(exactStandardContract.vendorEvents || [])].sort();
+        const expectedEvents = [...standardEvents, ...vendorEvents].sort();
         const activeEvents = [...new Set(actionRoutes.flatMap(collectAdapterRouteTokens))].sort();
         if (JSON.stringify(activeEvents) !== JSON.stringify(expectedEvents)) {
           failures.push(`${integration.id} (${profileKey}): standard-event contract drifted; expected ${expectedEvents.length} exact events, got ${activeEvents.length}`);
@@ -343,9 +459,18 @@ function validateTrustedAdapterEvidence(failures) {
         const officialSdkEvidenceText = JSON.stringify(sources.filter((source) => (
           source.type === 'official-sdk' && source.authority === 'simulator-vendor'
         )));
-        for (const eventName of expectedEvents) {
+        for (const eventName of standardEvents) {
           if (!sourceCoversName(officialSdkEvidenceText, eventName)) {
             failures.push(`${integration.id} (${profileKey}): standard event lacks Microsoft SDK active-mapping evidence: ${eventName}`);
+          }
+        }
+
+        const aircraftVendorEvidenceText = JSON.stringify(sources.filter((source) => (
+          source.authority === 'aircraft-vendor'
+        )));
+        for (const eventName of vendorEvents) {
+          if (!sourceCoversName(aircraftVendorEvidenceText, eventName)) {
+            failures.push(`${integration.id} (${profileKey}): vendor event lacks aircraft-vendor active-mapping evidence: ${eventName}`);
           }
         }
 

@@ -1,4 +1,5 @@
 import { buildLandingPresentation } from './scoring.js';
+import { buildLandingWindPresentation } from './wind.js';
 
 /**
  * Approach profile renderer
@@ -268,6 +269,12 @@ function escapeSvgText(value) {
 
 function sanitizeSvgIdSuffix(value) {
   return String(value || '').replace(/[^A-Za-z0-9_-]/g, '');
+}
+
+function normalizeSignedDegrees(value) {
+  if (!Number.isFinite(value)) return null;
+  const normalized = (((value + 180) % 360) + 360) % 360 - 180;
+  return Object.is(normalized, -0) ? 0 : normalized;
 }
 
 function safeSvgColor(value, fallback = COLORS.neutral) {
@@ -623,6 +630,9 @@ function buildSvg(profile, landing, opts) {
  * @param {string} [landing.touchdownDistance.lateralOffsetSide]
  * @param {string} [landing.touchdownDistance.lateralOffsetGrade]
  * @param {number} [landing.centerlineDev] - Heading deviation at touchdown (deg).
+ * @param {number} [landing.windDirectionTrueDeg] - Meteorological wind-from bearing, degrees true.
+ * @param {number} [landing.windSpeed] - Wind speed at touchdown, knots.
+ * @param {number} [landing.crosswind] - Runway-relative crosswind; positive is from the right.
  * @param {object} [opts]
  * @param {string} [opts.idSuffix] - SVG ID suffix for multiple instances.
  * @returns {string} SVG markup or '' if insufficient data.
@@ -650,6 +660,14 @@ function buildTopDownSvg(profile, landing, opts) {
   const hasHeading = profile.some(p =>
     typeof p.headingDeg === 'number' && Number.isFinite(p.headingDeg)
   );
+
+  // The flight-path renderer may estimate a runway axis from the runway ID or
+  // the aircraft's final heading. A true-wind vector must not use either
+  // fallback: mixing a true bearing with a magnetic designator (or an
+  // aircraft heading) can put the arrow on the wrong side of the runway.
+  const explicitRunwayHeadingTrueDeg = Number.isFinite(ld.runwayHdg)
+    ? ((ld.runwayHdg % 360) + 360) % 360
+    : null;
 
   // Runway heading: prefer explicit, else derive from runway ID, else use last heading
   let rwyHdg = null;
@@ -949,6 +967,28 @@ function buildTopDownSvg(profile, landing, opts) {
 
   const yScale = (dev) => centerY - dev * lateralScale;
 
+  // Build the wind presentation only from validated numeric values. If a
+  // stored crosswind component is unavailable, direction + speed + the true
+  // runway heading contain enough information to derive it honestly.
+  const baseWind = buildLandingWindPresentation(ld);
+  const windRelativeFromDeg = explicitRunwayHeadingTrueDeg != null && baseWind.directionDeg != null
+    ? normalizeSignedDegrees(baseWind.directionDeg - explicitRunwayHeadingTrueDeg)
+    : null;
+  const derivedCrosswindKts = baseWind.crosswindKts == null
+    && baseWind.speedKts != null
+    && windRelativeFromDeg != null
+    ? baseWind.speedKts * Math.sin(windRelativeFromDeg * Math.PI / 180)
+    : null;
+  const wind = buildLandingWindPresentation({
+    ...ld,
+    crosswind: baseWind.crosswindKts ?? derivedCrosswindKts,
+  });
+  const showDirectionalWindVector = windRelativeFromDeg != null
+    && wind.directionDeg != null
+    && wind.speedKts != null
+    && wind.speedKts >= 0.5;
+  const showCalmWind = wind.calm && wind.speedKts != null;
+
   // --- Build SVG ---
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="w-full" style="max-height: 260px;">`;
 
@@ -1091,6 +1131,51 @@ function buildTopDownSvg(profile, landing, opts) {
   // --- Runway label ---
   if (ld.runway) {
     svg += `<text x="${rwyEndX - 4}" y="${centerY + rwyHalfWidth + 14}" text-anchor="end" fill="#64748b" font-size="9" font-family="system-ui, sans-serif">RWY ${escapeSvgText(ld.runway)}</text>`;
+  }
+
+  // --- Wind at touchdown (runway-relative inset) ---
+  // The chart's runway axis always points right. Wind direction is a
+  // meteorological FROM bearing, but the arrowhead shows the direction the air
+  // is actually moving. The airflow arrow is therefore 180 degrees opposite
+  // the source bearing: wind from the right flows upward across the chart,
+  // while wind from the left flows downward.
+  if (showDirectionalWindVector || showCalmWind) {
+    const windBoxX = 24;
+    const windBoxY = 30;
+    const windBoxW = 246;
+    const windBoxH = 68;
+    const windArrowCx = 62;
+    const windArrowCy = 62;
+    const windTextX = 101;
+    const windAriaLabel = escapeSvgText(wind.ariaLabel);
+
+    svg += `<g data-topdown-wind-overlay="true" role="img" aria-label="${windAriaLabel}">`;
+    svg += `<rect x="${windBoxX}" y="${windBoxY}" width="${windBoxW}" height="${windBoxH}" rx="8" fill="#07111f" fill-opacity="0.92" stroke="#164e63" stroke-width="1" />`;
+
+    if (showDirectionalWindVector) {
+      const relativeDeg = windRelativeFromDeg.toFixed(1);
+      const windFlowRelativeDeg = normalizeSignedDegrees(windRelativeFromDeg + 180);
+      const flowRelativeDeg = windFlowRelativeDeg.toFixed(1);
+      const absoluteRelativeDeg = Math.abs(windRelativeFromDeg);
+      const windSide = absoluteRelativeDeg < 0.05
+        ? 'headwind'
+        : Math.abs(absoluteRelativeDeg - 180) < 0.05
+          ? 'tailwind'
+          : windRelativeFromDeg < 0 ? 'left' : 'right';
+
+      // Subtle runway-reference axis behind the airflow arrow.
+      svg += `<line x1="38" y1="${windArrowCy}" x2="86" y2="${windArrowCy}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" />`;
+      svg += `<g data-topdown-wind-vector="true" data-wind-relative-deg="${relativeDeg}" data-wind-flow-relative-deg="${flowRelativeDeg}" data-wind-side="${windSide}" transform="rotate(${flowRelativeDeg} ${windArrowCx} ${windArrowCy})">`;
+      svg += `<line x1="39" y1="${windArrowCy}" x2="78" y2="${windArrowCy}" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" />`;
+      svg += `<polygon points="86,${windArrowCy} 75,${windArrowCy - 7} 75,${windArrowCy + 7}" fill="#2dd4bf" />`;
+      svg += `</g>`;
+      svg += `<text x="${windTextX}" y="55" fill="#99f6e4" font-size="10" font-weight="700" font-family="system-ui, sans-serif">WIND FROM ${escapeSvgText(wind.directionText)}</text>`;
+      svg += `<text x="${windTextX}" y="74" fill="#e2e8f0" font-size="11" font-weight="600" font-family="system-ui, sans-serif">${escapeSvgText(wind.speedText)} · ${escapeSvgText(wind.crosswindDetailText)}</text>`;
+    } else {
+      svg += `<text x="${windBoxX + 16}" y="58" fill="#99f6e4" font-size="11" font-weight="700" font-family="system-ui, sans-serif">WIND CALM</text>`;
+      svg += `<text x="${windBoxX + 16}" y="78" fill="#cbd5e1" font-size="10" font-family="system-ui, sans-serif">${escapeSvgText(wind.speedText)} at touchdown</text>`;
+    }
+    svg += `</g>`;
   }
 
   // --- Diagnostic overlay (top-right) ---

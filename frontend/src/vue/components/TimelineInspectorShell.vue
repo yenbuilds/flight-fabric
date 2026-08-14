@@ -1,12 +1,18 @@
 <script setup>
+import { computed } from 'vue';
+import AircraftArtwork from './AircraftArtwork.vue';
 import { useTimelineStore } from '../stores/timeline.js';
 
 const timeline = useTimelineStore();
+const timelineAircraftName = computed(() => {
+  const label = String(timeline.loadedTimelineAircraftLabel || '').trim();
+  return /^(?:unknown|n\/?a|--?)$/i.test(label) ? '' : label;
+});
 </script>
 
 <template>
   <div>
-    <div class="timeline-card-header p-3 sm:p-4 border-b border-surface-200">
+    <div class="timeline-card-header flex items-center justify-between gap-3 p-3 sm:p-4 border-b border-surface-200">
       <div class="flex items-center gap-2 sm:gap-3">
         <svg class="w-4 h-4 sm:w-5 sm:h-5 text-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -21,8 +27,17 @@ const timeline = useTimelineStore();
           >
             {{ timeline.inspectorRouteText }}
           </div>
+          <div v-if="timelineAircraftName" class="mt-0.5 max-w-[24rem] truncate text-[10px] text-gray-500">
+            {{ timelineAircraftName }}
+          </div>
         </div>
       </div>
+      <AircraftArtwork
+        v-if="timelineAircraftName"
+        class="timeline-inspector-aircraft-art"
+        :profile-id="timeline.loadedTimelineAircraftProfileId"
+        :aircraft-name="timelineAircraftName"
+      />
     </div>
 
     <div id="timeline-events" class="relative h-96 overflow-y-auto px-4 py-2">
@@ -80,6 +95,13 @@ const timeline = useTimelineStore();
                 <span v-if="row.countText" class="timeline-count-badge">{{ row.countText }}</span>
               </div>
               <div v-if="row.subtitle" class="timeline-event-subtitle">{{ row.subtitle }}</div>
+              <div
+                v-if="row.showEndpointDateTime && (row.localDateTimeText || row.utcDateTimeText)"
+                class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0 text-[10px] font-mono text-gray-500"
+              >
+                <span v-if="row.localDateTimeText">LT {{ row.localDateTimeText }}</span>
+                <span v-if="row.utcDateTimeText">UTC {{ row.utcDateTimeText }}</span>
+              </div>
             </div>
           </div>
         </button>

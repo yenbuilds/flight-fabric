@@ -166,9 +166,65 @@ test('Fenix A32x matchers reject traffic and passive-aircraft identities', () =>
   }
 });
 
+test('detects FlyByWire A380X from vendor-qualified titles and documented package paths', () => {
+  const cases = [
+    ['FlyByWire A380X', undefined],
+    ['FBW A380X', undefined],
+    ['FlyByWire A380X (A380-842)', undefined],
+    ['FlyByWire A380X (A380-842) No Cabin', undefined],
+    [
+      'Unknown repaint',
+      'Community/flybywire-aircraft-a380-842/SimObjects/Airplanes/FlyByWire_A380_842/aircraft.cfg',
+    ],
+    [
+      'Unknown repaint',
+      'Community/fbw-a380x/SimObjects/Airplanes/FlyByWire_A380_842/aircraft.cfg',
+    ],
+    [
+      'Unknown repaint',
+      'SimObjects/Airplanes/FlyByWire_A380X/presets/flybywire/FlyByWire_A380_842_NoCabin/config/aircraft.cfg',
+    ],
+  ];
+  for (const [title, hint] of cases) {
+    const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
+    assertEqual(profile.id, 'fbw-a380x', `${title} profile ID`);
+  }
+});
+
+test('FlyByWire A380X matcher rejects bare, generic, competing-vendor, traffic, and conflicting-path identities', () => {
+  const cases = [
+    ['A380X', undefined],
+    ['Airbus A380X', undefined],
+    ['Generic A380X', undefined],
+    ['Headwind A380X', undefined],
+    ['iniBuilds Airbus A380X', undefined],
+    ['SomeVendor FlyByWire A380X', undefined],
+    ['FlyByWire A380X SomeVendor', undefined],
+    ['FSLTL FlyByWire A380X', undefined],
+    [
+      'FlyByWire A380X',
+      'Community/headwind-aircraft-a380x/SimObjects/Airplanes/Headwind_A380X/aircraft.cfg',
+    ],
+    [
+      'Unknown repaint',
+      'Community/generic-aircraft-a380x/SimObjects/Airplanes/A380X/aircraft.cfg',
+    ],
+    [
+      'Unknown repaint',
+      'Community/somevendor/SimObjects/Airplanes/FlyByWire_A380X_Copy/aircraft.cfg',
+    ],
+  ];
+  for (const [title, hint] of cases) {
+    const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
+    assertNotEqual(profile.id, 'fbw-a380x', `${title} profile ID`);
+  }
+});
+
 test('detects the Microsoft / iniBuilds A320neo V2 and A321LR from documented identity and package paths', () => {
   const cases = [
     ['Airbus A320neo (v2) - Microsoft / iniBuilds', undefined, 'inibuilds-a320neo-v2'],
+    ['Microsoft / iniBuilds Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+    ['iniBuilds Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
     ['Airbus A321LR - Microsoft / iniBuilds', undefined, 'inibuilds-a321lr'],
     [
       'Unknown repaint',
@@ -190,6 +246,19 @@ test('detects the Microsoft / iniBuilds A320neo V2 and A321LR from documented id
 test('Microsoft / iniBuilds A32x matchers do not misclassify legacy, Fenix, FBW, LatinVFR, or sibling variants', () => {
   const cases = [
     ['Fenix A320neo', undefined, 'inibuilds-a320neo-v2'],
+    ['Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+    ['Airbus A320neo (v2)', undefined, 'inibuilds-a320neo-v2'],
+    ['Fenix Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+    ['FlyByWire Airbus A320neo (v2)', undefined, 'inibuilds-a320neo-v2'],
+    ['LatinVFR Airbus A320neo V2', undefined, 'inibuilds-a320neo-v2'],
+    ['SomeVendor Airbus A320neo V2 - Microsoft / iniBuilds', undefined, 'inibuilds-a320neo-v2'],
+    ['Airbus A320neo V2 - Microsoft / iniBuilds SomeVendor', undefined, 'inibuilds-a320neo-v2'],
+    ['FSLTL Airbus A320neo V2 - Microsoft / iniBuilds', undefined, 'inibuilds-a320neo-v2'],
+    [
+      'Airbus A320neo (v2) - Microsoft / iniBuilds',
+      'Community/fenix-aircraft-a320/SimObjects/Airplanes/Fenix_A320/aircraft.cfg',
+      'inibuilds-a320neo-v2',
+    ],
     [
       'Airbus A320neo',
       'Community/flybywire-aircraft-a320-neo/SimObjects/Airplanes/FlyByWire_A320_NEO/aircraft.cfg',
@@ -439,11 +508,17 @@ test('detects MSFS 2024 included 737 MAX 8 separately from iFly and PMDG', () =>
   assertNotEqual(profile.id, 'pmdg-737', 'profile ID');
 });
 
-test('detects the included 737 MAX 8 from Microsoft/Asobo title and package variants', () => {
+test('detects the included 737 MAX 8 from Microsoft/Asobo titles and narrowly supported path variants', () => {
   const cases = [
+    ['Boeing 737 MAX 8', undefined],
     ['Asobo_B737_MAX8', undefined],
     ['Microsoft Boeing 737 MAX 8', undefined],
+    ['Asobo Studio Boeing 737 MAX 8', undefined],
+    ['Microsoft / Asobo Studio Boeing 737 MAX 8', undefined],
     ['Unknown repaint', 'Official/OneStore/asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
+    ['Unknown repaint', 'Official/StreamedPackages/fs24-asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
+    ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX8/aircraft.cfg'],
+    ['Unknown repaint', 'SimObjects\\Airplanes\\Asobo_B737_MAX8\\aircraft.cfg'],
   ];
   for (const [title, hint] of cases) {
     const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
@@ -451,9 +526,26 @@ test('detects the included 737 MAX 8 from Microsoft/Asobo title and package vari
   }
 });
 
-test('does not confuse a generic Boeing 737-800 with the Microsoft 737 MAX 8', () => {
-  const profile = profileLoader.detectProfile('Boeing 737-800');
-  assertNotEqual(profile.id, 'microsoft-737-max-8', 'profile ID');
+test('Microsoft 737 MAX 8 matcher rejects ambiguous, adjacent, prefixed, and suffixed titles', () => {
+  const cases = [
+    ['B38M', undefined],
+    ['737 8', undefined],
+    ['Boeing 737-800', undefined],
+    ['Generic Boeing 737 MAX 8', undefined],
+    ['SomeVendor Boeing 737 MAX 8', undefined],
+    ['SomeVendor Boeing 737 MAX 8', 'Official/OneStore/asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
+    ['Boeing 737 MAX 8 Traffic', undefined],
+    ['Boeing 737 MAX 8 BBJ', undefined],
+    ['Boeing 737 MAX 8', 'Community/asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
+    ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX80/aircraft.cfg'],
+    ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX9/aircraft.cfg'],
+    ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX8_Traffic/aircraft.cfg'],
+    ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX8_BBJ/aircraft.cfg'],
+  ];
+  for (const [title, hint] of cases) {
+    const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
+    assertNotEqual(profile.id, 'microsoft-737-max-8', `${title} profile ID`);
+  }
 });
 
 test('Microsoft 737 MAX 8 matcher vetoes explicit third-party and traffic identities', () => {
@@ -464,6 +556,9 @@ test('Microsoft 737 MAX 8 matcher vetoes explicit third-party and traffic identi
     ['iFly Boeing 737 MAX 8', undefined],
     ['Unknown repaint', 'Community/bredok3d-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
     ['Unknown traffic', 'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_B38M/aircraft.cfg'],
+    ['Unknown traffic', 'Official/StreamedPackages/fs24-asobo-passiveaircraft-b737family/SimObjects/Airplanes/Passive_B737_MAX8/aircraft.cfg'],
+    ['Unknown repaint', 'Official/OneStore/asobo-aircraft-b737-max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
+    ['Unknown repaint', 'Official/OneStore/microsoft-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
   ];
   for (const [title, hint] of cases) {
     const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);

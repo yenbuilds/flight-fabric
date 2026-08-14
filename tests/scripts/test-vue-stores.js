@@ -113,7 +113,8 @@ async function main() {
     getStabilityMetricPresentation,
   } = await import(toFrontendUrl('src', 'landing', 'stability-context.js'));
   const { buildDebriefReasons } = await import(toFrontendUrl('src', 'landing', 'debrief-insights.js'));
-  const { buildTimelineEventRowState } = await import(toFrontendUrl('src', 'timeline', 'events.js'));
+  const { buildLandingWindPresentation } = await import(toFrontendUrl('src', 'landing', 'wind.js'));
+  const { buildTimelineEventRows, buildTimelineEventRowState } = await import(toFrontendUrl('src', 'timeline', 'events.js'));
   const { buildTimelineEventDetailState } = await import(toFrontendUrl('src', 'timeline', 'detail-state.js'));
   const { buildLandingDetailSections } = await import(toFrontendUrl('src', 'timeline', 'landing-detail.js'));
   const {
@@ -789,6 +790,40 @@ async function main() {
 
     assert.match(row.subtitle, /peak -1357 fpm/, 'high-sink row should show the episode peak');
     assert.match(row.subtitle, /6\.6s/, 'high-sink row should show the episode duration');
+  });
+
+  await test('timeline rows show persisted simulator clocks only on the first and last dots', () => {
+    const rows = buildTimelineEventRows([
+      {
+        type: 'phase_start',
+        timestampMs: 1000,
+        newPhase: 'TAXI',
+        simDateTimeLocal: '2026-07-31T14:48:05',
+        simDateTimeUtc: '2026-07-31T13:48:05Z',
+      },
+      {
+        type: 'phase_start',
+        timestampMs: 2000,
+        newPhase: 'CRUISE',
+        simDateTimeLocal: '2026-07-31T15:30:00',
+        simDateTimeUtc: '2026-07-31T14:30:00Z',
+      },
+      {
+        type: 'phase_start',
+        timestampMs: 3000,
+        newPhase: 'PARKED',
+        simDateTimeLocal: '2026-07-31T16:13:29',
+        simDateTimeUtc: '2026-07-31T15:13:29Z',
+      },
+    ], { startMs: 1000 });
+
+    assert.equal(rows[0].showEndpointDateTime, true);
+    assert.equal(rows[0].localDateTimeText, '2026-07-31 14:48');
+    assert.equal(rows[0].utcDateTimeText, '2026-07-31 13:48');
+    assert.equal(rows[1].showEndpointDateTime, false, 'middle dots should remain compact');
+    assert.equal(rows[2].showEndpointDateTime, true);
+    assert.equal(rows[2].localDateTimeText, '2026-07-31 16:13');
+    assert.equal(rows[2].utcDateTimeText, '2026-07-31 15:13');
   });
 
   await test('path-rate proxy timeline labels avoid positional glidepath claims', () => {
@@ -1733,6 +1768,70 @@ async function main() {
       /Actual 5,300.*Factored 6,100/,
       'landing analysis should retain the selected report distances',
     );
+  });
+
+  await test('landing wind presentation is explicit, normalized, and honest about missing data', () => {
+    const normal = buildLandingWindPresentation({
+      windDirectionTrueDeg: 240,
+      windSpeed: 14.2,
+      crosswind: -8.1,
+    });
+    assert.equal(normal.directionText, '240°T', 'wind direction should be zero-padded and explicitly true');
+    assert.equal(normal.speedText, '14 kt', 'touchdown wind speed should be rounded to knots');
+    assert.equal(normal.cardinalText, 'WSW', 'wind direction should include a familiar compass point');
+    assert.equal(normal.crosswindDetailText, 'XW 8 kt from left', 'crosswind should retain its runway-relative source side');
+    assert.equal(normal.arrowRotationDeg, 240, 'north-up compass arrow should rotate to the wind-from bearing');
+    assert.match(normal.ariaLabel, /from 240 degrees true.*14 knots.*from left/, 'wind context should have a complete accessible label');
+
+    const reportedLanding = buildLandingWindPresentation({
+      windDirectionTrueDeg: 40,
+      windSpeed: 7.4,
+      crosswind: -5.3,
+    });
+    assert.equal(reportedLanding.crosswindText, '5 kt L', 'reported LFPG landing should retain its left runway component');
+    assert.equal(reportedLanding.totalText, 'FROM 040°T · 7 kt', 'reported LFPG landing detail should retain its recorded direction and speed');
+
+    const halfKnotCrosswinds = [
+      buildLandingWindPresentation({ crosswind: -8.5 }),
+      buildLandingWindPresentation({ crosswind: 8.5 }),
+    ];
+    assert.equal(halfKnotCrosswinds[0].crosswindDetailText, 'XW 9 kt from left', 'left half-knots should round by magnitude');
+    assert.equal(halfKnotCrosswinds[1].crosswindDetailText, 'XW 9 kt from right', 'right half-knots should round symmetrically');
+
+    const north = buildLandingWindPresentation({ wind_dir_deg: 360, wind_speed_kts: 7 });
+    assert.equal(north.directionText, '360°T', 'north wind should use the conventional aviation 360-degree display');
+    assert.equal(north.arrowRotationDeg, 0, '360 degrees should normalize to north for the compass arrow');
+
+    const wrapped = buildLandingWindPresentation({ windDirectionDeg: -10, windSpeed: 11 });
+    assert.equal(wrapped.directionText, '350°T', 'negative source bearings should wrap into the compass range');
+
+    const calm = buildLandingWindPresentation({ windDirectionTrueDeg: 120, windSpeed: 0.2, crosswind: 0 });
+    assert.equal(calm.directionText, 'CALM', 'near-zero wind should be labelled calm');
+    assert.equal(calm.arrowVisible, false, 'calm wind should not imply a meaningful source direction');
+    assert.equal(calm.crosswindDetailText, 'No crosswind', 'calm wind should not be labelled as from the right');
+
+    const speedOnly = buildLandingWindPresentation({ wind_speed_kts: 14 });
+    assert.equal(speedOnly.available, true, 'legacy records with only speed should still show useful wind context');
+    assert.equal(speedOnly.totalText, 'Direction unavailable · 14 kt');
+    assert.equal(speedOnly.arrowVisible, false, 'missing direction should not manufacture an arrow');
+
+    const crosswindOnly = buildLandingWindPresentation({ xwindKts: -8 });
+    assert.equal(crosswindOnly.available, true, 'indexed records with only crosswind should retain their useful wind context');
+    assert.equal(crosswindOnly.totalText, 'From left', 'crosswind-only records should retain the legacy source-side summary');
+    assert.equal(crosswindOnly.crosswindDetailText, 'XW 8 kt from left');
+    assert.match(crosswindOnly.ariaLabel, /crosswind 8 knots from left/, 'accessible copy should spell out crosswind and units');
+    assert.equal(buildLandingWindPresentation().available, false, 'the wind band should hide when every wind fact is absent');
+
+    const detailSections = buildLandingDetailSections({
+      type: 'landing',
+      wind_dir_deg: 240,
+      wind_speed_kts: 14,
+      xwind_kts: -8,
+    });
+    const windRow = detailSections
+      .find((section) => section.key === 'landing-snapshot')
+      ?.rows.find((row) => row.key === 'wind');
+    assert.equal(windRow?.value, 'FROM 240°T · 14 kt · XW 8 kt from left', 'timeline detail should retain absolute and runway-relative wind context');
   });
 
   await test('simbrief store restores cached plans and delegates fetch and relay work through runtime-bound actions', async () => {
@@ -2727,6 +2826,7 @@ async function main() {
       gsKts: 142,
       crosswind: -8,
       windSpeed: 12,
+      windDirectionTrueDeg: 240,
       approachType: 'ILS',
       pitchDeg: 3.1,
       bankDeg: -1.4,
@@ -2826,7 +2926,10 @@ async function main() {
     assert.equal(landing.landingCard.approach.speedText, '136 kt', 'speed label should be stored');
     assert.equal(landing.landingCard.approach.gsText, 'GS: 142', 'ground-speed label should be stored');
     assert.equal(landing.landingCard.approach.crosswindText, '8 kt L', 'crosswind label should be direction-aware');
-    assert.equal(landing.landingCard.approach.windTotalText, 'From left - 12 kt total', 'wind summary should be stored');
+    assert.equal(landing.landingCard.approach.windTotalText, 'FROM 240°T · 12 kt', 'wind summary should include absolute direction and speed');
+    assert.equal(landing.landingCard.wind.directionText, '240°T', 'landing summary should retain the true wind direction');
+    assert.equal(landing.landingCard.wind.speedText, '12 kt', 'landing summary should retain touchdown wind speed');
+    assert.equal(landing.landingCard.wind.crosswindDetailText, 'XW 8 kt from left', 'landing summary should explain crosswind direction in words');
     assert.equal(landing.landingCard.attitude.pitchText, '+3.1 deg', 'pitch label should be formatted');
     assert.equal(landing.landingCard.attitude.bankText, '1.4 deg L', 'bank label should be formatted');
     assert.equal(landing.landingCard.attitude.centerlineText, 'ALIGNED', 'tiny heading deviations should collapse to ALIGNED');
@@ -3890,7 +3993,16 @@ async function main() {
       filePath: 'C:/Flights/F2.csv',
       flightId: 'F2',
       route: 'YSSY-KJFK',
+      aircraft: 'Standard Cabin',
+      aircraftProfileId: 'inibuilds-tristar',
+      startTime: '2026-08-14T07:05:00.000Z',
+      simDateTimeLocal: '2026-08-13T19:24:36',
+      simDateTimeUtc: '2026-08-13T09:24:36Z',
     });
+    assert.equal(store.loadedTimelineSimDateTimeLocal, '2026-08-13T19:24:36', 'loaded identity should retain simulator-local flight time');
+    assert.equal(store.loadedTimelineSimDateTimeUtc, '2026-08-13T09:24:36Z', 'loaded identity should retain simulator UTC flight time');
+    assert.equal(store.loadedTimelineRecordingStartTime, '2026-08-14T07:05:00.000Z', 'loaded identity should retain the recording start time');
+    assert.equal(store.loadedTimelineAircraftProfileId, 'inibuilds-tristar', 'loaded identity should retain the recorded aircraft profile id');
     assert.equal(store.refreshTimelinePage(), true, 'page refresh should request the flight list and reload the open timeline');
     assert.deepEqual(sent.shift(), {
       type: 'requestTimelineList',
@@ -4089,6 +4201,20 @@ async function main() {
     assert.equal(store.inspectorSelectedRowKey, 'landing-row', 'selectEventRow should track the active row key');
     assert.deepEqual(selectedRows, ['landing-row'], 'selectEventRow should call the registered inspector selection handler');
 
+    store.setInspectorState({
+      rows: [
+        { rowKey: 'phase-row', event: { type: 'phase_start' } },
+        { rowKey: 'first-landing-row', event: { type: 'landing' } },
+        { rowKey: 'taxi-row', event: { type: 'phase_start' } },
+        { rowKey: 'latest-landing-row', event: { type: 'landing' } },
+      ],
+      emptyVisible: false,
+    });
+    assert.equal(store.latestLandingInspectorRow?.rowKey, 'latest-landing-row', 'landing shortcut should target the most recent landing in the full inspector list');
+    assert.equal(store.selectLatestLandingRow(), true, 'landing shortcut should reuse normal inspector row selection');
+    assert.equal(store.inspectorSelectedRowKey, 'latest-landing-row', 'landing shortcut should select the landing row');
+    assert.deepEqual(selectedRows, ['landing-row', 'latest-landing-row'], 'landing shortcut should call the same inspector selection handler as a timeline row click');
+
     store.setDetail({
       visible: true,
       type: 'Landing',
@@ -4119,6 +4245,7 @@ async function main() {
     assert.equal(store.inspectorEventListVisible, false, 'clearInspector should remove timeline rows from the store');
     assert.equal(store.inspectorEmptyVisible, true, 'clearInspector should restore the empty inspector state');
     assert.equal(store.inspectorEmptyMessage, 'No timeline loaded', 'clearInspector should restore the default empty copy');
+    assert.equal(store.selectLatestLandingRow(), false, 'landing shortcut should be unavailable without a landing row');
   });
 
   await test('timeline store shares one monotonic request sequence across replay entry points', () => {
@@ -4458,6 +4585,10 @@ async function main() {
       flightId: 'OLD',
       route: 'EGLL-LFPG',
       aircraft: 'Airbus A320',
+      aircraftProfileId: 'fbw-a32nx',
+      startTime: '2026-01-03T02:45:00.000Z',
+      simDateTimeLocal: '2026-01-02T15:30:00',
+      simDateTimeUtc: '2026-01-02T14:30:00Z',
     });
     store.setSummary({
       visible: true,
@@ -4502,12 +4633,16 @@ async function main() {
     assert.equal(store.timelineLoadingFlightKey, 'new-flight.csv', 'loading state should track the requested flight');
     assert.equal(store.loadedTimelineFlightLabel, '', 'loading a new flight should clear the old loaded title');
     assert.equal(store.loadedTimelineAircraftLabel, '', 'loading a new flight should clear the old aircraft type');
+    assert.equal(store.loadedTimelineAircraftProfileId, '', 'loading a new flight should clear the old aircraft profile id');
+    assert.equal(store.loadedTimelineRecordingStartTime, '', 'loading a new flight should clear the old recording start time');
+    assert.equal(store.loadedTimelineSimDateTimeLocal, '', 'loading a new flight should clear the old simulator-local datetime');
+    assert.equal(store.loadedTimelineSimDateTimeUtc, '', 'loading a new flight should clear the old simulator UTC datetime');
     assert.equal(store.summaryVisible, false, 'loading a new flight should hide the previous summary');
     assert.equal(store.detailVisible, false, 'loading a new flight should hide the previous detail panel');
     assert.equal(store.inspectorEventListVisible, false, 'loading a new flight should clear stale inspector rows');
     assert.equal(store.inspectorEmptyVisible, true, 'loading a new flight should show an inspector placeholder');
     assert.equal(store.inspectorEmptyMessage, 'Loading timeline replay...', 'loading copy should be explicit in the inspector');
-    assert.equal(store.inspectorFlightIdText, 'Opening YSSY-KJFK', 'inspector header should name the requested flight');
+    assert.equal(store.inspectorFlightIdText, 'Opening timeline...', 'inspector header should not repeat the requested route');
     assert.equal(store.scrubberVisible, false, 'loading a new flight should hide the previous scrubber');
     assert.equal(store.altitudeProfileVisible, false, 'loading a new flight should hide the previous altitude profile');
     assert.equal(store.mapEmptyVisible, true, 'loading a new flight should show the replay placeholder');

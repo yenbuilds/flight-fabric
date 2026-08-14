@@ -302,6 +302,9 @@ function buildFixtureTimeline() {
         grade: 'PERFECT',
         pitch_deg: 2.1,
         hdg_true_deg: 44,
+        wind_dir_deg: 240,
+        wind_speed_kts: 14,
+        xwind_kts: -8,
         runway: {
           airport_icao: 'KBOS',
           runway_id: '27',

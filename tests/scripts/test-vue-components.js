@@ -384,6 +384,103 @@ async function main() {
     assert.equal(calls.length, 1, 'an invalid A330 target must not dispatch');
   });
 
+  await test('FlyByWire A380X typed altitude dispatches one bounded exact target', async () => {
+    const calls = [];
+    const config = {
+      actionId: 'flightGuidance.altitude.set',
+      fieldId: 'flightGuidance.altitudeFt',
+      min: 0,
+      max: 49000,
+      step: 100,
+    };
+
+    assert.equal(submitMcpDraft({
+      config,
+      disabled: false,
+      groupId: 'flightGuidance.altitude',
+      rawValue: '49000',
+      requestAction: (...args) => {
+        calls.push(args);
+        return true;
+      },
+    }), true, 'the documented upper altitude target should dispatch');
+    assert.deepEqual(
+      calls,
+      [['flightGuidance.altitude.set', 'flightGuidance.altitude', 49000]],
+      'A380X typed altitude must retain its exact action, physical-control group, and value',
+    );
+
+    for (const invalidTarget of ['49050', '49100', '']) {
+      assert.equal(submitMcpDraft({
+        config,
+        disabled: false,
+        groupId: 'flightGuidance.altitude',
+        rawValue: invalidTarget,
+        requestAction: (...args) => calls.push(args),
+      }), false, `invalid A380X altitude target ${invalidTarget || '(empty)'} should fail closed`);
+    }
+    assert.equal(calls.length, 1, 'invalid A380X targets must never dispatch');
+  });
+
+  await test('FlyByWire A380X numeric drafts reconcile availability and pending readback', async () => {
+    const componentPath = path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'aircraft-specific',
+      'templates',
+      'FbwA380xAircraftPanel.vue',
+    );
+    const componentUrl = `${pathToFileURL(compileVueComponent(componentPath)).href}?t=a380-draft-lifecycle-${Date.now()}`;
+    const { reconcileA380NumericDraftState } = await import(componentUrl);
+    const profileKey = 'bundled/msfs/fbw-a380x';
+    const snapshot = (overrides = {}) => ({
+      rawValue: 37000,
+      unavailable: false,
+      profileKey,
+      sourceStatus: 'connected',
+      pending: false,
+      ...overrides,
+    });
+    const previous = (overrides = {}) => {
+      const value = snapshot(overrides);
+      return [value.rawValue, value.unavailable, value.profileKey, value.sourceStatus, value.pending];
+    };
+
+    const rejected = { draft: '41000', dirty: true, error: 'Command could not be sent.' };
+    assert.deepEqual(
+      reconcileA380NumericDraftState(rejected, snapshot(), previous()),
+      rejected,
+      'an available rejected A380X target should remain editable',
+    );
+    assert.deepEqual(
+      reconcileA380NumericDraftState(
+        rejected,
+        snapshot({ unavailable: true, pending: true }),
+        previous(),
+      ),
+      { draft: '', dirty: false, error: '' },
+      'field loss must clear stale A380X target intent even while the group is pending',
+    );
+
+    const accepted = { draft: '41000', dirty: false, error: '' };
+    assert.deepEqual(
+      reconcileA380NumericDraftState(accepted, snapshot({ rawValue: 37000, pending: true }), previous()),
+      accepted,
+      'an accepted A380X target should remain visible until pending readback completes',
+    );
+    assert.deepEqual(
+      reconcileA380NumericDraftState(
+        accepted,
+        snapshot({ rawValue: 41000 }),
+        previous({ rawValue: 37000, pending: true }),
+      ),
+      { draft: '41000', dirty: false, error: '' },
+      'pending completion should reconcile the A380X input to fresh live readback',
+    );
+  });
+
   await test('iniBuilds A330 numeric drafts clear on field unavailability without regressing pending or rejection state', async () => {
     const componentPath = path.join(
       frontendRoot,
@@ -686,6 +783,16 @@ async function main() {
       css,
       /\.timeline-map-wrap\s*>\s*#timeline-map,\s*\.timeline-map-wrap\s*>\s*\.timeline-map-surface\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?height:\s*auto;[\s\S]*?min-height:\s*0;/,
       'timeline replay map should fill the wrapper by inset positioning instead of percentage height',
+    );
+  });
+
+  await test('Timeline replay column stretches through the available desktop modal height', async () => {
+    const css = fs.readFileSync(path.join(frontendRoot, 'index.css'), 'utf8');
+
+    assert.match(
+      css,
+      /\.timeline-mobile-viewer-open\s*>\s*#vue-timeline-map-shell-root\s*\{[\s\S]*?align-self:\s*stretch;[\s\S]*?height:\s*100%;/,
+      'desktop replay column should fill its grid row so the flex map can use the remaining height',
     );
   });
 
@@ -2367,6 +2474,7 @@ async function main() {
     assert.ok(resolveAircraftSpecificTemplate('asobo-787'), 'registered Microsoft / Asobo 787-10 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('fbw-a32nx'), 'registered FlyByWire A32NX template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('fenix-a32x'), 'registered Fenix A32x compatibility template should resolve');
+    assert.ok(resolveAircraftSpecificTemplate('fbw-a380x'), 'registered FlyByWire A380X template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('ifly-737-max-8'), 'registered iFly 737 MAX 8 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('inibuilds-a310'), 'registered Microsoft / iniBuilds A310-300 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('inibuilds-a330'), 'registered iniBuilds A330 family template should resolve');
@@ -2488,7 +2596,234 @@ async function main() {
     assert.doesNotMatch(html, /data-tfdi-afs-field="afs\.(?:speedValue|headingValue|verticalValue)"[^>]*>[\s\S]*>-9999?\s*</);
   });
 
-  await test('Microsoft / iniBuilds shared A32x monitoring page routes A320neo V2 and A321LR identities by trusted profile key', async () => {
+  await test('FlyByWire A380X template renders its exact compact guarded control surface', async () => {
+    const actionIds = [
+      'flightGuidance.speed.set',
+      'flightGuidance.heading.set',
+      'flightGuidance.altitude.set',
+      'flightGuidance.ap1.off',
+      'flightGuidance.ap1.on',
+      'flightGuidance.autothrust.off',
+      'flightGuidance.autothrust.on',
+      'flightGuidance.localizer.off',
+      'flightGuidance.localizer.on',
+      'flightGuidance.approach.off',
+      'flightGuidance.approach.on',
+      ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi']
+        .flatMap((lightId) => [`lights.${lightId}.off`, `lights.${lightId}.on`]),
+      'controls.gear.up',
+      'controls.gear.down',
+      'controls.parkingBrake.released',
+      'controls.parkingBrake.set',
+      'controls.spoilersArmed.off',
+      'controls.spoilersArmed.on',
+      'controls.flaps.decrease',
+      'controls.flaps.increase',
+      'controls.spoilers.set',
+    ];
+    const values = {
+      'flightGuidance.speedValue': 287,
+      'flightGuidance.headingDeg': 43,
+      'flightGuidance.altitudeFt': 37000,
+      'flightGuidance.verticalValue': -650.5,
+      'flightGuidance.ap1': true,
+      'flightGuidance.ap2': false,
+      'flightGuidance.autothrust': true,
+      'flightGuidance.autothrustStatus': 'active',
+      'flightGuidance.localizer': true,
+      'flightGuidance.approach': false,
+      'lights.strobe': true,
+      'lights.beacon': false,
+      'lights.nav': true,
+      'lights.logo': true,
+      'lights.wing': false,
+      'lights.landing': true,
+      'lights.taxi': false,
+      'lights.runwayTurnoff': true,
+      'controls.flapsIndex': 2,
+      'controls.spoilersHandle': 0.25,
+      'controls.spoilersArmed': true,
+      'controls.parkingBrake': false,
+      'controls.gearHandleDown': true,
+      'controls.gearNosePct': 100,
+      'controls.gearLeftPct': 100,
+      'controls.gearRightPct': 100,
+      'systems.engine1N1': 84.1,
+      'systems.engine2N1': 84.2,
+      'systems.engine3N1': 84.3,
+      'systems.engine4N1': 84.4,
+      'systems.engine1Running': true,
+      'systems.engine2Running': true,
+      'systems.engine3Running': true,
+      'systems.engine4Running': true,
+      'systems.fuelTotalPct': 62.5,
+      'systems.fuelTotalWeightLbs': 318000,
+      'systems.grossWeightLbs': 1020000,
+      'systems.cabinAltitudeFt': 6850,
+      'systems.cabinVerticalSpeedFpm': 120,
+      'systems.cabinDeltaPressurePsi': 8.32,
+      'systems.outsideAirTemperatureC': -52.4,
+      'systems.mach': 0.84,
+    };
+    assert.equal(Object.keys(values).length, 42, 'the fixture should exercise every A380X adapter field');
+    assert.equal(actionIds.length, 34, 'the fixture should exercise every A380X adapter action capability');
+
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA380xAircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/fbw-a380x',
+          sourceStatus: 'connected',
+          values,
+          actionCapabilities: Object.fromEntries(actionIds.map((actionId) => [actionId, true])),
+        },
+      },
+    );
+
+    assert.match(html, /data-aircraft-template="fbw-a380x"/, 'template should identify the exact trusted adapter');
+    assert.match(html, /FlyByWire A380X/, 'the exact aircraft title should render');
+    assert.deepEqual(
+      [...html.matchAll(/data-a380-section="([^"]+)"/g)].map((match) => match[1]),
+      ['fcu-autopilot', 'exterior-lights', 'flight-configuration', 'systems'],
+      'the compact page should contain only its four intended sections',
+    );
+    assert.match(html, /data-a380-selector="speed"[\s\S]*>287 <span[^>]*>kt<\/span>/, 'selected speed should render with its FCU unit');
+    assert.match(html, /data-a380-selector="heading"[\s\S]*>043 <span[^>]*>deg<\/span>/, 'selected heading should retain three digits');
+    assert.match(html, /data-a380-selector="altitude"[\s\S]*>37,000 <span[^>]*>ft<\/span>/, 'selected altitude should use grouped feet');
+    assert.match(html, /AP 2[\s\S]*?OFF[\s\S]*?Read only/, 'AP2 should remain an explicit read-only readback');
+    assert.match(html, /VERTICAL TARGET[\s\S]*?-650[\s\S]*?Read only; no unit is inferred/, 'ambiguous V\/S-FPA should remain read-only and unitless');
+    assert.match(html, /data-a380-light="runway-turnoff-readonly"[\s\S]*Read only\. A distinct verified write route is not mapped\./, 'runway-turnoff should remain honestly read-only');
+    assert.match(html, /data-a380-engine="4"[\s\S]*ENG 4 N1[\s\S]*RUN[\s\S]*84\.4%/, 'the fourth engine should render its running and N1 readbacks');
+
+    const renderedActionIds = [...html.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
+    const uniqueRenderedActionIds = [...new Set(renderedActionIds)];
+    assert.deepEqual(
+      [...uniqueRenderedActionIds].sort(),
+      [...actionIds].sort(),
+      'the panel should expose all and only the 34 adapter actions',
+    );
+    assert.equal(
+      renderedActionIds.filter((actionId) => actionId === 'controls.spoilers.set').length,
+      5,
+      'the one bounded spoiler action should render at its five supported detents',
+    );
+
+    for (const lightActionId of actionIds.filter((actionId) => actionId.startsWith('lights.'))) {
+      const lightButton = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${lightActionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+      assert.ok(lightButton, `${lightActionId} should render`);
+      assert.doesNotMatch(lightButton, /\saria-pressed=/, `${lightActionId} must not present a lamp output as selector position`);
+      assert.doesNotMatch(lightButton, /border-cyan-400\/60|bg-cyan-400\/15/, `${lightActionId} must not style lamp output as selector position`);
+    }
+    assert.match(html, /data-a380-light="strobe"[\s\S]*OUTPUT ON/, 'live lamp output should remain visible as readback');
+
+    const renderedIds = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+    const duplicateIds = renderedIds.filter((id, index) => renderedIds.indexOf(id) !== index);
+    assert.deepEqual([...new Set(duplicateIds)], [], 'every A380X status and input id should be unique');
+    assert.doesNotMatch(html, /A32NX_|FlyByWire A32NX|FbwA32nx|AUTOPILOT |LIGHT |TURB ENG|PRESSURIZATION |MobiFlight|MF\.SimVars/, 'raw simulator routes and A32NX page copy must stay outside Vue');
+    assert.doesNotMatch(html, /Monitoring only/, 'the A380X page should not claim to be monitoring-only');
+  });
+
+  await test('FlyByWire A380X controls fail closed for missing readback and pending groups', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA380xAircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/fbw-a380x',
+          sourceStatus: 'connected',
+          values: {
+            'flightGuidance.ap1': true,
+            'lights.beacon': false,
+          },
+          actionCapabilities: {
+            'flightGuidance.speed.set': true,
+            'flightGuidance.ap1.off': true,
+            'flightGuidance.ap1.on': true,
+            'lights.beacon.off': true,
+            'lights.beacon.on': true,
+          },
+          isActionPending: (groupId) => groupId === 'lights.beacon',
+        },
+      },
+    );
+
+    const speedSubmit = html.match(/<button(?=[^>]*data-aircraft-action="flightGuidance\.speed\.set")[^>]*>/)?.[0] || '';
+    assert.match(speedSubmit, /\sdisabled(?:=| |>)/, 'speed capability must not bypass missing live target readback');
+    assert.match(speedSubmit, /title="Live target readback unavailable\."/, 'missing target readback should explain why the write is disabled');
+
+    for (const actionId of ['lights.beacon.off', 'lights.beacon.on']) {
+      const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should disable while its physical group is pending`);
+      assert.match(button, /aria-busy="true"/, `${actionId} should expose pending state accessibly`);
+      assert.match(button, /title="Command in progress\."/, `${actionId} should explain its pending guard`);
+    }
+  });
+
+  await test('FlyByWire A380X controls expose and obey the global disabled reason', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA380xAircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({
+          enabled: false,
+          reason: 'Aircraft writes disabled by operator.',
+        });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/fbw-a380x',
+          sourceStatus: 'connected',
+          values: { 'flightGuidance.ap1': true },
+          actionCapabilities: {
+            'flightGuidance.ap1.off': true,
+            'flightGuidance.ap1.on': true,
+          },
+        },
+      },
+    );
+
+    assert.match(html, /Aircraft writes disabled by operator\./, 'the page should expose the store-provided global reason');
+    for (const actionId of ['flightGuidance.ap1.off', 'flightGuidance.ap1.on']) {
+      const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should obey global write availability`);
+      assert.match(button, /title="Aircraft writes disabled by operator\."/, `${actionId} should expose the global disabled reason`);
+    }
+  });
+
+  await test('Microsoft / iniBuilds shared A32x panel renders both exact variants and only its compact 42-action surface', async () => {
+    const guidancePrefixes = [
+      'flightGuidance.apMaster',
+      'flightGuidance.flightDirector',
+      'flightGuidance.autothrottleArmed',
+      'flightGuidance.speedHold',
+      'flightGuidance.headingHold',
+      'flightGuidance.altitudeHold',
+      'flightGuidance.verticalSpeedHold',
+      'flightGuidance.navHold',
+      'flightGuidance.approachHold',
+    ];
+    const lightIds = ['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'];
+    const actionIds = [
+      ...guidancePrefixes.flatMap((prefix) => [`${prefix}.off`, `${prefix}.on`]),
+      'flightGuidance.speed.set',
+      'flightGuidance.heading.set',
+      'flightGuidance.altitude.set',
+      'flightGuidance.verticalSpeed.set',
+      ...lightIds.flatMap((lightId) => [`lights.${lightId}.off`, `lights.${lightId}.on`]),
+      'controls.gear.up',
+      'controls.gear.down',
+      'controls.flaps.decrease',
+      'controls.flaps.increase',
+      'controls.parkingBrake.off',
+      'controls.parkingBrake.on',
+    ];
+    assert.equal(actionIds.length, 42, 'the shared compact contract should contain exactly 42 actions');
+    assert.equal(new Set(actionIds).size, 42, 'the expected action contract should not contain duplicates');
+
     const variants = [
       {
         profileKey: 'bundled/msfs/inibuilds-a320neo-v2',
@@ -2505,62 +2840,672 @@ async function main() {
         heading: 278,
       },
     ];
+    const baseValues = {
+      'fcu.altitudeFt': 11000,
+      'fcu.verticalSpeedFpm': -650,
+      'flightGuidance.apMaster': true,
+      'flightGuidance.flightDirector': true,
+      'flightGuidance.autothrottleActive': true,
+      'flightGuidance.autothrottleArmed': true,
+      'flightGuidance.speedHold': true,
+      'flightGuidance.headingHold': false,
+      'flightGuidance.navHold': true,
+      'flightGuidance.altitudeHold': false,
+      'flightGuidance.verticalSpeedHold': true,
+      'flightGuidance.flightLevelChange': false,
+      'flightGuidance.approachHold': false,
+      'lights.strobe': true,
+      'lights.beacon': false,
+      'lights.nav': true,
+      'lights.logo': true,
+      'lights.wing': false,
+      'lights.landing': false,
+      'lights.taxi': false,
+      'lights.runwayTurnoff': true,
+      'controls.flapsPercent': 25,
+      'controls.flapsIndex': 1,
+      'controls.flapAngleDeg': 10,
+      'controls.speedbrakePercent': 0,
+      'controls.gearHandleDown': true,
+      'controls.gearNosePct': 100,
+      'controls.gearLeftPct': 100,
+      'controls.gearRightPct': 100,
+      'controls.parkingBrake': false,
+      'systems.engine1N1': 88.6,
+      'systems.engine2N1': 88.4,
+      'systems.engine1Running': true,
+      'systems.engine2Running': true,
+    };
 
     for (const variant of variants) {
       const { html } = await renderComponent(
         path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'MicrosoftIniBuildsA32xAircraftPanel.vue'),
-        () => {},
+        ({ useAircraftControlsStore }) => {
+          useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+        },
         {
           props: {
             profileKey: variant.profileKey,
             sourceStatus: 'connected',
             values: {
+              ...baseValues,
               'fcu.speedKts': variant.speed,
               'fcu.headingDeg': variant.heading,
-              'fcu.altitudeFt': 11000,
-              'fcu.verticalSpeedFpm': -650,
-              'flightGuidance.navHold': true,
-              'systems.engine1N1': 88.6,
             },
+            actionCapabilities: Object.fromEntries(actionIds.map((actionId) => [actionId, true])),
           },
         },
       );
-      assert.match(html, /data-aircraft-template="microsoft-inibuilds-a32x"/);
+
+      assert.match(html, /data-aircraft-template="microsoft-inibuilds-a32x"/, 'template should identify the shared exact-profile adapter');
+      assert.ok(html.includes(`data-aircraft-profile-key="${variant.profileKey}"`), 'the exact trusted profile key should be visible on the page root');
       assert.ok(html.includes(variant.expectedTitle), `${variant.expectedTitle} should render`);
       assert.ok(!html.includes(variant.unexpectedTitle), `${variant.unexpectedTitle} should not render`);
-      assert.ok(html.includes(`>${variant.speed}<`), 'FCU speed should render');
-      assert.match(html, /Flight Control Unit/);
-      assert.match(html, /NAV/);
-      assert.match(html, /Monitoring only/);
-      assert.doesNotMatch(html, /data-aircraft-action=/);
+      assert.match(html, new RegExp(`data-microsoft-inibuilds-a32x-selector="speed"[\\s\\S]*?>${variant.speed} <span[^>]*>kt<\\/span>`), 'FCU speed should render with its unit');
+      assert.match(html, new RegExp(`data-microsoft-inibuilds-a32x-selector="heading"[\\s\\S]*?>${String(variant.heading).padStart(3, '0')} <span[^>]*>deg<\\/span>`), 'FCU heading should retain three digits');
+      assert.match(html, /data-microsoft-inibuilds-a32x-selector="altitude"[\s\S]*?>11,000 <span[^>]*>ft<\/span>/, 'FCU altitude should use grouped feet');
+      assert.match(html, /data-microsoft-inibuilds-a32x-selector="vertical-speed"[\s\S]*?>-650 <span[^>]*>fpm<\/span>/, 'FCU vertical speed should render as a typed target');
+      assert.deepEqual(
+        [...html.matchAll(/data-microsoft-inibuilds-a32x-selector="([^"]+)"/g)].map((match) => match[1]),
+        ['speed', 'heading', 'altitude', 'vertical-speed'],
+        'the page should expose exactly four typed FCU targets',
+      );
+      assert.equal((html.match(/type="text"/g) || []).length, 4, 'all four targets should use text entry rather than increment/decrement controls');
+
+      assert.deepEqual(
+        [...html.matchAll(/data-microsoft-inibuilds-a32x-mode="([^"]+)"/g)].map((match) => match[1]),
+        ['ap', 'fd', 'athr', 'speed', 'heading', 'altitude', 'vertical-speed', 'nav', 'approach'],
+        'the page should expose exactly nine standard guidance mode pairs',
+      );
+      assert.deepEqual(
+        [...html.matchAll(/data-microsoft-inibuilds-a32x-light="([^"]+)"/g)].map((match) => match[1]),
+        [...lightIds, 'runway-turnoff-readonly'],
+        'the page should expose seven writable light outputs and one read-only turnoff output',
+      );
+      assert.deepEqual(
+        [...html.matchAll(/data-microsoft-inibuilds-a32x-surface="([^"]+)"/g)].map((match) => match[1]),
+        ['gear', 'parking-brake', 'flaps'],
+        'gear, parking brake, and flaps should be the only writable configuration groups',
+      );
+
+      const renderedActionIds = [...html.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
+      assert.equal(renderedActionIds.length, 42, 'every compact action should render exactly once');
+      assert.equal(new Set(renderedActionIds).size, 42, 'rendered aircraft action ids should be unique');
+      assert.deepEqual([...renderedActionIds].sort(), [...actionIds].sort(), 'the panel should expose all and only the shared 42-action contract');
+      for (const prefix of guidancePrefixes) {
+        assert.ok(renderedActionIds.includes(`${prefix}.off`), `${prefix}.off should render`);
+        assert.ok(renderedActionIds.includes(`${prefix}.on`), `${prefix}.on should render`);
+      }
+
+      for (const lightId of lightIds) {
+        assert.match(html, new RegExp(`data-microsoft-inibuilds-a32x-light="${lightId}"[\\s\\S]*?OUTPUT (?:ON|OFF)`), `${lightId} should expose lamp-output readback`);
+        for (const suffix of ['off', 'on']) {
+          const actionId = `lights.${lightId}.${suffix}`;
+          const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+          assert.ok(button, `${actionId} should render`);
+          assert.doesNotMatch(button, /\saria-pressed=/, `${actionId} must not present lamp output as cockpit selector position`);
+          assert.doesNotMatch(button, /border-cyan-400\/60|bg-cyan-400\/15/, `${actionId} must not use selected-state styling from lamp output`);
+        }
+      }
+
+      assert.match(html, /A\/THR ACTIVE[\s\S]*?Read only/, 'active autothrust should remain a read-only state separate from armed control');
+      assert.match(html, /FLC[\s\S]*?Read only/, 'flight-level change should remain read-only');
+      assert.match(html, /data-microsoft-inibuilds-a32x-light="runway-turnoff-readonly"[\s\S]*?Read only\. No distinct compatible write route is mapped\./, 'runway turnoff should remain read-only');
+      assert.match(html, /SPEEDBRAKE[\s\S]*?Read only/, 'speedbrake should remain read-only');
+      assert.match(html, /data-aircraft-action="controls\.gear\.down"/, 'gear commands should render');
+      assert.match(html, /data-aircraft-action="controls\.flaps\.increase"/, 'flap commands should render');
+      assert.match(html, /data-aircraft-action="controls\.parkingBrake\.on"/, 'parking-brake commands should render');
+
+      const renderedIds = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+      const duplicateIds = renderedIds.filter((id, index) => renderedIds.indexOf(id) !== index);
+      assert.deepEqual([...new Set(duplicateIds)], [], 'every shared-A32x input and status id should be unique');
+      assert.doesNotMatch(html, /AUTOPILOT_(?:ON|OFF)|AP_(?:SPD|HDG|ALT|VS|NAV|APR)|HEADING_BUG_SET|LIGHTS_SET|GEAR_(?:UP|DOWN)|FLAPS_(?:INCR|DECR)|PARKING_BRAKE_SET|TURB ENG|PRESSURIZATION |MobiFlight|MF\.SimVars/, 'raw simulator routes must stay outside Vue');
+      assert.doesNotMatch(html, /data-aircraft-action="(?:flightGuidance\.(?:ap1|ap2|flightLevelChange)|lights\.runwayTurnoff|controls\.(?:speedbrake|spoilers)|systems\.)/, 'AP1/AP2, FLC, turnoff, spoiler, and deep-system writes must stay absent');
+      assert.doesNotMatch(html, /data-aircraft-action="[^"]*(?:managed|selected|push|pull)/i, 'managed/selected and push/pull controls must stay absent');
+      assert.doesNotMatch(html, /Monitoring only/, 'the compact shared page should no longer claim to be monitoring-only');
     }
   });
 
-  await test('Microsoft 737 MAX 8 monitoring page renders exact product identity and live fields', async () => {
+  await test('Microsoft / iniBuilds shared A32x controls fail closed across readback, capability, and pending boundaries', async () => {
     const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'Microsoft737Max8AircraftPanel.vue'),
-      () => {},
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'MicrosoftIniBuildsA32xAircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+      },
       {
         props: {
+          profileKey: 'bundled/msfs/inibuilds-a320neo-v2',
+          sourceStatus: 'connected',
+          values: {
+            'lights.nav': true,
+            'controls.gearHandleDown': true,
+          },
+          actionCapabilities: {
+            'flightGuidance.speed.set': true,
+            'lights.beacon.off': true,
+            'lights.beacon.on': true,
+            'controls.gear.up': true,
+            'controls.gear.down': true,
+          },
+          isActionPending: (groupId) => groupId === 'controls.gear',
+        },
+      },
+    );
+    const buttonFor = (actionId) => html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+
+    const speedSubmit = buttonFor('flightGuidance.speed.set');
+    assert.match(speedSubmit, /\sdisabled(?:=| |>)/, 'numeric capability must not bypass missing target readback');
+    assert.match(speedSubmit, /title="Live target readback unavailable\."/, 'missing numeric readback should expose its reason');
+    for (const actionId of ['lights.beacon.off', 'lights.beacon.on']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} capability must not bypass missing lamp readback`);
+      assert.match(button, /title="Live aircraft readback unavailable\."/, `${actionId} should explain its missing readback`);
+    }
+    for (const actionId of ['lights.nav.off', 'lights.nav.on']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} readback must not bypass missing capability`);
+      assert.match(button, /title="Compatible aircraft control unavailable\."/, `${actionId} should explain its missing capability`);
+    }
+    for (const actionId of ['flightGuidance.headingHold.off', 'flightGuidance.headingHold.on']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should fail closed when both capability and readback are absent`);
+      assert.match(button, /title="Live aircraft readback unavailable\."/, `${actionId} should report the first missing safety prerequisite`);
+    }
+    for (const actionId of ['controls.gear.up', 'controls.gear.down']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should disable while its physical group is pending`);
+      assert.match(button, /aria-busy="true"/, `${actionId} should expose pending state accessibly`);
+      assert.match(button, /title="Command in progress\."/, `${actionId} should explain its pending guard`);
+    }
+  });
+
+  await test('Microsoft / iniBuilds shared A32x controls expose and obey the global disabled reason', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'MicrosoftIniBuildsA32xAircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({
+          enabled: false,
+          reason: 'Aircraft writes disabled by operator.',
+        });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/inibuilds-a321lr',
+          sourceStatus: 'connected',
+          values: {
+            'fcu.speedKts': 250,
+            'lights.beacon': false,
+            'controls.parkingBrake': false,
+          },
+          actionCapabilities: {
+            'flightGuidance.speed.set': true,
+            'lights.beacon.off': true,
+            'lights.beacon.on': true,
+            'controls.parkingBrake.off': true,
+            'controls.parkingBrake.on': true,
+          },
+        },
+      },
+    );
+
+    assert.match(html, /Aircraft writes disabled by operator\./, 'the page should expose the store-provided global reason');
+    for (const actionId of [
+      'flightGuidance.speed.set',
+      'lights.beacon.off',
+      'lights.beacon.on',
+      'controls.parkingBrake.off',
+      'controls.parkingBrake.on',
+    ]) {
+      const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should obey global write availability`);
+      assert.match(button, /title="Aircraft writes disabled by operator\."/, `${actionId} should expose the global disabled reason`);
+    }
+  });
+
+  await test('Microsoft 737 MAX 8 typed targets dispatch only exact bounded values', async () => {
+    const calls = [];
+    const cases = [
+      {
+        config: {
+          actionId: 'flightGuidance.speed.set', fieldId: 'mcp.speedKts', min: 100, max: 399, step: 1,
+        },
+        groupId: 'flightGuidance.speed', valid: '250', expected: 250, invalid: ['99', '399.5', '400'],
+      },
+      {
+        config: {
+          actionId: 'flightGuidance.heading.set', fieldId: 'mcp.headingDeg', min: 0, max: 359, step: 1,
+        },
+        groupId: 'flightGuidance.heading', valid: '043', expected: 43, invalid: ['-1', '43.5', '360'],
+      },
+      {
+        config: {
+          actionId: 'flightGuidance.altitude.set', fieldId: 'mcp.altitudeFt', min: 0, max: 49000, step: 100,
+        },
+        groupId: 'flightGuidance.altitude', valid: '41000', expected: 41000, invalid: ['-100', '41050', '49100'],
+      },
+      {
+        config: {
+          actionId: 'flightGuidance.verticalSpeed.set', fieldId: 'mcp.verticalSpeedFpm', min: -6000, max: 6000, step: 100,
+        },
+        groupId: 'flightGuidance.verticalSpeed', valid: '-900', expected: -900, invalid: ['-6100', '-650', '6100'],
+      },
+    ];
+
+    for (const targetCase of cases) {
+      assert.equal(submitMcpDraft({
+        config: targetCase.config,
+        disabled: false,
+        groupId: targetCase.groupId,
+        rawValue: targetCase.valid,
+        requestAction: (...args) => {
+          calls.push(args);
+          return true;
+        },
+      }), true, `${targetCase.config.actionId} should accept its aligned in-range target`);
+      assert.deepEqual(
+        calls.at(-1),
+        [targetCase.config.actionId, targetCase.groupId, targetCase.expected],
+        `${targetCase.config.actionId} should retain its exact action, group, and numeric value`,
+      );
+      for (const invalidValue of targetCase.invalid) {
+        assert.equal(submitMcpDraft({
+          config: targetCase.config,
+          disabled: false,
+          groupId: targetCase.groupId,
+          rawValue: invalidValue,
+          requestAction: (...args) => calls.push(args),
+        }), false, `${targetCase.config.actionId} should reject invalid target ${invalidValue}`);
+      }
+    }
+    assert.equal(calls.length, cases.length, 'invalid MAX targets must never dispatch');
+  });
+
+  await test('Microsoft 737 MAX 8 numeric drafts discard stale intent and reconcile pending readback', async () => {
+    const componentPath = path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'aircraft-specific',
+      'templates',
+      'Microsoft737Max8AircraftPanel.vue',
+    );
+    const componentUrl = `${pathToFileURL(compileVueComponent(componentPath)).href}?t=max-draft-lifecycle-${Date.now()}`;
+    const { reconcileMicrosoft737Max8NumericDraftState } = await import(componentUrl);
+    const profileKey = 'bundled/msfs/microsoft-737-max-8';
+    const snapshot = (overrides = {}) => ({
+      rawValue: 12000,
+      unavailable: false,
+      profileKey,
+      sourceStatus: 'connected',
+      pending: false,
+      ...overrides,
+    });
+    const previous = (overrides = {}) => {
+      const value = snapshot(overrides);
+      return [value.rawValue, value.unavailable, value.profileKey, value.sourceStatus, value.pending];
+    };
+
+    const rejected = { draft: '13500', dirty: true, error: 'Command could not be sent.' };
+    assert.deepEqual(
+      reconcileMicrosoft737Max8NumericDraftState(rejected, snapshot(), previous()),
+      rejected,
+      'a rejected live MAX target should remain editable with its inline error',
+    );
+    assert.deepEqual(
+      reconcileMicrosoft737Max8NumericDraftState(
+        rejected,
+        snapshot({ unavailable: true, pending: true }),
+        previous(),
+      ),
+      { draft: '', dirty: false, error: '' },
+      'field loss must clear stale MAX target intent even while the group is pending',
+    );
+    assert.deepEqual(
+      reconcileMicrosoft737Max8NumericDraftState(
+        rejected,
+        snapshot({ profileKey: 'bundled/msfs/another-aircraft' }),
+        previous(),
+      ),
+      { draft: '12000', dirty: false, error: '' },
+      'an aircraft-context change must discard stale MAX intent and restore live readback',
+    );
+    assert.deepEqual(
+      reconcileMicrosoft737Max8NumericDraftState(
+        rejected,
+        snapshot({ sourceStatus: 'stale' }),
+        previous(),
+      ),
+      { draft: '', dirty: false, error: '' },
+      'loss of a connected source must clear stale MAX target intent',
+    );
+
+    const accepted = { draft: '13500', dirty: false, error: '' };
+    assert.deepEqual(
+      reconcileMicrosoft737Max8NumericDraftState(
+        accepted,
+        snapshot({ pending: true }),
+        previous(),
+      ),
+      accepted,
+      'an accepted MAX target should remain visible until pending readback completes',
+    );
+    assert.deepEqual(
+      reconcileMicrosoft737Max8NumericDraftState(
+        accepted,
+        snapshot({ rawValue: 13500 }),
+        previous({ pending: true }),
+      ),
+      { draft: '13500', dirty: false, error: '' },
+      'pending completion should reconcile the MAX input to fresh live readback',
+    );
+  });
+
+  await test('Microsoft 737 MAX 8 panel renders only its compact 44-action standard-control contract', async () => {
+    const guidancePrefixes = [
+      'flightGuidance.apMaster',
+      'flightGuidance.flightDirector',
+      'flightGuidance.autothrottleArmed',
+      'flightGuidance.speedHold',
+      'flightGuidance.headingHold',
+      'flightGuidance.altitudeHold',
+      'flightGuidance.verticalSpeedHold',
+      'flightGuidance.navHold',
+      'flightGuidance.approachHold',
+      'flightGuidance.flightLevelChange',
+    ];
+    const lightIds = ['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'];
+    const actionIds = [
+      'flightGuidance.speed.set',
+      'flightGuidance.heading.set',
+      'flightGuidance.altitude.set',
+      'flightGuidance.verticalSpeed.set',
+      ...guidancePrefixes.flatMap((prefix) => [`${prefix}.off`, `${prefix}.on`]),
+      ...lightIds.flatMap((lightId) => [`lights.${lightId}.off`, `lights.${lightId}.on`]),
+      'controls.gear.up',
+      'controls.gear.down',
+      'controls.parkingBrake.off',
+      'controls.parkingBrake.on',
+      'controls.flaps.decrease',
+      'controls.flaps.increase',
+    ];
+    assert.equal(actionIds.length, 44, 'the compact MAX contract should contain exactly 44 actions');
+    assert.equal(new Set(actionIds).size, 44, 'the expected MAX action contract should contain no duplicates');
+    assert.ok(resolveAircraftSpecificTemplate('microsoft-737-max-8'), 'the registered Microsoft 737 MAX 8 template should resolve');
+
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'Microsoft737Max8AircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/microsoft-737-max-8',
           sourceStatus: 'connected',
           values: {
             'mcp.speedKts': 145,
             'mcp.headingDeg': 271,
             'mcp.altitudeFt': 12000,
             'mcp.verticalSpeedFpm': -900,
+            'afds.apMaster': true,
+            'afds.flightDirector': true,
+            'afds.autothrottleArmed': true,
+            'afds.autothrottleActive': true,
+            'afds.speed': true,
+            'afds.headingSelect': false,
+            'afds.altitudeHold': true,
+            'afds.verticalSpeed': false,
             'afds.lnav': true,
+            'afds.approach': false,
+            'afds.levelChange': true,
+            'lights.strobe': true,
+            'lights.beacon': false,
+            'lights.nav': true,
+            'lights.logo': false,
+            'lights.wing': true,
+            'lights.landing': false,
+            'lights.taxi': true,
+            'lights.runwayTurnoff': false,
+            'controls.flapsPercent': 25,
+            'controls.flapsIndex': 2,
+            'controls.flapAngleDeg': 10,
+            'controls.speedbrakePercent': 0,
+            'controls.gearHandleDown': true,
+            'controls.gearNosePct': 100,
+            'controls.gearLeftPct': 100,
+            'controls.gearRightPct': 100,
+            'controls.parkingBrake': false,
             'systems.engine1N1': 87.4,
+            'systems.engine2N1': 87.2,
+            'systems.engine1Running': true,
+            'systems.engine2Running': true,
+            'systems.fuelTotalPct': 62.5,
+            'systems.fuelTotalWeightLbs': 28000,
+            'systems.grossWeightLbs': 152000,
+            'systems.cabinAltitudeFt': 6800,
+            'systems.cabinVerticalSpeedFpm': 120,
+            'systems.cabinDeltaPressurePsi': 7.82,
+            'systems.outsideAirTemperatureC': -48.5,
+            'systems.mach': 0.79,
+          },
+          actionCapabilities: Object.fromEntries(actionIds.map((actionId) => [actionId, true])),
+        },
+      },
+    );
+
+    assert.match(html, /data-aircraft-template="microsoft-737-max-8"/, 'the page should identify its exact trusted adapter');
+    assert.match(html, /data-aircraft-profile-key="bundled\/msfs\/microsoft-737-max-8"/, 'the trusted profile key should remain visible');
+    assert.match(html, /Microsoft \/ Asobo Studio Boeing 737 MAX 8/, 'the exact first-party product identity should render');
+    assert.match(html, /generic simulator controls; they do not represent Boeing CMD A\/B channel selection/, 'the page must distinguish standard AP control from Boeing channel semantics');
+    assert.match(html, /aria-live="polite"[^>]*>\s*Controls ready\./, 'the page should announce readiness only when every exposed action has its prerequisites');
+
+    assert.deepEqual(
+      [...html.matchAll(/data-microsoft-737-max-8-selector="([^"]+)"/g)].map((match) => match[1]),
+      ['speed', 'heading', 'altitude', 'vertical-speed'],
+      'the panel should expose exactly four typed MCP targets',
+    );
+    assert.equal((html.match(/type="text"/g) || []).length, 4, 'all four MCP targets should use bounded text entry');
+    assert.match(html, /data-microsoft-737-max-8-selector="speed"[\s\S]*?>145 <span[^>]*>kt<\/span>/, 'selected speed should render with its unit');
+    assert.match(html, /data-microsoft-737-max-8-selector="heading"[\s\S]*?>271 <span[^>]*>deg<\/span>/, 'selected heading should retain three digits');
+    assert.match(html, /data-microsoft-737-max-8-selector="altitude"[\s\S]*?>12,000 <span[^>]*>ft<\/span>/, 'selected altitude should use grouped feet');
+    assert.match(html, /data-microsoft-737-max-8-selector="vertical-speed"[\s\S]*?>-900 <span[^>]*>fpm<\/span>/, 'selected vertical speed should render with its unit');
+    assert.match(html, /Enter 100 to 399 in 1 kt increments\./, 'speed should expose its exact bounded target contract');
+    assert.match(html, /Enter 0 to 359 in 1 deg increments\./, 'heading should expose its exact bounded target contract');
+    assert.match(html, /Enter 0 to 49,000 in 100 ft increments\./, 'altitude should expose its exact bounded target contract');
+    assert.match(html, /Enter -6,000 to 6,000 in 100 fpm increments\./, 'vertical speed should expose its exact bounded target contract');
+    const selectorInputs = [...html.matchAll(/<input(?=[^>]*id="microsoft-737-max-8-target-[^"]+")[^>]*>/g)].map((match) => match[0]);
+    assert.equal(selectorInputs.length, 4, 'all four MAX selector inputs should render');
+    for (const input of selectorInputs) {
+      assert.doesNotMatch(input, /\sdisabled(?:=| |>)/, 'a fully ready MAX selector input should be enabled');
+    }
+
+    assert.deepEqual(
+      [...html.matchAll(/data-microsoft-737-max-8-mode="([^"]+)"/g)].map((match) => match[1]),
+      ['ap-master', 'flight-director', 'autothrottle-arm', 'speed', 'heading', 'altitude', 'vertical-speed', 'nav', 'approach', 'flight-level-change'],
+      'the panel should expose exactly ten standard guidance mode pairs, including FLC',
+    );
+    for (const prefix of guidancePrefixes) {
+      assert.match(html, new RegExp(`data-aircraft-action="${prefix.replaceAll('.', '\\.')}\\.off"`), `${prefix}.off should render`);
+      assert.match(html, new RegExp(`data-aircraft-action="${prefix.replaceAll('.', '\\.')}\\.on"`), `${prefix}.on should render`);
+    }
+
+    assert.deepEqual(
+      [...html.matchAll(/data-microsoft-737-max-8-light="([^"]+)"/g)].map((match) => match[1]),
+      [...lightIds, 'runway-turnoff-readonly'],
+      'the panel should expose seven writable light outputs and read-only runway-turnoff output',
+    );
+    for (const lightId of lightIds) {
+      assert.match(html, new RegExp(`data-microsoft-737-max-8-light="${lightId}"[\\s\\S]*?OUTPUT (?:ON|OFF)`), `${lightId} should expose lamp-output readback`);
+      for (const suffix of ['off', 'on']) {
+        const actionId = `lights.${lightId}.${suffix}`;
+        const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+        assert.ok(button, `${actionId} should render`);
+        assert.doesNotMatch(button, /\saria-(?:pressed|selected)=/, `${actionId} must not present lamp output as selector state`);
+        assert.doesNotMatch(button, /border-cyan-400\/60|bg-cyan-400\/15/, `${actionId} must not use lamp output as selected-state styling`);
+      }
+    }
+
+    assert.deepEqual(
+      [...html.matchAll(/data-microsoft-737-max-8-surface="([^"]+)"/g)].map((match) => match[1]),
+      ['gear', 'parking-brake', 'flaps'],
+      'gear, parking brake, and flaps should be the only writable configuration groups',
+    );
+    const renderedActionIds = [...html.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
+    assert.equal(renderedActionIds.length, 44, 'each compact MAX action should render exactly once');
+    assert.equal(new Set(renderedActionIds).size, 44, 'rendered MAX action IDs should be unique');
+    assert.deepEqual([...renderedActionIds].sort(), [...actionIds].sort(), 'the panel should expose all and only the exact 44-action contract');
+    for (const actionId of actionIds) {
+      const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+      assert.ok(button, `${actionId} should render in the fully ready fixture`);
+      assert.doesNotMatch(button, /\sdisabled(?:=| |>)/, `${actionId} should enable when global, capability, readback, and pending prerequisites are ready`);
+    }
+
+    assert.match(html, /A\/T ACTIVE[\s\S]*?Read only/, 'active autothrottle should remain a separate read-only state');
+    assert.match(html, /data-microsoft-737-max-8-light="runway-turnoff-readonly"[\s\S]*?Read only\. No distinct compatible write route is mapped\./, 'runway-turnoff should remain read-only');
+    assert.match(html, /SPEEDBRAKE[\s\S]*?Read only/, 'speedbrake should remain read-only');
+    assert.match(html, /Engine, fuel and pressurization data are concise read-only telemetry; no deep-system writes are exposed\./, 'deep-system telemetry should state its read-only boundary');
+    assert.deepEqual(
+      [...html.matchAll(/data-microsoft-737-max-8-engine="([0-9]+)"/g)].map((match) => Number(match[1])),
+      [1, 2],
+      'the MAX panel should render exactly its two physical engines',
+    );
+    assert.match(html, /data-microsoft-737-max-8-engine="1"[\s\S]*?ENG 1 N1[\s\S]*?87\.4%/, 'engine 1 N1 should render from its own readback');
+    assert.match(html, /data-microsoft-737-max-8-engine="2"[\s\S]*?ENG 2 N1[\s\S]*?87\.2%/, 'engine 2 N1 should render from its own readback');
+    assert.doesNotMatch(html, /data-aircraft-action="[^"]*(?:cmd[ab]?|vnav|autobrake|runway.?turnoff|speedbrake|spoiler|systems\.)/i, 'CMD A/B, VNAV, autobrake, turnoff, speedbrake, spoiler, and deep-system writes must stay absent');
+    assert.doesNotMatch(html, /AUTOPILOT_(?:ON|OFF)|AP_(?:SPD|HDG|ALT|VS|NAV|APR)|HEADING_BUG_SET|LIGHTS_SET|GEAR_(?:UP|DOWN)|FLAPS_(?:INCR|DECR)|PARKING_BRAKE_SET/, 'raw simulator event names must stay outside Vue');
+    assert.doesNotMatch(html, /Monitoring only/, 'the compact panel should no longer claim to be monitoring-only');
+
+    const renderedIds = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+    const duplicateIds = renderedIds.filter((id, index) => renderedIds.indexOf(id) !== index);
+    assert.deepEqual([...new Set(duplicateIds)], [], 'every MAX target and status id should be unique');
+  });
+
+  await test('Microsoft 737 MAX 8 controls fail closed across readback, capability, and pending boundaries', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'Microsoft737Max8AircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/microsoft-737-max-8',
+          sourceStatus: 'connected',
+          values: {
+            'lights.nav': true,
+            'controls.gearHandleDown': true,
+          },
+          actionCapabilities: {
+            'flightGuidance.speed.set': true,
+            'lights.beacon.off': true,
+            'lights.beacon.on': true,
+            'controls.gear.up': true,
+            'controls.gear.down': true,
+          },
+          isActionPending: (groupId) => groupId === 'controls.gear',
+        },
+      },
+    );
+    const buttonFor = (actionId) => html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+
+    assert.match(html, /aria-live="polite"[^>]*>\s*Command in progress\./, 'a pending MAX group should replace the page-level ready claim');
+    assert.doesNotMatch(html, /aria-live="polite"[^>]*>\s*Controls ready\./, 'a sparse pending MAX surface must not announce full readiness');
+    const speedSubmit = buttonFor('flightGuidance.speed.set');
+    assert.match(speedSubmit, /\sdisabled(?:=| |>)/, 'numeric capability must not bypass missing target readback');
+    assert.match(speedSubmit, /title="Live target readback unavailable\."/, 'missing numeric readback should expose its reason');
+    for (const actionId of ['lights.beacon.off', 'lights.beacon.on']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} capability must not bypass missing light readback`);
+      assert.match(button, /title="Live aircraft readback unavailable\."/, `${actionId} should explain its missing readback`);
+    }
+    for (const actionId of ['lights.nav.off', 'lights.nav.on']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} readback must not bypass missing capability`);
+      assert.match(button, /title="Compatible aircraft control unavailable\."/, `${actionId} should explain its missing capability`);
+    }
+    for (const actionId of ['controls.gear.up', 'controls.gear.down']) {
+      const button = buttonFor(actionId);
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should disable while its physical group is pending`);
+      assert.match(button, /aria-busy="true"/, `${actionId} should expose pending state accessibly`);
+      assert.match(button, /title="Command in progress\."/, `${actionId} should explain its pending guard`);
+    }
+  });
+
+  await test('Microsoft 737 MAX 8 page status distinguishes partial and unavailable action surfaces', async () => {
+    const componentPath = path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'Microsoft737Max8AircraftPanel.vue');
+    const configure = ({ useAircraftControlsStore }) => {
+      useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+    };
+    const baseProps = {
+      profileKey: 'bundled/msfs/microsoft-737-max-8',
+      sourceStatus: 'connected',
+    };
+
+    const { html: partialHtml } = await renderComponent(componentPath, configure, {
+      props: {
+        ...baseProps,
+        values: { 'controls.gearHandleDown': true },
+        actionCapabilities: {
+          'controls.gear.up': true,
+          'controls.gear.down': true,
+        },
+      },
+    });
+    assert.match(partialHtml, /aria-live="polite"[^>]*>\s*Some controls unavailable\./, 'a partially actionable MAX surface should announce degraded readiness');
+    assert.doesNotMatch(partialHtml, /aria-live="polite"[^>]*>\s*Controls ready\./, 'partial action readiness must not claim full readiness');
+
+    const { html: unavailableHtml } = await renderComponent(componentPath, configure, {
+      props: baseProps,
+    });
+    assert.match(unavailableHtml, /aria-live="polite"[^>]*>\s*Controls unavailable\./, 'a MAX surface with no actionable controls should announce unavailability');
+    assert.doesNotMatch(unavailableHtml, /aria-live="polite"[^>]*>\s*Controls ready\./, 'an unavailable action surface must not claim readiness');
+  });
+
+  await test('Microsoft 737 MAX 8 controls expose and obey global write availability', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'Microsoft737Max8AircraftPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({
+          enabled: false,
+          reason: 'Aircraft writes disabled by operator.',
+        });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/microsoft-737-max-8',
+          sourceStatus: 'connected',
+          values: {
+            'mcp.speedKts': 250,
+            'afds.levelChange': false,
+            'lights.beacon': false,
+            'controls.parkingBrake': false,
+          },
+          actionCapabilities: {
+            'flightGuidance.speed.set': true,
+            'flightGuidance.flightLevelChange.off': true,
+            'flightGuidance.flightLevelChange.on': true,
+            'lights.beacon.off': true,
+            'lights.beacon.on': true,
+            'controls.parkingBrake.off': true,
+            'controls.parkingBrake.on': true,
           },
         },
       },
     );
-    assert.match(html, /data-aircraft-template="microsoft-737-max-8"/);
-    assert.match(html, /Microsoft \/ Asobo Studio Boeing 737 MAX 8/);
-    assert.match(html, />145</);
-    assert.match(html, />271°</);
-    assert.match(html, /LNAV/);
-    assert.match(html, /data-aircraft-field="lights\.runwayTurnoff"/);
-    assert.match(html, /Monitoring only/);
+
+    assert.match(html, /Aircraft writes disabled by operator\./, 'the page should expose the store-provided global reason');
+    for (const actionId of [
+      'flightGuidance.speed.set',
+      'flightGuidance.flightLevelChange.off',
+      'flightGuidance.flightLevelChange.on',
+      'lights.beacon.off',
+      'lights.beacon.on',
+      'controls.parkingBrake.off',
+      'controls.parkingBrake.on',
+    ]) {
+      const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0] || '';
+      assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} should obey global write availability`);
+      assert.match(button, /title="Aircraft writes disabled by operator\."/, `${actionId} should expose the global disabled reason`);
+    }
   });
 
   await test('Microsoft / Asobo Boeing 747-8 page renders exact ownership and all four engines', async () => {
@@ -3902,6 +4847,7 @@ async function main() {
           gsKts: 142,
           crosswind: -8,
           windSpeed: 12,
+          windDirectionTrueDeg: 240,
           approachType: 'ILS',
           pitchDeg: 3.1,
           bankDeg: -1.4,
@@ -3957,7 +4903,16 @@ async function main() {
     assert.match(html, /id="landing-ias"[^>]*>136 kt</, 'landing IAS should render from store state');
     assert.match(html, /id="landing-gs"[^>]*>GS: 142</, 'landing GS should render from store state');
     assert.match(html, /id="landing-crosswind"[^>]*>8 kt L</, 'landing crosswind should render from store state');
-    assert.match(html, /id="landing-wind-total"[^>]*>From left - 12 kt total</, 'landing wind summary should render from store state');
+    assert.match(html, /id="landing-wind-context"[^>]*aria-label="Wind at touchdown, from 240 degrees true, WSW, 12 knots, crosswind 8 knots from left"/, 'wind context should describe direction, speed, and crosswind accessibly');
+    assert.match(html, /id="landing-wind-direction-prefix"[^>]*>FROM</, 'wind context should make the meteorological from convention explicit');
+    assert.match(html, /id="landing-wind-direction"[^>]*>\s*240°T\s*</, 'wind context should render the true touchdown direction prominently');
+    assert.match(html, /id="landing-wind-speed"[^>]*>\s*12 kt\s*</, 'wind context should render touchdown wind speed prominently');
+    assert.match(html, /<path d="M32 55V19"><\/path>/, 'the zero-degree compass vector should point toward the north wind source');
+    assert.match(html, /<path d="m25 27 7-8 7 8"><\/path>/, 'the compass arrowhead should point to the meteorological FROM bearing');
+    assert.match(html, /id="landing-wind-reference"[^>]*>\s*True north · wind source WSW\s*</, 'wind context should spell out its reference and cardinal source');
+    assert.match(html, /id="landing-wind-crosswind"[^>]*>\s*XW 8 kt from left\s*</, 'wind context should retain runway-relative crosswind');
+    assert.match(html, /transform:rotate\(240deg\)/, 'wind compass arrow should rotate to the wind-from bearing');
+    assert.match(html, /id="landing-wind-total"[^>]*>FROM 240°T · 12 kt</, 'detailed metrics should repeat the absolute wind summary');
     assert.match(html, /id="landing-approach-type"[^>]*>ILS</, 'landing approach type should render from store state');
     assert.match(html, /id="landing-pitch"[^>]*>\+3\.1 deg</, 'landing pitch should render from store state');
     assert.match(html, /id="landing-bank"[^>]*>1\.4 deg L</, 'landing bank should render from store state');
@@ -4880,8 +5835,12 @@ async function main() {
       path.join('src', 'vue', 'components', 'TimelineInspectorShell.vue'),
       ({ useTimelineStore }) => {
         const timeline = useTimelineStore();
+        timeline.setLoadedTimelineIdentity({
+          aircraft: 'Standard Cabin',
+          aircraftProfileId: 'inibuilds-tristar',
+        });
         timeline.setInspectorState({
-          flightIdText: 'YSSY-KJFK (2h 0m)',
+          flightIdText: '2h 0m',
           routeText: 'YSSY-KJFK',
           routeVisible: true,
           selectedRowKey: 'landing-row',
@@ -4893,6 +5852,9 @@ async function main() {
             title: 'Landing at YSSY 34L',
             subtitle: '136 kts - 305ft TDZ',
             timeOffsetText: '00:12',
+            showEndpointDateTime: true,
+            localDateTimeText: '2026-07-31 14:48',
+            utcDateTimeText: '2026-07-31 13:48',
             badges: [{ text: 'OUTSTANDING', toneClass: 'positive' }],
             countText: 'x2',
           }],
@@ -4900,8 +5862,10 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="timeline-flight-id"[^>]*>YSSY-KJFK \(2h 0m\)</, 'timeline inspector should render the store-backed header text');
+    assert.match(html, /id="timeline-flight-id"[^>]*>2h 0m</, 'timeline inspector should render flight duration without repeating the route');
     assert.match(html, /id="timeline-flight-route"[^>]*>YSSY-KJFK</, 'timeline inspector should render the store-backed route text');
+    assert.match(html, /data-aircraft-visual-key="lockheed-l1011-500"/, 'timeline inspector should prefer the recorded profile id over an opaque saved aircraft label');
+    assert.equal((html.match(/YSSY-KJFK/g) || []).length, 1, 'timeline inspector should render the route only once');
     assert.doesNotMatch(html, /id="timeline-worst-btn"/, 'worst-jump button should stay removed even when a worst row exists');
     assert.match(html, /id="timeline-empty"[^>]*hidden/, 'empty state should hide when event rows are available');
     assert.doesNotMatch(html, /id="timeline-event-list"[^>]*hidden/, 'event list should show when the store exposes rows');
@@ -4910,6 +5874,7 @@ async function main() {
     assert.doesNotMatch(html, /worst-moment/, 'timeline inspector should not decorate an inferred worst-moment row');
     assert.match(html, /Landing at YSSY 34L/, 'timeline inspector should render the event title');
     assert.match(html, /136 kts - 305ft TDZ/, 'timeline inspector should render the event subtitle');
+    assert.match(html, /LT 2026-07-31 14:48[\s\S]*UTC 2026-07-31 13:48/, 'timeline endpoint dots should render compact simulator-local and UTC timestamps');
     assert.match(html, /OUTSTANDING/, 'timeline inspector should render score badges from store state');
     assert.match(html, /timeline-count-badge[^>]*>x2</, 'timeline inspector should render repeat-count badges from store state');
   });
@@ -5068,7 +6033,11 @@ async function main() {
         timeline.setLoadedTimelineIdentity({
           flightId: 'F1',
           route: 'YSSY-KJFK',
-          aircraft: 'Boeing 737-800',
+          aircraft: 'Standard Cabin',
+          aircraftProfileId: 'inibuilds-tristar',
+          startTime: '2026-08-14T07:05:00',
+          simDateTimeLocal: '2026-08-13T19:24:36',
+          simDateTimeUtc: '2026-08-13T09:24:36Z',
         });
         timeline.openTimelineMobileViewer();
         timeline.setInspectorState({
@@ -5079,6 +6048,7 @@ async function main() {
             rowKey: 'landing-row',
             index: 0,
             type: 'landing',
+            event: { type: 'landing' },
             title: 'Landing',
             subtitle: 'Touchdown',
             badges: [],
@@ -5117,13 +6087,40 @@ async function main() {
 
     assert.match(html, /class="timeline-split timeline-mobile-viewer-open"/, 'timeline viewer should carry the fullscreen mobile-open class');
     assert.match(html, /id="timeline-mobile-viewer-header"/, 'mobile timeline viewer should render a fullscreen header');
+    assert.match(html, /id="timeline-mobile-viewer-landing-shortcut"[^>]*>\s*LANDING DEBRIEF\s*</, 'replay header should provide a shortcut to the loaded flight landing');
     assert.match(html, /id="timeline-mobile-viewer-close"[^>]*>\s*Close\s*</, 'mobile timeline viewer should provide a close button');
     assert.match(html, /id="timeline-mobile-viewer-title"[^>]*>YSSY-KJFK</, 'mobile timeline viewer should title itself from the loaded flight');
-    assert.match(html, /id="timeline-mobile-viewer-aircraft"[^>]*[\s\S]*?Boeing 737-800\s*</, 'mobile timeline viewer should show the saved aircraft type beside the route');
+    assert.match(html, /id="timeline-mobile-viewer-aircraft"[^>]*[\s\S]*?Standard Cabin\s*</, 'mobile timeline viewer should show the saved aircraft type beside the route');
+    assert.equal((html.match(/data-aircraft-visual-key="lockheed-l1011-500"/g) || []).length, 2, 'both replay headers should receive the recorded aircraft profile id');
+    assert.match(html, /id="timeline-mobile-viewer-local-time"[^>]*[\s\S]*?2026-08-13 19:24\s*</, 'mobile timeline viewer should show the simulator-local flight datetime in international 24-hour format');
+    assert.match(html, /id="timeline-mobile-viewer-utc-time"[^>]*[\s\S]*?2026-08-13 09:24\s*</, 'mobile timeline viewer should show the simulator UTC flight datetime in international 24-hour format');
+    assert.match(html, /Flight start local[\s\S]*Flight start UTC/, 'the replay header should identify its simulator timestamps as flight-start values');
+    assert.match(html, /id="timeline-mobile-viewer-recording-time"[^>]*[\s\S]*?2026-08-14 07:05\s*</, 'mobile timeline viewer should distinguish the device-local recording start from simulator time');
     assert.match(html, /Distance[\s\S]*144 NM/, 'mobile timeline viewer should render whole-flight distance in the summary');
     assert.match(html, /id="timeline-card"/, 'mobile fullscreen viewer should include the inspector card');
     assert.match(html, /id="timeline-map-card"/, 'mobile fullscreen viewer should include the replay map');
     assert.doesNotMatch(html, /id="timeline-detail-score"/, 'mobile fullscreen viewer should omit the unused detail score block');
+  });
+
+  await test('TimelineTabShell still shows recording time when an older flight has no simulator clock', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineTabShell.vue'),
+      ({ useTimelineStore }) => {
+        const timeline = useTimelineStore();
+        timeline.setLoadedTimelineIdentity({
+          flightId: 'LEGACY',
+          route: 'EGLL-LFPG',
+          startTime: '2026-08-01T01:14:00',
+        });
+        timeline.openTimelineMobileViewer();
+      },
+      {
+        matchMedia: () => ({ matches: true }),
+      },
+    );
+
+    assert.match(html, /id="timeline-mobile-viewer-recording-time"[^>]*[\s\S]*?2026-08-01 01:14\s*</, 'legacy timeline headers should retain a minimal recording time fallback');
+    assert.doesNotMatch(html, /id="timeline-mobile-viewer-local-time"|id="timeline-mobile-viewer-utc-time"/, 'legacy timeline headers should not invent missing simulator clocks');
   });
 
   await test('TimelineTabShell shows loading placeholders instead of stale timeline data', async () => {
@@ -5136,6 +6133,9 @@ async function main() {
           flightId: 'OLD',
           route: 'EGLL-LFPG',
           aircraft: 'Old Airbus A320',
+          startTime: '2026-01-03T02:45:00',
+          simDateTimeLocal: '2026-01-02T15:30:00',
+          simDateTimeUtc: '2026-01-02T14:30:00Z',
         });
         timeline.setInspectorState({
           flightIdText: 'EGLL-LFPG (1h)',
@@ -5183,12 +6183,13 @@ async function main() {
     );
 
     assert.match(html, /id="timeline-mobile-viewer-title"[^>]*>YSSY-KJFK</, 'viewer title should switch to the loading flight label');
-    assert.match(html, /id="timeline-flight-id"[^>]*>Opening YSSY-KJFK</, 'inspector should name the loading flight');
+    assert.match(html, /id="timeline-flight-id"[^>]*>Opening timeline\.\.\.</, 'inspector should describe the loading state without repeating the route');
     assert.match(html, /Loading timeline replay\.\.\./, 'timeline viewer should show explicit loading copy');
     assert.match(html, /Preparing YSSY-KJFK/, 'loading placeholder should include the requested flight');
     assert.doesNotMatch(html, /Old landing event/, 'loading viewer should not render stale inspector rows');
     assert.doesNotMatch(html, /Old landing detail/, 'loading viewer should not render stale detail content');
     assert.doesNotMatch(html, /Old Airbus A320/, 'loading viewer should not render the previous flight aircraft');
+    assert.doesNotMatch(html, /id="timeline-mobile-viewer-flight-times"/, 'loading viewer should not render stale flight datetimes');
     assert.doesNotMatch(html, /Distance[\s\S]*144 NM/, 'loading viewer should not render the old summary');
   });
 
@@ -5333,7 +6334,8 @@ async function main() {
               flightId: 'F2',
               route: 'YSSY-KJFK',
               aircraft: 'A320',
-              timestamp: '2026-05-25T10:00:00Z',
+              timestamp: '2026-05-25T10:00:00',
+              recordingStartIso: '2026-05-25T09:30:00',
               durationMs: 7200000,
               distanceNm: 143.7,
               fuelBurnGal: 120,
@@ -5351,7 +6353,7 @@ async function main() {
               flightId: 'F1',
               route: 'EGLL-LFPG',
               aircraft: 'B738',
-              timestamp: '2026-05-24T08:00:00Z',
+              timestamp: '2026-05-24T08:00:00',
               durationMs: 3600000,
               fuelBurnGal: 80,
               eventCount: 720,
@@ -5384,6 +6386,8 @@ async function main() {
     assert.match(html, /2 CSV files - 12\.0 KB on disk/, 'storage summary should render');
     assert.match(html, /YSSY-KJFK/, 'most recent route should render');
     assert.match(html, /A320/, 'aircraft label should render');
+    assert.match(html, /Recorded 2026-05-25 09:30/, 'current flight rows should identify the recording start in international 24-hour format');
+    assert.match(html, /Saved 2026-05-24 08:00/, 'legacy flight rows should identify file-time fallback rather than presenting it as flight time');
     assert.match(html, /144 NM/, 'distance flown should render in recent flight rows');
     assert.match(html, /10\.0 KB/, 'recent flight rows should render the complete recording bundle size');
     assert.doesNotMatch(html, /Burn\s+\d/, 'recent flight rows should not promote fuel-burn estimates');

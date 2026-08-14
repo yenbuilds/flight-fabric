@@ -5,6 +5,9 @@ const {
   FBW_A32NX_ADAPTER_ID,
   FBW_A32NX_INTEGRATION,
   FBW_A32NX_PROFILE_KEY,
+  FBW_A380X_ADAPTER_ID,
+  FBW_A380X_INTEGRATION,
+  FBW_A380X_PROFILE_KEY,
   FENIX_A32X_ADAPTER_ID,
   FENIX_A32X_INTEGRATION,
   FENIX_A319_PROFILE_KEY,
@@ -45,7 +48,7 @@ const {
   defaultAircraftIntegrationRegistry,
 } = require('./index');
 
-test('Microsoft / iniBuilds A320neo V2 and A321LR share an exact-profile monitoring adapter', () => {
+test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile standard-control adapter', () => {
   const a320Integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
     { profileKey: INIBUILDS_A320NEO_V2_PROFILE_KEY },
@@ -65,16 +68,85 @@ test('Microsoft / iniBuilds A320neo V2 and A321LR share an exact-profile monitor
     INIBUILDS_A321LR_PROFILE_KEY,
   ]);
   assert.equal(Object.keys(a320Integration.fields).length, 44);
-  assert.equal(Object.keys(a320Integration.actions).length, 0);
+  assert.equal(Object.keys(a320Integration.actions).length, 42);
   assert.deepEqual(a320Integration.fields['fcu.altitudeFt'].sources[0], {
     route: { type: 'simvar', name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet' },
     decode: { type: 'number', precision: 0 },
   });
+  const expectedActionIds = [
+    ...[
+      'apMaster',
+      'flightDirector',
+      'autothrottleArmed',
+      'speedHold',
+      'headingHold',
+      'altitudeHold',
+      'verticalSpeedHold',
+      'navHold',
+      'approachHold',
+    ].flatMap((name) => [`flightGuidance.${name}.off`, `flightGuidance.${name}.on`]),
+    'flightGuidance.speed.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi']
+      .flatMap((name) => [`lights.${name}.off`, `lights.${name}.on`]),
+    'controls.gear.up',
+    'controls.gear.down',
+    'controls.flaps.decrease',
+    'controls.flaps.increase',
+    'controls.parkingBrake.off',
+    'controls.parkingBrake.on',
+  ].sort();
+  assert.deepEqual(Object.keys(a320Integration.actions).sort(), expectedActionIds);
+  for (const action of Object.values(a320Integration.actions) as any[]) {
+    assert.equal(action.verification, 'untested');
+    assert.equal(action.guard.retry, 'never');
+    assert.match(action.guard.groupId, /^microsoftIniBuildsA32x\./);
+    assert.equal(action.routes.length, 1);
+    assert.equal(action.routes[0].transport, 'simconnect-sequence');
+    assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
+  }
+
+  assert.deepEqual(a320Integration.actions['flightGuidance.speed.set']?.input, {
+    type: 'number', min: 100, max: 399, step: 1,
+  });
+  assert.deepEqual(a320Integration.actions['flightGuidance.verticalSpeed.set']?.input, {
+    type: 'number', min: -6000, max: 6000, step: 100,
+  });
+  assert.deepEqual(a320Integration.actions['flightGuidance.altitude.set']?.routes[0], {
+    id: 'microsoftIniBuildsA32x.flightGuidance.altitude.set.simconnectSequence',
+    transport: 'simconnect-sequence',
+    operations: [{
+      type: 'event',
+      name: 'AP_ALT_VAR_SET_ENGLISH',
+      inputValue: { source: 'input' },
+      parameters: [0],
+    }],
+    readback: { fieldId: 'fcu.altitudeFt', expectedInput: true, timeoutMs: 3000 },
+  });
+  assert.equal(a320Integration.actions['lights.landing.on']?.guard.skipIfSatisfied, false);
+  assert.deepEqual(a320Integration.actions['controls.flaps.increase']?.routes[0].readback, {
+    fieldId: 'controls.flapsIndex', confirmation: 'changed', timeoutMs: 3000,
+  });
+
+  for (const excludedAction of [
+    'flightGuidance.ap1.on',
+    'flightGuidance.ap2.on',
+    'flightGuidance.localizer.on',
+    'flightGuidance.flightLevelChange.on',
+    'flightGuidance.speed.managed',
+    'lights.runwayTurnoff.on',
+    'controls.spoilersArmed.on',
+    'controls.speedbrake.set',
+  ]) {
+    assert.equal(a320Integration.actions[excludedAction], undefined);
+  }
   assert.equal(defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
-    profileKey: INIBUILDS_A320NEO_V2_PROFILE_KEY,
-    actionId: 'flightGuidance.apMaster.toggle',
-  }), null);
+    profileKey: INIBUILDS_A321LR_PROFILE_KEY,
+    actionId: 'lights.beacon.on',
+  })?.routes[0].operations[0].name, 'BEACON_LIGHTS_SET');
   for (const profileKey of [
     'local/msfs/inibuilds-a320neo-v2',
     'local/msfs/inibuilds-a321lr',
@@ -120,7 +192,7 @@ test('Microsoft / iniBuilds A310-300 adapter is exact-profile trusted and monito
   ), null, 'untrusted local profiles must not activate the trusted A310 adapter');
 });
 
-test('Microsoft 737 MAX 8 adapter is exact-profile trusted and monitoring-only', () => {
+test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard controls', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     MICROSOFT_737_MAX_8_ADAPTER_ID,
     { profileKey: MICROSOFT_737_MAX_8_PROFILE_KEY },
@@ -130,11 +202,103 @@ test('Microsoft 737 MAX 8 adapter is exact-profile trusted and monitoring-only',
   assert.equal(integration.presentation.templateId, 'microsoft-737-max-8');
   assert.deepEqual(integration.trustedProfileKeys, [MICROSOFT_737_MAX_8_PROFILE_KEY]);
   assert.equal(Object.keys(integration.fields).length, 44);
-  assert.equal(Object.keys(integration.actions).length, 0);
+  assert.equal(Object.keys(integration.actions).length, 44);
   assert.deepEqual(integration.fields['mcp.altitudeFt'].sources[0], {
     route: { type: 'simvar', name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet' },
     decode: { type: 'number', precision: 0 },
   });
+
+  const expectedActionIds = [
+    ...[
+      'apMaster',
+      'flightDirector',
+      'autothrottleArmed',
+      'speedHold',
+      'headingHold',
+      'altitudeHold',
+      'verticalSpeedHold',
+      'navHold',
+      'approachHold',
+      'flightLevelChange',
+    ].flatMap((name) => [`flightGuidance.${name}.off`, `flightGuidance.${name}.on`]),
+    'flightGuidance.speed.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi']
+      .flatMap((name) => [`lights.${name}.off`, `lights.${name}.on`]),
+    'controls.gear.up',
+    'controls.gear.down',
+    'controls.flaps.decrease',
+    'controls.flaps.increase',
+    'controls.parkingBrake.off',
+    'controls.parkingBrake.on',
+  ].sort();
+  assert.deepEqual(Object.keys(integration.actions).sort(), expectedActionIds);
+
+  const confirmationFields = new Set<string>();
+  const eventNames = new Set<string>();
+  for (const action of Object.values(integration.actions) as any[]) {
+    assert.equal(action.verification, 'untested');
+    assert.equal(action.guard.retry, 'never');
+    assert.match(action.guard.groupId, /^microsoft737Max8\./);
+    assert.equal(action.routes.length, 1);
+    assert.equal(action.routes[0].transport, 'simconnect-sequence');
+    assert.equal(action.routes[0].operations.length, 1);
+    assert.equal(action.routes[0].operations[0].type, 'event');
+    assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
+    confirmationFields.add(action.routes[0].readback.fieldId);
+    eventNames.add(action.routes[0].operations[0].name);
+  }
+  assert.equal(confirmationFields.size, 24);
+  assert.equal(eventNames.size, 34);
+
+  assert.deepEqual(integration.actions['flightGuidance.altitude.set'], {
+    id: 'flightGuidance.altitude.set',
+    input: { type: 'number', min: 0, max: 49000, step: 100 },
+    guard: {
+      cooldownMs: 300,
+      groupId: 'microsoft737Max8.flightGuidance.altitude',
+      retry: 'never',
+    },
+    routes: [{
+      id: 'microsoft737Max8.flightGuidance.altitude.set.simconnectSequence',
+      transport: 'simconnect-sequence',
+      operations: [{
+        type: 'event',
+        name: 'AP_ALT_VAR_SET_ENGLISH',
+        inputValue: { source: 'input' },
+        parameters: [0],
+      }],
+      readback: { fieldId: 'mcp.altitudeFt', expectedInput: true, timeoutMs: 3000 },
+    }],
+    verification: 'untested',
+  });
+  assert.equal(
+    integration.actions['flightGuidance.flightLevelChange.on'].routes[0].operations[0].name,
+    'FLIGHT_LEVEL_CHANGE_ON',
+  );
+  assert.equal(
+    integration.actions['flightGuidance.flightLevelChange.on'].routes[0].readback.fieldId,
+    'afds.levelChange',
+  );
+  assert.equal(integration.actions['lights.nav.on'].guard.skipIfSatisfied, false);
+  assert.equal(integration.actions['lights.nav.on'].routes[0].operations[0].name, 'NAV_LIGHTS_SET');
+  assert.deepEqual(integration.actions['controls.flaps.increase'].routes[0].readback, {
+    fieldId: 'controls.flapsIndex', confirmation: 'changed', timeoutMs: 3000,
+  });
+  for (const excludedAction of [
+    'afds.cmdA.on',
+    'afds.cmdB.on',
+    'afds.vnav.on',
+    'flightGuidance.vnav.on',
+    'controls.autobrake.set',
+    'controls.speedbrake.set',
+    'lights.runwayTurnoff.on',
+    'systems.engine1.start',
+  ]) {
+    assert.equal(integration.actions[excludedAction], undefined);
+  }
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(
     MICROSOFT_737_MAX_8_ADAPTER_ID,
     { profileKey: 'local/msfs/microsoft-737-max-8' },
@@ -515,6 +679,119 @@ test('iniBuilds A330 adapter exposes its bounded standard-SimVar read/write cont
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_A330_ADAPTER_ID, {
     profileKey: 'local/msfs/inibuilds-a330',
   }), null, 'untrusted local profiles must not activate the trusted A330 adapter');
+});
+
+test('FlyByWire A380X adapter exposes only its compact guarded read/write contract', () => {
+  const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
+    FBW_A380X_ADAPTER_ID,
+    { profileKey: FBW_A380X_PROFILE_KEY },
+  );
+
+  assert.equal(integration.id, FBW_A380X_INTEGRATION.id);
+  assert.equal(integration.presentation.templateId, 'fbw-a380x');
+  assert.deepEqual(integration.trustedProfileKeys, [FBW_A380X_PROFILE_KEY]);
+  assert.equal(Object.keys(integration.fields).length, 42);
+  assert.equal(Object.keys(integration.actions).length, 34);
+  assert.deepEqual(integration.fields['flightGuidance.altitudeFt'].sources[0], {
+    route: { type: 'lvar', name: 'A:AUTOPILOT ALTITUDE LOCK VAR:3', unit: 'Feet' },
+    decode: { type: 'number', precision: 0 },
+  });
+
+  const expectedActionIds = [
+    ...['ap1', 'autothrust', 'localizer', 'approach'].flatMap((name) => [
+      `flightGuidance.${name}.off`,
+      `flightGuidance.${name}.on`,
+    ]),
+    'flightGuidance.speed.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitude.set',
+    ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'].flatMap((name) => [
+      `lights.${name}.off`,
+      `lights.${name}.on`,
+    ]),
+    'controls.parkingBrake.released',
+    'controls.parkingBrake.set',
+    'controls.spoilersArmed.off',
+    'controls.spoilersArmed.on',
+    'controls.spoilers.set',
+    'controls.flaps.decrease',
+    'controls.flaps.increase',
+    'controls.gear.up',
+    'controls.gear.down',
+  ].sort();
+  assert.deepEqual(Object.keys(integration.actions).sort(), expectedActionIds);
+  for (const action of Object.values(integration.actions) as any[]) {
+    assert.equal(action.verification, 'untested');
+    assert.equal(action.guard.retry, 'never');
+    assert.match(action.guard.groupId, /^fbwA380x\./);
+    assert.equal(action.routes.length, 1);
+    assert.equal(action.routes[0].transport, 'simconnect-sequence');
+    assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
+  }
+
+  assert.deepEqual(integration.actions['flightGuidance.altitude.set'], {
+    id: 'flightGuidance.altitude.set',
+    input: { type: 'number', min: 0, max: 49000, step: 100 },
+    guard: {
+      cooldownMs: 300,
+      groupId: 'fbwA380x.flightGuidance.altitude',
+      retry: 'never',
+    },
+    routes: [{
+      id: 'fbwA380x.flightGuidance.altitude.set.simconnectSequence',
+      transport: 'simconnect-sequence',
+      operations: [{
+        type: 'event',
+        name: 'AP_ALT_VAR_SET_ENGLISH',
+        inputValue: { source: 'input' },
+        parameters: [3],
+      }],
+      readback: { fieldId: 'flightGuidance.altitudeFt', expectedInput: true, timeoutMs: 3000 },
+    }],
+    verification: 'untested',
+  });
+  for (const actionId of ['flightGuidance.ap1.off', 'flightGuidance.ap1.on']) {
+    assert.deepEqual(integration.actions[actionId].routes[0].operations, [{
+      type: 'event',
+      name: 'A32NX.FCU_AP_1_PUSH',
+      value: 0,
+    }], `${actionId} must use the vendor-documented A380X AP1 toggle event`);
+    assert.equal(
+      integration.actions[actionId].routes[0].readback.fieldId,
+      'flightGuidance.ap1',
+      `${actionId} must remain protected by fresh AP1 logical readback`,
+    );
+  }
+  assert.deepEqual(integration.actions['controls.spoilers.set'].input, {
+    type: 'number', min: 0, max: 1, step: 0.25,
+  });
+  assert.deepEqual(
+    integration.actions['controls.spoilers.set'].routes[0].operations[0].inputValue,
+    { source: 'input', scale: 16383, round: 'nearest' },
+  );
+  assert.equal(integration.actions['lights.strobe.on'].guard.skipIfSatisfied, false);
+  assert.deepEqual(integration.actions['controls.flaps.increase'].routes[0].readback, {
+    fieldId: 'controls.flapsIndex', confirmation: 'changed', timeoutMs: 3000,
+  });
+
+  for (const excludedAction of [
+    'flightGuidance.ap2.on',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.speed.managed',
+    'flightGuidance.altitude.selected',
+    'lights.strobe.auto',
+    'lights.runwayTurnoff.on',
+    'systems.apuMaster.on',
+    'systems.engine1Master.on',
+  ]) {
+    assert.equal(integration.actions[excludedAction], undefined);
+  }
+  assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(FBW_A380X_ADAPTER_ID, {
+    profileKey: 'local/msfs/fbw-a380x',
+  }), null);
+  assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(FBW_A380X_ADAPTER_ID, {
+    profileKey: FBW_A32NX_PROFILE_KEY,
+  }), null);
 });
 
 test('iniBuilds TriStar adapter exposes its bounded read/write contract only for the exact profile', () => {

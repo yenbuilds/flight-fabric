@@ -1032,6 +1032,14 @@ function normalizeGateFailures(value: unknown): string[] {
   return [];
 }
 
+function roundSignedMagnitude(value: unknown): number | null {
+  const numeric = finiteNumberOrNull(value);
+  if (numeric == null) return null;
+  const magnitude = Math.round(Math.abs(numeric));
+  if (magnitude === 0) return 0;
+  return numeric < 0 ? -magnitude : magnitude;
+}
+
 // WebSocket landing packets are UI-oriented and transient. The canonical
 // event-bus/CSV payload is still built by buildLandingPayload().
 function buildFinalLandingBroadcast(input: {
@@ -1113,8 +1121,9 @@ function buildFinalLandingBroadcast(input: {
         touchdownSummary.ultimate_stability_gate_failures ?? touchdownSummary.ultimate_stability_gateFailures,
       ),
     },
-    crosswind: touchdownSummary.xwind_kts != null ? Math.round(touchdownSummary.xwind_kts) : null,
+    crosswind: roundSignedMagnitude(touchdownSummary.xwind_kts),
     windSpeed: touchdownSummary.wind_speed_kts != null ? Math.round(touchdownSummary.wind_speed_kts) : null,
+    windDirectionTrueDeg: normalizeHeadingDegrees(touchdownSummary.wind_dir_deg),
     pitchDeg: touchdownSummary.pitch_deg != null ? Math.round(touchdownSummary.pitch_deg * 10) / 10 : null,
     bankDeg: touchdownSummary.bank_deg != null ? Math.round(touchdownSummary.bank_deg * 10) / 10 : null,
     iasKts: touchdownSummary.ias_kts != null ? Math.round(touchdownSummary.ias_kts) : null,

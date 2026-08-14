@@ -112,6 +112,16 @@ const STABILITY_METRIC_DESCRIPTIONS = {
   },
 };
 
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || typeof value === 'boolean') continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
+}
+
 export function createLandingController({
   $,
   setText,
@@ -202,7 +212,11 @@ export function createLandingController({
       pitchDeg: event.pitch_deg != null ? event.pitch_deg : null,
       icao: event.runway ? event.runway.airport_icao : null,
       runway: event.runway ? event.runway.runway_id : null,
-      runwayHdg: event.touchdownDistance?.runwayHeadingTrueDeg ?? (event.runway ? event.runway.heading : null),
+      runwayHdg: firstFiniteNumber(
+        event.touchdownDistance?.runwayHeadingTrueDeg,
+        event.runway?.heading_true_deg,
+        event.runway?.heading,
+      ),
       runwayThreshold: event.touchdownDistance?.runwayThresholdLat != null && event.touchdownDistance?.runwayThresholdLon != null
         ? { lat: event.touchdownDistance.runwayThresholdLat, lon: event.touchdownDistance.runwayThresholdLon }
         : (event.runway ? event.runway.threshold : null),
@@ -231,8 +245,13 @@ export function createLandingController({
       centerlineDev: event.centerlineDev ?? null,
       bankDeg: event.bank_deg != null ? event.bank_deg : null,
       gsKts: event.gs_kts != null ? Math.round(event.gs_kts) : null,
-      crosswind: event.xwind_kts != null ? Math.round(event.xwind_kts) : null,
-      windSpeed: event.wind_speed_kts != null ? Math.round(event.wind_speed_kts) : null,
+      crosswind: firstFiniteNumber(event.xwind_kts, event.crosswind, event.xwindKts),
+      windSpeed: firstFiniteNumber(event.wind_speed_kts, event.windSpeed, event.windSpeedKts),
+      windDirectionTrueDeg: firstFiniteNumber(
+        event.wind_dir_deg,
+        event.windDirectionTrueDeg,
+        event.windDirDeg,
+      ),
       gforce: event.gforce != null ? event.gforce : null,
       approachType: null,
       aircraftProfileId: event.aircraftProfileId || event.aircraft_profile_id || null,
