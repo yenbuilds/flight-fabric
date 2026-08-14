@@ -131,8 +131,23 @@ function sha256File(filePath) {
 
 async function writeChecksums(artifacts, checksumPath) {
   const lines = [];
-  for (const artifact of [...artifacts].sort((a, b) => a.name.localeCompare(b.name))) {
-    lines.push(`${await sha256File(artifact.filePath)}  ${artifact.name}`);
+  const checksumName = (artifact) => {
+    const name = typeof artifact.publishedName === 'string'
+      ? artifact.publishedName
+      : artifact.name;
+    if (
+      typeof name !== 'string'
+      || name !== path.basename(name)
+      || !/^[A-Za-z0-9][A-Za-z0-9 ._-]*\.exe$/i.test(name)
+    ) {
+      throw new Error(`Unsafe checksum artifact name: ${String(name)}`);
+    }
+    return name;
+  };
+  for (const artifact of [...artifacts].sort(
+    (a, b) => checksumName(a).localeCompare(checksumName(b)),
+  )) {
+    lines.push(`${await sha256File(artifact.filePath)}  ${checksumName(artifact)}`);
   }
   if (fs.existsSync(checksumPath)) {
     assertSafeRegularFile(checksumPath, 'Existing checksum output');
@@ -160,7 +175,10 @@ async function verifyChecksumFile(checksumPath, artifacts) {
 
   const expected = new Map();
   for (const artifact of artifacts) {
-    expected.set(artifact.name, await sha256File(artifact.filePath));
+    const name = typeof artifact.publishedName === 'string'
+      ? artifact.publishedName
+      : artifact.name;
+    expected.set(name, await sha256File(artifact.filePath));
   }
   for (const line of lines) {
     const match = /^([a-f0-9]{64}) {2}(.+\.exe)$/i.exec(line);
@@ -212,6 +230,7 @@ async function main(argv = process.argv.slice(2)) {
     `Flight Fabric Setup ${version}.exe`,
     `Flight Fabric ${version}.exe`,
   ];
+  const publishedInstallerName = `Flight.Fabric.Setup.${version}.exe`;
 
   if (!fs.existsSync(distPath)) {
     throw new Error(`Output directory not found: ${distPath}`);
@@ -286,8 +305,12 @@ async function main(argv = process.argv.slice(2)) {
 
   // The portable executable is retained as a local build/test artifact. Only
   // the installer is published, so the upload checksum file must not list it.
-  const checksumLines = await writeChecksums([installer], checksumPath);
-  await verifyChecksumFile(checksumPath, [installer]);
+  const publishedInstaller = {
+    ...installer,
+    publishedName: publishedInstallerName,
+  };
+  const checksumLines = await writeChecksums([publishedInstaller], checksumPath);
+  await verifyChecksumFile(checksumPath, [publishedInstaller]);
 
   console.log(`Artifacts directory: ${distPath}`);
   console.log('');

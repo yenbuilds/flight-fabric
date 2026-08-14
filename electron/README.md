@@ -19,7 +19,10 @@ Output files:
 
 `npm run electron:release` also runs packaged smoke tests, backend lifecycle
 checks, final content verification, and the release summary. Publish only the
-installer and `SHA256SUMS.txt`; never upload the portable executable.
+installer and `SHA256SUMS.txt`; never upload the portable executable. Stage the
+installer for GitHub as `Flight.Fabric.Setup.<version>.exe`; the checksum file
+uses that exact published filename even though the local builder output keeps
+spaces.
 
 ## Features
 

@@ -85,7 +85,7 @@ export type MobiFlightCalculatorActionRoute = (MobiFlightCalculatorActionRouteBa
     pressCode: string;
     releaseCode: string;
 }>) | (MobiFlightCalculatorActionRouteBase & Readonly<{
-    /** Repeated trusted increments/decrements from a fresh numeric readback. */
+    /** Readback-paced trusted increments/decrements toward a bounded numeric target. */
     circular?: true;
     decreaseCode: string;
     increaseCode: string;

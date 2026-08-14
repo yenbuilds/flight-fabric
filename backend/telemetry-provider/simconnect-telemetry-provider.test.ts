@@ -2891,6 +2891,211 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
   assertEqual(JSON.stringify(heading.codes), JSON.stringify([increaseHeading, increaseHeading]), '359 to 1 takes the two-step circular path');
 });
 
+test('Fenix FCU numeric targets pace every relative step against exact aircraft progress', async () => {
+  const action = {
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  };
+
+  const periodicProvider = new SimConnectTelemetryProvider();
+  const periodicSamples = [
+    {
+      observed: 250,
+      sequence: 2,
+      fresh: true,
+      sourceId: 'lvar:fenix_speed',
+    },
+    {
+      observed: 251,
+      sequence: 3,
+      fresh: true,
+      sourceId: 'lvar:fenix_speed',
+    },
+  ];
+  let periodicCaptureCount = 0;
+  periodicProvider._captureAircraftIntegrationReadback = () => periodicSamples[
+    Math.min(periodicCaptureCount++, periodicSamples.length - 1)
+  ];
+  const periodicProgress = await periodicProvider._waitForAircraftIntegrationReadback(
+    {},
+    {
+      fieldId: 'flightGuidance.speedValue',
+      confirmation: 'changed',
+      timeoutMs: 200,
+    },
+    {},
+    {
+      observed: 250,
+      sequence: 1,
+      fresh: true,
+      sourceId: 'lvar:fenix_speed',
+    },
+  );
+  assertEqual(periodicProgress.confirmed, true, 'a newer periodic snapshot with the same value must not confirm progress');
+  assertEqual(periodicProgress.observed, 251, 'confirmation waits for an actual one-detent value change');
+  assertEqual(periodicCaptureCount, 2, 'the unchanged periodic snapshot is sampled before exact progress');
+
+  let dispatchedBeforePreviousProgress = false;
+  const paced = buildFenixFcuProvider({ fenix_speed: 250 }, ({ codes, snapshot }) => {
+    const callNumber = codes.length;
+    if (callNumber > 1 && snapshot.values.fenix_speed !== 249 + callNumber) {
+      dispatchedBeforePreviousProgress = true;
+    }
+    setTimeout(() => {
+      snapshot.values.fenix_speed += 1;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+    }, 70);
+    return { ok: true };
+  });
+  const pacedResult = await paced.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+  );
+  assertEqual(pacedResult.ok, true, 'delayed one-detent readbacks should reach the absolute target');
+  assertEqual(dispatchedBeforePreviousProgress, false, 'no later command may precede exact progress from the prior detent');
+  assertEqual(paced.codes.length, 3, 'the paced route still emits the required three detents');
+
+  const noProgress = buildFenixFcuProvider({ fenix_speed: 250 }, () => ({ ok: true }));
+  const generationContext = {
+    profileKey: FENIX_A320_PROFILE_KEY,
+    adapterId: FENIX_A32X_ADAPTER_ID,
+    profileRevision: FENIX_A320_PROFILE_REVISION,
+  };
+  const baseline = noProgress.provider._captureAircraftIntegrationReadback(
+    noProgress.bridge,
+    { fieldId: 'flightGuidance.speedValue' },
+    generationContext,
+  );
+  const stopped = await noProgress.provider._executeAircraftIntegrationMobiFlightRoute(
+    noProgress.bridge,
+    {
+      mode: 'step-to-target',
+      decreaseCode: '(L:E_FCU_SPEED, Number) -- (>L:E_FCU_SPEED, Number)',
+      increaseCode: '(L:E_FCU_SPEED, Number) ++ (>L:E_FCU_SPEED, Number)',
+      maxSteps: 500,
+      readback: { fieldId: 'flightGuidance.speedValue', timeoutMs: 1 },
+    },
+    { input: { type: 'number', min: 100, max: 399, step: 1 } },
+    253,
+    baseline,
+    generationContext,
+  );
+  assertEqual(stopped.ok, false, 'an accepted transport write without aircraft progress must fail closed');
+  assertEqual(stopped.code, 'aircraft_integration_selector_readback_timeout', 'missing progress remains distinguishable');
+  assertEqual(noProgress.codes.length, 1, 'missing progress stops after one relative command instead of sending the full burst');
+
+  const drifted = buildFenixFcuProvider({ fenix_speed: 250 }, ({ snapshot }) => {
+    snapshot.values.fenix_speed += 2;
+    snapshot.snapshotSequence += 1;
+    snapshot.updatedAt = new Date().toISOString();
+    return { ok: true };
+  });
+  const driftResult = await drifted.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+  );
+  assertEqual(driftResult.ok, false, 'unexpected multi-detent movement must fail closed');
+  assertEqual(driftResult.code, 'aircraft_integration_selector_drift', 'unexpected movement remains distinguishable');
+  assertEqual(drifted.codes.length, 1, 'unexpected movement stops before any corrective or additional command');
+
+  const deadlineProvider = new SimConnectTelemetryProvider();
+  const deadlineCodes = [];
+  const originalDateNow = Date.now;
+  let fakeNow = 1_000;
+  Date.now = () => fakeNow;
+  deadlineProvider._waitForAircraftIntegrationReadback = async () => {
+    fakeNow = 181_000;
+    return {
+      confirmed: true,
+      observed: 251,
+      sequence: 2,
+      fresh: true,
+      sourceId: 'lvar:fenix_speed',
+      sequenceAdvanced: true,
+    };
+  };
+  let deadlineResult;
+  try {
+    deadlineResult = await deadlineProvider._executeAircraftIntegrationMobiFlightRoute(
+      {
+        async executeMobiFlightCode(code) {
+          deadlineCodes.push(code);
+          return { ok: true };
+        },
+      },
+      {
+        mode: 'step-to-target',
+        decreaseCode: '(L:E_FCU_SPEED, Number) -- (>L:E_FCU_SPEED, Number)',
+        increaseCode: '(L:E_FCU_SPEED, Number) ++ (>L:E_FCU_SPEED, Number)',
+        maxSteps: 500,
+        readback: { fieldId: 'flightGuidance.speedValue', timeoutMs: 3000 },
+      },
+      { input: { type: 'number', min: 100, max: 399, step: 1 } },
+      252,
+      {
+        observed: 250,
+        sequence: 1,
+        fresh: true,
+        sourceId: 'lvar:fenix_speed',
+      },
+    );
+  } finally {
+    Date.now = originalDateNow;
+  }
+  assertEqual(deadlineResult.ok, false, 'an expired total deadline must stop the target sequence');
+  assertEqual(deadlineResult.code, 'aircraft_integration_selector_readback_timeout', 'deadline expiry remains distinguishable');
+  assertEqual(deadlineCodes.length, 1, 'deadline expiry is checked before another unobserved relative step');
+
+  const finalDeadlineProvider = new SimConnectTelemetryProvider();
+  const finalDeadlineCodes = [];
+  fakeNow = 1_000;
+  Date.now = () => fakeNow;
+  finalDeadlineProvider._waitForAircraftIntegrationReadback = async () => {
+    fakeNow = 181_001;
+    return {
+      confirmed: true,
+      observed: 251,
+      sequence: 2,
+      fresh: true,
+      sourceId: 'lvar:fenix_speed',
+      sequenceAdvanced: true,
+    };
+  };
+  let finalDeadlineResult;
+  try {
+    finalDeadlineResult = await finalDeadlineProvider._executeAircraftIntegrationMobiFlightRoute(
+      {
+        async executeMobiFlightCode(code) {
+          finalDeadlineCodes.push(code);
+          return { ok: true };
+        },
+      },
+      {
+        mode: 'step-to-target',
+        decreaseCode: '(L:E_FCU_SPEED, Number) -- (>L:E_FCU_SPEED, Number)',
+        increaseCode: '(L:E_FCU_SPEED, Number) ++ (>L:E_FCU_SPEED, Number)',
+        maxSteps: 500,
+        readback: { fieldId: 'flightGuidance.speedValue', timeoutMs: 3000 },
+      },
+      { input: { type: 'number', min: 100, max: 399, step: 1 } },
+      251,
+      {
+        observed: 250,
+        sequence: 1,
+        fresh: true,
+        sourceId: 'lvar:fenix_speed',
+      },
+    );
+  } finally {
+    Date.now = originalDateNow;
+  }
+  assertEqual(finalDeadlineResult.ok, false, 'a final target readback after the deadline must not report success');
+  assertEqual(finalDeadlineResult.code, 'aircraft_integration_selector_readback_timeout', 'late final progress reports the sequence deadline');
+  assertEqual(finalDeadlineCodes.length, 1, 'late final progress never authorizes another relative step');
+});
+
 test('Fenix FCU managed and numeric actions share one physical-knob in-flight guard', async () => {
   let releaseStep;
   const target = buildFenixFcuProvider({

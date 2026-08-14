@@ -136,6 +136,7 @@ const AIRCRAFT_INTEGRATION_SEQUENCE_DELAY_POLL_MS = 250;
 const MAX_AIRCRAFT_INTEGRATION_SEQUENCE_DELAY_MS = 10_000;
 const AIRCRAFT_INTEGRATION_CALCULATOR_DELAY_POLL_MS = 25;
 const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_PULSE_DELAY_MS = 1_000;
+const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_DURATION_MS = 180_000;
 const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS = 500;
 const INIBUILDS_TRISTAR_PROFILE_KEY = 'bundled/msfs/inibuilds-tristar';
 const INIBUILDS_TRISTAR_AFCS_PULSE_COOLDOWN_MS = 600;
@@ -1688,6 +1689,8 @@ class SimConnectTelemetryProvider {
     if (
       ack?.code === 'stale_profile'
       || ack?.code === 'aircraft_integration_precondition_failed'
+      || ack?.code === 'aircraft_integration_selector_drift'
+      || ack?.code === 'aircraft_integration_selector_readback_timeout'
       || ack?.code === 'aircraft_integration_selector_mode_unsupported'
       || ack?.code === 'untrusted_aircraft_integration_route'
     ) {
@@ -1994,6 +1997,7 @@ class SimConnectTelemetryProvider {
       observed: sample.observed,
       sequence: sample.sequence,
       fresh: sample.fresh,
+      sourceId: sample.sourceId,
       sequenceAdvanced: (
         sameSource()
         && sample.sequence != null
@@ -2349,43 +2353,160 @@ class SimConnectTelemetryProvider {
       };
     }
 
-    let code: string;
-    let stepCount: number;
-    if (route.circular === true) {
-      const positionCount = Math.round((input.max - input.min) / input.step) + 1;
-      const currentPosition = Math.round(baselinePosition);
-      const requestedPosition = Math.round(targetPosition);
-      const increaseSteps = (requestedPosition - currentPosition + positionCount) % positionCount;
-      const decreaseSteps = (currentPosition - requestedPosition + positionCount) % positionCount;
-      if (increaseSteps <= decreaseSteps) {
-        code = route.increaseCode;
-        stepCount = increaseSteps;
-      } else {
-        code = route.decreaseCode;
-        stepCount = decreaseSteps;
+    const positionCount = route.circular === true
+      ? Math.round((input.max - input.min) / input.step) + 1
+      : null;
+    const requestedPosition = Math.round(targetPosition);
+    const resolveMovement = (observedValue: unknown) => {
+      const numericValue = Number(observedValue);
+      const position = (numericValue - input.min) / input.step;
+      if (
+        !Number.isFinite(numericValue)
+        || numericValue < input.min
+        || numericValue > input.max
+        || Math.abs(position - Math.round(position)) > 1e-7
+      ) {
+        return null;
       }
-    } else {
-      const signedSteps = Math.round(targetPosition - baselinePosition);
-      code = signedSteps >= 0 ? route.increaseCode : route.decreaseCode;
-      stepCount = Math.abs(signedSteps);
-    }
-    if (stepCount > maxSteps || stepCount > MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS) {
+
+      const currentPosition = Math.round(position);
+      if (positionCount != null) {
+        const increaseSteps = (
+          requestedPosition - currentPosition + positionCount
+        ) % positionCount;
+        const decreaseSteps = (
+          currentPosition - requestedPosition + positionCount
+        ) % positionCount;
+        const increasing = increaseSteps <= decreaseSteps;
+        const remainingSteps = increasing ? increaseSteps : decreaseSteps;
+        const nextPosition = increasing
+          ? (currentPosition + 1) % positionCount
+          : (currentPosition - 1 + positionCount) % positionCount;
+        return {
+          code: increasing ? route.increaseCode : route.decreaseCode,
+          expectedValue: input.min + (nextPosition * input.step),
+          remainingSteps,
+        };
+      }
+
+      const signedSteps = requestedPosition - currentPosition;
+      return {
+        code: signedSteps >= 0 ? route.increaseCode : route.decreaseCode,
+        expectedValue: input.min + (
+          (currentPosition + (signedSteps >= 0 ? 1 : -1)) * input.step
+        ),
+        remainingSteps: Math.abs(signedSteps),
+      };
+    };
+
+    const initialMovement = resolveMovement(baselineValue);
+    if (!initialMovement) {
       return {
         ok: false,
         code: 'aircraft_integration_selector_mode_unsupported',
-        error: `The requested selector movement requires ${stepCount} steps, above the trusted ${maxSteps}-step limit.`,
+        error: 'The fresh selector readback is outside the trusted target domain.',
+      };
+    }
+    if (
+      initialMovement.remainingSteps > maxSteps
+      || initialMovement.remainingSteps > MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS
+    ) {
+      return {
+        ok: false,
+        code: 'aircraft_integration_selector_mode_unsupported',
+        error: `The requested selector movement requires ${initialMovement.remainingSteps} steps, above the trusted ${maxSteps}-step limit.`,
       };
     }
 
-    for (let index = 0; index < stepCount; index += 1) {
+    // MobiFlight's command acknowledgement confirms only that SimConnect
+    // accepted the ClientData write. It does not prove that the aircraft
+    // consumed one rotary detent. Pace every relative command against the
+    // authoritative selector readback so an absolute target can never become
+    // an unchecked burst of relative movement.
+    let currentReadback = baselineReadback;
+    let dispatchedSteps = 0;
+    const targetDeadline = Date.now() + MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_DURATION_MS;
+    while (true) {
+      const movement = resolveMovement(currentReadback?.observed);
+      if (!movement) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_drift',
+          error: 'The selector left its trusted target domain; no further rotary steps were sent.',
+        };
+      }
+      if (movement.remainingSteps === 0) return { ok: true };
+      if (
+        dispatchedSteps >= maxSteps
+        || dispatchedSteps >= MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS
+      ) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_mode_unsupported',
+          error: `The selector did not reach its target within the trusted ${maxSteps}-step limit.`,
+        };
+      }
+      if (Date.now() >= targetDeadline) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_readback_timeout',
+          error: 'The selector did not reach its target within the trusted sequence duration; no further steps were sent.',
+        };
+      }
       if (!generationIsActive()) return staleProfileResult();
       const precondition = capturePrecondition();
       if (!precondition.ok) return precondition;
-      const ack = await bridge.executeMobiFlightCode(code);
+      const ack = await bridge.executeMobiFlightCode(movement.code);
       if (!ack || ack.ok !== true) return ack;
       if (!generationIsActive()) return staleProfileResult();
+      dispatchedSteps += 1;
+
+      const remainingDurationMs = targetDeadline - Date.now();
+      if (remainingDurationMs <= 0) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_readback_timeout',
+          error: 'The selector did not reach its target within the trusted sequence duration; no further steps were sent.',
+        };
+      }
+      const perStepTimeoutMs = Number.isFinite(route.readback?.timeoutMs)
+        ? Math.max(0, Number(route.readback.timeoutMs))
+        : 1500;
+
+      const progress = await this._waitForAircraftIntegrationReadback(
+        bridge,
+        {
+          ...route.readback,
+          confirmation: 'changed',
+          timeoutMs: Math.min(perStepTimeoutMs, remainingDurationMs),
+        },
+        generationContext,
+        currentReadback,
+      );
+      if (!generationIsActive()) return staleProfileResult();
+      if (Date.now() >= targetDeadline) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_readback_timeout',
+          error: 'The selector did not reach its target within the trusted sequence duration; no further steps were sent.',
+        };
+      }
+      if (!progress.confirmed) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_readback_timeout',
+          error: `The aircraft did not confirm rotary progress from ${formatAircraftControlReadbackValue(currentReadback.observed)}; no further steps were sent.`,
+        };
+      }
+      if (!Object.is(progress.observed, movement.expectedValue)) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_selector_drift',
+          error: `One rotary step should have moved the selector to ${formatAircraftControlReadbackValue(movement.expectedValue)}, but the aircraft reported ${formatAircraftControlReadbackValue(progress.observed)}; no further steps were sent.`,
+        };
+      }
+      currentReadback = progress;
     }
-    return { ok: true };
   }
 
   async _executeAircraftIntegrationLvar(bridge, route: AnyRecord) {

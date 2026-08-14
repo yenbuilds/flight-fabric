@@ -1593,8 +1593,9 @@ test(
   'release summary generates and verifies checksums for exact versioned artifacts',
   releaseSummaryScript.includes("crypto.createHash('sha256')") &&
     releaseSummaryScript.includes("'SHA256SUMS.txt'") &&
-    releaseSummaryScript.includes('writeChecksums([installer], checksumPath)') &&
-    releaseSummaryScript.includes('verifyChecksumFile(checksumPath, [installer])') &&
+    releaseSummaryScript.includes('`Flight.Fabric.Setup.${version}.exe`') &&
+    releaseSummaryScript.includes('writeChecksums([publishedInstaller], checksumPath)') &&
+    releaseSummaryScript.includes('verifyChecksumFile(checksumPath, [publishedInstaller])') &&
     releaseSummaryScript.includes('Expected exactly'),
 );
 test(
