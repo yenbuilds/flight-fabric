@@ -12,10 +12,10 @@
   </p>
 </div>
 
-![Flight Fabric tour showing live telemetry, guarded aircraft controls, full-flight timeline replay, and a detailed landing debrief](readme-assets/flight-fabric-tour.gif)
+![Flight Fabric tour showing live telemetry, selected aircraft controls, full flight timeline replay, and a detailed landing debrief](readme-assets/flight-fabric-tour.gif)
 
 Flight Fabric is built for airline flying in Microsoft Flight Simulator 2024.
-It puts useful simulator data and selected guarded controls on a dedicated
+It puts useful simulator data and selected controls on a dedicated
 screen, showing your aircraft, route, and systems in real time. After landing,
 it turns the recording into an approach and landing debrief with a full flight
 timeline.
@@ -30,7 +30,7 @@ timeline.
 
 | Live overview | Aircraft controls |
 | --- | --- |
-| ![Flight Fabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![Flight Fabric Fenix A320 page showing searchable guarded flight-guidance controls](readme-assets/aircraft-controls-20260815.png) |
+| ![Flight Fabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![Flight Fabric Fenix A320 page showing searchable flight guidance controls](readme-assets/aircraft-controls-20260815.png) |
 | **Timeline replay** | **Landing debrief** |
 | ![Flight Fabric timeline inspector with events, replay map, and altitude profile](readme-assets/timeline-replay-20260815.png) | ![Flight Fabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
 
@@ -38,7 +38,7 @@ timeline.
 
 | Fly and control | After you land | On another screen |
 | --- | --- | --- |
-| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable, guarded aircraft controls for supported aircraft. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
+| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable aircraft controls for supported aircraft. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
 
 ## Get flying
 
