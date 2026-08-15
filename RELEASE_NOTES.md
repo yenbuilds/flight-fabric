@@ -1,24 +1,31 @@
-# Flight Fabric 0.4.1
+# Flight Fabric 0.4.2
 
-Flight Fabric 0.4.1 fixes Fenix A32X numeric FCU targeting and makes published
-checksum verification work with the exact GitHub installer filename.
+Flight Fabric 0.4.2 adds a phone-friendly virtual throttle for the Fenix A32X
+family and refreshes the website and README around the current application.
 
-## Fixed
+## Added
 
-- Fenix A32X typed speed, heading, and altitude values are now treated as
-  absolute targets. Flight Fabric sends one relative knob detent at a time and
-  waits for exact aircraft progress before continuing, with bounded step and
-  time limits.
-- Missing, stale, skipped, wrong-direction, profile-changing, or timed-out FCU
-  progress stops the sequence without sending another unconfirmed step. A
-  timeout can leave the selector at an intermediate value.
-- Published SHA-256 checksum files now reference the exact dotted GitHub
-  installer asset name, so normal filename-based verification works without
-  renaming the download.
+- Fenix A319, A320, and A321 pages now offer four large one-tap controls for
+  the forward IDLE, CLB, FLX/MCT, and TOGA throttle detents.
+- Every detent command sets both virtual levers together and requires fresh,
+  independent left and right readback confirmation before reporting success.
+- Accepted taps provide a short capability-detected vibration on supported
+  Android browsers. The active detent is highlighted from live aircraft data.
+
+## Changed
+
+- The public website now leads with the complete Flight Fabric workflow: live
+  telemetry, guarded aircraft controls, full-flight recording, timeline replay,
+  and landing debriefs.
+- The README now includes a compact animated product tour and current desktop
+  screenshots for Overview, Aircraft Controls, Timeline Replay, and Landing
+  Debrief.
+- Mobile website previews now use current Flight Fabric captures in a modern
+  phone presentation.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.4.1.exe`
+- `Flight.Fabric.Setup.0.4.2.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable
@@ -32,8 +39,10 @@ publisher** warning.
 
 ## Known limitations
 
-- Fenix A32X FCU write routes remain marked untested and require the MobiFlight
-  Event Module.
+- Fenix A32X FCU and virtual-throttle write routes remain marked untested and
+  require a compatible MobiFlight Event Module connection.
+- The virtual throttle exposes forward detents only. Reverse thrust, arbitrary
+  axis positions, and split-lever targets are intentionally unavailable.
 - Do not move the same physical Fenix FCU rotary while a typed target is
   pending. The transport cannot distinguish that cockpit detent from app
   progress.

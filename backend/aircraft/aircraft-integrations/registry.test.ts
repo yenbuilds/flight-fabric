@@ -1090,8 +1090,8 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     assert.equal(integration.presentation.templateId, 'fenix-a32x');
   }
 
-  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 118);
-  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.actions).length, 273);
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 120);
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.actions).length, 277);
   for (const [fieldId, field] of Object.entries(
     FENIX_A32X_INTEGRATION.fields,
   ) as Array<[string, any]>) {
@@ -1129,6 +1129,12 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     'flightGuidance.altitudeHundred.set',
     'flightGuidance.altitudeThousand.set',
   ]);
+  const fenixThrottleActionTargets = new Map([
+    ['propulsion.throttle.idle', 2],
+    ['propulsion.throttle.climb', 3],
+    ['propulsion.throttle.flexMct', 4],
+    ['propulsion.throttle.toga', 5],
+  ]);
   const fenixConfirmationFields = new Set<string>();
   let fenixLegacyActionCount = 0;
   for (const [actionId, action] of Object.entries(
@@ -1138,9 +1144,28 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     assert.equal(action.guard.cooldownMs, 750, `${actionId} must use the family cooldown`);
     assert.match(action.guard.groupId, /^fenixA32x\./, `${actionId} must use a family-owned guard group`);
     for (const route of action.routes) {
-      assert.ok(FENIX_A32X_INTEGRATION.fields[route.readback.fieldId]);
-      assert.equal(route.readback.timeoutMs, 3000);
-      fenixConfirmationFields.add(route.readback.fieldId);
+      const readbacks = Array.isArray(route.readbacks) ? route.readbacks : [route.readback];
+      for (const readback of readbacks) {
+        assert.ok(FENIX_A32X_INTEGRATION.fields[readback.fieldId]);
+        assert.equal(readback.timeoutMs, 3000);
+        fenixConfirmationFields.add(readback.fieldId);
+      }
+    }
+    if (fenixThrottleActionTargets.has(actionId)) {
+      const target = fenixThrottleActionTargets.get(actionId);
+      assert.equal(action.guard.groupId, 'fenixA32x.propulsion.throttle');
+      assert.equal(action.routes.length, 1, `${actionId} must remain one coordinated route`);
+      const [route] = action.routes as any[];
+      assert.equal(route.transport, 'simconnect-sequence');
+      assert.deepEqual(route.operations, [
+        { type: 'lvar', name: 'L:A_FC_THROTTLE_LEFT_INPUT', unit: 'Number', value: target },
+        { type: 'lvar', name: 'L:A_FC_THROTTLE_RIGHT_INPUT', unit: 'Number', value: target },
+      ]);
+      assert.deepEqual(route.readbacks, [
+        { fieldId: 'propulsion.throttleLever1Position', expectedValue: target, timeoutMs: 3000 },
+        { fieldId: 'propulsion.throttleLever2Position', expectedValue: target, timeoutMs: 3000 },
+      ]);
+      continue;
     }
     if (fenixFcuActionIds.has(actionId)) {
       assert.equal(action.routes.length, 1, `${actionId} must remain calculator-only`);
@@ -1164,7 +1189,17 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
   }
   assert.equal(fenixLegacyActionCount, 251);
   assert.equal(fenixFcuActionIds.size, 22);
-  assert.equal(fenixConfirmationFields.size, 117);
+  assert.equal(fenixThrottleActionTargets.size, 4);
+  assert.equal(fenixConfirmationFields.size, 119);
+  for (const [fieldId, lvar] of [
+    ['propulsion.throttleLever1Position', 'A_FC_THROTTLE_LEFT_INPUT'],
+    ['propulsion.throttleLever2Position', 'A_FC_THROTTLE_RIGHT_INPUT'],
+  ] as const) {
+    assert.deepEqual(FENIX_A32X_INTEGRATION.fields[fieldId].sources[0], {
+      route: { type: 'lvar', name: `L:${lvar}`, unit: 'Number' },
+      decode: { type: 'number', precision: 2 },
+    });
+  }
   assert.deepEqual(FENIX_A32X_INTEGRATION.fields['lights.strobeMode'].sources[0], {
     route: { type: 'lvar', name: 'L:S_OH_EXT_LT_STROBE', unit: 'Number' },
     decode: { type: 'enum', values: { 0: 'off', 1: 'auto', 2: 'on' } },
@@ -1336,6 +1371,8 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     'systems.idg1.disconnect',
     'evacuation.command.on',
     'controls.tillerDisconnectCaptain.on',
+    'propulsion.throttle.reverse',
+    'propulsion.throttle.set',
   ]) {
     assert.equal(
       FENIX_A32X_INTEGRATION.actions[excludedAction],
@@ -1544,6 +1581,19 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   unknownReadback.actions['test.set'].routes[0].readback.fieldId = 'test.missing';
   assert.throws(() => createAircraftIntegrationRegistry([unknownReadback]), /invalid action readback/);
 
+  const multiReadbackCalculator = structuredClone(validBase);
+  multiReadbackCalculator.id = 'multi-readback-calculator';
+  multiReadbackCalculator.trustedProfileKeys = ['bundled/msfs/multi-readback-calculator'];
+  (multiReadbackCalculator.actions['test.set'].routes[0] as any).readbacks = [
+    { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+    { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+  ];
+  assert.throws(
+    () => createAircraftIntegrationRegistry([multiReadbackCalculator]),
+    /invalid action route/,
+    'multi-readback contracts are available only to coordinated SimConnect sequences',
+  );
+
   const validPulse = structuredClone(validBase);
   validPulse.id = 'valid-pulse';
   validPulse.trustedProfileKeys = ['bundled/msfs/valid-pulse'];
@@ -1644,6 +1694,48 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     () => createAircraftIntegrationRegistry([parameterizedSequence]),
     'fixed secondary SimConnect parameters are part of the trusted route',
   );
+
+  const multiReadbackSequence = structuredClone(validBase);
+  multiReadbackSequence.id = 'multi-readback-sequence';
+  multiReadbackSequence.trustedProfileKeys = ['bundled/msfs/multi-readback-sequence'];
+  (multiReadbackSequence.fields as any)['test.second'] = {
+    id: 'test.second',
+    sources: [{
+      route: { type: 'lvar', name: 'L:test_second', unit: 'Number' },
+      decode: { type: 'number', precision: 0 },
+    }],
+  };
+  multiReadbackSequence.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{ type: 'lvar', name: 'L:test', unit: 'Number', value: 1 }],
+    readbacks: [
+      { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 },
+      { fieldId: 'test.second', expectedValue: 1, timeoutMs: 100 },
+    ],
+  }];
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([multiReadbackSequence]),
+    'a coordinated sequence may require multiple independent readbacks',
+  );
+
+  for (const [id, mutate] of [
+    ['one-multi-readback', (route: any) => { route.readbacks.pop(); }],
+    ['duplicate-multi-readback', (route: any) => { route.readbacks[1].fieldId = 'test.value'; }],
+    ['mixed-single-and-multi-readback', (route: any) => {
+      route.readback = { fieldId: 'test.value', expectedValue: 1, timeoutMs: 100 };
+    }],
+  ] as const) {
+    const invalid = structuredClone(multiReadbackSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    mutate(invalid.actions['test.set'].routes[0]);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
 
   for (const [id, parameters] of [
     ['too-many-sequence-parameters', [0, 1, 2, 3, 4]],

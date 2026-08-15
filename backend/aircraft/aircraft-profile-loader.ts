@@ -1608,8 +1608,13 @@ function getLvarConfig(): {
     for (const action of Object.values(aircraftIntegration.actions)) {
       if (!action || typeof action !== 'object' || !Array.isArray((action as GenericRecord).routes)) continue;
       for (const route of (action as GenericRecord).routes) {
-        const fieldId = route?.readback?.fieldId;
-        if (typeof fieldId === 'string' && fieldId) confirmationFieldIds.add(fieldId);
+        const readbacks = Array.isArray(route?.readbacks)
+          ? route.readbacks
+          : (route?.readback ? [route.readback] : []);
+        for (const readback of readbacks) {
+          const fieldId = readback?.fieldId;
+          if (typeof fieldId === 'string' && fieldId) confirmationFieldIds.add(fieldId);
+        }
         const preconditionFieldId = route?.precondition?.fieldId;
         if (typeof preconditionFieldId === 'string' && preconditionFieldId) {
           confirmationFieldIds.add(preconditionFieldId);

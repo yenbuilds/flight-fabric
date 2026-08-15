@@ -1,8 +1,8 @@
 <div align="center">
   <img src="readme-assets/flight-fabric-icon.png" width="112" alt="Flight Fabric logo">
   <h1>Flight Fabric</h1>
-  <p><strong>Your second screen and flight recorder for airline flying in Microsoft Flight Simulator 2024.</strong></p>
-  <p>See the flight as it happens, then review it when you are back on the ground.</p>
+  <p><strong>See the whole flight. Learn from every landing.</strong></p>
+  <p>Your second screen, aircraft companion, and flight recorder for airline flying in Microsoft Flight Simulator 2024.</p>
   <p>
     <a href="https://github.com/yenbuilds/flight-fabric/releases/latest"><strong>Download for Windows</strong></a>
     &nbsp;&middot;&nbsp;
@@ -12,18 +12,27 @@
   </p>
 </div>
 
-![Animated tour of Flight Fabric showing the live map, telemetry, aircraft controls, SimBrief, Timeline replay, and landing debrief](readme-assets/flight-fabric-tour.gif)
+![Flight Fabric tour showing live telemetry, guarded aircraft controls, full-flight timeline replay, and a detailed landing debrief](readme-assets/flight-fabric-tour.gif)
 
 Flight Fabric is built for airline flying in Microsoft Flight Simulator 2024.
-It puts useful simulator data on a separate screen, showing your aircraft,
-route, and systems in real time. After landing, it turns the recording into an
-approach and landing debrief with a full flight timeline.
+It puts useful simulator data and selected guarded controls on a dedicated
+screen, showing your aircraft, route, and systems in real time. After landing,
+it turns the recording into an approach and landing debrief with a full flight
+timeline.
 
 > [!IMPORTANT]
 > Flight Fabric is free, experimental alpha software for consumer flight
 > simulators. It is not certified, approved, or intended for real-world aviation.
 > Do not rely on it for real-world operations, navigation, training, or safety
 > decisions.
+
+## See it in action
+
+| Live overview | Aircraft controls |
+| --- | --- |
+| ![Flight Fabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![Flight Fabric Fenix A320 page showing searchable guarded flight-guidance controls](readme-assets/aircraft-controls-20260815.png) |
+| **Timeline replay** | **Landing debrief** |
+| ![Flight Fabric timeline inspector with events, replay map, and altitude profile](readme-assets/timeline-replay-20260815.png) | ![Flight Fabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
 
 ## What Flight Fabric does
 

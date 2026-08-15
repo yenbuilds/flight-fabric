@@ -2681,18 +2681,22 @@ class SimConnectTelemetryProvider {
 
     const transportAcknowledged = route.transport === 'simconnect-sequence'
       && route.confirmation === 'transport-acknowledged';
-    let resolvedReadback = route.readback;
-    if (!resolvedReadback && !transportAcknowledged) {
+    const routeReadbacks = Array.isArray(route.readbacks)
+      ? route.readbacks
+      : (route.readback ? [route.readback] : []);
+    const resolvedReadbacks = routeReadbacks.map((routeReadback) => {
+      if (routeReadback.expectedInput !== true) return routeReadback;
+      const { expectedInput: _expectedInput, ...readback } = routeReadback;
+      return { ...readback, expectedValue: inputResult.value };
+    });
+    const resolvedReadback = resolvedReadbacks[0];
+    if (resolvedReadbacks.length === 0 && !transportAcknowledged) {
       return {
         ok: false,
         code: 'untrusted_aircraft_integration_route',
         error: 'The selected aircraft integration route has no confirmation contract.',
         backendSource,
       };
-    }
-    if (route.readback?.expectedInput === true) {
-      const { expectedInput: _expectedInput, ...readback } = route.readback;
-      resolvedReadback = { ...readback, expectedValue: inputResult.value };
     }
     let resolvedSdkValues: readonly number[] = [];
     let resolvedSequenceOperations: readonly AnyRecord[] = [];
@@ -2791,18 +2795,25 @@ class SimConnectTelemetryProvider {
       adapterId,
       profileRevision: options.profileRevision,
     };
-    const baselineReadback = resolvedReadback
-      ? this._captureAircraftIntegrationReadback(
+    const baselineReadbacks = resolvedReadbacks.map((readback) => (
+      this._captureAircraftIntegrationReadback(
         bridge,
-        resolvedReadback,
+        readback,
         readbackContext,
       )
-      : { fresh: true, observed: undefined };
-    if (resolvedReadback && (!baselineReadback.fresh || baselineReadback.observed == null)) {
+    ));
+    const baselineReadback = baselineReadbacks[0] || { fresh: true, observed: undefined };
+    const unavailableReadbackIndex = baselineReadbacks.findIndex(
+      (baseline) => !baseline.fresh || baseline.observed == null,
+    );
+    if (unavailableReadbackIndex >= 0) {
+      const unavailableFieldId = resolvedReadbacks[unavailableReadbackIndex]?.fieldId;
       return {
         ok: false,
         code: 'aircraft_integration_readback_unavailable',
-        error: 'A fresh aircraft control readback is required before this control can be written.',
+        error: resolvedReadbacks.length > 1 && unavailableFieldId
+          ? `A fresh ${unavailableFieldId} readback is required before this control can be written.`
+          : 'A fresh aircraft control readback is required before this control can be written.',
         backendSource,
       };
     }
@@ -2839,12 +2850,18 @@ class SimConnectTelemetryProvider {
     // Documentation-backed momentary routes can instead complete on transport
     // acknowledgement without claiming that the aircraft state is known.
     if (
-      resolvedReadback
+      resolvedReadbacks.length > 0
       && integrationAction.guard.skipIfSatisfied !== false
-      && resolvedReadback.confirmation !== 'changed'
-      && Object.prototype.hasOwnProperty.call(resolvedReadback, 'expectedValue')
-      && Object.is(baselineReadback.observed, resolvedReadback.expectedValue)
+      && resolvedReadbacks.every((readback, index) => (
+        readback.confirmation !== 'changed'
+        && Object.prototype.hasOwnProperty.call(readback, 'expectedValue')
+        && Object.is(baselineReadbacks[index]?.observed, readback.expectedValue)
+      ))
     ) {
+      const confirmedValues = Object.fromEntries(resolvedReadbacks.map((readback, index) => [
+        readback.fieldId,
+        baselineReadbacks[index]?.observed,
+      ]));
       return {
         ok: true,
         code: 'executed',
@@ -2855,7 +2872,9 @@ class SimConnectTelemetryProvider {
         transportMode: route.transport === 'lvar'
           ? 'direct-lvar'
           : (route.transport === 'mobiflight-calculator' ? 'mobiflight' : route.transport),
-        confirmedValue: baselineReadback.observed,
+        ...(resolvedReadbacks.length === 1
+          ? { confirmedValue: baselineReadback.observed }
+          : { confirmedValues }),
         idempotent: true,
         noOp: true,
       };
@@ -2935,16 +2954,24 @@ class SimConnectTelemetryProvider {
         };
       }
 
-      const confirmation = await this._waitForAircraftIntegrationReadback(
-        bridge,
-        resolvedReadback,
-        readbackContext,
-        baselineReadback,
+      const confirmations = await Promise.all(resolvedReadbacks.map((readback, index) => (
+        this._waitForAircraftIntegrationReadback(
+          bridge,
+          readback,
+          readbackContext,
+          baselineReadbacks[index],
+        )
+      )));
+      const failedConfirmationIndex = confirmations.findIndex(
+        (candidate) => !candidate.confirmed,
       );
-      if (!confirmation.confirmed) {
-        const expectedValue = resolvedReadback?.confirmation === 'changed'
+      if (failedConfirmationIndex >= 0) {
+        const failedReadback = resolvedReadbacks[failedConfirmationIndex];
+        const failedBaseline = baselineReadbacks[failedConfirmationIndex];
+        const confirmation = confirmations[failedConfirmationIndex];
+        const expectedValue = failedReadback?.confirmation === 'changed'
           ? undefined
-          : resolvedReadback?.expectedValue;
+          : failedReadback?.expectedValue;
         const sequenceAdvanced = confirmation.sequenceAdvanced === true;
         const simConnectException = (
           route.transport === 'sdk'
@@ -2952,16 +2979,16 @@ class SimConnectTelemetryProvider {
         )
           ? bridge.findRecentSimConnectException(ack.sendIds || [], dispatchedAtMs)
           : null;
-        const readbackDetail = resolvedReadback?.confirmation === 'changed'
+        const readbackDetail = failedReadback?.confirmation === 'changed'
           ? (
               sequenceAdvanced
-                ? `A newer aircraft state arrived, but ${resolvedReadback.fieldId} remained ${formatAircraftControlReadbackValue(confirmation.observed)} instead of changing from ${formatAircraftControlReadbackValue(baselineReadback.observed)}.`
-                : `The aircraft published no newer control state; ${resolvedReadback.fieldId} remained ${formatAircraftControlReadbackValue(baselineReadback.observed)}.`
+                ? `A newer aircraft state arrived, but ${failedReadback.fieldId} remained ${formatAircraftControlReadbackValue(confirmation.observed)} instead of changing from ${formatAircraftControlReadbackValue(failedBaseline.observed)}.`
+                : `The aircraft published no newer control state; ${failedReadback.fieldId} remained ${formatAircraftControlReadbackValue(failedBaseline.observed)}.`
             )
           : (
               sequenceAdvanced
-                ? `A newer aircraft state arrived, but ${resolvedReadback.fieldId} was ${formatAircraftControlReadbackValue(confirmation.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
-                : `The aircraft published no newer control state; ${resolvedReadback.fieldId} remained ${formatAircraftControlReadbackValue(baselineReadback.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
+                ? `A newer aircraft state arrived, but ${failedReadback.fieldId} was ${formatAircraftControlReadbackValue(confirmation.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
+                : `The aircraft published no newer control state; ${failedReadback.fieldId} remained ${formatAircraftControlReadbackValue(failedBaseline.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
             );
         return {
           ok: false,
@@ -2970,7 +2997,7 @@ class SimConnectTelemetryProvider {
             : 'aircraft_integration_readback_timeout',
           error: simConnectException
             ? `SimConnect rejected command ${route.command} after its initial acknowledgement (exception ${formatAircraftControlReadbackValue(simConnectException.exception)}, packet ${simConnectException.sendId}). ${readbackDetail}`
-            : `The transport accepted the command, but readback did not confirm it within ${resolvedReadback.timeoutMs} ms. ${readbackDetail}`,
+            : `The transport accepted the command, but readback did not confirm it within ${failedReadback.timeoutMs} ms. ${readbackDetail}`,
           backendSource,
           integrationId: integration.id,
           actionId: integrationAction.id,
@@ -2979,7 +3006,7 @@ class SimConnectTelemetryProvider {
             ? 'direct-lvar'
             : (route.transport === 'mobiflight-calculator' ? 'mobiflight' : route.transport),
           expectedValue,
-          baselineValue: baselineReadback.observed,
+          baselineValue: failedBaseline.observed,
           observedValue: confirmation.observed,
           readbackAdvanced: sequenceAdvanced,
           sdkCommand: route.transport === 'sdk' ? route.command : undefined,
@@ -2988,6 +3015,10 @@ class SimConnectTelemetryProvider {
         };
       }
 
+      const confirmedValues = Object.fromEntries(resolvedReadbacks.map((readback, index) => [
+        readback.fieldId,
+        confirmations[index]?.observed,
+      ]));
       return {
         ok: true,
         code: 'executed',
@@ -2998,7 +3029,9 @@ class SimConnectTelemetryProvider {
         transportMode: route.transport === 'lvar'
           ? 'direct-lvar'
           : (route.transport === 'mobiflight-calculator' ? 'mobiflight' : route.transport),
-        confirmedValue: confirmation.observed,
+        ...(resolvedReadbacks.length === 1
+          ? { confirmedValue: confirmations[0]?.observed }
+          : { confirmedValues }),
       };
     } finally {
       this._aircraftIntegrationActionsInFlight.delete(guardKey);

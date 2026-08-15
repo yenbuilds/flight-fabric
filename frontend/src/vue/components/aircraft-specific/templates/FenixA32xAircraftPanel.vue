@@ -78,6 +78,7 @@ export function reconcileFenixSelectorDraftState(state = {}, snapshot = {}, prev
 <script setup>
 import { computed, nextTick, reactive, watch } from 'vue';
 import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
+import FenixThrottleControl from './FenixThrottleControl.vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../../stores/aircraft-specific.js';
 
@@ -716,6 +717,10 @@ function groupPending(groupId) {
   return props.isActionPending(groupId) === true;
 }
 
+function requestThrottleAction(actionId) {
+  return props.requestAction(actionId, 'propulsion.throttle');
+}
+
 function actionDisabled(control, actionId) {
   return !controlSessionReady.value
     || controlValue(control) === null
@@ -991,6 +996,16 @@ function controlGridClass(control) {
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sourceStatus }}</span>
     </div>
 
+    <FenixThrottleControl
+      :left-position="fieldValue('propulsion.throttleLever1Position')"
+      :right-position="fieldValue('propulsion.throttleLever2Position')"
+      :source-status="sourceStatus"
+      :control-enabled="controlSessionReady"
+      :action-capabilities="actionCapabilities"
+      :pending="groupPending('propulsion.throttle')"
+      :request-action="requestThrottleAction"
+    />
+
     <section
       class="rounded-xl border border-cyan-500/25 bg-cyan-500/[0.035] p-3 sm:p-4"
       data-fenix-section="flight-guidance-fcu"
@@ -1220,7 +1235,7 @@ function controlGridClass(control) {
       Unofficial Fenix A32X compatibility. Flight Fabric is not affiliated with FenixSim. A separately licensed Fenix aircraft is required, and no Fenix software is included.
     </p>
     <p class="text-[10px] leading-relaxed text-amber-300/80">
-      These controls change the simulated aircraft. Most expanded controls still need live testing across every A319, A320, and A321 release. Check critical changes in the cockpit. Emergency, maintenance, circuit breaker, and raw axis controls are not included.
+      These controls change the simulated aircraft. Most expanded controls still need live testing across every A319, A320, and A321 release. Check critical changes in the cockpit. Emergency, maintenance, circuit breaker, arbitrary axis, and reverse-thrust controls are not included.
     </p>
   </div>
 </template>

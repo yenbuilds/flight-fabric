@@ -1828,12 +1828,12 @@ test(
   fenixA320Lvars?.aircraftSpecific?.templateId === 'fenix-a32x' &&
     fenixA320Lvars?.aircraftSpecific?.integrationId === 'fenix-a32x' &&
     fenixA320Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fenix-a320' &&
-    fenixA320Lvars?.aircraftSpecific?.fields?.length === 118 &&
-    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 117 &&
-    fenixA320Lvars?.subscriptions?.length === 118 &&
+    fenixA320Lvars?.aircraftSpecific?.fields?.length === 120 &&
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 119 &&
+    fenixA320Lvars?.subscriptions?.length === 120 &&
     Object.keys(defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
       profileKey: 'bundled/msfs/fenix-a320',
-    })?.actions || {}).length === 273 &&
+    })?.actions || {}).length === 277 &&
     defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
       profileKey: 'local/msfs/fenix-a320',
     }) === null,
@@ -1850,6 +1850,7 @@ const fenixIntegration = defaultAircraftIntegrationRegistry.resolveIntegration('
   profileKey: 'bundled/msfs/fenix-a320',
 });
 const fenixAltitudeTargetRoute = fenixIntegration?.actions?.['flightGuidance.altitudeHundred.set']?.routes?.[0];
+const fenixThrottleRoute = fenixIntegration?.actions?.['propulsion.throttle.toga']?.routes?.[0];
 test(
   'Fenix A320 compiles FCU target confirmations and generic route preconditions but keeps V/S display-only',
   ['flightGuidance.ap1', 'flightGuidance.ap2', 'flightGuidance.autothrust',
@@ -1867,17 +1868,22 @@ test(
     !fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => (
       field.id === 'flightGuidance.verticalValue'
     )) &&
-    fenixIntegration?.actions?.['flightGuidance.vertical.set'] === undefined,
+    fenixIntegration?.actions?.['flightGuidance.vertical.set'] === undefined &&
+    fenixThrottleRoute?.transport === 'simconnect-sequence' &&
+    fenixThrottleRoute?.readbacks?.length === 2 &&
+    ['propulsion.throttleLever1Position', 'propulsion.throttleLever2Position'].every(fieldId => (
+      fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => field.id === fieldId)
+    )),
 );
 const fenixFamilyContractMatches = ['a319', 'a320', 'a321'].every((variant) => {
   loader.setActiveProfile(`fenix-${variant}`);
   const config = loader.getLvarConfig();
-  return config?.aircraftSpecific?.fields?.length === 118 &&
-    config?.aircraftSpecific?.confirmationFields?.length === 117 &&
-    config?.subscriptions?.length === 118;
+  return config?.aircraftSpecific?.fields?.length === 120 &&
+    config?.aircraftSpecific?.confirmationFields?.length === 119 &&
+    config?.subscriptions?.length === 120;
 });
 loader.setActiveProfile('fenix-a320');
-test('All exact Fenix family profiles compile the same 118/273/117 FCU contract', fenixFamilyContractMatches);
+test('All exact Fenix family profiles compile the same 120/277/119 FCU and throttle contract', fenixFamilyContractMatches);
 
 const tristarAutothrottleToggle = controlService.resolveAircraftControl(
   { control: 'autopilot', target: 'autothrottle', operation: 'toggle' },

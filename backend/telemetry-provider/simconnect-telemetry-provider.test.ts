@@ -1177,6 +1177,16 @@ function stubFenixA320IntegrationFields(provider) {
       source: { type: 'lvar', key: 'fenix_altitude_scale' },
       decode: { type: 'enum', values: { 0: 'thousand', 1: 'hundred' } },
     },
+    'propulsion.throttleLever1Position': {
+      id: 'propulsion.throttleLever1Position',
+      source: { type: 'lvar', key: 'fenix_throttle_left' },
+      decode: { type: 'number', precision: 2 },
+    },
+    'propulsion.throttleLever2Position': {
+      id: 'propulsion.throttleLever2Position',
+      source: { type: 'lvar', key: 'fenix_throttle_right' },
+      decode: { type: 'number', precision: 2 },
+    },
   };
   provider._getActiveAircraftIntegrationConfig = (profileKey, adapterId, profileRevision) => (
     profileKey === FENIX_A320_PROFILE_KEY
@@ -2682,6 +2692,116 @@ function buildFenixFcuProvider(initialValues, executeCode) {
   stubFenixA320IntegrationFields(provider);
   return { bridge, codes, provider, snapshot };
 }
+
+function buildFenixThrottleProvider(initialValues) {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FENIX_A320_PROFILE_KEY,
+    values: { ...initialValues },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+  };
+  const writes = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async sendEvent() {
+      throw new Error('fixed Fenix throttle detents must not emit key events');
+    },
+    async setNamedVar(request) {
+      writes.push(request);
+      if (request.name === 'L:A_FC_THROTTLE_LEFT_INPUT') {
+        snapshot.values.fenix_throttle_left = request.value;
+      } else if (request.name === 'L:A_FC_THROTTLE_RIGHT_INPUT') {
+        snapshot.values.fenix_throttle_right = request.value;
+      }
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFenixA320IntegrationFields(provider);
+  return { bridge, provider, snapshot, writes };
+}
+
+test('Fenix virtual throttle sends one fixed detent to both levers and confirms both readbacks', async () => {
+  const throttle = buildFenixThrottleProvider({
+    fenix_throttle_left: 2.42,
+    fenix_throttle_right: 2.57,
+  });
+  const action = {
+    type: 'aircraft-integration',
+    name: FENIX_A32X_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const result = await throttle.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('propulsion.throttle.flexMct'),
+  );
+
+  assertEqual(result.ok, true, 'both newer Fenix lever readbacks should confirm FLX/MCT');
+  assertEqual(result.transportMode, 'simconnect-sequence', 'paired lever writes stay coordinated');
+  assertDeepEqual(result.confirmedValues, {
+    'propulsion.throttleLever1Position': 4,
+    'propulsion.throttleLever2Position': 4,
+  }, 'success reports both independently confirmed lever values');
+  assertDeepEqual(throttle.writes.map((write) => ({
+    name: write.name,
+    unit: write.unit,
+    value: write.value,
+  })), [
+    { name: 'L:A_FC_THROTTLE_LEFT_INPUT', unit: 'Number', value: 4 },
+    { name: 'L:A_FC_THROTTLE_RIGHT_INPUT', unit: 'Number', value: 4 },
+  ], 'one tap writes the same fixed detent once to each Fenix lever');
+
+  const satisfied = buildFenixThrottleProvider({
+    fenix_throttle_left: 3,
+    fenix_throttle_right: 3,
+  });
+  const noOp = await satisfied.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('propulsion.throttle.climb'),
+  );
+  assertEqual(noOp.ok, true, 'an already-aligned CLB request should succeed');
+  assertEqual(noOp.noOp, true, 'an already-aligned detent is an idempotent no-op');
+  assertEqual(satisfied.writes.length, 0, 'same-detent requests emit no lever writes');
+
+  const splitConfirmation = buildFenixThrottleProvider({
+    fenix_throttle_left: 2.4,
+    fenix_throttle_right: 2.6,
+  });
+  const waitForReadback = splitConfirmation.provider
+    ._waitForAircraftIntegrationReadback
+    .bind(splitConfirmation.provider);
+  splitConfirmation.provider._waitForAircraftIntegrationReadback = async (
+    bridge,
+    readback,
+    context,
+    baseline,
+  ) => {
+    if (readback.fieldId === 'propulsion.throttleLever2Position') {
+      return {
+        confirmed: false,
+        observed: 4.5,
+        sequence: Number(baseline.sequence) + 1,
+        fresh: true,
+        sourceId: baseline.sourceId,
+        sequenceAdvanced: true,
+      };
+    }
+    return waitForReadback(bridge, readback, context, baseline);
+  };
+  const splitResult = await splitConfirmation.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('propulsion.throttle.toga'),
+  );
+  assertEqual(splitResult.ok, false, 'one failed lever confirmation must fail the paired action');
+  assertEqual(splitResult.code, 'aircraft_integration_readback_timeout', 'split lever state stays explicit');
+  assertEqual(splitResult.observedValue, 4.5, 'the failed right-lever value remains diagnostic');
+});
 
 test('Fenix FCU momentary targets emit one press/release pair and same-state requests are no-ops', async () => {
   const pulseCode = '(L:S_FCU_AP1, Number) ++ (>L:S_FCU_AP1, Number)';

@@ -467,7 +467,7 @@ test('trusted integrations disclose a sanitized MobiFlight dependency and live d
       fallbackActive: false,
       connected: false,
       status: 'missing',
-      scope: 'all-controls',
+      scope: 'some-controls',
     },
   });
   assert.equal(missing.aircraftSpecific['lights.beacon.on'], false);

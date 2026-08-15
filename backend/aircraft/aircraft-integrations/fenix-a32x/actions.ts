@@ -121,6 +121,58 @@ function addDetentActions(params: {
   });
 }
 
+function addPairedThrottleDetentActions(): void {
+  const leftFieldId = 'propulsion.throttleLever1Position';
+  const rightFieldId = 'propulsion.throttleLever2Position';
+  for (const [suffix, rawValue] of [
+    ['idle', 2],
+    ['climb', 3],
+    ['flexMct', 4],
+    ['toga', 5],
+  ] as const) {
+    const actionId = `propulsion.throttle.${suffix}`;
+    actions[actionId] = {
+      id: actionId,
+      guard: {
+        cooldownMs: DEFAULT_COOLDOWN_MS,
+        groupId: 'fenixA32x.propulsion.throttle',
+        retry: 'never',
+      },
+      routes: [{
+        id: `fenixA32x.${actionId}.pairedLvar`,
+        transport: 'simconnect-sequence',
+        operations: [
+          {
+            type: 'lvar',
+            name: 'L:A_FC_THROTTLE_LEFT_INPUT',
+            unit: 'Number',
+            value: rawValue,
+          },
+          {
+            type: 'lvar',
+            name: 'L:A_FC_THROTTLE_RIGHT_INPUT',
+            unit: 'Number',
+            value: rawValue,
+          },
+        ],
+        readbacks: [
+          {
+            fieldId: leftFieldId,
+            expectedValue: rawValue,
+            timeoutMs: DEFAULT_READBACK_TIMEOUT_MS,
+          },
+          {
+            fieldId: rightFieldId,
+            expectedValue: rawValue,
+            timeoutMs: DEFAULT_READBACK_TIMEOUT_MS,
+          },
+        ],
+      }],
+      verification: 'untested',
+    };
+  }
+}
+
 function calculatorCode(lvar: string, operator: '++' | '--'): string {
   return `(L:${lvar}, Number) ${operator} (>L:${lvar}, Number)`;
 }
@@ -527,6 +579,11 @@ addDetentActions({
     ['thousand', 0, 'thousand'],
   ],
 });
+
+// Fenix's shipped throttle interaction template uses fixed values 2-5 for the
+// forward IDLE, CLB, FLX/MCT, and TOGA detents. One coordinated route moves
+// both levers and does not succeed unless both independent readbacks confirm.
+addPairedThrottleDetentActions();
 
 for (const [prefix, fieldId, lvar] of [
   ['lighting.fcu', 'lighting.fcu', 'A_FCU_LIGHTING'],

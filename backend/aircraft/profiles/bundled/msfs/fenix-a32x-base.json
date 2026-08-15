@@ -67,7 +67,7 @@
       "backend": "fenix",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Aircraft-specific cockpit writes are selected only from the trusted fenix-a32x adapter. Persistent switches/selectors retain fixed targets and exact readback. The reviewed FCU subset adds bounded MobiFlight-only press/release pulses, managed push/pull commands, and stepped speed/heading/altitude targets; unrelated momentary, guarded emergency, breaker, maintenance, raw-axis, preset, and macro controls remain excluded. Standard gear/flap actions remain available on the narrow shared surface."
+      "_comment": "Aircraft-specific cockpit writes are selected only from the trusted fenix-a32x adapter. Persistent switches/selectors retain fixed targets and exact readback. The reviewed FCU subset adds bounded MobiFlight-only press/release pulses, managed push/pull commands, and stepped speed/heading/altitude targets. Four paired forward-throttle detents set and independently confirm both levers; reverse thrust and arbitrary axis values remain excluded along with unrelated momentary, guarded emergency, breaker, maintenance, preset, and macro controls. Standard gear/flap actions remain available on the narrow shared surface."
     },
     "presentation": {
       "lights": {
@@ -100,7 +100,7 @@
     "contributor": "YenBuilds",
     "updated": "2026-08-12",
     "status": "partial",
-    "notes": "Shared trusted integration for the Fenix A319, A320, and A321. The adapter exposes 118 live fields, 273 trusted actions, and 117 action-confirmation fields across persistent exterior/cockpit lighting, cabin, electrical, fuel, pneumatic, hydraulic, ADIRS, EFIS, switching, radio, weather-radar, transponder, brake, engine-mode, GPWS, and the reviewed FCU subset. Every write is cooldown-guarded, never retries automatically, and requires exact logical readback."
+    "notes": "Shared trusted integration for the Fenix A319, A320, and A321. The adapter exposes 120 live fields, 277 trusted actions, and 119 action-confirmation fields across persistent exterior/cockpit lighting, cabin, electrical, fuel, pneumatic, hydraulic, ADIRS, EFIS, switching, radio, weather-radar, transponder, brake, engine-mode, GPWS, the reviewed FCU subset, and four paired forward-throttle detents. Every write is cooldown-guarded, never retries automatically, and requires exact logical readback."
   },
   "provenance": {
     "sources": [
@@ -112,7 +112,7 @@
         "name": "FenixSim Support Hub - binding switches, knobs and buttons",
         "url": "https://support.fenixsim.com/hc/en-us/articles/12466468901135-Example-of-How-to-Bind-Switches-Knobs-and-Buttons-on-FenixSim-Aircraft-to-External-Hardware",
         "retrievedAt": "2026-08-12",
-        "notes": "Fenix identifies its shipped Cockpit_Behavior.xml and interaction templates as the authoritative LVar/control source and publicly demonstrates fixed 0/1 writes plus bounded A_*_LIGHTING values. The adapter's I_FCU_*, N_FCU_*, S_*, E_FCU_*, and A_* fields, raw detents, and fixed or bounded write recipes were reviewed against licensed Fenix A320 MSFS 2024 package version 2.4.0.4720: the legacy cockpit file, modular panel *Behavior.xml files, and FNX32X interaction templates. The reviewed FCU contract uses stable I_FCU_AP1/AP2/ATHR/LOC/APPR/EXPED readback for paired S_FCU_* press/release counter increments; I_FCU_SPEED/HEADING/ALTITUDE_MANAGED for S_FCU_SPEED/HEADING/ALTITUDE push (decrement) and pull (increment); and fresh N_FCU_SPEED/HEADING/ALTITUDE baselines for bounded repeated E_FCU_SPEED/HEADING/ALTITUDE increments or decrements. N_FCU_VS is display-only because its raw value does not identify VS versus FPA mode. S_MIP_PARKING_BRAKE uses 0=released and 1=set; S_FCU_EFIS*_BARO_MODE uses 0=INHG and 1=HPA; S_FCU_ALTITUDE_SCALE uses 0=1000 ft and 1=100 ft."
+        "notes": "Fenix identifies its shipped Cockpit_Behavior.xml and interaction templates as the authoritative LVar/control source and publicly demonstrates fixed 0/1 writes plus bounded A_*_LIGHTING values. The adapter's I_FCU_*, N_FCU_*, S_*, E_FCU_*, and A_* fields, raw detents, and fixed or bounded write recipes were reviewed against licensed Fenix A320 MSFS 2024 package version 2.4.0.4720: the legacy cockpit file, modular panel *Behavior.xml files, and FNX32X interaction templates. The reviewed FCU contract uses stable I_FCU_AP1/AP2/ATHR/LOC/APPR/EXPED readback for paired S_FCU_* press/release counter increments; I_FCU_SPEED/HEADING/ALTITUDE_MANAGED for S_FCU_SPEED/HEADING/ALTITUDE push (decrement) and pull (increment); and fresh N_FCU_SPEED/HEADING/ALTITUDE baselines for bounded repeated E_FCU_SPEED/HEADING/ALTITUDE increments or decrements. The reviewed throttle template maps A_FC_THROTTLE_LEFT_INPUT and A_FC_THROTTLE_RIGHT_INPUT values 2, 3, 4, and 5 to IDLE, CLB, FLX/MCT, and TOGA; Flight Fabric writes both together and confirms both separately. Reverse positions and continuous axis control are excluded. N_FCU_VS is display-only because its raw value does not identify VS versus FPA mode. S_MIP_PARKING_BRAKE uses 0=released and 1=set; S_FCU_EFIS*_BARO_MODE uses 0=INHG and 1=HPA; S_FCU_ALTITUDE_SCALE uses 0=1000 ft and 1=100 ft."
       },
       {
         "type": "official-docs",
@@ -138,12 +138,13 @@
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-08-12",
+      "lastVerified": "2026-08-15",
       "knownIssues": [
         "The expanded write routes were audited against a current licensed A320 package but still require live in-simulator validation before being promoted from untested.",
         "A319 and A321 matching and common/variant LVar compatibility require live validation with the expansion installed.",
         "The A321 uses ECON FLOW in place of the A319/A320 pack-flow selector; the shared template hides the A319/A320 pack-flow readout for the A321 profile.",
         "The new AP1/AP2, A/THR, LOC, APPR, EXPED, managed push/pull, and speed/heading/altitude target actions are source-audited but remain untested in the live aircraft.",
+        "The paired IDLE, CLB, FLX/MCT, and TOGA throttle targets are source-audited and backend-tested but remain untested in the live aircraft; reverse thrust and arbitrary axis values are excluded.",
         "A numeric FCU target can require hundreds of calculator increments from a fresh baseline. The bounded route stops on the first failed acknowledgement or profile-generation change and never retries, so an interrupted sequence can leave an intermediate target.",
         "N_FCU_VS is exposed for display only; no vertical target action is enabled because the raw value is ambiguous between VS and FPA mode.",
         "Logical readback proves the vendor LVar reached its fixed target; it does not independently prove every downstream aircraft-system effect."

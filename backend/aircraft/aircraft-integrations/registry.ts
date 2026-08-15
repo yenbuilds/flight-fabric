@@ -215,10 +215,15 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
     }
     const routeIds = new Set<string>();
     for (const route of action.routes) {
+      const routeRecord = route as unknown as Record<string, unknown>;
+      const routeReadbacks = Array.isArray(routeRecord.readbacks)
+        ? routeRecord.readbacks as Array<Record<string, unknown>>
+        : [];
       if (
         !SAFE_ROUTE_ID_RE.test(route?.id)
         || routeIds.has(route.id)
         || !ACTION_ROUTE_TRANSPORTS.has(normalizeString(route.transport))
+        || (route.transport !== 'simconnect-sequence' && routeRecord.readbacks !== undefined)
       ) {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action route.`);
       }
@@ -323,7 +328,15 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         if (
           (route.confirmation !== undefined
             && route.confirmation !== 'transport-acknowledged')
-          || (route.confirmation === 'transport-acknowledged' && route.readback !== undefined)
+          || (route.confirmation === 'transport-acknowledged'
+            && (route.readback !== undefined || routeRecord.readbacks !== undefined))
+          || (routeRecord.readbacks !== undefined && (
+            !Array.isArray(routeRecord.readbacks)
+            || routeReadbacks.length < 2
+            || routeReadbacks.length > 4
+            || route.readback !== undefined
+            || new Set(routeReadbacks.map((readback) => readback?.fieldId)).size !== routeReadbacks.length
+          ))
           || !Array.isArray(route.operations)
           || route.operations.length === 0
           || route.operations.length > 8
@@ -392,8 +405,10 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           throw new TypeError(`Aircraft integration "${adapterId}" has an invalid SimConnect sequence route.`);
         }
       }
-      if (route.readback) {
-        const readback = route.readback;
+      const readbacks = routeReadbacks.length > 0
+        ? routeReadbacks
+        : (route.readback ? [route.readback] : []);
+      for (const readback of readbacks) {
         const expectationCount = [
           Object.prototype.hasOwnProperty.call(readback, 'expectedValue'),
           readback.expectedInput === true,
@@ -412,13 +427,14 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         ) {
           throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action readback.`);
         }
-      } else if (
+      }
+      if (readbacks.length === 0 && (
         route.transport === 'mobiflight-calculator'
         || route.transport === 'lvar'
         || route.transport === 'sdk'
         || (route.transport === 'simconnect-sequence'
           && route.confirmation !== 'transport-acknowledged')
-      ) {
+      )) {
         throw new TypeError(`Aircraft integration "${adapterId}" write routes require readback.`);
       }
       routeIds.add(route.id);

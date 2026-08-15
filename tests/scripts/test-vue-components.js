@@ -212,6 +212,7 @@ async function main() {
     { AIRCRAFT_CONTROL_BUTTON_SELECTOR },
     { resolveAircraftSpecificTemplate },
     { mcpDraftKey, submitMcpDraft },
+    { triggerFenixThrottleHaptic },
   ] = await Promise.all([
     import(toFrontendUrl('src', 'vue', 'stores', 'settings-form.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'settings-ui.js')),
@@ -237,6 +238,7 @@ async function main() {
     import(toFrontendUrl('src', 'aircraft', 'control-ui.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'template-registry.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js')),
+    import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'paired-throttle-detents.js')),
   ]);
 
   let passed = 0;
@@ -298,6 +300,19 @@ async function main() {
   }
 
   console.log('\n=== Vue Component SSR Tests ===\n');
+
+  await test('Fenix throttle haptic uses one short capability-detected Android vibration', () => {
+    const pulses = [];
+    assert.equal(triggerFenixThrottleHaptic({
+      vibrate(durationMs) {
+        pulses.push(durationMs);
+        return true;
+      },
+    }), true, 'a supported phone should accept the detent pulse');
+    assert.deepEqual(pulses, [12], 'a detent tap should produce one subtle 12 ms pulse');
+    assert.equal(triggerFenixThrottleHaptic({}), false, 'desktop Electron should safely do nothing');
+    assert.equal(triggerFenixThrottleHaptic({ vibrate() { throw new Error('blocked'); } }), false, 'browser refusal must never break the throttle command');
+  });
 
   await test('MCP draft submission rejects empty values without dispatching zero', async () => {
     const calls = [];
@@ -4458,7 +4473,14 @@ async function main() {
       'flightGuidance.heading.set',
       'flightGuidance.altitudeHundred.set',
     ];
+    const throttleActionIds = [
+      'propulsion.throttle.toga',
+      'propulsion.throttle.flexMct',
+      'propulsion.throttle.climb',
+      'propulsion.throttle.idle',
+    ];
     const actionCapabilities = Object.fromEntries([
+      ...throttleActionIds,
       ...fcuModeActionIds,
       ...managedActionIds,
       ...selectorActionIds,
@@ -4478,6 +4500,8 @@ async function main() {
           profileKey: 'bundled/msfs/fenix-a320',
           sourceStatus: 'connected',
           values: {
+            'propulsion.throttleLever1Position': 3,
+            'propulsion.throttleLever2Position': 3,
             'flightGuidance.ap1': true,
             'flightGuidance.ap2': false,
             'flightGuidance.autothrust': true,
@@ -4506,6 +4530,32 @@ async function main() {
     assert.match(html, /data-aircraft-template="fenix-a32x"/);
     assert.match(html, /data-fenix-variant="a320"/);
     assert.match(html, /Fenix A320 compatibility/);
+    assert.ok(
+      html.indexOf('data-fenix-section="virtual-throttle"') < html.indexOf('data-fenix-section="flight-guidance-fcu"'),
+      'the high-value virtual throttle should lead the Fenix controls',
+    );
+    const throttleHtml = html.match(/<section(?=[^>]*data-fenix-section="virtual-throttle")[\s\S]*?<\/section>/)?.[0] || '';
+    const renderedThrottleActionIds = [...throttleHtml.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
+    assert.deepEqual(renderedThrottleActionIds, throttleActionIds, 'the virtual throttle should expose only four fixed forward detents');
+    assert.match(throttleHtml, /Both levers · forward detents/);
+    assert.match(throttleHtml, /L CLB/);
+    assert.match(throttleHtml, /R CLB/);
+    assert.match(throttleHtml, /data-fenix-throttle-detent="climb"[^>]*aria-pressed="true"/);
+    assert.match(throttleHtml, /min-h-\[84px\]/, 'fat-finger throttle targets should remain substantially larger than ordinary controls');
+    assert.doesNotMatch(throttleHtml, /type="range"|drag|slide/i, 'the detent control must stay one-tap rather than pretending to be a sliding axis');
+    assert.doesNotMatch(throttleHtml, /reverse[^<]*data-aircraft-action/i, 'reverse thrust must not be actionable');
+    const throttleComponentSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'aircraft-specific',
+      'templates',
+      'FenixThrottleControl.vue',
+    ), 'utf8');
+    assert.match(throttleComponentSource, /@click="commit\(detent\)"/, 'each detent should be a direct one-tap action');
+    assert.match(throttleComponentSource, /\.fenix-throttle-button\s*\{\s*touch-action:\s*none;/, 'a touch started on a detent must not scroll the page');
+    assert.doesNotMatch(throttleComponentSource, /@pointermove|type="range"/, 'the virtual throttle must not grow hidden drag or slider behavior');
     assert.ok(
       html.indexOf('data-fenix-section="flight-guidance-fcu"') < html.indexOf('data-aircraft-control-section="exterior-lights"'),
       'the high-value FCU controls should precede secondary aircraft systems',
@@ -4563,6 +4613,8 @@ async function main() {
     assert.match(html, /data-aircraft-action="flightGuidance\.ap1\.on"[^>]*disabled/, 'FCU capability must not bypass missing lamp readback');
     assert.match(html, /data-fenix-selector-input="speed"[^>]*disabled/, 'selector input must not fabricate a target without live FCU readback');
     assert.doesNotMatch(html, /data-fenix-selector-input="speed"[^>]*value="0"/, 'missing FCU target must remain blank rather than becoming zero');
+    assert.match(html, /data-aircraft-action="propulsion\.throttle\.toga"[^>]*disabled/, 'throttle capability must not bypass either missing lever readback');
+    assert.match(html, /Both live throttle-lever readbacks are required\./);
   });
 
   await test('Fenix FCU setup state names the required MobiFlight transport', async () => {

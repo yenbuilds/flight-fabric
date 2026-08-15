@@ -176,10 +176,18 @@ export type SimConnectSequenceActionRoute = SimConnectSequenceActionRouteBase & 
     /** The sidecar accepted every fixed operation; cockpit state is not inferred. */
     confirmation: 'transport-acknowledged';
     readback?: never;
+    readbacks?: never;
   }
   | {
     confirmation?: never;
     readback: AircraftIntegrationReadback;
+    readbacks?: never;
+  }
+  | {
+    /** Every readback must confirm before the coordinated write succeeds. */
+    confirmation?: never;
+    readback?: never;
+    readbacks: readonly AircraftIntegrationReadback[];
   }
 >;
 

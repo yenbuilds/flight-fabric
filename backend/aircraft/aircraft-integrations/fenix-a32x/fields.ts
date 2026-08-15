@@ -44,9 +44,10 @@ function addEnumField(
 // Logical fields are shared across the Fenix A319/A320/A321 family. Every
 // active name below was reviewed against the interaction templates shipped in
 // the current licensed Fenix aircraft package. Only the explicitly reviewed
-// FCU momentary subset is writable; unrelated momentary buttons, guarded
-// emergency controls, circuit breakers, axes, and maintenance-only
-// interactions deliberately remain outside this adapter.
+// FCU momentary subset and the four fixed forward throttle detents are
+// writable; unrelated momentary buttons, guarded emergency controls, circuit
+// breakers, continuous axes, reverse thrust, and maintenance-only interactions
+// deliberately remain outside this adapter.
 for (const [id, lvar] of [
   ['flightGuidance.ap1', 'I_FCU_AP1'],
   ['flightGuidance.ap2', 'I_FCU_AP2'],
@@ -138,6 +139,10 @@ for (const [id, lvar] of [
 }
 
 for (const [id, lvar, precision] of [
+  // Keep the live lever inputs numeric: physical axes can report values
+  // between detents, while the virtual throttle writes fixed detent values.
+  ['propulsion.throttleLever1Position', 'A_FC_THROTTLE_LEFT_INPUT', 2],
+  ['propulsion.throttleLever2Position', 'A_FC_THROTTLE_RIGHT_INPUT', 2],
   ['flightGuidance.speedValue', 'N_FCU_SPEED', 2],
   ['flightGuidance.headingDeg', 'N_FCU_HEADING', 0],
   ['flightGuidance.altitudeFt', 'N_FCU_ALTITUDE', 0],
