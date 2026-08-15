@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-05-15T00:00:00Z",
-  "updatedAt": "2026-08-13T00:00:00Z",
+  "updatedAt": "2026-08-15T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -139,7 +139,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "The exact-profile trusted adapter exposes a compact set of 34 guarded actions: three bounded FCU targets, a direct AP1 toggle plus guarded A/THR/LOC/APPR intents, seven exterior-light output targets, gear, relative flaps, parking brake, spoiler arm, and a bounded spoiler handle target. Every action requires fresh logical readback, at most one dispatch, no retry, and a newer matching or changed readback. AP2 remains read-only. V/S-FPA writes, managed/selected push-pull, light AUTO/detents, engines/APU, presets, and deep systems remain excluded."
+      "_comment": "The exact-profile trusted adapter exposes a compact set of 38 guarded actions: four calibrated forward-throttle detents, three bounded FCU targets, a direct AP1 toggle plus guarded A/THR/LOC/APPR intents, seven exterior-light output targets, gear, relative flaps, parking brake, spoiler arm, and a bounded spoiler handle target. Every action requires fresh logical readback, at most one dispatch, no retry, and a newer matching or changed readback. Each throttle action coordinates all four saved calibration-window midpoints and confirms all four TLA readbacks. AP2 remains read-only. V/S-FPA writes, managed/selected push-pull, light AUTO/detents, engines/APU, presets, reverse thrust, arbitrary axes, and deep systems remain excluded."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -173,9 +173,9 @@
       "msfs2020",
       "msfs2024"
     ],
-    "updated": "2026-08-13",
+    "updated": "2026-08-15",
     "status": "experimental",
-    "notes": "Dedicated exact-profile FlyByWire A380X page with 42 logical fields and 34 guarded, untested actions. The compact write surface prioritizes FCU/autopilot and exterior lights, then gear, flaps, parking brake, and spoilers. Direct AP1 OFF/ON intents use the documented A32NX.FCU_AP_1_PUSH toggle behind fresh AP1 readback; AP2 and V/S-FPA remain read-only. Selected altitude uses the documented AUTOPILOT ALTITUDE LOCK VAR:3 confirmation path."
+    "notes": "Dedicated exact-profile FlyByWire A380X page with 46 logical fields and 38 guarded, untested actions. The compact write surface prioritizes four-lever calibrated IDLE, CLB, FLX/MCT, and TOGA targets, FCU/autopilot and exterior lights, then gear, flaps, parking brake, and spoilers. Each throttle target uses every lever's saved calibration-window midpoint and requires four independent newer TLA confirmations. Direct AP1 OFF/ON intents use the documented A32NX.FCU_AP_1_PUSH toggle behind fresh AP1 readback; AP2 and V/S-FPA remain read-only. Selected altitude uses the documented AUTOPILOT ALTITUDE LOCK VAR:3 confirmation path."
   },
   "provenance": {
     "sources": [
@@ -199,8 +199,38 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A380X Flight Deck API",
         "url": "https://docs.flybywiresim.com/aircraft/a380x/a380x-api/a380x-flight-deck-api/",
-        "retrievedAt": "2026-08-13",
-        "notes": "Documents the active A380X readback contract: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED, A32NX_AUTOPILOT_HEADING_SELECTED, A32NX_AUTOPILOT_VS_SELECTED, A32NX_FCU_LOC_MODE_ACTIVE, A32NX_FCU_APPR_MODE_ACTIVE, and A:AUTOPILOT ALTITUDE LOCK VAR:3. It also documents A32NX.FCU_AP_1_PUSH, the active direct AP1 push event used for both guarded logical intents. Generic standard-event provenance is supplied by the Microsoft SDK sources below."
+        "retrievedAt": "2026-08-15",
+        "notes": "Documents the active A380X readback contract: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED, A32NX_AUTOPILOT_HEADING_SELECTED, A32NX_AUTOPILOT_VS_SELECTED, A32NX_FCU_LOC_MODE_ACTIVE, A32NX_FCU_APPR_MODE_ACTIVE, and A:AUTOPILOT ALTITUDE LOCK VAR:3. It also documents A32NX.FCU_AP_1_PUSH, THROTTLE1_AXIS_SET_EX1, THROTTLE2_AXIS_SET_EX1, THROTTLE3_AXIS_SET_EX1, and THROTTLE4_AXIS_SET_EX1 with the accepted axis range. Exact throttle mapping and TLA LVAR names are instead grounded in the official source entries below. Generic standard-event provenance is supplied by the Microsoft SDK sources below."
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire Common Throttle Calibration",
+        "url": "https://docs.flybywiresim.com/aircraft/common/flypados3/throttle-calibration/",
+        "retrievedAt": "2026-08-15",
+        "notes": "Documents the shared A32NX/A380X calibration workflow, the A380X's four independently calibrated throttle axes, and the common forward detents. Exact interface names are grounded in the official source entries below. Reverse calibration and arbitrary axis values are not exposed."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire shared ThrottleAxisMapping source",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-common/src/wasm/fbw_common/src/ThrottleAxisMapping.h",
+        "retrievedAt": "2026-08-15",
+        "notes": "Defines the exact A32NX_THROTTLE_MAPPING_* LOW/HIGH LVAR names, A32NX_AUTOTHRUST_TLA indexed readback, and the IDLE=0, CLB=25, FLX/MCT=35, TOGA=45 angles used by the shared throttle implementation."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A380X FlyByWireInterface source",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a380x/src/wasm/fbw_a380/src/FlyByWireInterface.cpp",
+        "retrievedAt": "2026-08-15",
+        "notes": "Instantiates four shared ThrottleAxisMapping objects and the A32NX_AUTOTHRUST_TLA:1, A32NX_AUTOTHRUST_TLA:2, A32NX_AUTOTHRUST_TLA:3, and A32NX_AUTOTHRUST_TLA:4 local variables in the A380X WASM interface."
       },
       {
         "type": "official-sdk",
@@ -292,13 +322,14 @@
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-08-13",
+      "lastVerified": "2026-08-15",
       "testedTitles": [],
       "knownIssues": [
         "Gear limits are estimated pending a reviewable vendor or manufacturer source.",
         "Flap handle value mapping (0-4 lever indices) not confirmed in MSFS",
         "The profile relies on the FLAPS HANDLE INDEX path; its five detent positions still need in-sim verification.",
-        "All 34 write actions remain untested in the live aircraft. A documented standard simulator event can still be ignored or incompletely mirrored by a complex aircraft.",
+        "All 38 write actions remain untested in the live aircraft. A documented standard simulator event can still be ignored or incompletely mirrored by a complex aircraft.",
+        "The four forward-throttle actions use every lever's saved FlyPad calibration-window midpoint through one MobiFlight calculator expression, then require newer exact A32NX_AUTOTHRUST_TLA:1 through :4 confirmation. Missing or malformed bounds prevent all four axis writes. Reverse thrust and arbitrary raw-axis targets remain excluded.",
         "A32NX.FCU_AP_1_PUSH is a direct AP1 toggle. OFF/ON intents require fresh A32NX_AUTOPILOT_1_ACTIVE readback before dispatch and a newer matching result afterward; AP2 remains read-only.",
         "Exterior-light readback confirms lamp output, not Airbus AUTO or selector-detent position. Only explicit OFF and ON output targets are exposed.",
         "V/S-FPA writes, managed/selected push-pull, runway-turnoff writes, engines, APU, presets, guarded/emergency controls, and deep systems remain excluded."

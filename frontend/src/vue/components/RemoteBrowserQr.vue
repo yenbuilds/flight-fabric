@@ -3,6 +3,10 @@ import { computed } from 'vue';
 import { createQrSvgData } from '../../utils/qr-code.js';
 
 const props = defineProps({
+  id: {
+    type: String,
+    default: 'system-remote-qr',
+  },
   value: {
     type: String,
     default: '',
@@ -14,7 +18,7 @@ const qrData = computed(() => createQrSvgData(props.value));
 
 <template>
   <div
-    id="system-remote-qr"
+    :id="id"
     class="flex h-32 w-32 shrink-0 items-center justify-center rounded-xl border border-cyan-300/30 bg-white p-2 shadow-lg shadow-black/25"
   >
     <svg

@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-05-02T00:00:00Z",
-  "updatedAt": "2026-08-08T00:00:00Z",
+  "updatedAt": "2026-08-15T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -147,9 +147,9 @@
       "msfs2024"
     ],
     "contributor": "YenBuilds",
-    "updated": "2026-08-12",
+    "updated": "2026-08-15",
     "status": "partial",
-    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 124 documentation-backed logical read fields and 241 fixed semantic actions spanning FCU mode buttons, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Irreversible fire/IDG/oxygen actions, presets, pushback motion and unsupported custom FCU set events remain excluded."
+    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 126 documentation-backed logical read fields and 245 fixed semantic actions spanning FCU mode buttons, paired calibrated forward-throttle detents, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. The IDLE, CLB, FLX/MCT, and TOGA controls use each lever's saved calibration-window midpoint and require independent newer TLA confirmation. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Reverse thrust, arbitrary axis targets, irreversible fire/IDG/oxygen actions, presets, pushback motion and unsupported custom FCU set events remain excluded."
   },
   "provenance": {
     "sources": [
@@ -160,8 +160,18 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A32NX Flight Deck API",
         "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-flightdeck-api/",
-        "retrievedAt": "2026-08-12",
-        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, LANDING_2_RETRACTED, LANDING_3_RETRACTED, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 and SPOILERS_SET. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build."
+        "retrievedAt": "2026-08-15",
+        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, LANDING_2_RETRACTED, LANDING_3_RETRACTED, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. The throttle contract includes A32NX_AUTOTHRUST_TLA:* readbacks plus THROTTLE1_AXIS_SET_EX1 and THROTTLE2_AXIS_SET_EX1, whose payload range is -16383..16384. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 and SPOILERS_SET. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build."
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire Common Throttle Calibration",
+        "url": "https://docs.flybywiresim.com/aircraft/common/flypados3/throttle-calibration/",
+        "retrievedAt": "2026-08-15",
+        "notes": "Documents the shared A32NX/A380X per-axis calibration contract used by the fixed forward-detent routes. Flight Fabric reads A32NX_THROTTLE_MAPPING_IDLE_*, A32NX_THROTTLE_MAPPING_CLIMB_*, A32NX_THROTTLE_MAPPING_FLEXMCT_*, and A32NX_THROTTLE_MAPPING_TOGA_* LOW/HIGH bounds for each lever and targets only the midpoint of a valid saved window. Reverse calibration and arbitrary axis values are not exposed."
       },
       {
         "type": "official-docs",
@@ -203,7 +213,7 @@
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-08-12",
+      "lastVerified": "2026-08-15",
       "knownIssues": [
         "Most expanded routes are documentation-backed but have not been live-validated across every stable and development A32NX release. A selector-only or otherwise cosmetic write fails with a confirmation timeout when the configured logical field does not reach the requested value; a matching selector readback still does not prove every downstream aircraft-system effect.",
         "FlyByWire states that its Flight Deck API table can lag current development. The adapter therefore uses only fixed bounded values, requires a fresh decodable preflight, serializes each physical control group, applies a 750 ms cooldown, never retries, and requires a newer confirming readback after dispatch.",
@@ -211,7 +221,8 @@
         "Landing, nose and runway-turnoff controls follow FlyByWire's documented selector, retraction and circuit contract. Landing-light ON waits 9 seconds before circuit energization; every delayed step revalidates the active profile generation and aborts if the aircraft changes. An interrupted sidecar or simulator connection can still leave a selector or retraction command partially applied, and these routes need live validation on current Stable and Development builds.",
         "Toggle-only standard events are presented as explicit targets only because the provider first requires a fresh matching readback and skips dispatch when the requested target is already satisfied. A changed target is dispatched once and must confirm.",
         "FlyByWire custom FCU set/push/pull events are not exposed because the current native runtime does not advertise custom InputEvent execution. Only the documented standard SimConnect FCU mode events with direct light readback are enabled.",
-        "Fire, oxygen, irreversible IDG disconnect, flight-control-computer, preset loading/saving, pushback motion, raw flight axes and momentary controls without durable readback remain excluded.",
+        "The four forward-throttle detents use the midpoint of each lever's saved FlyPad calibration window through one MobiFlight calculator expression, then require newer exact A32NX_AUTOTHRUST_TLA:1 and :2 confirmation. Missing or malformed calibration bounds prevent every axis write. Reverse thrust and arbitrary raw-axis targets remain excluded.",
+        "Fire, oxygen, irreversible IDG disconnect, flight-control-computer, preset loading/saving, pushback motion, arbitrary flight axes and momentary controls without durable readback remain excluded.",
         "Wipers remain excluded because the published interface requires indexed electrical-circuit power events and the current trusted integration transport does not provide an independently confirmed, position-safe indexed circuit route."
       ]
     }

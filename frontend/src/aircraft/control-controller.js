@@ -91,7 +91,7 @@ export function createAircraftControlController({
       return {
         enabled: false,
         reason: 'This browser has read-only access.',
-        toast: 'Open the session-paired Mobile Browser URL before sending aircraft controls.',
+        toast: 'On the Flight Fabric PC, choose Phone, then scan the QR shown there.',
       };
     }
 

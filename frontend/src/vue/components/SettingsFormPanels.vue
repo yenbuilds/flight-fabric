@@ -112,12 +112,12 @@ const settings = useSettingsEditorStore();
           <div class="min-w-0 flex-1">
             <span class="settings-toggle-head">
               <label for="setting-remote-aircraft-control" class="block text-sm font-medium text-gray-200 cursor-pointer">Allow aircraft controls from trusted LAN</label>
-              <HelpTooltip label="Remote aircraft control help">Enable this on the Flight Fabric PC to let a browser opened from the session-paired Mobile Browser URL operate aircraft-specific controls after restart. This does not grant settings, recordings, history, file deletion, or profile management.</HelpTooltip>
+              <HelpTooltip label="Remote aircraft control help">Enable this on the Flight Fabric PC to let a browser paired from Phone setup operate aircraft-specific controls for the current backend session. This does not grant settings, recordings, history, file deletion, or profile management.</HelpTooltip>
             </span>
           </div>
         </div>
 
-        <p v-if="settings.remoteAircraftControl" id="setting-remote-aircraft-control-warning" class="settings-warning-copy mt-2 text-xs leading-relaxed">Only browsers opened from the session-paired Mobile Browser URL can command the connected aircraft. Treat that URL and QR code as private; the pairing expires when the backend restarts.</p>
+        <p v-if="settings.remoteAircraftControl" id="setting-remote-aircraft-control-warning" class="settings-warning-copy mt-2 text-xs leading-relaxed">Only browsers opened from the private QR under Phone setup can command the connected aircraft. Treat that URL and QR code as private; the pairing expires when the backend restarts, not when a new flight starts.</p>
       </div>
 
       <div class="mt-4 grid gap-3">

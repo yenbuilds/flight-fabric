@@ -10,6 +10,13 @@ const DEFAULT_COOLDOWN_MS = 750;
 const DEFAULT_READBACK_TIMEOUT_MS = 3000;
 
 const actions: Record<string, AircraftIntegrationAction> = {};
+const { addFbwCalibratedThrottleDetentActions } = require('../fbw-throttle-detents') as {
+  addFbwCalibratedThrottleDetentActions: (params: {
+    actions: Record<string, AircraftIntegrationAction>;
+    adapterPrefix: 'fbwA32nx';
+    leverCount: 2;
+  }) => void;
+};
 
 function readback(
   fieldId: string,
@@ -743,6 +750,15 @@ addBooleanEvent({
   fieldId: 'flightGuidance.autothrust',
   offEvent: 'AUTO_THROTTLE_DISCONNECT',
   prefix: 'flightGuidance.autothrust',
+});
+
+// The official throttle API exposes each calibrated detent window and an
+// independent TLA readback per lever. The calculator route validates both
+// windows, targets their midpoints, and succeeds only when both TLAs confirm.
+addFbwCalibratedThrottleDetentActions({
+  actions,
+  adapterPrefix: 'fbwA32nx',
+  leverCount: 2,
 });
 
 for (const [prefix, fieldId, index] of [

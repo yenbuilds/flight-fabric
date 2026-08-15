@@ -1091,6 +1091,16 @@ function stubFbwA32nxStrobeFields(provider) {
       source: { type: 'lvar', key: 'fbw_engine_bleed_1' },
       decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
     },
+    'propulsion.throttleLever1Angle': {
+      id: 'propulsion.throttleLever1Angle',
+      source: { type: 'lvar', key: 'fbw_throttle_1' },
+      decode: { type: 'number', precision: 2 },
+    },
+    'propulsion.throttleLever2Angle': {
+      id: 'propulsion.throttleLever2Angle',
+      source: { type: 'lvar', key: 'fbw_throttle_2' },
+      decode: { type: 'number', precision: 2 },
+    },
     'lights.beacon': {
       id: 'lights.beacon',
       source: { type: 'simvar', name: 'LIGHT BEACON', path: 'lights.beacon' },
@@ -2656,6 +2666,154 @@ test('FBW fixed LVAR actions confirm once and same-target toggle actions are saf
   assertEqual(events.length, 1, 'changed target dispatches exactly once');
   assertEqual(events[0].name, 'ENGINE_BLEED_AIR_SOURCE_TOGGLE', 'adapter owns the documented event');
   assertEqual(events[0].value, 1, 'engine index remains fixed and bounded');
+});
+
+function buildFbwA32nxThrottleProvider(initialValues) {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FBW_A32NX_PROFILE_KEY,
+    values: { ...initialValues },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+    mobiflight: {
+      state: 'connected',
+      connected: true,
+      available: true,
+      error: null,
+    },
+  };
+  const codes = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async executeMobiFlightCode(code) {
+      codes.push(code);
+      snapshot.values.fbw_throttle_1 = 35;
+      snapshot.values.fbw_throttle_2 = 35;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFbwA32nxStrobeFields(provider);
+  return { codes, provider, snapshot };
+}
+
+test('FlyByWire A32NX virtual throttle uses calibrated detent code and confirms both TLAs', async () => {
+  const throttle = buildFbwA32nxThrottleProvider({
+    fbw_throttle_1: 12.4,
+    fbw_throttle_2: 13.1,
+  });
+  const action = {
+    type: 'aircraft-integration',
+    name: FBW_A32NX_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const result = await throttle.provider.executeAircraftControlAction(action, {
+    profileKey: FBW_A32NX_PROFILE_KEY,
+    profileRevision: FBW_A32NX_PROFILE_REVISION,
+    request: { actionId: 'propulsion.throttle.flexMct' },
+  });
+
+  assertEqual(result.ok, true, 'both newer A32NX TLA readbacks should confirm FLX/MCT');
+  assertEqual(result.transportMode, 'mobiflight', 'calibrated FlyByWire detents use the calculator route');
+  assertDeepEqual(result.confirmedValues, {
+    'propulsion.throttleLever1Angle': 35,
+    'propulsion.throttleLever2Angle': 35,
+  }, 'success reports both independently confirmed TLAs');
+  assertEqual(throttle.codes.length, 1, 'one tap emits one coordinated calibrated expression');
+  assertEqual(/A32NX_THROTTLE_MAPPING_FLEXMCT_LOW:1/.test(throttle.codes[0]), true,
+    'the expression reads the first calibrated FLX/MCT lower bound');
+  assertEqual(/A32NX_THROTTLE_MAPPING_FLEXMCT_HIGH:2/.test(throttle.codes[0]), true,
+    'the expression reads the second calibrated FLX/MCT upper bound');
+  assertEqual(/THROTTLE1_AXIS_SET_EX1/.test(throttle.codes[0]), true,
+    'the expression owns the documented first-axis event');
+  assertEqual(/THROTTLE2_AXIS_SET_EX1/.test(throttle.codes[0]), true,
+    'the expression owns the documented second-axis event');
+
+  const satisfied = buildFbwA32nxThrottleProvider({
+    fbw_throttle_1: 35,
+    fbw_throttle_2: 35,
+  });
+  const noOp = await satisfied.provider.executeAircraftControlAction(action, {
+    profileKey: FBW_A32NX_PROFILE_KEY,
+    profileRevision: FBW_A32NX_PROFILE_REVISION,
+    request: { actionId: 'propulsion.throttle.flexMct' },
+  });
+  assertEqual(noOp.ok, true, 'an already-aligned FlyByWire detent should succeed');
+  assertEqual(noOp.noOp, true, 'same-detent A32NX requests are idempotent no-ops');
+  assertEqual(satisfied.codes.length, 0, 'same-detent requests emit no calculator expression');
+});
+
+test('FlyByWire A380X virtual throttle coordinates and confirms all four calibrated axes', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const snapshot: any = {
+    source: 'mock-sidecar',
+    profileId: FBW_A380X_PROFILE_KEY,
+    values: {
+      fbw_a380_throttle_1: 11,
+      fbw_a380_throttle_2: 12,
+      fbw_a380_throttle_3: 13,
+      fbw_a380_throttle_4: 14,
+    },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+    mobiflight: {
+      state: 'connected',
+      connected: true,
+      available: true,
+      error: null,
+    },
+  };
+  const codes = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => snapshot,
+    async executeMobiFlightCode(code) {
+      codes.push(code);
+      for (let index = 1; index <= 4; index += 1) {
+        snapshot.values[`fbw_a380_throttle_${index}`] = 45;
+      }
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubFbwA380xIntegrationFields(provider, Object.fromEntries(
+    Array.from({ length: 4 }, (_, offset) => {
+      const index = offset + 1;
+      const fieldId = `propulsion.throttleLever${index}Angle`;
+      return [fieldId, {
+        id: fieldId,
+        source: { type: 'lvar', key: `fbw_a380_throttle_${index}` },
+        decode: { type: 'number', precision: 2 },
+      }];
+    }),
+  ));
+
+  const result = await provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: FBW_A380X_ADAPTER_ID,
+    verification: 'untested',
+  }, fbwA380xIntegrationOptions('propulsion.throttle.toga'));
+
+  assertEqual(result.ok, true, 'all four newer A380X TLA readbacks should confirm TOGA');
+  assertDeepEqual(result.confirmedValues, {
+    'propulsion.throttleLever1Angle': 45,
+    'propulsion.throttleLever2Angle': 45,
+    'propulsion.throttleLever3Angle': 45,
+    'propulsion.throttleLever4Angle': 45,
+  }, 'success reports all four independently confirmed TLAs');
+  assertEqual(codes.length, 1, 'one tap emits one coordinated four-axis expression');
+  assertEqual(/A32NX_THROTTLE_MAPPING_TOGA_HIGH:4/.test(codes[0]), true,
+    'the expression reads the fourth calibrated TOGA window');
+  assertEqual(/THROTTLE4_AXIS_SET_EX1/.test(codes[0]), true,
+    'the expression owns the documented fourth-axis event');
 });
 
 function buildFenixFcuProvider(initialValues, executeCode) {

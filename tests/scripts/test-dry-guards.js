@@ -617,6 +617,7 @@ test('tab navigation flows through the Vue tabs store', () => {
   const appShellSource = readRepoFile('frontend/src/vue/components/AppShell.vue');
   const tabsStoreSource = readRepoFile('frontend/src/vue/stores/tabs.js');
   const tabsRuntimeSource = readRepoFile('frontend/src/tabs/runtime.js');
+  const tabConfigSource = readRepoFile('frontend/src/vue/tab-config.js');
 
   assert(desktopTabsSource.includes('@click="tabs.requestTabChange(tab.id)"'));
   assert(mobileTabsSource.includes('@click="tabs.requestTabChange(tab.id)"'));
@@ -626,6 +627,11 @@ test('tab navigation flows through the Vue tabs store', () => {
   assert(tabsStoreSource.includes('function registerBeforeChangeGuard(guard)'));
   assert(tabsStoreSource.includes('function tabSectionClass(tabId)'));
   assert(tabsStoreSource.includes('function showPullRefreshPrompt('));
+  assert(tabConfigSource.includes("export const DEFAULT_TAB_ID = 'flight'"), 'Overview should be the centralized safe default tab');
+  assert(tabsStoreSource.includes('ref(DEFAULT_TAB_ID)'), 'tabs store should render Overview before the browser runtime mounts');
+  assert(tabsRuntimeSource.includes('LAST_ACTIVE_TAB_STORAGE_KEY'), 'tabs runtime should persist the last selected primary workspace');
+  assert(tabsRuntimeSource.includes('readStorageValue(') && tabsRuntimeSource.includes('writeStorageValue('), 'tab persistence should use guarded browser storage helpers');
+  assert(tabsRuntimeSource.includes('TAB_ORDER.includes(tabId)'), 'contextual tabs should not become sticky startup destinations');
   assert(tabsRuntimeSource.includes('resolvedTabsStore.requestTabChange(tabId, { direction })'));
   assert(appShellSource.includes('initTabsRuntime({'), 'AppShell should own tab runtime lifecycle');
   assert(appShellSource.includes('tabsStore: tabs'), 'AppShell should inject the tabs store into the tabs runtime');
@@ -636,6 +642,25 @@ test('tab navigation flows through the Vue tabs store', () => {
   assert(!tabsRuntimeSource.includes('ptrEl.textContent'), 'tabs runtime should not mutate pull-to-refresh text directly');
   assert(!tabsRuntimeSource.includes('before-tab-changed'), 'tabs runtime should not emit the legacy before-tab-changed event');
   assert(!tabsRuntimeSource.includes("dispatchEvent(new CustomEvent('tab-changed'"), 'tabs runtime should not emit the dead tab-changed event');
+  assert(tabsRuntimeSource.includes('TOUCH_NAVIGATION_EXCLUSION_SELECTOR'), 'touch navigation should centralize its interactive-control exclusions');
+  assert(tabsRuntimeSource.includes("'[role=\"slider\"]'"), 'touch navigation should not steal horizontal slider gestures');
+  assert(tabsRuntimeSource.includes('tabScrollPositions.set(previousTabId'), 'tab navigation should remember each tab scroll position');
+  assert(tabsRuntimeSource.includes('tabScrollPositions.get(tabId)'), 'tab navigation should restore the destination tab scroll position');
+});
+
+test('responsive browser shell accounts for dynamic viewports and device safe areas', () => {
+  const html = readRepoFile('frontend/index.html');
+  const indexCssSource = readRepoFile('frontend/index.css');
+  const mobileTabsSource = readRepoFile('frontend/src/vue/components/MobileTabs.vue');
+
+  assert(html.includes('viewport-fit=cover'), 'mobile viewport should expose notch and home-indicator safe areas to CSS');
+  assert(html.includes('interactive-widget=resizes-content'), 'mobile keyboard should resize the app viewport instead of covering form controls');
+  assert(indexCssSource.includes('height: 100dvh;'), 'browser shell should follow the visible dynamic viewport height');
+  assert(indexCssSource.includes('overscroll-behavior: none;'), 'browser shell should prevent page-level rubber-band scrolling');
+  assert(indexCssSource.includes('env(safe-area-inset-left'), 'responsive shell should protect content from the left device cutout');
+  assert(indexCssSource.includes('env(safe-area-inset-right'), 'responsive shell should protect content from the right device cutout');
+  assert(indexCssSource.includes('(max-height: 500px) and (pointer: coarse)'), 'short coarse-pointer viewports should use the mobile navigation in landscape');
+  assert(!mobileTabsSource.includes('sm:hidden'), 'the mobile More sheet should not disappear at Tailwind\'s narrower 640px breakpoint');
 });
 
 test('dark-only theme keeps DOM mutation in a runtime helper instead of the store', () => {
@@ -1627,6 +1652,10 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   const simbridgeCore = readRepoFile('backend/core/simbridge-core.js');
   const launcherSource = readRepoFile('electron/launcher/index.html');
   const systemHostSource = readRepoFile('frontend/src/vue/stores/system-host.js');
+  const systemTabSource = readRepoFile('frontend/src/vue/components/SystemTabShell.vue');
+  const secondScreenGuideSource = readRepoFile('frontend/src/vue/components/SecondScreenGuide.vue');
+  const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
+  const aircraftControlSource = readRepoFile('frontend/src/aircraft/control-controller.js');
 
   assert.equal(sharedSettings.APP_SETTINGS_DEFAULTS.remoteAccess, false);
   assert.equal(sharedSettings.APP_SETTINGS_DEFAULTS.remoteAircraftControl, false);
@@ -1661,7 +1690,19 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(messageAuthorization.includes('TRUSTED_LAN_SAFE_READ_MESSAGE_TYPE_SET.has(messageType)'), 'LAN clients should be limited to an explicit safe-read allowlist');
   assert(/remoteAccess:\s*false/.test(launcherSource), 'launcher settings summary should default remote access to false');
   assert(launcherSource.includes('aircraftControlToken='), 'desktop Mobile Browser URL should carry the scoped pairing token');
+  assert(launcherSource.includes('starting a new flight does not expire it'), 'launcher should distinguish backend-session pairing from a new flight');
   assert(systemHostSource.includes('fetchBrowserBootstrap'), 'loopback browser System UI should fetch bootstrap data for its phone QR');
+  assert(systemHostSource.includes('const remoteViewerUrl = computed'), 'phone URL construction should retain its token-free fallback');
+  assert(systemHostSource.includes('const remoteControlPairingUrl = computed'), 'phone URL construction should retain the current session token URL');
+  assert(systemHostSource.includes('remoteControlPairingUrl.value || remoteViewerUrl.value'), 'phone setup should choose one best URL without redistributing received tokens');
+  assert(systemTabSource.includes(':value="systemHost.remoteBrowserUrl"'), 'the single phone QR must use the best available phone URL');
+  assert.equal((systemTabSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
+  assert(!systemTabSource.includes(':value="systemHost.remoteViewerUrl"') && !systemTabSource.includes(':value="systemHost.remoteControlPairingUrl"'), 'PC setup should not expose separate viewer and control choices');
+  assert(systemTabSource.includes('Starting a new flight does not require another scan'), 'PC setup should explain that new flights do not rotate the backend token');
+  assert(secondScreenGuideSource.includes('New flights appear automatically'), 'phone onboarding should explain repeat-flight behavior');
+  assert(secondScreenGuideSource.includes('only after the Flight Fabric backend restarts'), 'phone onboarding should explain when control re-pairing is required');
+  assert(appHeaderSource.includes('id="header-mobile-access-btn"'), 'desktop header should expose an obvious Phone setup action');
+  assert(aircraftControlSource.includes('choose Phone, then scan the QR shown there'), 'read-only control attempts should point directly to the single phone QR');
 });
 
 test('remote access UI warns users to stay on trusted private networks', () => {

@@ -12,6 +12,13 @@ const SELECTOR_COOLDOWN_MS = 300;
 const READBACK_TIMEOUT_MS = 3000;
 
 const actions: Record<string, AircraftIntegrationAction> = {};
+const { addFbwCalibratedThrottleDetentActions } = require('../fbw-throttle-detents') as {
+  addFbwCalibratedThrottleDetentActions: (params: {
+    actions: Record<string, AircraftIntegrationAction>;
+    adapterPrefix: 'fbwA380x';
+    leverCount: 4;
+  }) => void;
+};
 
 function eventAction(params: {
   actionId: string;
@@ -177,6 +184,15 @@ for (const [actionId, fieldId, event, eventParameters, input] of [
     input,
   });
 }
+
+// A380X uses the same published calibrated mapping contract across four
+// independent axes. All four windows are validated before any event is sent,
+// and every TLA must confirm the requested forward detent.
+addFbwCalibratedThrottleDetentActions({
+  actions,
+  adapterPrefix: 'fbwA380x',
+  leverCount: 4,
+});
 
 for (const [lightId, event] of [
   ['strobe', 'STROBES_SET'],

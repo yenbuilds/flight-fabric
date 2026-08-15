@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'sha256-t33HdmMP38X7+9hBDDmtK/t+Vb0lBzmiixzRO8qxHU8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; font-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'sha256-2Au4P0e5u+/QRurBYiWAgRTf7arYLDTEvmOCN2b7zWQ='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; font-src 'self' data:">
   <link rel="icon" type="image/png" href="icon.png">
   <title>Flight Fabric</title>
   <link rel="stylesheet" href="style.css" id="main-css">
@@ -153,7 +153,7 @@
     </section>
 
     <footer>
-      <p>Flight Fabric / <span id="version">v0.4.2</span></p>
+      <p>Flight Fabric / <span id="version">v0.4.3</span></p>
     </footer>
   </div>
 
@@ -185,8 +185,8 @@
           <div style="margin-top:1.25rem;text-align:left;line-height:1.9;font-size:0.9rem;color:var(--text-secondary);">
             <b style="color:var(--success);">1.</b> Connect your phone to the <b>same WiFi</b> network as this PC<br>
             <b style="color:var(--success);">2.</b> Scan the QR above with your camera<br>
-            <b style="color:var(--success);">3.</b> Open the link in your phone browser<br>
-            <b style="color:var(--success);">4.</b> The live dashboard will appear
+            <b style="color:var(--success);">3.</b> In Flight Fabric, choose <b>Phone</b> whenever you need to scan again<br>
+            <b style="color:var(--success);">4.</b> New flights need no scan; only a backend restart requires one fresh scan
           </div>
           <!-- Hidden: browser URL for advanced/debug use -->
           <div id="remote-url" style="display:none;"></div>
@@ -481,7 +481,9 @@
         fallback.textContent = 'LAN IP unavailable - use the setup page on this PC after connecting to WiFi.';
         fallback.style.display = 'block';
       } else {
-        if (instruction) instruction.textContent = 'Scan with your phone camera to open the dashboard';
+        if (instruction) instruction.textContent = aircraftControlToken
+          ? 'Scan to open the dashboard and pair aircraft controls for this backend session'
+          : 'Scan to open the dashboard in viewer mode';
         if (urlLabel) urlLabel.textContent = '...or type this URL in your phone browser:';
         try {
           fallback.textContent = 'QR unavailable - use the URL below instead.';
@@ -519,8 +521,8 @@
       const pairingNote = document.getElementById('remote-pairing-note');
       if (pairingNote) {
         pairingNote.textContent = aircraftControlToken
-          ? 'Session-paired link. Treat this URL and QR code as private; aircraft commands still require the LAN control setting.'
-          : 'Read-only link. Start the backend and reopen Mobile Browser to generate a paired link.';
+          ? 'Private pairing link. It expires when the Flight Fabric backend restarts; starting a new flight does not expire it. Aircraft commands still require the LAN control setting.'
+          : 'Read-only viewer link. Start the backend and reopen Mobile Browser to generate the current-session control pairing link.';
       }
 
       // Show browser fallback URL

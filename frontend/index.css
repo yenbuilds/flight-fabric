@@ -99,6 +99,7 @@
 
 html,
 body {
+  height: 100%;
   min-height: 100%;
 }
 
@@ -108,6 +109,10 @@ html {
 }
 
 body.ff-app-shell {
+  height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+  overscroll-behavior: none;
   color: rgb(var(--foreground)) !important;
   background:
     linear-gradient(180deg, #0b0e14 0%, #06080c 42%, #090c12 100%) !important;
@@ -179,7 +184,7 @@ select:disabled {
 }
 
 :root {
-  --mobile-bottom-nav-clearance: calc(6rem + env(safe-area-inset-bottom, 0px));
+  --mobile-bottom-nav-clearance: calc(4.75rem + max(0.75rem, env(safe-area-inset-bottom, 0px)));
 }
 
 .scrollbar-hide {
@@ -214,6 +219,7 @@ select:disabled {
 
 #app-header {
   overflow: visible;
+  padding-top: env(safe-area-inset-top, 0px);
   background: rgba(16, 19, 25, 0.92) !important;
   border-bottom: 1px solid rgb(var(--border) / 0.7) !important;
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
@@ -291,7 +297,10 @@ select:disabled {
 }
 
 .app-main {
+  min-height: 0;
   position: relative;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dashboard-shell {
@@ -390,15 +399,15 @@ select:disabled {
 
 .mobile-tab-bar {
   position: fixed;
-  right: 0.75rem;
-  bottom: 0.75rem;
-  left: 0.75rem;
+  right: max(0.75rem, env(safe-area-inset-right, 0px));
+  bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  left: max(0.75rem, env(safe-area-inset-left, 0px));
   z-index: 45;
   display: none;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.25rem;
   padding: 0.35rem;
-  padding-bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: 0.35rem;
   border: 1px solid rgb(var(--border) / 0.74);
   border-radius: 8px;
   background: rgb(var(--panel) / 0.94);
@@ -442,7 +451,7 @@ select:disabled {
 }
 
 .mobile-more-panel {
-  max-height: min(28rem, calc(100vh - 2rem));
+  max-height: min(28rem, calc(100dvh - env(safe-area-inset-top, 0px) - 1rem));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -475,13 +484,30 @@ select:disabled {
   background: rgb(var(--panel-elevated) / 0.7) !important;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  body.ff-app-shell::before,
+  body.ff-app-shell::after {
+    display: none;
+  }
+
+  #app-header,
+  .mobile-tab-bar,
+  .ff-app-footer {
+    backdrop-filter: none;
+  }
+
+  #app-header {
+    background: rgb(var(--panel) / 0.99) !important;
+  }
+
   .desktop-tab-stage {
     display: none;
   }
 
   .mobile-tab-bar {
     display: grid;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .dashboard-shell {
@@ -589,13 +615,19 @@ select:disabled {
   }
 
   .modal-enter {
-    max-height: calc(100vh - 1.5rem - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 1.5rem - env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
   }
 
   .pfd-toggle-btn {
     width: 2.5rem !important;
     height: 2.5rem !important;
+  }
+}
+
+@media (min-width: 761px) and (min-height: 501px) {
+  #mobile-more-sheet {
+    display: none !important;
   }
 }
 
@@ -612,7 +644,7 @@ select:disabled {
 
 .ptr-indicator {
   position: fixed;
-  top: 4.6rem;
+  top: calc(4.6rem + env(safe-area-inset-top, 0px));
   left: 50%;
   z-index: 60;
   transform: translate(-50%, -150%);
@@ -638,8 +670,8 @@ select:disabled {
 
 .quick-glance {
   position: fixed;
-  top: 5rem;
-  right: 1rem;
+  top: calc(5rem + env(safe-area-inset-top, 0px));
+  right: max(1rem, env(safe-area-inset-right, 0px));
   z-index: 46;
   width: min(22rem, calc(100vw - 2rem));
   transform: translateY(-0.5rem);
@@ -1139,7 +1171,7 @@ body.sim-in-menu .menu-overlay {
   padding: 1rem;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .landing-modal-backdrop {
     padding: 0;
   }
@@ -3930,9 +3962,10 @@ body.ff-app-shell.timeline-viewer-modal-open {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .app-shell-container {
-    padding-inline: 0.8rem;
+    padding-left: max(0.8rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.8rem, env(safe-area-inset-right, 0px));
   }
 
   .dashboard-shell {
@@ -3945,8 +3978,16 @@ body.ff-app-shell.timeline-viewer-modal-open {
 
   .live-map-wrap,
   .timeline-map-wrap {
-    height: clamp(19rem, 58vh, 30rem);
-    min-height: 19rem;
+    height: clamp(14rem, 58dvh, 30rem);
+    min-height: 14rem;
+  }
+
+  .live-map-card-shell > .p-4 {
+    padding: 0.6rem;
+  }
+
+  .live-map-panel-head {
+    padding: 0.75rem !important;
   }
 
   .profiles-library-header,
@@ -4105,7 +4146,7 @@ body.ff-app-shell.timeline-viewer-modal-open {
   min-height: 0;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .timeline-inspector-aircraft-art {
     display: none;
   }
@@ -4375,5 +4416,74 @@ body.ff-app-shell.timeline-viewer-modal-open {
   #dest-progress-text {
     flex: none;
     white-space: nowrap;
+  }
+}
+
+@media (max-height: 500px) and (pointer: coarse) {
+  .app-header-row {
+    min-height: 0 !important;
+    align-items: center;
+    flex-flow: row nowrap;
+    gap: 0.55rem;
+    padding-block: 0.4rem;
+  }
+
+  .app-brand-block {
+    width: auto;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .app-brand-mark {
+    width: 1.9rem;
+    height: 1.9rem;
+  }
+
+  .app-brand-copy,
+  #vue-status-root .text-sm,
+  #sampling-indicator {
+    display: none;
+  }
+
+  .header-controls {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .header-activity-controls {
+    width: auto;
+    order: 2;
+  }
+
+  .header-flight-meta {
+    min-width: 0;
+    order: 1;
+  }
+
+  #aircraft-name {
+    max-width: min(10rem, 24vw) !important;
+  }
+
+  #dest-progress-wrap {
+    padding-bottom: 0.4rem !important;
+  }
+
+  .dashboard-shell {
+    padding-top: 0.5rem !important;
+  }
+
+  .mobile-tab {
+    min-height: 2.75rem;
+  }
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .ff-app-footer {
+    background: rgb(var(--panel) / 0.99) !important;
+    backdrop-filter: none;
   }
 }

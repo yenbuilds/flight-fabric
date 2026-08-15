@@ -1,3 +1,5 @@
+export const DEFAULT_TAB_ID = 'flight';
+
 export const TAB_ORDER = Object.freeze([
   'livemap',
   'flight',
@@ -43,12 +45,12 @@ export const MOBILE_MORE_TABS = Object.freeze([
 
 export const MOBILE_MORE_TAB_IDS = new Set(MOBILE_MORE_TABS.map((tab) => tab.id));
 
-export function normalizeTabId(tabId) {
+export function normalizeTabId(tabId, fallback = DEFAULT_TAB_ID) {
   const normalized = String(tabId || '').trim();
   const mapped = normalized === 'systems' || normalized === 'launcher'
     ? 'system'
     : normalized === 'profiles'
       ? 'settings'
       : normalized;
-  return VALID_TAB_IDS.has(mapped) ? mapped : 'livemap';
+  return VALID_TAB_IDS.has(mapped) ? mapped : fallback;
 }

@@ -129,7 +129,7 @@ function createStaticFrontendServer(rootDir, { bootstrapPayload = null } = {}) {
     }
 
     let relativePath = decodeURIComponent(requestUrl.pathname || '/');
-    if (relativePath === '/') {
+    if (relativePath === '/' || relativePath === '/remote' || relativePath === '/remote.html') {
       relativePath = '/index.html';
     }
 
@@ -747,13 +747,20 @@ async function main() {
     fixtureBackend.wss.once('listening', resolve);
   });
   const wsAddress = fixtureBackend.wss.address();
-  const frontendServer = createStaticFrontendServer(FRONTEND_DIST, {
-    bootstrapPayload: {
-      wsAuthToken: 'browser-smoke-full-control',
-      networkInfo: { wsPort: wsAddress.port },
+  const browserBootstrap = {
+    wsAuthToken: 'browser-smoke-full-control',
+    aircraftControlToken: 'browser-smoke-aircraft-control',
+    networkInfo: {
+      ips: ['192.168.50.49'],
+      httpPort: null,
+      wsPort: wsAddress.port,
     },
+  };
+  const frontendServer = createStaticFrontendServer(FRONTEND_DIST, {
+    bootstrapPayload: browserBootstrap,
   });
   const frontendAddress = await listen(frontendServer, { host: '127.0.0.1', port: 0 });
+  browserBootstrap.networkInfo.httpPort = frontendAddress.port;
   const appUrl = `http://127.0.0.1:${frontendAddress.port}/?port=${wsAddress.port}`;
 
   log(`serving browser smoke frontend from ${appUrl}`);

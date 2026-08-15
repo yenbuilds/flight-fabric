@@ -294,6 +294,81 @@ async function assertCompactFlightLayout(windowRef) {
   }
 }
 
+async function assertMobileShellLayout(windowRef) {
+  for (const [width, height, label] of [
+    [390, 844, 'phone'],
+    [700, 900, 'compact tablet'],
+  ]) {
+    windowRef.setContentSize(width, height);
+    await wait(150);
+
+    const result = await evaluate(windowRef, `(() => {
+      const mobileBar = document.querySelector('.mobile-tab-bar');
+      const desktopBar = document.querySelector('.desktop-tab-stage');
+      const phoneSetupButton = document.getElementById('header-mobile-access-btn');
+      const main = document.querySelector('main');
+      const barRect = mobileBar?.getBoundingClientRect();
+      const buttons = [...document.querySelectorAll('.mobile-tab-bar .mobile-tab')];
+      return {
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        bodyHeight: document.body?.getBoundingClientRect().height || 0,
+        pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
+        bodyOverflow: getComputedStyle(document.body).overflow,
+        mainScrollable: Boolean(main && main.scrollHeight > main.clientHeight),
+        mobileDisplay: mobileBar ? getComputedStyle(mobileBar).display : 'missing',
+        desktopDisplay: desktopBar ? getComputedStyle(desktopBar).display : 'missing',
+        phoneSetupVisible: Boolean(phoneSetupButton && phoneSetupButton.getClientRects().length > 0),
+        barRect: barRect ? { left: barRect.left, right: barRect.right, top: barRect.top, bottom: barRect.bottom } : null,
+        buttonSizes: buttons.map((button) => {
+          const rect = button.getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        }),
+      };
+    })();`);
+
+    assert.equal(result.mobileDisplay, 'grid', `${label} should use the mobile bottom navigation`);
+    assert.equal(result.desktopDisplay, 'none', `${label} should hide the desktop tab strip`);
+    assert.equal(result.phoneSetupVisible, false, `${label} should hide the desktop-only Phone setup shortcut`);
+    assert.equal(result.bodyOverflow, 'hidden', `${label} should keep scrolling inside the app main region`);
+    assert.ok(Math.abs(result.bodyHeight - result.viewportHeight) <= 2, `${label} shell should match the dynamic viewport height`);
+    assert.ok(result.pageWidth <= result.viewportWidth + 2, `${label} shell should not overflow horizontally`);
+    assert.ok(result.mainScrollable, `${label} should preserve a scrollable content region`);
+    assert.ok(result.barRect && result.barRect.left >= 0 && result.barRect.right <= result.viewportWidth, `${label} navigation should fit the viewport`);
+    assert.ok(result.barRect && result.barRect.top >= 0 && result.barRect.bottom <= result.viewportHeight, `${label} navigation should remain visible`);
+    assert.equal(result.buttonSizes.length, 5, `${label} should render five primary mobile navigation targets`);
+    assert.deepEqual(
+      result.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
+      [],
+      `${label} navigation should keep 44px touch targets`,
+    );
+
+    await click(windowRef, "document.getElementById('mobile-more-btn')", `${label} More navigation`);
+    await waitFor(
+      windowRef,
+      "getComputedStyle(document.getElementById('mobile-more-sheet')).display !== 'none'",
+      `${label} More sheet`,
+    );
+    const moreSheet = await evaluate(windowRef, `(() => {
+      const sheet = document.getElementById('mobile-more-sheet');
+      const panel = sheet?.querySelector('.mobile-more-panel');
+      const panelRect = panel?.getBoundingClientRect();
+      const items = [...document.querySelectorAll('.mobile-more-item')];
+      return {
+        panelBottom: panelRect?.bottom || 0,
+        panelTop: panelRect?.top || 0,
+        itemHeights: items.map((item) => item.getBoundingClientRect().height),
+      };
+    })();`);
+    assert.ok(moreSheet.panelTop >= 0 && moreSheet.panelBottom <= result.viewportHeight + 2, `${label} More sheet should fit the visible viewport`);
+    assert.deepEqual(moreSheet.itemHeights.filter((heightValue) => heightValue < 44), [], `${label} More items should keep 44px touch targets`);
+    await click(windowRef, "document.querySelector('.mobile-more-close')", `${label} More close button`);
+  }
+
+  windowRef.setContentSize(viewportWidth, viewportHeight);
+  await wait(150);
+}
+
 async function assertHeaderLayout(windowRef) {
   await waitFor(
     windowRef,
@@ -387,6 +462,88 @@ async function assertHeaderLayout(windowRef) {
     [],
     'Header sections should stay within the viewport',
   );
+}
+
+async function runSecondScreenSetupSmoke(windowRef) {
+  await waitFor(
+    windowRef,
+    "document.getElementById('header-mobile-access-btn')",
+    'desktop Phone setup action',
+  );
+  await click(windowRef, "document.getElementById('header-mobile-access-btn')", 'desktop Phone setup action');
+  await waitFor(
+    windowRef,
+    "document.getElementById('tab-system')?.classList.contains('active') && document.getElementById('system-mobile-qr')",
+    'single phone QR',
+  );
+
+  const setup = await evaluate(windowRef, `(() => ({
+    phoneUrl: document.getElementById('system-remote-url')?.textContent.trim() || '',
+    instructions: document.getElementById('system-mobile-pairing-note')?.textContent || '',
+    qrLabel: document.querySelector('#system-mobile-qr svg')?.getAttribute('aria-label') || '',
+    qrCount: document.querySelectorAll('#system-mobile-access [role="img"]').length,
+  }))();`);
+  assert.ok(setup.phoneUrl.includes('/remote?wsPort='), 'Phone setup should render the phone URL');
+  assert.ok(setup.phoneUrl.includes('aircraftControlToken=browser-smoke-aircraft-control'), 'phone URL should carry only the current test-session token');
+  assert.equal(setup.qrCount, 1, 'Phone setup should offer exactly one QR choice');
+  assert.ok(setup.instructions.includes('Starting a new flight does not require another scan'), 'Phone setup should distinguish new flights from backend restarts');
+  assert.ok(setup.instructions.includes('scan again only after the Flight Fabric backend restarts'), 'Phone setup should explain when the single QR must be scanned again');
+  assert.ok(setup.qrLabel.includes(setup.phoneUrl), 'phone QR should encode the current-session phone URL');
+
+  await click(windowRef, "document.getElementById('system-mobile-copy-btn')", 'Copy phone link button');
+  await waitFor(
+    windowRef,
+    "document.getElementById('system-mobile-copy-btn')?.textContent.includes('Copied') && window.__ffClipboardWrites?.length === 1",
+    'phone link clipboard confirmation',
+  );
+  const copied = await evaluate(windowRef, 'window.__ffClipboardWrites[0]');
+  assert.equal(copied, setup.phoneUrl, 'Copy phone link should copy the same URL encoded by the QR');
+  await evaluate(windowRef, 'window.__ffClipboardWrites = []; true;');
+
+  await assertUsableLayout(windowRef, 'Phone setup', [
+    '#tab-system.active',
+    '#system-mobile-access',
+  ]);
+}
+
+async function assertRemoteSecondScreenGuideLayout(windowRef) {
+  const remoteUrl = new URL(targetUrl);
+  remoteUrl.pathname = '/remote';
+  await windowRef.loadURL(remoteUrl.toString());
+  windowRef.setContentSize(390, 844);
+
+  await waitFor(
+    windowRef,
+    "document.getElementById('second-screen-guide') && document.getElementById('second-screen-guide-dismiss')",
+    'phone second-screen guidance on the remote route',
+  );
+
+  const result = await evaluate(windowRef, `(() => {
+    const guide = document.getElementById('second-screen-guide');
+    const dismiss = document.getElementById('second-screen-guide-dismiss');
+    const guideRect = guide?.getBoundingClientRect();
+    const dismissRect = dismiss?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
+      guideLeft: guideRect?.left || 0,
+      guideRight: guideRect?.right || 0,
+      guideHeight: guideRect?.height || 0,
+      dismissWidth: dismissRect?.width || 0,
+      dismissHeight: dismissRect?.height || 0,
+      text: guide?.textContent || '',
+    };
+  })();`);
+
+  assert.ok(result.guideHeight >= 100, 'second-screen guide should remain visibly sized on a phone');
+  assert.ok(result.guideLeft >= 0 && result.guideRight <= result.viewportWidth, 'second-screen guide should fit the phone viewport');
+  assert.ok(result.pageWidth <= result.viewportWidth + 2, 'second-screen guide should not introduce horizontal overflow');
+  assert.ok(result.dismissWidth >= 44 && result.dismissHeight >= 44, 'second-screen guide dismissal should keep a 44px touch target');
+  assert.ok(result.text.includes('New flights appear automatically'), 'phone guidance should explain that a new flight needs no scan');
+  assert.ok(result.text.includes('backend restarts'), 'phone guidance should explain the control-pairing lifetime');
+
+  await click(windowRef, "document.getElementById('second-screen-guide-dismiss')", 'second-screen guide dismissal');
+  await waitFor(windowRef, "!document.getElementById('second-screen-guide')", 'dismissed second-screen guide');
 }
 
 async function assertTimelineEventLayout(windowRef) {
@@ -957,16 +1114,24 @@ async function runReconnectSmoke(windowRef) {
 }
 
 async function runSmoke(windowRef) {
+  await waitFor(
+    windowRef,
+    "document.getElementById('tab-flight')?.classList.contains('active')",
+    'Overview as the initial workspace',
+  );
   await assertHeaderLayout(windowRef);
   if (headerOnly) return;
 
+  await runSecondScreenSetupSmoke(windowRef);
   await assertCompactFlightLayout(windowRef);
   await assertSimbriefLayout(windowRef);
   await runSettingsSmoke(windowRef);
   await runAircraftSearchSmoke(windowRef);
+  await assertMobileShellLayout(windowRef);
   await runLiveMapSmoke(windowRef);
   await runTimelineSmoke(windowRef);
   await runReconnectSmoke(windowRef);
+  await assertRemoteSecondScreenGuideLayout(windowRef);
 }
 
 async function main() {

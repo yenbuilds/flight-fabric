@@ -1,9 +1,9 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { MOBILE_MORE_TAB_IDS, normalizeTabId } from '../tab-config.js';
+import { DEFAULT_TAB_ID, MOBILE_MORE_TAB_IDS, normalizeTabId } from '../tab-config.js';
 
 export const useTabsStore = defineStore('tabs', () => {
-  const activeTabId = ref('livemap');
+  const activeTabId = ref(DEFAULT_TAB_ID);
   const moreSheetOpen = ref(false);
   const lastTransitionDirection = ref(null);
   const transitionTabId = ref(null);

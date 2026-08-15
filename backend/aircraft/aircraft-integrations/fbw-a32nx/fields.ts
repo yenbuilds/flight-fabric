@@ -96,6 +96,16 @@ function enumField(
 // FlyByWire publishes this interface for external hardware/software. Raw names,
 // units, detents, and deprecated compatibility details stay inside the adapter.
 const FBW_A32NX_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
+  'propulsion.throttleLever1Angle': numberField(
+    'propulsion.throttleLever1Angle',
+    'A32NX_AUTOTHRUST_TLA:1',
+    2,
+  ),
+  'propulsion.throttleLever2Angle': numberField(
+    'propulsion.throttleLever2Angle',
+    'A32NX_AUTOTHRUST_TLA:2',
+    2,
+  ),
   'flightGuidance.speedValue': numberField('flightGuidance.speedValue', 'A32NX_FCU_AFS_DISPLAY_SPD_MACH_VALUE', 2),
   'flightGuidance.speedDashes': booleanField('flightGuidance.speedDashes', 'A32NX_FCU_AFS_DISPLAY_SPD_MACH_DASHES'),
   'flightGuidance.speedManaged': booleanField('flightGuidance.speedManaged', 'A32NX_FCU_AFS_DISPLAY_SPD_MACH_MANAGED'),

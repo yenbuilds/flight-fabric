@@ -48,12 +48,24 @@ const ACTIVE_MAPPING_AUTHORITIES = new Set([
   'simulator-vendor',
   'aircraft-vendor',
 ]);
+const FBW_A380X_THROTTLE_MAPPING_LVARS = [
+  'IDLE',
+  'CLIMB',
+  'FLEXMCT',
+  'TOGA',
+].flatMap((detent) => (
+  Array.from({ length: 4 }, (_, offset) => offset + 1).flatMap((index) => [
+    `A32NX_THROTTLE_MAPPING_${detent}_LOW:${index}`,
+    `A32NX_THROTTLE_MAPPING_${detent}_HIGH:${index}`,
+  ])
+));
 const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
   ['fbw-a380x', {
     profileKey: 'bundled/msfs/fbw-a380x',
     verification: 'untested',
     vendorEvents: [
       'A32NX.FCU_AP_1_PUSH',
+      ...FBW_A380X_THROTTLE_MAPPING_LVARS,
     ],
     events: [
       'AUTO_THROTTLE_DISCONNECT',

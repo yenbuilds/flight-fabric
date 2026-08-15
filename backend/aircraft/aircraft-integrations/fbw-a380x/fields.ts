@@ -107,6 +107,26 @@ function enumField(
 // hardware/software integrations. Raw A32NX-prefixed names stay confined to
 // this adapter; the prefix is part of the documented A380X interface.
 const FBW_A380X_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
+  'propulsion.throttleLever1Angle': numberField(
+    'propulsion.throttleLever1Angle',
+    'A32NX_AUTOTHRUST_TLA:1',
+    2,
+  ),
+  'propulsion.throttleLever2Angle': numberField(
+    'propulsion.throttleLever2Angle',
+    'A32NX_AUTOTHRUST_TLA:2',
+    2,
+  ),
+  'propulsion.throttleLever3Angle': numberField(
+    'propulsion.throttleLever3Angle',
+    'A32NX_AUTOTHRUST_TLA:3',
+    2,
+  ),
+  'propulsion.throttleLever4Angle': numberField(
+    'propulsion.throttleLever4Angle',
+    'A32NX_AUTOTHRUST_TLA:4',
+    2,
+  ),
   'flightGuidance.speedValue': numberField(
     'flightGuidance.speedValue',
     'A32NX_AUTOPILOT_SPEED_SELECTED',

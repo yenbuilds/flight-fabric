@@ -1926,7 +1926,13 @@ test(
   fbwA32nxLvars?.aircraftSpecific?.templateId === 'fbw-a32nx' &&
     fbwA32nxLvars?.aircraftSpecific?.integrationId === 'fbw-a32nx' &&
     fbwA32nxLvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fbw-a32nx' &&
-    fbwA32nxLvars?.aircraftSpecific?.fields?.length === 124 &&
+    fbwA32nxLvars?.aircraftSpecific?.fields?.length === 126 &&
+    fbwA32nxLvars.aircraftSpecific.fields.some(field => (
+      field.id === 'propulsion.throttleLever1Angle' &&
+      field.source?.type === 'lvar' &&
+      field.decode?.type === 'number' &&
+      field.decode?.precision === 2
+    )) &&
     fbwA32nxLvars.aircraftSpecific.fields.some(field => (
       field.id === 'lights.strobeMode' &&
       field.source?.type === 'lvar' &&
@@ -1952,7 +1958,10 @@ test(
 );
 test(
   'FlyByWire A32NX write confirmations cover broad fixed commands while strobe proves output or AUTO mode',
-  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 95 &&
+  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 97 &&
+    ['propulsion.throttleLever1Angle', 'propulsion.throttleLever2Angle'].every(fieldId => (
+      fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === fieldId)
+    )) &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.strobeActive') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.strobeAuto') &&
     !fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'lights.strobeMode') &&
@@ -2722,7 +2731,13 @@ test(
   a380Lvars?.aircraftSpecific?.templateId === 'fbw-a380x' &&
     a380Lvars?.aircraftSpecific?.integrationId === 'fbw-a380x' &&
     a380Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fbw-a380x' &&
-    a380Lvars?.aircraftSpecific?.fields?.length === 42 &&
+    a380Lvars?.aircraftSpecific?.fields?.length === 46 &&
+    a380Lvars.aircraftSpecific.fields.some(field => (
+      field.id === 'propulsion.throttleLever4Angle' &&
+      field.source?.type === 'lvar' &&
+      field.decode?.type === 'number' &&
+      field.decode?.precision === 2
+    )) &&
     a380Lvars.aircraftSpecific.fields.some(field => (
       field.id === 'flightGuidance.altitudeFt' &&
       field.source?.type === 'lvar' &&
@@ -2781,6 +2796,10 @@ const expectedA380ActionIds = [
   'flightGuidance.speed.set',
   'flightGuidance.heading.set',
   'flightGuidance.altitude.set',
+  'propulsion.throttle.idle',
+  'propulsion.throttle.climb',
+  'propulsion.throttle.flexMct',
+  'propulsion.throttle.toga',
   ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'].flatMap(name => [
     `lights.${name}.off`,
     `lights.${name}.on`,
@@ -2796,17 +2815,19 @@ const expectedA380ActionIds = [
   'controls.gear.down',
 ].sort();
 test(
-  'A380X exposes exactly 34 guarded untested SimConnect-sequence actions with 19 unique confirmation fields',
+  'A380X exposes 38 guarded actions with calibrated throttle and 23 unique confirmation fields',
   JSON.stringify(Object.keys(a380Integration?.actions || {}).sort()) === JSON.stringify(expectedA380ActionIds) &&
-    expectedA380ActionIds.length === 34 &&
-    a380Lvars.aircraftSpecific.confirmationFields.length === 19 &&
-    new Set(a380Lvars.aircraftSpecific.confirmationFields.map(field => field.id)).size === 19 &&
+    expectedA380ActionIds.length === 38 &&
+    a380Lvars.aircraftSpecific.confirmationFields.length === 23 &&
+    new Set(a380Lvars.aircraftSpecific.confirmationFields.map(field => field.id)).size === 23 &&
     Object.values(a380Integration?.actions || {}).every(action => (
       action.verification === 'untested' &&
       action.guard?.retry === 'never' &&
       action.routes?.length === 1 &&
-      action.routes[0]?.transport === 'simconnect-sequence' &&
-      typeof action.routes[0]?.readback?.fieldId === 'string'
+      (
+        (action.routes[0]?.transport === 'simconnect-sequence' && typeof action.routes[0]?.readback?.fieldId === 'string') ||
+        (action.routes[0]?.transport === 'mobiflight-calculator' && action.routes[0]?.readbacks?.length === 4)
+      )
     ))
 );
 test(

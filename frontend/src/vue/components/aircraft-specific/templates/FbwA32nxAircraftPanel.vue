@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
+import FlyByWireThrottleControl from './FlyByWireThrottleControl.vue';
 
 const props = defineProps({
   values: { type: Object, default: () => ({}) },
@@ -10,6 +11,7 @@ const props = defineProps({
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
   isActionPending: { type: Function, default: () => false },
+  controlSetupRequired: { type: Boolean, default: false },
 });
 
 const aircraftControls = useAircraftControlsStore();
@@ -533,6 +535,10 @@ function controlStatus(control) {
   return 'Ready.';
 }
 
+function requestThrottleAction(actionId) {
+  return props.requestAction(actionId, 'propulsion.throttle');
+}
+
 function controlGridClass(control) {
   if (control.actions.length >= 5) return 'grid-cols-3 sm:grid-cols-4';
   if (control.actions.length === 4) return 'grid-cols-2 sm:grid-cols-4';
@@ -583,6 +589,21 @@ function alignmentText() {
       </div>
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sourceStatus }}</span>
     </div>
+
+    <FlyByWireThrottleControl
+      aircraft-label="FlyByWire A32NX"
+      :lever-positions="[
+        values['propulsion.throttleLever1Angle'],
+        values['propulsion.throttleLever2Angle'],
+      ]"
+      :lever-labels="['L', 'R']"
+      :source-status="sourceStatus"
+      :control-enabled="controlSessionReady"
+      :setup-required="controlSetupRequired"
+      :action-capabilities="actionCapabilities"
+      :pending="groupPending('propulsion.throttle')"
+      :request-action="requestThrottleAction"
+    />
 
     <div>
       <div class="dashboard-section-kicker">Flight Control Unit</div>

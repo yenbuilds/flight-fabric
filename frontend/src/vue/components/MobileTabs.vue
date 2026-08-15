@@ -69,7 +69,7 @@ useDocumentEvent('keydown', onKeydown);
 
   <div
     id="mobile-more-sheet"
-    class="fixed inset-0 z-50 sm:hidden"
+    class="fixed inset-0 z-50"
     :class="{ hidden: !tabs.moreSheetOpen }"
     role="dialog"
     aria-modal="true"

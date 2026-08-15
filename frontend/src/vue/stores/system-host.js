@@ -180,7 +180,7 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     const ips = Array.isArray(networkInfo.value?.ips) ? networkInfo.value.ips : [];
     return rankPhoneHosts(ips, getBrowserLanHostFallback());
   });
-  const remoteBrowserUrl = computed(() => {
+  const remoteViewerUrl = computed(() => {
     const host = phoneHosts.value[0];
     if (!host) return '';
     const port = normalizePort(networkInfo.value?.httpPort)
@@ -193,11 +193,17 @@ export const useSystemHostStore = defineStore('systemHost', () => {
       || 8099;
     const baseUrl = `http://${host}:${port}/remote`;
     const query = new URLSearchParams({ wsPort: String(wsPort) });
-    if (shareAircraftControlToken.value) {
-      query.set('aircraftControlToken', shareAircraftControlToken.value);
-    }
     return `${baseUrl}?${query.toString()}`;
   });
+  const remoteControlPairingUrl = computed(() => {
+    if (!remoteViewerUrl.value || !shareAircraftControlToken.value) return '';
+    const querySeparator = remoteViewerUrl.value.includes('?') ? '&' : '?';
+    return `${remoteViewerUrl.value}${querySeparator}aircraftControlToken=${encodeURIComponent(shareAircraftControlToken.value)}`;
+  });
+  // Present one best phone URL to the user. A local desktop host includes the
+  // current backend-session control token; a remote browser never redistributes
+  // a token it received and therefore falls back to the read-only viewer URL.
+  const remoteBrowserUrl = computed(() => remoteControlPairingUrl.value || remoteViewerUrl.value);
   const shareAircraftControlPaired = computed(() => Boolean(shareAircraftControlToken.value));
   const remoteAircraftControlPaired = shareAircraftControlPaired;
   const alternateIpsLabel = computed(() => {
@@ -407,6 +413,8 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     phoneHosts,
     refresh,
     remoteBrowserUrl,
+    remoteControlPairingUrl,
+    remoteViewerUrl,
     remoteAircraftControlPaired,
     shareAircraftControlPaired,
     restartBackend,

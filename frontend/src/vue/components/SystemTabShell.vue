@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { sendWs } from '../../../app-shared.js';
 import RemoteBrowserQr from './RemoteBrowserQr.vue';
 import { useLogbookStore } from '../stores/logbook.js';
@@ -9,6 +9,8 @@ const systemHost = useSystemHostStore();
 const logbook = useLogbookStore();
 let refreshTimer = null;
 let cleanupBackendStatus = null;
+let copyResetTimer = null;
+const copiedMobileLink = ref(false);
 
 const statusDotClass = {
   success: 'bg-success shadow-[0_0_12px_rgba(16,185,129,0.35)]',
@@ -63,6 +65,21 @@ function rebuildHistoryIndex() {
   sendWs({ type: 'rebuildHistoryIndex' });
 }
 
+async function copyMobileLink(url) {
+  if (!url || typeof navigator === 'undefined' || typeof navigator.clipboard?.writeText !== 'function') return;
+  try {
+    await navigator.clipboard.writeText(url);
+    copiedMobileLink.value = true;
+    if (copyResetTimer) window.clearTimeout(copyResetTimer);
+    copyResetTimer = window.setTimeout(() => {
+      copiedMobileLink.value = false;
+      copyResetTimer = null;
+    }, 1800);
+  } catch {
+    copiedMobileLink.value = false;
+  }
+}
+
 onMounted(() => {
   cleanupBackendStatus = systemHost.bindBackendStatusEvents();
   refreshNow();
@@ -72,6 +89,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (copyResetTimer) {
+    window.clearTimeout(copyResetTimer);
+    copyResetTimer = null;
+  }
   if (refreshTimer) {
     window.clearInterval(refreshTimer);
     refreshTimer = null;
@@ -240,28 +261,53 @@ onUnmounted(() => {
       </section>
 
       <div class="space-y-5">
-        <section id="system-mobile-access" class="rounded-3xl border border-border/80 bg-panel/75 p-5">
-          <h3 class="text-lg font-semibold text-gray-100">Mobile Browser</h3>
-          <p class="mt-1 text-sm text-muted-fg">Open the dashboard on a phone connected to the same trusted network.</p>
+        <section id="system-mobile-access" class="scroll-mt-24 rounded-3xl border border-border/80 bg-panel/75 p-5">
+          <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300" aria-hidden="true">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="2" width="14" height="20" rx="2" />
+                <path d="M9 6h6" />
+                <path d="M11.5 18h1" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-gray-100">Phone &amp; tablet</h3>
+              <p class="mt-1 text-sm leading-6 text-muted-fg">
+                Keep a browser second screen ready for every flight. Connect the device to the same trusted network as this PC.
+              </p>
+            </div>
+          </div>
+
           <div class="mt-4 grid gap-4 rounded-2xl border border-cyan-400/25 bg-cyan-400/10 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div class="min-w-0">
               <div class="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300" style="font-family: var(--ff-font-mono);">
-                Phone URL
+                Phone link
               </div>
+              <div class="mt-1 text-sm font-semibold text-gray-100">Scan to connect</div>
               <div id="system-remote-url" class="mt-2 break-all font-mono text-sm text-cyan-100">
                 {{ systemHost.remoteBrowserUrl || 'LAN IP unavailable' }}
               </div>
-              <div v-if="systemHost.remoteBrowserUrl" id="system-mobile-pairing-note" class="mt-2 text-xs text-muted-fg">
-                <template v-if="systemHost.shareAircraftControlPaired">Session-paired link generated on this PC. Treat this URL and QR code as private; aircraft commands still require the LAN control setting.</template>
-                <template v-else-if="systemHost.currentBrowserAircraftControlPaired">This browser is session-paired for aircraft controls. The displayed share link and QR code remain read-only.</template>
-                <template v-else>Read-only link. Open this page on the simulator PC after the backend starts to generate a paired link.</template>
+              <div v-if="systemHost.remoteBrowserUrl" id="system-mobile-pairing-note" class="mt-2 text-xs leading-5 text-muted-fg">
+                <template v-if="systemHost.shareAircraftControlPaired">Private link. It opens the dashboard and pairs aircraft controls for this backend session. Starting a new flight does not require another scan; scan again only after the Flight Fabric backend restarts. Aircraft commands still require the LAN control setting.</template>
+                <template v-else-if="systemHost.currentBrowserAircraftControlPaired">This browser is paired for aircraft controls in the current backend session. The displayed link remains read-only and does not expose its pairing token.</template>
+                <template v-else>Read-only link. Open this page on the simulator PC after the backend starts to generate the current-session paired link.</template>
               </div>
+              <button
+                v-if="systemHost.remoteBrowserUrl"
+                id="system-mobile-copy-btn"
+                type="button"
+                class="ff-button-secondary mt-3 px-3 py-2 text-xs"
+                @click="copyMobileLink(systemHost.remoteBrowserUrl)"
+              >
+                {{ copiedMobileLink ? 'Copied' : 'Copy phone link' }}
+              </button>
               <div v-if="systemHost.alternateIpsLabel" id="system-alt-ips" class="mt-2 text-xs text-muted-fg">
                 Other IPs: {{ systemHost.alternateIpsLabel }}
               </div>
             </div>
             <RemoteBrowserQr
               v-if="systemHost.remoteBrowserUrl"
+              id="system-mobile-qr"
               class="justify-self-start sm:justify-self-end"
               :value="systemHost.remoteBrowserUrl"
             />

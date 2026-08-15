@@ -203,6 +203,8 @@ async function main() {
     assert.equal(store.backendStatusLabel, 'Unavailable', 'browser fallback should keep native controls unavailable');
     assert.equal(store.frontendStatusLabel, 'Browser-hosted', 'frontend status should describe browser mode');
     assert.equal(store.remoteBrowserUrl, '', 'phone URL should not fall back to localhost outside Electron');
+    assert.equal(store.remoteViewerUrl, '', 'viewer URL should not fall back to localhost outside Electron');
+    assert.equal(store.remoteControlPairingUrl, '', 'control pairing URL should not exist without a local session token');
   });
 
   await test('system host store builds a paired phone QR URL from loopback browser bootstrap', async () => {
@@ -236,6 +238,16 @@ async function main() {
         store.remoteBrowserUrl,
         'http://192.168.50.49:8100/remote?wsPort=9199&aircraftControlToken=browser-aircraft-token',
         'loopback browser should render the LAN URL with only the scoped pairing token',
+      );
+      assert.equal(
+        store.remoteViewerUrl,
+        'http://192.168.50.49:8100/remote?wsPort=9199',
+        'loopback browser should expose a reusable token-free viewer URL',
+      );
+      assert.equal(
+        store.remoteControlPairingUrl,
+        'http://192.168.50.49:8100/remote?wsPort=9199&aircraftControlToken=browser-aircraft-token',
+        'loopback browser should expose the existing session-scoped control URL separately',
       );
       assert.equal(store.remoteBrowserUrl.includes('desktop-privileged-token'), false, 'phone URL must never contain the privileged desktop token');
     } finally {
@@ -272,6 +284,8 @@ async function main() {
       assert.equal(store.currentBrowserAircraftControlPaired, true, 'current phone session should retain its paired status from the page URL');
       assert.equal(store.shareAircraftControlPaired, false, 'remote bootstrap must not grant the phone a locally issued share token');
       assert.equal(store.remoteBrowserUrl, 'http://192.168.50.49:8100/remote?wsPort=9199', 'phone share URL should retain the working custom WebSocket port but remain read-only');
+      assert.equal(store.remoteViewerUrl, 'http://192.168.50.49:8100/remote?wsPort=9199', 'phone should expose only its reusable read-only viewer URL');
+      assert.equal(store.remoteControlPairingUrl, '', 'phone must not mint or redistribute a control-pairing URL');
       assert.equal(store.remoteBrowserUrl.includes('received-phone-token'), false, 'phone must not redistribute the token it received');
     } finally {
       delete globalThis.location;
@@ -322,6 +336,8 @@ async function main() {
     assert.equal(store.backendWsPort, 9199, 'backend WS port should populate from IPC');
     assert.equal(store.backendHttpPort, 8100, 'backend HTTP port should populate from IPC');
     assert.equal(store.remoteBrowserUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token', 'mobile URL should prefer a 192.168 LAN IP and carry the custom WebSocket port plus scoped pairing token');
+    assert.equal(store.remoteViewerUrl, 'http://192.168.1.42:8100/remote?wsPort=9199', 'desktop host should expose a stable viewer URL without a control token');
+    assert.equal(store.remoteControlPairingUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token', 'desktop host should expose the current backend-session pairing URL');
     assert.equal(store.remoteAircraftControlPaired, true, 'mobile URL should report its session pairing state');
     assert.equal(store.alternateIpsLabel, '10.0.0.5', 'alternate LAN IPs should be summarized');
     assert.equal(store.settingsFile, 'C:\\Users\\Pilot\\settings.json', 'settings path should populate from IPC');
@@ -1102,17 +1118,18 @@ async function main() {
   await test('tabs store normalizes aliases, respects leave guards, and tracks transitions', () => {
     resetStoreTestContext();
     const tabs = useTabsStore();
+    assert.equal(tabs.activeTabId, 'flight', 'Overview should be the safe first-render tab');
 
     tabs.openMoreSheet();
     assert.equal(tabs.moreSheetOpen, true, 'more sheet should open');
 
     const unregister = tabs.registerBeforeChangeGuard((from, to) => {
-      assert.equal(from, 'livemap', 'guard should see current tab');
+      assert.equal(from, 'flight', 'guard should see current tab');
       return to !== 'settings';
     });
 
     assert.equal(tabs.requestTabChange('settings', { direction: 'forward' }), false, 'guard should block settings transition');
-    assert.equal(tabs.activeTabId, 'livemap', 'blocked transition should keep the active tab');
+    assert.equal(tabs.activeTabId, 'flight', 'blocked transition should keep the active tab');
     assert.equal(tabs.moreSheetOpen, true, 'blocked transition should not close the more sheet');
 
     unregister();
@@ -1131,8 +1148,8 @@ async function main() {
     assert.equal(tabs.tabSectionClass('livemap').active, false, 'tab section classes should leave inactive tabs hidden');
 
     tabs.setActiveTab('unknown-tab');
-    assert.equal(tabs.activeTabId, 'livemap', 'invalid tab ids should fall back to a visible tab');
-    assert.equal(tabs.tabSectionClass('livemap').active, true, 'invalid tab fallback should keep one tab section visible');
+    assert.equal(tabs.activeTabId, 'flight', 'invalid tab ids should fall back to Overview');
+    assert.equal(tabs.tabSectionClass('flight').active, true, 'invalid tab fallback should keep Overview visible');
 
     tabs.beginSectionTransition('settings', 'left');
     assert.equal(tabs.tabSectionClass('settings')['swipe-enter-left'], true, 'transition classes should be state-driven');

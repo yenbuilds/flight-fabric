@@ -1892,6 +1892,25 @@ mod sidecar {
                 ));
             }
 
+            // MobiFlight requires a unique ClientData definition ID for each
+            // area, even though Command and Response use the same byte shape.
+            let add_command_hr = unsafe {
+                (self.api.add_to_client_data_definition)(
+                    self.handle,
+                    kind.command_define_id(),
+                    0,
+                    mobiflight::MESSAGE_SIZE as Dword,
+                    0.0,
+                    0,
+                )
+            };
+            if !hresult_ok(add_command_hr) {
+                return Err(format!(
+                    "AddToClientDataDefinition({base_name}.Command) hr=0x{:08X}",
+                    add_command_hr as u32
+                ));
+            }
+
             let request_hr = unsafe {
                 (self.api.request_client_data)(
                     self.handle,
@@ -1931,7 +1950,7 @@ mod sidecar {
                 (self.api.set_client_data)(
                     self.handle,
                     kind.command_data_id(),
-                    kind.response_define_id(),
+                    kind.command_define_id(),
                     SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT,
                     0,
                     mobiflight::MESSAGE_SIZE as Dword,
@@ -1951,6 +1970,10 @@ mod sidecar {
             match action {
                 mobiflight::Action::ProbeInit => {
                     self.ensure_mobiflight_areas(mobiflight::ClientAreaKind::Init)?;
+                    self.write_mobiflight_command(
+                        mobiflight::ClientAreaKind::Init,
+                        "MF.DummyCmd",
+                    )?;
                     self.write_mobiflight_command(
                         mobiflight::ClientAreaKind::Init,
                         "MF.Ping",

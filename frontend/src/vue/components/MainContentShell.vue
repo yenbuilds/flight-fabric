@@ -7,6 +7,7 @@ import LandingPanel from './LandingPanel.vue';
 import LiveMapTabShell from './LiveMapTabShell.vue';
 import LvarInspectorTab from './LvarInspectorTab.vue';
 import SettingsTabShell from './SettingsTabShell.vue';
+import SecondScreenGuide from './SecondScreenGuide.vue';
 import SimbriefTab from './SimbriefTab.vue';
 import SystemTabShell from './SystemTabShell.vue';
 import TimelineTabShell from './TimelineTabShell.vue';
@@ -19,6 +20,8 @@ const tabs = useTabsStore();
 
 <template>
   <div class="dashboard-shell app-shell-container py-6">
+    <SecondScreenGuide />
+
     <div class="sm:hidden mb-4 flex items-center justify-center gap-3">
       <div id="vue-phase-mobile-root" class="contents">
         <FlightStatusBadges mode="mobile" />

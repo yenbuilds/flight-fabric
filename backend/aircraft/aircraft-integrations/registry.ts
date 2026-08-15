@@ -11,6 +11,7 @@ import type {
   ResolveAircraftIntegrationFieldContext,
   ResolveAircraftIntegrationRouteContext,
 } from './types.js';
+import { isSafeMobiFlightCalculatorCode } from '../../utils/mobiflight-protocol.js';
 
 const SAFE_ADAPTER_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const SAFE_LOGICAL_ID_RE = /^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/;
@@ -44,10 +45,6 @@ function isPrimitive(value: unknown): value is string | number | boolean {
   return typeof value === 'string'
     || typeof value === 'boolean'
     || (typeof value === 'number' && Number.isFinite(value));
-}
-
-function isCalculatorCode(value: unknown): value is string {
-  return typeof value === 'string' && /^[\x20-\x7e]{1,4096}$/.test(value);
 }
 
 function hasValidUnavailableNumberValues(decoder: unknown): boolean {
@@ -219,11 +216,20 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
       const routeReadbacks = Array.isArray(routeRecord.readbacks)
         ? routeRecord.readbacks as Array<Record<string, unknown>>
         : [];
+      const supportsCalculatorReadbacks = route.transport === 'mobiflight-calculator'
+        && (routeRecord.mode === undefined || routeRecord.mode === 'single');
       if (
         !SAFE_ROUTE_ID_RE.test(route?.id)
         || routeIds.has(route.id)
         || !ACTION_ROUTE_TRANSPORTS.has(normalizeString(route.transport))
-        || (route.transport !== 'simconnect-sequence' && routeRecord.readbacks !== undefined)
+        || (routeRecord.readbacks !== undefined && route.transport !== 'simconnect-sequence' && (
+          !supportsCalculatorReadbacks
+          || !Array.isArray(routeRecord.readbacks)
+          || routeReadbacks.length < 2
+          || routeReadbacks.length > 4
+          || route.readback !== undefined
+          || new Set(routeReadbacks.map((readback) => readback?.fieldId)).size !== routeReadbacks.length
+        ))
       ) {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action route.`);
       }
@@ -234,7 +240,7 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           : null;
         const mode = calculatorRoute.mode === undefined ? 'single' : calculatorRoute.mode;
         const hasSingleOnlyShape = mode === 'single'
-          && isCalculatorCode(calculatorRoute.code)
+          && isSafeMobiFlightCalculatorCode(calculatorRoute.code)
           && calculatorRoute.pressCode === undefined
           && calculatorRoute.releaseCode === undefined
           && calculatorRoute.delayMs === undefined
@@ -248,8 +254,8 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && calculatorReadback !== null
           && Object.prototype.hasOwnProperty.call(calculatorReadback, 'expectedValue')
           && calculatorRoute.code === undefined
-          && isCalculatorCode(calculatorRoute.pressCode)
-          && isCalculatorCode(calculatorRoute.releaseCode)
+          && isSafeMobiFlightCalculatorCode(calculatorRoute.pressCode)
+          && isSafeMobiFlightCalculatorCode(calculatorRoute.releaseCode)
           && Number.isSafeInteger(calculatorRoute.delayMs)
           && Number(calculatorRoute.delayMs) >= 1
           && Number(calculatorRoute.delayMs) <= MAX_CALCULATOR_PULSE_DELAY_MS
@@ -274,8 +280,8 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && calculatorRoute.pressCode === undefined
           && calculatorRoute.releaseCode === undefined
           && calculatorRoute.delayMs === undefined
-          && isCalculatorCode(calculatorRoute.decreaseCode)
-          && isCalculatorCode(calculatorRoute.increaseCode)
+          && isSafeMobiFlightCalculatorCode(calculatorRoute.decreaseCode)
+          && isSafeMobiFlightCalculatorCode(calculatorRoute.increaseCode)
           && Number.isSafeInteger(calculatorRoute.maxSteps)
           && Number(calculatorRoute.maxSteps) >= 1
           && Number(calculatorRoute.maxSteps) <= MAX_CALCULATOR_TARGET_STEPS

@@ -816,7 +816,7 @@ async function main() {
 
     assert.match(
       css,
-      /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.timeline-split\.timeline-mobile-viewer-open\s*\{[\s\S]*?grid-template-rows:\s*auto\s+minmax\(18rem,\s*48dvh\)\s+minmax\(0,\s*1fr\);/,
+      /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?\.timeline-split\.timeline-mobile-viewer-open\s*\{[\s\S]*?grid-template-rows:\s*auto\s+minmax\(18rem,\s*48dvh\)\s+minmax\(0,\s*1fr\);/,
       'mobile timeline modal should reserve a visible row for the replay map',
     );
     assert.match(
@@ -1111,13 +1111,7 @@ async function main() {
 
   console.log('\n--- main content shell ---\n');
   await test('MainContentShell renders the tab scaffold and embedded Vue panels', async () => {
-    const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'MainContentShell.vue'),
-      ({ useTabsStore }) => {
-        const tabs = useTabsStore();
-        tabs.setActiveTab('livemap');
-      },
-    );
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'MainContentShell.vue'));
     const ids = [
       'vue-phase-mobile-root',
       'vue-desktop-tabs-root',
@@ -1152,7 +1146,56 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render from the main Vue shell`);
     }
     assert.doesNotMatch(html, /id="tab-profiles"/, 'the retired Profiles workspace should not render in the main shell');
-    assert.match(html, /id="tab-livemap" class="tab-section active"/, 'live map tab should keep the state-driven active marker for pre-runtime paint');
+    assert.match(html, /id="tab-flight" class="tab-section active"/, 'Overview should keep the state-driven active marker for first paint');
+    assert.doesNotMatch(html, /id="tab-livemap" class="tab-section active"/, 'Live should not remain the first-paint default');
+  });
+
+  await test('SecondScreenGuide explains reusable viewing and session-scoped control pairing on phones', async () => {
+    globalThis.location = {
+      pathname: '/remote',
+      search: '?wsPort=9199',
+    };
+    try {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'),
+        ({ useProfilesStore }) => {
+          globalThis.location = {
+            pathname: '/remote',
+            search: '?wsPort=9199',
+          };
+          useProfilesStore().setAuthorizationScope('read-only');
+        },
+      );
+
+      assert.match(html, /id="second-screen-guide"/, 'remote browser should render the first-run second-screen guide');
+      assert.match(html, /Keep this second screen for every flight/, 'guide should make repeat-flight behavior explicit');
+      assert.match(html, /New flights appear automatically/, 'guide should tell users a new flight needs no scan');
+      assert.match(html, /id="second-screen-control-status"[^>]*>\s*Viewer mode\s*</, 'guide should expose the current read-only state');
+      assert.match(html, /choose <strong>Phone<\/strong> on the Flight Fabric PC/, 'read-only guidance should point to the discoverable PC action');
+    } finally {
+      delete globalThis.location;
+    }
+  });
+
+  await test('SecondScreenGuide describes the unchanged pairing lifetime when controls are active', async () => {
+    try {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'),
+        ({ useProfilesStore }) => {
+          globalThis.location = {
+            pathname: '/remote',
+            search: '?wsPort=9199&aircraftControlToken=fixture-token',
+          };
+          useProfilesStore().setAuthorizationScope('aircraft-control');
+        },
+      );
+
+      assert.match(html, /id="second-screen-control-status"[^>]*>\s*Controls paired\s*</, 'paired phone should expose its acknowledged control state');
+      assert.match(html, /stay paired for this backend session/, 'paired guidance should retain the backend-session security lifetime');
+      assert.match(html, /only after the Flight Fabric backend restarts/, 'paired guidance should say when another scan is required');
+    } finally {
+      delete globalThis.location;
+    }
   });
 
   await test('SystemTabShell renders Electron service controls with browser-safe fallback copy', async () => {
@@ -1177,7 +1220,8 @@ async function main() {
     assert.doesNotMatch(html, /id="system-host-mode"/, 'system tab should not repeat the Electron host mode beside Refresh');
     assert.match(html, /Native service controls are only available in the Electron app/, 'browser fallback copy should render outside Electron');
     assert.match(html, /LAN IP unavailable/, 'system tab should not render localhost as a phone URL before a LAN IP is known');
-    assert.doesNotMatch(html, /id="system-remote-qr"/, 'system tab should not render a stale QR before a phone URL is known');
+    assert.doesNotMatch(html, /id="system-mobile-qr"/, 'system tab should not render a stale phone QR before a LAN URL is known');
+    assert.match(html, /Scan to connect/, 'system tab should present one clear phone setup action');
     assert.doesNotMatch(html, /Settings And Recovery/, 'settings and recovery controls should not be duplicated in the system tab');
     assert.doesNotMatch(html, /Recovery Launcher/, 'recovery launcher should remain outside the dashboard in the tray menu');
     assert.match(html, /never edits or deletes a flight CSV/, 'history rebuild safety boundary should be explicit');
@@ -1206,11 +1250,14 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="system-remote-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199&amp;aircraftControlToken=fixture-aircraft-token\s*</, 'system tab should render the paired primary phone URL with its custom WebSocket port');
-    assert.match(html, /id="system-mobile-pairing-note"[^>]*>[\s\S]*Session-paired link/, 'system tab should label the QR as a private session-paired link');
+    assert.match(html, /id="system-remote-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199&amp;aircraftControlToken=fixture-aircraft-token\s*</, 'system tab should render one current-session phone URL');
+    assert.match(html, /id="system-mobile-pairing-note"[^>]*>[\s\S]*scan again only after the Flight Fabric backend restarts/, 'system tab should label the pairing lifetime accurately');
+    assert.match(html, /Starting a new flight does not require another scan/, 'system tab should distinguish a new flight from a backend restart');
     assert.match(html, /id="system-alt-ips"[^>]*>\s*Other IPs: 10\.0\.0\.5\s*</, 'system tab should keep alternate IP fallback copy');
-    assert.match(html, /id="system-remote-qr"/, 'system tab should render the QR container');
+    assert.match(html, /id="system-mobile-qr"/, 'system tab should render one phone QR');
+    assert.doesNotMatch(html, /id="system-viewer-qr"|id="system-control-pairing-qr"/, 'system tab should not split phone setup into viewer and control choices');
     assert.match(html, /role="img"[^>]*aria-label="QR code for http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199&amp;aircraftControlToken=fixture-aircraft-token"/, 'QR should describe the paired encoded URL and custom WebSocket port');
+    assert.equal((html.match(/role="img"/g) || []).length, 1, 'system tab should render exactly one phone QR');
     assert.match(html, /<path[^>]+d="M/, 'QR should render dark modules as an SVG path');
   });
 
@@ -1246,8 +1293,9 @@ async function main() {
 
       assert.match(html, /id="system-remote-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199\s*</, 'paired phone should display a token-free share URL that retains the working custom WebSocket port');
       assert.doesNotMatch(html, /received-phone-token/, 'paired phone should not render its received token into copy or QR markup');
-      assert.match(html, /This browser is session-paired for aircraft controls/, 'paired phone should describe its actual current control state');
-      assert.match(html, /displayed share link and QR code remain read-only/, 'paired phone should distinguish its current state from the share link');
+      assert.match(html, /This browser is paired for aircraft controls in the current backend session/, 'paired phone should describe its actual current control state');
+      assert.match(html, /id="system-mobile-qr"/, 'paired phone may show its safe token-free viewer URL as the single phone link');
+      assert.doesNotMatch(html, /id="system-control-pairing-qr"/, 'paired phone should never receive a redistributable pairing QR');
     } finally {
       delete globalThis.location;
       globalThis.fetch = originalFetch;
@@ -1448,6 +1496,7 @@ async function main() {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AppHeader.vue'),
       ({ useLiveMapStore, useProfilesStore, useStatusStore }) => {
+        globalThis.electronAPI = {};
         useProfilesStore().setAuthorizationScope('full-control');
         const status = useStatusStore();
         status.bindHeaderActions({ onStartRecordingManual: () => true });
@@ -1525,6 +1574,7 @@ async function main() {
       'status-text',
       'vue-status-root',
       'vue-flight-status-root',
+      'header-mobile-access-btn',
       'assists-indicator',
       'assists-count',
       'assists-list',
@@ -2616,6 +2666,10 @@ async function main() {
       'flightGuidance.speed.set',
       'flightGuidance.heading.set',
       'flightGuidance.altitude.set',
+      'propulsion.throttle.toga',
+      'propulsion.throttle.flexMct',
+      'propulsion.throttle.climb',
+      'propulsion.throttle.idle',
       'flightGuidance.ap1.off',
       'flightGuidance.ap1.on',
       'flightGuidance.autothrust.off',
@@ -2637,6 +2691,10 @@ async function main() {
       'controls.spoilers.set',
     ];
     const values = {
+      'propulsion.throttleLever1Angle': 35,
+      'propulsion.throttleLever2Angle': 35,
+      'propulsion.throttleLever3Angle': 35,
+      'propulsion.throttleLever4Angle': 35,
       'flightGuidance.speedValue': 287,
       'flightGuidance.headingDeg': 43,
       'flightGuidance.altitudeFt': 37000,
@@ -2680,8 +2738,8 @@ async function main() {
       'systems.outsideAirTemperatureC': -52.4,
       'systems.mach': 0.84,
     };
-    assert.equal(Object.keys(values).length, 42, 'the fixture should exercise every A380X adapter field');
-    assert.equal(actionIds.length, 34, 'the fixture should exercise every A380X adapter action capability');
+    assert.equal(Object.keys(values).length, 46, 'the fixture should exercise every A380X adapter field');
+    assert.equal(actionIds.length, 38, 'the fixture should exercise every A380X adapter action capability');
 
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA380xAircraftPanel.vue'),
@@ -2700,6 +2758,12 @@ async function main() {
 
     assert.match(html, /data-aircraft-template="fbw-a380x"/, 'template should identify the exact trusted adapter');
     assert.match(html, /FlyByWire A380X/, 'the exact aircraft title should render');
+    const throttleHtml = html.match(/<section(?=[^>]*data-fbw-section="virtual-throttle")[\s\S]*?<\/section>/)?.[0] || '';
+    assert.match(throttleHtml, /all 4 levers \u00b7 calibrated forward detents/i);
+    assert.match(throttleHtml, /ENG 1 FLX \/ MCT/);
+    assert.match(throttleHtml, /ENG 4 FLX \/ MCT/);
+    assert.match(throttleHtml, /data-fbw-throttle-detent="flexMct"[^>]*aria-pressed="true"/);
+    assert.doesNotMatch(throttleHtml, /type="range"|drag|slide/i, 'the A380X throttle must remain a one-tap detent control');
     assert.deepEqual(
       [...html.matchAll(/data-a380-section="([^"]+)"/g)].map((match) => match[1]),
       ['fcu-autopilot', 'exterior-lights', 'flight-configuration', 'systems'],
@@ -2718,7 +2782,7 @@ async function main() {
     assert.deepEqual(
       [...uniqueRenderedActionIds].sort(),
       [...actionIds].sort(),
-      'the panel should expose all and only the 34 adapter actions',
+      'the panel should expose all and only the 38 adapter actions',
     );
     assert.equal(
       renderedActionIds.filter((actionId) => actionId === 'controls.spoilers.set').length,
@@ -4249,6 +4313,10 @@ async function main() {
 
   await test('FlyByWire A32NX template renders broad guarded controls and explicit safety boundaries', async () => {
     const actionCapabilities = Object.fromEntries([
+      'propulsion.throttle.toga',
+      'propulsion.throttle.flexMct',
+      'propulsion.throttle.climb',
+      'propulsion.throttle.idle',
       'lights.strobe.off',
       'lights.strobe.auto',
       'lights.strobe.on',
@@ -4282,6 +4350,8 @@ async function main() {
         props: {
           sourceStatus: 'connected',
           values: {
+            'propulsion.throttleLever1Angle': 25,
+            'propulsion.throttleLever2Angle': 25,
             'flightGuidance.speedValue': 250,
             'flightGuidance.speedDashes': false,
             'flightGuidance.machMode': false,
@@ -4355,8 +4425,18 @@ async function main() {
     assert.match(html, /data-aircraft-template="fbw-a32nx"/, 'template should identify its trusted registry key');
     assert.match(html, /FlyByWire Airbus A32NX/, 'template should render the aircraft heading');
     const renderedActionIds = [...html.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
-    assert.equal(renderedActionIds.length, 241, 'the page should render every reviewed A32NX action');
-    assert.equal(new Set(renderedActionIds).size, 241, 'every rendered A32NX action ID should be unique');
+    assert.equal(renderedActionIds.length, 245, 'the page should render every reviewed A32NX action');
+    assert.equal(new Set(renderedActionIds).size, 245, 'every rendered A32NX action ID should be unique');
+    const throttleHtml = html.match(/<section(?=[^>]*data-fbw-section="virtual-throttle")[\s\S]*?<\/section>/)?.[0] || '';
+    assert.ok(
+      html.indexOf('data-fbw-section="virtual-throttle"') < html.indexOf('Flight Control Unit'),
+      'the high-value calibrated throttle should lead the A32NX controls',
+    );
+    assert.match(throttleHtml, /both levers \u00b7 calibrated forward detents/i);
+    assert.match(throttleHtml, /L CLB/);
+    assert.match(throttleHtml, /R CLB/);
+    assert.match(throttleHtml, /data-fbw-throttle-detent="climb"[^>]*aria-pressed="true"/);
+    assert.doesNotMatch(throttleHtml, /type="range"|drag|slide/i, 'the A32NX throttle must remain a one-tap detent control');
     assert.match(html, /12,000/, 'authoritative FCU altitude should be formatted');
     assert.match(html, /data-aircraft-action="lights\.strobe\.auto"[^>]*aria-pressed="true"/, 'strobe readback should select AUTO');
     assert.doesNotMatch(html, /data-aircraft-action="lights\.strobe\.on"[^>]*disabled/, 'supported controls with readback should be enabled');

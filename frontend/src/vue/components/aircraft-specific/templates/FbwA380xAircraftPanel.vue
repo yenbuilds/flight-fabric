@@ -41,6 +41,7 @@ export function reconcileA380NumericDraftState(state = {}, snapshot = {}, previo
 import { computed, reactive, watch } from 'vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
+import FlyByWireThrottleControl from './FlyByWireThrottleControl.vue';
 
 const props = defineProps({
   profileKey: { type: String, default: '' },
@@ -51,6 +52,7 @@ const props = defineProps({
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
   isActionPending: { type: Function, default: () => false },
+  controlSetupRequired: { type: Boolean, default: false },
 });
 
 const aircraftControls = useAircraftControlsStore();
@@ -490,6 +492,10 @@ const pageStatus = computed(() => {
   }
   return 'Controls ready.';
 });
+
+function requestThrottleAction(actionId) {
+  return props.requestAction(actionId, 'propulsion.throttle');
+}
 </script>
 
 <template>
@@ -511,6 +517,23 @@ const pageStatus = computed(() => {
         <span class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300">Experimental</span>
       </div>
     </header>
+
+    <FlyByWireThrottleControl
+      aircraft-label="FlyByWire A380X"
+      :lever-positions="[
+        values['propulsion.throttleLever1Angle'],
+        values['propulsion.throttleLever2Angle'],
+        values['propulsion.throttleLever3Angle'],
+        values['propulsion.throttleLever4Angle'],
+      ]"
+      :lever-labels="['ENG 1', 'ENG 2', 'ENG 3', 'ENG 4']"
+      :source-status="sourceStatus"
+      :control-enabled="controlSessionReady"
+      :setup-required="controlSetupRequired"
+      :action-capabilities="actionCapabilities"
+      :pending="groupPending('propulsion.throttle')"
+      :request-action="requestThrottleAction"
+    />
 
     <p class="rounded-md border border-surface-200 bg-surface-50 px-3 py-2 text-[10px] leading-relaxed text-gray-400" aria-live="polite">
       {{ pageStatus }} AP1 uses the documented direct AP1 push target and confirms fresh AP1 state. AP2 has no action and remains read-only, as do the vertical target and runway-turnoff lights.

@@ -401,7 +401,7 @@ async function main() {
       subscribeWsOpen,
     },
     { getCabinAnnouncements, setAppService },
-    { initTabsRuntime },
+    { initTabsRuntime, LAST_ACTIVE_TAB_STORAGE_KEY, resolveInitialTabId },
     { initDebugRuntime },
     { initProfilesRuntime },
     { initLiveMapRuntime },
@@ -1816,6 +1816,7 @@ async function main() {
     );
     assert.equal(sent.length, sentBeforePairing, 'read-only control attempts should not reach the websocket bridge');
     assert.equal(toasts.at(-1)?.kind, 'error', 'read-only control attempts should explain the unavailable capability');
+    assert.match(toasts.at(-1)?.message || '', /choose Phone, then scan the QR shown there/, 'read-only control attempts should point directly to the single PC pairing flow');
 
     authorizationScope = 'aircraft-control';
     controller.updateAvailability();
@@ -3817,6 +3818,7 @@ async function main() {
     const liveMapStore = useLiveMapStore();
     const tabsStore = useTabsStore();
     const statusStore = useStatusStore();
+    tabsStore.setActiveTab('livemap');
 
     const cleanupLiveMapRuntime = initLiveMapRuntime({
       liveMapStore,
@@ -6109,9 +6111,15 @@ async function main() {
 
   console.log('\n--- tabs runtime ---\n');
   await test('tabs runtime drives tab store state from startup, keyboard, and touch interactions', async () => {
+    assert.equal(resolveInitialTabId(), 'flight', 'first use should open Overview');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'timeline' }), 'timeline', 'returning users should restore their last primary tab');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'landing' }), 'flight', 'contextual tabs should not become sticky startup destinations');
+    assert.equal(resolveInitialTabId({ requestedTabId: 'systems', persistedTabId: 'timeline' }), 'system', 'valid deep links should override remembered navigation');
+    assert.equal(resolveInitialTabId({ requestedTabId: 'not-a-tab', persistedTabId: 'timeline' }), 'timeline', 'invalid deep links should fall back to a valid remembered tab');
+
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
-    const storage = createStorage();
+    const storage = createStorage({ [LAST_ACTIVE_TAB_STORAGE_KEY]: 'timeline' });
     resetGlobals(windowRef, documentRef, storage);
     setActivePinia(createPinia());
     windowRef.location.search = '?tab=systems';
@@ -6145,12 +6153,16 @@ async function main() {
       canPullToReconnect: () => websocketState === 'disconnected' || websocketState === 'error',
       windowRef,
       documentRef,
+      storage,
     });
     await nextTick();
     await nextTick();
 
     assert.equal(tabsStore.activeTabId, 'system', 'tabs runtime should normalize the systems tab alias to the System tab');
     assert.equal(tabsStore.tabSectionClass('system').active, true, 'initial section active state should come from the tabs store');
+    assert.equal(storage.getItem(LAST_ACTIVE_TAB_STORAGE_KEY), 'system', 'explicit primary deep links should become the latest selected tab');
+
+    mainEl.scrollTop = 260;
 
     const keyboardEvent = {
       type: 'keydown',
@@ -6170,6 +6182,18 @@ async function main() {
 
     assert.equal(keyboardEvent.prevented, true, 'keyboard shortcut should prevent default when it handles the key');
     assert.equal(tabsStore.activeTabId, 'livemap', 'keyboard shortcut should switch back to live map');
+    assert.equal(mainEl.scrollTop, 0, 'a newly opened tab should start at the top');
+
+    mainEl.scrollTop = 140;
+    tabsStore.requestTabChange('system');
+    await nextTick();
+    await nextTick();
+    assert.equal(mainEl.scrollTop, 260, 'returning to a tab should restore its prior scroll position');
+
+    tabsStore.requestTabChange('livemap');
+    await nextTick();
+    await nextTick();
+    assert.equal(mainEl.scrollTop, 140, 'each tab should keep an independent scroll position');
 
     const ignoredKeyEvent = {
       type: 'keydown',
@@ -6189,6 +6213,24 @@ async function main() {
 
     assert.equal(ignoredKeyEvent.prevented, false, 'keyboard shortcuts should ignore focused inputs');
     assert.equal(tabsStore.activeTabId, 'livemap', 'ignored keyboard shortcuts should not change tabs');
+
+    const interactiveTouchTarget = {
+      closest(selector) {
+        return selector.includes('button') ? this : null;
+      },
+    };
+    mainEl.dispatchEvent({
+      type: 'touchstart',
+      touches: [{ clientX: 140, clientY: 40 }],
+      target: interactiveTouchTarget,
+    });
+    mainEl.dispatchEvent({
+      type: 'touchend',
+      changedTouches: [{ clientX: 20, clientY: 42 }],
+      target: interactiveTouchTarget,
+    });
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'livemap', 'horizontal control gestures should not swipe to another tab');
 
     mainEl.scrollTop = 0;
     mainEl.dispatchEvent({

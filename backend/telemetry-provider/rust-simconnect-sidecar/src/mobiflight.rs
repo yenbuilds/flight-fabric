@@ -11,6 +11,8 @@
 use std::time::{Duration, Instant};
 
 pub(crate) const MESSAGE_SIZE: usize = 1024;
+pub(crate) const EXECUTION_PREFIX: &str = "MF.SimVars.Set.";
+pub(crate) const MAX_EXECUTION_CODE_SIZE: usize = MESSAGE_SIZE - EXECUTION_PREFIX.len() - 1;
 pub(crate) const LVAR_AREA_SIZE: u32 = 4096;
 pub(crate) const STRING_VAR_AREA_SIZE: u32 = 128 * 64;
 
@@ -25,6 +27,8 @@ pub(crate) const RUNTIME_STRING_DATA_ID: u32 = 0x4D46_1014;
 
 pub(crate) const INIT_RESPONSE_DEFINE_ID: u32 = 0x4D46_2001;
 pub(crate) const RUNTIME_RESPONSE_DEFINE_ID: u32 = 0x4D46_2002;
+pub(crate) const INIT_COMMAND_DEFINE_ID: u32 = 0x4D46_2003;
+pub(crate) const RUNTIME_COMMAND_DEFINE_ID: u32 = 0x4D46_2004;
 pub(crate) const INIT_RESPONSE_REQUEST_ID: u32 = 0x4D46_3001;
 pub(crate) const RUNTIME_RESPONSE_REQUEST_ID: u32 = 0x4D46_3002;
 
@@ -80,6 +84,13 @@ impl ClientAreaKind {
         match self {
             Self::Init => INIT_RESPONSE_DEFINE_ID,
             Self::Runtime => RUNTIME_RESPONSE_DEFINE_ID,
+        }
+    }
+
+    pub(crate) fn command_define_id(self) -> u32 {
+        match self {
+            Self::Init => INIT_COMMAND_DEFINE_ID,
+            Self::Runtime => RUNTIME_COMMAND_DEFINE_ID,
         }
     }
 
@@ -265,7 +276,7 @@ impl ClientState {
                 self.push_status(Status::connecting(true));
                 self.pending_action = Some(Action::RegisterRuntime);
             } else if self.phase == Phase::AwaitingRegistration
-                && response.contains(&self.runtime_name)
+                && response == format!("MF.Clients.Add.{}.Finished", self.runtime_name)
             {
                 self.deadline = None;
                 self.pending_action = Some(Action::ConfigureRuntime);
@@ -361,7 +372,9 @@ pub(crate) fn encode_command(command: &str) -> Result<[u8; MESSAGE_SIZE], &'stat
     {
         return Err("command_must_be_printable_ascii");
     }
-    if command.len() > MESSAGE_SIZE {
+    // The official module constructs std::string directly from this buffer, so
+    // a full 1024-byte payload would not contain the required NUL terminator.
+    if command.len() >= MESSAGE_SIZE {
         return Err("command_too_long");
     }
     let mut encoded = [0u8; MESSAGE_SIZE];
@@ -374,7 +387,10 @@ pub(crate) fn execution_command(code: &str) -> Result<String, &'static str> {
     if code.is_empty() {
         return Err("empty_code");
     }
-    let command = format!("MF.SimVars.Set.{code}");
+    if code.len() > MAX_EXECUTION_CODE_SIZE {
+        return Err("command_too_long");
+    }
+    let command = format!("{EXECUTION_PREFIX}{code}");
     encode_command(&command)?;
     Ok(command)
 }
@@ -400,14 +416,22 @@ mod tests {
             execution_command("é"),
             Err("command_must_be_printable_ascii")
         );
+        assert!(execution_command(&"X".repeat(MAX_EXECUTION_CODE_SIZE)).is_ok());
         assert_eq!(
-            encode_command(&"X".repeat(MESSAGE_SIZE + 1)),
+            execution_command(&"X".repeat(MAX_EXECUTION_CODE_SIZE + 1)),
+            Err("command_too_long")
+        );
+        assert_eq!(
+            encode_command(&"X".repeat(MESSAGE_SIZE)),
             Err("command_too_long")
         );
     }
 
     #[test]
     fn request_ids_reserve_mobiflight_responses_without_claiming_sdk_packets() {
+        assert_ne!(INIT_COMMAND_DEFINE_ID, INIT_RESPONSE_DEFINE_ID);
+        assert_ne!(RUNTIME_COMMAND_DEFINE_ID, RUNTIME_RESPONSE_DEFINE_ID);
+        assert_ne!(INIT_COMMAND_DEFINE_ID, RUNTIME_COMMAND_DEFINE_ID);
         assert!(owns_response_packet(
             INIT_RESPONSE_REQUEST_ID,
             INIT_RESPONSE_DEFINE_ID
@@ -434,7 +458,7 @@ mod tests {
         client.action_succeeded(Action::RegisterRuntime, start);
         client.handle_response(
             INIT_RESPONSE_REQUEST_ID,
-            "MF.Clients.Added.Client_FlightFabric_123",
+            "MF.Clients.Add.Client_FlightFabric_123.Finished",
             start,
         );
         assert_eq!(client.take_action(), Some(Action::ConfigureRuntime));
@@ -444,6 +468,28 @@ mod tests {
             .drain_statuses()
             .iter()
             .any(|status| status.state == "connected" && status.available));
+    }
+
+    #[test]
+    fn handshake_rejects_partial_or_malformed_registration_responses() {
+        let start = Instant::now();
+        let mut client = ClientState::new("Client_FlightFabric_123".to_string());
+        client.start(start);
+        client.take_action();
+        client.action_succeeded(Action::ProbeInit, start);
+        client.handle_response(INIT_RESPONSE_REQUEST_ID, "MF.Pong", start);
+        client.take_action();
+        client.action_succeeded(Action::RegisterRuntime, start);
+
+        for response in [
+            "MF.Clients.Added.Client_FlightFabric_123",
+            "MF.Clients.Add.Client_FlightFabric_123.Finished.extra",
+            "MF.Clients.Add.Other_Client_FlightFabric_123.Finished",
+        ] {
+            client.handle_response(INIT_RESPONSE_REQUEST_ID, response, start);
+            assert_eq!(client.take_action(), None);
+            assert!(!client.is_available());
+        }
     }
 
     #[test]

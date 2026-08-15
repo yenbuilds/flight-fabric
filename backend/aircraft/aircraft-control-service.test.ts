@@ -538,6 +538,49 @@ test('trusted integrations disclose a sanitized MobiFlight dependency and live d
   assert.equal(offStepAltitude.code, 'invalid_value');
 });
 
+test('FlyByWire calibrated throttles disclose a partial MobiFlight dependency', () => {
+  const profile = buildProfile({
+    id: 'fbw-a32nx',
+    _profileKey: 'bundled/msfs/fbw-a32nx',
+    integration: {
+      aircraftSpecific: {
+        adapter: 'fbw-a32nx',
+      },
+    },
+  });
+
+  const missing = buildAircraftControlCapabilities(profile, {
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence', 'lvar'],
+      mobiflight: { state: 'missing', connected: false },
+    },
+  });
+  assert.deepEqual(missing.aircraftSpecificDependencies, {
+    mobiflightEventModule: {
+      required: true,
+      fallbackActive: false,
+      connected: false,
+      status: 'missing',
+      scope: 'some-controls',
+    },
+  });
+  assert.equal(missing.aircraftSpecific['lights.beacon.on'], true,
+    'non-calculator A32NX controls remain available');
+  assert.equal(missing.aircraftSpecific['propulsion.throttle.climb'], false,
+    'calibrated throttle remains unavailable without MobiFlight');
+
+  const connected = buildAircraftControlCapabilities(profile, {
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence', 'lvar', 'mobiflight-calculator'],
+      mobiflight: { state: 'connected', connected: true },
+    },
+  });
+  assert.equal(connected.aircraftSpecific['propulsion.throttle.climb'], true,
+    'calibrated throttle becomes available when MobiFlight is healthy');
+});
+
 test('TriStar exposes all 13 AFCS momentary capabilities with the documented INS semantics', () => {
   const profile = buildTriStarProfile();
   const capabilities = buildAircraftControlCapabilities(profile, {

@@ -1,6 +1,27 @@
 // ES module - strict mode is implicit in modules.
 import { nextTick, watch } from 'vue';
-import { TAB_ORDER, VALID_TAB_IDS, normalizeTabId } from '../vue/tab-config.js';
+import { readStorageValue, writeStorageValue } from '../app/browser-environment.js';
+import {
+  DEFAULT_TAB_ID,
+  TAB_ORDER,
+  VALID_TAB_IDS,
+  normalizeTabId,
+} from '../vue/tab-config.js';
+
+export const LAST_ACTIVE_TAB_STORAGE_KEY = 'ff_last_active_tab_v1';
+
+export function resolveInitialTabId({
+  requestedTabId = '',
+  persistedTabId = '',
+} = {}) {
+  const normalizedRequestedTabId = normalizeTabId(requestedTabId, '');
+  if (VALID_TAB_IDS.has(normalizedRequestedTabId)) return normalizedRequestedTabId;
+
+  const normalizedPersistedTabId = normalizeTabId(persistedTabId, '');
+  if (TAB_ORDER.includes(normalizedPersistedTabId)) return normalizedPersistedTabId;
+
+  return DEFAULT_TAB_ID;
+}
 
 const MICRO_REVEAL_SELECTOR = [
   '.card-hover',
@@ -23,12 +44,26 @@ const MICRO_REVEAL_SELECTOR = [
   '.logbook-mobile-card',
 ].join(',');
 
+const TOUCH_NAVIGATION_EXCLUSION_SELECTOR = [
+  '.leaflet-container',
+  '[data-no-swipe]',
+  'a',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[role="slider"]',
+].join(',');
+
 export function initTabsRuntime({
   tabsStore = null,
   reconnect = null,
   canPullToReconnect = () => true,
   windowRef = window,
   documentRef = document,
+  storage = null,
 } = {}) {
   if (!tabsStore) {
     throw new Error('Tabs store is required before tabs runtime');
@@ -37,6 +72,7 @@ export function initTabsRuntime({
   const params = new URLSearchParams(windowRef.location.search);
   const motionDisabled = windowRef.matchMedia && windowRef.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const cleanupFns = [];
+  const tabScrollPositions = new Map();
 
   function addListener(target, type, handler, options) {
     if (!target || typeof target.addEventListener !== 'function') return;
@@ -134,6 +170,10 @@ export function initTabsRuntime({
     const mainEl = documentRef.querySelector('main');
     if (!mainEl) return;
 
+    function touchNavigationExcluded(target) {
+      return Boolean(target?.closest?.(TOUCH_NAVIGATION_EXCLUSION_SELECTOR));
+    }
+
     let touchStartX = 0;
     let touchStartY = 0;
     let swiping = false;
@@ -143,7 +183,7 @@ export function initTabsRuntime({
         swiping = false;
         return;
       }
-      if (event.target && event.target.closest && event.target.closest('.leaflet-container, [data-no-swipe]')) {
+      if (touchNavigationExcluded(event.target)) {
         swiping = false;
         return;
       }
@@ -195,7 +235,7 @@ export function initTabsRuntime({
     cleanupFns.push(cancelPullReconnect);
 
     addListener(mainEl, 'touchstart', (event) => {
-      if (event.target && event.target.closest && event.target.closest('.leaflet-container, [data-no-swipe]')) {
+      if (touchNavigationExcluded(event.target)) {
         cancelPullReconnect();
         return;
       }
@@ -258,18 +298,29 @@ export function initTabsRuntime({
     }, { passive: true });
   }
 
-  const requestedTabId = params.get('tab');
-  const normalizedRequestedTabId = normalizeTabId(requestedTabId || '');
-  const initialTabId = VALID_TAB_IDS.has(normalizedRequestedTabId)
-    ? normalizedRequestedTabId
-    : 'livemap';
+  const initialTabId = resolveInitialTabId({
+    requestedTabId: params.get('tab') || '',
+    persistedTabId: readStorageValue(LAST_ACTIVE_TAB_STORAGE_KEY, { storage, fallback: '' }),
+  });
 
   resolvedTabsStore.setActiveTab(initialTabId);
 
   const stopActiveTabWatch = watch(
     () => resolvedTabsStore.activeTabId,
-    (tabId) => {
+    (tabId, previousTabId) => {
+      const mainEl = documentRef.querySelector('main');
+      if (mainEl && previousTabId) {
+        tabScrollPositions.set(previousTabId, mainEl.scrollTop || 0);
+      }
+      if (TAB_ORDER.includes(tabId)) {
+        writeStorageValue(LAST_ACTIVE_TAB_STORAGE_KEY, tabId, { storage });
+      }
       applyActiveTabState(tabId, resolvedTabsStore.takeLastTransitionDirection());
+      nextTick(() => {
+        if (mainEl) {
+          mainEl.scrollTop = tabScrollPositions.get(tabId) || 0;
+        }
+      });
     },
     { immediate: true },
   );

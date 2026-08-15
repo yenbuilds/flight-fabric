@@ -1,5 +1,11 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const {
+  MOBIFLIGHT_EXECUTION_PREFIX,
+  MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH,
+  MOBIFLIGHT_MESSAGE_SIZE,
+  isSafeMobiFlightCalculatorCode,
+} = require('../../utils/mobiflight-protocol.js') as typeof import('../../utils/mobiflight-protocol.js');
 
 const {
   FBW_A32NX_ADAPTER_ID,
@@ -47,6 +53,33 @@ const {
   createAircraftIntegrationRegistry,
   defaultAircraftIntegrationRegistry,
 } = require('./index');
+
+test('every bundled MobiFlight calculator route fits the official NUL-terminated command area', () => {
+  const codeKeys = ['code', 'pressCode', 'releaseCode', 'decreaseCode', 'increaseCode'] as const;
+  const audited: Array<{ adapterId: string; actionId: string; key: string; length: number }> = [];
+
+  for (const integration of defaultAircraftIntegrationRegistry.list()) {
+    for (const [actionId, action] of Object.entries(integration.actions) as Array<[string, any]>) {
+      for (const route of action.routes) {
+        if (route.transport !== 'mobiflight-calculator') continue;
+        for (const key of codeKeys) {
+          if (route[key] === undefined) continue;
+          const code = route[key];
+          assert.equal(isSafeMobiFlightCalculatorCode(code), true, `${integration.id}/${actionId}/${key}`);
+          assert.ok(
+            Buffer.byteLength(`${MOBIFLIGHT_EXECUTION_PREFIX}${code}`, 'ascii') < MOBIFLIGHT_MESSAGE_SIZE,
+            `${integration.id}/${actionId}/${key} must leave a NUL byte`,
+          );
+          audited.push({ adapterId: integration.id, actionId, key, length: code.length });
+        }
+      }
+    }
+  }
+
+  assert.ok(audited.length > 0);
+  assert.ok(audited.some(({ adapterId }) => adapterId === FBW_A380X_ADAPTER_ID));
+  assert.ok(Math.max(...audited.map(({ length }) => length)) <= MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH);
+});
 
 test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile standard-control adapter', () => {
   const a320Integration = defaultAircraftIntegrationRegistry.resolveIntegration(
@@ -690,8 +723,8 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
   assert.equal(integration.id, FBW_A380X_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'fbw-a380x');
   assert.deepEqual(integration.trustedProfileKeys, [FBW_A380X_PROFILE_KEY]);
-  assert.equal(Object.keys(integration.fields).length, 42);
-  assert.equal(Object.keys(integration.actions).length, 34);
+  assert.equal(Object.keys(integration.fields).length, 46);
+  assert.equal(Object.keys(integration.actions).length, 38);
   assert.deepEqual(integration.fields['flightGuidance.altitudeFt'].sources[0], {
     route: { type: 'lvar', name: 'A:AUTOPILOT ALTITUDE LOCK VAR:3', unit: 'Feet' },
     decode: { type: 'number', precision: 0 },
@@ -705,6 +738,10 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
     'flightGuidance.speed.set',
     'flightGuidance.heading.set',
     'flightGuidance.altitude.set',
+    'propulsion.throttle.idle',
+    'propulsion.throttle.climb',
+    'propulsion.throttle.flexMct',
+    'propulsion.throttle.toga',
     ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi'].flatMap((name) => [
       `lights.${name}.off`,
       `lights.${name}.on`,
@@ -725,9 +762,28 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
     assert.equal(action.guard.retry, 'never');
     assert.match(action.guard.groupId, /^fbwA380x\./);
     assert.equal(action.routes.length, 1);
-    assert.equal(action.routes[0].transport, 'simconnect-sequence');
-    assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
+    if (action.id.startsWith('propulsion.throttle.')) {
+      assert.equal(action.routes[0].transport, 'mobiflight-calculator');
+      assert.equal(action.routes[0].readbacks.length, 4, `${action.id} must confirm every A380X lever`);
+    } else {
+      assert.equal(action.routes[0].transport, 'simconnect-sequence');
+      assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
+    }
   }
+
+  assert.deepEqual(integration.fields['propulsion.throttleLever4Angle'].sources[0], {
+    route: { type: 'lvar', name: 'L:A32NX_AUTOTHRUST_TLA:4', unit: 'Number' },
+    decode: { type: 'number', precision: 2 },
+  });
+  const a380Toga = integration.actions['propulsion.throttle.toga'];
+  assert.equal(a380Toga.guard.groupId, 'fbwA380x.propulsion.throttle');
+  assert.match(a380Toga.routes[0].code, /A32NX_THROTTLE_MAPPING_TOGA_LOW:1/);
+  assert.match(a380Toga.routes[0].code, /THROTTLE4_AXIS_SET_EX1/);
+  assert.deepEqual(a380Toga.routes[0].readbacks, [1, 2, 3, 4].map((index) => ({
+    fieldId: `propulsion.throttleLever${index}Angle`,
+    expectedValue: 45,
+    timeoutMs: 3000,
+  })));
 
   assert.deepEqual(integration.actions['flightGuidance.altitude.set'], {
     id: 'flightGuidance.altitude.set',
@@ -783,6 +839,8 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
     'lights.runwayTurnoff.on',
     'systems.apuMaster.on',
     'systems.engine1Master.on',
+    'propulsion.throttle.reverse',
+    'propulsion.throttle.set',
   ]) {
     assert.equal(integration.actions[excludedAction], undefined);
   }
@@ -942,8 +1000,12 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   assert.equal(integration, defaultAircraftIntegrationRegistry.resolveForProfile(FBW_A32NX_PROFILE_KEY));
   assert.equal(integration.id, FBW_A32NX_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'fbw-a32nx');
-  assert.equal(Object.keys(integration.fields).length, 124);
-  assert.equal(Object.keys(integration.actions).length, 241);
+  assert.equal(Object.keys(integration.fields).length, 126);
+  assert.equal(Object.keys(integration.actions).length, 245);
+  assert.deepEqual(integration.fields['propulsion.throttleLever1Angle'].sources[0], {
+    route: { type: 'lvar', name: 'L:A32NX_AUTOTHRUST_TLA:1', unit: 'Number' },
+    decode: { type: 'number', precision: 2 },
+  });
   assert.deepEqual(integration.fields['lights.strobeMode'].sources[0], {
     route: { type: 'lvar', name: 'L:LIGHTING_STROBE_0', unit: 'Number' },
     decode: { type: 'enum', values: { 0: 'on', 1: 'auto', 2: 'off' } },
@@ -1060,12 +1122,27 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   assert.equal(spoilersFull.routes[0].readback.fieldId, 'controls.spoilersHandle');
   assert.equal(spoilersFull.routes[0].readback.expectedValue, 1);
 
+  const a32nxFlex = integration.actions['propulsion.throttle.flexMct'];
+  assert.equal(a32nxFlex.guard.groupId, 'fbwA32nx.propulsion.throttle');
+  assert.equal(a32nxFlex.routes[0].transport, 'mobiflight-calculator');
+  assert.match(a32nxFlex.routes[0].code, /A32NX_THROTTLE_MAPPING_FLEXMCT_LOW:1/);
+  assert.match(a32nxFlex.routes[0].code, /A32NX_THROTTLE_MAPPING_FLEXMCT_HIGH:2/);
+  assert.match(a32nxFlex.routes[0].code, /THROTTLE1_AXIS_SET_EX1/);
+  assert.match(a32nxFlex.routes[0].code, /THROTTLE2_AXIS_SET_EX1/);
+  assert.deepEqual(a32nxFlex.routes[0].readbacks, [1, 2].map((index) => ({
+    fieldId: `propulsion.throttleLever${index}Angle`,
+    expectedValue: 35,
+    timeoutMs: 3000,
+  })));
+
   for (const excludedAction of [
     'systems.idg1.disconnect',
     'fire.apu.discharge',
     'oxygen.masks.deploy',
     'presets.aircraft.load',
     'pushback.move',
+    'propulsion.throttle.reverse',
+    'propulsion.throttle.set',
   ]) {
     assert.equal(integration.actions[excludedAction], undefined, `${excludedAction} must remain outside the trusted write surface`);
   }
@@ -1591,7 +1668,18 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   assert.throws(
     () => createAircraftIntegrationRegistry([multiReadbackCalculator]),
     /invalid action route/,
-    'multi-readback contracts are available only to coordinated SimConnect sequences',
+    'coordinated readbacks must use distinct logical fields',
+  );
+
+  const overlongCalculator = structuredClone(validBase);
+  overlongCalculator.id = 'overlong-calculator';
+  overlongCalculator.trustedProfileKeys = ['bundled/msfs/overlong-calculator'];
+  overlongCalculator.actions['test.set'].routes[0].code = 'X'.repeat(
+    MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH + 1,
+  );
+  assert.throws(
+    () => createAircraftIntegrationRegistry([overlongCalculator]),
+    /invalid calculator route/,
   );
 
   const validPulse = structuredClone(validBase);

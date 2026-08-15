@@ -4,6 +4,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('path');
 const { EventEmitter } = require('node:events');
+const {
+  MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH,
+} = require('../utils/mobiflight-protocol.js') as typeof import('../utils/mobiflight-protocol.js');
 
 const bridgePath = path.join(__dirname, 'lvar-sidecar-bridge.js');
 const configPath = path.join(__dirname, '..', 'core', 'config.js');
@@ -959,8 +962,8 @@ test('LvarSidecarBridge recovers when disconnected subscription changes coalesce
   });
 });
 
-test('LvarSidecarBridge rejects malformed MobiFlight code before sidecar stdin', async () => {
-  let commandPromise: Promise<{ ok?: boolean; error?: string | null }> | null = null;
+test('LvarSidecarBridge enforces the MobiFlight wire envelope before sidecar stdin', async () => {
+  let commandPromises: Array<Promise<{ ok?: boolean; error?: string | null }>> = [];
   let sidecarCalls = 0;
   withPatchedBridge({}, (LvarSidecarBridge) => {
     const bridge = new LvarSidecarBridge();
@@ -968,12 +971,20 @@ test('LvarSidecarBridge rejects malformed MobiFlight code before sidecar stdin',
       sidecarCalls += 1;
       return { ok: true };
     };
-    commandPromise = bridge.executeMobiFlightCode(`1 (>K:ROTOR_BRAKE)\u0000`);
+    commandPromises = [
+      bridge.executeMobiFlightCode('X'.repeat(MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH)),
+      bridge.executeMobiFlightCode('X'.repeat(MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH + 1)),
+      bridge.executeMobiFlightCode('1\n2'),
+      bridge.executeMobiFlightCode(`1 (>K:ROTOR_BRAKE)\u0000`),
+    ];
   });
-  const ack = await commandPromise;
-  assert.equal(ack?.ok, false);
-  assert.equal(ack?.error, 'invalid_payload');
-  assert.equal(sidecarCalls, 0);
+  const acks = await Promise.all(commandPromises);
+  assert.equal(acks[0]?.ok, true);
+  for (const ack of acks.slice(1)) {
+    assert.equal(ack?.ok, false);
+    assert.equal(ack?.error, 'invalid_payload');
+  }
+  assert.equal(sidecarCalls, 1);
 });
 
 export {};

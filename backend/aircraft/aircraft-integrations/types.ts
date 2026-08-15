@@ -89,7 +89,6 @@ export type AircraftIntegrationSdkInputValue = AircraftIntegrationInputValue;
 
 type MobiFlightCalculatorActionRouteBase = Readonly<{
   id: string;
-  readback: AircraftIntegrationReadback;
   transport: 'mobiflight-calculator';
 }>;
 
@@ -103,12 +102,24 @@ export type MobiFlightCalculatorActionRoute =
     /** One fixed, adapter-owned calculator expression. */
     code: string;
     mode?: 'single';
-  }>)
+  }> & Readonly<
+    | {
+      readback: AircraftIntegrationReadback;
+      readbacks?: never;
+    }
+    | {
+      /** Every readback must confirm after the calculator expression. */
+      readback?: never;
+      readbacks: readonly AircraftIntegrationReadback[];
+    }
+  >)
   | (MobiFlightCalculatorActionRouteBase & Readonly<{
     /** Physical-button press/release expressions executed once, in order. */
     delayMs: number;
     mode: 'pulse';
     pressCode: string;
+    readback: AircraftIntegrationReadback;
+    readbacks?: never;
     releaseCode: string;
   }>)
   | (MobiFlightCalculatorActionRouteBase & Readonly<{
@@ -119,6 +130,8 @@ export type MobiFlightCalculatorActionRoute =
     maxSteps: number;
     mode: 'step-to-target';
     precondition?: AircraftIntegrationActionPrecondition;
+    readback: AircraftIntegrationReadback;
+    readbacks?: never;
   }>);
 
 export type InputEventActionRoute = Readonly<{

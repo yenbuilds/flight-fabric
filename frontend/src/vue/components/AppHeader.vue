@@ -1,12 +1,17 @@
 <script setup>
+import { nextTick } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AppStatusStrip from './AppStatusStrip.vue';
 import AircraftProfileSelector from './AircraftProfileSelector.vue';
 import DestinationProgressBar from './DestinationProgressBar.vue';
 import FlightStatusBadges from './FlightStatusBadges.vue';
 import { useStatusStore } from '../stores/status.js';
+import { useSystemHostStore } from '../stores/system-host.js';
+import { useTabsStore } from '../stores/tabs.js';
 
 const status = useStatusStore();
+const systemHost = useSystemHostStore();
+const tabs = useTabsStore();
 const samplingDetailRowClass = 'flex justify-between gap-3';
 const samplingDetailLabelClass = 'text-muted-fg';
 const samplingDetailValueClass = 'text-right font-mono text-gray-200';
@@ -25,6 +30,22 @@ function handleStartRecordingManual() {
 
 function handleEndFlightManual() {
   status.requestEndFlightManual();
+}
+
+async function openMobileAccess() {
+  if (!tabs.requestTabChange('system')) return;
+  await nextTick();
+  const scrollToSetup = () => {
+    document.getElementById('system-mobile-access')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  };
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(scrollToSetup);
+  } else {
+    scrollToSetup();
+  }
 }
 </script>
 
@@ -49,6 +70,27 @@ function handleEndFlightManual() {
         </div>
 
         <div class="hidden sm:flex items-center gap-3">
+          <div
+            v-if="systemHost.isElectron || systemHost.shareAircraftControlPaired"
+            class="hidden lg:block"
+          >
+            <button
+              id="header-mobile-access-btn"
+              type="button"
+              class="ff-button-secondary px-3 py-1 text-xs"
+              title="Open phone and tablet second-screen setup"
+              aria-label="Open phone and tablet second-screen setup"
+              @click="openMobileAccess"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="5" y="2" width="14" height="20" rx="2" />
+                <path d="M9 6h6" />
+                <path d="M11.5 18h1" />
+              </svg>
+              <span>Phone</span>
+            </button>
+          </div>
+
           <div id="vue-flight-status-root" class="contents">
             <FlightStatusBadges mode="header" />
           </div>

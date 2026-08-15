@@ -5,6 +5,7 @@ const fs = require('fs') as typeof import('fs');
 const os = require('os') as typeof import('os');
 const { spawn, spawnSync } = require('child_process') as typeof import('child_process');
 const config = require('../core/config') as ConfigModule;
+const { isSafeMobiFlightCalculatorCode } = require('../utils/mobiflight-protocol.js') as typeof import('../utils/mobiflight-protocol.js');
 const {
   selectNewestManagedRustSidecar,
 } = require('../../shared/rust-sidecar-artifact.js') as {
@@ -254,7 +255,6 @@ const MAX_SIDECAR_NAME_LENGTH = 160;
 const MAX_SIDECAR_UNIT_LENGTH = 48;
 const MAX_SIDECAR_NUMERIC_ABS = 1_000_000;
 const MAX_SIDECAR_EVENT_DATA_ABS = 1_000_000;
-const MAX_MOBIFLIGHT_CODE_LENGTH = 2048;
 const MAX_CAMERA_OFFSET_METERS = 2;
 const MAX_CAMERA_ANGLE_DEGREES = 15;
 const MIN_OWNER_LIFELINE_VERSION = 1;
@@ -287,14 +287,6 @@ function normalizeSubscriptionGeneration(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
     ? value
     : null;
-}
-
-function isSafeMobiFlightCode(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length > 0
-    && value.length <= MAX_MOBIFLIGHT_CODE_LENGTH
-    && /^[\x09\x0A\x0D\x20-\x7E]+$/.test(value)
-    && !value.includes('\0');
 }
 
 function isSafeCameraNumber(value: unknown, maxAbs: number): boolean {
@@ -1130,7 +1122,7 @@ class LvarSidecarBridge {
   }
 
   executeMobiFlightCode(code: string): Promise<PendingAckMessage> {
-    if (!isSafeMobiFlightCode(code)) {
+    if (!isSafeMobiFlightCalculatorCode(code)) {
       return Promise.resolve(buildRejectedAck('executeMobiFlightCodeAck', 'invalid_payload'));
     }
     return this._sendWithAck({
