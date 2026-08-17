@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { useAppSettingsStore } from './app-settings.js';
 
 const AUTHORIZATION_SCOPES = new Set(['read-only', 'aircraft-control', 'full-control']);
+const AIRCRAFT_CONTROL_PAIRING_STATUSES = new Set(['not-requested', 'accepted', 'expired', 'disabled']);
 
 function normalizeProfileOverride(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -13,9 +14,14 @@ function normalizeAuthorizationScope(value) {
   return AUTHORIZATION_SCOPES.has(value) ? value : 'read-only';
 }
 
+function normalizeAircraftControlPairingStatus(value) {
+  return AIRCRAFT_CONTROL_PAIRING_STATUSES.has(value) ? value : 'not-requested';
+}
+
 export const useProfilesStore = defineStore('profiles', () => {
   const appSettings = useAppSettingsStore();
   const authorizationScope = ref('read-only');
+  const aircraftControlPairingStatus = ref('not-requested');
   const installedProfiles = ref([]);
   const messageActionBound = ref(false);
   const toastActionBound = ref(false);
@@ -50,12 +56,22 @@ export const useProfilesStore = defineStore('profiles', () => {
     }
   }
 
-  function setAuthorizationScope(scope) {
+  function setAuthorizationScope(scope, pairingStatus) {
     authorizationScope.value = normalizeAuthorizationScope(scope);
+    if (pairingStatus !== undefined) {
+      aircraftControlPairingStatus.value = normalizeAircraftControlPairingStatus(pairingStatus);
+    } else if (authorizationScope.value === 'aircraft-control') {
+      aircraftControlPairingStatus.value = 'accepted';
+    }
     if (!profileSelectionAvailable.value) {
       installedProfiles.value = [];
     }
     return authorizationScope.value;
+  }
+
+  function resetAuthorizationScope() {
+    aircraftControlPairingStatus.value = 'not-requested';
+    return setAuthorizationScope('read-only');
   }
 
   function requestProfiles() {
@@ -138,6 +154,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     aircraftProfileOverride,
     aircraftProfileOverrideActive,
     aircraftProfileOverrideLabel,
+    aircraftControlPairingStatus,
     authorizationScope,
     bindRuntime,
     builtInProfiles,
@@ -149,6 +166,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     profileSelectionAvailable,
     requestAll,
     requestProfiles,
+    resetAuthorizationScope,
     saveAircraftProfileOverride,
     setAuthorizationScope,
     toastActionBound,

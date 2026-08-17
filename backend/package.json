@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-backend",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "main": "../scripts/start-backend-runtime.js",
   "license": "AGPL-3.0-only",
   "scripts": {

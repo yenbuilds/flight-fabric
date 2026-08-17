@@ -750,6 +750,7 @@ async function main() {
   const browserBootstrap = {
     wsAuthToken: 'browser-smoke-full-control',
     aircraftControlToken: 'browser-smoke-aircraft-control',
+    remoteAccessEnabled: true,
     networkInfo: {
       ips: ['192.168.50.49'],
       httpPort: null,

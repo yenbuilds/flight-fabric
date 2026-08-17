@@ -527,10 +527,12 @@ export function buildBootstrapPayload(
   wsAuthToken: string,
   aircraftControlToken: string,
   networkInfo: { ips: string[]; httpPort: number | null; wsPort: number | null } = { ips: [], httpPort: null, wsPort: null },
+  remoteAccessEnabled = false,
 ): {
   ok: true;
   wsAuthToken: string;
   aircraftControlToken: string;
+  remoteAccessEnabled: boolean;
   networkInfo: { ips: string[]; httpPort: number | null; wsPort: number | null };
 } {
   // The peer address alone is insufficient: under DNS rebinding or a second
@@ -542,6 +544,7 @@ export function buildBootstrapPayload(
     ok: true,
     wsAuthToken: isLoopbackClient ? wsAuthToken : '',
     aircraftControlToken: isLoopbackClient ? aircraftControlToken : '',
+    remoteAccessEnabled: remoteAccessEnabled === true,
     networkInfo: isLoopbackClient
       ? {
         ips: Array.isArray(networkInfo.ips) ? networkInfo.ips : [],
@@ -731,6 +734,7 @@ export function startHttpServer({
           httpPort: resolvedHttpPort,
           wsPort,
         },
+        remoteAccessEnable,
       )));
       return;
     }

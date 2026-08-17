@@ -72,7 +72,7 @@ async function openMobileAccess() {
         <div class="hidden sm:flex items-center gap-3">
           <div
             v-if="systemHost.isElectron || systemHost.shareAircraftControlPaired"
-            class="hidden lg:block"
+            class="header-mobile-access"
           >
             <button
               id="header-mobile-access-btn"

@@ -2628,14 +2628,16 @@ async function main() {
     assert.equal(profilesStore.profileSelectionAvailable, false);
 
     emitWsOpen();
-    emitWsMessage({ type: 'authorizationScope', scope: 'read-only' });
-    emitWsMessage({ type: 'authorizationScope', scope: 'aircraft-control' });
+    emitWsMessage({ type: 'authorizationScope', scope: 'read-only', aircraftControlPairingStatus: 'expired' });
+    assert.equal(profilesStore.aircraftControlPairingStatus, 'expired', 'profiles runtime should retain the server pairing rejection reason for mobile guidance');
+    emitWsMessage({ type: 'authorizationScope', scope: 'aircraft-control', aircraftControlPairingStatus: 'accepted' });
     assert.deepEqual(
       sent,
       [],
       'read-only and aircraft-control sockets should never request privileged profile data',
     );
     assert.equal(profilesStore.authorizationScope, 'aircraft-control');
+    assert.equal(profilesStore.aircraftControlPairingStatus, 'accepted');
     assert.equal(profilesStore.profileSelectionAvailable, false);
 
     emitWsMessage({ type: 'authorizationScope', scope: 'full-control' });
@@ -2652,6 +2654,7 @@ async function main() {
 
     emitWsClose();
     assert.equal(profilesStore.authorizationScope, 'read-only');
+    assert.equal(profilesStore.aircraftControlPairingStatus, 'not-requested', 'disconnect should clear stale pairing diagnostics');
     assert.equal(profilesStore.profileSelectionAvailable, false);
     assert.deepEqual(profilesStore.installedProfiles, [], 'disconnect should clear privileged profile-list state immediately');
 
@@ -6110,10 +6113,48 @@ async function main() {
   });
 
   console.log('\n--- tabs runtime ---\n');
+  await test('tabs runtime restores a contextual tab after a full page refresh', async () => {
+    const storage = createStorage();
+    const initialDocumentRef = new FakeDocument();
+    const initialWindowRef = new FakeWindow(initialDocumentRef);
+    resetGlobals(initialWindowRef, initialDocumentRef, storage);
+    setActivePinia(createPinia());
+
+    const initialTabsStore = useTabsStore();
+    const cleanupInitialTabsRuntime = initTabsRuntime({
+      tabsStore: initialTabsStore,
+      windowRef: initialWindowRef,
+      documentRef: initialDocumentRef,
+      storage,
+    });
+    initialTabsStore.requestTabChange('landing');
+    await nextTick();
+    assert.equal(storage.getItem(LAST_ACTIVE_TAB_STORAGE_KEY), 'landing', 'opening a contextual tab should persist it before reload');
+    cleanupInitialTabsRuntime();
+
+    const refreshedDocumentRef = new FakeDocument();
+    const refreshedWindowRef = new FakeWindow(refreshedDocumentRef);
+    resetGlobals(refreshedWindowRef, refreshedDocumentRef, storage);
+    setActivePinia(createPinia());
+
+    const refreshedTabsStore = useTabsStore();
+    const cleanupRefreshedTabsRuntime = initTabsRuntime({
+      tabsStore: refreshedTabsStore,
+      windowRef: refreshedWindowRef,
+      documentRef: refreshedDocumentRef,
+      storage,
+    });
+    await nextTick();
+    assert.equal(refreshedTabsStore.activeTabId, 'landing', 'a refreshed app should reopen the contextual tab that was active');
+    cleanupRefreshedTabsRuntime();
+  });
+
   await test('tabs runtime drives tab store state from startup, keyboard, and touch interactions', async () => {
     assert.equal(resolveInitialTabId(), 'flight', 'first use should open Overview');
     assert.equal(resolveInitialTabId({ persistedTabId: 'timeline' }), 'timeline', 'returning users should restore their last primary tab');
-    assert.equal(resolveInitialTabId({ persistedTabId: 'landing' }), 'flight', 'contextual tabs should not become sticky startup destinations');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'landing' }), 'landing', 'returning users should restore the landing debrief after a refresh');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'lvars' }), 'lvars', 'returning users should restore the LVAR inspector after a refresh');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'not-a-tab' }), 'flight', 'invalid remembered tabs should fall back to Overview');
     assert.equal(resolveInitialTabId({ requestedTabId: 'systems', persistedTabId: 'timeline' }), 'system', 'valid deep links should override remembered navigation');
     assert.equal(resolveInitialTabId({ requestedTabId: 'not-a-tab', persistedTabId: 'timeline' }), 'timeline', 'invalid deep links should fall back to a valid remembered tab');
 

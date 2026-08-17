@@ -21,11 +21,15 @@ export function initProfilesRuntime({
 
   function resetProfileAuthorization() {
     profilesRequestedForConnection = false;
-    profilesStore.setAuthorizationScope('read-only');
+    if (typeof profilesStore.resetAuthorizationScope === 'function') {
+      profilesStore.resetAuthorizationScope();
+    } else {
+      profilesStore.setAuthorizationScope('read-only');
+    }
   }
 
-  function applyProfileAuthorization(scope) {
-    const acknowledgedScope = profilesStore.setAuthorizationScope(scope);
+  function applyProfileAuthorization(scope, pairingStatus) {
+    const acknowledgedScope = profilesStore.setAuthorizationScope(scope, pairingStatus);
     if (acknowledgedScope !== 'full-control') {
       profilesRequestedForConnection = false;
       return acknowledgedScope;
@@ -54,7 +58,7 @@ export function initProfilesRuntime({
   if (typeof subscribeWsMessageSignal === 'function') {
     cleanupFns.push(subscribeWsMessageSignal((message) => {
       if (message?.type === 'authorizationScope') {
-        applyProfileAuthorization(message.scope);
+        applyProfileAuthorization(message.scope, message.aircraftControlPairingStatus);
         return;
       }
       // Reconcile before processing other server messages so a delayed mount

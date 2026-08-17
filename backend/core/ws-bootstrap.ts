@@ -20,13 +20,16 @@ type WsSocketLike = {
   send?: (payload: string, ...args: any[]) => void;
   __ffPrivilegedClient?: boolean;
   __ffAircraftControlClient?: boolean;
+  __ffAircraftControlPairingStatus?: AircraftControlPairingStatus;
 };
+type AircraftControlPairingStatus = 'not-requested' | 'accepted' | 'expired' | 'disabled';
 type ClientConnectedHandler = (ws: WsSocketLike) => void;
 type ClientMessageHandler = (ws: WsSocketLike, msg: Record<string, unknown>) => Promise<void> | void;
 type RequestLike = import('http').IncomingMessage & {
   __ffWsMeta?: {
     isPrivilegedClient: boolean;
     isAircraftControlClient: boolean;
+    aircraftControlPairingStatus: AircraftControlPairingStatus;
     origin: string | null;
     remoteAddress: string | null;
   };
@@ -170,6 +173,11 @@ export function createWsServer({
         && isPrivateOrLoopbackRemoteAddress(remoteAddress)
         && Boolean(aircraftControlToken)
         && requestedAircraftControlToken === aircraftControlToken;
+      const aircraftControlPairingStatus: AircraftControlPairingStatus = !requestedAircraftControlToken
+        ? 'not-requested'
+        : (hasAircraftControlScope
+          ? 'accepted'
+          : (remoteAccessEnable && remoteAircraftControlEnable ? 'expired' : 'disabled'));
 
       if (!trustedOrigin && !hasValidToken) {
         Debug.log('ws', 'Rejected websocket handshake', {
@@ -185,6 +193,7 @@ export function createWsServer({
         info.req.__ffWsMeta = {
           isPrivilegedClient: hasValidToken,
           isAircraftControlClient: hasAircraftControlScope,
+          aircraftControlPairingStatus,
           origin: origin || null,
           remoteAddress,
         };
@@ -217,6 +226,7 @@ export function createWsServer({
   wss.on('connection', (ws: WsSocketLike, req: RequestLike) => {
     ws.__ffPrivilegedClient = req?.__ffWsMeta?.isPrivilegedClient === true;
     ws.__ffAircraftControlClient = req?.__ffWsMeta?.isAircraftControlClient === true;
+    ws.__ffAircraftControlPairingStatus = req?.__ffWsMeta?.aircraftControlPairingStatus || 'not-requested';
 
     // Install the outbound boundary before connection-time state is sent.
     // This covers direct replies, reconnect snapshots, cached replay, and the
@@ -236,6 +246,7 @@ export function createWsServer({
       scope: ws.__ffPrivilegedClient === true
         ? 'full-control'
         : (ws.__ffAircraftControlClient === true ? 'aircraft-control' : 'read-only'),
+      aircraftControlPairingStatus: ws.__ffAircraftControlPairingStatus,
     }));
 
     try {

@@ -144,6 +144,9 @@ export const useSystemHostStore = defineStore('systemHost', () => {
   const backendHttpPort = ref(null);
   const startupHealth = ref(null);
   const networkInfo = ref({ ips: [], httpPort: null, wsPort: null });
+  // null means the active backend binding is not known yet. The phone URL
+  // stays fail-closed until bootstrap confirms trusted-LAN access is active.
+  const remoteAccessEnabled = ref(null);
   // This token is issued only to a local browser/Electron host for building a
   // shareable phone URL. Never populate it from the current page query: a
   // paired phone may report its state, but its displayed share link stays
@@ -181,6 +184,7 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     return rankPhoneHosts(ips, getBrowserLanHostFallback());
   });
   const remoteViewerUrl = computed(() => {
+    if (remoteAccessEnabled.value !== true) return '';
     const host = phoneHosts.value[0];
     if (!host) return '';
     const port = normalizePort(networkInfo.value?.httpPort)
@@ -241,6 +245,9 @@ export const useSystemHostStore = defineStore('systemHost', () => {
       const bootstrap = await fetchBrowserBootstrap();
       backendStatus.value = bootstrap ? 'running' : 'unavailable';
       frontendStatus.value = 'browser';
+      remoteAccessEnabled.value = typeof bootstrap?.remoteAccessEnabled === 'boolean'
+        ? bootstrap.remoteAccessEnabled
+        : (bootstrap && getBrowserLanHostFallback() ? true : null);
       shareAircraftControlToken.value = typeof bootstrap?.aircraftControlToken === 'string'
         ? bootstrap.aircraftControlToken
         : '';
@@ -280,13 +287,17 @@ export const useSystemHostStore = defineStore('systemHost', () => {
         wsPort: normalizePort(network.value.wsPort),
       };
     }
-    if (settings.status === 'fulfilled' && settings.value?.settingsFile) {
-      settingsFile.value = settings.value.settingsFile;
+    if (settings.status === 'fulfilled') {
+      if (settings.value?.settingsFile) settingsFile.value = settings.value.settingsFile;
+      remoteAccessEnabled.value = settings.value?.settings?.remoteAccess === true;
     }
     if (bootstrap.status === 'fulfilled') {
       const payload = bootstrap.value?.body && typeof bootstrap.value.body === 'object'
         ? bootstrap.value.body
         : bootstrap.value;
+      if (typeof payload?.remoteAccessEnabled === 'boolean') {
+        remoteAccessEnabled.value = payload.remoteAccessEnabled;
+      }
       shareAircraftControlToken.value = typeof payload?.aircraftControlToken === 'string'
         ? payload.aircraftControlToken
         : '';
@@ -412,6 +423,7 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     networkInfo,
     phoneHosts,
     refresh,
+    remoteAccessEnabled,
     remoteBrowserUrl,
     remoteControlPairingUrl,
     remoteViewerUrl,

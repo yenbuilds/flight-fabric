@@ -438,11 +438,20 @@ async function assertHeaderLayout(windowRef) {
         document.documentElement.scrollWidth || 0,
         document.body?.scrollWidth || 0,
       );
+      const phoneSetupButton = document.getElementById('header-mobile-access-btn');
+      const phoneSetupRect = phoneSetupButton?.getBoundingClientRect();
       return {
         viewportWidth: window.innerWidth,
         pageWidth,
         rows,
         hasPaIndicator: Boolean(document.getElementById('pa-indicator')),
+        phoneSetup: {
+          visible: Boolean(phoneSetupButton && phoneSetupButton.getClientRects().length > 0),
+          left: phoneSetupRect?.left || 0,
+          right: phoneSetupRect?.right || 0,
+          top: phoneSetupRect?.top || 0,
+          bottom: phoneSetupRect?.bottom || 0,
+        },
       };
     })();`,
   );
@@ -456,6 +465,15 @@ async function assertHeaderLayout(windowRef) {
   assert.ok(
     result.pageWidth <= result.viewportWidth + 32,
     'Header layout should not create page-level horizontal overflow',
+  );
+  assert.equal(result.phoneSetup.visible, true, 'desktop header should keep the Phone setup action visible');
+  assert.ok(
+    result.phoneSetup.left >= 0 && result.phoneSetup.right <= result.viewportWidth,
+    'desktop Phone setup action should fit horizontally in the viewport',
+  );
+  assert.ok(
+    result.phoneSetup.top >= 0 && result.phoneSetup.bottom > result.phoneSetup.top,
+    'desktop Phone setup action should remain in the visible header',
   );
   assert.deepEqual(
     result.rows.filter((row) => row.visible && (row.width < 80 || row.right > result.viewportWidth + 24 || row.left < -24)),

@@ -255,6 +255,17 @@ select:disabled {
   line-height: 1.1;
 }
 
+.header-mobile-access {
+  display: block;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .header-mobile-access {
+    display: none;
+  }
+}
+
 .app-brand-subtitle {
   color: rgb(var(--muted-foreground));
   font-family: var(--ff-font-mono);

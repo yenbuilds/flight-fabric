@@ -1,46 +1,29 @@
-# Flight Fabric 0.4.3
+# Flight Fabric 0.4.4
 
-Flight Fabric 0.4.3 adds calibrated FlyByWire virtual throttles and makes the
-phone or tablet second-screen path clearer and easier to reuse between flights.
-
-## Added
-
-- FlyByWire A32NX pages now provide large one-tap IDLE, CLB, FLX/MCT, and TOGA
-  controls for both virtual throttle levers.
-- The FlyByWire A380X page provides the same four forward detents across all
-  four levers while preserving one coordinated, fail-closed command.
-- Each lever targets the midpoint of its saved FlyPad calibration window and
-  requires its own fresh TLA confirmation before Flight Fabric reports success.
-- Phone layouts now include a focused second-screen guide covering connection,
-  pairing, controls, and recovery.
+Flight Fabric 0.4.4 improves mobile session continuity and makes phone pairing
+states clearer and safer to recover.
 
 ## Changed
 
-- The desktop System page now presents one clear phone link and QR code. When
-  available on the simulator PC, it includes the current backend-session
-  aircraft-control pairing instead of asking users to choose between viewer and
-  control links.
-- Starting a new flight no longer implies another scan. Pairing remains valid
-  for the lifetime of the current Flight Fabric backend session and the setup
-  copy now explains when a fresh scan is required.
-- A compact desktop-only Phone shortcut opens the second-screen setup card;
-  the shortcut is intentionally hidden on phone and tablet layouts.
-- Flight is now the initial dashboard view instead of Live, including the
-  responsive browser experience.
+- The desktop Phone shortcut remains available at compact desktop widths while
+  staying hidden on phone and tablet layouts.
+- Phone guidance now distinguishes viewer mode, an expired pairing, and a
+  backend session where LAN aircraft controls are not active.
 
 ## Fixed
 
-- A380X four-lever detent expressions now cache calibration values in
-  calculator registers, keeping the atomic validation and write within the
-  MobiFlight ClientData command limit.
-- MobiFlight command validation now matches the Event Module protocol: 1,008
-  printable calculator bytes plus the required NUL terminator, separate command
-  and response definition IDs, a primed command channel, and exact completion
-  registration.
+- Pull-to-refresh and full page reloads now restore the last valid active tab,
+  including contextual Landing and LVAR inspector views, instead of returning
+  to Overview.
+- The System page no longer shows a phone URL, copy action, or QR code until
+  the running backend confirms that trusted-LAN access is active. A saved
+  setting waiting for restart can no longer expose an unusable pairing link.
+- Saved Phone links with a token from an earlier backend session now report
+  `Pairing expired` and direct the user to scan the current desktop QR.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.4.3.exe`
+- `Flight.Fabric.Setup.0.4.4.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable

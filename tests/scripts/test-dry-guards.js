@@ -629,9 +629,9 @@ test('tab navigation flows through the Vue tabs store', () => {
   assert(tabsStoreSource.includes('function showPullRefreshPrompt('));
   assert(tabConfigSource.includes("export const DEFAULT_TAB_ID = 'flight'"), 'Overview should be the centralized safe default tab');
   assert(tabsStoreSource.includes('ref(DEFAULT_TAB_ID)'), 'tabs store should render Overview before the browser runtime mounts');
-  assert(tabsRuntimeSource.includes('LAST_ACTIVE_TAB_STORAGE_KEY'), 'tabs runtime should persist the last selected primary workspace');
+  assert(tabsRuntimeSource.includes('LAST_ACTIVE_TAB_STORAGE_KEY'), 'tabs runtime should persist the last selected tab');
   assert(tabsRuntimeSource.includes('readStorageValue(') && tabsRuntimeSource.includes('writeStorageValue('), 'tab persistence should use guarded browser storage helpers');
-  assert(tabsRuntimeSource.includes('TAB_ORDER.includes(tabId)'), 'contextual tabs should not become sticky startup destinations');
+  assert(tabsRuntimeSource.includes('VALID_TAB_IDS.has(tabId)'), 'every valid tab should remain active across a page refresh');
   assert(tabsRuntimeSource.includes('resolvedTabsStore.requestTabChange(tabId, { direction })'));
   assert(appShellSource.includes('initTabsRuntime({'), 'AppShell should own tab runtime lifecycle');
   assert(appShellSource.includes('tabsStore: tabs'), 'AppShell should inject the tabs store into the tabs runtime');
@@ -1669,6 +1669,7 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(httpServerSource.includes('isLoopbackRemoteAddress(req.socket?.remoteAddress)'), 'HTTP bootstrap should expose privileged WS token only to loopback clients');
   assert(httpServerSource.includes("wsAuthToken: isLoopbackClient ? wsAuthToken : ''"), 'LAN remote clients should bootstrap without privileged WS token');
   assert(httpServerSource.includes("aircraftControlToken: isLoopbackClient ? aircraftControlToken : ''"), 'LAN remote clients should not receive the aircraft-control pairing token from bootstrap');
+  assert(httpServerSource.includes('remoteAccessEnabled: remoteAccessEnabled === true'), 'HTTP bootstrap should report whether trusted-LAN binding is active');
   assert(httpServerSource.includes('networkInfo: isLoopbackClient'), 'only loopback bootstrap should expose LAN addresses for the desktop QR');
   assert(httpServerSource.includes("console.log('[http] Request:', req.method, requestPathname)"), 'HTTP request logging should omit query secrets');
   assert(!httpServerSource.includes("console.log('[http] Request:', req.method, requestUrl)"), 'HTTP request logging must not print aircraft pairing tokens');
@@ -1695,6 +1696,7 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(systemHostSource.includes('const remoteViewerUrl = computed'), 'phone URL construction should retain its token-free fallback');
   assert(systemHostSource.includes('const remoteControlPairingUrl = computed'), 'phone URL construction should retain the current session token URL');
   assert(systemHostSource.includes('remoteControlPairingUrl.value || remoteViewerUrl.value'), 'phone setup should choose one best URL without redistributing received tokens');
+  assert(systemHostSource.includes("if (remoteAccessEnabled.value !== true) return ''"), 'phone URLs should fail closed unless the active backend confirms trusted-LAN access');
   assert(systemTabSource.includes(':value="systemHost.remoteBrowserUrl"'), 'the single phone QR must use the best available phone URL');
   assert.equal((systemTabSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
   assert(!systemTabSource.includes(':value="systemHost.remoteViewerUrl"') && !systemTabSource.includes(':value="systemHost.remoteControlPairingUrl"'), 'PC setup should not expose separate viewer and control choices');

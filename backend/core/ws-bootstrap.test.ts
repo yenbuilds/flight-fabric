@@ -492,6 +492,7 @@ test('createWsServer installs outbound projection before connection-time state i
   assert.deepEqual(initialMessages[0], {
     type: 'authorizationScope',
     scope: 'read-only',
+    aircraftControlPairingStatus: 'not-requested',
   });
   const message = initialMessages[1];
   assert.equal(message.profile.aircraftConfigPath, undefined);
@@ -811,6 +812,46 @@ test('createWsServer keeps opted-in trusted-LAN clients read-only without the pa
   await once(client, 'open');
   assert.equal(privilegedFlag, false);
   assert.equal(aircraftControlFlag, false);
+  client.close();
+});
+
+test('createWsServer identifies an expired trusted-LAN aircraft-control pairing', async (t) => {
+  const wss = createWsServer({
+    wsPort: 0,
+    remoteAccessEnable: true,
+    remoteAircraftControlEnable: true,
+    wsAuthToken: 'fixture-token',
+    aircraftControlToken: 'current-aircraft-token',
+    Debug: { log() {} },
+    tlog() {},
+    onClientConnected() {},
+    onClientMessage() {},
+  }) as {
+    on: (eventName: string, handler: (...args: unknown[]) => void) => void;
+    address: () => { port: number };
+    close: (cb?: (error?: Error) => void) => void;
+  };
+
+  t.after(async () => {
+    await closeServer(wss);
+  });
+
+  await once(wss, 'listening');
+  const { port } = wss.address();
+  const client = new WebSocket(`ws://127.0.0.1:${port}?aircraftControlToken=expired-aircraft-token`, {
+    headers: {
+      Host: `192.168.1.20:${port}`,
+      Origin: 'http://192.168.1.20:8100',
+    },
+  });
+  const authorizationMessage = once(client, 'message');
+  await once(client, 'open');
+  const [payload] = await authorizationMessage;
+  assert.deepEqual(JSON.parse(payload.toString()), {
+    type: 'authorizationScope',
+    scope: 'read-only',
+    aircraftControlPairingStatus: 'expired',
+  });
   client.close();
 });
 

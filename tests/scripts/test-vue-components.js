@@ -1198,6 +1198,27 @@ async function main() {
     }
   });
 
+  await test('SecondScreenGuide identifies a saved Phone link with an expired pairing token', async () => {
+    try {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'),
+        ({ useProfilesStore }) => {
+          globalThis.location = {
+            pathname: '/remote',
+            search: '?wsPort=9199&aircraftControlToken=expired-token',
+          };
+          useProfilesStore().setAuthorizationScope('read-only', 'expired');
+        },
+      );
+
+      assert.match(html, /id="second-screen-control-status"[^>]*>\s*Pairing expired\s*</, 'stale paired URL should not be described as generic viewer mode');
+      assert.match(html, /id="second-screen-pairing-expired"[^>]*>[\s\S]*scan the current QR/, 'stale pairing guidance should point to the current PC Phone QR');
+      assert.match(html, /token changes whenever the backend restarts/, 'stale pairing guidance should explain why the saved token expired');
+    } finally {
+      delete globalThis.location;
+    }
+  });
+
   await test('SystemTabShell renders Electron service controls with browser-safe fallback copy', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemTabShell.vue'));
 
@@ -1238,10 +1259,10 @@ async function main() {
           getBackendHttpPort: async () => 8100,
           getStartupHealth: async () => ({ ok: true }),
           getNetworkInfo: async () => ({ ips: ['10.0.0.5', '192.168.1.42'], httpPort: 8100, wsPort: 9199 }),
-          getSettings: async () => ({ success: true, settingsFile: 'C:\\Users\\Pilot\\settings.json' }),
+          getSettings: async () => ({ success: true, settings: { remoteAccess: true }, settingsFile: 'C:\\Users\\Pilot\\settings.json' }),
           getBackendBootstrap: async () => ({
             ok: true,
-            body: { aircraftControlToken: 'fixture-aircraft-token' },
+            body: { aircraftControlToken: 'fixture-aircraft-token', remoteAccessEnabled: true },
           }),
         };
 
@@ -1278,6 +1299,7 @@ async function main() {
         ok: true,
         wsAuthToken: '',
         aircraftControlToken: '',
+        remoteAccessEnabled: true,
         networkInfo: { ips: [], httpPort: null, wsPort: null },
       }),
     });
@@ -1300,6 +1322,35 @@ async function main() {
       delete globalThis.location;
       globalThis.fetch = originalFetch;
     }
+  });
+
+  await test('SystemTabShell hides phone pairing while trusted-LAN access is inactive', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'SystemTabShell.vue'),
+      async ({ useSystemHostStore }) => {
+        globalThis.electronAPI = {
+          getBackendStatus: async () => ({ status: 'running' }),
+          getHttpStatus: async () => ({ status: 'running', port: 8123 }),
+          getBackendWsPort: async () => 9199,
+          getBackendHttpPort: async () => 8100,
+          getStartupHealth: async () => ({ ok: true }),
+          getNetworkInfo: async () => ({ ips: ['192.168.1.42'], httpPort: 8100, wsPort: 9199 }),
+          getSettings: async () => ({ success: true, settings: { remoteAccess: true } }),
+          getBackendBootstrap: async () => ({
+            ok: true,
+            body: { aircraftControlToken: 'fixture-aircraft-token', remoteAccessEnabled: false },
+          }),
+        };
+
+        await useSystemHostStore().refresh();
+      },
+    );
+
+    assert.match(html, /LAN access is off/, 'phone card should explain why pairing is unavailable');
+    assert.match(html, /id="system-mobile-disabled-note"[^>]*>[\s\S]*restart the backend before pairing/, 'phone card should explain how to activate LAN access');
+    assert.doesNotMatch(html, /id="system-mobile-qr"/, 'inactive LAN access must not render a QR code');
+    assert.doesNotMatch(html, /id="system-mobile-copy-btn"/, 'inactive LAN access must not expose a copy action');
+    assert.doesNotMatch(html, /fixture-aircraft-token/, 'inactive LAN access must not render the pairing token');
   });
 
   console.log('\n--- app shell ---\n');

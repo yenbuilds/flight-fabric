@@ -283,9 +283,16 @@ onUnmounted(() => {
               <div class="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300" style="font-family: var(--ff-font-mono);">
                 Phone link
               </div>
-              <div class="mt-1 text-sm font-semibold text-gray-100">Scan to connect</div>
+              <div class="mt-1 text-sm font-semibold text-gray-100">
+                {{ systemHost.remoteAccessEnabled === false ? 'LAN access is off' : 'Scan to connect' }}
+              </div>
               <div id="system-remote-url" class="mt-2 break-all font-mono text-sm text-cyan-100">
-                {{ systemHost.remoteBrowserUrl || 'LAN IP unavailable' }}
+                {{ systemHost.remoteAccessEnabled === false
+                  ? 'Enable Allow trusted LAN access in Settings'
+                  : (systemHost.remoteBrowserUrl || 'LAN IP unavailable') }}
+              </div>
+              <div v-if="systemHost.remoteAccessEnabled === false" id="system-mobile-disabled-note" class="mt-2 text-xs leading-5 text-muted-fg">
+                Save the setting, then restart the backend before pairing a phone or tablet.
               </div>
               <div v-if="systemHost.remoteBrowserUrl" id="system-mobile-pairing-note" class="mt-2 text-xs leading-5 text-muted-fg">
                 <template v-if="systemHost.shareAircraftControlPaired">Private link. It opens the dashboard and pairs aircraft controls for this backend session. Starting a new flight does not require another scan; scan again only after the Flight Fabric backend restarts. Aircraft commands still require the LAN control setting.</template>
@@ -301,7 +308,7 @@ onUnmounted(() => {
               >
                 {{ copiedMobileLink ? 'Copied' : 'Copy phone link' }}
               </button>
-              <div v-if="systemHost.alternateIpsLabel" id="system-alt-ips" class="mt-2 text-xs text-muted-fg">
+              <div v-if="systemHost.remoteAccessEnabled === true && systemHost.alternateIpsLabel" id="system-alt-ips" class="mt-2 text-xs text-muted-fg">
                 Other IPs: {{ systemHost.alternateIpsLabel }}
               </div>
             </div>

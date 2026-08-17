@@ -226,6 +226,7 @@ async function main() {
           ok: true,
           wsAuthToken: 'desktop-privileged-token',
           aircraftControlToken: 'browser-aircraft-token',
+          remoteAccessEnabled: true,
           networkInfo: { ips: ['192.168.50.49'], httpPort: 8100, wsPort: 9199 },
         }),
       };
@@ -274,6 +275,7 @@ async function main() {
         ok: true,
         wsAuthToken: '',
         aircraftControlToken: '',
+        remoteAccessEnabled: true,
         networkInfo: { ips: [], httpPort: null, wsPort: null },
       }),
     });
@@ -304,10 +306,10 @@ async function main() {
       getBackendHttpPort: async () => 8100,
       getStartupHealth: async () => ({ ok: true }),
       getNetworkInfo: async () => ({ ips: ['10.0.0.5', '127.0.0.1', '192.168.1.42'], httpPort: 8100, wsPort: 9199 }),
-      getSettings: async () => ({ success: true, settingsFile: 'C:\\Users\\Pilot\\settings.json' }),
+      getSettings: async () => ({ success: true, settings: { remoteAccess: true }, settingsFile: 'C:\\Users\\Pilot\\settings.json' }),
       getBackendBootstrap: async () => ({
         ok: true,
-        body: { aircraftControlToken: 'fixture-aircraft-token' },
+        body: { aircraftControlToken: 'fixture-aircraft-token', remoteAccessEnabled: true },
       }),
       startBackend: async () => {
         calls.push('start');
@@ -354,6 +356,32 @@ async function main() {
       'restart',
       'reveal:C:\\Users\\Pilot\\settings.json',
     ], 'system host actions should route through the preload bridge');
+  });
+
+  await test('system host store withholds phone URLs while trusted-LAN access is inactive', async () => {
+    resetStoreTestContext();
+
+    globalThis.electronAPI = {
+      getBackendStatus: async () => ({ status: 'running' }),
+      getHttpStatus: async () => ({ status: 'running', port: 8123 }),
+      getBackendWsPort: async () => 9199,
+      getBackendHttpPort: async () => 8100,
+      getStartupHealth: async () => ({ ok: true }),
+      getNetworkInfo: async () => ({ ips: ['192.168.1.42'], httpPort: 8100, wsPort: 9199 }),
+      getSettings: async () => ({ success: true, settings: { remoteAccess: true } }),
+      getBackendBootstrap: async () => ({
+        ok: true,
+        body: { aircraftControlToken: 'fixture-aircraft-token', remoteAccessEnabled: false },
+      }),
+    };
+
+    const store = useSystemHostStore();
+    await store.refresh();
+
+    assert.equal(store.remoteAccessEnabled, false, 'active backend binding should override restart-pending saved settings');
+    assert.equal(store.remoteViewerUrl, '', 'inactive LAN access should withhold the viewer URL');
+    assert.equal(store.remoteControlPairingUrl, '', 'inactive LAN access should withhold the pairing URL');
+    assert.equal(store.remoteBrowserUrl, '', 'inactive LAN access should withhold the QR value');
   });
 
   await test('stability presentation prefers persisted verdicts and safely classifies legacy results', () => {

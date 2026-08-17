@@ -39,10 +39,11 @@ export declare function buildBootstrapPayload(req: RequestLike, wsAuthToken: str
     ips: string[];
     httpPort: number | null;
     wsPort: number | null;
-}): {
+}, remoteAccessEnabled?: boolean): {
     ok: true;
     wsAuthToken: string;
     aircraftControlToken: string;
+    remoteAccessEnabled: boolean;
     networkInfo: {
         ips: string[];
         httpPort: number | null;

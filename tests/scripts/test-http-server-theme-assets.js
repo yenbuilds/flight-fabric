@@ -228,6 +228,7 @@ async function run() {
         ok: true,
         wsAuthToken: 'fixture-privileged-token',
         aircraftControlToken: 'fixture-aircraft-token',
+        remoteAccessEnabled: false,
         networkInfo: { ips: [], httpPort: null, wsPort: null },
       },
       'loopback bootstrap should expose both distinct session tokens',
@@ -246,6 +247,7 @@ async function run() {
         ok: true,
         wsAuthToken: '',
         aircraftControlToken: '',
+        remoteAccessEnabled: false,
         networkInfo: { ips: [], httpPort: null, wsPort: null },
       },
       'a different localhost browser origin should receive no session secrets or network details',
@@ -260,6 +262,7 @@ async function run() {
         ok: true,
         wsAuthToken: '',
         aircraftControlToken: '',
+        remoteAccessEnabled: false,
         networkInfo: { ips: [], httpPort: null, wsPort: null },
       },
       'LAN bootstrap should expose neither session token',
@@ -275,6 +278,7 @@ async function run() {
         ok: true,
         wsAuthToken: '',
         aircraftControlToken: '',
+        remoteAccessEnabled: false,
         networkInfo: { ips: [], httpPort: null, wsPort: null },
       },
       'loopback peer with a non-loopback Host should expose no session secrets or network details',
@@ -316,6 +320,7 @@ async function run() {
       const bootstrapPayload = JSON.parse(bootstrap.body);
       assertEqual(bootstrapPayload.wsAuthToken, 'fixture-privileged-token', 'loopback HTTP bootstrap should return the privileged token');
       assertEqual(bootstrapPayload.aircraftControlToken, 'fixture-aircraft-token', 'loopback HTTP bootstrap should return the distinct scoped token');
+      assertEqual(bootstrapPayload.remoteAccessEnabled, false, 'loopback bootstrap should report the active loopback-only binding');
       assertEqual(bootstrapPayload.networkInfo.httpPort, 0, 'loopback HTTP bootstrap should identify the configured HTTP listener port');
       assertEqual(bootstrapPayload.networkInfo.wsPort, 9199, 'loopback HTTP bootstrap should identify the configured WebSocket listener port');
       assertEqual(Array.isArray(bootstrapPayload.networkInfo.ips), true, 'loopback HTTP bootstrap should include ranked private LAN addresses');
@@ -487,6 +492,7 @@ async function run() {
       assertEqual(privateLanResponse.headers['access-control-allow-origin'], privateOrigin, 'matching private-LAN origin should receive CORS permission');
       assertEqual(privateLanPayload.wsAuthToken, '', 'private-LAN bootstrap must not receive the privileged token');
       assertEqual(privateLanPayload.aircraftControlToken, '', 'private-LAN bootstrap must not receive the aircraft-control token');
+      assertEqual(privateLanPayload.remoteAccessEnabled, true, 'private-LAN bootstrap should report the active trusted-LAN binding');
 
       const reboundLanResponse = await requestText(lanPort, '/api/bootstrap', {
         Host: 'fc00.attacker.example:8100',

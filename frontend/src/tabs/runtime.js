@@ -18,7 +18,7 @@ export function resolveInitialTabId({
   if (VALID_TAB_IDS.has(normalizedRequestedTabId)) return normalizedRequestedTabId;
 
   const normalizedPersistedTabId = normalizeTabId(persistedTabId, '');
-  if (TAB_ORDER.includes(normalizedPersistedTabId)) return normalizedPersistedTabId;
+  if (VALID_TAB_IDS.has(normalizedPersistedTabId)) return normalizedPersistedTabId;
 
   return DEFAULT_TAB_ID;
 }
@@ -312,7 +312,7 @@ export function initTabsRuntime({
       if (mainEl && previousTabId) {
         tabScrollPositions.set(previousTabId, mainEl.scrollTop || 0);
       }
-      if (TAB_ORDER.includes(tabId)) {
+      if (VALID_TAB_IDS.has(tabId)) {
         writeStorageValue(LAST_ACTIVE_TAB_STORAGE_KEY, tabId, { storage });
       }
       applyActiveTabState(tabId, resolvedTabsStore.takeLastTransitionDirection());
