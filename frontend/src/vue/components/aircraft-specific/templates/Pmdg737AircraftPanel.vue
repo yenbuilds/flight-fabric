@@ -967,14 +967,11 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 760px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
   .pmdg-mobile-section-ribbon {
-    position: sticky;
-    top: 4.75rem;
-    z-index: 36;
     display: grid;
-    grid-template-columns: minmax(0, 28fr) minmax(0, 44fr) minmax(0, 28fr);
-    min-height: 3.75rem;
+    grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+    min-height: 2.75rem;
     overflow: hidden;
     border: 1px solid rgb(var(--border-strong) / 0.8);
     border-radius: 9px;
@@ -987,15 +984,15 @@ onBeforeUnmount(() => {
 
   .pmdg-mobile-section-ribbon button {
     min-width: 0;
-    min-height: 3.75rem;
-    padding: 0.45rem 0.35rem;
+    min-height: 2.75rem;
+    padding: 0.3rem;
   }
 
   .pmdg-mobile-section-ribbon__neighbor {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
+    gap: 0;
     color: rgb(var(--muted-foreground));
     font-family: var(--ff-font-mono);
     font-size: 0.68rem;
@@ -1005,9 +1002,7 @@ onBeforeUnmount(() => {
   }
 
   .pmdg-mobile-section-ribbon__neighbor span:not([aria-hidden="true"]) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none;
   }
 
   .pmdg-mobile-section-ribbon__neighbor span[aria-hidden="true"] {
@@ -1021,8 +1016,10 @@ onBeforeUnmount(() => {
   }
 
   .pmdg-mobile-section-ribbon__current {
-    display: grid;
-    place-content: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
     border-right: 1px solid rgb(var(--border) / 0.72);
     border-left: 1px solid rgb(var(--border) / 0.72);
     background: rgb(var(--primary) / 0.1);
@@ -1031,7 +1028,6 @@ onBeforeUnmount(() => {
 
   .pmdg-mobile-section-ribbon__current strong,
   .pmdg-mobile-section-ribbon__current small {
-    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1046,13 +1042,12 @@ onBeforeUnmount(() => {
   }
 
   .pmdg-mobile-section-ribbon__current small {
-    margin-top: 0.16rem;
     color: rgb(var(--muted-foreground));
-    font-size: 0.58rem;
+    font-size: 0.62rem;
   }
 
   .pmdg-mobile-navigable-section {
-    scroll-margin-top: 9rem;
+    scroll-margin-top: 5.25rem;
   }
 
   .pmdg-mobile-navigable-section:focus {
@@ -1061,17 +1056,14 @@ onBeforeUnmount(() => {
 }
 
 @media (max-height: 500px) and (pointer: coarse) {
-  .pmdg-mobile-section-ribbon {
-    top: 3.35rem;
-    min-height: 3.25rem;
-  }
+  .pmdg-mobile-section-ribbon { min-height: 2.5rem; }
 
   .pmdg-mobile-section-ribbon button {
-    min-height: 3.25rem;
+    min-height: 2.5rem;
   }
 
   .pmdg-mobile-navigable-section {
-    scroll-margin-top: 7.25rem;
+    scroll-margin-top: 4rem;
   }
 
   .pmdg-section-menu__choices {

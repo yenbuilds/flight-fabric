@@ -287,7 +287,7 @@ onBeforeUnmount(clearMatchMarkers);
   backdrop-filter: blur(16px);
 }
 
-@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 760px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
   .aircraft-find--mobile-hidden {
     display: none;
   }

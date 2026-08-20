@@ -2379,7 +2379,7 @@ async function main() {
     );
 
     assert.match(html, /data-aircraft-template="pmdg-737"/, 'the PMDG 737 template should render');
-    assert.match(html, /aircraft-specific-section--pmdg-mobile-ribbon/, 'the PMDG wrapper should allow its sticky mobile ribbon to reach the page scroller');
+    assert.doesNotMatch(html, /aircraft-specific-section--pmdg-mobile-ribbon/, 'the PMDG section ribbon should remain in the panel flow instead of relying on a sticky overflow escape hatch');
     assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, 'the PMDG 737 page should select the mobile ribbon experiment');
     assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 737 search should be hidden only at the mobile breakpoint');
     assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');

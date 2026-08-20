@@ -1,32 +1,17 @@
-# Flight Fabric 0.5.0
+# Flight Fabric 0.5.1
 
-Flight Fabric 0.5.0 restores guarded PMDG aircraft integrations and makes
-recording, approach assessment, and flight history more reliable across real
-simulator sessions.
-
-## Added
-
-- PMDG 737 and 777 family profiles, aircraft-specific panels, and guarded SDK
-  controls are available again. SDK readback stays disabled until you accept
-  the matching aircraft's installed EULA in Flight Fabric.
+Flight Fabric 0.5.1 makes the PMDG 737 Aircraft page easier to use in narrow
+desktop windows and on touch devices.
 
 ## Fixed
 
-- Pausing a connected simulator no longer re-arms automatic recording after a
-  manual stop. Genuine disconnects, simulator stops, aircraft changes, and
-  parked-engines-off resets still re-arm it.
-- Flight phases recover cleanly through sparse rollouts and consecutive flights
-  in the same aircraft, allowing parked-engines-off recording finalisation.
-- Approach stability leaves unavailable gear and flap data unscored, preserves
-  authoritative profile flap data, and uses actual sampling cadence for speed
-  and thrust trends.
-- Recent Flights and Logbook history keep flight and landing data consistently
-  linked, retain unknown fuel burn as unknown, and rebuild outdated derived
-  history data from the authoritative recordings.
+- PMDG 737 section navigation now stays out of desktop control layouts. On
+  touch devices it is compact, remains accessible at the top of the panel, and
+  scrolls with the page rather than covering aircraft controls.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.5.0.exe`
+- `Flight.Fabric.Setup.0.5.1.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable
