@@ -811,7 +811,7 @@ test('approach stability profile, policy, and criteria are immutable snapshots',
   assert(snapshot.profile.id === 'test-ga', 'captured profile identity must not follow later active-profile mutation');
   assert(snapshot.profile.aircraft.category === 'A', 'captured aircraft category must remain attempt-scoped');
   assert(snapshot.engineCount === 2, 'fallback engine count must remain paired with the captured scorer profile');
-  assert(snapshot.policy.id === 'ga-profile-v2', 'captured GA policy must remain explicit');
+  assert(snapshot.policy.id === 'ga-profile-v3', 'captured GA policy must remain explicit');
   assert(snapshot.policy.profileCriteriaApplied === true, 'GA profile criteria should be captured as applied');
   assert(snapshot.criteria.gateRaFt === 500, 'captured profile gate must remain unchanged');
   assert(snapshot.criteria.speedPlusKts === 4, 'captured profile speed band must remain unchanged');
@@ -859,7 +859,7 @@ test('recorded-profile stability fallback never consults the currently selected 
   });
   assert(recorded.profile.id === 'recorded-a380', 'explicit recorded profile must win over selected generic profile');
   assert(recorded.engineCount === 4, 'recorded scorer snapshot must retain its fallback engine count');
-  assert(recorded.policy.id === 'transport-v2', 'recorded transport policy should be captured');
+  assert(recorded.policy.id === 'transport-v3', 'recorded transport policy should be captured');
   assert(recorded.criteria.speedPlusKts === 10, 'transport policy should retain the common criteria');
   assert(activeProfileReads === 0, 'recorded-profile resolution must not read active profile state');
   assert(loadCalls.length === 1 && loadCalls[0] === 'recorded-a380', 'recorded profile should resolve directly');

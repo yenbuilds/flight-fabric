@@ -32,6 +32,8 @@ const {
 const { createSettingsStore } = require('./settings-store');
 const { getLocalIPv4AddressesFromInterfaces } = require('./network-info');
 const { resolveAllowedExternalUrl } = require('./external-url-policy');
+const { resolvePmdg737SdkEulaPath } = require('./pmdg-737-sdk-eula');
+const { resolvePmdg777SdkEulaPath } = require('./pmdg-777-sdk-eula');
 const { isManagedProcessAlive } = require('./process-liveness');
 const { isExactLauncherUrl, isTrustedIpcSender } = require('./ipc-sender-policy');
 const {
@@ -93,6 +95,8 @@ test('launcher event bindings exist', fs.existsSync(path.join(electronDir, 'laun
 test('installer notice exists', fs.existsSync(path.join(electronDir, 'installer-notice.txt')));
 test('backend-cleanup-policy.js exists', fs.existsSync(path.join(electronDir, 'backend-cleanup-policy.js')));
 test('settings-store.js exists', fs.existsSync(path.join(electronDir, 'settings-store.js')));
+test('pmdg-737-sdk-eula.js exists', fs.existsSync(path.join(electronDir, 'pmdg-737-sdk-eula.js')));
+test('pmdg-777-sdk-eula.js exists', fs.existsSync(path.join(electronDir, 'pmdg-777-sdk-eula.js')));
 test('network-info.js exists', fs.existsSync(path.join(electronDir, 'network-info.js')));
 test('process-liveness.js exists', fs.existsSync(path.join(electronDir, 'process-liveness.js')));
 test('runtime-owner-lock.js exists', fs.existsSync(path.join(electronDir, 'runtime-owner-lock.js')));
@@ -668,6 +672,30 @@ test(
 // ─────────────────────────────────────────────────────────────
 // Settings Store Smoke Test
 // ─────────────────────────────────────────────────────────────
+section('PMDG SDK EULA Resolvers');
+
+for (const [family, packageName, fileName, resolver] of [
+  ['737', 'pmdg-aircraft-738', 'PMDG_737_MSFS_SDK.pdf', resolvePmdg737SdkEulaPath],
+  ['777', 'pmdg-aircraft-77w', 'PMDG_777_MSFS_SDK.pdf', resolvePmdg777SdkEulaPath],
+]) {
+  const communityDir = path.join(os.tmpdir(), `flight-fabric-pmdg${family}-eula-${Date.now()}-${process.pid}`);
+  const eulaPath = path.join(communityDir, packageName, 'Documentation', 'SDK', fileName);
+  try {
+    fs.mkdirSync(path.dirname(eulaPath), { recursive: true });
+    fs.writeFileSync(eulaPath, '%PDF-1.4\n');
+    test(
+      `resolves the installed PMDG ${family} SDK EULA beneath a detected Community folder`,
+      resolver([{ preferredCommunityFolder: communityDir }]) === fs.realpathSync(eulaPath),
+    );
+    test(
+      `does not search arbitrary PMDG ${family} package paths outside detected Community folders`,
+      resolver([{ preferredCommunityFolder: path.dirname(communityDir) }]) === null,
+    );
+  } finally {
+    fs.rmSync(communityDir, { recursive: true, force: true });
+  }
+}
+
 section('Settings Store Smoke');
 
 const tempSettingsFile = path.join(os.tmpdir(), `flight-fabric-settings-smoke-${Date.now()}-${process.pid}.json`);
@@ -703,6 +731,30 @@ test('preserves supported aircraft profile selections', persisted.aircraft?.prof
 test('ignores retired poll-rate input', !Object.hasOwn(persisted.performance || {}, 'pollRateMs'));
 test('does not expose poll rate through launcher settings', !Object.hasOwn(saveResult.settings || {}, 'pollRateMs'));
 test('does not expose backend debug through launcher settings', !Object.hasOwn(saveResult.settings || {}, 'debug'));
+
+const initialPmdg737SdkStatus = settingsStore.getPmdg737SdkEulaStatus();
+test('PMDG 737 SDK starts unauthorized', initialPmdg737SdkStatus.accepted === false);
+const acceptPmdg737SdkResult = settingsStore.acceptPmdg737SdkEula();
+test(
+  'PMDG 737 SDK EULA acceptance is persisted with a version and timestamp',
+  acceptPmdg737SdkResult.success === true
+    && acceptPmdg737SdkResult.accepted === true
+    && typeof acceptPmdg737SdkResult.version === 'string'
+    && typeof acceptPmdg737SdkResult.acceptedAt === 'string',
+);
+test('PMDG 737 SDK authorization survives a settings reload', settingsStore.getPmdg737SdkEulaStatus().accepted === true);
+
+const initialPmdg777SdkStatus = settingsStore.getPmdg777SdkEulaStatus();
+test('PMDG 777 SDK starts unauthorized', initialPmdg777SdkStatus.accepted === false);
+const acceptPmdg777SdkResult = settingsStore.acceptPmdg777SdkEula();
+test(
+  'PMDG 777 SDK EULA acceptance is persisted with a version and timestamp',
+  acceptPmdg777SdkResult.success === true
+    && acceptPmdg777SdkResult.accepted === true
+    && typeof acceptPmdg777SdkResult.version === 'string'
+    && typeof acceptPmdg777SdkResult.acceptedAt === 'string',
+);
+test('PMDG 777 SDK authorization survives a settings reload', settingsStore.getPmdg777SdkEulaStatus().accepted === true);
 
 const runtimeNoEnv = settingsStore.refreshRuntimeNetworkFromSettings(
   { backendWsPort: 8099, backendHttpPort: 8100 },
@@ -745,6 +797,8 @@ test('settings store refuses to re-save retired local profile overrides', (
 const resetResult = settingsStore.resetSettings();
 test('settings reset succeeds', resetResult.success === true);
 test('settings reset restores defaults', resetResult.settings.wsPort === 8099 && resetResult.settings.httpPort === 8100);
+test('launcher settings reset does not revoke PMDG 737 SDK EULA acceptance', settingsStore.getPmdg737SdkEulaStatus().accepted === true);
+test('launcher settings reset does not revoke PMDG 777 SDK EULA acceptance', settingsStore.getPmdg777SdkEulaStatus().accepted === true);
 
 try {
   if (fs.existsSync(tempSettingsFile)) fs.unlinkSync(tempSettingsFile);
@@ -987,6 +1041,20 @@ test('handles settings-get', mainSource.includes("registerTrustedIpcHandler('set
 test('handles settings-save', mainSource.includes("registerTrustedIpcHandler('settings-save'"));
 test('handles settings-reset', mainSource.includes("registerTrustedIpcHandler('settings-reset'"));
 test('handles storage-locations-get', mainSource.includes("registerTrustedIpcHandler('storage-locations-get'"));
+test(
+  'handles the desktop-only PMDG 737 SDK EULA flow',
+  mainSource.includes("registerTrustedIpcHandler('pmdg-737-sdk-eula-status'")
+    && mainSource.includes("registerTrustedIpcHandler('pmdg-737-sdk-eula-open'")
+    && mainSource.includes("registerTrustedIpcHandler('pmdg-737-sdk-eula-accept'")
+    && mainSource.includes('pmdg737SdkEulaOpenedByWebContents'),
+);
+test(
+  'handles the desktop-only PMDG 777 SDK EULA flow',
+  mainSource.includes("registerTrustedIpcHandler('pmdg-777-sdk-eula-status'")
+    && mainSource.includes("registerTrustedIpcHandler('pmdg-777-sdk-eula-open'")
+    && mainSource.includes("registerTrustedIpcHandler('pmdg-777-sdk-eula-accept'")
+    && mainSource.includes('pmdg777SdkEulaOpenedByWebContents'),
+);
 test('storage locations omit retired local aircraft profile folders', (
   !mainSource.includes("id: 'profiles'")
   && !mainSource.includes('getProfilesRootDir')
@@ -1298,7 +1366,7 @@ const trustedIpcChannels = [...mainSource.matchAll(/registerTrustedIpcHandler\('
   .map((match) => match[1]);
 test(
   'every incoming Electron IPC channel uses the trusted sender registrar',
-  trustedIpcChannels.length === 24
+  trustedIpcChannels.length === 30
     && new Set(trustedIpcChannels).size === trustedIpcChannels.length
     && (mainSource.match(/ipcMain\.handle\(/g) || []).length === 1,
 );
@@ -1333,6 +1401,18 @@ test('exposes getSettings', preloadSource.includes('getSettings'));
 test('exposes saveSettings', preloadSource.includes('saveSettings'));
 test('exposes resetSettings', preloadSource.includes('resetSettings'));
 test('exposes getStorageLocations', preloadSource.includes('getStorageLocations'));
+test(
+  'exposes the allowlisted PMDG 737 SDK EULA methods',
+  preloadSource.includes('getPmdg737SdkEulaStatus')
+    && preloadSource.includes('openPmdg737SdkEula')
+    && preloadSource.includes('acceptPmdg737SdkEula'),
+);
+test(
+  'exposes the allowlisted PMDG 777 SDK EULA methods',
+  preloadSource.includes('getPmdg777SdkEulaStatus')
+    && preloadSource.includes('openPmdg777SdkEula')
+    && preloadSource.includes('acceptPmdg777SdkEula'),
+);
 test('exposes setRecordingBadge', preloadSource.includes('setRecordingBadge') && preloadSource.includes("ipcRenderer.invoke('recording-badge-set'"));
 test('exposes onBackendStatus listener', preloadSource.includes('onBackendStatus'));
 test('exposes onBackendLog listener', preloadSource.includes('onBackendLog'));
@@ -1821,6 +1901,8 @@ const deprecatedExtensionResourcePath = ['dist', 'modules'].join('/');
 test('does not bundle deprecated extension runtime assets', !resourcePaths.includes(deprecatedExtensionResourcePath));
 test('does not bundle source module folders directly', !resourcePaths.includes('../modules'));
 test('bundles electron launcher', resourcePaths.includes('launcher'));
+test('bundles PMDG 737 SDK EULA helper in the Electron app', packagedAppFiles.includes('pmdg-737-sdk-eula.js'));
+test('bundles PMDG 777 SDK EULA helper in the Electron app', packagedAppFiles.includes('pmdg-777-sdk-eula.js'));
 test('shared runtime resources exclude TypeScript declarations', (sharedResource?.filter || []).includes('!**/*.d.ts'));
 test('code resource roots exclude source maps and TypeScript files', codeResourceFilters.every(filter => (
   filter.includes('!**/*.map') && filter.includes('!**/*.ts') && filter.includes('!**/*.d.ts')

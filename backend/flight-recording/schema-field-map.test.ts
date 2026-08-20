@@ -607,6 +607,7 @@ test('landing final fields: persist runway and touchdown diagnostics', () => {
     runway_physical_threshold_lat: 37.12001,
     runway_physical_threshold_lon: -122.98123,
     runway_displaced_threshold_ft: 1000,
+    touchdown_distance_zone: 'Before Threshold',
     short_landing: true,
     runway_condition: 'wet',
     runway_condition_source: 'inferred',
@@ -669,6 +670,7 @@ test('landing final fields: persist runway and touchdown diagnostics', () => {
   assert(row.runway_physical_threshold_lat === '37.120010', `got "${row.runway_physical_threshold_lat}"`);
   assert(row.runway_physical_threshold_lon === '-122.981230', `got "${row.runway_physical_threshold_lon}"`);
   assert(row.runway_displaced_threshold_ft === '1000', `got "${row.runway_displaced_threshold_ft}"`);
+  assert(row.touchdown_distance_zone === 'Before Threshold', `got "${row.touchdown_distance_zone}"`);
   assert(row.short_landing === '1', `got "${row.short_landing}"`);
   assert(row.runway_condition === 'wet', `got "${row.runway_condition}"`);
   assert(row.runway_condition_source === 'inferred', `got "${row.runway_condition_source}"`);

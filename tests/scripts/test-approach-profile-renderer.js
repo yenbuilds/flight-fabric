@@ -561,10 +561,12 @@ async function main() {
           lateralOffsetGrade: 'Good',
           runwayWidthFt: 150,
           runwayLengthFt: 8000,
-          lateralOffsetSource: 'rollout-fit',
+          lateralOffsetSource: 'runway-geometry',
           lateralOffsetCalibration: {
             sampleCount: '<img src=x>',
             alongTrackFt: '<script>alert(1)</script>',
+            rolloutRelativeOffsetFt: 5,
+            rolloutRelativeOffsetSide: 'center',
             databaseOffsetFt: 75,
             databaseOffsetSide: '"><script>alert(1)</script>',
           },
@@ -577,7 +579,7 @@ async function main() {
     assert.doesNotMatch(svg, /<img/i, 'should not emit raw image tags');
     assert.doesNotMatch(svg, /id="[^"]*[<>]/i, 'generated IDs should not contain raw tag characters');
     assert.match(svg, /RWY 09&quot;&gt;&lt;img src=x onerror=alert\(1\)&gt;/, 'should render escaped runway text');
-    assert.match(svg, /XT cal: rollout-fit \(&lt;img src=x&gt; pts, &lt;script&gt;alert\(1\)&lt;\/script&gt; ft\)/, 'should render escaped diagnostics');
+    assert.match(svg, /XT rollout-relative: 5 ft c \(&lt;img src=x&gt; pts, &lt;script&gt;alert\(1\)&lt;\/script&gt; ft\)/, 'should render escaped diagnostics');
     assertNoBadNumbers(svg, 'sanitized top-down SVG');
   });
 

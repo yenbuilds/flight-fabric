@@ -1,29 +1,32 @@
-# Flight Fabric 0.4.4
+# Flight Fabric 0.5.0
 
-Flight Fabric 0.4.4 improves mobile session continuity and makes phone pairing
-states clearer and safer to recover.
+Flight Fabric 0.5.0 restores guarded PMDG aircraft integrations and makes
+recording, approach assessment, and flight history more reliable across real
+simulator sessions.
 
-## Changed
+## Added
 
-- The desktop Phone shortcut remains available at compact desktop widths while
-  staying hidden on phone and tablet layouts.
-- Phone guidance now distinguishes viewer mode, an expired pairing, and a
-  backend session where LAN aircraft controls are not active.
+- PMDG 737 and 777 family profiles, aircraft-specific panels, and guarded SDK
+  controls are available again. SDK readback stays disabled until you accept
+  the matching aircraft's installed EULA in Flight Fabric.
 
 ## Fixed
 
-- Pull-to-refresh and full page reloads now restore the last valid active tab,
-  including contextual Landing and LVAR inspector views, instead of returning
-  to Overview.
-- The System page no longer shows a phone URL, copy action, or QR code until
-  the running backend confirms that trusted-LAN access is active. A saved
-  setting waiting for restart can no longer expose an unusable pairing link.
-- Saved Phone links with a token from an earlier backend session now report
-  `Pairing expired` and direct the user to scan the current desktop QR.
+- Pausing a connected simulator no longer re-arms automatic recording after a
+  manual stop. Genuine disconnects, simulator stops, aircraft changes, and
+  parked-engines-off resets still re-arm it.
+- Flight phases recover cleanly through sparse rollouts and consecutive flights
+  in the same aircraft, allowing parked-engines-off recording finalisation.
+- Approach stability leaves unavailable gear and flap data unscored, preserves
+  authoritative profile flap data, and uses actual sampling cadence for speed
+  and thrust trends.
+- Recent Flights and Logbook history keep flight and landing data consistently
+  linked, retain unknown fuel burn as unknown, and rebuild outdated derived
+  history data from the authoritative recordings.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.4.4.exe`
+- `Flight.Fabric.Setup.0.5.0.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable
@@ -48,6 +51,9 @@ publisher** warning.
   and aircraft commands still require the LAN control setting.
 - Fenix A32X FCU and virtual-throttle write routes remain marked untested. Do
   not move the same physical FCU rotary while a typed target is pending.
+- PMDG 737 and 777 controls remain guarded but require live validation for the
+  installed aircraft version; unavailable, maintenance, emergency, door, and
+  momentary controls stay excluded.
 - Legacy Recent Flights entries without recording-start metadata currently
   appear as Recorded at the Unix epoch instead of displaying their saved-file
   time.

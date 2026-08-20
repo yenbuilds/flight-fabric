@@ -63,7 +63,7 @@ type LandingDistanceModule = {
   scoreTouchdownDistance: (distanceFt: number | null, options?: AnyRecord) => AnyRecord;
   scoreLateralOffset: (offsetFt: number | null, runwayWidthFt?: number | null) => AnyRecord;
   inferSurfaceCondition: (inputs: AnyRecord) => AnyRecord;
-  TOUCHDOWN_ZONE_MAX_FT: number;
+  isTouchdownZoneAchieved: (distanceFt: unknown, runwayLengthFt?: unknown) => boolean;
 };
 type AviationFramesModule = {
   getRunwayTrueHeadingDeg: (input: AnyRecord | null | undefined) => number | null;
@@ -259,15 +259,8 @@ function buildTouchdownRunwayAnalysis(input: {
   return {
     touchdownDistanceData,
     shortLandingDetected,
-    tdzAchieved: isTouchdownZoneAchieved(touchdownDistanceData, shortLandingDetected),
+    tdzAchieved: landingDistance.isTouchdownZoneAchieved(distanceFt, lengthFt),
   };
-}
-
-function isTouchdownZoneAchieved(touchdownDistanceData: AnyRecord, shortLandingDetected: boolean): boolean {
-  return !shortLandingDetected &&
-    touchdownDistanceData.touchdown_distance_ft != null &&
-    touchdownDistanceData.touchdown_distance_ft >= 0 &&
-    touchdownDistanceData.touchdown_distance_ft <= landingDistance.TOUCHDOWN_ZONE_MAX_FT;
 }
 
 function isTouchdownTransitionCandidate(input: {
@@ -384,7 +377,7 @@ module.exports = {
   finiteNumberOrNull,
   isTakeoffSettlingTouchdown,
   isTouchdownTransitionCandidate,
-  isTouchdownZoneAchieved,
+  isTouchdownZoneAchieved: landingDistance.isTouchdownZoneAchieved,
   projectPointToRunwayFeet,
 };
 

@@ -5,6 +5,7 @@ import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 const props = defineProps({
   target: { type: Object, default: null },
   contentKey: { type: String, default: '' },
+  hideOnMobile: { type: Boolean, default: false },
 });
 
 const searchInput = ref(null);
@@ -195,7 +196,12 @@ onBeforeUnmount(clearMatchMarkers);
 </script>
 
 <template>
-  <div class="aircraft-find" role="search" aria-label="Find on Aircraft page">
+  <div
+    class="aircraft-find"
+    :class="{ 'aircraft-find--mobile-hidden': hideOnMobile }"
+    role="search"
+    aria-label="Find on Aircraft page"
+  >
     <div class="aircraft-find__row">
       <div class="aircraft-find__field">
         <label class="sr-only" for="aircraft-find-input">Find a cockpit control or value</label>
@@ -279,6 +285,12 @@ onBeforeUnmount(clearMatchMarkers);
   background: rgb(var(--panel) / 0.94);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.04);
   backdrop-filter: blur(16px);
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .aircraft-find--mobile-hidden {
+    display: none;
+  }
 }
 
 .aircraft-find__row {
@@ -444,9 +456,12 @@ onBeforeUnmount(clearMatchMarkers);
 
 @media (max-width: 640px) {
   .aircraft-find {
-    top: 4.45rem;
+    position: static;
+    z-index: auto;
     margin-inline: -0.15rem;
     padding: 0.5rem;
+    box-shadow: none;
+    backdrop-filter: none;
   }
 
   .aircraft-find__shortcut {
@@ -460,6 +475,10 @@ onBeforeUnmount(clearMatchMarkers);
 
   .aircraft-find__detail {
     max-width: 64%;
+  }
+
+  [data-aircraft-find-match="true"] {
+    scroll-margin-top: 6rem;
   }
 }
 

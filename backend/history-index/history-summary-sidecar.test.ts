@@ -14,8 +14,8 @@ const {
   writeHistorySummary,
 } = require('./history-summary-sidecar.js');
 
-test('history summary analysis contract is bumped for common transport landing bands', () => {
-  assert.equal(HISTORY_ANALYSIS_VERSION, 8);
+test('history summary analysis contract is bumped for recorded bounce authority', () => {
+  assert.equal(HISTORY_ANALYSIS_VERSION, 10);
 });
 
 test('history summary sidecar round-trips portable flight and landing metadata', () => {

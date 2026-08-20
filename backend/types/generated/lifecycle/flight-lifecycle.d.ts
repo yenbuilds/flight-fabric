@@ -61,7 +61,9 @@ export type UpdateManualAutoStartSuppressionParams = {
     suppression?: ManualAutoStartSuppressionState | null;
     nowEpochMs?: number;
     simconnectConnected?: boolean;
+    simRunning?: boolean | null;
     inFlightContext?: boolean;
+    paused?: boolean;
     aircraftTitle?: string | null;
     phase?: string | null;
     wow?: boolean;
@@ -156,7 +158,7 @@ export type BuildFlightStartReasonParams = {
 };
 export declare function computeInFlightContext({ simconnectConnected, simRunning, userInputEnabled, aircraftLoadedName, paused, }: ComputeInFlightContextParams): InFlightContextResult;
 export declare function updateActiveFlightEndGuard({ state, flightActive, nowEpochMs, simconnectConnected, simRunning, disconnectGraceMs, simStoppedGraceMs, }: UpdateActiveFlightEndGuardParams): UpdateActiveFlightEndGuardResult;
-export declare function updateManualAutoStartSuppression({ suppression, nowEpochMs, simconnectConnected, inFlightContext, aircraftTitle, phase, wow, iasKnots, gsKnots, anyEngineRunning, maxEnginePct, parkedResetDwellMs, contextResetDwellMs, stoppedGsKts, stoppedIasKts, engineOffMaxPct, }: UpdateManualAutoStartSuppressionParams): UpdateManualAutoStartSuppressionResult;
+export declare function updateManualAutoStartSuppression({ suppression, nowEpochMs, simconnectConnected, simRunning, inFlightContext, paused, aircraftTitle, phase, wow, iasKnots, gsKnots, anyEngineRunning, maxEnginePct, parkedResetDwellMs, contextResetDwellMs, stoppedGsKts, stoppedIasKts, engineOffMaxPct, }: UpdateManualAutoStartSuppressionParams): UpdateManualAutoStartSuppressionResult;
 export declare function checkFlightStartEligibility({ flightActive, lastFlightEndMs, nowEpochMs, simconnectConnected, inFlightContext, altMslFt, iasKnots, gsKnots, raFeet, wow, slewActive, motionDetected, activeFieldCount, cooldownMs, maxAltMslFt, minIasKts, minGsKts, minRaFt, requireCount, requireMovement, requireTelemetryActivity, minActiveFields, blockOnSlew, }: CheckFlightStartEligibilityParams): EligibilityResult;
 export declare function logStateTransition(state: string, blockers?: string[], verbose?: boolean): void;
 export declare function resetStateLogger(): void;

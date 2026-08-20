@@ -99,6 +99,16 @@ test('four-state stability verdict keeps strict failures auditable without blank
   );
   assert.strictEqual(classifyApproachStability(null), 'no_verdict');
   assert.strictEqual(classifyApproachStability({ score: null, samples: 100, gateFailures: [] }), 'no_verdict');
+  assert.strictEqual(
+    classifyApproachStability({ score: null, samples: 100, gateStable: true, gateFailures: [] }),
+    'stable',
+    'an explicit persisted clean gate audit remains authoritative for legacy rows',
+  );
+  assert.strictEqual(
+    classifyApproachStability({ score: null, samples: 100, gateFailures: [], breakdown: { spoilers_ok: 100 } }),
+    'no_verdict',
+    'a neutral compatibility metric must not make an incomplete result stable',
+  );
   assert.strictEqual(verdict(90, ['insufficient_data']), 'no_verdict');
   assert.strictEqual(verdict(90, ['no_gate_sample']), 'no_verdict');
 });
@@ -212,6 +222,57 @@ test('unavailable dynamic signals are excluded instead of receiving free 100s', 
   assert.strictEqual(result.score, 100, 'Missing signals should neither reward nor punish the player');
 });
 
+test('unavailable gear and flap channels are excluded instead of becoming hard failures', () => {
+  const frames = Array.from({ length: 14 }, (_, index) => makeFrame({
+    ra: 1200 - (index * 90),
+    gearConfigurationAvailable: false,
+    gearDownLocked: null,
+    flapsConfigurationAvailable: false,
+    flaps: 0,
+  }));
+
+  const result = scoreFrames(frames);
+  assert.strictEqual(result.breakdown.gear_ok, null);
+  assert.strictEqual(result.breakdown.flaps_ok, null);
+  assert.strictEqual(result.breakdown.config_ok, null);
+  assert.strictEqual(result.coverage.metrics.config_ok.available, false);
+  assert(!result.gateFailures.includes('gear_not_down_at_gate'));
+  assert(!result.gateFailures.includes('flaps_not_set_at_gate'));
+  assert.notStrictEqual(result.verdict, 'unstable');
+});
+
+test('known flap failure remains hard when gear telemetry is unavailable', () => {
+  const frames = Array.from({ length: 14 }, (_, index) => makeFrame({
+    ra: 1200 - (index * 90),
+    gearConfigurationAvailable: false,
+    gearDownLocked: null,
+    flapsConfigurationAvailable: true,
+    flaps: 0,
+  }));
+
+  const result = scoreFrames(frames);
+  assert.strictEqual(result.breakdown.gear_ok, null);
+  assert.strictEqual(result.breakdown.flaps_ok, 0);
+  assert.strictEqual(result.breakdown.config_ok, 0);
+  assert(!result.gateFailures.includes('gear_not_down_at_gate'));
+  assert(result.gateFailures.includes('flaps_not_set_at_gate'));
+  assert.strictEqual(result.score, 60);
+  assert.strictEqual(result.verdict, 'unstable');
+});
+
+test('authoritative LVAR flaps remain available when generic channels are unavailable', () => {
+  const frames = Array.from({ length: 14 }, (_, index) => makeFrame({
+    ra: 1200 - (index * 90),
+    flapsConfigurationAvailable: false,
+    flaps: { source: 'lvar', notch: 3, percent: null },
+  }));
+
+  const result = scoreFrames(frames);
+  assert.strictEqual(result.breakdown.flaps_ok, 100);
+  assert.strictEqual(result.breakdown.config_ok, 100);
+  assert(!result.gateFailures.includes('flaps_not_set_at_gate'));
+});
+
 test('50 ft flare boundary excludes 50 ft but still scores 51 ft', () => {
   const scoreWithLowSample = (ra, ias) => scoreFrames([
     makeFrame({ ra: 1200 }),
@@ -272,6 +333,22 @@ test('one-second speed trend rejects sustained changes but ignores 10 Hz IAS jit
     acceleratingResult.breakdown.speed_trend_ok < 80,
     `Sustained 4 kt/sec acceleration should fail, got ${acceleratingResult.breakdown.speed_trend_ok}`,
   );
+});
+
+test('tick-frame timing metadata keeps speed trend cadence invariant', () => {
+  const frames = Array.from({ length: 11 }, (_, index) => makeFrame({
+    ra: 1000 - (index * 80),
+    ias: 145 + (index * 0.5),
+    pollRateMs: 500,
+    meta: { actualDeltaMs: 500 },
+    dtMs: undefined,
+  }));
+
+  const result = scoreFrames(frames, null, {
+    criteria: { speedMinusKts: 100, speedPlusKts: 100 },
+  });
+  assert.strictEqual(result.breakdown.speed_trend_ok, 100, '1 kt/sec trend should pass at 2 Hz');
+  assert(!result.gateFailures.includes('speed_trend_unstable_after_gate'));
 });
 
 test('one-second vertical-rate smoothing ignores alternating provider jitter', () => {

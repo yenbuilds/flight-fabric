@@ -577,6 +577,7 @@
         "scale": {
           "type": "string",
           "enum": [
+            "pmdg",
             "fraction",
             "percent",
             "linear",
@@ -1197,6 +1198,7 @@
           "enum": [
             "simconnect",
             "xplane",
+            "pmdg",
             "auto"
           ]
         },

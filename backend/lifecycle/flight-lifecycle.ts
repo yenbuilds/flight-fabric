@@ -77,7 +77,9 @@ export type UpdateManualAutoStartSuppressionParams = {
   suppression?: ManualAutoStartSuppressionState | null;
   nowEpochMs?: number;
   simconnectConnected?: boolean;
+  simRunning?: boolean | null;
   inFlightContext?: boolean;
+  paused?: boolean;
   aircraftTitle?: string | null;
   phase?: string | null;
   wow?: boolean;
@@ -342,7 +344,9 @@ export function updateManualAutoStartSuppression({
   suppression = null,
   nowEpochMs = 0,
   simconnectConnected = false,
+  simRunning = null,
   inFlightContext = false,
+  paused = false,
   aircraftTitle = null,
   phase = null,
   wow = true,
@@ -386,7 +390,10 @@ export function updateManualAutoStartSuppression({
     };
   }
 
-  const contextResetCandidate = simconnectConnected !== true || inFlightContext !== true;
+  const connectedPause = simconnectConnected === true && simRunning !== false && paused === true;
+  const contextResetCandidate = simconnectConnected !== true
+    || simRunning === false
+    || (!connectedPause && inFlightContext !== true);
   if (contextResetCandidate) {
     current.contextResetSinceMs = current.contextResetSinceMs ?? nowEpochMs;
     const contextResetElapsedMs = Math.max(0, nowEpochMs - current.contextResetSinceMs);

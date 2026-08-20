@@ -1,6 +1,7 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
+import AutopilotTargetEditor from './AutopilotTargetEditor.vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useFlightStore } from '../stores/flight.js';
 import { getAircraftControlCommandPendingKey } from '../../aircraft/control-ui.js';
@@ -9,7 +10,8 @@ const aircraftControls = useAircraftControlsStore();
 const flight = useFlightStore();
 
 const modeButtonClass = 'controls-command-card ap-mode-btn w-full h-full p-4 text-center transition-all hover:border-accent/50';
-const adjustButtonClass = 'controls-adjust-button ap-adj-btn w-8 h-8 text-lg font-bold';
+const adjustButtonClass = 'controls-adjust-button ap-adj-btn w-11 h-11 text-lg font-bold';
+const activeSelectorMode = ref('');
 
 const surfaceCommands = computed(() => {
   const telemetry = flight.telemetry;
@@ -159,6 +161,10 @@ const selectorStates = computed(() => {
   };
 });
 
+const activeSelector = computed(() => (
+  selectors.find((selector) => selector.mode === activeSelectorMode.value) || null
+));
+
 const navModes = computed(() => {
   const autopilot = aircraftControls.autopilot;
   return [
@@ -197,6 +203,10 @@ function getSelectorAdjustCommand(mode, action) {
   return { type: 'selector-adjust', mode, action };
 }
 
+function getSelectorSetCommand(mode, value = null) {
+  return { type: 'selector-set', mode, value };
+}
+
 function getLightCommand(light, value) {
   return { type: 'light-set', light, value };
 }
@@ -217,6 +227,43 @@ function isCommandBusy(command) {
 
 function isCommandDisabled(command) {
   return aircraftControls.isCommandDisabled(command);
+}
+
+function isSelectorTargetBusy(mode) {
+  const selector = selectors.find((item) => item.mode === mode);
+  if (!selector) return false;
+  return aircraftControls.isCommandPending(getSelectorSetCommand(mode))
+    || selector.actions.some((action) => (
+      aircraftControls.isCommandPending(getSelectorAdjustCommand(mode, action.action))
+    ));
+}
+
+function getSelectorTargetDisabledReason(mode) {
+  const command = getSelectorSetCommand(mode);
+  if (aircraftControls.isCommandSupported(command) !== true) {
+    return 'No mapped target action is available for this aircraft profile.';
+  }
+  if (aircraftControls.availability.enabled !== true) return aircraftControls.availability.reason;
+  if (isSelectorTargetBusy(mode)) return 'A target command is already in progress.';
+  return '';
+}
+
+function getSelectorTargetTitle(mode) {
+  return getSelectorTargetDisabledReason(mode) || 'Open the large one-thumb target editor';
+}
+
+function selectorLiveValue(mode) {
+  const key = `${mode}Target`;
+  const value = aircraftControls.autopilot[key];
+  return value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function openSelectorTargetEditor(mode) {
+  activeSelectorMode.value = mode;
+}
+
+function closeSelectorTargetEditor() {
+  activeSelectorMode.value = '';
 }
 
 function getCommandTitle(command) {
@@ -243,8 +290,17 @@ function requestSelectorHold(mode) {
 }
 
 function requestSelectorAdjustment(mode, action) {
+  if (isSelectorTargetBusy(mode)) return false;
   const command = getSelectorAdjustCommand(mode, action);
-  aircraftControls.requestControlCommand(command, {
+  return aircraftControls.requestControlCommand(command, {
+    pendingKey: getPendingKey(command),
+  });
+}
+
+function requestSelectorTarget({ mode, value }) {
+  if (getSelectorTargetDisabledReason(mode)) return false;
+  const command = getSelectorSetCommand(mode, value);
+  return aircraftControls.requestControlCommand(command, {
     pendingKey: getPendingKey(command),
   });
 }
@@ -436,7 +492,7 @@ function requestLightSet(light, value) {
             >
               <button
                 :id="`ap-${selector.mode}-engage`"
-                class="controls-engage-button ap-engage-btn text-xs px-2 py-0.5 transition-colors"
+                class="controls-engage-button ap-engage-btn ff-touch-target text-xs px-3 transition-colors"
                 :class="[selectorStates[selector.mode].engaged ? 'border border-accent/50 bg-accent/10' : '', isCommandDisabled(getSelectorHoldCommand(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorHoldCommand(selector.mode)) ? 'ring-1 ring-accent/40' : '']"
                 :data-mode="selector.mode"
                 data-action="engage"
@@ -453,18 +509,19 @@ function requestLightSet(light, value) {
               </button>
             </AppTooltip>
           </div>
-          <div class="flex items-center justify-center gap-1 mb-2">
+          <div class="autopilot-selector-controls mb-2">
             <template v-for="(action, index) in selector.actions" :key="`${selector.mode}-${action.action}`">
               <AppTooltip
                 v-if="index < 2"
                 :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action))"
+                anchor-class="autopilot-inline-adjustment"
                 placement="top"
               >
                 <button
-                  :class="[adjustButtonClass, isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
+                  :class="[adjustButtonClass, (isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
                   :data-mode="selector.mode"
                   :data-action="action.action"
-                  :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action))"
+                  :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)"
                   :aria-busy="isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'true' : 'false'"
                   @click="requestSelectorAdjustment(selector.mode, action.action)"
                 >
@@ -472,18 +529,34 @@ function requestLightSet(light, value) {
                 </button>
               </AppTooltip>
             </template>
-            <span :id="selector.valueId" :class="['text-2xl font-semibold tabular text-center', selector.valueClass]">{{ selectorStates[selector.mode].value }}</span>
+            <AppTooltip
+              :content="getSelectorTargetTitle(selector.mode)"
+              anchor-class="autopilot-target-open-anchor"
+              placement="top"
+            >
+              <button
+                type="button"
+                class="autopilot-target-open ff-touch-target"
+                :aria-label="`Tune ${selector.label}, current target ${selectorStates[selector.mode].value} ${selector.units}`"
+                :aria-haspopup="true"
+                @click="openSelectorTargetEditor(selector.mode)"
+              >
+                <span :id="selector.valueId" :class="['text-2xl font-semibold tabular text-center', selector.valueClass]">{{ selectorStates[selector.mode].value }}</span>
+                <span class="autopilot-target-open-hint">TUNE</span>
+              </button>
+            </AppTooltip>
             <template v-for="(action, index) in selector.actions" :key="`${selector.mode}-${action.action}-right`">
               <AppTooltip
                 v-if="index >= 2"
                 :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action))"
+                anchor-class="autopilot-inline-adjustment"
                 placement="top"
               >
                 <button
-                  :class="[adjustButtonClass, isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
+                  :class="[adjustButtonClass, (isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
                   :data-mode="selector.mode"
                   :data-action="action.action"
-                  :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action))"
+                  :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)"
                   :aria-busy="isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'true' : 'false'"
                   @click="requestSelectorAdjustment(selector.mode, action.action)"
                 >
@@ -493,6 +566,7 @@ function requestLightSet(light, value) {
             </template>
           </div>
           <div class="text-xs text-gray-500 text-center">{{ selector.units }}</div>
+          <div class="autopilot-mobile-tune-hint">Tap the value for large controls</div>
         </div>
       </div>
 
@@ -535,6 +609,20 @@ function requestLightSet(light, value) {
       </div>
       </div>
     </section>
+
+    <AutopilotTargetEditor
+      :open="Boolean(activeSelector)"
+      :mode="activeSelector?.mode || ''"
+      :display-value="activeSelector ? selectorStates[activeSelector.mode].value : '---'"
+      :live-value="activeSelector ? selectorLiveValue(activeSelector.mode) : null"
+      :busy="activeSelector ? isSelectorTargetBusy(activeSelector.mode) : false"
+      :disabled-reason="activeSelector ? getSelectorTargetDisabledReason(activeSelector.mode) : ''"
+      :feedback-status="aircraftControls.feedback.status"
+      :feedback-command-key="aircraftControls.feedback.commandKey"
+      :feedback-message="aircraftControls.feedback.routeText"
+      :request-apply="requestSelectorTarget"
+      @close="closeSelectorTargetEditor"
+    />
   </div>
 </template>
 
@@ -697,6 +785,53 @@ function requestLightSet(light, value) {
   min-width: 0;
 }
 
+.autopilot-selector-controls {
+  display: grid;
+  grid-template-columns: auto auto minmax(5.4rem, 1fr) auto auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+}
+
+.autopilot-target-open-anchor {
+  display: block;
+  min-width: 0;
+}
+
+.autopilot-target-open {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 3rem;
+  place-items: center;
+  gap: 0.05rem;
+  border: 1px solid rgb(var(--primary) / 0.24);
+  border-radius: 8px;
+  background: rgb(var(--background) / 0.45);
+  color: rgb(var(--foreground));
+}
+
+.autopilot-target-open:hover:not(:disabled) {
+  border-color: rgb(var(--primary) / 0.58);
+  background: rgb(var(--primary) / 0.09);
+}
+
+.autopilot-target-open-hint {
+  color: rgb(var(--primary));
+  font-family: var(--ff-font-mono);
+  font-size: 0.52rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.autopilot-mobile-tune-hint {
+  display: none;
+  margin-top: 0.45rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.68rem;
+  text-align: center;
+}
+
 .controls-adjust-button,
 .controls-engage-button {
   border-radius: 7px;
@@ -735,6 +870,37 @@ function requestLightSet(light, value) {
   .controls-status-item + .controls-status-item {
     border-top: 1px solid rgb(var(--border) / 0.58);
     border-left: 0;
+  }
+
+  .autopilot-selector-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :deep(.autopilot-inline-adjustment) {
+    display: none;
+  }
+
+  .autopilot-target-open-anchor,
+  .autopilot-target-open {
+    width: 100%;
+  }
+
+  .autopilot-target-open {
+    min-height: 4.5rem;
+  }
+
+  .autopilot-mobile-tune-hint {
+    display: block;
+  }
+}
+
+@media (pointer: coarse) {
+  .controls-command-card,
+  .controls-nav-button,
+  .controls-adjust-button,
+  .controls-engage-button {
+    min-width: var(--ff-touch-target-flight);
+    min-height: var(--ff-touch-target-flight);
   }
 }
 </style>

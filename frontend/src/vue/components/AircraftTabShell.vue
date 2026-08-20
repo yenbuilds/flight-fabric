@@ -16,16 +16,21 @@ const hasResolvedAircraftTemplate = computed(() => Boolean(
   aircraftSpecific.hasTemplate
   && resolveAircraftSpecificTemplate(aircraftSpecific.templateId),
 ));
+const usesPmdg737MobileRibbon = computed(() => (
+  hasResolvedAircraftTemplate.value && aircraftSpecific.templateId === 'pmdg-737'
+));
 </script>
 
 <template>
   <div
     class="aircraft-tab-shell"
     :data-aircraft-page-mode="hasResolvedAircraftTemplate ? 'specific' : 'generic'"
+    :data-mobile-aircraft-navigation="usesPmdg737MobileRibbon ? 'section-ribbon' : 'search'"
   >
     <AircraftPageSearch
       :target="searchableContent"
       :content-key="`${hasResolvedAircraftTemplate ? 'specific' : 'generic'}:${aircraftSpecific.activeProfileKey || aircraftSpecific.templateId || ''}`"
+      :hide-on-mobile="usesPmdg737MobileRibbon"
     />
     <div ref="searchableContent" class="aircraft-tab-search-content">
       <AircraftSpecificSection v-if="hasResolvedAircraftTemplate" />

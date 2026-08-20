@@ -134,6 +134,24 @@ const DEFAULT_SETTINGS: SettingsObject = {
   },
 
   // ---------------------------------------------------------------------------
+  // Vendor SDK authorizations
+  // ---------------------------------------------------------------------------
+  integrations: {
+    pmdg737Sdk: {
+      // Set only by the desktop EULA flow after the installed PMDG SDK PDF is
+      // opened and the user explicitly accepts it.
+      eulaAcceptedVersion: '',
+      eulaAcceptedAt: '',
+    },
+    pmdg777Sdk: {
+      // Set only by the desktop EULA flow after the installed PMDG SDK PDF is
+      // opened and the user explicitly accepts it.
+      eulaAcceptedVersion: '',
+      eulaAcceptedAt: '',
+    },
+  },
+
+  // ---------------------------------------------------------------------------
   // Debrief
   // ---------------------------------------------------------------------------
   // Personal simulator debrief criteria. These are not SOP compliance rules and

@@ -6,6 +6,8 @@ const DEFAULT_FEEDBACK = Object.freeze({
   actionText: 'No command sent yet.',
   routeText: 'Waiting for first write.',
   profileText: 'Active profile unknown.',
+  status: 'idle',
+  commandKey: '',
 });
 
 const DEFAULT_AVAILABILITY = Object.freeze({
@@ -184,6 +186,10 @@ function getCommandCapabilityTarget(commandOrKey) {
       const key = SELECTOR_ADJUST_CAPABILITY_KEYS[mode];
       return key ? { group: 'autopilot', key } : null;
     }
+    if (commandOrKey.startsWith('selector-set:')) {
+      const key = SELECTOR_ADJUST_CAPABILITY_KEYS[commandOrKey.slice('selector-set:'.length)];
+      return key ? { group: 'autopilot', key } : null;
+    }
     if (commandOrKey.startsWith('autopilot-pulse:')) {
       const key = AUTOPILOT_PULSE_CAPABILITY_KEYS[commandOrKey.slice('autopilot-pulse:'.length)];
       return key ? { group: 'autopilotPulse', key } : null;
@@ -205,6 +211,10 @@ function getCommandCapabilityTarget(commandOrKey) {
     return key ? { group: 'autopilot', key } : null;
   }
   if (commandOrKey.type === 'selector-adjust') {
+    const key = SELECTOR_ADJUST_CAPABILITY_KEYS[commandOrKey.mode];
+    return key ? { group: 'autopilot', key } : null;
+  }
+  if (commandOrKey.type === 'selector-set') {
     const key = SELECTOR_ADJUST_CAPABILITY_KEYS[commandOrKey.mode];
     return key ? { group: 'autopilot', key } : null;
   }
@@ -280,10 +290,12 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
         : DEFAULT_AVAILABILITY.reason;
     },
 
-    setFeedback({ actionText, routeText, profileText } = {}) {
+    setFeedback({ actionText, routeText, profileText, status, commandKey } = {}) {
       if (typeof actionText === 'string') this.feedback.actionText = actionText;
       if (typeof routeText === 'string') this.feedback.routeText = routeText;
       if (typeof profileText === 'string') this.feedback.profileText = profileText;
+      if (['idle', 'sending', 'sent', 'failed'].includes(status)) this.feedback.status = status;
+      if (typeof commandKey === 'string') this.feedback.commandKey = commandKey.trim();
     },
 
     resetFeedback() {

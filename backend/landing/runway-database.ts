@@ -13,8 +13,8 @@ const { resolveOurAirportsFile } = require('./ourairports-paths');
 const csvCache = require('./ourairports-csv-cache') as CsvCacheModule;
 const { parseCsvLine, splitCsvLines } = require('../utils/csv') as CsvModule;
 const { getRunwayCsvIndexes } = require('./runway-csv-columns') as RunwayCsvColumnsModule;
-const { parseRunwayHeadingFromId } = require('./runway-heading') as RunwayHeadingModule;
 const {
+  deriveTrueBearingFromCoordinates,
   getRunwayTrueHeadingDeg,
   headingDifferenceDegrees,
 } = require('../utils/aviation-frames') as AviationFramesModule;
@@ -51,10 +51,13 @@ type RunwayCsvColumnsModule = {
   getRunwayCsvIndexes: (headers: string[]) => RunwayCsvIndexes;
 };
 
-type RunwayHeadingModule = {
-  parseRunwayHeadingFromId: (runwayId: string | null | undefined) => number;
-};
 type AviationFramesModule = {
+  deriveTrueBearingFromCoordinates: (
+    fromLatDeg: unknown,
+    fromLonDeg: unknown,
+    toLatDeg: unknown,
+    toLonDeg: unknown,
+  ) => number | null;
   getRunwayTrueHeadingDeg: (input: Record<string, unknown> | null | undefined) => number | null;
   headingDifferenceDegrees: (leftHeadingDeg: unknown, rightHeadingDeg: unknown) => number | null;
 };
@@ -255,14 +258,25 @@ function loadCsvAirportDatabase(): AirportDatabase {
       },
     ];
 
-    for (const endpoint of endpoints) {
+    for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex += 1) {
+      const endpoint = endpoints[endpointIndex];
+      const oppositeEndpoint = endpoints[endpointIndex === 0 ? 1 : 0];
       const runwayId = String(endpoint.id || '').toUpperCase();
       if (!runwayId) continue;
       if (!Number.isFinite(endpoint.lat) || !Number.isFinite(endpoint.lon)) continue;
 
       const headingTrueDeg = Number.isFinite(endpoint.hdgT)
         ? endpoint.hdgT
-        : parseRunwayHeadingFromId(runwayId);
+        : deriveTrueBearingFromCoordinates(
+            endpoint.lat,
+            endpoint.lon,
+            oppositeEndpoint.lat,
+            oppositeEndpoint.lon,
+          );
+      // A runway designator is magnetic and rounded. Never promote it to true
+      // geometry: without an explicit degT value or two valid thresholds, omit
+      // this direction so crosswind and touchdown geometry fail closed.
+      if (headingTrueDeg == null) continue;
       const physicalLengthFt = Number.isFinite(lengthFt) ? lengthFt : 0;
       const displacedThresholdFt = endpoint.displacedThresholdFt;
       const threshold = thresholdDisplacedAlongHeading(

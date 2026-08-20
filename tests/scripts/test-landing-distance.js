@@ -313,6 +313,15 @@ test('scoreLateralOffset: uses absolute offset and supplied runway width', () =>
   assertEqual(wideRunway.grade, 'Marginal', '40 ft is off-center on a 200 ft runway');
 });
 
+test('scoreLateralOffset: invalid runway widths use the safe 150 ft default', () => {
+  const expected = landingDist.scoreLateralOffset(40, 150);
+  for (const width of [null, 0, -20, NaN, Infinity]) {
+    const result = landingDist.scoreLateralOffset(40, width);
+    assertEqual(result.score, expected.score, `Invalid width ${width} score`);
+    assertEqual(result.grade, expected.grade, `Invalid width ${width} grade`);
+  }
+});
+
 test('scoreTouchdownDistance: 0 ft remains Outstanding without aircraft-specific target data', () => {
   const result = landingDist.scoreTouchdownDistance(0);
   assertEqual(result.grade, 'Outstanding', 'Zero distance');
@@ -344,6 +353,20 @@ test('scoreTouchdownDistance: NaN returns Unknown grade', () => {
 test('scoreTouchdownDistance: very large distance = Dangerous', () => {
   const result = landingDist.scoreTouchdownDistance(50000);
   assertEqual(result.grade, 'Dangerous', 'Very large distance');
+});
+
+test('scoreTouchdownDistance: touchdown at or beyond runway end is an overrun', () => {
+  const result = landingDist.scoreTouchdownDistance(900, { runwayLengthFt: 800 });
+  assertEqual(result.grade, 'Dangerous', 'Past-end touchdown must be dangerous');
+  assertEqual(result.zone, 'Past Runway End', 'Past-end touchdown should be identified explicitly');
+  assertEqual(result.score, 0, 'Past-end touchdown should receive no distance score');
+});
+
+test('isTouchdownZoneAchieved: rejects overruns and pre-threshold contacts', () => {
+  assertEqual(landingDist.isTouchdownZoneAchieved(900, 800), false, 'Past-end touchdown');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2966, 6000), true, 'Formal TDZ touchdown');
+  assertEqual(landingDist.isTouchdownZoneAchieved(3000, 3000), false, 'Runway-end touchdown');
+  assertEqual(landingDist.isTouchdownZoneAchieved(-1, 6000), false, 'Pre-threshold touchdown');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,11 +412,13 @@ test('getAdjustedBands: ice keeps ideal target fixed while giving the tightest l
   assertApprox(iceBands.GOOD.max, dryBands.GOOD.max * 0.5, 10, 'Ice later-band multiplier');
 });
 
-test('getAdjustedBands: unknown surface defaults to dry', () => {
-  const dryBands = landingDist.getAdjustedBands(10000, 'dry');
+test('getAdjustedBands: surface names are normalized and unknown values fail safe to wet', () => {
+  const wetBands = landingDist.getAdjustedBands(10000, 'wet');
+  const normalizedWetBands = landingDist.getAdjustedBands(10000, '  WET  ');
   const unknownBands = landingDist.getAdjustedBands(10000, 'unknown');
-  
-  assertEqual(unknownBands.PERFECT.max, dryBands.PERFECT.max, 'Unknown defaults to dry');
+
+  assertEqual(normalizedWetBands.GOOD.max, wetBands.GOOD.max, 'Surface names should be trimmed and case-normalized');
+  assertEqual(unknownBands.GOOD.max, wetBands.GOOD.max, 'Unknown surface should use the conservative wet bands');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -518,6 +543,19 @@ test('scoreBounce: multiple bounces grade and severity', () => {
   assertEqual(result.worstGforce, 1.9, 'Worst G-force should be max of touchdowns');
 });
 
+test('scoreBounce: known bounce count remains penalized without final touchdown geometry', () => {
+  const result = landingDist.scoreBounce({
+    bounceCount: 2,
+    firstTouchdown: { lat: 0, lon: 0, gforce: 1.4 },
+    finalTouchdown: null,
+    airborneDistanceFt: 80,
+  });
+
+  assertEqual(result.bounceCount, 2, 'Known bounce count must be preserved');
+  assertEqual(result.grade, 'Multiple Bounces', 'Missing endpoint geometry must not become a clean landing');
+  assertEqual(result.distanceTraveledFt, 80, 'Explicit airborne distance remains usable without an endpoint');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Summary
 // ─────────────────────────────────────────────────────────────────────────────
@@ -621,6 +659,15 @@ test('calculateSignedTouchdownDistance: near-threshold lateral offset does not l
   const r = landingDist.calculateSignedTouchdownDistance(T, td, 0);
   assertApprox(r.distanceFt, -1, 5, 'Only along-track distance should count before threshold');
   assertEqual(r.isShort, true, 'Point before threshold should still be marked short');
+});
+
+test('calculateSignedTouchdownDistance: normalizes longitude across the antimeridian', () => {
+  const threshold = { lat: 0, lon: 179.999 };
+  const touchdown = { lat: 0, lon: -179.999 };
+  const r = landingDist.calculateSignedTouchdownDistance(threshold, touchdown, 90);
+
+  assertApprox(r.distanceFt, 729, 10, 'Antimeridian crossing should remain runway-scale');
+  assertEqual(r.isShort, false, 'Eastbound antimeridian crossing is ahead of the threshold');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -732,6 +779,26 @@ test('calculateLateralOffset: along-track distance does not affect lateral offse
   const r1 = landingDist.calculateLateralOffset(T, td1, 90);
   const r2 = landingDist.calculateLateralOffset(T, td2, 90);
   assertApprox(r1.offsetFt, r2.offsetFt, 3, 'Lateral offset independent of along-track distance');
+});
+
+test('calculateLateralOffset: normalizes longitude across the antimeridian', () => {
+  const threshold = { lat: 0, lon: 179.999 };
+  const touchdown = { lat: 0, lon: -179.999 };
+  const r = landingDist.calculateLateralOffset(threshold, touchdown, 0);
+
+  assertApprox(r.offsetFt, 729, 10, 'Antimeridian lateral offset should remain runway-scale');
+  assertEqual(r.side, 'right', 'East is right of a northbound runway');
+});
+
+test('calculateTouchdownOffsetFromRolloutTrack: reports relative track offset, not absolute centerline offset', () => {
+  const touchdown = mkOffset(40, -74, 0, 1000, 50);
+  const rollout = [0, 200, 400, 600, 800, 1000].map((distanceFt) =>
+    mkOffset(touchdown.lat, touchdown.lon, 0, distanceFt, 0)
+  );
+  const r = landingDist.calculateTouchdownOffsetFromRolloutTrack(touchdown, rollout, 0);
+
+  assertApprox(r.offsetFt, 0, 2, 'A straight rollout passes through its own touchdown origin');
+  assertEqual(r.side, 'center', 'Relative track result should not claim the aircraft was off the absolute centerline');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -529,7 +529,7 @@ const ALTITUDE_MARKERS = Object.freeze([
  */
 const CURRENT_ANALYSIS_RESCORE_CONTRACT = Object.freeze({
   id: 'flight-fabric-landing-analysis',
-  version: 3,
+  version: 4,
   scope: 'full-landing-analysis',
 } as const);
 const RESPAWN_GAP_MS = 30000;
@@ -2286,6 +2286,9 @@ function buildLandingRowTouchdownDistance(
   const runwayLengthFt = toFiniteNumber(row.runway_length_ft);
   const runwayWidthFt = toFiniteNumber(row.runway_width_ft);
   const lateralOffsetFt = toFiniteNumber(row.lateral_offset_ft);
+  const recordedZone = typeof row.touchdown_distance_zone === 'string' && row.touchdown_distance_zone.trim()
+    ? row.touchdown_distance_zone.trim()
+    : null;
   const runwayCondition = typeof row.runway_condition === 'string' && row.runway_condition
     ? row.runway_condition
     : null;
@@ -2311,9 +2314,7 @@ function buildLandingRowTouchdownDistance(
     shortLanding,
     tdzAchieved: distanceFt === null
       ? null
-      : shortLanding !== true
-        && distanceFt >= 0
-        && distanceFt <= landingDistance.TOUCHDOWN_ZONE_MAX_FT,
+      : landingDistance.isTouchdownZoneAchieved(distanceFt, runwayLengthFt),
     runway_condition: runwayCondition,
     runway_condition_source:
       typeof row.runway_condition_source === 'string' && row.runway_condition_source
@@ -2445,7 +2446,7 @@ function buildLandingRowTouchdownDistance(
     ...common,
     score,
     grade,
-    zone: computed.zone,
+    zone: recordedZone ?? computed.zone,
     lateralOffsetGrade:
       typeof row.lateral_offset_grade === 'string' && row.lateral_offset_grade
         ? row.lateral_offset_grade
@@ -2590,9 +2591,11 @@ function finalizeAnalysisRescore(
 }
 
 /**
- * Recompute lateral offset from rollout GPS samples when enough data exists.
+ * Attach touchdown-to-rollout-track diagnostics when enough GPS data exists.
+ * The fitted aircraft path has no independent runway-position reference, so it
+ * must never replace an absolute lateral offset or its score.
  */
-function applyRolloutLateralCalibration(
+function attachRolloutLateralDiagnostics(
   generatedTimeline: GeneratedTimeline,
   rows: CsvRow[],
   scoringMode: 'recorded' | 'current-preview' = 'recorded',
@@ -2634,34 +2637,29 @@ function applyRolloutLateralCalibration(
 
     if (rolloutSamples.length < 5) continue;
 
-    const calibrated = landingDistance.calculateLateralOffsetFromTrack(
+    const rolloutRelative = landingDistance.calculateTouchdownOffsetFromRolloutTrack(
       { lat: event.lat, lon: event.lon },
       rolloutSamples,
       rwyHeading,
     );
 
-    if (calibrated.offsetFt == null) continue;
+    if (rolloutRelative.offsetFt == null) continue;
 
     const dbOffsetFt = event.touchdownDistance.lateralOffsetFt;
     const dbOffsetSide = event.touchdownDistance.lateralOffsetSide;
-    event.touchdownDistance.lateralOffsetFt = Math.abs(calibrated.offsetFt);
-    event.touchdownDistance.lateralOffsetSide = calibrated.side;
-    event.touchdownDistance.lateralOffsetSource = 'rollout-fit';
-
-    const widthForGrade = (event.runway && Number.isFinite(event.runway.width_ft) && event.runway.width_ft > 0)
-      ? event.runway.width_ft
-      : undefined;
-    const lateralScored = landingDistance.scoreLateralOffset(calibrated.offsetFt, widthForGrade);
-    if (lateralScored && lateralScored.grade && lateralScored.grade !== 'Unknown') {
-      event.touchdownDistance.lateralOffsetGrade = lateralScored.grade;
-      event.touchdownDistance.lateralOffsetScore = lateralScored.score;
+    if (dbOffsetFt != null && !event.touchdownDistance.lateralOffsetSource) {
+      event.touchdownDistance.lateralOffsetSource = 'runway-geometry';
     }
     event.touchdownDistance.lateralOffsetCalibration = {
-      sampleCount: calibrated.sampleCount,
-      alongTrackFt: calibrated.alongTrackFt,
-      empiricalHeadingDeg: calibrated.headingDeg,
+      method: 'rollout-relative',
+      sampleCount: rolloutRelative.sampleCount,
+      alongTrackFt: rolloutRelative.alongTrackFt,
+      empiricalHeadingDeg: rolloutRelative.headingDeg,
+      rolloutRelativeOffsetFt: Math.abs(rolloutRelative.offsetFt),
+      rolloutRelativeOffsetSide: rolloutRelative.side,
       databaseOffsetFt: dbOffsetFt,
       databaseOffsetSide: dbOffsetSide,
+      absoluteOffsetPreserved: true,
     };
   }
 }
@@ -3851,10 +3849,12 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           const recordedBounceCount = toFiniteNumber(row.bounce_count);
           const mergedBounceCount = analysisRescoreMode === 'current-preview'
             ? recordedBounceCount
-            : Math.max(recordedBounceCount ?? 0, toFiniteNumber(existing.bounceCount) ?? 0);
-          const replayRaisedPersistedBounceCount = (
-            (toFiniteNumber(existing.bounceCount) ?? 0) > (toFiniteNumber(row.bounce_count) ?? 0)
-          );
+            : (recordedBounceCount ?? toFiniteNumber(existing.bounceCount));
+          const bounceCountSource = analysisRescoreMode === 'recorded'
+            ? (recordedBounceCount !== null
+              ? 'recorded'
+              : (toFiniteNumber(existing.bounceCount) !== null ? 'reconstructed' : 'unavailable'))
+            : null;
           const finalizedRunway = analysisRescoreMode === 'current-preview'
             ? runwayInfo
             : runwayInfo && (
@@ -3868,17 +3868,10 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
               }
             : existing.runway;
 
-          // Replay can recover a shallow bounce that an older live detector
-          // persisted as zero. Keep the strongest count in either source.
+          // Ordinary replay preserves a recorded outcome. Sample reconstruction
+          // fills only legacy rows where bounce_count was not persisted.
           if (touchdownDistance && analysisRescoreMode === 'recorded') {
             touchdownDistance.bounceCount = mergedBounceCount;
-            if (replayRaisedPersistedBounceCount) {
-              // An older row may pair bounce_count=0 with Clean/100. Once replay
-              // recovers a physical bounce those labels are known false, while
-              // distance/load detail is insufficient for a trustworthy rescore.
-              touchdownDistance.bounceGrade = null;
-              touchdownDistance.bounceScore = null;
-            }
           }
 
           const replayPolicy = getReplayStabilityPolicyFromRow(row, existing);
@@ -3908,6 +3901,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             runwayExcursion: runwayExcursion || existing.runwayExcursion === true,
             aircraftProfileId: toNonEmptyString(row.aircraft_profile_id) || existing.aircraftProfileId || null,
             bounceCount: mergedBounceCount,
+            ...(bounceCountSource ? { bounceCountSource } : {}),
             // The SAMPLE touchdown runway is provisional. Prefer finalized
             // LANDING-row geometry when it contains an actual heading or
             // threshold; identifier-only context must not replace valid data.
@@ -3978,6 +3972,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             analysisRescoreMode,
           );
           const landingHeadline = landingGrade.headline;
+          const standaloneBounceCount = toFiniteNumber(row.bounce_count);
           generatedTimeline.events.push(applyReplayLandingGrade({
             type: 'landing',
             _landingRowMerged: true,
@@ -4010,9 +4005,10 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             grade: landingHeadline.grade,
             runwayExcursion,
             aircraftProfileId: toNonEmptyString(row.aircraft_profile_id),
-            bounceCount: analysisRescoreMode === 'current-preview'
-              ? toFiniteNumber(row.bounce_count)
-              : toFiniteNumber(row.bounce_count) ?? 0,
+            bounceCount: standaloneBounceCount,
+            ...(analysisRescoreMode === 'recorded'
+              ? { bounceCountSource: standaloneBounceCount === null ? 'unavailable' : 'recorded' }
+              : {}),
             centerlineDev: runwayInfo
               ? _computeCenterlineDev(toFiniteNumber(row.hdg_true_deg), runwayInfo.runway_heading)
               : null,
@@ -4068,7 +4064,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
     };
   }
 
-  applyRolloutLateralCalibration(generatedTimeline, rows, analysisRescoreMode);
+  attachRolloutLateralDiagnostics(generatedTimeline, rows, analysisRescoreMode);
   applyRolloutAnalysis(generatedTimeline, rows, analysisRescoreMode);
   const automationMergeError = mergeAutomationTimelineEvents(
     generatedTimeline,

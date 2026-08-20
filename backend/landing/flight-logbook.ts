@@ -98,6 +98,7 @@ type LandingEntry = {
   assists: GenericRecord | null;
   bankDeg: number | null;
   bounceCount: number | null;
+  bounceCountSource?: 'recorded' | 'reconstructed' | 'unavailable';
   bounceGrade: string | null;
   bounceScore?: number | null;
   gateStable: boolean | null;
@@ -312,18 +313,24 @@ function ensureDir(): void {
 }
 
 function readLogbook(): LogbookState {
+  let raw: string;
   try {
-    if (!fs.existsSync(LOGBOOK_FILE)) return { version: 1, entries: [] };
-    const raw = fs.readFileSync(LOGBOOK_FILE, 'utf8');
-    const data = JSON.parse(raw) as Partial<LogbookState>;
-    if (!data || !Array.isArray(data.entries)) return { version: 1, entries: [] };
-    return {
-      version: Number(data.version) || 1,
-      entries: data.entries as LandingEntry[],
-    };
-  } catch {
-    return { version: 1, entries: [] };
+    raw = fs.readFileSync(LOGBOOK_FILE, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return { version: 1, entries: [] };
+    }
+    throw error;
   }
+
+  const data = JSON.parse(raw) as Partial<LogbookState>;
+  if (!data || !Array.isArray(data.entries)) {
+    throw new Error('Logbook file has an invalid structure');
+  }
+  return {
+    version: Number(data.version) || 1,
+    entries: data.entries as LandingEntry[],
+  };
 }
 
 function writeLogbook(data: LogbookState): void {
@@ -1005,7 +1012,9 @@ function parseLandingsFromContent(
 
   const headers = lines[0].split(',').map((header) => header.trim());
   const recordTypeIndex = headers.indexOf('record_type');
-  if (recordTypeIndex === -1) return [];
+  if (recordTypeIndex === -1) {
+    throw new Error('Logbook CSV is missing the record_type column');
+  }
 
   const landings: LandingEntry[] = [];
   const compactDefaults: GenericRecord = {};
@@ -1014,8 +1023,13 @@ function parseLandingsFromContent(
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index];
     const values = parseCsvLine(line, { trimValues: true });
-    if (!values) return [];
-    if (getCsvRowWidthError(headers, values, index + 1)) return [];
+    if (!values) {
+      throw new Error(`Logbook CSV row ${index + 1} could not be parsed`);
+    }
+    const rowWidthError = getCsvRowWidthError(headers, values, index + 1);
+    if (rowWidthError) {
+      throw new Error(rowWidthError);
+    }
 
     const row: GenericRecord = {};
     for (let valueIndex = 0; valueIndex < headers.length && valueIndex < values.length; valueIndex += 1) {
@@ -1065,10 +1079,10 @@ function parseLandingsFromContent(
     if (vsFpm === null || vsFpm >= 0) continue;
     const grade = headline.grade;
     const persistedBounceCount = toRecordedNumber(row.bounce_count);
-    const replayRaisedPersistedBounceCount = recoveredBounceCount > (persistedBounceCount ?? 0);
-    const bounceCount = recoveredBounceCount > 0
-      ? Math.max(recoveredBounceCount, persistedBounceCount ?? 0)
-      : persistedBounceCount;
+    const bounceCount = persistedBounceCount ?? (recoveredBounceCount > 0 ? recoveredBounceCount : null);
+    const bounceCountSource = persistedBounceCount !== null
+      ? 'recorded'
+      : (recoveredBounceCount > 0 ? 'reconstructed' : 'unavailable');
 
     const stability = buildStabilityResult(row);
 
@@ -1128,9 +1142,8 @@ function parseLandingsFromContent(
       stabilityContext: parseBreakdownObject(row.ultimate_stability_context),
       gateStable: stability.gateStable,
       bounceCount,
-      bounceGrade: replayRaisedPersistedBounceCount
-        ? null
-        : (typeof row.bounce_grade === 'string' && row.bounce_grade.trim() ? row.bounce_grade.trim() : null),
+      bounceCountSource,
+      bounceGrade: typeof row.bounce_grade === 'string' && row.bounce_grade.trim() ? row.bounce_grade.trim() : null,
       runwayExcursion: toBool(row.runway_excursion) === true
         || isLegacyRunwayExcursionGrade(row.grade),
       rolloutAnalysis: parseBreakdownObject(row.rollout_analysis),
@@ -1398,8 +1411,6 @@ async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOpti
       });
     }
     return fileLandings.slice();
-  } catch {
-    return [];
   } finally {
     try { await fileHandle?.close(); } catch {}
   }
@@ -1439,8 +1450,12 @@ async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<Lan
         const missIndex = nextMissIndex++;
         if (missIndex >= misses.length) return;
         const { filePath, mtimeMs } = misses[missIndex];
-        const fileLandings = await getLandingsFromCsvFile(filePath, { bypassCache: true, mtimeMs });
-        allLandings.push(...fileLandings);
+        try {
+          const fileLandings = await getLandingsFromCsvFile(filePath, { bypassCache: true, mtimeMs });
+          allLandings.push(...fileLandings);
+        } catch {
+          landingsFileCache.delete(normalizeCachePath(filePath));
+        }
       }
     });
     await Promise.all(workers);

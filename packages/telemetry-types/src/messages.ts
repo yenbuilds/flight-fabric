@@ -104,10 +104,10 @@ export interface StabilityBreakdown {
   thrust_ok?: number | null;
   thrust_not_idle_ok?: number | null;
   thrust_stable_ok?: number | null;
-  config_ok?: number;
-  flaps_ok?: number;
+  config_ok?: number | null;
+  flaps_ok?: number | null;
   spoilers_ok?: number;
-  gear_ok?: number;
+  gear_ok?: number | null;
 }
 
 export type ApproachStabilityVerdict = 'stable' | 'marginal' | 'unstable' | 'no_verdict';

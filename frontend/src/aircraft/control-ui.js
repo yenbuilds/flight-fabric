@@ -140,6 +140,11 @@ export function getAircraftControlCommandPendingKey(command) {
     return `selector-adjust:${mode}:${action}`;
   }
 
+  if (command.type === 'selector-set') {
+    const mode = typeof command.mode === 'string' ? command.mode.trim() : '';
+    return mode ? `selector-set:${mode}` : '';
+  }
+
   if (command.type === 'autopilot-pulse') {
     const commandId = typeof command.id === 'string' ? command.id.trim() : '';
     if (!commandId) return '';

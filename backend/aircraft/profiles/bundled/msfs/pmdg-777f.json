@@ -1,0 +1,32 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-777f",
+  "name": "PMDG Boeing 777F",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-07-27T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/pmdg-777",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 140,
+      "titleContains": ["PMDG 777F", "PMDG Boeing 777F", "PMDG 777 Freighter"],
+      "titleRegex": "pmdg.*(777f|777[- ]?freighter)|(777f|777[- ]?freighter).*pmdg",
+      "configPathContains": ["pmdg-aircraft-77f", "pmdg-777f"],
+      "configPathRegex": "pmdg.*(777f|77f)|(777f|77f).*pmdg"
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-27",
+    "status": "partial",
+    "notes": "PMDG 777 Freighter variant using the shared expanded, fixed-target official-SDK adapter and aircraft page, including the PMDG-published main-deck-flow selector. Variant live validation remains pending."
+  }
+}

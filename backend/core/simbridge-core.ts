@@ -3324,7 +3324,7 @@ async function runSimbridgeCore({
   // ───────────────────────────────────────────────────────────────────────────
   // Tick Helper Group: Landing and Engine Output Utilities
   // ───────────────────────────────────────────────────────────────────────────
-  function updateLandingRunnerIfEnabled(frame, xwind, stability, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, convectiveContext = null) {
+  function updateLandingRunnerIfEnabled(frame, xwind, stability, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, convectiveContext = null, sampleDtMs = null, flapsForScoring = null) {
     if (!capabilities.enableLandingRunner || !flightActive) return;
 
     const sc = frame && frame.simconnect;
@@ -3402,6 +3402,8 @@ async function runSimbridgeCore({
           const scoringThrottlePct = resolveApproachScoringThrottlePct(frame, fallbackEngineLevels);
           const augFrame = {
             ...frame,
+            dtMs: Number.isFinite(sampleDtMs) && sampleDtMs > 0 ? sampleDtMs : frame.dtMs,
+            flaps: flapsForScoring || frame.flaps,
             pitchDeg: typeof pitchRad === 'number' ? rad2deg(pitchRad) : undefined,
             bankDeg:  typeof bankRad  === 'number' ? rad2deg(bankRad)  : undefined,
             thrust: scoringThrottlePct ?? frame.thrust,
@@ -3770,7 +3772,9 @@ async function runSimbridgeCore({
           suppression: manualAutoStartSuppression,
           nowEpochMs,
           simconnectConnected,
+          simRunning: sc?.simRunning,
           inFlightContext: !!(sc && sc.inFlightContext),
+          paused: frame?.paused === true || sc?.paused === true,
           aircraftTitle: sc?.aircraftLoadedName || null,
           phase: getPhase(),
           wow,
@@ -4333,6 +4337,7 @@ async function runSimbridgeCore({
       hdgTrueDegStream,
       fdmForRecording,
       autopilotReliabilityForRecording,
+      stabilityDtMs: evaluationDeltaMs,
     };
   }
 
@@ -4659,6 +4664,7 @@ async function runSimbridgeCore({
       hdgTrueDegStream,
       fdmForRecording,
       autopilotReliabilityForRecording,
+      stabilityDtMs,
     } = processStreamingAndScoring(frame, {
       timestampIso,
       nowEpochMs,
@@ -4728,6 +4734,8 @@ async function runSimbridgeCore({
       hdgMagDegStream,
       hdgTrueDegStream,
       { iasKts: iasKnots, vsFpm: vsFeetPerMin, pitchDeg: pitch, bankDeg: bank, pitchRateDeg, bankRateDeg },
+      stabilityDtMs,
+      flapsView,
     );
 
     // ENGINE ASYMMETRY DETECTION hook reserved for future implementation.

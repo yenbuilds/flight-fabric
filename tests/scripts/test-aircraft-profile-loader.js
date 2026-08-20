@@ -128,6 +128,14 @@ const VENDOR_SPECIFIC_MATCH_TOKENS = new Map([
   ['justflight-146', ['justflight', 'just', 'jf', 'jfa']],
   ['kuro-787-8', ['kuro', 'kurorin']],
   ['miltech-c17', ['miltech']],
+  ['pmdg-737', ['pmdg']],
+  ['pmdg-737-600', ['pmdg']],
+  ['pmdg-737-700', ['pmdg']],
+  ['pmdg-737-900', ['pmdg']],
+  ['pmdg-777', ['pmdg']],
+  ['pmdg-777-200er', ['pmdg']],
+  ['pmdg-777-200lr', ['pmdg']],
+  ['pmdg-777f', ['pmdg']],
   ['tfdi-md-11', ['tfdi']],
   ['virtualcol-a220', ['virtualcol']],
 ]);
@@ -629,7 +637,16 @@ test('Has at least 4 profiles', profiles.length >= 4);
 
 const profileIds = profiles.map(p => p.id);
 test('List includes generic', profileIds.includes('generic'));
-test('List excludes deferred PMDG profiles', !profileIds.some(id => id.startsWith('pmdg-')));
+test('List includes PMDG 737 and 777 family profiles', [
+  'pmdg-737',
+  'pmdg-737-600',
+  'pmdg-737-700',
+  'pmdg-737-900',
+  'pmdg-777',
+  'pmdg-777-200er',
+  'pmdg-777-200lr',
+  'pmdg-777f',
+].every(id => profileIds.includes(id)));
 test('List includes airbus-base', profileIds.includes('airbus-base'));
 test('List excludes the deferred Microsoft C408 profile', !profileIds.includes('microsoft-c408-skycourier'));
 test('List excludes the deferred Microsoft DHC-6 profile', !profileIds.includes('microsoft-dhc6-twin-otter'));
@@ -735,11 +752,7 @@ section('Auto-Detection');
 loader.clearCache();
 
 const detected777 = loader.detectProfile('PMDG 777-300ER Captain');
-test(
-  'Deferred PMDG 777 does not activate a vendor integration',
-  !String(detected777?.id || '').startsWith('pmdg-') &&
-    detected777?.integration?.aircraftSpecific?.adapter == null
-);
+test('Detects PMDG 777 from title', detected777?.id === 'pmdg-777');
 
 const detectedUnknown = loader.detectProfile('Some Random Aircraft XYZ');
 test('Falls back to generic for unknown', detectedUnknown?.id === 'generic');
@@ -1088,13 +1101,13 @@ test(
 const detectedPmdg737FromHintPath = loader.detectProfile('737-800 PAX SSW TC', {
   hint: 'SimObjects/Airplanes/PMDG 737-800/aircraft.cfg',
 });
-test('Deferred PMDG 737 path falls back to generic', detectedPmdg737FromHintPath?.id === 'generic');
+test('Detects PMDG 737 from PMDG config-path hint when title is generic', detectedPmdg737FromHintPath?.id === 'pmdg-737');
 
 const pmdg737LogConfigPath = 'SimObjects\\Airplanes\\PMDG 737-800\\presets\\pmdg\\PMDG 737-800 SSW TC\\config\\aircraft.CFG';
 const detectedPmdg737FromLoadedPath = loader.detectProfile(pmdg737LogConfigPath, {
   hint: pmdg737LogConfigPath,
 });
-test('Deferred PMDG 737 loaded path falls back to generic', detectedPmdg737FromLoadedPath?.id === 'generic');
+test('Detects PMDG 737 from MSFS AircraftLoaded config path', detectedPmdg737FromLoadedPath?.id === 'pmdg-737');
 
 const legacyCommunityRootDir = path.join(retiredAircraftProfilesDir, 'Community');
 const legacyCommunityPmdg737Path = path.join(legacyCommunityRootDir, 'pmdg-737.json');
@@ -1108,8 +1121,8 @@ try {
     hint: pmdg737LogConfigPath,
   });
   test(
-    'Invalid legacy-root community PMDG 737 file does not create an integration',
-    detectedWithInvalidLegacyShadow?._qualifiedId === 'bundled/msfs/generic'
+    'Invalid legacy-root community PMDG 737 file does not block bundled auto-detection',
+    detectedWithInvalidLegacyShadow?._qualifiedId === 'bundled/msfs/pmdg-737'
   );
 } finally {
   fs.unlinkSync(legacyCommunityPmdg737Path);
@@ -1156,8 +1169,8 @@ try {
     hint: pmdg737LogConfigPath,
   });
   test(
-    'Legacy community PMDG 737 profile cannot silently activate',
-    detectedWithLegacyCommunity?._qualifiedId === 'bundled/msfs/generic' &&
+    'Retired legacy community PMDG 737 profile cannot shadow the bundled integration',
+    detectedWithLegacyCommunity?._qualifiedId === 'bundled/msfs/pmdg-737' &&
       !fs.existsSync(migratedLocalPmdg737Path)
   );
 } finally {

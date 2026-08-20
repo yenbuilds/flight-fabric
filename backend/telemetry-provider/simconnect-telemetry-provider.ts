@@ -38,6 +38,13 @@
 const Debug = require('../core/debug');
 const eventBus = require('../core/event-bus');
 const profileLoader = require('../aircraft/aircraft-profile-loader');
+const userSettings = require('../core/user-settings') as { settings: AnyRecord };
+const { getPmdg737SdkEulaAcceptance } = require('../../shared/pmdg-737-sdk-authorization.js') as {
+  getPmdg737SdkEulaAcceptance: (settings: AnyRecord) => { accepted: boolean };
+};
+const { getPmdg777SdkEulaAcceptance } = require('../../shared/pmdg-777-sdk-authorization.js') as {
+  getPmdg777SdkEulaAcceptance: (settings: AnyRecord) => { accepted: boolean };
+};
 const {
   defaultAircraftIntegrationRegistry,
   normalizeAircraftIntegrationActionInput,
@@ -165,6 +172,8 @@ const AIRCRAFT_INTEGRATION_DERIVED_LIGHT_SIMVARS: Readonly<Record<string, string
   'LIGHT TAXI:2': 'turnoff',
   'LIGHT WING': 'wing',
 });
+const PMDG_737_INTEGRATION_ID = 'pmdg-737';
+const PMDG_777_INTEGRATION_ID = 'pmdg-777';
 
 function finiteTelemetryNumber(value: unknown): number | null {
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -2990,14 +2999,20 @@ class SimConnectTelemetryProvider {
                 ? `A newer aircraft state arrived, but ${failedReadback.fieldId} was ${formatAircraftControlReadbackValue(confirmation.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
                 : `The aircraft published no newer control state; ${failedReadback.fieldId} remained ${formatAircraftControlReadbackValue(failedBaseline.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
             );
+        const operationalHint = (
+          integration.id === PMDG_777_INTEGRATION_ID
+          && integrationAction.id.startsWith('controls.parkingBrake.')
+        )
+          ? ' PMDG Realistic parking-brake mode can require both toe brakes to be held before the lever accepts SET; releasing may be controlled by pedal input.'
+          : '';
         return {
           ok: false,
           code: simConnectException
             ? 'aircraft_integration_simconnect_exception'
             : 'aircraft_integration_readback_timeout',
           error: simConnectException
-            ? `SimConnect rejected command ${route.command} after its initial acknowledgement (exception ${formatAircraftControlReadbackValue(simConnectException.exception)}, packet ${simConnectException.sendId}). ${readbackDetail}`
-            : `The transport accepted the command, but readback did not confirm it within ${failedReadback.timeoutMs} ms. ${readbackDetail}`,
+            ? `SimConnect rejected command ${route.command} after its initial acknowledgement (exception ${formatAircraftControlReadbackValue(simConnectException.exception)}, packet ${simConnectException.sendId}). ${readbackDetail}${operationalHint}`
+            : `The transport accepted the command, but readback did not confirm it within ${failedReadback.timeoutMs} ms. ${readbackDetail}${operationalHint}`,
           backendSource,
           integrationId: integration.id,
           actionId: integrationAction.id,
@@ -3392,6 +3407,18 @@ class SimConnectTelemetryProvider {
 
   _resolveActiveSdkProfile() {
     const activeProfile = profileLoader.getActiveProfile?.() || null;
+    if (
+      activeProfile?.integration?.aircraftSpecific?.adapter === PMDG_737_INTEGRATION_ID
+      && !getPmdg737SdkEulaAcceptance(userSettings.settings).accepted
+    ) {
+      return null;
+    }
+    if (
+      activeProfile?.integration?.aircraftSpecific?.adapter === PMDG_777_INTEGRATION_ID
+      && !getPmdg777SdkEulaAcceptance(userSettings.settings).accepted
+    ) {
+      return null;
+    }
     return sdkRegistry.resolveProfileSdkConfig(activeProfile?.dataSource);
   }
 

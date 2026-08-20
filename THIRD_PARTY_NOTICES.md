@@ -123,6 +123,31 @@ source as third-party code.
 - Used for: The local MSFS telemetry sidecar dynamically loads the SimConnect client runtime so Flight Fabric can connect to the SimConnect server built into Microsoft Flight Simulator.
 - Notes: The packaged app loads the bundled DLL from a trusted app resource path. Advanced users can override the DLL path with `FF_SIMCONNECT_DLL_PATH` or the app setting `simulator.simConnectDllPath`.
 
+## PMDG Aircraft SDK Interoperability
+
+- Products: PMDG 737 and PMDG 777 aircraft SDKs for Microsoft Flight
+  Simulator, by Precision Manuals Development Group (PMDG).
+- Material used: interoperability constants and data-layout metadata derived
+  from the official SDK documentation/header installed with a user's licensed
+  PMDG aircraft.
+- Source and binary scope: the public source and official Windows builds contain
+  the minimum independently written compatibility metadata needed to read
+  aircraft-published ClientData and send fixed, guarded SDK control events.
+  This includes event and field mappings plus declarative connector definitions,
+  allowing public-source builders to build the same PMDG-capable application as
+  the downloadable release.
+- Permission: the project owner has confirmed permission to publish and use the
+  SDK interoperability implementation in this form. Retain the permission
+  record and recheck it before expanding the scope or importing more vendor
+  material.
+- Not redistributed: Flight Fabric does not include PMDG aircraft packages,
+  SDK headers, manuals, EULA PDFs, artwork, or other PMDG binaries or content.
+- User authorization: PMDG SDK access stays disabled until the desktop user
+  opens and explicitly accepts the SDK EULA installed with the matching PMDG
+  aircraft. The installed EULA and the user's PMDG licence control that use.
+- Trademarks: PMDG and the referenced aircraft/product names belong to their
+  respective owners. No affiliation or endorsement is implied.
+
 ## MobiFlight Event Module (optional, not bundled)
 
 - Source: https://github.com/MobiFlight/MobiFlight-WASM-Module

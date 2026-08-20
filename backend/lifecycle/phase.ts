@@ -306,6 +306,18 @@ function getCategoryThresholds(category: unknown): PhaseThresholds {
   return ICAO_CATEGORY_THRESHOLDS[normalizeCategory(category)];
 }
 
+/**
+ * Returns a stateless phase candidate from the current telemetry sample.
+ * Ground telemetry alone cannot distinguish departure from arrival: a high-speed,
+ * low-RA takeoff roll can look like LANDING, while outbound taxi can look like
+ * TAXI_IN. Production callers must pass this candidate through phase-runner.ts,
+ * which uses WOW transition history, taxi-in eligibility, and allowed transitions
+ * to resolve those ambiguities before publishing a phase.
+ *
+ * Future refactor: make this provisional contract explicit in the API (for example, by
+ * renaming the function or returning a neutral ground candidate). Reordering the
+ * ground checks is not sufficient because it would misclassify landing rollout.
+ */
 function detectFlightPhase({
   ias,
   gs,

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-737-600",
+  "name": "PMDG Boeing 737-600",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-07-14T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/pmdg-737",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 140,
+      "titleContains": ["PMDG 737-600", "PMDG Boeing 737-600", "PMDG B736"],
+      "titleRegex": "pmdg.*(737[- ]?600|b736)|(737[- ]?600|b736).*pmdg",
+      "configPathContains": ["pmdg-aircraft-736", "pmdg-737-600"],
+      "configPathRegex": "pmdg.*(737[-_ ]?600|736|b736)|(737[-_ ]?600|736|b736).*pmdg"
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-14",
+    "status": "partial",
+    "notes": "PMDG 737-600 variant using the shared official-SDK adapter and aircraft page."
+  }
+}

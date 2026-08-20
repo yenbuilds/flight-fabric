@@ -25,6 +25,8 @@ csvCache.getContent = (fileName: string): string | null => {
       'BFLT,First Runway Latitude Gate,100',
       'BDIS,Displaced Threshold Field,100',
       'BPAR,Staggered Parallel Field,100',
+      'BDRV,Coordinate Derived Heading,100',
+      'BSKP,Missing True Geometry,100',
     ].join('\n');
   }
 
@@ -38,6 +40,8 @@ csvCache.getContent = (fileName: string): string | null => {
       'BDIS,17,35,0.1,0,0,0,10000,150,ASP,0,180,360,0,2000',
       'BPAR,36L,,20,40,,,8000,150,ASP,0,360,,,',
       'BPAR,36R,,19.99,40.003,,,8000,150,ASP,0,360,,,',
+      'BDRV,05,23,0,0,0.01,0.01,8000,150,ASP,0,,,,',
+      'BSKP,09,,5,5,,,8000,150,ASP,0,,,,',
     ].join('\n');
   }
 
@@ -53,6 +57,8 @@ const { findRunwayByPosition, getRunway } = require('./runway-database') as {
     lengthFt: number;
     physicalLengthFt: number;
     displacedThresholdFt: number;
+    heading: number;
+    heading_true_deg: number;
     threshold: { lat: number; lon: number };
     physicalThreshold: { lat: number; lon: number };
   } | null;
@@ -87,6 +93,29 @@ test('runway records expose true heading with legacy heading alias', () => {
   assertEqual(match?.icao, 'BBAD', 'Expected true-heading-filtered runway match');
   assertEqual(match?.heading_true_deg, 360, 'Expected explicit true-heading field from CSV heading_degT');
   assertEqual(match?.heading, 360, 'Expected legacy heading alias to preserve compatibility');
+});
+
+test('missing degT headings are derived from threshold coordinates, not runway designators', () => {
+  const lowEnd = getRunway('BDRV', '05');
+  const highEnd = getRunway('BDRV', '23');
+
+  assertTrue(
+    lowEnd != null && Math.abs(lowEnd.heading_true_deg - 45) < 0.01,
+    `Expected coordinate-derived true heading near 45 degrees, got ${lowEnd?.heading_true_deg}`,
+  );
+  assertTrue(
+    highEnd != null && Math.abs(highEnd.heading_true_deg - 225) < 0.01,
+    `Expected reciprocal coordinate-derived true heading near 225 degrees, got ${highEnd?.heading_true_deg}`,
+  );
+  assertEqual(lowEnd?.heading, lowEnd?.heading_true_deg, 'legacy alias should retain the derived true bearing');
+});
+
+test('missing degT heading without reciprocal threshold geometry fails closed', () => {
+  assertEqual(
+    getRunway('BSKP', '09'),
+    null,
+    'A magnetic runway designator must not be exposed as true runway geometry',
+  );
 });
 
 test('primary runway matching rejects a far parallel runway', () => {

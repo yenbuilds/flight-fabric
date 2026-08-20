@@ -1,1 +1,18 @@
-[]
+[
+  {
+    "description": "PMDG profiles must fail closed instead of falling back to generic MSFS key-event writes; PMDG aircraft controls require a trusted official-SDK action.",
+    "enforce": true,
+    "match": {
+      "profileKeyPrefixes": ["pmdg-"],
+      "profileKeyIncludes": ["/pmdg-"],
+      "idPrefixes": ["pmdg-"],
+      "developerIncludes": ["pmdg"],
+      "controlBackends": ["pmdg"],
+      "telemetryPreferredIncludes": ["pmdg"]
+    },
+    "controls": {
+      "genericFallback": false,
+      "standardSurfaceFallback": false
+    }
+  }
+]

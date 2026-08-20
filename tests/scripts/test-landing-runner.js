@@ -2215,5 +2215,134 @@ test('rollout taxi threshold is frozen at touchdown and reset for the next attem
   });
 });
 
+test('runway overrun is dangerous, persisted, and never marked TDZ-achieved', () => {
+  const runwayData = {
+    icao: 'TEST',
+    runway: '36',
+    runwayId: '36',
+    heading: 360,
+    lengthFt: 800,
+    widthFt: 150,
+    surface: 'ASPHALT',
+    threshold: { lat: 0, lon: 0 },
+  };
+
+  withMockRunway(runwayData, (createWithMockRunway) => {
+    const finalPayloads = [];
+    const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+    let finalBroadcast;
+    try {
+      finalBroadcast = finalizeLanding(createWithMockRunway, makeFrame({
+        lat: 900 / 364567,
+        lon: 0,
+        simconnect: { lat: 900 / 364567, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0 },
+        display: { iasKts: 138, gsKts: 120, vsFpm: -500, raFt: 4 },
+      }));
+    } finally {
+      off();
+    }
+
+    const finalPayload = finalPayloads.find((payload) => payload?.landing_final === true);
+    assert(finalPayload, 'Expected canonical landing:final payload');
+    assert.strictEqual(finalBroadcast.touchdownDistance.score, 0, 'Overrun must receive no distance score');
+    assert.strictEqual(finalBroadcast.touchdownDistance.grade, 'Dangerous', 'Overrun must be dangerous');
+    assert.strictEqual(finalBroadcast.touchdownDistance.zone, 'Past Runway End', 'Broadcast must include overrun zone');
+    assert.strictEqual(finalBroadcast.touchdownDistance.tdzAchieved, false, 'Broadcast overrun cannot achieve TDZ');
+    assert.strictEqual(finalPayload.touchdown_distance_zone, 'Past Runway End', 'Canonical payload must persist overrun zone');
+  });
+});
+
+test('invalid SimConnect coordinates fall back to a valid frame coordinate pair', () => {
+  const runwayData = {
+    icao: 'TEST',
+    runway: '36',
+    runwayId: '36',
+    heading: 360,
+    lengthFt: 6000,
+    widthFt: 150,
+    surface: 'ASPHALT',
+    threshold: { lat: 0, lon: 0 },
+  };
+  let lookup = null;
+
+  withMockRunwayProvider({
+    findRunwayByPosition: (lat, lon) => {
+      lookup = { lat, lon };
+      return runwayData;
+    },
+    findNearbyAirport: () => null,
+    getRunway: () => runwayData,
+  }, (createWithMockRunway) => {
+    const finalBroadcast = finalizeLanding(createWithMockRunway, makeFrame({
+      lat: 0.001,
+      lon: 0,
+      simconnect: { lat: Number.NaN, lon: Number.POSITIVE_INFINITY, hdgTrueDeg: 0, hdgMagDeg: 0 },
+      display: { iasKts: 138, gsKts: 120, vsFpm: -500, raFt: 4 },
+    }));
+
+    assert.deepStrictEqual(lookup, { lat: 0.001, lon: 0 }, 'Runway lookup must receive fallback frame coordinates');
+    assert(Number.isFinite(finalBroadcast.touchdownDistance.distanceFt), 'Fallback coordinates must produce a finite distance');
+    assert(finalBroadcast.touchdownDistance.distanceFt > 300, 'Fallback coordinate distance should be retained');
+  });
+});
+
+test('simulator touchdown snapshots remain spatially trusted across the antimeridian', () => {
+  withMockRunwayProvider({
+    findRunwayByPosition: () => null,
+    findNearbyAirport: () => null,
+    getRunway: () => null,
+  }, (createWithMockRunway) => {
+    const runner = createWithMockRunway();
+    const broadcasts = [];
+    const finalPayloads = [];
+    const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+    const t0 = 1_700_400_000_000;
+    const ctx = makeCtx();
+    const previousTouchdown = {
+      latDeg: 0,
+      lonDeg: 179.998,
+      headingTrueDeg: 90,
+      headingMagDeg: 90,
+      pitchDeg: 3,
+      bankDeg: 0,
+      normalVelocityFps: 4,
+      normalVelocityFpm: 240,
+    };
+    const freshTouchdown = {
+      ...previousTouchdown,
+      lonDeg: 179.999,
+      pitchDeg: 5,
+      normalVelocityFps: 5,
+      normalVelocityFpm: 300,
+    };
+
+    try {
+      runner.update(makeFrame({
+        wow: false,
+        simconnect: { lat: 0, lon: -179.999, hdgTrueDeg: 90, hdgMagDeg: 90, touchdown: previousTouchdown },
+      }), (payload) => broadcasts.push(payload), { nowEpochMs: t0 }, ctx);
+      runner.update(makeFrame({
+        wow: true,
+        simconnect: { lat: 0, lon: -179.999, hdgTrueDeg: 90, hdgMagDeg: 90, touchdown: freshTouchdown },
+        display: { iasKts: 138, gsKts: 120, vsFpm: -300, raFt: 0 },
+      }), (payload) => broadcasts.push(payload), { nowEpochMs: t0 + 100 }, ctx);
+      runner.update(makeFrame({
+        wow: true,
+        simconnect: { lat: 0, lon: -179.999, hdgTrueDeg: 90, hdgMagDeg: 90, touchdown: freshTouchdown },
+        display: { iasKts: 60, gsKts: 60, vsFpm: 0, raFt: 0 },
+      }), (payload) => broadcasts.push(payload), { nowEpochMs: t0 + 120000 }, ctx);
+    } finally {
+      off();
+    }
+
+    const finalPayload = finalPayloads.find((payload) => payload?.landing_final === true);
+    assert(finalPayload, 'Expected canonical landing:final payload');
+    assert.strictEqual(finalPayload.td_sim_trusted, true, 'Dateline-adjacent simulator touchdown must remain spatially trusted');
+    assert.strictEqual(finalPayload.touchdown_capture_source, 'msfs_last_touchdown', 'Trusted snapshot should be selected');
+    assert.strictEqual(finalPayload.lat_deg, 0, 'Trusted snapshot latitude should be persisted');
+    assert.strictEqual(finalPayload.lon_deg, 179.999, 'Trusted snapshot longitude should be persisted');
+  });
+});
+
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

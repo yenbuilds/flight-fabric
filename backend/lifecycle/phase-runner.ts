@@ -174,6 +174,7 @@ const ALLOWED_TRANSITIONS: Readonly<Record<PhaseValue, Set<PhaseValue>>> = Objec
     PHASES.LANDING,
     PHASES.TAXI_IN,
     PHASES.TAXI,
+    PHASES.PARKED,
     PHASES.CLIMB,
     PHASES.GO_AROUND,
     PHASES.TAKEOFF,
@@ -798,6 +799,7 @@ function createPhaseRunner(options: CreatePhaseRunnerOptions = {}): PhaseRunner 
         }
         if (flightPhase === PHASES.PARKED) {
           takeoffTs = 0;
+          wasAirborneBeforeTouchdown = false;
         }
 
         try {

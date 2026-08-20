@@ -68,6 +68,14 @@ export const AIRCRAFT_PROFILE_VISUALS = Object.freeze({
   'bundled/msfs/microsoft-737-max-8': { assetKey: 'boeing-737-max-8', fidelity: 'exact' },
   'bundled/msfs/microsoft-atr-72-600': { assetKey: 'atr-72-600', fidelity: 'exact' },
   'bundled/msfs/miltech-c17': { assetKey: 'boeing-c17', fidelity: 'exact' },
+  'bundled/msfs/pmdg-737': { assetKey: 'boeing-737-800', fidelity: 'exact' },
+  'bundled/msfs/pmdg-737-600': { assetKey: 'boeing-737-800', fidelity: 'family' },
+  'bundled/msfs/pmdg-737-700': { assetKey: 'boeing-737-800', fidelity: 'family' },
+  'bundled/msfs/pmdg-737-900': { assetKey: 'boeing-737-800', fidelity: 'family' },
+  'bundled/msfs/pmdg-777': { assetKey: 'boeing-777-300er', fidelity: 'exact' },
+  'bundled/msfs/pmdg-777-200er': { assetKey: 'boeing-777-300er', fidelity: 'family' },
+  'bundled/msfs/pmdg-777-200lr': { assetKey: 'boeing-777-300er', fidelity: 'family' },
+  'bundled/msfs/pmdg-777f': { assetKey: 'boeing-777-300er', fidelity: 'family' },
   'bundled/msfs/regional-jet': { assetKey: 'regional-jet', fidelity: 'class' },
   'bundled/msfs/tfdi-md-11': { assetKey: 'mcdonnell-douglas-md11', fidelity: 'exact' },
   'bundled/msfs/turboprop-base': { assetKey: 'turboprop', fidelity: 'class' },
@@ -136,8 +144,18 @@ const NAME_RULES = [
   { aliases: ['787-10', 'B78X'], assetKey: 'boeing-787-10' },
   { aliases: ['787-9', 'B789'], assetKey: 'boeing-787-9' },
   { aliases: ['787-8', 'B788'], assetKey: 'boeing-787-8' },
-  // The catalog art is specifically the -300ER; do not promote bare 777s or adjacent variants.
-  { aliases: ['777-300ER', 'B77W'], assetKey: 'boeing-777-300er' },
+  // The catalog art is specifically the -300ER; only identified PMDG siblings use it as family art.
+  {
+    allOf: [
+      ['PMDG'],
+      ['777-300ER', '77W', '777-200ER', '777-200LR', '77L', '777F', '777 Freighter'],
+    ],
+    assetKey: 'boeing-777-300er',
+  },
+  {
+    aliases: ['777-300ER', 'B77W'],
+    assetKey: 'boeing-777-300er',
+  },
   {
     aliases: ['737 MAX 8', '737-8 MAX', 'B38M'],
     allOf: [
@@ -145,6 +163,13 @@ const NAME_RULES = [
       ['MAX 8'],
     ],
     assetKey: 'boeing-737-max-8',
+  },
+  {
+    allOf: [
+      ['PMDG'],
+      ['737-600', 'B736', '737-700', 'B737', '737-800', 'B738', '737-900', '737-900ER', 'B739'],
+    ],
+    assetKey: 'boeing-737-800',
   },
   {
     aliases: ['737-800', 'B738'],

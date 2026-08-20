@@ -105,6 +105,7 @@ function isActionPending(groupId) {
     v-if="aircraftSpecific.hasTemplate && templateComponent"
     id="aircraft-specific-section"
     class="flight-section-block ff-panel bg-surface-100 border border-surface-200 overflow-hidden"
+    :class="{ 'aircraft-specific-section--pmdg-mobile-ribbon': aircraftSpecific.templateId === 'pmdg-737' }"
   >
     <div class="p-3 sm:p-4 border-b border-surface-200 flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -201,3 +202,11 @@ function isActionPending(groupId) {
     </Suspense>
   </section>
 </template>
+
+<style scoped>
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .aircraft-specific-section--pmdg-mobile-ribbon {
+    overflow: visible !important;
+  }
+}
+</style>

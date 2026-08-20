@@ -601,6 +601,31 @@ async function main() {
     });
     assert.equal(lateFormalTdzVerdict.flags.tdzAchieved, true, '2,966 ft should remain inside the formal 3,000-ft TDZ');
     assert.equal(lateFormalTdzVerdict.flags.touchdownTargetAchieved, false, '2,966 ft must not pass the first-1,000-ft target');
+    const overrunVerdict = buildLandingVerdict({
+      touchdownDistance: {
+        distanceFt: 900,
+        runwayLengthFt: 800,
+        score: 0,
+        grade: 'Dangerous',
+        zone: 'Past Runway End',
+        tdzAchieved: true,
+      },
+    });
+    assert.equal(overrunVerdict.flags.tdzAchieved, false, 'an overrun must override a stale explicit TDZ flag');
+    assert.equal(overrunVerdict.flags.touchdownTargetAchieved, false, 'an overrun cannot achieve the touchdown target');
+    assert.equal(overrunVerdict.touchdown.color, '#ef4444', 'an overrun must retain the danger color');
+
+    const inferredOverrunVerdict = buildLandingVerdict({
+      touchdownDistance: {
+        distanceFt: 900,
+        runwayLengthFt: 800,
+        score: 0,
+        grade: 'Dangerous',
+        tdzAchieved: true,
+      },
+    });
+    assert.equal(inferredOverrunVerdict.flags.tdzAchieved, false, 'runway length must identify an overrun when zone is absent');
+    assert.equal(inferredOverrunVerdict.touchdown.color, '#ef4444', 'an inferred overrun must retain the danger color');
     const lateFormalTdzReasons = buildDebriefReasons({
       touchdownDistance: { distanceFt: 2966, grade: 'Acceptable', tdzAchieved: true },
     }, {

@@ -13,6 +13,7 @@ import MsfsInstallsModal from './MsfsInstallsModal.vue';
 import QuickGlanceBar from './QuickGlanceBar.vue';
 import SystemBanners from './SystemBanners.vue';
 import { useBodyClass } from '../composables/useBodyClass.js';
+import { useVisualViewportCssVars } from '../composables/useVisualViewportCssVars.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { initCabinAnnouncementsRuntime } from '../../cabin-announcements/runtime.js';
@@ -26,6 +27,7 @@ let cabinAnnouncementsRuntime = null;
 
 useBodyClass(() => status.simInMenu, 'sim-in-menu');
 useBodyClass(() => status.quickGlanceVisible, 'quick-glance-active');
+useVisualViewportCssVars();
 
 onMounted(() => {
   cabinAnnouncementsRuntime = initCabinAnnouncementsRuntime({
@@ -76,7 +78,7 @@ onUnmounted(() => {
     <QuickGlanceBar />
   </div>
 
-  <main id="vue-main-root" class="app-main flex-1 overflow-y-auto scrollbar-hide">
+  <main id="vue-main-root" class="app-main ff-scroll-y flex-1 overflow-y-auto scrollbar-hide">
     <MainContentShell />
   </main>
 

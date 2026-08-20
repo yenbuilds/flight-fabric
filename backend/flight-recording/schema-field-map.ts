@@ -1230,6 +1230,11 @@ const FIELD_MAP: FieldDef[] = [
     format: fmt.str,
   },
   {
+    name: "touchdown_distance_zone",
+    extract: (f) => f.touchdownDistanceZone ?? f.touchdown_distance_zone,
+    format: fmt.str,
+  },
+  {
     name: "runway_geometry_source",
     extract: (f) => f.runwayGeometrySource ?? f.runway_geometry_source,
     format: fmt.str,

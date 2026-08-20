@@ -40,7 +40,7 @@ test('history index schema initializes tables, indexes, and meta', (t) => {
   }
 
   withTempDb((db) => {
-    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v12');
+    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v16');
     const result = initializeHistoryIndexSchema(db);
     assert.equal(result.contractInvalidated, false);
     assert.equal(result.schemaVersion, HISTORY_INDEX_SCHEMA_VERSION);
@@ -108,7 +108,7 @@ test('history index schema upgrades v1 in place and adds the landing flight-key 
   });
 });
 
-test('history index schema retains readable rows but invalidates their freshness when the source contract changes', (t) => {
+test('history index schema clears derived rows when the source contract changes', (t) => {
   const probe = loadNodeSqlite();
   if (!probe.available) {
     t.skip(`node:sqlite unavailable in this runtime: ${probe.error}`);
@@ -141,19 +141,14 @@ test('history index schema retains readable rows but invalidates their freshness
       4096,
       JSON.stringify({ aircraft: 'old-derived-value' }),
     );
-    db.prepare("UPDATE history_index_meta SET value = 'flight-bundle-history-index-v7' WHERE key = 'source_contract_version'").run();
+    db.prepare("UPDATE history_index_meta SET value = 'flight-bundle-history-index-v15' WHERE key = 'source_contract_version'").run();
 
     const result = initializeHistoryIndexSchema(db);
 
     assert.equal(result.contractInvalidated, true);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_source_files').get().count, 1);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_flights').get().count, 1);
-    const freshness = db.prepare(`
-      SELECT flights_indexed_at_ms, landings_indexed_at_ms
-      FROM history_source_files
-    `).get();
-    assert.equal(freshness.flights_indexed_at_ms, null);
-    assert.equal(freshness.landings_indexed_at_ms, null);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_source_files').get().count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_flights').get().count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_landings').get().count, 0);
     assert.equal(result.meta.source_contract_version, HISTORY_INDEX_SOURCE_CONTRACT_VERSION);
   });
 });

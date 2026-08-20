@@ -163,6 +163,50 @@ test('manual auto-start suppression remains active while the same aircraft is ai
   assertTrue(result.blockers.includes('manual_stop_auto_start_suppressed'), 'Suppression blocker should be visible');
 });
 
+test('manual auto-start suppression remains active through a connected simulator pause', () => {
+  const first = updateManualAutoStartSuppression({
+    suppression: {
+      active: true,
+      sinceMs: 1000,
+      aircraftTitle: 'A320',
+      parkedResetSinceMs: null,
+      contextResetSinceMs: null,
+    },
+    nowEpochMs: 10000,
+    simconnectConnected: true,
+    simRunning: true,
+    inFlightContext: false,
+    paused: true,
+    aircraftTitle: 'A320',
+    phase: 'CLIMB',
+    wow: false,
+    iasKnots: 180,
+    gsKnots: 190,
+    maxEnginePct: 85,
+    contextResetDwellMs: 5000,
+  });
+
+  const second = updateManualAutoStartSuppression({
+    suppression: first.suppression,
+    nowEpochMs: 60000,
+    simconnectConnected: true,
+    simRunning: true,
+    inFlightContext: false,
+    paused: true,
+    aircraftTitle: 'A320',
+    phase: 'CLIMB',
+    wow: false,
+    iasKnots: 180,
+    gsKnots: 190,
+    maxEnginePct: 85,
+    contextResetDwellMs: 5000,
+  });
+
+  assertEqual(second.suppressed, true, 'Connected pause should preserve manual-stop suppression');
+  assertEqual(second.cleared, false, 'Connected pause should not re-arm auto-start');
+  assertEqual(second.suppression.contextResetSinceMs, null, 'Connected pause should not start a context-reset timer');
+});
+
 test('manual auto-start suppression clears after parked engines-off dwell', () => {
   const first = updateManualAutoStartSuppression({
     suppression: {
@@ -237,6 +281,40 @@ test('manual auto-start suppression clears after aircraft context reset dwell', 
   assertEqual(second.suppressed, false, 'Context reset dwell should re-arm auto-start');
   assertEqual(second.cleared, true, 'Context reset dwell should clear suppression');
   assertEqual(second.clearReason, 'context_reset', 'Clear reason should identify context reset');
+});
+
+test('manual auto-start suppression clears after connected simulator-stop dwell', () => {
+  const first = updateManualAutoStartSuppression({
+    suppression: {
+      active: true,
+      sinceMs: 1000,
+      aircraftTitle: 'A320',
+      parkedResetSinceMs: null,
+      contextResetSinceMs: null,
+    },
+    nowEpochMs: 5000,
+    simconnectConnected: true,
+    simRunning: false,
+    inFlightContext: false,
+    paused: true,
+    aircraftTitle: 'A320',
+    contextResetDwellMs: 5000,
+  });
+
+  const second = updateManualAutoStartSuppression({
+    suppression: first.suppression,
+    nowEpochMs: 10000,
+    simconnectConnected: true,
+    simRunning: false,
+    inFlightContext: false,
+    paused: true,
+    aircraftTitle: 'A320',
+    contextResetDwellMs: 5000,
+  });
+
+  assertEqual(second.suppressed, false, 'Simulator-stop dwell should re-arm auto-start');
+  assertEqual(second.cleared, true, 'Simulator-stop dwell should clear suppression');
+  assertEqual(second.clearReason, 'context_reset', 'Simulator-stop clear should identify context reset');
 });
 
 test('manual auto-start suppression clears immediately when aircraft changes', () => {
@@ -384,6 +462,21 @@ test('active flight end guard clears pending ends when simulator recovers before
   assertEqual(reconnected.endReason, null, 'Recovered SimConnect disconnect should not end the active flight');
   assertEqual(reconnected.state.pendingReason, null, 'Recovered SimConnect disconnect should clear the pending reason');
   assertEqual(reconnected.state.simconnectDisconnectedSinceMs, null, 'Recovered SimConnect disconnect should clear the disconnect timer');
+});
+
+test('active flight end guard keeps recording open during a connected simulator pause', () => {
+  const result = updateActiveFlightEndGuard({
+    state: null,
+    flightActive: true,
+    nowEpochMs: 60000,
+    simconnectConnected: true,
+    simRunning: true,
+    disconnectGraceMs: 5000,
+    simStoppedGraceMs: 5000,
+  });
+
+  assertEqual(result.endReason, null, 'Connected pause should not end the active recording');
+  assertEqual(result.state.pendingReason, null, 'Connected pause should not start an end timer');
 });
 
 test('updateMotionDetector ignores IAS-only changes while waiting for ground-speed movement', () => {

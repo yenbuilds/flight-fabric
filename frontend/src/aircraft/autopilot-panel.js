@@ -1,5 +1,6 @@
 import { toFiniteNumber } from '../utils/number.js';
 import { getAircraftControlCommandPendingKey } from './control-ui.js';
+import { validateAutopilotTargetValue } from './autopilot-targets.js';
 
 const DEFAULT_AUTOPILOT_STATE = Object.freeze({
   master: null,
@@ -335,6 +336,18 @@ export function createAutopilotPanel({
     );
   }
 
+  function sendSelectorSetCommand(mode, rawValue, button = null) {
+    const target = AUTOPILOT_SELECTOR_TARGETS[mode];
+    const validated = validateAutopilotTargetValue(mode, rawValue);
+    if (!target || !validated.ok) return false;
+
+    const command = { type: 'selector-set', mode, value: validated.value };
+    return aircraftControl.send(
+      { control: 'autopilot', target, operation: 'set', value: validated.value },
+      getSendOptions(command, button, 'Setting\u2026'),
+    );
+  }
+
   function sendAutopilotPulseCommand(commandId, button = null) {
     const pulse = Object.prototype.hasOwnProperty.call(AUTOPILOT_PULSE_COMMANDS, commandId)
       ? AUTOPILOT_PULSE_COMMANDS[commandId]
@@ -388,6 +401,10 @@ export function createAutopilotPanel({
 
     if (command.type === 'selector-adjust') {
       return sendSelectorAdjustCommand(command.mode, command.action, button);
+    }
+
+    if (command.type === 'selector-set') {
+      return sendSelectorSetCommand(command.mode, command.value, button);
     }
 
     if (command.type === 'autopilot-pulse') {

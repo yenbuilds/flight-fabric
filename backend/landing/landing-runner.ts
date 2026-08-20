@@ -31,7 +31,7 @@ const {
 
 // Touchdown distance calculation
 const { findNearbyAirport, findRunwayByPosition, getRunway } = require('./airport-geometry-service') as AirportGeometryServiceModule;
-const { scoreBounce, TOUCHDOWN_ZONE_MAX_FT } = require('./landing-distance') as LandingDistanceModule;
+const { scoreBounce } = require('./landing-distance') as LandingDistanceModule;
 const {
   buildDefaultTouchdownDistanceData,
   buildTouchdownRunwayAnalysis,
@@ -141,7 +141,6 @@ type AirportGeometryServiceModule = {
 };
 type LandingDistanceModule = {
   scoreBounce: (bounceData: AnyRecord) => AnyRecord;
-  TOUCHDOWN_ZONE_MAX_FT: number;
 };
 type FlightAnalysisModule = {
   buildDefaultTouchdownDistanceData: (bounceScoring?: AnyRecord) => AnyRecord;
@@ -187,12 +186,15 @@ function distanceFtBetweenLatLon(a: { lat: unknown; lon: unknown }, b: { lat: un
   const latB = finiteNumberOrNull(b.lat);
   const lonB = finiteNumberOrNull(b.lon);
   if (latA == null || lonA == null || latB == null || lonB == null) return null;
+  if (!isValidLatLon(latA, lonA) || !isValidLatLon(latB, lonB)) return null;
 
   const meanLatRad = ((latA + latB) / 2) * Math.PI / 180;
   const feetPerDegLat = 364000;
   const feetPerDegLon = feetPerDegLat * Math.cos(meanLatRad);
   const dLatFt = (latA - latB) * feetPerDegLat;
-  const dLonFt = (lonA - lonB) * feetPerDegLon;
+  const rawLonDelta = lonA - lonB;
+  const normalizedLonDelta = ((rawLonDelta + 540) % 360) - 180;
+  const dLonFt = normalizedLonDelta * feetPerDegLon;
   return Math.sqrt(dLatFt * dLatFt + dLonFt * dLonFt);
 }
 
@@ -517,6 +519,7 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
     runway_displaced_threshold_ft: tdd.runway_displaced_threshold_ft ?? rwy.displacedThresholdFt ?? null,
     touchdown_distance_score: tdd.touchdown_distance_score ?? null,
     touchdown_distance_grade: tdd.touchdown_distance_grade ?? null,
+    touchdown_distance_zone: tdd.touchdown_distance_zone ?? null,
     short_landing: tdd.short_landing ?? tdd.shortLanding ?? null,
     runway_condition: tdd.runway_condition ?? null,
     runway_condition_source: tdd.runway_condition_source ?? null,
@@ -571,13 +574,15 @@ function isLikelyRunwayExcursionSurface(surface: AnyRecord | null | undefined): 
 // broadcasts, final rollout scoring, and CSV/event payloads reuse these helpers
 // so touchdown-time values do not get mixed with later rollout frames.
 function getTouchdownPosition(frame: AnyRecord): { lat_deg: number | null; lon_deg: number | null } {
+  const simLat = finiteNumberOrNull(frame.simconnect?.lat);
+  const simLon = finiteNumberOrNull(frame.simconnect?.lon);
+  const frameLat = finiteNumberOrNull(frame.lat);
+  const frameLon = finiteNumberOrNull(frame.lon);
+  const useSimPosition = isValidLatLon(simLat, simLon);
+  const useFramePosition = isValidLatLon(frameLat, frameLon);
   return {
-    lat_deg: (frame.simconnect && typeof frame.simconnect.lat === 'number')
-      ? frame.simconnect.lat
-      : (typeof frame.lat === 'number' ? frame.lat : null),
-    lon_deg: (frame.simconnect && typeof frame.simconnect.lon === 'number')
-      ? frame.simconnect.lon
-      : (typeof frame.lon === 'number' ? frame.lon : null),
+    lat_deg: useSimPosition ? simLat : (useFramePosition ? frameLat : null),
+    lon_deg: useSimPosition ? simLon : (useFramePosition ? frameLon : null),
   };
 }
 
@@ -759,7 +764,7 @@ function resolveTouchdownGeometry(touchdownSummary: AnyRecord, ctx: LandingRunne
   const airportGeometryContext = buildAirportGeometryContext(ctx);
   let runwayData = null;
 
-  if (lat != null && lon != null) {
+  if (isValidLatLon(lat, lon)) {
     const acftHeading = getRunwayComparisonHeading(touchdownSummary);
     runwayData = findRunwayByPosition(lat, lon, 2, acftHeading, airportGeometryContext);
   }
@@ -768,7 +773,7 @@ function resolveTouchdownGeometry(touchdownSummary: AnyRecord, ctx: LandingRunne
   }
 
   let runwayReferenceData = runwayData;
-  if (!runwayReferenceData && lat != null && lon != null) {
+  if (!runwayReferenceData && isValidLatLon(lat, lon)) {
     const airportData = findNearbyAirport(lat, lon, 5, airportGeometryContext);
     if (airportData) {
       runwayReferenceData = {
@@ -787,7 +792,7 @@ function buildRunwayTouchdownDistanceData(input: {
   touchdownSummary: AnyRecord;
   runwayData: AnyRecord;
   bounceScoring: AnyRecord;
-}): { touchdownDistanceData: AnyRecord; shortLandingDetected: boolean } {
+}): { touchdownDistanceData: AnyRecord; shortLandingDetected: boolean; tdzAchieved: boolean } {
   const { touchdownSummary, runwayData, bounceScoring } = input;
   const analysis = buildTouchdownRunwayAnalysis({
     runwayData,
@@ -815,14 +820,8 @@ function buildRunwayTouchdownDistanceData(input: {
   return {
     touchdownDistanceData: analysis.touchdownDistanceData,
     shortLandingDetected: analysis.shortLandingDetected,
+    tdzAchieved: analysis.tdzAchieved,
   };
-}
-
-function isTouchdownZoneAchieved(touchdownDistanceData: AnyRecord, shortLandingDetected: boolean): boolean {
-  return !shortLandingDetected &&
-    touchdownDistanceData.touchdown_distance_ft != null &&
-    touchdownDistanceData.touchdown_distance_ft >= 0 &&
-    touchdownDistanceData.touchdown_distance_ft <= TOUCHDOWN_ZONE_MAX_FT;
 }
 
 function getMeasuredGForce(frame: AnyRecord | null | undefined): number | null {
@@ -1088,6 +1087,7 @@ function buildFinalLandingBroadcast(input: {
       runwayLengthFt: touchdownDistanceData.runway_length_ft,
       grade: touchdownDistanceData.touchdown_distance_grade,
       score: touchdownDistanceData.touchdown_distance_score,
+      zone: touchdownDistanceData.touchdown_distance_zone,
       tdzAchieved,
       shortLanding: shortLandingDetected,
       runway: touchdownDistanceData.runway_icao && touchdownDistanceData.runway_id
@@ -2005,6 +2005,7 @@ function createLandingRunner(): LandingRunner {
 
         // Track if this was a short landing (before threshold)
         let shortLandingDetected = false;
+        let tdzAchieved = false;
 
         if (runwayData) {
           const result = buildRunwayTouchdownDistanceData({
@@ -2014,9 +2015,9 @@ function createLandingRunner(): LandingRunner {
           });
           touchdownDistanceData = result.touchdownDistanceData;
           shortLandingDetected = result.shortLandingDetected;
+          tdzAchieved = result.tdzAchieved;
         }
 
-        const tdzAchieved = isTouchdownZoneAchieved(touchdownDistanceData, shortLandingDetected);
         const centerlineDeviation = calculateCenterlineDeviation(runwayData, touchdownSummary);
 
         try {

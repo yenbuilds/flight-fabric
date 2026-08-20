@@ -9,6 +9,7 @@ const { createHarness } = require('../../tests/support/mini-test-harness') as {
 };
 
 const {
+  deriveTrueBearingFromCoordinates,
   deriveMagneticHeadingFromTrue,
   deriveTrueHeadingFromMagnetic,
   getAircraftTrueHeadingDeg,
@@ -16,6 +17,12 @@ const {
   headingDifferenceDegrees,
   normalizeHeadingDegrees,
 } = require('./aviation-frames') as {
+  deriveTrueBearingFromCoordinates: (
+    fromLatDeg: unknown,
+    fromLonDeg: unknown,
+    toLatDeg: unknown,
+    toLonDeg: unknown,
+  ) => number | null;
   deriveMagneticHeadingFromTrue: (trueHeadingDeg: unknown, magvarDeg: unknown) => number | null;
   deriveTrueHeadingFromMagnetic: (magneticHeadingDeg: unknown, magvarDeg: unknown) => number | null;
   getAircraftTrueHeadingDeg: (input: Record<string, unknown> | null | undefined) => number | null;
@@ -37,6 +44,13 @@ test('converts between magnetic and true headings using project magvar conventio
   assertEqual(deriveTrueHeadingFromMagnetic(267, 14), 253, 'true = magnetic - west-positive magvar');
   assertEqual(deriveMagneticHeadingFromTrue(253, 14), 267, 'magnetic = true + west-positive magvar');
   assertEqual(deriveTrueHeadingFromMagnetic(10, 20), 350, 'true heading conversion should wrap around north');
+});
+
+test('derives true bearings only from valid unambiguous coordinates', () => {
+  assertEqual(deriveTrueBearingFromCoordinates(0, 0, 1, 0), 0, 'northbound geometry should be true north');
+  assertEqual(deriveTrueBearingFromCoordinates(0, 0, 0, 1), 90, 'eastbound geometry should be true east');
+  assertEqual(deriveTrueBearingFromCoordinates(0, 0, 0, 0), null, 'coincident thresholds must stay unknown');
+  assertEqual(deriveTrueBearingFromCoordinates(91, 0, 0, 0), null, 'invalid latitude must stay unknown');
 });
 
 test('computes signed heading deltas across north', () => {

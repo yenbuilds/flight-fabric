@@ -31,8 +31,8 @@ export function createAircraftControlController({
     return id;
   }
 
-  function setFeedback({ actionText, routeText, profileText } = {}) {
-    controlsStore?.setFeedback?.({ actionText, routeText, profileText });
+  function setFeedback(feedback = {}) {
+    controlsStore?.setFeedback?.(feedback);
   }
 
   function applyControlCapabilities(capabilities = {}) {
@@ -140,17 +140,22 @@ export function createAircraftControlController({
     if (hadPending && typeof reason === 'string' && reason.trim()) {
       setFeedback({
         routeText: reason.trim(),
+        status: 'failed',
       });
     }
   }
 
   function send(request, { pendingKey = '', minimumPendingMs = 0 } = {}) {
+    const requestedPendingKey = (typeof pendingKey === 'string' && pendingKey.trim())
+      || getAircraftControlRequestPendingKey(request);
     const availability = updateAvailability();
     if (!availability.enabled) {
       const description = describeAircraftControlRequest(request);
       setFeedback({
         actionText: description,
         routeText: availability.reason,
+        status: 'failed',
+        commandKey: requestedPendingKey,
       });
       emitToast('error', 'Aircraft control unavailable', availability.toast, { durationMs: 4800 });
       return false;
@@ -159,8 +164,7 @@ export function createAircraftControlController({
     const wsSend = getWsSend();
     const requestId = createRequestId();
     const description = describeAircraftControlRequest(request);
-    const resolvedPendingKey = (typeof pendingKey === 'string' && pendingKey.trim())
-      || getAircraftControlRequestPendingKey(request);
+    const resolvedPendingKey = requestedPendingKey;
     const canStorePending = Boolean(
       resolvedPendingKey
       && typeof controlsStore?.setCommandPending === 'function'
@@ -183,6 +187,8 @@ export function createAircraftControlController({
       actionText: description,
       routeText: 'Sending control request\u2026',
       profileText: 'Resolving against active profile\u2026',
+      status: 'sending',
+      commandKey: resolvedPendingKey,
     });
     wsSend({
       ...request,
@@ -243,6 +249,8 @@ export function createAircraftControlController({
         actionText: description,
         routeText,
         profileText: profileKey,
+        status: 'sent',
+        commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request),
       });
       emitToast('success', 'Aircraft control sent', `${description} \u00b7 ${routeText}`, { durationMs: 3600 });
       return;
@@ -260,6 +268,8 @@ export function createAircraftControlController({
         ? `${routeParts.join(' \u00b7 ')} \u00b7 ${msg?.error || 'Request failed.'}`
         : (msg?.error || 'Request failed.'),
       profileText: profileKey,
+      status: 'failed',
+      commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request),
     });
     emitToast('error', 'Aircraft control failed', msg?.error || 'Request failed.', { durationMs: 5200 });
   }

@@ -409,8 +409,15 @@ async function main() {
     { createTelemetryDisplay },
     { createTelemetryWarnings },
     { AIRCRAFT_CONTROL_BUTTON_SELECTOR },
+    {
+      adjustAutopilotTargetValue,
+      formatAutopilotTargetValue,
+      resolveAutopilotTargetStatus,
+      validateAutopilotTargetValue,
+    },
     { createAircraftControlController },
     { createAutopilotPanel },
+    { installVisualViewportCssVars },
     { initCabinAnnouncementsRuntime },
     { createLandingController },
     { initMockLandingRuntime },
@@ -470,8 +477,10 @@ async function main() {
     import(toFrontendUrl('src', 'telemetry', 'display.js')),
     import(toFrontendUrl('src', 'telemetry', 'warnings.js')),
     import(toFrontendUrl('src', 'aircraft', 'control-ui.js')),
+    import(toFrontendUrl('src', 'aircraft', 'autopilot-targets.js')),
     import(toFrontendUrl('src', 'aircraft', 'control-controller.js')),
     import(toFrontendUrl('src', 'aircraft', 'autopilot-panel.js')),
+    import(toFrontendUrl('src', 'vue', 'composables', 'useVisualViewportCssVars.js')),
     import(toFrontendUrl('src', 'cabin-announcements', 'runtime.js')),
     import(toFrontendUrl('src', 'landing', 'controller.js')),
     import(toFrontendUrl('src', 'landing', 'mock-runtime.js')),
@@ -509,6 +518,83 @@ async function main() {
   }
 
   console.log('\n=== Vue Runtime Interaction Tests ===\n');
+
+  console.log('--- mobile flight controls ---\n');
+  await test('autopilot target tuning validates exact bounded values and wraps heading adjustments', () => {
+    assert.deepEqual(
+      validateAutopilotTargetValue('alt', 12300),
+      { ok: true, value: 12300, error: '' },
+      'aligned altitude targets should be accepted',
+    );
+    assert.equal(validateAutopilotTargetValue('spd', null).ok, false, 'missing readback must not be interpreted as a zero target');
+    assert.equal(validateAutopilotTargetValue('alt', 12345).ok, false, 'off-step altitude targets should fail closed');
+    assert.equal(validateAutopilotTargetValue('vs', 10000).ok, false, 'out-of-range vertical speed should fail closed');
+    assert.equal(adjustAutopilotTargetValue('hdg', 355, 10), 5, 'heading coarse adjustment should wrap through north');
+    assert.equal(adjustAutopilotTargetValue('hdg', 4, -10), 354, 'heading decrement should wrap below north');
+    assert.equal(adjustAutopilotTargetValue('alt', 60000, 1000), 60000, 'bounded adjustments should stop at the safe maximum');
+    assert.equal(formatAutopilotTargetValue('vs', -700), '-700', 'vertical-speed display should preserve its sign');
+  });
+
+  await test('autopilot target rejection wins over an already-matching live readback', () => {
+    assert.deepEqual(
+      resolveAutopilotTargetStatus({
+        mode: 'alt',
+        feedbackMatches: true,
+        feedbackStatus: 'failed',
+        feedbackMessage: 'Profile rejected the command.',
+        submittedValue: 12000,
+        liveReadbackValue: 12000,
+        liveDisplayValue: '12,000',
+      }),
+      { tone: 'failed', text: 'Profile rejected the command.' },
+      'a failed command must never be presented as confirmed merely because its value was already live',
+    );
+  });
+
+  await test('visual viewport CSS variables keep keyboard-safe overlays inside the visible phone viewport', () => {
+    const values = {};
+    const viewportListeners = new Map();
+    const windowListeners = new Map();
+    const visualViewport = {
+      height: 540,
+      offsetTop: 40,
+      addEventListener(type, handler) { viewportListeners.set(type, handler); },
+      removeEventListener(type, handler) {
+        if (viewportListeners.get(type) === handler) viewportListeners.delete(type);
+      },
+    };
+    const windowRef = {
+      innerHeight: 900,
+      visualViewport,
+      addEventListener(type, handler) { windowListeners.set(type, handler); },
+      removeEventListener(type, handler) {
+        if (windowListeners.get(type) === handler) windowListeners.delete(type);
+      },
+    };
+    const documentRef = {
+      documentElement: {
+        style: {
+          setProperty(key, value) { values[key] = value; },
+          removeProperty(key) { delete values[key]; },
+        },
+      },
+    };
+
+    const cleanup = installVisualViewportCssVars({ windowRef, documentRef });
+    assert.equal(values['--ff-visual-viewport-height'], '540px');
+    assert.equal(values['--ff-visual-viewport-offset-top'], '40px');
+    assert.equal(values['--ff-keyboard-inset'], '320px');
+
+    visualViewport.height = 620;
+    visualViewport.offsetTop = 0;
+    viewportListeners.get('resize')();
+    assert.equal(values['--ff-keyboard-inset'], '280px', 'keyboard inset should follow visual viewport resize');
+
+    cleanup();
+    assert.equal(values['--ff-visual-viewport-height'], undefined, 'cleanup should remove app-owned viewport variables');
+    assert.equal(viewportListeners.size, 0, 'cleanup should remove visual viewport listeners');
+    assert.equal(windowListeners.size, 0, 'cleanup should remove window listeners');
+  });
 
   console.log('--- telemetry display ---\n');
   await test('telemetry heading preserves magnetic zero over true-heading fallback', () => {
@@ -1987,6 +2073,47 @@ async function main() {
       profileRevision: 4,
     });
     assert.equal(controller.updateAvailability().enabled, true, 'a fresh profile token should restore write availability');
+
+    const exactTargetIndex = sent.length;
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({ type: 'selector-set', mode: 'alt', value: 12300 }),
+      true,
+      'the focused target editor should delegate one exact bounded target through the shared controller',
+    );
+    assert.deepEqual(
+      sent[exactTargetIndex],
+      {
+        type: 'executeAircraftControl',
+        requestId: sent[exactTargetIndex].requestId,
+        profileKey: 'bundled/msfs/pmdg-777',
+        profileRevision: 4,
+        control: 'autopilot',
+        target: 'altitude',
+        operation: 'set',
+        value: 12300,
+      },
+      'focused tuning must preserve the profile token and use the existing autopilot target request',
+    );
+    assert.equal(aircraftControlsStore.feedback.status, 'sending', 'focused target feedback should enter the sending state');
+    assert.equal(aircraftControlsStore.feedback.commandKey, 'selector-set:alt', 'focused target feedback should identify its physical selector');
+    assert.equal(aircraftControlsStore.isCommandPending('selector-set:alt'), true, 'focused target should remain pending until its result');
+    controller.handleResult({
+      requestId: sent[exactTargetIndex].requestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'key-event', name: 'AP_ALT_VAR_SET_ENGLISH' },
+      backendSource: 'SimConnect',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.equal(aircraftControlsStore.feedback.status, 'sent', 'accepted target feedback should distinguish sent from live readback confirmation');
+    assert.equal(aircraftControlsStore.isCommandPending('selector-set:alt'), false, 'accepted target should clear its focused-editor pending state');
+    const sentBeforeInvalidExactTarget = sent.length;
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({ type: 'selector-set', mode: 'alt', value: 12345 }),
+      false,
+      'off-step focused targets should fail before reaching the websocket controller',
+    );
+    assert.equal(sent.length, sentBeforeInvalidExactTarget, 'invalid focused targets must not emit a websocket write');
 
     aircraftControlsStore.applyControlCapabilities({
       surface: {

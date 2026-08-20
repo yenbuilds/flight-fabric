@@ -147,6 +147,7 @@ const CRITICAL_LANDING_CSV_MAPPINGS: readonly FieldMapping[] = Object.freeze([
   { payloadKey: 'runway_displaced_threshold_ft', column: 'runway_displaced_threshold_ft' },
   { payloadKey: 'touchdown_distance_score', column: 'touchdown_distance_score' },
   { payloadKey: 'touchdown_distance_grade', column: 'touchdown_distance_grade' },
+  { payloadKey: 'touchdown_distance_zone', column: 'touchdown_distance_zone' },
   { payloadKey: 'short_landing', column: 'short_landing' },
   { payloadKey: 'runway_condition', column: 'runway_condition' },
   { payloadKey: 'runway_condition_source', column: 'runway_condition_source' },

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-737-900",
+  "name": "PMDG Boeing 737-900/900ER",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-07-14T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/pmdg-737",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 140,
+      "titleContains": ["PMDG 737-900", "PMDG 737-900ER", "PMDG Boeing 737-900", "PMDG B739"],
+      "titleRegex": "pmdg.*(737[- ]?900(?:er)?|b739)|(737[- ]?900(?:er)?|b739).*pmdg",
+      "configPathContains": ["pmdg-aircraft-739", "pmdg-737-900", "pmdg-737-900er"],
+      "configPathRegex": "pmdg.*(737[-_ ]?900(?:er)?|739|b739)|(737[-_ ]?900(?:er)?|739|b739).*pmdg"
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-14",
+    "status": "partial",
+    "notes": "PMDG 737-900 and 737-900ER variants using the shared official-SDK adapter and aircraft page."
+  }
+}

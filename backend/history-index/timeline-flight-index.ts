@@ -10,7 +10,8 @@ type AnyRecord = Record<string, any>;
 type TimelineFlightIndexRefreshResult = {
   indexed: number;
   skipped: number;
-  pruned: number;
+  sourcesPruned: number;
+  flightsPruned: number;
   totalInput: number;
 };
 type TimelineFlightIndexQueryOptions = {
@@ -328,11 +329,12 @@ function refreshTimelineFlightsIndex(store: AnyRecord, flights: unknown[], optio
     }
   }
 
-  const pruned = options.pruneMissing === false ? 0 : store.pruneMissingSources(indexedPaths);
+  const pruned = options.pruneMissing === false ? null : store.pruneMissingSources(indexedPaths);
   return {
     indexed,
     skipped,
-    pruned,
+    sourcesPruned: Number(pruned?.sourcesPruned) || 0,
+    flightsPruned: Number(pruned?.flightsPruned) || 0,
     totalInput: rows.length,
   };
 }

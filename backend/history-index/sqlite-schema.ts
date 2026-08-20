@@ -9,7 +9,7 @@ type InitializeResult = {
 };
 
 const HISTORY_INDEX_SCHEMA_VERSION = 2;
-const HISTORY_INDEX_SOURCE_CONTRACT_VERSION = 'flight-bundle-history-index-v12';
+const HISTORY_INDEX_SOURCE_CONTRACT_VERSION = 'flight-bundle-history-index-v16';
 const HISTORY_INDEX_TABLES = [
   'history_index_meta',
   'history_source_files',
@@ -259,19 +259,12 @@ function initializeHistoryIndexSchema(db: AnyRecord): InitializeResult {
     const existingMeta = readHistoryIndexMeta(db);
     const existingContractVersion = existingMeta.source_contract_version;
     if (existingContractVersion && existingContractVersion !== HISTORY_INDEX_SOURCE_CONTRACT_VERSION) {
-      // Indexed payloads are derived from CSVs by application code. A contract
-      // bump means unchanged CSV identities may now produce different rows.
-      // Mark both lanes stale so the progressive rebuild refreshes every source,
-      // while retaining the previous derived rows for read availability.
-      db.exec(`
-        UPDATE history_source_files
-        SET flights_mtime_ms = NULL,
-            flights_size_bytes = NULL,
-            flights_indexed_at_ms = NULL,
-            landings_mtime_ms = NULL,
-            landings_size_bytes = NULL,
-            landings_indexed_at_ms = NULL
-      `);
+      // The SQLite catalogue is derived entirely from authoritative recording
+      // bundles. Contract changes rebuild it instead of carrying migration code
+      // for old internal identities and payload shapes.
+      db.prepare('DELETE FROM history_landings').run();
+      db.prepare('DELETE FROM history_flights').run();
+      db.prepare('DELETE FROM history_source_files').run();
       contractInvalidated = true;
     }
     const now = nowIso();

@@ -39,6 +39,34 @@ export function normalizeHeadingDegrees(value: unknown): number | null {
   return ((numeric % 360) + 360) % 360;
 }
 
+export function deriveTrueBearingFromCoordinates(
+  fromLatDeg: unknown,
+  fromLonDeg: unknown,
+  toLatDeg: unknown,
+  toLonDeg: unknown,
+): number | null {
+  const coordinates = [fromLatDeg, fromLonDeg, toLatDeg, toLonDeg];
+  if (!coordinates.every((value) => typeof value === 'number' && Number.isFinite(value))) return null;
+
+  const [fromLat, fromLon, toLat, toLon] = coordinates as number[];
+  if (Math.abs(fromLat) > 90 || Math.abs(toLat) > 90) return null;
+  if (Math.abs(fromLon) > 180 || Math.abs(toLon) > 180) return null;
+
+  const degreesToRadians = Math.PI / 180;
+  const fromLatRad = fromLat * degreesToRadians;
+  const toLatRad = toLat * degreesToRadians;
+  const deltaLonRad = (toLon - fromLon) * degreesToRadians;
+  const y = Math.sin(deltaLonRad) * Math.cos(toLatRad);
+  const x = (
+    Math.cos(fromLatRad) * Math.sin(toLatRad)
+    - Math.sin(fromLatRad) * Math.cos(toLatRad) * Math.cos(deltaLonRad)
+  );
+
+  // Coincident and antipodal points do not define one unambiguous initial bearing.
+  if (Math.hypot(x, y) < 1e-12) return null;
+  return normalizeHeadingDegrees(Math.atan2(y, x) / degreesToRadians);
+}
+
 // Project convention: magvar_deg is positive when magnetic north is west of
 // true north, matching MSFS. Therefore magnetic = true + magvar and
 // true = magnetic - magvar.

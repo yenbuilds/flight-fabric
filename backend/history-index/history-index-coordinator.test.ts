@@ -101,6 +101,42 @@ test('history coordinator checkpoints newest-first and prefers summaries over de
   }
 });
 
+test('history coordinator does not commit a source when landing parsing fails', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-landing-failure-'));
+  try {
+    const csvPath = path.join(root, 'flight.csv');
+    fs.writeFileSync(csvPath, 'flight');
+    const stat = fs.statSync(csvPath);
+    const store = createMemoryStore();
+    let summariesWritten = 0;
+    const coordinator = createHistoryIndexCoordinator({
+      openHistoryIndexStore: () => ({ success: true, store }),
+      getFlightLogsDir: () => root,
+      acquireBundleReadLease: () => ({ acquired: true, release() {} }),
+      readHistorySummary: () => null,
+      writeHistorySummary() { summariesWritten += 1; return true; },
+      buildListedCsvFlightFromPath: () => ({
+        filePath: csvPath,
+        flightId: 'flight',
+        timestamp: new Date(1).toISOString(),
+      }),
+      async getLandingsFromCsvFile() {
+        throw new Error('malformed landing CSV');
+      },
+    });
+
+    coordinator.start([{ filePath: csvPath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size }]);
+    const complete = await waitForCompletion(coordinator);
+    assert.equal(complete.phase, 'complete');
+    assert.equal(complete.failures, 1);
+    assert.equal(complete.indexedFiles, 0);
+    assert.equal(summariesWritten, 0);
+    assert.equal(store.calls.length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('history coordinator rebuild clears only the derived store and reuses summaries', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-rebuild-'));
   try {

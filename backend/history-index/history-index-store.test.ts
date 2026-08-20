@@ -80,6 +80,22 @@ test('logbook landing index scopes repeated display ids to their CSV source', ()
   assert.equal(second.stabilityScore, null);
 });
 
+test('logbook landing index preserves recording session identity', () => {
+  const source = {
+    filePath: 'C:/Flight Logs/session.csv',
+    mtimeMs: 10,
+    sizeBytes: 100,
+    recordingSessionId: 'session-123',
+  };
+  const landing = landingToIndexInput({
+    id: 'landing-id',
+    timestampMs: 1000,
+    timestamp: '2026-07-09T00:00:01.000Z',
+  }, source);
+
+  assert.equal(landing.landingId.startsWith('rec_'), true);
+});
+
 test('history index store replaces one source transactionally', (t) => {
   if (skipIfNoSqlite(t)) return;
 
@@ -162,7 +178,7 @@ test('history index store replaces one source transactionally', (t) => {
   });
 });
 
-test('history index reads retire saved spoiler penalties without rewriting the source', (t) => {
+test('history index normalizes retired spoiler penalties before persistence', (t) => {
   if (skipIfNoSqlite(t)) return;
 
   withTempStore((store, tmpRoot) => {
@@ -172,6 +188,7 @@ test('history index reads retire saved spoiler penalties without rewriting the s
         landingId: 'legacy-spoiler-landing',
         timestampMs: 2000,
         timestamp: '2026-07-30T01:51:46.468Z',
+        aircraft: '737-800',
         gateStable: false,
         stabilityScore: 75,
         stabilityGateFailures: ['spoilers_moved_after_gate', 'glidepath_proxy_unstable_after_gate'],
@@ -181,6 +198,12 @@ test('history index reads retire saved spoiler penalties without rewriting the s
           stabilityScore: 75,
           stabilityVerdict: 'unstable',
           stabilityGateFailures: ['spoilers_moved_after_gate', 'glidepath_proxy_unstable_after_gate'],
+          ultimateStability: {
+            score: 75,
+            verdict: 'unstable',
+            gateStable: false,
+            gateFailures: ['spoilers_moved_after_gate', 'glidepath_proxy_unstable_after_gate'],
+          },
           stabilityBreakdown: {
             config_ok: 0,
             gear_ok: 100,
@@ -206,8 +229,11 @@ test('history index reads retire saved spoiler penalties without rewriting the s
     assert.deepEqual(landing.stabilityGateFailures, ['glidepath_proxy_unstable_after_gate']);
     assert.equal(landing.payload.stabilityScore, 89);
     assert.equal(landing.payload.stabilityVerdict, 'marginal');
+    assert.equal(landing.payload.ultimateStability.score, 89);
+    assert.equal(landing.payload.ultimateStability.verdict, 'marginal');
     assert.equal(landing.payload.stabilityBreakdown.config_ok, 100);
     assert.equal(landing.payload.stabilityBreakdown.spoilers_ok, 100);
+    assert.equal(store.queryLogbookStats().trends.aircraft[0].avgStabilityScore, 89);
   });
 });
 
@@ -288,6 +314,30 @@ test('history index query controls cannot inject SQL through filters or sort val
   });
 });
 
+test('history index treats unreliable fuel burn as unknown in storage and sorting', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    store.replaceSourceIndex({
+      source: { filePath: sourcePath(tmpRoot, 'fuel-valid.csv'), mtimeMs: 10, sizeBytes: 100 },
+      flights: [{ flightId: 'fuel-valid', startedAtMs: 1000, fuelBurnGal: 50, fuelBurnSource: 'fuel-weight' }],
+    });
+    store.replaceSourceIndex({
+      source: { filePath: sourcePath(tmpRoot, 'fuel-zero.csv'), mtimeMs: 20, sizeBytes: 200 },
+      flights: [{ flightId: 'fuel-zero', startedAtMs: 3000, fuelBurnGal: 0, fuelBurnSource: 'fuel-weight' }],
+    });
+    store.replaceSourceIndex({
+      source: { filePath: sourcePath(tmpRoot, 'fuel-one.csv'), mtimeMs: 30, sizeBytes: 300 },
+      flights: [{ flightId: 'fuel-one', startedAtMs: 2000, fuelBurnGal: 1, fuelBurnSource: 'fuel-weight' }],
+    });
+
+    const page = store.queryFlights({ limit: 10, sort: 'fuel_burn_desc' });
+    assert.deepEqual(page.flights.map((flight) => flight.flightId), ['fuel-valid', 'fuel-zero', 'fuel-one']);
+    assert.deepEqual(page.flights.map((flight) => flight.fuelBurnGal), [50, null, null]);
+    assert.deepEqual(page.flights.map((flight) => flight.fuelBurnSource), ['fuel-weight', null, null]);
+  });
+});
+
 test('history index store allows duplicate display flight ids across CSV sources', (t) => {
   if (skipIfNoSqlite(t)) return;
 
@@ -320,6 +370,22 @@ test('history index store allows duplicate display flight ids across CSV sources
   });
 });
 
+test('history index store ignores invalid source lookup paths', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, _tmpRoot) => {
+    const cwdPath = path.resolve('');
+    store.replaceSourceIndex({
+      source: { filePath: cwdPath, mtimeMs: 10, sizeBytes: 100 },
+      flights: [{ flightId: 'cwd-source', startedAtMs: 1000 }],
+    });
+
+    assert.equal(store.getSourceByPath(undefined), null);
+    assert.equal(store.getFlightsSourceByPath(''), null);
+    assert.equal(store.getLandingsSourceByPath('   '), null);
+  });
+});
+
 test('history index store prunes only the missing flight lane and preserves landing rows', (t) => {
   if (skipIfNoSqlite(t)) return;
 
@@ -348,7 +414,7 @@ test('history index store prunes only the missing flight lane and preserves land
     });
 
     assert.deepEqual(store.getCounts(), { sources: 2, flights: 2, landings: 2 });
-    assert.equal(store.pruneMissingSources([keepPath]), 1);
+  assert.deepEqual(store.pruneMissingSources([keepPath]), { sourcesPruned: 1, flightsPruned: 1 });
     assert.deepEqual(store.getCounts(), { sources: 2, flights: 1, landings: 2 });
     assert.equal(store.queryFlights({ limit: 10 }).flights[0].flightId, 'keep');
     assert.deepEqual(
@@ -441,6 +507,108 @@ test('history index store keeps flight and landing refresh lanes independent', (
   });
 });
 
+test('history index relinks inferred landing identity when the flight lane changes', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    const filePath = sourcePath(tmpRoot, 'relinked.csv');
+    store.replaceSourcesLandingsIndex([{
+      source: { filePath, mtimeMs: 10, sizeBytes: 100 },
+      landings: [{ landingId: 'landing', timestampMs: 2000, timestamp: '2026-07-09T00:00:02.000Z' }],
+    }]);
+    store.replaceSourcesFlightsIndex([{
+      source: { filePath, mtimeMs: 10, sizeBytes: 100 },
+      flights: [{ flightId: 'flight-v1', startedAtMs: 1000 }],
+    }]);
+    store.replaceSourcesFlightsIndex([{
+      source: { filePath, mtimeMs: 11, sizeBytes: 110 },
+      flights: [{ flightId: 'flight-v2', startedAtMs: 3000 }],
+    }]);
+
+    const landing = store.queryLandings({ limit: 10 }).landings[0];
+    assert.equal(landing.flightId, 'flight-v2');
+    assert.equal(landing.flightKey, `${landing.sourceId}:flight-v2`);
+  });
+});
+
+test('history index logbook entries prefer canonical indexed fields over stale payload values', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    store.replaceSourcesLandingsIndex([{
+      source: { filePath: sourcePath(tmpRoot, 'canonical.csv'), mtimeMs: 10, sizeBytes: 100 },
+      landings: [{
+        landingId: 'canonical-landing',
+        timestampMs: 2000,
+        timestamp: '2026-07-09T00:00:02.000Z',
+        gateStable: true,
+        stabilityScore: 95,
+        stabilityGateFailures: [],
+        payload: {
+          id: 'display-id',
+          gateStable: false,
+          stabilityScore: 10,
+          stabilityGateFailures: ['stale_failure'],
+          ultimateStability: {
+            score: 10,
+            gateStable: false,
+            gateFailures: ['stale_failure'],
+          },
+        },
+      }],
+    }]);
+
+    const entry = store.queryLogbookEntries({ limit: 10 }).entries[0];
+    assert.equal(entry.id, 'display-id');
+    assert.equal(entry.landingId, 'canonical-landing');
+    assert.equal(entry.gateStable, true);
+    assert.equal(entry.stabilityScore, 95);
+    assert.equal(entry.stabilityVerdict, 'stable');
+    assert.deepEqual(entry.stabilityGateFailures, []);
+    assert.equal(entry.ultimateStability.score, 95);
+    assert.equal(entry.ultimateStability.gateStable, true);
+    assert.deepEqual(entry.ultimateStability.gateFailures, []);
+
+    const latest = store.queryLatestLandingForSource(entry.sourceId);
+    assert.equal(latest.payload.ultimateStability.score, 95);
+    assert.equal(latest.payload.ultimateStability.gateStable, true);
+  });
+});
+
+test('history index assigns the same landing flight key regardless of lane refresh order', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    const landingsFirstPath = sourcePath(tmpRoot, 'landings-first.csv');
+    store.replaceSourcesLandingsIndex([{
+      source: { filePath: landingsFirstPath, mtimeMs: 10, sizeBytes: 100 },
+      landings: [{ landingId: 'landings-first', timestampMs: 2000, timestamp: '2026-07-09T00:00:02.000Z' }],
+    }]);
+    store.replaceSourcesFlightsIndex([{
+      source: { filePath: landingsFirstPath, mtimeMs: 10, sizeBytes: 100 },
+      flights: [{ flightId: 'landings-first-flight', startedAtMs: 1000 }],
+    }]);
+
+    const flightsFirstPath = sourcePath(tmpRoot, 'flights-first.csv');
+    store.replaceSourcesFlightsIndex([{
+      source: { filePath: flightsFirstPath, mtimeMs: 20, sizeBytes: 200 },
+      flights: [{ flightId: 'flights-first-flight', startedAtMs: 3000 }],
+    }]);
+    store.replaceSourcesLandingsIndex([{
+      source: { filePath: flightsFirstPath, mtimeMs: 20, sizeBytes: 200 },
+      landings: [{ landingId: 'flights-first', timestampMs: 4000, timestamp: '2026-07-09T00:00:04.000Z' }],
+    }]);
+
+    const landings = store.queryLandings({ limit: 10 }).landings;
+    const landingsFirst = landings.find((landing) => landing.landingId === 'landings-first');
+    const flightsFirst = landings.find((landing) => landing.landingId === 'flights-first');
+    assert.equal(landingsFirst.flightId, 'landings-first-flight');
+    assert.equal(landingsFirst.flightKey, `${landingsFirst.sourceId}:landings-first-flight`);
+    assert.equal(flightsFirst.flightId, 'flights-first-flight');
+    assert.equal(flightsFirst.flightKey, `${flightsFirst.sourceId}:flights-first-flight`);
+  });
+});
+
 test('history index store prunes missing landing sources without deleting flights', (t) => {
   if (skipIfNoSqlite(t)) return;
 
@@ -465,8 +633,11 @@ test('history index store prunes missing landing sources without deleting flight
     }]);
 
     assert.deepEqual(store.getCounts(), { sources: 3, flights: 2, landings: 2 });
-    assert.equal(store.pruneMissingLandingSources([keepPath, flightOnlyPath]), 1);
-    assert.deepEqual(store.getCounts(), { sources: 3, flights: 2, landings: 1 });
+    assert.deepEqual(
+      store.pruneMissingLandingSources([keepPath, flightOnlyPath]),
+      { sourcesPruned: 1, landingsPruned: 1 },
+    );
+    assert.deepEqual(store.getCounts(), { sources: 2, flights: 2, landings: 1 });
     assert.deepEqual(
       store.queryFlights({ limit: 10 }).flights.map((flight) => flight.flightId).sort(),
       ['flight-only', 'keep-flight'],
@@ -501,11 +672,32 @@ test('history index store refreshes and prunes the landing catalog atomically', 
       }],
     }], [currentPath]);
 
-    assert.equal(refresh.pruned, 1);
+    assert.equal(refresh.sourcesPruned, 1);
+    assert.equal(refresh.landingsPruned, 1);
     const snapshot = store.queryLogbookSnapshot({ limit: 10 });
     assert.equal(snapshot.stats.total, 1);
     assert.equal(snapshot.page.totalMatching, 1);
     assert.deepEqual(snapshot.page.entries.map((entry) => entry.id), ['current-landing']);
+  });
+});
+
+test('history index reports source and landing prune counts independently', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    const oldPath = sourcePath(tmpRoot, 'two-landings.csv');
+    store.replaceSourcesLandingsIndex([{
+      source: { filePath: oldPath, mtimeMs: 10, sizeBytes: 100 },
+      landings: [
+        { landingId: 'old-landing-one', timestampMs: 1000, timestamp: '2026-07-09T00:00:01.000Z' },
+        { landingId: 'old-landing-two', timestampMs: 2000, timestamp: '2026-07-09T00:00:02.000Z' },
+      ],
+    }]);
+
+    const refresh = store.refreshSourcesLandingsIndex([], []);
+    assert.equal(refresh.sourcesPruned, 1);
+    assert.equal(refresh.landingsPruned, 2);
+    assert.deepEqual(store.getCounts(), { sources: 0, flights: 0, landings: 0 });
   });
 });
 

@@ -1,5 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const {
+  PMDG_737_SDK_EULA_ACCEPTANCE_VERSION,
+  getPmdg737SdkEulaAcceptance,
+} = require('../shared/pmdg-737-sdk-authorization');
+const {
+  PMDG_777_SDK_EULA_ACCEPTANCE_VERSION,
+  getPmdg777SdkEulaAcceptance,
+} = require('../shared/pmdg-777-sdk-authorization');
 
 function firstExistingPath(candidates) {
   for (const candidate of candidates) {
@@ -194,6 +202,56 @@ function createSettingsStore({ settingsFile = USER_SETTINGS_FILE, logger = () =>
     }
   }
 
+  function getPmdg737SdkEulaStatus() {
+    return getPmdg737SdkEulaAcceptance(readUserSettingsFile());
+  }
+
+  function getPmdg777SdkEulaStatus() {
+    return getPmdg777SdkEulaAcceptance(readUserSettingsFile());
+  }
+
+  function acceptPmdg737SdkEula() {
+    try {
+      const current = readUserSettingsFile();
+      const updated = {
+        ...current,
+        integrations: {
+          ...(current?.integrations || {}),
+          pmdg737Sdk: {
+            eulaAcceptedVersion: PMDG_737_SDK_EULA_ACCEPTANCE_VERSION,
+            eulaAcceptedAt: new Date().toISOString(),
+          },
+        },
+        _lastUpdated: new Date().toISOString(),
+      };
+      writeUserSettingsFile(updated);
+      return { success: true, ...getPmdg737SdkEulaAcceptance(updated) };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  }
+
+  function acceptPmdg777SdkEula() {
+    try {
+      const current = readUserSettingsFile();
+      const updated = {
+        ...current,
+        integrations: {
+          ...(current?.integrations || {}),
+          pmdg777Sdk: {
+            eulaAcceptedVersion: PMDG_777_SDK_EULA_ACCEPTANCE_VERSION,
+            eulaAcceptedAt: new Date().toISOString(),
+          },
+        },
+        _lastUpdated: new Date().toISOString(),
+      };
+      writeUserSettingsFile(updated);
+      return { success: true, ...getPmdg777SdkEulaAcceptance(updated) };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  }
+
   function refreshRuntimeNetworkFromSettings(runtimeState, env = process.env) {
     const settings = getSettings();
     const next = { ...runtimeState };
@@ -207,7 +265,11 @@ function createSettingsStore({ settingsFile = USER_SETTINGS_FILE, logger = () =>
   }
 
   return {
+    acceptPmdg737SdkEula,
+    acceptPmdg777SdkEula,
     getSettings,
+    getPmdg737SdkEulaStatus,
+    getPmdg777SdkEulaStatus,
     saveSettings,
     resetSettings,
     refreshRuntimeNetworkFromSettings,

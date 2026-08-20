@@ -476,6 +476,7 @@ const landingPayload = {
   runway_displaced_threshold_ft: 1000,
   touchdown_distance_score: 0,
   touchdown_distance_grade: 'Short Landing',
+  touchdown_distance_zone: 'Before Threshold',
   short_landing: true,
   runway_condition: 'wet',
   runway_condition_source: 'inferred',
@@ -639,6 +640,18 @@ test('simbridge-core computes current-approach stability before writing LANDING 
   assert(scoreIndex >= 0, 'could not find current approach score assignment');
   assert(writeIndex >= 0, 'could not find LANDING CSV write');
   assert(scoreIndex < writeIndex, 'LANDING CSV row is written before current approach stability has been flattened into payload');
+});
+
+test('simbridge-core feeds resolved flap telemetry into live approach stability', () => {
+  const coreSource = readSource(path.join('backend', 'core', 'simbridge-core.ts'));
+  assert(
+    coreSource.includes('flaps: flapsForScoring || frame.flaps'),
+    'live stability samples must use the resolved LVAR/profile flap view before raw provider flaps',
+  );
+  assert(
+    /stabilityDtMs,\s*flapsView,/.test(coreSource),
+    'live stability call must pass the resolved flap view with its sanitized sample timing',
+  );
 });
 
 test('landing rows use the same canonical aircraft profile id as sample rows', () => {
@@ -1216,6 +1229,7 @@ async function main() {
     assert(landing.touchdownDistance, 'timeline landing is missing touchdownDistance');
     assert(landing.touchdownDistance.distanceFt === landingPayload.touchdown_distance_ft, 'timeline lost touchdown distance');
     assert(landing.touchdownDistance.shortLanding === true, 'timeline lost short landing flag');
+    assert(landing.touchdownDistance.zone === landingPayload.touchdown_distance_zone, 'timeline lost touchdown distance zone');
     assert(landing.touchdownDistance.runway_condition === landingPayload.runway_condition, 'timeline lost runway condition');
     assert(landing.touchdownDistance.lateralOffsetFt === landingPayload.lateral_offset_ft, 'timeline lost lateral offset');
     assert(landing.touchdownDistance.lateralOffsetGrade === landingPayload.lateral_offset_grade, 'timeline lost lateral grade');
@@ -1548,15 +1562,24 @@ async function main() {
         `unexpected timeline error: ${replay.error}`,
       );
 
-      const entries = flightLogbook.parseLandingsFromContent(
-        content,
-        csvPath,
-        parseCsvLine,
-        gradeLandingForRecordedProfile,
-        splitCsvLines,
-        gradeLandingForProfile,
+      let logbookError = null;
+      try {
+        flightLogbook.parseLandingsFromContent(
+          content,
+          csvPath,
+          parseCsvLine,
+          gradeLandingForRecordedProfile,
+          splitCsvLines,
+          gradeLandingForProfile,
+        );
+      } catch (error) {
+        logbookError = error;
+      }
+      assert(logbookError, 'logbook should reject a malformed-width CSV row');
+      assert(
+        String(logbookError.message || '').includes('CSV row 3 has 4 columns; expected 5'),
+        `unexpected logbook error: ${logbookError.message}`,
       );
-      assert(entries.length === 0, `logbook should not ingest partial data from a damaged CSV, got ${entries.length}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

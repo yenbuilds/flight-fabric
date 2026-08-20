@@ -1,0 +1,32 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-737-700",
+  "name": "PMDG Boeing 737-700",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-07-14T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/pmdg-737",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 140,
+      "titleContains": ["PMDG 737-700", "PMDG Boeing 737-700", "PMDG B737"],
+      "titleRegex": "pmdg.*(737[- ]?700|b737)|(737[- ]?700|b737).*pmdg",
+      "configPathContains": ["pmdg-aircraft-737", "pmdg-737-700"],
+      "configPathRegex": "pmdg.*(737[-_ ]?700|b737)|(737[-_ ]?700|b737).*pmdg"
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-14",
+    "status": "partial",
+    "notes": "PMDG 737-700, BBJ, and converted-freighter variants using the shared official-SDK adapter and aircraft page."
+  }
+}

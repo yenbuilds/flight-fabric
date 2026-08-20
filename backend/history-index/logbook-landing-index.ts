@@ -5,7 +5,7 @@ const {
   createHistorySourceId,
   sourceIdentityMatches,
 } = require('./source-identity.js') as {
-  createHistorySourceId: (_filePath: unknown) => string;
+  createHistorySourceId: (_filePath: unknown, _recordingSessionId?: unknown) => string;
   sourceIdentityMatches: (_current: AnyRecord, _indexed: AnyRecord | null | undefined) => boolean;
 };
 const {
@@ -23,6 +23,7 @@ type CsvFileIdentity = {
   sizeBytes: number;
   bundleCatalogRevision?: number;
   bundleSizeBytes?: number;
+  recordingSessionId?: string;
 };
 type RefreshOptions = {
   bypassCachePaths?: string[];
@@ -32,7 +33,8 @@ type RefreshResult = {
   indexed: number;
   landingsIndexed: number;
   skipped: number;
-  pruned: number;
+  sourcesPruned: number;
+  landingsPruned: number;
   totalInput: number;
 };
 
@@ -59,6 +61,9 @@ function normalizeCsvIdentity(input: unknown): CsvFileIdentity | null {
     ...(Number.isSafeInteger(Number(row.bundleSizeBytes))
       ? { bundleSizeBytes: Number(row.bundleSizeBytes) }
       : {}),
+    ...(typeof row.recordingSessionId === 'string' && row.recordingSessionId.trim()
+      ? { recordingSessionId: row.recordingSessionId.trim() }
+      : {}),
   };
 }
 
@@ -71,7 +76,7 @@ function indexSourceIdentity(source: CsvFileIdentity): CsvFileIdentity {
 }
 
 function landingToIndexInput(landing: AnyRecord, source: CsvFileIdentity): AnyRecord {
-  const sourceId = createHistorySourceId(source.filePath);
+  const sourceId = createHistorySourceId(source.filePath, source.recordingSessionId);
   const sourceLandingId = typeof landing.id === 'string' && landing.id
     ? landing.id
     : String(landing.timestampMs ?? 0);
@@ -154,10 +159,12 @@ async function refreshLogbookLandingIndex(
     landingsIndexed += landings.length;
   }
 
-  let pruned = 0;
+  let sourcesPruned = 0;
+  let landingsPruned = 0;
   if (options.pruneMissing !== false && typeof store.refreshSourcesLandingsIndex === 'function') {
     const refresh = store.refreshSourcesLandingsIndex(changedSources, indexedPaths);
-    pruned = Number(refresh?.pruned) || 0;
+    sourcesPruned = Number(refresh?.sourcesPruned) || 0;
+    landingsPruned = Number(refresh?.landingsPruned) || 0;
   } else {
     if (changedSources.length > 0) {
       if (typeof store.replaceSourcesLandingsIndex === 'function') {
@@ -168,16 +175,19 @@ async function refreshLogbookLandingIndex(
         }
       }
     }
-    pruned = options.pruneMissing === false || typeof store.pruneMissingLandingSources !== 'function'
+    const pruned = options.pruneMissing === false || typeof store.pruneMissingLandingSources !== 'function'
       ? 0
       : store.pruneMissingLandingSources(indexedPaths);
+    sourcesPruned = Number(pruned?.sourcesPruned) || 0;
+    landingsPruned = Number(pruned?.landingsPruned) || 0;
   }
 
   return {
     indexed,
     landingsIndexed,
     skipped,
-    pruned,
+    sourcesPruned,
+    landingsPruned,
     totalInput: rows.length,
   };
 }

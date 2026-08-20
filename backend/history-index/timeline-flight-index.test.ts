@@ -260,7 +260,7 @@ test('timeline flight index refreshes and queries preserved list payloads', (t) 
     ];
 
     const refresh = refreshTimelineFlightsIndex(store, rows);
-    assert.deepEqual(refresh, { indexed: 2, skipped: 0, pruned: 0, totalInput: 2 });
+    assert.deepEqual(refresh, { indexed: 2, skipped: 0, sourcesPruned: 0, flightsPruned: 0, totalInput: 2 });
 
     const recent = queryIndexedTimelineFlights(store, { limit: 10 });
     assert.deepEqual(recent.flights.map((item) => item.flightId), ['newer', 'older']);
@@ -349,7 +349,7 @@ test('timeline flight index first-run refresh handles a large list with bounded 
     }));
 
     const firstRefresh = refreshTimelineFlightsIndex(store, rows);
-    assert.deepEqual(firstRefresh, { indexed: 1500, skipped: 0, pruned: 0, totalInput: 1500 });
+    assert.deepEqual(firstRefresh, { indexed: 1500, skipped: 0, sourcesPruned: 0, flightsPruned: 0, totalInput: 1500 });
 
     const firstPage = queryIndexedTimelineFlights(store, { limit: 150 });
     assert.equal(firstPage.flights.length, 150);
@@ -365,7 +365,7 @@ test('timeline flight index first-run refresh handles a large list with bounded 
     assert.equal(filtered.totalMatching, 150);
 
     const secondRefresh = refreshTimelineFlightsIndex(store, rows);
-    assert.deepEqual(secondRefresh, { indexed: 0, skipped: 1500, pruned: 0, totalInput: 1500 });
+    assert.deepEqual(secondRefresh, { indexed: 0, skipped: 1500, sourcesPruned: 0, flightsPruned: 0, totalInput: 1500 });
   });
 });
 
@@ -424,7 +424,7 @@ test('timeline flight index skips unchanged source rows while keeping them prune
     });
 
     const firstRefresh = refreshTimelineFlightsIndex(store, [keep, change]);
-    assert.deepEqual(firstRefresh, { indexed: 2, skipped: 0, pruned: 0, totalInput: 2 });
+    assert.deepEqual(firstRefresh, { indexed: 2, skipped: 0, sourcesPruned: 0, flightsPruned: 0, totalInput: 2 });
     const firstKeepIndexedAt = store.getSourceByPath(keep.filePath).indexedAtMs;
 
     const secondRefresh = refreshTimelineFlightsIndex(store, [
@@ -438,7 +438,7 @@ test('timeline flight index skips unchanged source rows while keeping them prune
       },
     ]);
 
-    assert.deepEqual(secondRefresh, { indexed: 1, skipped: 1, pruned: 0, totalInput: 2 });
+    assert.deepEqual(secondRefresh, { indexed: 1, skipped: 1, sourcesPruned: 0, flightsPruned: 0, totalInput: 2 });
     assert.equal(store.getSourceByPath(keep.filePath).indexedAtMs, firstKeepIndexedAt);
     assert.deepEqual(
       queryIndexedTimelineFlights(store, { sort: 'route' }).flights.map((item) => item.displayRouteLabel),
@@ -458,7 +458,8 @@ test('timeline flight index prunes flights missing from the current list', (t) =
     assert.deepEqual(store.getCounts(), { sources: 2, flights: 2, landings: 0 });
 
     const refresh = refreshTimelineFlightsIndex(store, [keep]);
-    assert.equal(refresh.pruned, 1);
+    assert.equal(refresh.sourcesPruned, 1);
+    assert.equal(refresh.flightsPruned, 1);
     assert.deepEqual(store.getCounts(), { sources: 1, flights: 1, landings: 0 });
     assert.deepEqual(queryIndexedTimelineFlights(store, {}).flights.map((item) => item.flightId), ['keep']);
   });

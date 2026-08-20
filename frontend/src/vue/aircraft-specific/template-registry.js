@@ -12,6 +12,8 @@ const trustedAircraftSpecificTemplates = Object.freeze({
   'microsoft-737-max-8': defineAsyncComponent(() => import('../components/aircraft-specific/templates/Microsoft737Max8AircraftPanel.vue')),
   'microsoft-atr-72-600': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftAtr72_600AircraftPanel.vue')),
   'microsoft-inibuilds-a32x': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftIniBuildsA32xAircraftPanel.vue')),
+  'pmdg-737': defineAsyncComponent(() => import('../components/aircraft-specific/templates/Pmdg737AircraftPanel.vue')),
+  'pmdg-777': defineAsyncComponent(() => import('../components/aircraft-specific/templates/Pmdg777AircraftPanel.vue')),
   'tfdi-md-11': defineAsyncComponent(() => import('../components/aircraft-specific/templates/TfdiMd11AircraftPanel.vue')),
   'workingtitle-747-8': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftBoeing747_8AircraftPanel.vue')),
 });

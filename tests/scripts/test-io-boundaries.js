@@ -42,7 +42,7 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/history-index/history-index-coordinator.ts', 'recording-storage', 'lstatSync=1'],
   ['backend/history-index/history-summary-sidecar.ts', 'recording-storage', 'closeSync=1,fstatSync=1,lstatSync=3,openSync=1,readFileSync=1,readSync=1'],
   ['backend/history-index/sqlite-runtime.ts', 'recording-storage', 'existsSync=6,renameSync=2'],
-  ['backend/landing/flight-logbook.ts', 'recording-storage', 'existsSync=2,lstatSync=3,promises.open=1,promises.readFile=1,readFileSync=1'],
+  ['backend/landing/flight-logbook.ts', 'recording-storage', 'existsSync=1,lstatSync=3,promises.open=1,promises.readFile=1,readFileSync=1'],
   ['backend/landing/ourairports-csv-cache.ts', 'release-owned-content', 'existsSync=1,readFileSync=1'],
   ['backend/stability/stability-debug-logger.ts', 'guarded-diagnostics', 'createWriteStream=2,existsSync=1,mkdirSync=1,renameSync=1,statSync=1'],
   ['backend/telemetry-provider/lvar-sidecar-bridge.ts', 'release-owned-runtime', 'existsSync=1,readFileSync=1'],

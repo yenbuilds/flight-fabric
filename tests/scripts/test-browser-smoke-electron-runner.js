@@ -800,9 +800,13 @@ async function runAircraftSearchSmoke(windowRef) {
     const field = document.querySelector('.aircraft-find__field');
     const buttons = [...document.querySelectorAll('.aircraft-find__navigation button')];
     const genericLightButtons = [...document.querySelectorAll('.generic-light-command')];
+    const header = document.getElementById('app-header');
+    const footer = document.querySelector('.ff-app-footer');
+    const destinationProgress = document.getElementById('vue-destination-progress-root');
     if (!bar || !field || buttons.length !== 2) return { missing: true };
     const barRect = bar.getBoundingClientRect();
     const fieldRect = field.getBoundingClientRect();
+    const headerRect = header?.getBoundingClientRect();
     return {
       missing: false,
       viewportWidth: window.innerWidth,
@@ -820,10 +824,16 @@ async function runAircraftSearchSmoke(windowRef) {
         return rect.width < 44 || rect.height < 44;
       }).length,
       position: getComputedStyle(bar).position,
+      headerHeight: headerRect?.height || 0,
+      footerDisplay: footer ? getComputedStyle(footer).display : 'missing',
+      destinationProgressDisplay: destinationProgress ? getComputedStyle(destinationProgress).display : 'missing',
     };
   })();`);
   assert.equal(mobileSearch.missing, false, 'mobile Aircraft search controls should render');
-  assert.equal(mobileSearch.position, 'sticky', 'Aircraft search should remain reachable while scrolling on a phone');
+  assert.equal(mobileSearch.position, 'static', 'Aircraft search should stay in normal flow instead of covering phone controls');
+  assert.ok(mobileSearch.headerHeight > 0 && mobileSearch.headerHeight <= 112, 'phone header should remain compact');
+  assert.equal(mobileSearch.footerDisplay, 'none', 'desktop status footer should not consume phone viewport space');
+  assert.equal(mobileSearch.destinationProgressDisplay, 'none', 'phone header should omit the tall destination progress row');
   assert.ok(mobileSearch.fieldHeight >= 44, 'mobile Aircraft search field should meet the 44px touch target');
   assert.deepEqual(
     mobileSearch.buttonSizes.filter((size) => size.width < 44 || size.height < 44),

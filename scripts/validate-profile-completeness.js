@@ -10,6 +10,7 @@ const { normalizeProfileDocument } = require(resolveBackendRuntimeFile('aircraft
 const PROFILES_DIR = path.resolve(__dirname, '../backend/aircraft/profiles/bundled');
 
 const AIRLINER_PROFILE_PATTERNS = [
+  /pmdg/i,
   /fbw/i,
   /flybywire/i,
   /fenix/i,

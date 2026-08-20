@@ -120,10 +120,10 @@
  * @property {number|null} thrust_ok - Throttle/engine-percent movement score
  * @property {number} thrust_not_idle_ok - Legacy neutral idle-thrust proxy retained for CSV compatibility
  * @property {number|null} thrust_stable_ok - Percentage of eligible throttle/engine-percent sample pairs within rate limit
- * @property {number} config_ok - Configuration stability score (0 or 100)
- * @property {number} flaps_ok - Flaps configuration score (0 or 100)
+ * @property {number|null} config_ok - Configuration stability score (0 or 100), null when configuration telemetry is unavailable
+ * @property {number|null} flaps_ok - Flaps configuration score (0 or 100), null when flap telemetry is unavailable
  * @property {number} spoilers_ok - Neutral compatibility field (always 100)
- * @property {number} gear_ok - Gear down score (0 or 100)
+ * @property {number|null} gear_ok - Gear down score (0 or 100), null when gear telemetry is unavailable
  */
 
 /**
@@ -496,6 +496,7 @@
  * @property {Object|null} stabilityContext - Recorded profile identity, effective limits, and gate reference used for stability scoring
  * @property {boolean|null} gateStable - Whether the aircraft was stabilized at the gate
  * @property {number|null} bounceCount - Number of bounce events
+ * @property {'recorded'|'reconstructed'|'unavailable'} [bounceCountSource] - Provenance for the bounce count
  * @property {string|null} bounceGrade - Bounce severity label
  * @property {boolean} runwayExcursion - True when a runway excursion was detected
  * @property {Object|null} rolloutAnalysis - Separate high-speed ground-roll control assessment

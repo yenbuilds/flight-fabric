@@ -54,7 +54,7 @@ const CHECK_PASS_PCT = 80;
 // verdict is deliberately less brittle: proxy/advisory misses are marginal
 // unless the overall result or a directly measured core metric is clearly poor.
 const STABILITY_VERDICT_POLICY_ID = 'approach-stability-verdict';
-const STABILITY_VERDICT_POLICY_VERSION = 1;
+const STABILITY_VERDICT_POLICY_VERSION = 2;
 const STABILITY_VERDICT_MIN_OVERALL_SCORE = 80;
 const STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT = 60;
 const FEET_PER_NM = 6076.12;
@@ -75,9 +75,9 @@ type StabilityBreakdown = {
   glidepath_ok: number | null;
   glidepath_below_ok?: number | null;
   glidepath_above_ok?: number | null;
-  config_ok: number;
-  flaps_ok: number;
-  gear_ok: number;
+  config_ok: number | null;
+  flaps_ok: number | null;
+  gear_ok: number | null;
   spoilers_ok: number;
   pitch_ok: number | null;
   bank_ok: number | null;
@@ -174,6 +174,10 @@ function classifyApproachStability(
   }
 
   if (gateStable === true) return 'stable';
+  if (score === null) {
+    if (gateStable === false || failures.length > 0) return 'marginal';
+    return 'no_verdict';
+  }
   const failuresWereRecorded = Array.isArray(result.gateFailures)
     || typeof result.gateFailures === 'string';
   if (gateStable !== false && failuresWereRecorded && failures.length === 0) return 'stable';
@@ -238,8 +242,10 @@ type ApproachSample = {
   aircraftAboveObstaclesFt: number | null;
   planeAglFt: number | null;
   planeAglMinusCgFt: number | null;
-  gearDown: boolean;
-  flapsLanding: boolean;
+  gearDown: boolean | null;
+  gearAvailable: boolean;
+  flapsLanding: boolean | null;
+  flapsAvailable: boolean;
   spoilersRetracted: boolean;
   rawGear: number | null;
   rawFlaps: number | null;
@@ -269,10 +275,12 @@ type CanonicalFrame = {
   planeAglFt: unknown;
   planeAglMinusCgFt: unknown;
   gearDownLocked: number | null;
-  gearDown: boolean;
+  gearDown: boolean | null;
+  gearAvailable: boolean;
   flapsPercent: number | null;
   flapsNotch: unknown;
-  flapsLanding: boolean;
+  flapsLanding: boolean | null;
+  flapsAvailable: boolean;
   spoilersState: string | null;
   spoilersPercent: number | null;
   spoilersRetracted: boolean;
@@ -844,8 +852,12 @@ class SimpleStabilityScorer {
       sample => heightOf(sample) > ENERGY_SCORING_FLOOR_FT,
     );
     // Gate configuration
-    const gateGearDown = gateSample.gearDown;
-    const gateFlapsSet = gateSample.flapsLanding;
+    const gateGearAvailable = gateSample.gearAvailable === true
+      || (gateSample.gearAvailable == null && typeof gateSample.gearDown === 'boolean');
+    const gateFlapsAvailable = gateSample.flapsAvailable === true
+      || (gateSample.flapsAvailable == null && typeof gateSample.flapsLanding === 'boolean');
+    const gateGearDown = gateGearAvailable ? gateSample.gearDown : null;
+    const gateFlapsSet = gateFlapsAvailable ? gateSample.flapsLanding : null;
 
     let gearChanged = false;
     let flapsChanged = false;
@@ -954,11 +966,13 @@ class SimpleStabilityScorer {
     const thrustStableOkPct = thrustStableResult.score;
 
     // Scoring rules
-    const gearOk = gateGearDown && !gearChanged;  // Gear down at gate and unchanged
-    const flapsOk = gateFlapsSet && !flapsChanged; // Flaps set at gate and unchanged
-
-    const allOk = gearOk && flapsOk;
-    const configOkPct = allOk ? 100 : 0;
+    const gearOk = gateGearDown === null ? null : gateGearDown && !gearChanged;
+    const flapsOk = gateFlapsSet === null ? null : gateFlapsSet && !flapsChanged;
+    const availableConfigurationChecks = [gearOk, flapsOk]
+      .filter((value): value is boolean => typeof value === 'boolean');
+    const configOkPct = availableConfigurationChecks.length === 0
+      ? null
+      : (availableConfigurationChecks.every(Boolean) ? 100 : 0);
     const thrustOkPct = thrustStableOkPct === null ? null : clamp01(thrustStableOkPct);
 
     // Pitch and bank stability (percentage of samples within limits)
@@ -995,7 +1009,7 @@ class SimpleStabilityScorer {
     const averageScore = clamp01(average(scoreInputs) ?? 0);
 
     const coverageMetrics: Record<string, StabilityMetricCoverage> = {
-      config_ok: { available: true, eligibleCount: approachSamplesAfterGate.length, observedCount: approachSamplesAfterGate.length },
+      config_ok: { available: configOkPct !== null, eligibleCount: configOkPct === null ? 0 : approachSamplesAfterGate.length, observedCount: approachSamplesAfterGate.length },
       speed_ok: { available: speedOkPct !== null, eligibleCount: speedSamples.length, observedCount: energySamplesAfterGate.length },
       speed_trend_ok: { available: speedTrendOkPct !== null, eligibleCount: speedTrendResult.eligibleCount, observedCount: speedSamples.length },
       vs_ok: { available: vsOkPct !== null, eligibleCount: vsSamples.length, observedCount: approachSamplesAfterGate.length },
@@ -1032,8 +1046,8 @@ class SimpleStabilityScorer {
       glidepath_below_ok: glidepathBelowOkPct,
       glidepath_above_ok: glidepathAboveOkPct,
       config_ok: configOkPct,
-      flaps_ok: flapsOk ? 100 : 0,
-      gear_ok: gearOk ? 100 : 0,
+      flaps_ok: flapsOk === null ? null : (flapsOk ? 100 : 0),
+      gear_ok: gearOk === null ? null : (gearOk ? 100 : 0),
       // Retained as a neutral compatibility field for existing CSV and API
       // consumers. Spoiler telemetry no longer participates in scoring.
       spoilers_ok: 100,
@@ -1046,12 +1060,12 @@ class SimpleStabilityScorer {
     };
 
     const gateFailures = [];
-    if (!gearOk) {
-      if (!gateGearDown) gateFailures.push('gear_not_down_at_gate');
+    if (gearOk === false) {
+      if (gateGearDown === false) gateFailures.push('gear_not_down_at_gate');
       if (gearChanged) gateFailures.push('gear_changed_after_gate');
     }
-    if (!flapsOk) {
-      if (!gateFlapsSet) gateFailures.push('flaps_not_set_at_gate');
+    if (flapsOk === false) {
+      if (gateFlapsSet === false) gateFailures.push('flaps_not_set_at_gate');
       if (flapsChanged) gateFailures.push('flaps_changed_after_gate');
     }
     if (speedOkPct !== null && speedOkPct < criteria.passPct) gateFailures.push('speed_proxy_unstable_after_gate');
@@ -1088,9 +1102,9 @@ class SimpleStabilityScorer {
       speed_trend_ok: null,
       vs_ok: null,
       glidepath_ok: null,
-      config_ok: 0,
-      flaps_ok: 0,
-      gear_ok: 0,
+      config_ok: null,
+      flaps_ok: null,
+      gear_ok: null,
       spoilers_ok: 100,
       pitch_ok: null,
       bank_ok: null,
@@ -1277,7 +1291,7 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
   } else if (input.gear && typeof input.gear === 'object' && typeof input.gear.locked === 'boolean') {
     gearDownLocked = input.gear.locked ? 1 : 0;
   }
-  let gearDown;
+  let gearDown: boolean | null;
   if (typeof input.gearDown === 'boolean') {
     gearDown = input.gearDown;
   } else if (input.gear && typeof input.gear === 'object') {
@@ -1287,8 +1301,15 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
   } else if (typeof input.gearDownLocked === 'number') {
     gearDown = input.gearDownLocked === 1;
   } else {
-    gearDown = false;
+    gearDown = null;
   }
+  const hasExplicitGearState = typeof input.gearDown === 'boolean'
+    || (input.gear && typeof input.gear === 'object' && typeof input.gear.locked === 'boolean')
+    || typeof input.gear_locked === 'boolean';
+  const hasGenericGearState = typeof input.gearDownLocked === 'number' && Number.isFinite(input.gearDownLocked);
+  const gearAvailable = hasExplicitGearState
+    || (input.gearConfigurationAvailable !== false && hasGenericGearState);
+  if (!gearAvailable) gearDown = null;
 
   // ── Flaps ────────────────────────────────────────────────────────────────
   // The live SimConnect provider sends `flaps` as a bare number (0-100 from
@@ -1307,7 +1328,7 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
   }
   flapsNotch = firstDefined(input.flapsNotch, input.flaps_notch, flapsNotch);
 
-  let flapsLanding;
+  let flapsLanding: boolean | null;
   if (typeof input.flapsLanding === 'boolean') {
     flapsLanding = input.flapsLanding;
   } else if (typeof input.flaps_landing === 'boolean') {
@@ -1322,11 +1343,20 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
     flapsLanding = (typeof flapsPercent === 'number' && flapsPercent > 10) ||
                    (typeof flapsNotch === 'number' && flapsNotch > 0);
   } else if (input.flaps == null) {
-    // No flaps data at all → assume configured (don't penalize unknowns).
-    flapsLanding = true;
+    flapsLanding = null;
   } else {
     flapsLanding = false;
   }
+  const hasExplicitFlapsState = typeof input.flapsLanding === 'boolean'
+    || typeof input.flaps_landing === 'boolean';
+  const hasIndependentLvarFlapsState = input.flaps
+    && typeof input.flaps === 'object'
+    && input.flaps.source === 'lvar';
+  const hasGenericFlapsState = (typeof flapsPercent === 'number' && Number.isFinite(flapsPercent))
+    || (typeof flapsNotch === 'number' && Number.isFinite(flapsNotch));
+  const flapsAvailable = hasExplicitFlapsState
+    || ((input.flapsConfigurationAvailable !== false || hasIndependentLvarFlapsState) && hasGenericFlapsState);
+  if (!flapsAvailable) flapsLanding = null;
 
   // ── Spoilers ─────────────────────────────────────────────────────────────
   // ARMED is correct procedure (auto-deploy on touchdown) and counts as
@@ -1384,14 +1414,14 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
   const headingDeg = firstDefined(input.heading, input.headingDeg, input.heading_deg);
   const latDeg     = firstDefined(input.lat,     input.latDeg,     input.lat_deg);
   const lonDeg     = firstDefined(input.lon,     input.lonDeg,     input.lon_deg);
-  const dtMs       = firstDefined(input.dtMs);
+  const dtMs       = firstDefined(input.dtMs, input.meta?.actualDeltaMs, input.pollRateMs);
 
   // Weight-on-wheels — accepts wow / on_ground / onGround. The scorer uses
   // this to exclude on-ground samples from change detection (auto-deploying
   // spoilers and rollout flap retraction are not approach breaches).
   const onGround = !!(input.onGround ?? input.on_ground ?? input.wow);
   const normalizedGearDownLocked = typeof gearDownLocked === 'number' ? gearDownLocked : null;
-  const normalizedFlapsPercent = typeof flapsPercent === 'number' && Number.isFinite(flapsPercent) ? flapsPercent : null;
+  const normalizedFlapsPercent = flapsAvailable && typeof flapsPercent === 'number' && Number.isFinite(flapsPercent) ? flapsPercent : null;
   const normalizedSpoilersState = typeof spoilersState === 'string' ? spoilersState : null;
   const normalizedSpoilersPercent = typeof spoilersPercent === 'number' && Number.isFinite(spoilersPercent) ? spoilersPercent : null;
 
@@ -1399,8 +1429,8 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
     raFt, iasKts, vsFpm, gsKts, altMslFt,
     altCalibratedFt, altPlaneFt, pressureAltFt,
     aircraftAglFt, aircraftAboveObstaclesFt, planeAglFt, planeAglMinusCgFt,
-    gearDownLocked: normalizedGearDownLocked, gearDown,
-    flapsPercent: normalizedFlapsPercent, flapsNotch, flapsLanding,
+    gearDownLocked: normalizedGearDownLocked, gearDown, gearAvailable,
+    flapsPercent: normalizedFlapsPercent, flapsNotch, flapsLanding, flapsAvailable,
     spoilersState: normalizedSpoilersState, spoilersPercent: normalizedSpoilersPercent, spoilersRetracted,
     pitchDeg, bankDeg, thrustPct,
     headingDeg, latDeg, lonDeg,
@@ -1456,7 +1486,9 @@ function frameToSample(frame: Record<string, any>): ApproachSample | null {
     planeAglFt,
     planeAglMinusCgFt,
     gearDown: n.gearDown,
+    gearAvailable: n.gearAvailable,
     flapsLanding: n.flapsLanding,
+    flapsAvailable: n.flapsAvailable,
     spoilersRetracted: n.spoilersRetracted,
     // Raw values for change detection
     rawGear: n.gearDownLocked,

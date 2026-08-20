@@ -26,6 +26,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings) => ipcRenderer.invoke('settings-save', settings),
   resetSettings: () => ipcRenderer.invoke('settings-reset'),
   getStorageLocations: () => ipcRenderer.invoke('storage-locations-get'),
+  getPmdg737SdkEulaStatus: () => ipcRenderer.invoke('pmdg-737-sdk-eula-status'),
+  openPmdg737SdkEula: () => ipcRenderer.invoke('pmdg-737-sdk-eula-open'),
+  acceptPmdg737SdkEula: () => ipcRenderer.invoke('pmdg-737-sdk-eula-accept'),
+  getPmdg777SdkEulaStatus: () => ipcRenderer.invoke('pmdg-777-sdk-eula-status'),
+  openPmdg777SdkEula: () => ipcRenderer.invoke('pmdg-777-sdk-eula-open'),
+  acceptPmdg777SdkEula: () => ipcRenderer.invoke('pmdg-777-sdk-eula-accept'),
   
   // HTTP server status
   getHttpStatus: () => ipcRenderer.invoke('http-status'),
@@ -36,7 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Navigation
   openOverlay: (options) => ipcRenderer.invoke('open-overlay', options),
-  
+
   // Event listeners - Backend
   onBackendStatus: (callback) => {
     const subscription = (event, data) => callback(data);

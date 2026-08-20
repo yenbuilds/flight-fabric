@@ -150,6 +150,16 @@ const TDZ_BANDS: TouchdownBands = {
 
 const TOUCHDOWN_ZONE_MAX_FT = 3000;
 
+function isTouchdownZoneAchieved(distanceFt: unknown, runwayLengthFt: unknown = null): boolean {
+  if (typeof distanceFt !== 'number' || !Number.isFinite(distanceFt)) return false;
+  if (distanceFt < 0 || distanceFt > TOUCHDOWN_ZONE_MAX_FT) return false;
+
+  const hasValidRunwayLength = typeof runwayLengthFt === 'number'
+    && Number.isFinite(runwayLengthFt)
+    && runwayLengthFt > 0;
+  return !hasValidRunwayLength || distanceFt < (runwayLengthFt as number);
+}
+
 /**
  * Surface condition multipliers for scoring band adjustment
  * Wet/contaminated runways reduce the tolerated late-touchdown margin. The
@@ -168,6 +178,14 @@ const FT_PER_DEG_LAT = 364567;
 
 function isNumericValue(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function normalizeLongitudeDelta(deltaDeg: number): number {
+  return ((deltaDeg % 360) + 540) % 360 - 180;
+}
+
+function normalizeHeadingDeg(headingDeg: number): number {
+  return ((headingDeg % 360) + 360) % 360;
 }
 
 function unknownTouchdownScore(): TouchdownScore {
@@ -217,7 +235,8 @@ function calculateDistanceFt(
             Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
             Math.sin(dLon / 2) ** 2;
   
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const clampedA = Math.min(1, Math.max(0, a));
+  const c = 2 * Math.atan2(Math.sqrt(clampedA), Math.sqrt(1 - clampedA));
   
   return EARTH_RADIUS_FT * c;
 }
@@ -275,7 +294,7 @@ function calculateSignedTouchdownDistance(
   const thresholdLon = threshold.lon as number;
   const touchdownLat = touchdown.lat as number;
   const touchdownLon = touchdown.lon as number;
-  const runwayHeading = runwayHeadingDeg;
+  const runwayHeading = normalizeHeadingDeg(runwayHeadingDeg);
 
   // Convert runway heading to radians (geographic: 0=North, 90=East)
   const rwyRadians = (runwayHeading * Math.PI) / 180;
@@ -286,7 +305,7 @@ function calculateSignedTouchdownDistance(
 
   // Vector from threshold to touchdown, projected into local feet.
   const dLat = touchdownLat - thresholdLat; // North-positive
-  const dLon = touchdownLon - thresholdLon; // East-positive
+  const dLon = normalizeLongitudeDelta(touchdownLon - thresholdLon); // East-positive
   
   const cosLat = Math.cos((thresholdLat * Math.PI) / 180);
   const dX = dLon * FT_PER_DEG_LAT * cosLat; // East displacement in feet
@@ -335,7 +354,7 @@ function calculateLateralOffset(
   const thresholdLon = threshold.lon as number;
   const touchdownLat = touchdown.lat as number;
   const touchdownLon = touchdown.lon as number;
-  const runwayHeading = runwayHeadingDeg as number;
+  const runwayHeading = normalizeHeadingDeg(runwayHeadingDeg as number);
 
   // Convert runway heading to radians (geographic: 0=North, 90=East)
   const rwyRadians = (runwayHeading * Math.PI) / 180;
@@ -347,7 +366,7 @@ function calculateLateralOffset(
 
   // Vector from threshold to touchdown (in degrees)
   const dLat = touchdownLat - thresholdLat; // North-positive
-  const dLon = touchdownLon - thresholdLon; // East-positive
+  const dLon = normalizeLongitudeDelta(touchdownLon - thresholdLon); // East-positive
   
   // Convert to approximate feet using lat/lon scaling
   // 1 degree latitude ≈ 364,567 ft (at any latitude)
@@ -369,8 +388,10 @@ function calculateLateralOffset(
 }
 
 /**
- * Calculate lateral offset using the aircraft's OWN rollout track as the
- * centerline reference, instead of the surveyed runway threshold + heading.
+ * Calculate touchdown offset relative to the aircraft's OWN fitted rollout
+ * track. This is not an absolute runway-centerline estimator: without an
+ * independent positional reference, a parallel rollout displaced from the
+ * painted centerline is indistinguishable from a centerline rollout.
  *
  * Why this exists: MSFS scenery is built from Bing satellite imagery and is
  * routinely offset 30–100 ft from the AIRAC survey coordinates that
@@ -383,7 +404,9 @@ function calculateLateralOffset(
  * above ~40 kts) tracks the painted centerline within a few feet because
  * the pilot is steering down the visible white line. So a least-squares fit
  * through the rollout lat/lon samples gives a centerline that matches what
- * the pilot saw — independent of database/scenery offset.
+ * the pilot followed after touchdown. Callers may expose this as a diagnostic,
+ * but must not replace an absolute surveyed/scenery centerline measurement or
+ * score with it.
  *
  * @param {Object} touchdown - Touchdown coordinates {lat, lon}
  * @param {Array<{lat:number, lon:number}>} rolloutSamples - Post-touchdown
@@ -398,7 +421,7 @@ function calculateLateralOffset(
  *   `offsetFt`/`side` are null when there are too few samples or insufficient
  *   along-track spread for a stable fit.
  */
-function calculateLateralOffsetFromTrack(
+function calculateTouchdownOffsetFromRolloutTrack(
   touchdown: CoordinateLike | null | undefined,
   rolloutSamples: RolloutSample[] | null | undefined,
   fallbackHeadingDeg: NullableNumber,
@@ -410,7 +433,7 @@ function calculateLateralOffsetFromTrack(
 
   const touchdownLat = touchdown.lat as number;
   const touchdownLon = touchdown.lon as number;
-  const fallbackHeading = fallbackHeadingDeg as number;
+  const fallbackHeading = normalizeHeadingDeg(fallbackHeadingDeg as number);
 
   // Project each sample to local ENU (feet) anchored at the touchdown point.
   // Each sample also carries a `weight` that ramps from 0 in the first quarter
@@ -425,7 +448,7 @@ function calculateLateralOffsetFromTrack(
   const pts: Array<{ x: number; y: number }> = [];
   for (const s of rolloutSamples) {
     if (!s || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) continue;
-    const east = ((s.lon as number) - touchdownLon) * FT_PER_DEG_LAT * cosLat;
+    const east = normalizeLongitudeDelta((s.lon as number) - touchdownLon) * FT_PER_DEG_LAT * cosLat;
     const north = ((s.lat as number) - touchdownLat) * FT_PER_DEG_LAT;
     pts.push({ x: east, y: north });
   }
@@ -489,8 +512,7 @@ function calculateLateralOffsetFromTrack(
   // heading. A larger difference indicates that the rollout samples do not
   // describe a clean centerline track, so reject the fit and use the fallback.
   const empiricalHeadingDeg = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
-  let headingDiff = Math.abs(empiricalHeadingDeg - fallbackHeading);
-  if (headingDiff > 180) headingDiff = 360 - headingDiff;
+  const headingDiff = Math.abs(normalizeLongitudeDelta(empiricalHeadingDeg - fallbackHeading));
   if (headingDiff > 20) {
     return { ...empty, sampleCount: pts.length, headingDeg: empiricalHeadingDeg };
   }
@@ -528,19 +550,29 @@ function calculateLateralOffsetFromTrack(
 }
 
 /**
+ * @deprecated Use `calculateTouchdownOffsetFromRolloutTrack`. The retained
+ * alias preserves compatibility while making the relative-track semantics
+ * explicit for new callers.
+ */
+const calculateLateralOffsetFromTrack = calculateTouchdownOffsetFromRolloutTrack;
+
+/**
  * Score lateral offset from centerline.
  * 
  * @param {number} offsetFt - Lateral offset in feet (absolute value used)
  * @param {number} runwayWidthFt - Runway width in feet (default 150ft)
  * @returns {Object} Scoring result
  */
-function scoreLateralOffset(offsetFt: NullableNumber, runwayWidthFt = 150): LateralOffsetScore {
+function scoreLateralOffset(offsetFt: NullableNumber, runwayWidthFt: NullableNumber = 150): LateralOffsetScore {
   if (!isNumericValue(offsetFt)) {
     return { score: null, grade: 'Unknown', penalty: 0 };
   }
 
   const absOffset = Math.abs(offsetFt);
-  const halfWidth = runwayWidthFt / 2;
+  const effectiveRunwayWidthFt = isNumericValue(runwayWidthFt) && runwayWidthFt > 0
+    ? runwayWidthFt
+    : 150;
+  const halfWidth = effectiveRunwayWidthFt / 2;
 
   // Scoring bands based on runway half-width
   // Perfect: within 10ft of centerline
@@ -579,7 +611,7 @@ function scoreLateralOffset(offsetFt: NullableNumber, runwayWidthFt = 150): Late
  * @returns {Object} Bounce analysis result
  */
 function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
-  if (!bounceData || typeof bounceData.bounceCount !== 'number') {
+  if (!bounceData || !Number.isInteger(bounceData.bounceCount) || bounceData.bounceCount < 0) {
     return { 
       score: 100, 
       grade: 'Clean', 
@@ -592,7 +624,7 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
 
   const { bounceCount, firstTouchdown, finalTouchdown } = bounceData;
   
-  if (bounceCount === 0 || !finalTouchdown) {
+  if (bounceCount === 0) {
     // Clean landing - no bounces
     return { 
       score: 100, 
@@ -600,7 +632,7 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
       penalty: 0, 
       bounceCount: 0,
       distanceTraveledFt: 0,
-      worstGforce: firstTouchdown?.gforce ?? null,
+      worstGforce: isNumericValue(firstTouchdown?.gforce) ? firstTouchdown.gforce : null,
     };
   }
 
@@ -622,7 +654,7 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
   // Prefer the pre-computed worst G-force (covers all intermediate bounces).
   // Fall back to max of first/last only when not provided (e.g. timeline replay from CSV).
   let worstGforce: number | null;
-  if (bounceData.worstGforce != null) {
+  if (isNumericValue(bounceData.worstGforce)) {
     worstGforce = bounceData.worstGforce;
   } else {
     const gforces = [firstTouchdown?.gforce, finalTouchdown?.gforce].filter((g): g is number => isNumericValue(g));
@@ -677,10 +709,11 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
  * @param {string} surface - Surface condition ('dry', 'wet', 'ice', etc.)
  * @returns {Object} Adjusted band thresholds
  */
-function getAdjustedBands(runwayLengthFt: NullableNumber, surface = 'dry'): TouchdownBands {
-  const normalizedSurface = Object.prototype.hasOwnProperty.call(SURFACE_MULTIPLIERS, surface)
-    ? (surface as LandingSurface)
-    : 'dry';
+function getAdjustedBands(runwayLengthFt: NullableNumber, surface: string | null = 'dry'): TouchdownBands {
+  const surfaceKey = typeof surface === 'string' ? surface.trim().toLowerCase() : '';
+  const normalizedSurface = Object.prototype.hasOwnProperty.call(SURFACE_MULTIPLIERS, surfaceKey)
+    ? (surfaceKey as LandingSurface)
+    : 'wet';
   const surfaceMultiplier = SURFACE_MULTIPLIERS[normalizedSurface];
 
   const adjusted = {} as TouchdownBands;
@@ -698,7 +731,7 @@ function getAdjustedBands(runwayLengthFt: NullableNumber, surface = 'dry'): Touc
     // Surface multiplier is NOT applied to the pct cap — wet/icy surfaces require
     // an earlier touchdown (absolute cap already tightened), and the pct boundary
     // reflects remaining stopping distance which is a separate concern.
-    if (band.pctCap != null && typeof runwayLengthFt === 'number' && runwayLengthFt > 0) {
+    if (band.pctCap != null && isNumericValue(runwayLengthFt) && runwayLengthFt > 0) {
       const pctMax = Math.round(runwayLengthFt * band.pctCap);
       effectiveMax = Math.min(effectiveMax, pctMax);
     }
@@ -731,10 +764,17 @@ function getAdjustedBands(runwayLengthFt: NullableNumber, surface = 'dry'): Touc
  * @returns {number} result.distanceFt - Input distance
  * @returns {Object} result.bands - Effective scoring bands used
  */
-function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownScoreOptions = {}): TouchdownScore {
+function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownScoreOptions | null = {}): TouchdownScore {
   if (!isNumericValue(distanceFt)) {
     return unknownTouchdownScore();
   }
+
+  const normalizedOptions = options ?? {};
+  const runwayLengthFt = isNumericValue(normalizedOptions.runwayLengthFt) && normalizedOptions.runwayLengthFt > 0
+    ? normalizedOptions.runwayLengthFt
+    : null;
+  const surface = normalizedOptions.surface ?? 'dry';
+  const bands = getAdjustedBands(runwayLengthFt, surface);
 
   if (distanceFt < 0) {
     return {
@@ -742,12 +782,19 @@ function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownSc
       grade: 'Short Landing',
       zone: 'Before Threshold',
       distanceFt,
-      bands: getAdjustedBands(options.runwayLengthFt, options.surface ?? 'dry'),
+      bands,
     };
   }
 
-  const { runwayLengthFt, surface = 'dry' } = options;
-  const bands = getAdjustedBands(runwayLengthFt, surface ?? 'dry');
+  if (runwayLengthFt !== null && distanceFt >= runwayLengthFt) {
+    return {
+      score: 0,
+      grade: 'Dangerous',
+      zone: 'Past Runway End',
+      distanceFt,
+      bands,
+    };
+  }
 
   let result: TouchdownBand;
   if (distanceFt <= bands.PERFECT.max) {
@@ -876,10 +923,12 @@ module.exports = {
   calculateTouchdownDistance,
   calculateSignedTouchdownDistance,
   calculateLateralOffset,
+  calculateTouchdownOffsetFromRolloutTrack,
   calculateLateralOffsetFromTrack,
   
   // Scoring
   scoreTouchdownDistance,
+  isTouchdownZoneAchieved,
   scoreLateralOffset,
   scoreBounce,
   getAdjustedBands,

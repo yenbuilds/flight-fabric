@@ -1766,6 +1766,31 @@ async function main() {
   });
 
   console.log('\n--- autopilot controls ---\n');
+  await test('AutopilotTargetEditor renders a keyboard-safe one-thumb altitude tuner', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AutopilotTargetEditor.vue'),
+      () => {},
+      {
+        props: {
+          open: true,
+          mode: 'alt',
+          displayValue: '12,000',
+          liveValue: 12000,
+          requestApply: () => true,
+        },
+      },
+    );
+
+    assert.match(html, /role="dialog"/, 'focused tuner should expose modal dialog semantics');
+    assert.match(html, /class="autopilot-target-overlay ff-keyboard-safe-overlay"/, 'focused tuner should stay inside the visual viewport');
+    assert.match(html, /data-no-swipe/, 'focused tuner should suppress page-navigation gestures');
+    assert.match(html, /id="autopilot-target-input-alt"/, 'focused tuner should expose a direct numeric target field');
+    assert.match(html, />−1,000<|>−1000</, 'altitude tuner should expose a large coarse decrement');
+    assert.match(html, />\+1,000<|>\+1000</, 'altitude tuner should expose a large coarse increment');
+    assert.match(html, /Apply ALT/, 'focused tuner should keep one explicit submission action');
+    assert.match(html, /Live target 12,000 FT/, 'focused tuner should distinguish the aircraft readback from the draft');
+  });
+
   await test('AutopilotControlsTab renders the controller-owned control targets', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AutopilotControlsTab.vue'),
@@ -1852,6 +1877,8 @@ async function main() {
     assert.match(html, /id="ap-master-btn"[^>]*data-mode="master"|data-mode="master"[^>]*id="ap-master-btn"/, 'AP master should keep its data-mode');
     assert.equal((html.match(/class="[^"]*ap-engage-btn/g) || []).length, 4, 'selector hold buttons should render');
     assert.equal((html.match(/class="[^"]*ap-adj-btn/g) || []).length, 16, 'selector adjustment buttons should render');
+    assert.equal((html.match(/class="autopilot-target-open ff-touch-target/g) || []).length, 4, 'each selector should expose the focused one-thumb tuner');
+    assert.match(html, /Tap the value for large controls/, 'selector cards should explain the mobile tuning affordance');
     assert.match(html, /data-mode="spd"[^>]*data-action="dec10"|data-action="dec10"[^>]*data-mode="spd"/, 'speed decrement command should render');
     assert.match(html, /data-mode="alt"[^>]*data-action="inc1000"|data-action="inc1000"[^>]*data-mode="alt"/, 'altitude large increment command should render');
     assert.match(html, /id="ap-master-state"[^>]*>ON</, 'AP master state should render from the store');
@@ -2328,11 +2355,43 @@ async function main() {
     );
 
     assert.match(html, /data-aircraft-page-mode="specific"/, 'a registered aircraft template should replace generic controls');
+    assert.match(html, /data-mobile-aircraft-navigation="search"/, 'non-PMDG templates should retain mobile Aircraft search');
     assert.match(html, /aria-label="Find on Aircraft page"/, 'trusted aircraft templates should share the centralized Aircraft search');
+    assert.doesNotMatch(html, /aircraft-find--mobile-hidden/, 'non-PMDG templates must not inherit the PMDG ribbon experiment');
     assert.match(html, /id="aircraft-specific-section"/, 'specific mode should mount the trusted aircraft section');
     assert.match(html, /data-aircraft-template="ifly-737-max-8"/, 'the registered iFly template should render');
     assert.match(html, />stale</, 'transient source health should render inside the selected template');
     assert.doesNotMatch(html, /id="controls-experimental-badge"/, 'specific mode should not mount the generic controls beneath it');
+  });
+
+  await test('AircraftTabShell gives only PMDG 737 the mobile section ribbon', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+      ({ useAircraftSpecificStore }) => {
+        const aircraftSpecific = useAircraftSpecificStore();
+        aircraftSpecific.applyProfile({
+          _profileKey: 'bundled/msfs/pmdg-737-800',
+          profileRevision: 4,
+          aircraftSpecificTemplateId: 'pmdg-737',
+        });
+        aircraftSpecific.clearSnapshot('stale');
+      },
+    );
+
+    assert.match(html, /data-aircraft-template="pmdg-737"/, 'the PMDG 737 template should render');
+    assert.match(html, /aircraft-specific-section--pmdg-mobile-ribbon/, 'the PMDG wrapper should allow its sticky mobile ribbon to reach the page scroller');
+    assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, 'the PMDG 737 page should select the mobile ribbon experiment');
+    assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 737 search should be hidden only at the mobile breakpoint');
+    assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');
+    assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
+    assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position and section discovery');
+    assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'the next large target should name its destination');
+    assert.deepEqual(
+      [...html.matchAll(/data-pmdg-737-section="([^"]+)"/g)].map((match) => match[1]),
+      ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
+      'the experiment should expose seven coarse PMDG 737 sections in page order',
+    );
+    assert.doesNotMatch(html, /data-aircraft-template="pmdg-777"/, 'the experiment must remain scoped away from PMDG 777');
   });
 
   await test('AircraftTabShell renders the dedicated iFly MAX 8 page instead of broad generic controls', async () => {
@@ -2599,8 +2658,8 @@ async function main() {
     assert.ok(resolveAircraftSpecificTemplate('microsoft-737-max-8'), 'registered Microsoft 737 MAX 8 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('microsoft-atr-72-600'), 'registered Microsoft ATR 72-600 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('microsoft-inibuilds-a32x'), 'registered Microsoft / iniBuilds A320neo V2 and A321LR template should resolve');
-    assert.equal(resolveAircraftSpecificTemplate('pmdg-737'), null, 'deferred PMDG 737 integration must not resolve');
-    assert.equal(resolveAircraftSpecificTemplate('pmdg-777'), null, 'deferred PMDG 777 integration must not resolve');
+    assert.ok(resolveAircraftSpecificTemplate('pmdg-737'), 'registered PMDG 737 template should resolve');
+    assert.ok(resolveAircraftSpecificTemplate('pmdg-777'), 'registered PMDG 777 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('tfdi-md-11'), 'registered TFDi Design MD-11 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('workingtitle-747-8'), 'registered Microsoft / Asobo 747-8 template should resolve');
     for (const inheritedObjectKey of ['constructor', 'toString', '__proto__']) {

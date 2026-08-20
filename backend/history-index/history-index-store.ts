@@ -150,6 +150,13 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+const MIN_RELIABLE_FUEL_BURN_GAL = 1;
+
+function normalizeFuelBurnGal(value: unknown): number | null {
+  const fuelBurnGal = nullableNumber(value);
+  return fuelBurnGal !== null && fuelBurnGal > MIN_RELIABLE_FUEL_BURN_GAL ? fuelBurnGal : null;
+}
+
 function nullableInteger(value: unknown): number | null {
   const numeric = nullableNumber(value);
   return numeric === null ? null : Math.floor(numeric);
@@ -223,7 +230,7 @@ function readFlightRow(row: AnyRecord): AnyRecord {
   } catch {
     payload = null;
   }
-  const fuelBurnGal = nullableNumber(row.fuel_burn_gal);
+  const fuelBurnGal = normalizeFuelBurnGal(row.fuel_burn_gal);
   const csvMtimeMs = nullableNumber(payload?.csvMtimeMs) ?? nullableNumber(payload?.mtimeMs);
   const csvSizeBytes = nullableNumber(payload?.csvSizeBytes) ?? nullableNumber(payload?.sizeBytes);
   const timestamp = payload?.timestamp instanceof Date
@@ -252,14 +259,97 @@ function readFlightRow(row: AnyRecord): AnyRecord {
     durationFormatted: row.duration_formatted,
     sampleCount: row.sample_count,
     eventCount: row.event_count,
-    fuelBurnGal: fuelBurnGal !== null && fuelBurnGal > 1 ? fuelBurnGal : null,
-    fuelBurnSource: fuelBurnGal !== null && fuelBurnGal > 1 ? row.fuel_burn_source : null,
+    fuelBurnGal,
+    fuelBurnSource: fuelBurnGal === null ? null : row.fuel_burn_source,
   };
 }
 
 function createFlightRowKey(sourceId: string, flightId: unknown): string {
   const normalizedFlightId = nullableString(flightId) || sourceId;
   return `${sourceId}:${normalizedFlightId}`;
+}
+
+function normalizeLandingStabilityForStorage(landing: LandingIndexInput): {
+  gateStable: boolean | null;
+  stabilityScore: number | null;
+  stabilityGateFailures: string[];
+  payloadJson: string;
+} {
+  const payload = landing.payload && typeof landing.payload === 'object' && !Array.isArray(landing.payload)
+    ? landing.payload
+    : null;
+  const payloadUltimateStability = payload?.ultimateStability
+    && typeof payload.ultimateStability === 'object'
+    && !Array.isArray(payload.ultimateStability)
+    ? payload.ultimateStability
+    : null;
+  const gateStable = typeof landing.gateStable === 'boolean'
+    ? landing.gateStable
+    : (typeof payload?.gateStable === 'boolean'
+      ? payload.gateStable
+      : (typeof payloadUltimateStability?.gateStable === 'boolean' ? payloadUltimateStability.gateStable : null));
+  const stabilityScore = nullableNumber(landing.stabilityScore)
+    ?? nullableNumber(payload?.stabilityScore)
+    ?? nullableNumber(payloadUltimateStability?.score);
+  const rawGateFailures = Array.isArray(landing.stabilityGateFailures)
+    ? landing.stabilityGateFailures
+    : (Array.isArray(payload?.stabilityGateFailures)
+      ? payload.stabilityGateFailures
+      : (Array.isArray(payloadUltimateStability?.gateFailures) ? payloadUltimateStability.gateFailures : []));
+  const stabilityGateFailures = rawGateFailures
+    .filter((failure): failure is string => typeof failure === 'string');
+  if (!stabilityGateFailures.includes('spoilers_moved_after_gate')) {
+    return {
+      gateStable,
+      stabilityScore,
+      stabilityGateFailures,
+      payloadJson: JSON.stringify(landing.payload || landing),
+    };
+  }
+
+  const stability = normalizeRetiredSpoilerStability({
+    score: stabilityScore,
+    gateStable,
+    gateFailures: stabilityGateFailures,
+    breakdown: payload?.stabilityBreakdown,
+    verdict: nullableString(landing.stabilityVerdict),
+  });
+  if (!stability) {
+    return {
+      gateStable,
+      stabilityScore,
+      stabilityGateFailures,
+      payloadJson: JSON.stringify(landing.payload || landing),
+    };
+  }
+
+  const normalizedPayload: AnyRecord = {
+    ...(payload || landing),
+    gateStable: stability.gateStable,
+    stabilityScore: stability.score,
+    stabilityGateFailures: stability.gateFailures,
+    stabilityBreakdown: stability.breakdown,
+    stabilityVerdict: stability.verdict,
+  };
+  if (payload?.ultimateStability && typeof payload.ultimateStability === 'object' && !Array.isArray(payload.ultimateStability)) {
+    normalizedPayload.ultimateStability = {
+      ...payload.ultimateStability,
+      score: stability.score,
+      verdict: stability.verdict,
+      gateStable: stability.gateStable,
+      gateFailures: stability.gateFailures,
+      breakdown: stability.breakdown,
+    };
+  }
+
+  return {
+    gateStable: typeof stability.gateStable === 'boolean' ? stability.gateStable : null,
+    stabilityScore: nullableNumber(stability.score),
+    stabilityGateFailures: Array.isArray(stability.gateFailures)
+      ? stability.gateFailures.filter((failure: unknown): failure is string => typeof failure === 'string')
+      : [],
+    payloadJson: JSON.stringify(normalizedPayload),
+  };
 }
 
 function readLandingRow(row: AnyRecord): AnyRecord {
@@ -296,20 +386,34 @@ function readLandingRow(row: AnyRecord): AnyRecord {
           availability: payload?.stabilityAvailability,
         })
     );
+  const gateStable = stability?.gateStable ?? dbBool(row.gate_stable);
+  const stabilityScore = stability?.score ?? row.stability_score;
+  const normalizedGateFailures = stability?.gateFailures ?? stabilityGateFailures;
   if (payload) {
     payload = {
       ...payload,
       ...(stability ? {
-        gateStable: stability.gateStable,
-        stabilityScore: stability.score,
-        stabilityGateFailures: stability.gateFailures,
+        gateStable,
+        stabilityScore,
+        stabilityGateFailures: normalizedGateFailures,
         stabilityBreakdown: stability.breakdown,
       } : {}),
       stabilityVerdict,
     };
+    if (payload.ultimateStability && typeof payload.ultimateStability === 'object' && !Array.isArray(payload.ultimateStability)) {
+      payload.ultimateStability = {
+        ...payload.ultimateStability,
+        score: stabilityScore,
+        verdict: stabilityVerdict,
+        gateStable,
+        gateFailures: normalizedGateFailures,
+        ...(stability ? { breakdown: stability.breakdown } : {}),
+      };
+    }
   }
   return {
     landingId: row.landing_id,
+    flightKey: row.flight_key,
     flightId: row.flight_id,
     sourceId: row.source_id,
     timestampMs: row.timestamp_ms,
@@ -321,10 +425,10 @@ function readLandingRow(row: AnyRecord): AnyRecord {
     vsFpm: row.vs_fpm,
     grade: row.grade,
     outcomeGrade: row.outcome_grade,
-    gateStable: stability?.gateStable ?? dbBool(row.gate_stable),
-    stabilityScore: stability?.score ?? row.stability_score,
+    gateStable,
+    stabilityScore,
     stabilityVerdict,
-    stabilityGateFailures: stability?.gateFailures ?? stabilityGateFailures,
+    stabilityGateFailures: normalizedGateFailures,
     touchdownDistanceFt: row.touchdown_distance_ft,
     touchdownDistanceGrade: row.touchdown_distance_grade,
     runwayExcursion: dbBool(row.runway_excursion),
@@ -389,7 +493,9 @@ function createHistoryIndexStore(db: AnyRecord) {
   initializeHistoryIndexSchema(db);
 
   function getRawSourceRowByPath(filePath: unknown): AnyRecord | null {
-    const csvPath = path.resolve(String(filePath || ''));
+    const normalizedFilePath = nullableString(filePath);
+    if (!normalizedFilePath) return null;
+    const csvPath = path.resolve(normalizedFilePath);
     return db.prepare('SELECT * FROM history_source_files WHERE csv_path = ? COLLATE NOCASE').get(csvPath);
   }
 
@@ -403,6 +509,51 @@ function createHistoryIndexStore(db: AnyRecord) {
 
   function getLandingsSourceByPath(filePath: unknown): AnyRecord | null {
     return readLaneSourceRow(getRawSourceRowByPath(filePath), 'landings');
+  }
+
+  function getSourceFlightIds(sourceId: string): { primaryFlightId: string | null; flightKeysById: Map<string, string> } {
+    const rows = db.prepare(`
+      SELECT flight_id, flight_key
+      FROM history_flights
+      WHERE source_id = ?
+      ORDER BY COALESCE(started_at_ms, 0) ASC, flight_key ASC
+    `).all(sourceId);
+    const flightKeysById = new Map<string, string>();
+    let primaryFlightId: string | null = null;
+    for (const row of rows || []) {
+      const flightId = nullableString(row.flight_id);
+      const flightKey = nullableString(row.flight_key);
+      if (!flightId || !flightKey) continue;
+      if (primaryFlightId === null) primaryFlightId = flightId;
+      flightKeysById.set(flightId, flightKey);
+    }
+    return { primaryFlightId, flightKeysById };
+  }
+
+  function relinkSourceLandingsToFlights(sourceId: string, primaryFlightId: string | null): void {
+    const flightRows = db.prepare(`
+      SELECT flight_id, flight_key
+      FROM history_flights
+      WHERE source_id = ?
+    `).all(sourceId);
+    const linkLanding = db.prepare(`
+      UPDATE history_landings
+      SET flight_key = ?
+      WHERE source_id = ? AND flight_id = ?
+    `);
+    for (const flightRow of flightRows || []) {
+      const flightId = nullableString(flightRow.flight_id);
+      const flightKey = nullableString(flightRow.flight_key);
+      if (flightId && flightKey) linkLanding.run(flightKey, sourceId, flightId);
+    }
+    if (primaryFlightId) {
+      const primaryFlightKey = createFlightRowKey(sourceId, primaryFlightId);
+      db.prepare(`
+        UPDATE history_landings
+        SET flight_id = ?, flight_key = ?
+        WHERE source_id = ? AND flight_key IS NULL
+      `).run(primaryFlightId, primaryFlightKey, sourceId);
+    }
   }
 
   function upsertSourceInTransaction(
@@ -472,6 +623,7 @@ function createHistoryIndexStore(db: AnyRecord) {
     `);
     for (const flight of flights) {
       const flightId = nullableString(flight.flightId) || identity.sourceId;
+      const fuelBurnGal = normalizeFuelBurnGal(flight.fuelBurnGal);
       insertFlight.run(
         createFlightRowKey(identity.sourceId, flightId),
         flightId,
@@ -492,11 +644,13 @@ function createHistoryIndexStore(db: AnyRecord) {
         nullableString(flight.durationFormatted),
         nullableInteger(flight.sampleCount),
         nullableInteger(flight.eventCount),
-        nullableNumber(flight.fuelBurnGal),
-        nullableString(flight.fuelBurnSource),
+        fuelBurnGal,
+        fuelBurnGal === null ? null : nullableString(flight.fuelBurnSource),
         JSON.stringify(flight.payload || flight),
       );
     }
+    const { primaryFlightId } = getSourceFlightIds(identity.sourceId);
+    relinkSourceLandingsToFlights(identity.sourceId, primaryFlightId);
 
     return {
       source: readSourceRow(db.prepare('SELECT * FROM history_source_files WHERE source_id = ?').get(identity.sourceId)),
@@ -507,6 +661,7 @@ function createHistoryIndexStore(db: AnyRecord) {
   function replaceSourceLandingsIndexInTransaction(input: SourceIndexInput, indexedAtMs = Date.now()): AnyRecord {
     const identity = upsertSourceInTransaction(input, indexedAtMs, 'landings');
     const landings = Array.isArray(input.landings) ? input.landings : [];
+    const { primaryFlightId, flightKeysById } = getSourceFlightIds(identity.sourceId);
 
     db.prepare('DELETE FROM history_landings WHERE source_id = ?').run(identity.sourceId);
 
@@ -520,10 +675,11 @@ function createHistoryIndexStore(db: AnyRecord) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const landing of landings) {
-      const landingFlightId = nullableString(landing.flightId) || null;
+      const landingFlightId = nullableString(landing.flightId) || primaryFlightId;
+      const stability = normalizeLandingStabilityForStorage(landing);
       insertLanding.run(
         nullableString(landing.landingId) || `${identity.sourceId}:${landing.timestampMs}`,
-        null,
+        landingFlightId ? flightKeysById.get(landingFlightId) || null : null,
         landingFlightId,
         identity.sourceId,
         nullableInteger(landing.timestampMs) || 0,
@@ -535,14 +691,14 @@ function createHistoryIndexStore(db: AnyRecord) {
         nullableNumber(landing.vsFpm),
         nullableString(landing.grade),
         nullableString(landing.outcomeGrade),
-        boolToDb(landing.gateStable),
-        nullableNumber(landing.stabilityScore),
-        JSON.stringify(Array.isArray(landing.stabilityGateFailures) ? landing.stabilityGateFailures : []),
+        boolToDb(stability.gateStable),
+        stability.stabilityScore,
+        JSON.stringify(stability.stabilityGateFailures),
         nullableNumber(landing.touchdownDistanceFt),
         nullableString(landing.touchdownDistanceGrade),
         boolToDb(landing.runwayExcursion),
         boolToDb(landing.shortLanding),
-        JSON.stringify(landing.payload || landing),
+        stability.payloadJson,
       );
     }
 
@@ -574,6 +730,7 @@ function createHistoryIndexStore(db: AnyRecord) {
       : null;
     for (const flight of flights) {
       const flightId = nullableString(flight.flightId) || identity.sourceId;
+      const fuelBurnGal = normalizeFuelBurnGal(flight.fuelBurnGal);
       insertFlight.run(
         createFlightRowKey(identity.sourceId, flightId),
         flightId,
@@ -594,8 +751,8 @@ function createHistoryIndexStore(db: AnyRecord) {
         nullableString(flight.durationFormatted),
         nullableInteger(flight.sampleCount),
         nullableInteger(flight.eventCount),
-        nullableNumber(flight.fuelBurnGal),
-        nullableString(flight.fuelBurnSource),
+        fuelBurnGal,
+        fuelBurnGal === null ? null : nullableString(flight.fuelBurnSource),
         JSON.stringify(flight.payload || flight),
       );
     }
@@ -611,6 +768,7 @@ function createHistoryIndexStore(db: AnyRecord) {
     `);
     for (const landing of landings) {
       const landingFlightId = nullableString(landing.flightId) || primaryFlightId;
+      const stability = normalizeLandingStabilityForStorage(landing);
       insertLanding.run(
         nullableString(landing.landingId) || `${identity.sourceId}:${landing.timestampMs}`,
         landingFlightId ? createFlightRowKey(identity.sourceId, landingFlightId) : null,
@@ -625,14 +783,14 @@ function createHistoryIndexStore(db: AnyRecord) {
         nullableNumber(landing.vsFpm),
         nullableString(landing.grade),
         nullableString(landing.outcomeGrade),
-        boolToDb(landing.gateStable),
-        nullableNumber(landing.stabilityScore),
-        JSON.stringify(Array.isArray(landing.stabilityGateFailures) ? landing.stabilityGateFailures : []),
+        boolToDb(stability.gateStable),
+        stability.stabilityScore,
+        JSON.stringify(stability.stabilityGateFailures),
         nullableNumber(landing.touchdownDistanceFt),
         nullableString(landing.touchdownDistanceGrade),
         boolToDb(landing.runwayExcursion),
         boolToDb(landing.shortLanding),
-        JSON.stringify(landing.payload || landing),
+        stability.payloadJson,
       );
     }
 
@@ -736,14 +894,15 @@ function createHistoryIndexStore(db: AnyRecord) {
     };
   }
 
-  function pruneMissingSources(filePaths: unknown[]): number {
+  function pruneMissingSources(filePaths: unknown[]): { sourcesPruned: number; flightsPruned: number } {
     const keepPaths = new Set(
       (Array.isArray(filePaths) ? filePaths : [])
         .filter((filePath) => typeof filePath === 'string' && filePath.length > 0)
         .map((filePath) => normalizeHistorySourcePath(filePath)),
     );
     const rows = db.prepare('SELECT source_id, csv_path FROM history_source_files WHERE flights_indexed_at_ms IS NOT NULL').all();
-    let deleted = 0;
+    let sourcesPruned = 0;
+    let flightsPruned = 0;
     db.exec('BEGIN IMMEDIATE');
     try {
       const deleteFlights = db.prepare('DELETE FROM history_flights WHERE source_id = ?');
@@ -761,7 +920,8 @@ function createHistoryIndexStore(db: AnyRecord) {
           const result = deleteFlights.run(row.source_id);
           clearFlightFreshness.run(row.source_id);
           deleteOrphanSource.run(row.source_id);
-          deleted += Number(result?.changes) || 0;
+          sourcesPruned += 1;
+          flightsPruned += Number(result?.changes) || 0;
         }
       }
       db.exec('COMMIT');
@@ -771,39 +931,46 @@ function createHistoryIndexStore(db: AnyRecord) {
       } catch {}
       throw err;
     }
-    return deleted;
+    return { sourcesPruned, flightsPruned };
   }
 
-  function pruneMissingLandingSourcesInTransaction(filePaths: unknown[]): number {
+  function pruneMissingLandingSourcesInTransaction(filePaths: unknown[]): { sourcesPruned: number; landingsPruned: number } {
     const keepPaths = new Set(
       (Array.isArray(filePaths) ? filePaths : [])
         .filter((filePath) => typeof filePath === 'string' && filePath.length > 0)
         .map((filePath) => normalizeHistorySourcePath(filePath)),
     );
     const rows = db.prepare('SELECT source_id, csv_path FROM history_source_files WHERE landings_indexed_at_ms IS NOT NULL').all();
-    let deleted = 0;
+    let sourcesPruned = 0;
+    let landingsPruned = 0;
     const deleteLandings = db.prepare('DELETE FROM history_landings WHERE source_id = ?');
     const clearLandingFreshness = db.prepare(`
       UPDATE history_source_files
       SET landings_mtime_ms = NULL, landings_size_bytes = NULL, landings_indexed_at_ms = NULL
       WHERE source_id = ?
     `);
+    const deleteOrphanSource = db.prepare(`
+      DELETE FROM history_source_files
+      WHERE source_id = ? AND flights_indexed_at_ms IS NULL
+    `);
     for (const row of rows || []) {
       if (!keepPaths.has(normalizeHistorySourcePath(row.csv_path))) {
         const result = deleteLandings.run(row.source_id);
         clearLandingFreshness.run(row.source_id);
-        deleted += Number(result?.changes) || 0;
+        deleteOrphanSource.run(row.source_id);
+        sourcesPruned += 1;
+        landingsPruned += Number(result?.changes) || 0;
       }
     }
-    return deleted;
+    return { sourcesPruned, landingsPruned };
   }
 
-  function pruneMissingLandingSources(filePaths: unknown[]): number {
+  function pruneMissingLandingSources(filePaths: unknown[]): { sourcesPruned: number; landingsPruned: number } {
     db.exec('BEGIN IMMEDIATE');
     try {
-      const deleted = pruneMissingLandingSourcesInTransaction(filePaths);
+      const pruned = pruneMissingLandingSourcesInTransaction(filePaths);
       db.exec('COMMIT');
-      return deleted;
+      return pruned;
     } catch (err) {
       try {
         db.exec('ROLLBACK');
@@ -828,7 +995,7 @@ function createHistoryIndexStore(db: AnyRecord) {
       return {
         sourcesIndexed: rows.length,
         landingsIndexed,
-        pruned,
+        ...pruned,
       };
     } catch (err) {
       try {
@@ -866,10 +1033,10 @@ function createHistoryIndexStore(db: AnyRecord) {
         sortSql = 'ORDER BY COALESCE(started_at_ms, mtime_ms, 0) ASC';
         break;
       case 'fuel_burn_desc':
-        sortSql = 'ORDER BY fuel_burn_gal IS NULL ASC, fuel_burn_gal DESC, COALESCE(started_at_ms, mtime_ms, 0) DESC';
+        sortSql = 'ORDER BY CASE WHEN fuel_burn_gal > 1 THEN 0 ELSE 1 END ASC, fuel_burn_gal DESC, COALESCE(started_at_ms, mtime_ms, 0) DESC';
         break;
       case 'fuel_burn_asc':
-        sortSql = 'ORDER BY fuel_burn_gal IS NULL ASC, fuel_burn_gal ASC, COALESCE(started_at_ms, mtime_ms, 0) DESC';
+        sortSql = 'ORDER BY CASE WHEN fuel_burn_gal > 1 THEN 0 ELSE 1 END ASC, fuel_burn_gal ASC, COALESCE(started_at_ms, mtime_ms, 0) DESC';
         break;
       case 'route':
         sortSql = 'ORDER BY COALESCE(display_route_label, route_label, \'\') COLLATE NOCASE ASC, COALESCE(started_at_ms, mtime_ms, 0) DESC';
@@ -945,7 +1112,9 @@ function createHistoryIndexStore(db: AnyRecord) {
       `).all(limit, offset);
     const entries = rows.map((row: AnyRecord) => {
       const landing = readLandingRow(row);
-      return landing.payload && typeof landing.payload === 'object' ? landing.payload : landing;
+      if (!landing.payload || typeof landing.payload !== 'object') return landing;
+      const { payload, ...indexed } = landing;
+      return { ...payload, ...indexed };
     });
     return {
       entries,

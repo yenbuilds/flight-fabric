@@ -1225,22 +1225,22 @@ function buildTopDownSvg(profile, landing, opts) {
     const exagColor = vExag > 1.5 ? '#f59e0b' : '#64748b';
     svg += `<text x="${dx}" y="${dy + 77}" fill="${exagColor}">V-exag: ${vExag.toFixed(2)}\u00d7</text>`;
   }
-  // Calibration source for lateral offset. The backend now (April 2026)
-  // self-calibrates the centerline from rollout GPS samples to immunise
-  // against MSFS-scenery vs. AIRAC-database offset. When the calibrated
-  // offset differs from the database-derived value by >25 ft the database
-  // figure is shown alongside in amber so the user can see how much the
-  // scenery is offset.
-  if (tdz && tdz.lateralOffsetSource === 'rollout-fit' && tdz.lateralOffsetCalibration) {
+  // Rollout-relative diagnostics are intentionally separate from the absolute
+  // runway-centerline result. An aircraft track alone cannot identify the
+  // painted centerline's absolute position.
+  if (tdz && tdz.lateralOffsetCalibration) {
     const cal = tdz.lateralOffsetCalibration;
     const dbFt = Number.isFinite(cal.databaseOffsetFt) ? cal.databaseOffsetFt : null;
     const dbSide = lateralSideCode(cal.databaseOffsetSide);
-    const calLine = `XT cal: rollout-fit (${cal.sampleCount} pts, ${cal.alongTrackFt} ft)`;
+    const relativeFt = Number.isFinite(cal.rolloutRelativeOffsetFt)
+      ? Math.round(Math.abs(cal.rolloutRelativeOffsetFt))
+      : null;
+    const relativeSide = lateralSideCode(cal.rolloutRelativeOffsetSide);
+    const relativeLabel = relativeFt == null ? 'unavailable' : `${relativeFt} ft ${relativeSide}`;
+    const calLine = `XT rollout-relative: ${relativeLabel} (${cal.sampleCount} pts, ${cal.alongTrackFt} ft)`;
     svg += `<text x="${dx}" y="${dy + 88}">${escapeSvgText(calLine)}</text>`;
     if (dbFt != null) {
-      const delta = Math.abs(dbFt - tdz.lateralOffsetFt);
-      const deltaColor = delta > 25 ? '#f59e0b' : '#64748b';
-      svg += `<text x="${dx}" y="${dy + 99}" fill="${deltaColor}">DB raw: ${dbFt} ft ${dbSide} (\u0394 ${Math.round(delta)} ft)</text>`;
+      svg += `<text x="${dx}" y="${dy + 99}" fill="#64748b">Absolute DB: ${dbFt} ft ${dbSide}</text>`;
     }
   }
   svg += `</g>`;

@@ -27,14 +27,14 @@ type StabilityPolicyResolution = {
 };
 
 const TRANSPORT_STABILITY_POLICY = Object.freeze({
-  id: 'transport-v2',
-  version: 2,
+  id: 'transport-v3',
+  version: 3,
   name: 'Common transport rules',
 });
 
 const GA_STABILITY_POLICY = Object.freeze({
-  id: 'ga-profile-v2',
-  version: 2,
+  id: 'ga-profile-v3',
+  version: 3,
   name: 'General aviation profile rules',
 });
 

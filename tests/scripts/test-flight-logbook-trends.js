@@ -299,6 +299,28 @@ test('legacy logbook JSON without version is migrated to v1 on next write', () =
   flightLogbook.clearAll();
 });
 
+test('addEntry refuses to overwrite a corrupt logbook', () => {
+  const logbookFile = flightLogbook.LOGBOOK_FILE;
+  const corruptContent = '{"version":1,"entries":[';
+  fs.mkdirSync(path.dirname(logbookFile), { recursive: true });
+  fs.writeFileSync(logbookFile, corruptContent, 'utf8');
+
+  let threw = false;
+  try {
+    flightLogbook.addEntry({
+      timestamp_ms: 2,
+      vs_fpm: -320,
+      grade: 'GOOD',
+    });
+  } catch {
+    threw = true;
+  }
+
+  assertEqual(threw, true, 'corrupt logbook write must fail closed');
+  assertEqual(fs.readFileSync(logbookFile, 'utf8'), corruptContent, 'corrupt logbook remains untouched');
+  fs.rmSync(logbookFile, { force: true });
+});
+
 test('addEntry grades camelCase live payloads through their recorded aircraft profile', () => {
   flightLogbook.clearAll();
   const entry = flightLogbook.addEntry({
@@ -354,6 +376,67 @@ test('logbook compatible writes do not downgrade future versions', () => {
 
 async function runAsyncTests() {
   console.log('\n=== CSV logbook ingestion ===\n');
+
+  await testAsync('getLandingsFromCsvFile rejects malformed CSV rows', async () => {
+    const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
+    const logsDir = path.join(logsRoot, 'Flight Logs');
+    fs.rmSync(logsRoot, { recursive: true, force: true });
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const csvPath = createCanonicalCsvPath(logsDir, 'malformed-row');
+    fs.writeFileSync(csvPath, 'ts,record_type,vs_fpm\n1,LANDING', 'utf8');
+
+    let rejected = false;
+    try {
+      await flightLogbook.getLandingsFromCsvFile(csvPath, { bypassCache: true });
+    } catch {
+      rejected = true;
+    }
+    assertEqual(rejected, true, 'malformed CSV must not become an authoritative empty result');
+  });
+
+  await testAsync('getLandingsFromCsvFile propagates unexpected read failures', async () => {
+    const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
+    const logsDir = path.join(logsRoot, 'Flight Logs');
+    fs.rmSync(logsRoot, { recursive: true, force: true });
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const csvPath = createCanonicalCsvPath(logsDir, 'read-failure');
+    fs.writeFileSync(csvPath, 'ts,record_type,vs_fpm\n1,LANDING,-320', 'utf8');
+    const originalReadFile = fs.promises.readFile;
+    fs.promises.readFile = async function failedRead() {
+      throw new Error('simulated read failure');
+    };
+
+    let rejected = false;
+    try {
+      await flightLogbook.getLandingsFromCsvFile(csvPath, { bypassCache: true });
+    } catch {
+      rejected = true;
+    } finally {
+      fs.promises.readFile = originalReadFile;
+    }
+    assertEqual(rejected, true, 'unexpected read failure must reach the caller');
+  });
+
+  await testAsync('getLandingsFromCSVs keeps healthy history when one CSV is malformed', async () => {
+    const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
+    const logsDir = path.join(logsRoot, 'Flight Logs');
+    fs.rmSync(logsRoot, { recursive: true, force: true });
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const malformedPath = createCanonicalCsvPath(logsDir, 'malformed-history');
+    fs.writeFileSync(malformedPath, 'ts,record_type,vs_fpm\n1,LANDING', 'utf8');
+    const healthyPath = createCanonicalCsvPath(logsDir, 'healthy-history');
+    fs.writeFileSync(healthyPath, 'ts,record_type,vs_fpm\n2,LANDING,-320', 'utf8');
+
+    const landings = await flightLogbook.getLandingsFromCSVs({
+      bypassCachePaths: [malformedPath, healthyPath],
+      allowedCsvPaths: [malformedPath, healthyPath],
+    });
+    assertEqual(landings.length, 1, 'healthy landing remains available');
+    assertEqual(landings[0].vsFpm, -320, 'healthy landing payload');
+  });
 
   await testAsync('getLandingsFromCSVs keeps blank stability columns as no verdict', async () => {
     const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
@@ -539,13 +622,14 @@ async function runAsyncTests() {
     const latestStyle = await readFixture('latest-style');
     assertEqual(latestStyle.vsFpm, -243, 'complete persisted headline V/S');
     assertEqual(latestStyle.grade, 'GOOD', 'stale persisted grade recomputed from recorded profile');
-    assertEqual(latestStyle.bounceCount, 1, 'sustained shallow hop');
-    assertEqual(latestStyle.bounceGrade, null, 'stale clean bounce grade cleared');
+    assertEqual(latestStyle.bounceCount, 0, 'complete persisted bounce count remains authoritative');
+    assertEqual(latestStyle.bounceGrade, 'Clean', 'complete persisted bounce grade remains authoritative');
+    assertEqual(latestStyle.bounceCountSource, 'recorded', 'complete bounce source');
 
     const stale = await readFixture('stale-simulator-rate', { fresh: false });
     assertEqual(stale.vsFpm, -243, 'stale simulator V/S ignored');
     assertEqual(stale.grade, 'GOOD', 'rate grade remains profile-derived');
-    assertEqual(stale.bounceCount, 1, 'bounce evidence remains independent of rate trust');
+    assertEqual(stale.bounceCount, 0, 'persisted bounce remains independent of rate trust');
 
     const untrusted = await readFixture('untrusted-simulator-rate', { trusted: false });
     assertEqual(untrusted.vsFpm, -243, 'untrusted simulator V/S ignored');
@@ -575,6 +659,7 @@ async function runAsyncTests() {
       persistedBounceGrade: null,
     });
     assertEqual(hardRa.bounceCount, 1, 'hard radio-height lift is recovered');
+    assertEqual(hardRa.bounceCountSource, 'reconstructed', 'missing legacy bounce source');
 
     const hardFallback = await readFixture('hard-altitude-fallback', {
       motion: 'hard-altitude-fallback',

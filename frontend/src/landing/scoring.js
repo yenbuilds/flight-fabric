@@ -317,16 +317,22 @@ export function buildLandingVerdict(data = {}, {
 } = {}) {
   const shortLanding = isShortLanding(data, touchdownDistance);
   const runwayExcursion = isRunwayExcursion(data);
-  const explicitTdzAchieved = normalizeBooleanLike(touchdownDistance?.tdzAchieved);
+  const explicitTdzAchieved = normalizeBooleanLike(touchdownDistance?.tdzAchieved ?? touchdownDistance?.tdz_achieved);
   const touchdownDistanceFt = Number(touchdownDistance?.distanceFt);
   const hasTouchdownDistanceFt = touchdownDistance?.distanceFt != null && Number.isFinite(touchdownDistanceFt);
+  const rawRunwayLengthFt = touchdownDistance?.runwayLengthFt ?? touchdownDistance?.runway_length_ft;
+  const runwayLengthFt = Number(rawRunwayLengthFt);
+  const hasRunwayLengthFt = rawRunwayLengthFt != null && Number.isFinite(runwayLengthFt) && runwayLengthFt > 0;
+  const touchdownZone = touchdownDistance?.zone ?? touchdownDistance?.touchdown_distance_zone ?? null;
+  const pastRunwayEnd = touchdownZone === 'Past Runway End'
+    || (hasTouchdownDistanceFt && hasRunwayLengthFt && touchdownDistanceFt >= runwayLengthFt);
   // Keep the ideal first-1,000-ft target distinct from the formal 3,000-ft TDZ.
   // The backend's tdzAchieved field intentionally represents the latter.
-  const touchdownTargetAchieved = touchdownDistance != null && !shortLanding
+  const touchdownTargetAchieved = touchdownDistance != null && !shortLanding && !pastRunwayEnd
     && hasTouchdownDistanceFt
     && touchdownDistanceFt >= 0
     && touchdownDistanceFt <= TOUCHDOWN_TARGET_MAX_FT;
-  const tdzAchievedEffective = touchdownDistance != null && !shortLanding && (
+  const tdzAchievedEffective = touchdownDistance != null && !shortLanding && !pastRunwayEnd && (
     explicitTdzAchieved != null
       ? explicitTdzAchieved
       : (hasTouchdownDistanceFt && touchdownDistanceFt >= 0 && touchdownDistanceFt <= TOUCHDOWN_ZONE_MAX_FT)
@@ -342,7 +348,7 @@ export function buildLandingVerdict(data = {}, {
   const stabilitySev = stabilitySeverity(stabilityVerdict);
   const bounce = normalizeBounceData(touchdownDistance);
   const bounceSev = bounceSeverity(bounce);
-  const criticalTouchdown = runwayExcursion || shortLanding;
+  const criticalTouchdown = runwayExcursion || shortLanding || pastRunwayEnd;
   const touchdownSev = Math.max(criticalTouchdown ? 3 : -1, gradeSeverity(touchdownDistance?.grade));
   const lateralSev = lateralSeverity(touchdownDistance?.lateralOffsetGrade);
 

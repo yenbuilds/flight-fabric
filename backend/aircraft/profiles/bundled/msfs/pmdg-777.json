@@ -1,0 +1,156 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-777",
+  "name": "PMDG Boeing 777-300ER",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2024-12-20T00:00:00Z",
+  "updatedAt": "2026-07-27T00:00:00Z",
+  "visibility": "public",
+  "extends": null,
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "notches": [
+        { "value": 0, "label": "0" },
+        { "value": 1, "label": "1" },
+        { "value": 5, "label": "5" },
+        { "value": 15, "label": "15" },
+        { "value": 20, "label": "20" },
+        { "value": 25, "label": "25" },
+        { "value": 30, "label": "30" }
+      ],
+      "landingNotches": [25, 30]
+    },
+    "stability": {
+      "speedBand": { "belowVrefKts": 5, "aboveVrefKts": 10 },
+      "vsLimits": { "downFpm": 1000, "upFpm": 200 },
+      "thrustMinPct": 20,
+      "pitch": { "minDeg": -5, "maxDeg": 12 },
+      "stabilizedGates": { "imcRaFt": 1000, "vmcRaFt": 500 }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -480,
+        "hardMinFpm": -600
+      }
+    },
+    "throttle": { "type": "servo" },
+    "engines": { "count": 2, "type": "jet" }
+  },
+  "integration": {
+    "matching": {
+      "priority": 130,
+      "titleContains": [
+        "PMDG 777-300ER",
+        "PMDG Boeing 777-300ER",
+        "PMDG 77W"
+      ],
+      "titleRegex": "pmdg.*(777[- ]?300er|77w)|(777[- ]?300er|77w).*pmdg",
+      "configPathContains": [
+        "pmdg-aircraft-77w",
+        "pmdg-777-300er",
+        "pmdg_777_300er"
+      ],
+      "configPathRegex": "pmdg.*(777[-_ ]?300er|77w)|(777[-_ ]?300er|77w).*pmdg"
+    },
+    "aircraftSpecific": {
+      "adapter": "pmdg-777"
+    },
+    "telemetry": {
+      "preferred": "sdk",
+      "sdk": {
+        "adapter": "clientdata-manifest",
+        "connector": "pmdg-777x-clientdata",
+        "target": { "channel": "pmdg-777x-clientdata" }
+      },
+      "autopilot": {
+        "simVarReliable": false
+      },
+      "spoilers": {
+        "scale": "percent",
+        "simVarReliable": false
+      },
+      "lights": {
+        "simVarReliable": false
+      }
+    },
+    "controls": {
+      "backend": "pmdg",
+      "genericFallback": false,
+      "standardSurfaceFallback": false,
+      "_comment": "PMDG 777 writes use the shared adapter and official SDK routes only. Generic AP, gear/flap key-event, and LVar write fallbacks are intentionally absent."
+    },
+    "signalReliability": {
+      "stabilityScore": "authoritative"
+    },
+    "presentation": {
+      "visualSupport": "full",
+      "lights": {
+        "available": ["beacon", "nav", "strobe", "landing", "taxi", "turnoff", "logo", "wing"],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "TURN",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-27",
+    "status": "partial",
+    "notes": "PMDG 777 family profile using the official 777 SDK and guarded backend-owned event routes. Live telemetry and writes remain disabled until the user accepts the PMDG SDK EULA."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "PMDG 777 MSFS SDK manual and installed sample",
+        "url": "https://manuals.pmdg.com/777/introduction/index.html",
+        "retrievedAt": "2026-07-27",
+        "notes": "The installed PMDG 777-300ER 2.4.141 SDK manual, header, and connection sample define the 684-byte read-only ClientData contract, direct-position control events, data-broadcast requirement, and required SDK EULA opt-in. The audited header SHA-256 is 3D0ECFB39FE7524A5017B63C7CB52F4D850B97F738ED5D4D8F1637AFC1A676F7. Flight Fabric's checked-in pmdg-777x-clientdata connector is loaded through the declarative clientdata-manifest adapter; the public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+      },
+      {
+        "type": "official-docs",
+        "name": "PMDG MSFS 2020/2024 product family",
+        "url": "https://pmdg.com/msfs-2020-2024/",
+        "retrievedAt": "2026-07-27",
+        "notes": "Confirms the current PMDG 777-300ER, 777-200LR, 777-200ER, and 777F family represented by the shared adapter profiles."
+      },
+      {
+        "type": "official-docs",
+        "name": "PMDG forum: 777 SDK event IDs",
+        "url": "https://forum.pmdg.com/forum/main-forum/pmdg-777-forum/316911-event-id-for-777",
+        "retrievedAt": "2026-07-27",
+        "notes": "PMDG's accepted answer points integrators to the installed PMDG_777X_SDK.h event catalog."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-27",
+      "knownIssues": [
+        "The 777-300ER is the first live-validation target; the 200ER, 200LR, and 777F variants require in-aircraft testing.",
+        "SDK readback requires EnableDataBroadcast=1 and an accepted PMDG EULA.",
+        "The expanded control catalog is structurally checked against the installed SDK but remains unverified until each switch is confirmed in the simulator.",
+        "Guarded emergency, maintenance, door, and momentary controls remain intentionally unavailable."
+      ]
+    }
+  }
+}

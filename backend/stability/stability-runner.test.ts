@@ -72,8 +72,8 @@ test('generic and transport profiles use the same versioned policy', () => {
     profileCriteria: { speedMinusKts: 5, speedPlusKts: 15 },
   });
 
-  assertEqual(generic.id, 'transport-v2');
-  assertEqual(airliner.id, 'transport-v2');
+  assertEqual(generic.id, 'transport-v3');
+  assertEqual(airliner.id, 'transport-v3');
   assertEqual(generic.criteria.speedPlusKts, airliner.criteria.speedPlusKts);
   assertEqual(generic.profileCriteriaApplied, false);
 });
@@ -84,7 +84,7 @@ test('category-A profile keeps its GA scoring limits', () => {
     commonCriteria: { gateRaFt: 1000, vsMinFpm: -1000 },
     profileCriteria: { gateRaFt: 500, vsMinFpm: -800 },
   });
-  assertEqual(resolved.id, 'ga-profile-v2');
+  assertEqual(resolved.id, 'ga-profile-v3');
   assertEqual(resolved.criteria.gateRaFt, 500);
   assertEqual(resolved.profileCriteriaApplied, true);
 });
@@ -103,7 +103,7 @@ test('recorded scoring context carries policy identity and metric coverage', () 
     policy,
   });
   assertEqual(context.schemaVersion, 3);
-  assertEqual(context.policy.id, 'transport-v2');
+  assertEqual(context.policy.id, 'transport-v3');
   assertEqual(context.verdictPolicy.id, 'approach-stability-verdict');
   assertEqual(context.verdictPolicy.severeMetricFloorPct, 60);
   assertEqual(context.coverage.scoredMetrics, 6);

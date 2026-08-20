@@ -1,0 +1,149 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-737",
+  "name": "PMDG Boeing 737-800",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2025-01-03T00:00:00Z",
+  "updatedAt": "2026-07-31T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/boeing-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D",
+    "flaps": {
+      "notches": [
+        { "value": 0, "label": "UP" },
+        { "value": 1, "label": "1" },
+        { "value": 2, "label": "2" },
+        { "value": 5, "label": "5" },
+        { "value": 10, "label": "10" },
+        { "value": 15, "label": "15" },
+        { "value": 25, "label": "25" },
+        { "value": 30, "label": "30" },
+        { "value": 40, "label": "40" }
+      ],
+      "landingNotches": [30, 40]
+    },
+    "stability": {
+      "speedBand": { "belowVrefKts": 5, "aboveVrefKts": 15 },
+      "vsLimits": { "downFpm": 1000, "upFpm": 200 },
+      "thrustMinPct": 25,
+      "pitch": { "minDeg": -5, "maxDeg": 12 }
+    },
+    "landing": {
+      "grades": {
+        "perfectMinFpm": -150,
+        "goodMinFpm": -300,
+        "firmMinFpm": -500,
+        "hardMinFpm": -600,
+        "_comment": "737: <150 fpm butter, 150-300 excellent, 300-500 firm/normal, 500-600 heavy (pre-inspection), >600 hard landing inspection per Boeing AMM"
+      }
+    },
+    "throttle": { "type": "servo" },
+    "engines": {
+      "count": 2,
+      "type": "jet",
+      "_comment": "Exact CFM56 idle and limit N1 percentages are intentionally omitted until a public Boeing/engine-source reference is checked in."
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "pmdg-737"
+    },
+    "matching": {
+      "priority": 100,
+      "titleContains": [
+        "PMDG 737-800",
+        "PMDG Boeing 737-800",
+        "PMDG B738"
+      ],
+      "titleRegex": "pmdg.*(737[- ]?800|b738)|(737[- ]?800|b738).*pmdg",
+      "configPathContains": [
+        "pmdg-aircraft-738",
+        "pmdg-737-800",
+        "pmdg_737_800"
+      ],
+      "configPathRegex": "pmdg.*(737[-_ ]?800|738|b738)|(737[-_ ]?800|738|b738).*pmdg"
+    },
+    "telemetry": {
+      "preferred": "sdk",
+      "sdk": {
+        "adapter": "clientdata-manifest",
+        "connector": "pmdg-737-ng3-clientdata",
+        "target": { "channel": "pmdg-737-ng3-clientdata" }
+      },
+      "autopilot": {
+        "simVarReliable": false
+      },
+      "spoilers": {
+        "_comment": "The official SDK supplies authoritative speedbrake annunciators but no continuous handle position. Core spoiler position therefore remains on the standard SimConnect percent path.",
+        "scale": "percent"
+      },
+      "lights": {
+        "simVarReliable": false
+      }
+    },
+    "controls": {
+      "backend": "pmdg",
+      "genericFallback": false,
+      "standardSurfaceFallback": false,
+      "_comment": "PMDG 737 writes use the shared adapter and official SDK routes only. Generic AP, gear/flap key-event, and alternate LVar write paths are intentionally absent."
+    },
+    "signalReliability": {
+      "stabilityScore": "authoritative"
+    },
+    "presentation": {
+      "visualSupport": "full",
+      "lights": {
+        "available": ["beacon", "nav", "strobe", "landing", "taxi", "turnoff", "logo", "wing"],
+        "labels": {
+          "beacon": "ANTI",
+          "nav": "POS",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "TAXI",
+          "turnoff": "RWY TO",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-31",
+    "status": "partial",
+    "notes": "PMDG 737-800 family profile using the official NG3 SDK and guarded backend-owned event routes. SDK data and writes remain disabled until the user accepts the PMDG SDK EULA."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "PMDG 737 MSFS SDK and installed aircraft behavior definitions",
+        "url": "https://manuals.pmdg.com/737/PMDG_737_MSFS_Introduction.pdf",
+        "retrievedAt": "2026-07-31",
+        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the NG3 ClientData contract, direct-position control events, data-broadcast requirement, model variants, and mandatory SDK EULA opt-in. The installed vendor behavior explicitly encodes NAV1 controls 729/732/733 and NAV2 controls 845/848/849 as control * 100 plus mouse action 1/7/8 before sending K:ROTOR_BRAKE. It also encodes the three-detent position-light control as 123 * 100 plus directional action 1/2 before K:ROTOR_BRAKE. Flight Fabric maps that contract through the clientdata-manifest adapter, checked-in pmdg-737-ng3-clientdata connector, and fixed native NAV/position-light events. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-07-31",
+      "knownIssues": [
+        "The 737-800 is the first live-validation target; the 600, 700, and 900 family profiles require in-aircraft testing.",
+        "SDK readback requires EnableDataBroadcast=1 and the user to accept the PMDG EULA.",
+        "The direct NAV and position-light routes are guarded and remain unverified until simulator confirmation.",
+        "MCP mode and selector actions remain untested until IAS/Mach, VS, and button behavior are confirmed in the aircraft.",
+        "The official SDK exposes speedbrake annunciators but not a continuous handle position; spoiler state stays on standard SimConnect percent telemetry."
+      ]
+    }
+  }
+}

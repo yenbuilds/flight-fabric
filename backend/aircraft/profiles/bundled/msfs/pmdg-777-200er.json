@@ -1,0 +1,32 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "pmdg-777-200er",
+  "name": "PMDG Boeing 777-200ER",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-07-14T00:00:00Z",
+  "updatedAt": "2026-07-27T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/pmdg-777",
+  "abstract": false,
+  "integration": {
+    "matching": {
+      "priority": 140,
+      "titleContains": ["PMDG 777-200ER", "PMDG Boeing 777-200ER"],
+      "titleRegex": "pmdg.*777[- ]?200er|777[- ]?200er.*pmdg",
+      "configPathContains": ["pmdg-aircraft-77er", "pmdg-777-200er"],
+      "configPathRegex": "pmdg.*(777[-_ ]?200er|77er)|(777[-_ ]?200er|77er).*pmdg"
+    }
+  },
+  "meta": {
+    "developer": "PMDG",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-07-27",
+    "status": "partial",
+    "notes": "PMDG 777-200ER variant using the shared expanded, fixed-target official-SDK adapter and aircraft page. Variant live validation remains pending."
+  }
+}

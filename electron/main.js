@@ -15,6 +15,8 @@ const net = require('net');
 const os = require('os');
 const { createSettingsStore } = require('./settings-store');
 const { detectMsfsInstalls } = require('./msfs-detect');
+const { resolvePmdg737SdkEulaPath } = require('./pmdg-737-sdk-eula');
+const { resolvePmdg777SdkEulaPath } = require('./pmdg-777-sdk-eula');
 const { getLocalIPv4AddressesFromInterfaces } = require('./network-info');
 const { resolveAllowedExternalUrl } = require('./external-url-policy');
 const { isTrustedIpcSender } = require('./ipc-sender-policy');
@@ -2665,6 +2667,84 @@ registerTrustedIpcHandler('storage-locations-get', () => ({
     },
   ],
 }));
+
+// The PMDG SDK authorization flow is desktop-only: the renderer must open the
+// EULA installed with the matching aircraft during this session before it can
+// persist acceptance. Remote browser clients cannot invoke these handlers.
+const pmdg737SdkEulaOpenedByWebContents = new Set();
+const pmdg777SdkEulaOpenedByWebContents = new Set();
+
+registerTrustedIpcHandler('pmdg-737-sdk-eula-status', () => ({
+  success: true,
+  ...settingsStore.getPmdg737SdkEulaStatus(),
+}));
+
+registerTrustedIpcHandler('pmdg-737-sdk-eula-open', async (event) => {
+  const filePath = resolvePmdg737SdkEulaPath(detectMsfsInstalls());
+  if (!filePath) {
+    return {
+      success: false,
+      error: 'The installed PMDG 737 SDK EULA was not found. Repair or update the PMDG 737 installation, then try again.',
+    };
+  }
+  try {
+    const errMsg = await shell.openPath(filePath);
+    if (errMsg) return { success: false, error: errMsg };
+    pmdg737SdkEulaOpenedByWebContents.add(event.sender.id);
+    event.sender.once('destroyed', () => {
+      pmdg737SdkEulaOpenedByWebContents.delete(event.sender.id);
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+registerTrustedIpcHandler('pmdg-737-sdk-eula-accept', (event) => {
+  if (!pmdg737SdkEulaOpenedByWebContents.has(event.sender.id)) {
+    return { success: false, error: 'Open and read the installed PMDG 737 SDK EULA before accepting it.' };
+  }
+  const result = settingsStore.acceptPmdg737SdkEula();
+  return result.success
+    ? { ...result, restartRequired: true }
+    : { success: false, error: result.message || 'Could not save PMDG 737 SDK authorization.' };
+});
+
+registerTrustedIpcHandler('pmdg-777-sdk-eula-status', () => ({
+  success: true,
+  ...settingsStore.getPmdg777SdkEulaStatus(),
+}));
+
+registerTrustedIpcHandler('pmdg-777-sdk-eula-open', async (event) => {
+  const filePath = resolvePmdg777SdkEulaPath(detectMsfsInstalls());
+  if (!filePath) {
+    return {
+      success: false,
+      error: 'The installed PMDG 777 SDK EULA was not found. Repair or update the PMDG 777 installation, then try again.',
+    };
+  }
+  try {
+    const errMsg = await shell.openPath(filePath);
+    if (errMsg) return { success: false, error: errMsg };
+    pmdg777SdkEulaOpenedByWebContents.add(event.sender.id);
+    event.sender.once('destroyed', () => {
+      pmdg777SdkEulaOpenedByWebContents.delete(event.sender.id);
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+registerTrustedIpcHandler('pmdg-777-sdk-eula-accept', (event) => {
+  if (!pmdg777SdkEulaOpenedByWebContents.has(event.sender.id)) {
+    return { success: false, error: 'Open and read the installed PMDG 777 SDK EULA before accepting it.' };
+  }
+  const result = settingsStore.acceptPmdg777SdkEula();
+  return result.success
+    ? { ...result, restartRequired: true }
+    : { success: false, error: result.message || 'Could not save PMDG 777 SDK authorization.' };
+});
 
 // HTTP server status
 registerTrustedIpcHandler('http-status', () => ({ status: frontendServerStatus, port: frontendPort }));

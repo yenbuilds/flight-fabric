@@ -332,7 +332,12 @@ test('recorded-profile grading fails closed instead of applying generic bands to
     'Resolvable recorded profile grade',
   );
   assertEqual(
-    landing.gradeLandingForRecordedProfile(-650, 'pmdg-737'),
+    landing.gradeLandingForRecordedProfile(-650, 'pmdg-737').grade,
+    'VERY HARD',
+    'Restored PMDG profile grade',
+  );
+  assertEqual(
+    landing.gradeLandingForRecordedProfile(-650, 'retired-pmdg-737-v0'),
     null,
     'Retired profile must not be silently regraded as generic',
   );

@@ -177,6 +177,41 @@ test('cruise remains locked out during early post-takeoff level-off', () => {
   );
 });
 
+test('takeoff gating re-arms after a completed flight parks', () => {
+  const clock = makeClock(2_500_000);
+  const runner = createPhaseRunner({ timeNow: clock.now });
+
+  feed(runner, clock, approachFrame(), 9);
+  feed(
+    runner,
+    clock,
+    taxiFrame({ iasKts: 120, gsKts: 120, vsFpm: -300, raFt: 4, onRunway: true }),
+    9,
+  );
+  feed(runner, clock, taxiFrame({ iasKts: 20, gsKts: 20, raFt: 2, onRunway: true }), 9);
+  feed(runner, clock, taxiFrame({ iasKts: 0, gsKts: 0, onRunway: true }), 9);
+  assertEqual(runner.getPhase(), PHASES.PARKED, 'first flight should settle at PARKED');
+
+  feed(
+    runner,
+    clock,
+    takeoffFrame({ iasKts: 0, gsKts: 100, vsFpm: 1200, raFt: 100, onRunway: false }),
+    9,
+  );
+  assertEqual(runner.getPhase(), PHASES.TAKEOFF, 'second flight should retain the gated TAKEOFF phase');
+  assertTrue(runner.getState().takeoffTs > 0, 'second takeoff should establish the cruise lockout timestamp');
+
+  feed(runner, clock, climbFrame({ altMslFt: 15000, raFt: 15000 }), 9);
+  assertEqual(runner.getPhase(), PHASES.CLIMB, 'second flight should settle at CLIMB');
+
+  feed(runner, clock, cruiseFrame({ altMslFt: 15000, raFt: 15000 }), 120);
+  assertEqual(
+    runner.getPhase(),
+    PHASES.CLIMB,
+    'second-flight level-off should remain locked out of CRUISE',
+  );
+});
+
 test('cruise ignores brief high-altitude climb bursts during altitude capture', () => {
   const clock = makeClock(2_700_000);
   const runner = createPhaseRunner({ timeNow: clock.now });
@@ -472,6 +507,28 @@ test('touchdown from approach can still enter landing when runway flag is false'
     PHASES.LANDING,
     'actual touchdown from approach should not be blocked by an imperfect runway flag',
   );
+});
+
+test('landing can recover directly to parked when rollout telemetry is sparse', () => {
+  const clock = makeClock(4_950_000);
+  const runner = createPhaseRunner({ timeNow: clock.now });
+
+  feed(runner, clock, approachFrame(), 9);
+  assertEqual(runner.getPhase(), PHASES.APPROACH, 'phase should settle at APPROACH');
+
+  feed(
+    runner,
+    clock,
+    taxiFrame({ iasKts: 120, gsKts: 120, vsFpm: -300, raFt: 4, onRunway: true }),
+    9,
+  );
+  assertEqual(runner.getPhase(), PHASES.LANDING, 'touchdown should settle at LANDING');
+
+  feed(runner, clock, taxiFrame({ iasKts: 0, gsKts: 0, onRunway: true }), 1);
+  assertEqual(runner.getPhase(), PHASES.LANDING, 'one stopped sample should not bypass phase debounce');
+
+  feed(runner, clock, taxiFrame({ iasKts: 0, gsKts: 0, onRunway: true }), 8);
+  assertEqual(runner.getPhase(), PHASES.PARKED, 'stopped rollout should recover directly to PARKED');
 });
 
 test('low-RA emergency recovery from cruise does not force LANDING while airborne', () => {
