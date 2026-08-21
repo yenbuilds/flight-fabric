@@ -1025,6 +1025,7 @@ function controlGridClass(control) {
       :sections="mobileSections"
       section-id-prefix="fenix-section-"
       :aircraft-label="`Fenix ${variant}`"
+      :memory-key="profileKey || 'bundled/msfs/fenix-a32x'"
     />
 
     <div id="fenix-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">

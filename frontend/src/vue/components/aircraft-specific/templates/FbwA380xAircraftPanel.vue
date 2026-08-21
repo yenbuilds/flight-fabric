@@ -531,6 +531,7 @@ function requestThrottleAction(actionId) {
       :sections="mobileSections"
       section-id-prefix="fbw-a380x-section-"
       aircraft-label="FlyByWire A380X"
+      :memory-key="profileKey || 'bundled/msfs/fbw-a380x'"
     />
 
     <div id="fbw-a380x-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">

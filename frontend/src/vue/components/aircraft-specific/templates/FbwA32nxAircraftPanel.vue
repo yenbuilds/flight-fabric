@@ -12,6 +12,7 @@ const props = defineProps({
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
   isActionPending: { type: Function, default: () => false },
+  profileKey: { type: String, default: '' },
   controlSetupRequired: { type: Boolean, default: false },
 });
 
@@ -610,6 +611,7 @@ function alignmentText() {
       :sections="mobileSections"
       section-id-prefix="fbw-a32nx-section-"
       aircraft-label="FlyByWire A32NX"
+      :memory-key="profileKey || 'bundled/msfs/fbw-a32nx'"
     />
 
     <div id="fbw-a32nx-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">

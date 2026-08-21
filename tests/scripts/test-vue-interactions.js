@@ -443,6 +443,11 @@ async function main() {
     { attachTimelinePfdOverlayFitter },
     { buildLandingDetailState },
     { approachProfileApi },
+    {
+      aircraftSectionStorageKey,
+      readRememberedAircraftSection,
+      writeRememberedAircraftSection,
+    },
     { bindSectionMotion },
   ] = await Promise.all([
     import(toFrontendUrl('src', 'vue', 'stores', 'tabs.js')),
@@ -499,6 +504,7 @@ async function main() {
     import(toFrontendUrl('src', 'timeline', 'pfd-overlay.js')),
     import(toFrontendUrl('src', 'timeline', 'landing-detail.js')),
     import(toFrontendUrl('src', 'landing', 'approach-profile-global.js')),
+    import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'aircraft-section-memory.js')),
     import(toFrontendUrl('src', 'ui', 'motion.js')),
   ]);
 
@@ -520,6 +526,74 @@ async function main() {
   console.log('\n=== Vue Runtime Interaction Tests ===\n');
 
   console.log('--- mobile flight controls ---\n');
+  await test('aircraft section memory is session-scoped, profile-specific, and fail-closed', () => {
+    const storage = createStorage();
+    const sections = [{ id: 'mcp' }, { id: 'radios' }, { id: 'systems' }];
+    const pmdg800 = 'bundled/msfs/pmdg-737-800';
+    const pmdg900 = 'bundled/msfs/pmdg-737-900';
+
+    assert.equal(
+      readRememberedAircraftSection({ storage, memoryKey: pmdg800, sections }),
+      null,
+      'an aircraft without session memory should keep its normal first section',
+    );
+    assert.equal(
+      writeRememberedAircraftSection({ storage, memoryKey: pmdg800, sections, sectionId: 'radios' }),
+      true,
+      'a valid section should be remembered for the current aircraft profile',
+    );
+    assert.equal(
+      readRememberedAircraftSection({ storage, memoryKey: pmdg800, sections }),
+      'radios',
+      'the same profile should restore its remembered section',
+    );
+    assert.equal(
+      readRememberedAircraftSection({ storage, memoryKey: pmdg900, sections }),
+      null,
+      'another variant must not inherit the previous aircraft section',
+    );
+    assert.equal(
+      writeRememberedAircraftSection({ storage, memoryKey: pmdg800, sections, sectionId: 'removed-section' }),
+      false,
+      'a stale or unknown section must never replace valid memory',
+    );
+    assert.equal(
+      readRememberedAircraftSection({ storage, memoryKey: pmdg800, sections }),
+      'radios',
+      'rejected section IDs must leave valid memory intact',
+    );
+    assert.equal(
+      aircraftSectionStorageKey(`  ${pmdg800.toUpperCase()}  `),
+      aircraftSectionStorageKey(pmdg800),
+      'equivalent profile-key casing and whitespace should share one key',
+    );
+    assert.equal(
+      aircraftSectionStorageKey('x'.repeat(201)),
+      '',
+      'oversized profile keys should be rejected instead of risking a truncated-key collision',
+    );
+
+    const blockedStorage = {
+      getItem() { throw new Error('blocked'); },
+      setItem() { throw new Error('blocked'); },
+    };
+    assert.equal(
+      readRememberedAircraftSection({ storage: blockedStorage, memoryKey: pmdg800, sections }),
+      null,
+      'blocked session storage should fail closed without changing navigation',
+    );
+    assert.equal(
+      writeRememberedAircraftSection({
+        storage: blockedStorage,
+        memoryKey: pmdg800,
+        sections,
+        sectionId: 'systems',
+      }),
+      false,
+      'blocked session storage writes should be harmless',
+    );
+  });
+
   await test('autopilot target tuning validates exact bounded values and wraps heading adjustments', () => {
     assert.deepEqual(
       validateAutopilotTargetValue('alt', 12300),

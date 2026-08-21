@@ -2417,6 +2417,9 @@ async function main() {
     assert.equal((pmdgSource.match(/@pointerdown\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both arrow targets should stop ribbon swipe tracking before their click');
     assert.equal((pmdgSource.match(/@pointerup\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both arrow targets should end without the ribbon interpreting a tap as a swipe');
     assert.doesNotMatch(pmdgSource, /setPointerCapture/, 'the ribbon must not retarget ordinary button taps away from its arrow and chooser controls');
+    assert.match(pmdgSource, /useAircraftSectionMemory/, 'PMDG 737 should use the guarded shared section-memory behavior');
+    assert.match(pmdgSource, /memoryKey:\s*\(\) => props\.profileKey/, 'PMDG 737 section memory should be isolated by exact profile key');
+    assert.match(pmdgSource, /focus:\s*false,\s*remember:\s*false/, 'restoring a section must not steal focus or rewrite memory');
     assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');
     assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
     assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
@@ -2511,6 +2514,9 @@ async function main() {
     assert.match(ribbonSource, /@media \(max-width: 760px\)[\s\S]*?\.aircraft-section-ribbon\s*\{[\s\S]*?display:\s*grid;/, 'the 777 ribbon should replace search at the same mobile breakpoint as the 737');
     assert.equal((ribbonSource.match(/@pointerdown\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both reusable ribbon arrows should bypass swipe tracking');
     assert.equal((ribbonSource.match(/@pointerup\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both reusable ribbon arrows should remain reliable taps');
+    assert.match(ribbonSource, /useAircraftSectionMemory/, 'shared aircraft ribbons should use guarded session section memory');
+    assert.match(ribbonSource, /!aircraftTabIsActive\(\)/, 'hidden aircraft ribbons must not record scroll from another tab');
+    assert.match(ribbonSource, /focus:\s*false,\s*remember:\s*false/, 'shared ribbon restoration must not steal focus or recursively persist');
     assert.match(searchSource, /details:not\(\[open\]\)/, 'Aircraft search should index controls hidden only by a closed details group');
     assert.match(searchSource, /details\.open = true/, 'selecting a result should reveal its closed 777 system group');
   });

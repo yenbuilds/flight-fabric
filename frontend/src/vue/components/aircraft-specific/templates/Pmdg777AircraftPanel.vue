@@ -819,6 +819,7 @@ onMounted(() => {
       :sections="mobileSections"
       section-id-prefix="pmdg-777-section-"
       aircraft-label="PMDG 777"
+      :memory-key="profileKey || 'bundled/msfs/pmdg-777'"
     />
 
     <div

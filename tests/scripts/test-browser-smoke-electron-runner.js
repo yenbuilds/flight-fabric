@@ -62,6 +62,16 @@ async function waitFor(windowRef, expression, description, localTimeoutMs = time
   throw new Error(`Timed out waiting for ${description}${lastError ? ` (${lastError.message})` : ''}`);
 }
 
+async function setContentSizeAndWait(windowRef, width, height, description) {
+  windowRef.setContentSize(width, height);
+  await waitFor(
+    windowRef,
+    `Math.abs(window.innerWidth - ${width}) <= 2 && Math.abs(window.innerHeight - ${height}) <= 2`,
+    `${description} viewport resize`,
+  );
+  await wait(50);
+}
+
 async function click(windowRef, expression, description) {
   const clicked = await evaluate(
     windowRef,
@@ -299,8 +309,7 @@ async function assertMobileShellLayout(windowRef) {
     [390, 844, 'phone'],
     [700, 900, 'compact tablet'],
   ]) {
-    windowRef.setContentSize(width, height);
-    await wait(150);
+    await setContentSizeAndWait(windowRef, width, height, label);
 
     const result = await evaluate(windowRef, `(() => {
       const mobileBar = document.querySelector('.mobile-tab-bar');
@@ -365,8 +374,7 @@ async function assertMobileShellLayout(windowRef) {
     await click(windowRef, "document.querySelector('.mobile-more-close')", `${label} More close button`);
   }
 
-  windowRef.setContentSize(viewportWidth, viewportHeight);
-  await wait(150);
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'desktop restore');
 }
 
 async function assertHeaderLayout(windowRef) {
@@ -531,7 +539,7 @@ async function assertRemoteSecondScreenGuideLayout(windowRef) {
   const remoteUrl = new URL(targetUrl);
   remoteUrl.pathname = '/remote';
   await windowRef.loadURL(remoteUrl.toString());
-  windowRef.setContentSize(390, 844);
+  await setContentSizeAndWait(windowRef, 390, 844, 'remote phone');
 
   await waitFor(
     windowRef,
@@ -825,8 +833,7 @@ async function runAircraftSearchSmoke(windowRef) {
     'PMDG 777 landing-light control search match',
   );
 
-  windowRef.setContentSize(390, 844);
-  await wait(150);
+  await setContentSizeAndWait(windowRef, 390, 844, 'Aircraft phone');
   const mobileNavigation = await evaluate(windowRef, `(() => {
     const bar = document.querySelector('.aircraft-find');
     const ribbon = document.querySelector('.aircraft-section-ribbon');
@@ -899,6 +906,11 @@ async function runAircraftSearchSmoke(windowRef) {
     windowRef,
     "!document.querySelector('[data-aircraft-section-menu]') && document.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() === 'Gear' && document.getElementById('pmdg-777-section-gear-high-lift')?.open === true",
     'PMDG 777 chooser navigation to Gear',
+  );
+  await waitFor(
+    windowRef,
+    "sessionStorage.getItem('flight-fabric:aircraft-section:v1:bundled%2Fmsfs%2Fpmdg-777') === 'gear-high-lift'",
+    'PMDG 777 session-scoped section memory',
   );
   const airbusRibbonCases = [
     {
@@ -975,11 +987,10 @@ async function runAircraftSearchSmoke(windowRef) {
   await setInputValue(windowRef, 'aircraft-profile-correction-select', 'bundled/msfs/pmdg-777');
   await waitFor(
     windowRef,
-    "document.querySelector('[data-aircraft-template=\"pmdg-777\"]')",
-    'restored PMDG 777 fixture profile after Airbus ribbon checks',
+    "document.querySelector('[data-aircraft-template=\"pmdg-777\"]') && document.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() === 'Gear'",
+    'restored PMDG 777 fixture profile and remembered section after Airbus ribbon checks',
   );
-  windowRef.setContentSize(viewportWidth, viewportHeight);
-  await wait(150);
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'Aircraft desktop restore');
   await waitFor(
     windowRef,
     "document.getElementById('aircraft-find-input')?.value === '' && !document.querySelector('[data-aircraft-find-match]')",

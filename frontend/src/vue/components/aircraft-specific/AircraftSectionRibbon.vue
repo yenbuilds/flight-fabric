@@ -7,11 +7,13 @@ import {
   ref,
 } from 'vue';
 import { useDocumentEvent } from '../../composables/useDocumentEvent.js';
+import { useAircraftSectionMemory } from './aircraft-section-memory.js';
 
 const props = defineProps({
   sections: { type: Array, required: true },
   sectionIdPrefix: { type: String, required: true },
   aircraftLabel: { type: String, required: true },
+  memoryKey: { type: String, default: '' },
 });
 
 const sectionRibbon = ref(null);
@@ -60,19 +62,37 @@ function openAncestorDetails(target) {
   }
 }
 
-function goToSection(index) {
-  const boundedIndex = Math.max(0, Math.min(props.sections.length - 1, Number(index)));
+function goToSection(index, options = {}) {
+  const numericIndex = Number(index);
+  if (!Number.isFinite(numericIndex)) return false;
+  const boundedIndex = Math.max(0, Math.min(props.sections.length - 1, Math.trunc(numericIndex)));
+  const section = props.sections[boundedIndex];
   const target = sectionElement(boundedIndex);
-  if (!target) return false;
+  if (!section || !target) return false;
 
   activeSectionIndex.value = boundedIndex;
+  if (options.remember !== false) rememberSection(section.id);
   closeSectionMenu();
   openAncestorDetails(target);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
-  target.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
-  target.focus?.({ preventScroll: true });
+  target.scrollIntoView?.({
+    behavior: options.behavior || (reducedMotion ? 'auto' : 'smooth'),
+    block: 'start',
+  });
+  if (options.focus !== false) target.focus?.({ preventScroll: true });
   return true;
 }
+
+const { aircraftTabIsActive, rememberSection } = useAircraftSectionMemory({
+  memoryKey: () => props.memoryKey,
+  sections: () => props.sections,
+  onRestore: (sectionId) => {
+    const index = props.sections.findIndex((section) => section.id === sectionId);
+    return index >= 0
+      ? goToSection(index, { behavior: 'auto', focus: false, remember: false })
+      : false;
+  },
+});
 
 function handleSectionButtonClick(index) {
   if (suppressRibbonClick) {
@@ -130,6 +150,7 @@ function handleRibbonPointerUp(event) {
 
 function syncActiveSection() {
   sectionSyncTimer = null;
+  if (!aircraftTabIsActive()) return;
   const ribbonBottom = sectionRibbon.value?.getBoundingClientRect?.().bottom || 0;
   const anchorY = ribbonBottom + 16;
   let nextIndex = 0;
@@ -149,10 +170,11 @@ function syncActiveSection() {
     nextIndex = props.sections.length - 1;
   }
   activeSectionIndex.value = nextIndex;
+  rememberSection(props.sections[nextIndex]?.id);
 }
 
 function scheduleSectionSync() {
-  if (sectionSyncTimer != null) return;
+  if (sectionSyncTimer != null || !aircraftTabIsActive()) return;
   sectionSyncTimer = window.setTimeout(syncActiveSection, 32);
 }
 
