@@ -16,8 +16,16 @@ const hasResolvedAircraftTemplate = computed(() => Boolean(
   aircraftSpecific.hasTemplate
   && resolveAircraftSpecificTemplate(aircraftSpecific.templateId),
 ));
-const usesPmdg737MobileRibbon = computed(() => (
-  hasResolvedAircraftTemplate.value && aircraftSpecific.templateId === 'pmdg-737'
+const MOBILE_RIBBON_TEMPLATES = Object.freeze([
+  'fbw-a32nx',
+  'fbw-a380x',
+  'fenix-a32x',
+  'pmdg-737',
+  'pmdg-777',
+]);
+const usesAircraftMobileRibbon = computed(() => (
+  hasResolvedAircraftTemplate.value
+  && MOBILE_RIBBON_TEMPLATES.includes(aircraftSpecific.templateId)
 ));
 </script>
 
@@ -25,12 +33,12 @@ const usesPmdg737MobileRibbon = computed(() => (
   <div
     class="aircraft-tab-shell"
     :data-aircraft-page-mode="hasResolvedAircraftTemplate ? 'specific' : 'generic'"
-    :data-mobile-aircraft-navigation="usesPmdg737MobileRibbon ? 'section-ribbon' : 'search'"
+    :data-mobile-aircraft-navigation="usesAircraftMobileRibbon ? 'section-ribbon' : 'search'"
   >
     <AircraftPageSearch
       :target="searchableContent"
       :content-key="`${hasResolvedAircraftTemplate ? 'specific' : 'generic'}:${aircraftSpecific.activeProfileKey || aircraftSpecific.templateId || ''}`"
-      :hide-on-mobile="usesPmdg737MobileRibbon"
+      :hide-on-mobile="usesAircraftMobileRibbon"
     />
     <div ref="searchableContent" class="aircraft-tab-search-content">
       <AircraftSpecificSection v-if="hasResolvedAircraftTemplate" />

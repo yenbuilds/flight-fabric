@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "main": "index.js",
   "engines": {
@@ -29,6 +29,7 @@
     "test:vue-interactions": "node tests/scripts/test-vue-interactions.js",
     "test:approach-profile-renderer": "node tests/scripts/test-approach-profile-renderer.js",
     "test:browser-smoke": "npm run frontend:build && node tests/scripts/test-browser-smoke.js",
+    "test:pmdg-737-preview": "node tests/scripts/test-pmdg-737-preview.js",
     "test:user-settings": "node tests/scripts/test-user-settings.js",
     "test:storage-paths": "node tests/scripts/test-storage-paths.js",
     "test:http-server-assets": "node tests/scripts/test-http-server-theme-assets.js",
@@ -88,6 +89,7 @@
     "electron:install": "cd electron && npm install",
     "frontend:install": "npm --prefix frontend install",
     "frontend:dev": "npm --prefix frontend run dev",
+    "preview:pmdg-737": "node scripts/dev/pmdg-737-preview.js",
     "frontend:build": "npm --prefix frontend run build",
     "release:profile": "node scripts/release-profile-loader.js",
     "release:profile:validate": "node scripts/release-profile-loader.js user --validate",

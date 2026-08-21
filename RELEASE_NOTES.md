@@ -1,17 +1,25 @@
-# Flight Fabric 0.5.1
+# Flight Fabric 0.5.2
 
-Flight Fabric 0.5.1 makes the PMDG 737 Aircraft page easier to use in narrow
-desktop windows and on touch devices.
+Flight Fabric 0.5.2 makes aircraft controls faster to find and easier to use
+across desktop and mobile layouts.
+
+## Added
+
+- The PMDG 737 has an optional initial-power quick group for common battery,
+  standby-power, bus-transfer, ground-power, APU, IRS, and related overhead
+  controls. Commands remain guarded and confirmed against aircraft readback.
 
 ## Fixed
 
-- PMDG 737 section navigation now stays out of desktop control layouts. On
-  touch devices it is compact, remains accessible at the top of the panel, and
-  scrolls with the page rather than covering aircraft controls.
+- PMDG 737, PMDG 777, Fenix A32X, FlyByWire A32NX, and FlyByWire A380X pages now
+  share compact search and section navigation behavior across desktop,
+  narrow-window, touch, and mobile layouts.
+- Aircraft panel location labels now match their flight-control, APU, and
+  related cockpit areas.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.5.1.exe`
+- `Flight.Fabric.Setup.0.5.2.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable

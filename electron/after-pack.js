@@ -41,6 +41,7 @@ const RUNTIME_MODULE_EXCLUDED_DIRECTORIES = new Set([
 const RUNTIME_MODULE_EXCLUDED_FILES = new Set([
   '.editorconfig',
   '.eslintignore',
+  '.runkit_example.js',
   '.gitattributes',
   '.gitignore',
   '.npmignore',
@@ -48,6 +49,9 @@ const RUNTIME_MODULE_EXCLUDED_FILES = new Set([
   '.prettierignore',
   'bun.lock',
   'bun.lockb',
+  'eslint.config.cjs',
+  'eslint.config.js',
+  'eslint.config.mjs',
   'npm-shrinkwrap.json',
   'package-lock.json',
   'pnpm-lock.yaml',

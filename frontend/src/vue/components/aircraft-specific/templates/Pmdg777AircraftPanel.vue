@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 
 const props = defineProps({
@@ -27,6 +28,19 @@ const sdkSourceStatus = computed(() => (
     ? props.sourceStatuses.sdk
     : props.sourceStatus
 ));
+
+const mobileSections = Object.freeze([
+  Object.freeze({ id: 'mcp', label: 'MCP', title: 'Mode Control Panel', detail: 'Targets, flight directors and AFDS modes.' }),
+  Object.freeze({ id: 'lights', label: 'Lights', title: 'Lights & Cabin', detail: 'Exterior lights, signs and windshield wipers.' }),
+  Object.freeze({ id: 'electrical', label: 'Electrical', title: 'Electrical, APU & General', detail: 'Power, generators, ADIRU and general systems.' }),
+  Object.freeze({ id: 'hydraulics-ice', label: 'Hyd / Ice', title: 'Hydraulics & Ice Protection', detail: 'Hydraulic pumps, heat and anti-ice selectors.' }),
+  Object.freeze({ id: 'fuel-engines', label: 'Fuel', title: 'Fuel & Engines', detail: 'Fuel pumps, crossfeed and engine selectors.' }),
+  Object.freeze({ id: 'air', label: 'Air', title: 'Air & Pressurization', detail: 'Packs, bleed air, trim air and outflow selectors.' }),
+  Object.freeze({ id: 'gear-high-lift', label: 'Gear', title: 'Gear, Brakes & High-Lift', detail: 'Gear, autobrake, flaps, speedbrake and parking brake.' }),
+  Object.freeze({ id: 'displays', label: 'Displays', title: 'EFIS, Displays & Transponder', detail: 'Display, EFIS and transponder selectors.' }),
+  Object.freeze({ id: 'utilities', label: 'Utilities', title: 'Utilities & Comfort', detail: 'Chronometers, interior lighting and crew comfort.' }),
+  Object.freeze({ id: 'outcomes', label: 'Status', title: 'System Status', detail: 'Indications and warnings.' }),
+]);
 
 const variant = computed(() => {
   const liveModel = props.values['aircraft.model'];
@@ -167,6 +181,7 @@ function detentControl(title, fieldId, prefix, positions, options = {}) {
 
 const controlSections = [
   {
+    navId: 'electrical',
     title: 'Electrical, APU & General',
     description: 'Persistent overhead switch positions; external-power requests confirm the PMDG ON annunciator.',
     open: true,
@@ -201,6 +216,7 @@ const controlSections = [
     ],
   },
   {
+    navId: 'hydraulics-ice',
     title: 'Hydraulics & Ice Protection',
     description: 'Only unguarded pump, heat, and anti-ice selector positions are available.',
     controls: [
@@ -236,6 +252,7 @@ const controlSections = [
     ],
   },
   {
+    navId: 'fuel-engines',
     title: 'Fuel & Engines',
     description: 'These are normal cockpit selectors, but fuel-control and start-switch commands can stop or start engines. Use only with the aircraft in the intended configuration.',
     warning: true,
@@ -270,6 +287,7 @@ const controlSections = [
     ],
   },
   {
+    navId: 'air',
     title: 'Air & Pressurization',
     description: 'Cockpit switch positions only; the page does not infer resulting valve, temperature, or pressure behavior.',
     controls: [
@@ -298,6 +316,7 @@ const controlSections = [
     ],
   },
   {
+    navId: 'gear-high-lift',
     title: 'Gear, Brakes & High-Lift Controls',
     description: 'Fixed lever/detent targets only. Arbitrary speedbrake and flight-control axes remain unavailable.',
     warning: true,
@@ -319,6 +338,7 @@ const controlSections = [
     ],
   },
   {
+    navId: 'displays',
     title: 'EFIS, Displays & Transponder',
     description: 'Persistent selector positions with exact crew-side readback.',
     controls: [
@@ -389,6 +409,7 @@ const controlSections = [
     ],
   },
   {
+    navId: 'utilities',
     title: 'Chronometers',
     description: 'Stable selector detents only; momentary reset/clock buttons are excluded.',
     controls: [
@@ -759,7 +780,6 @@ onMounted(() => {
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <div>
         <h3 class="text-base font-semibold text-gray-100">PMDG Boeing {{ variant }}</h3>
-        <p class="text-xs text-gray-500">Official PMDG SDK state with fixed-target, readback-confirmed flight-deck controls.</p>
       </div>
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sdkSourceStatus }}</span>
     </div>
@@ -795,7 +815,17 @@ onMounted(() => {
       <p class="mt-1 text-xs leading-relaxed text-amber-100/75">{{ sdkStatusNotice }}</p>
     </div>
 
-    <div>
+    <AircraftSectionRibbon
+      :sections="mobileSections"
+      section-id-prefix="pmdg-777-section-"
+      aircraft-label="PMDG 777"
+    />
+
+    <div
+      id="pmdg-777-section-mcp"
+      class="pmdg777-mobile-navigable-section"
+      tabindex="-1"
+    >
       <div class="dashboard-section-kicker">Mode Control Panel</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
         <form
@@ -844,25 +874,31 @@ onMounted(() => {
       <p class="mt-2 text-[10px] leading-relaxed text-gray-500">The official 777 SDK does not expose 737-style NAV frequency or course-selector controls, so those remain intentionally unavailable.</p>
     </div>
 
-    <div>
-      <div class="dashboard-section-kicker">Exterior Lights</div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-        <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
-          <div class="mb-2 flex items-center justify-between text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>
-          <div class="grid grid-cols-2 gap-2">
-            <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-2 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :disabled="actionDisabled(control, action.id)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+    <div
+      id="pmdg-777-section-lights"
+      class="pmdg777-mobile-navigable-section space-y-5"
+      tabindex="-1"
+    >
+      <div>
+        <div class="dashboard-section-kicker">Exterior Lights</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+          <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
+            <div class="mb-2 flex items-center justify-between text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>
+            <div class="grid grid-cols-2 gap-2">
+              <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-2 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :disabled="actionDisabled(control, action.id)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div>
-      <div class="dashboard-section-kicker">Cabin &amp; Visibility</div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <div v-for="control in cabinControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
-          <div class="mb-2 flex items-center justify-between text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>
-          <div class="grid gap-1.5" :class="control.actions.length === 4 ? 'grid-cols-4' : 'grid-cols-3'">
-            <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :disabled="actionDisabled(control, action.id)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+      <div>
+        <div class="dashboard-section-kicker">Cabin &amp; Visibility</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div v-for="control in cabinControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
+            <div class="mb-2 flex items-center justify-between text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>
+            <div class="grid gap-1.5" :class="control.actions.length === 4 ? 'grid-cols-4' : 'grid-cols-3'">
+              <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :disabled="actionDisabled(control, action.id)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+            </div>
           </div>
         </div>
       </div>
@@ -872,6 +908,9 @@ onMounted(() => {
       v-for="section in visibleControlSections"
       :key="section.title"
       class="rounded-lg border border-surface-200 bg-surface-50/40"
+      :class="{ 'pmdg777-mobile-navigable-section': section.navId }"
+      :id="section.navId ? `pmdg-777-section-${section.navId}` : undefined"
+      :tabindex="section.navId ? -1 : undefined"
       :open="section.open || undefined"
     >
       <summary class="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-gray-200">
@@ -963,11 +1002,12 @@ onMounted(() => {
       </div>
     </details>
 
-    <div>
-      <div class="dashboard-section-kicker">Read-only System Outcome</div>
-      <p class="mb-2 text-[10px] text-gray-500">
-        These indicators describe system outcomes or warnings; they are not used as substitute selector controls.
-      </p>
+    <div
+      id="pmdg-777-section-outcomes"
+      class="pmdg777-mobile-navigable-section"
+      tabindex="-1"
+    >
+      <div class="dashboard-section-kicker mb-2">System Status</div>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div v-for="indicator in systemIndicators" :key="indicator.id" class="rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass(indicator.id, indicator.tone)">{{ indicator.label }} <span class="float-right opacity-70">{{ valueText(indicator.id) }}</span></div>
       </div>
@@ -978,3 +1018,21 @@ onMounted(() => {
     </p>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .pmdg777-mobile-navigable-section {
+    scroll-margin-top: 4.25rem;
+  }
+
+  .pmdg777-mobile-navigable-section:focus {
+    outline: none;
+  }
+}
+
+@media (max-height: 500px) and (pointer: coarse) {
+  .pmdg777-mobile-navigable-section {
+    scroll-margin-top: 4rem;
+  }
+}
+</style>

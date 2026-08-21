@@ -10,6 +10,7 @@ const {
   PMDG_737_900_PROFILE_KEY,
 } = require('./index');
 const { defaultAircraftIntegrationRegistry } = require('..');
+const pmdg737Connector = require('../../../telemetry-provider/sdk-connectors/pmdg-737-ng3-clientdata.json');
 
 test('PMDG 737 adapter shares one trusted contract across exact family profiles', () => {
   for (const profileKey of [
@@ -27,8 +28,8 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     assert.equal(integration.presentation.templateId, 'pmdg-737');
   }
 
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 81);
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 81);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 105);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 153);
   assert.equal(
     PMDG_737_INTEGRATION.fields['aircraft.model'].sources[0].decode.values['737-800 BBJ BW'],
     '737-800 BBJ BW',
@@ -44,6 +45,35 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
       values: { off: 'off', intermittent: 'intermittent', low: 'low', high: 'high' },
     },
   });
+  assert.deepEqual(PMDG_737_INTEGRATION.fields['systems.electrical.batteryMode'].sources[0], {
+    route: { type: 'sdk', adapter: 'clientdata-manifest', path: 'systems.electrical.battery' },
+    decode: { type: 'enum', values: { off: 'off', bat: 'bat', on: 'on' } },
+  });
+  assert.deepEqual(PMDG_737_INTEGRATION.fields['flightControls.flapHandleIndex'].sources[0], {
+    route: { type: 'simvar', name: 'FLAPS HANDLE INDEX', unit: 'Number' },
+    decode: { type: 'number', precision: 0 },
+  });
+
+  const connectorFields = Object.fromEntries(
+    pmdg737Connector.fields.map((field) => [field.name, field]),
+  );
+  assert.equal(pmdg737Connector.clientData.size, 916, 'connector must retain the exact NG3 struct size');
+  for (const [fieldName, offset] of [
+    ['irs_mode_l', 11],
+    ['irs_mode_r', 12],
+    ['battery_selector', 133],
+    ['standby_power_selector', 141],
+    ['ground_power_available', 142],
+    ['bus_transfer_auto', 144],
+    ['apu_generator_off_bus', 155],
+    ['transfer_bus_1_powered', 189],
+    ['transfer_bus_2_powered', 190],
+    ['window_heat_captain_forward', 230],
+    ['window_heat_first_officer_side', 233],
+    ['ground_connection_available', 658],
+  ] as const) {
+    assert.equal(connectorFields[fieldName]?.offset, offset, `${fieldName} must match the installed NG3 struct layout`);
+  }
 
   const beaconOn = defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: PMDG_737_ADAPTER_ID,
@@ -68,6 +98,78 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   assert.equal(wiperHigh.routes[0].value, 3);
   assert.equal(wiperHigh.routes[0].readback.fieldId, 'visibility.wiperRightMode');
   assert.equal(wiperHigh.routes[0].readback.expectedValue, 'high');
+
+  const batteryOn = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'systems.electrical.battery.on',
+  });
+  assert.equal(batteryOn.routes[0].command, '#69633');
+  assert.equal(batteryOn.routes[0].value, 2);
+  assert.equal(batteryOn.routes[0].readback.fieldId, 'systems.electrical.batteryMode');
+  assert.equal(batteryOn.routes[0].readback.expectedValue, 'on');
+
+  const groundPowerConnect = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'systems.electrical.groundPower.connect',
+  });
+  assert.equal(groundPowerConnect.routes[0].transport, 'simconnect-sequence');
+  assert.deepEqual(groundPowerConnect.routes[0].operations, [
+    { type: 'event', name: 'ROTOR_BRAKE', value: 1702 },
+    { type: 'event', name: 'ROTOR_BRAKE', value: 1704 },
+  ]);
+  assert.deepEqual(groundPowerConnect.routes[0].readbacks.map((readback) => ({
+    fieldId: readback.fieldId,
+    expectedValue: readback.expectedValue,
+  })), [
+    { fieldId: 'systems.electrical.transferBus1Powered', expectedValue: true },
+    { fieldId: 'systems.electrical.transferBus2Powered', expectedValue: true },
+  ]);
+
+  const apuStart = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'systems.apu.start',
+  });
+  assert.equal(apuStart.routes[0].command, '#69750');
+  assert.equal(apuStart.routes[0].value, 2);
+  assert.equal(apuStart.routes[0].readback.fieldId, 'systems.apuMode');
+  assert.equal(apuStart.routes[0].readback.confirmation, 'changed');
+
+  for (const [actionId, command, value, fieldId, expectedValue] of [
+    ['gear.handle.up', '#70087', 0, 'gear.handleMode', 'up'],
+    ['gear.autobrake.max', '#70092', 5, 'gear.autobrakeMode', 'max'],
+    ['systems.air.packLeft.high', '#69832', 2, 'systems.packLeftMode', 'high'],
+    ['systems.air.apuBleed.on', '#69843', 1, 'systems.apuBleed', true],
+    ['systems.ice.wing.on', '#69788', 1, 'systems.wingAntiIce', true],
+  ] as const) {
+    const action = defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: PMDG_737_ADAPTER_ID,
+      profileKey: PMDG_737_800_PROFILE_KEY,
+      actionId,
+    });
+    assert.equal(action.routes[0].command, command);
+    assert.equal(action.routes[0].value, value);
+    assert.equal(action.routes[0].readback.fieldId, fieldId);
+    assert.equal(action.routes[0].readback.expectedValue, expectedValue);
+  }
+
+  for (const [actionId, command, fieldId, expectedValue] of [
+    ['gear.parkingBrake.set', '#70325', 'gear.parkingBrake', true],
+    ['flightControls.flaps.detent30', '#76780', 'flightControls.flapHandleIndex', 7],
+    ['flightControls.stabTrimMainElectric.cutout', '#70341', 'flightControls.stabTrimMainElectricCutout', true],
+  ] as const) {
+    const action = defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: PMDG_737_ADAPTER_ID,
+      profileKey: PMDG_737_800_PROFILE_KEY,
+      actionId,
+    });
+    assert.equal(action.routes[0].command, command);
+    assert.deepEqual(action.routes[0].values, [0x20000000, 0x00020000]);
+    assert.equal(action.routes[0].readback.fieldId, fieldId);
+    assert.equal(action.routes[0].readback.expectedValue, expectedValue);
+  }
 
   const headingSet = defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: PMDG_737_ADAPTER_ID,

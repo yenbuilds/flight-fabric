@@ -372,6 +372,27 @@ function createFixtureState() {
         simulator: 'msfs',
         qualifiedId: 'bundled/msfs/pmdg-777',
       },
+      {
+        id: 'fenix-a320',
+        name: 'Fenix A320',
+        namespace: 'bundled',
+        simulator: 'msfs',
+        qualifiedId: 'bundled/msfs/fenix-a320',
+      },
+      {
+        id: 'fbw-a32nx',
+        name: 'FlyByWire A32NX',
+        namespace: 'bundled',
+        simulator: 'msfs',
+        qualifiedId: 'bundled/msfs/fbw-a32nx',
+      },
+      {
+        id: 'fbw-a380x',
+        name: 'FlyByWire A380X',
+        namespace: 'bundled',
+        simulator: 'msfs',
+        qualifiedId: 'bundled/msfs/fbw-a380x',
+      },
     ],
     airportLookupRequests: [],
   };
@@ -483,6 +504,26 @@ function createFixtureBackend() {
           restartRequired: false,
           restartReasons: [],
         });
+        const selectedAircraft = {
+          'bundled/msfs/pmdg-777': { id: 'pmdg-777', name: 'PMDG 777', templateId: 'pmdg-777' },
+          'bundled/msfs/fenix-a320': { id: 'fenix-a320', name: 'Fenix A320', templateId: 'fenix-a32x' },
+          'bundled/msfs/fbw-a32nx': { id: 'fbw-a32nx', name: 'FlyByWire A32NX', templateId: 'fbw-a32nx' },
+          'bundled/msfs/fbw-a380x': { id: 'fbw-a380x', name: 'FlyByWire A380X', templateId: 'fbw-a380x' },
+        }[state.appSettings.aircraft?.profile];
+        if (selectedAircraft) {
+          sendJson(ws, {
+            type: 'aircraftProfile',
+            profile: {
+              id: selectedAircraft.id,
+              name: selectedAircraft.name,
+              namespace: 'bundled',
+              simulator: 'msfs',
+              _profileKey: state.appSettings.aircraft.profile,
+              profileRevision: 1,
+              aircraftSpecificTemplateId: selectedAircraft.templateId,
+            },
+          });
+        }
         break;
 
       case 'requestLogbook':
@@ -802,17 +843,17 @@ async function main() {
       'reconnect smoke should re-request initial state after the socket reconnects',
     );
     assert.equal(
-      fixtureBackend.state.savedSettings?.network?.updateChecks,
+      fixtureBackend.state.appSettings?.network?.updateChecks,
       true,
       'settings smoke flow should keep update checks enabled by default',
     );
     assert.equal(
-      fixtureBackend.state.savedSettings?.network?.onlineMapTiles,
+      fixtureBackend.state.appSettings?.network?.onlineMapTiles,
       true,
       'settings smoke flow should keep online map tiles enabled by default',
     );
     assert.equal(
-      fixtureBackend.state.savedSettings?.aircraft?.profile,
+      fixtureBackend.state.appSettings?.aircraft?.profile,
       'bundled/msfs/pmdg-777',
       'later settings saves should preserve the selected bundled profile',
     );

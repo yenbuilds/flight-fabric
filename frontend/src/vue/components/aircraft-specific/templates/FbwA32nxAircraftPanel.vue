@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
+import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import FlyByWireThrottleControl from './FlyByWireThrottleControl.vue';
 
 const props = defineProps({
@@ -20,6 +21,21 @@ const controlSessionReady = computed(() => (
   props.sourceStatus === 'connected'
   && aircraftControls.availability.enabled === true
 ));
+
+const mobileSections = Object.freeze([
+  Object.freeze({ id: 'throttle', label: 'Throttle', title: 'Virtual Throttle' }),
+  Object.freeze({ id: 'fcu', label: 'FCU', title: 'Flight Control Unit' }),
+  Object.freeze({ id: 'flight-guidance', label: 'Guidance', title: 'Flight Guidance & EFIS' }),
+  Object.freeze({ id: 'lights-signs', label: 'Lights', title: 'Exterior Lights & Signs' }),
+  Object.freeze({ id: 'electrical-apu', label: 'Electrical', title: 'Electrical & APU' }),
+  Object.freeze({ id: 'air-ice', label: 'Air / Ice', title: 'Pneumatic, Air Conditioning & Anti-Ice' }),
+  Object.freeze({ id: 'adirs-navigation', label: 'ADIRS', title: 'ADIRS & Navigation' }),
+  Object.freeze({ id: 'ground-engines', label: 'Engines', title: 'Ground & Engine Controls' }),
+  Object.freeze({ id: 'surveillance', label: 'Radio', title: 'Radio & Surveillance' }),
+  Object.freeze({ id: 'switching-displays', label: 'Displays', title: 'Switching & Displays' }),
+  Object.freeze({ id: 'light-readback', label: 'Readback', title: 'Exterior Light Readback' }),
+  Object.freeze({ id: 'status', label: 'Status', title: 'Aircraft System Status' }),
+]);
 
 const guidanceModes = [
   { id: 'flightGuidance.ap1', label: 'AP 1' },
@@ -590,22 +606,30 @@ function alignmentText() {
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sourceStatus }}</span>
     </div>
 
-    <FlyByWireThrottleControl
+    <AircraftSectionRibbon
+      :sections="mobileSections"
+      section-id-prefix="fbw-a32nx-section-"
       aircraft-label="FlyByWire A32NX"
-      :lever-positions="[
-        values['propulsion.throttleLever1Angle'],
-        values['propulsion.throttleLever2Angle'],
-      ]"
-      :lever-labels="['L', 'R']"
-      :source-status="sourceStatus"
-      :control-enabled="controlSessionReady"
-      :setup-required="controlSetupRequired"
-      :action-capabilities="actionCapabilities"
-      :pending="groupPending('propulsion.throttle')"
-      :request-action="requestThrottleAction"
     />
 
-    <div>
+    <div id="fbw-a32nx-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">
+      <FlyByWireThrottleControl
+        aircraft-label="FlyByWire A32NX"
+        :lever-positions="[
+          values['propulsion.throttleLever1Angle'],
+          values['propulsion.throttleLever2Angle'],
+        ]"
+        :lever-labels="['L', 'R']"
+        :source-status="sourceStatus"
+        :control-enabled="controlSessionReady"
+        :setup-required="controlSetupRequired"
+        :action-capabilities="actionCapabilities"
+        :pending="groupPending('propulsion.throttle')"
+        :request-action="requestThrottleAction"
+      />
+    </div>
+
+    <div id="fbw-a32nx-section-fcu" class="aircraft-mobile-navigable-section" tabindex="-1">
       <div class="dashboard-section-kicker">Flight Control Unit</div>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div class="rounded-lg border border-surface-200 bg-surface-50 p-3">
@@ -640,6 +664,9 @@ function alignmentText() {
     <div
       v-for="section in controlSections"
       :key="section.id"
+      :id="`fbw-a32nx-section-${section.id}`"
+      class="aircraft-mobile-navigable-section"
+      tabindex="-1"
       :data-aircraft-control-section="section.id"
     >
       <div class="dashboard-section-kicker">{{ section.title }}</div>
@@ -682,7 +709,7 @@ function alignmentText() {
       </div>
     </div>
 
-    <div>
+    <div id="fbw-a32nx-section-light-readback" class="aircraft-mobile-navigable-section" tabindex="-1">
       <div class="dashboard-section-kicker">Exterior Light Readback</div>
       <p class="mb-2 text-[10px] leading-relaxed text-gray-500">
         Landing-light selector and illuminated-circuit states are tracked independently.
@@ -699,7 +726,7 @@ function alignmentText() {
       </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div id="fbw-a32nx-section-status" class="aircraft-mobile-navigable-section grid grid-cols-1 lg:grid-cols-2 gap-4" tabindex="-1">
       <div>
         <div class="dashboard-section-kicker">Electrical &amp; Pneumatic Snapshot</div>
         <div class="mb-2 grid grid-cols-2 gap-2">

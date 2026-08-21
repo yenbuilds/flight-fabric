@@ -40,6 +40,7 @@ export function reconcileA380NumericDraftState(state = {}, snapshot = {}, previo
 <script setup>
 import { computed, reactive, watch } from 'vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
+import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
 import FlyByWireThrottleControl from './FlyByWireThrottleControl.vue';
 
@@ -61,6 +62,14 @@ const controlSessionReady = computed(() => (
   props.sourceStatus === 'connected'
   && aircraftControls.availability.enabled === true
 ));
+
+const mobileSections = Object.freeze([
+  Object.freeze({ id: 'throttle', label: 'Throttle', title: 'Virtual Throttle' }),
+  Object.freeze({ id: 'fcu-autopilot', label: 'FCU', title: 'FCU & Autopilot' }),
+  Object.freeze({ id: 'exterior-lights', label: 'Lights', title: 'Exterior Lights' }),
+  Object.freeze({ id: 'flight-configuration', label: 'Controls', title: 'Flight Configuration' }),
+  Object.freeze({ id: 'systems', label: 'Systems', title: 'Four-Engine & System Status' }),
+]);
 
 const selectorControls = Object.freeze([
   {
@@ -518,28 +527,36 @@ function requestThrottleAction(actionId) {
       </div>
     </header>
 
-    <FlyByWireThrottleControl
+    <AircraftSectionRibbon
+      :sections="mobileSections"
+      section-id-prefix="fbw-a380x-section-"
       aircraft-label="FlyByWire A380X"
-      :lever-positions="[
-        values['propulsion.throttleLever1Angle'],
-        values['propulsion.throttleLever2Angle'],
-        values['propulsion.throttleLever3Angle'],
-        values['propulsion.throttleLever4Angle'],
-      ]"
-      :lever-labels="['ENG 1', 'ENG 2', 'ENG 3', 'ENG 4']"
-      :source-status="sourceStatus"
-      :control-enabled="controlSessionReady"
-      :setup-required="controlSetupRequired"
-      :action-capabilities="actionCapabilities"
-      :pending="groupPending('propulsion.throttle')"
-      :request-action="requestThrottleAction"
     />
+
+    <div id="fbw-a380x-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">
+      <FlyByWireThrottleControl
+        aircraft-label="FlyByWire A380X"
+        :lever-positions="[
+          values['propulsion.throttleLever1Angle'],
+          values['propulsion.throttleLever2Angle'],
+          values['propulsion.throttleLever3Angle'],
+          values['propulsion.throttleLever4Angle'],
+        ]"
+        :lever-labels="['ENG 1', 'ENG 2', 'ENG 3', 'ENG 4']"
+        :source-status="sourceStatus"
+        :control-enabled="controlSessionReady"
+        :setup-required="controlSetupRequired"
+        :action-capabilities="actionCapabilities"
+        :pending="groupPending('propulsion.throttle')"
+        :request-action="requestThrottleAction"
+      />
+    </div>
 
     <p class="rounded-md border border-surface-200 bg-surface-50 px-3 py-2 text-[10px] leading-relaxed text-gray-400" aria-live="polite">
       {{ pageStatus }} AP1 uses the documented direct AP1 push target and confirms fresh AP1 state. AP2 has no action and remains read-only, as do the vertical target and runway-turnoff lights.
     </p>
 
-    <section data-a380-section="fcu-autopilot">
+    <section id="fbw-a380x-section-fcu-autopilot" class="aircraft-mobile-navigable-section" tabindex="-1" data-a380-section="fcu-autopilot">
       <div class="dashboard-section-kicker">FCU &amp; Autopilot</div>
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <form
@@ -631,7 +648,7 @@ function requestThrottleAction(actionId) {
       </div>
     </section>
 
-    <section data-a380-section="exterior-lights">
+    <section id="fbw-a380x-section-exterior-lights" class="aircraft-mobile-navigable-section" tabindex="-1" data-a380-section="exterior-lights">
       <div class="dashboard-section-kicker">Exterior Lights</div>
       <p class="mb-2 text-[10px] leading-relaxed text-gray-500">OFF and ON command lamp outputs. Airbus AUTO and multi-position selector modes remain in the cockpit.</p>
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -672,7 +689,7 @@ function requestThrottleAction(actionId) {
       </div>
     </section>
 
-    <section data-a380-section="flight-configuration">
+    <section id="fbw-a380x-section-flight-configuration" class="aircraft-mobile-navigable-section" tabindex="-1" data-a380-section="flight-configuration">
       <div class="dashboard-section-kicker">Flight Configuration</div>
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
         <div
@@ -763,7 +780,7 @@ function requestThrottleAction(actionId) {
       </div>
     </section>
 
-    <section data-a380-section="systems">
+    <section id="fbw-a380x-section-systems" class="aircraft-mobile-navigable-section" tabindex="-1" data-a380-section="systems">
       <div class="dashboard-section-kicker">Four-Engine &amp; System Snapshot</div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div v-for="engine in engineCards" :key="engine.number" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-a380-engine="engine.number">

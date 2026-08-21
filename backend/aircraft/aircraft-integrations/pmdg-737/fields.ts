@@ -155,9 +155,78 @@ const PMDG_737_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
     off: 'off', intermittent: 'intermittent', low: 'low', high: 'high',
   }),
 
+  'systems.electrical.batteryMode': enumField(
+    'systems.electrical.batteryMode',
+    'systems.electrical.battery',
+    { off: 'off', bat: 'bat', on: 'on' },
+  ),
+  'systems.electrical.standbyPowerMode': enumField(
+    'systems.electrical.standbyPowerMode',
+    'systems.electrical.standbyPower',
+    { bat: 'bat', off: 'off', auto: 'auto' },
+  ),
+  'systems.electrical.groundPowerAvailable': booleanField(
+    'systems.electrical.groundPowerAvailable',
+    'systems.electrical.groundPowerAvailable',
+  ),
+  'systems.electrical.groundConnectionAvailable': booleanField(
+    'systems.electrical.groundConnectionAvailable',
+    'systems.electrical.groundConnectionAvailable',
+  ),
+  'systems.electrical.busTransferAuto': booleanField(
+    'systems.electrical.busTransferAuto',
+    'systems.electrical.busTransferAuto',
+  ),
+  'systems.electrical.transferBus1Powered': booleanField(
+    'systems.electrical.transferBus1Powered',
+    'systems.electrical.transferBus1Powered',
+  ),
+  'systems.electrical.transferBus2Powered': booleanField(
+    'systems.electrical.transferBus2Powered',
+    'systems.electrical.transferBus2Powered',
+  ),
+  'systems.electrical.apuGeneratorOffBus': booleanField(
+    'systems.electrical.apuGeneratorOffBus',
+    'systems.electrical.apuGeneratorOffBus',
+  ),
+  'systems.electrical.batteryDischarge': booleanField(
+    'systems.electrical.batteryDischarge',
+    'systems.electrical.batteryDischarge',
+  ),
+  'systems.electrical.standbyPowerOff': booleanField(
+    'systems.electrical.standbyPowerOff',
+    'systems.electrical.standbyPowerOff',
+  ),
+  'systems.irs.leftMode': enumField('systems.irs.leftMode', 'systems.irs.leftMode', {
+    off: 'off', align: 'align', nav: 'nav', att: 'att',
+  }),
+  'systems.irs.rightMode': enumField('systems.irs.rightMode', 'systems.irs.rightMode', {
+    off: 'off', align: 'align', nav: 'nav', att: 'att',
+  }),
+  'systems.irs.leftAlign': booleanField('systems.irs.leftAlign', 'systems.irs.leftAlign'),
+  'systems.irs.rightAlign': booleanField('systems.irs.rightAlign', 'systems.irs.rightAlign'),
+  'systems.irs.leftFault': booleanField('systems.irs.leftFault', 'systems.irs.leftFault'),
+  'systems.irs.rightFault': booleanField('systems.irs.rightFault', 'systems.irs.rightFault'),
+
   'systems.wingAntiIce': booleanField('systems.wingAntiIce', 'systems.ice.wing'),
   'systems.engineAntiIceLeft': booleanField('systems.engineAntiIceLeft', 'systems.ice.engineLeft'),
   'systems.engineAntiIceRight': booleanField('systems.engineAntiIceRight', 'systems.ice.engineRight'),
+  'systems.windowHeatCaptainForward': booleanField(
+    'systems.windowHeatCaptainForward',
+    'systems.ice.windowHeatCaptainForward',
+  ),
+  'systems.windowHeatFirstOfficerForward': booleanField(
+    'systems.windowHeatFirstOfficerForward',
+    'systems.ice.windowHeatFirstOfficerForward',
+  ),
+  'systems.windowHeatCaptainSide': booleanField(
+    'systems.windowHeatCaptainSide',
+    'systems.ice.windowHeatCaptainSide',
+  ),
+  'systems.windowHeatFirstOfficerSide': booleanField(
+    'systems.windowHeatFirstOfficerSide',
+    'systems.ice.windowHeatFirstOfficerSide',
+  ),
   'systems.packLeftMode': enumField('systems.packLeftMode', 'systems.air.packLeft', {
     off: 'off', auto: 'auto', high: 'high',
   }),
@@ -172,11 +241,23 @@ const PMDG_737_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
     off: 'off', on: 'on', start: 'start',
   }),
   'systems.apuEgt': numberField('systems.apuEgt', 'systems.apu.egt', 0),
+  'systems.apuLowOilPressure': booleanField('systems.apuLowOilPressure', 'systems.apu.lowOilPressure'),
+  'systems.apuFault': booleanField('systems.apuFault', 'systems.apu.fault'),
+  'systems.apuOverspeed': booleanField('systems.apuOverspeed', 'systems.apu.overspeed'),
   'warnings.masterWarning': booleanField('warnings.masterWarning', 'warnings.masterWarning'),
   'warnings.masterCaution': booleanField('warnings.masterCaution', 'warnings.masterCaution'),
 
   'flightControls.flapNeedleLeft': numberField('flightControls.flapNeedleLeft', 'flaps.needleLeft', 1),
   'flightControls.flapNeedleRight': numberField('flightControls.flapNeedleRight', 'flaps.needleRight', 1),
+  // The NG3 ClientData struct publishes flap needles but not the physical
+  // handle detent. Use the standard handle index solely to confirm the
+  // PMDG-published direct detent events.
+  'flightControls.flapHandleIndex': simvarNumberField(
+    'flightControls.flapHandleIndex',
+    'FLAPS HANDLE INDEX',
+    'Number',
+    0,
+  ),
   'flightControls.leadingEdgeExtended': booleanField('flightControls.leadingEdgeExtended', 'flaps.leadingEdgeExtended'),
   'flightControls.leadingEdgeTransit': booleanField('flightControls.leadingEdgeTransit', 'flaps.leadingEdgeTransit'),
   'flightControls.speedbrakeArmed': booleanField('flightControls.speedbrakeArmed', 'spoilers.armed'),

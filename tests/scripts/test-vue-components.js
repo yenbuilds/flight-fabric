@@ -2332,6 +2332,8 @@ async function main() {
 
     assert.match(html, /data-aircraft-page-mode="generic"/, 'an unmatched aircraft should select the generic control surface');
     assert.match(html, /aria-label="Find on Aircraft page"/, 'the generic Aircraft page should expose its shared search');
+    assert.match(html, />Find controls</, 'Aircraft search should start as a compact discoverable launcher');
+    assert.match(html, /aria-label="Close Aircraft search"/, 'expanded Aircraft search should have an explicit close control');
     assert.match(html, /placeholder="Find a switch, light, or value\.\.\."/, 'Aircraft search should use task-oriented cockpit copy');
     assert.match(html, /aria-label="Previous match"/, 'Aircraft search should expose touch-friendly previous navigation');
     assert.match(html, /aria-label="Next match"/, 'Aircraft search should expose touch-friendly next navigation');
@@ -2357,14 +2359,38 @@ async function main() {
     assert.match(html, /data-aircraft-page-mode="specific"/, 'a registered aircraft template should replace generic controls');
     assert.match(html, /data-mobile-aircraft-navigation="search"/, 'non-PMDG templates should retain mobile Aircraft search');
     assert.match(html, /aria-label="Find on Aircraft page"/, 'trusted aircraft templates should share the centralized Aircraft search');
-    assert.doesNotMatch(html, /aircraft-find--mobile-hidden/, 'non-PMDG templates must not inherit the PMDG ribbon experiment');
+    assert.doesNotMatch(html, /aircraft-find--mobile-hidden/, 'templates without section navigation should retain mobile search');
     assert.match(html, /id="aircraft-specific-section"/, 'specific mode should mount the trusted aircraft section');
     assert.match(html, /data-aircraft-template="ifly-737-max-8"/, 'the registered iFly template should render');
     assert.match(html, />stale</, 'transient source health should render inside the selected template');
     assert.doesNotMatch(html, /id="controls-experimental-badge"/, 'specific mode should not mount the generic controls beneath it');
   });
 
-  await test('AircraftTabShell gives only PMDG 737 the mobile section ribbon', async () => {
+  await test('AircraftTabShell keeps the PMDG 737 mobile section ribbon and hot-group behavior', async () => {
+    const searchSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftPageSearch.vue',
+    ), 'utf8');
+    const pmdgSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'aircraft-specific',
+      'templates',
+      'Pmdg737AircraftPanel.vue',
+    ), 'utf8');
+    const hotGroupModalSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'aircraft-specific',
+      'AircraftHotGroupModal.vue',
+    ), 'utf8');
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
       ({ useAircraftSpecificStore }) => {
@@ -2379,19 +2405,255 @@ async function main() {
     );
 
     assert.match(html, /data-aircraft-template="pmdg-737"/, 'the PMDG 737 template should render');
-    assert.doesNotMatch(html, /aircraft-specific-section--pmdg-mobile-ribbon/, 'the PMDG section ribbon should remain in the panel flow instead of relying on a sticky overflow escape hatch');
+    assert.match(html, /aircraft-specific-section--mobile-ribbon/, 'the PMDG 737 card should release mobile overflow for its sticky ribbon');
+    assert.match(html, /class="pmdg-mobile-section-ribbon-anchor"/, 'the PMDG section ribbon should have a dedicated sticky sub-navigation row');
     assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, 'the PMDG 737 page should select the mobile ribbon experiment');
-    assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 737 search should be hidden only at the mobile breakpoint');
+    assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 737 search should be hidden at the mobile breakpoint');
+    assert.match(searchSource, /@media \(max-width: 760px\)[\s\S]*?\.aircraft-find--mobile-hidden\s*\{\s*display:\s*none;/, 'PMDG search should disappear at the viewport breakpoint without depending on pointer detection');
+    assert.match(pmdgSource, /@media \(max-width: 760px\)[\s\S]*?\.pmdg-mobile-section-ribbon\s*\{\s*display:\s*grid;/, 'PMDG section navigation should replace search at the same viewport breakpoint');
+    assert.match(pmdgSource, /\.pmdg-mobile-section-ribbon-anchor\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?height:\s*2\.75rem;/, 'the mobile ribbon should remain reachable while reserving only its visible control height');
+    assert.match(pmdgSource, /Number\.isFinite\(endX\)[\s\S]*Number\.isFinite\(endY\)/, 'coordinate-free pointer activation must not be misread as a swipe to another section');
+    assert.match(pmdgSource, /target\?\.closest\?\.\('\.pmdg-mobile-section-ribbon__neighbor'\)/, 'arrow taps should bypass ribbon swipe detection so they always advance one section');
+    assert.equal((pmdgSource.match(/@pointerdown\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both arrow targets should stop ribbon swipe tracking before their click');
+    assert.equal((pmdgSource.match(/@pointerup\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both arrow targets should end without the ribbon interpreting a tap as a swipe');
+    assert.doesNotMatch(pmdgSource, /setPointerCapture/, 'the ribbon must not retarget ordinary button taps away from its arrow and chooser controls');
     assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');
     assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
-    assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position and section discovery');
-    assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'the next large target should name its destination');
+    assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
+    assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'the next large target should name its permanent-section destination');
     assert.deepEqual(
       [...html.matchAll(/data-pmdg-737-section="([^"]+)"/g)].map((match) => match[1]),
       ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
-      'the experiment should expose seven coarse PMDG 737 sections in page order',
+      'the ribbon should retain only the seven permanent PMDG aircraft sections',
     );
-    assert.doesNotMatch(html, /data-aircraft-template="pmdg-777"/, 'the experiment must remain scoped away from PMDG 777');
+    assert.match(html, /data-pmdg-hot-group-launcher="initial-power"/, 'Initial power should be exposed as a compact hot-group launcher');
+    const launcherStart = html.indexOf('data-pmdg-hot-group-launcher="initial-power"');
+    const launcherMarkup = html.slice(launcherStart, html.indexOf('</button>', launcherStart));
+    assert.match(launcherMarkup, /Initial power[\s\S]*PMDG readback unavailable[\s\S]*OPEN/, 'the launcher should retain only its title, useful live summary, and open affordance');
+    assert.doesNotMatch(launcherMarkup, /PWR|Quick group|>LIVE</, 'the launcher should not accumulate explanatory labels or status pills');
+    assert.ok(
+      pmdgSource.indexOf('class="pmdg-mobile-section-ribbon-anchor"') < pmdgSource.indexOf('data-pmdg-hot-group-launcher="initial-power"'),
+      'the permanent section navigation should appear before the separate Initial power quick group',
+    );
+    assert.match(html, /data-aircraft-hot-group-modal/, 'Initial power should render through the reusable hot-group modal shell');
+    assert.match(html, /data-pmdg-hot-group="initial-power"/, 'the cold-and-dark controls should remain inside their separate hot group');
+    assert.doesNotMatch(html, /data-pmdg-737-section="cold-dark"/, 'Initial power must not masquerade as a permanent aircraft section');
+    assert.match(hotGroupModalSource, /<Teleport to="body"/, 'hot groups should escape aircraft-card clipping through a body-level modal');
+    assert.match(hotGroupModalSource, /role="dialog"[\s\S]*?aria-modal="true"/, 'the reusable hot-group surface should expose modal semantics');
+    assert.match(hotGroupModalSource, /@media \(max-width: 760px\)[\s\S]*?height:\s*var\(--ff-visual-viewport-height, 100dvh\)/, 'hot groups should become full-screen sheets on mobile');
+    assert.match(html, /data-pmdg-location="glareshield">GLARESHIELD</, 'MCP should expose its real cockpit location as secondary metadata');
+    assert.match(html, /data-pmdg-location="pedestal">PEDESTAL</, 'navigation radios should expose their pedestal location');
+    assert.match(html, /data-pmdg-location="aft-overhead">AFT OVERHEAD</, 'IRS should expose its aft-overhead location');
+    assert.doesNotMatch(html, /data-pmdg-location="main-panel-overhead"/, 'mixed flight-control locations should not be presented as one cockpit panel');
+    assert.doesNotMatch(html, /data-pmdg-location="overhead-glareshield"/, 'overhead system controls should not be presented as glareshield controls');
+    for (const actionId of [
+      'flightControls.flaps.up',
+      'flightControls.yawDamper.on',
+      'flightControls.stabTrimMainElectric.normal',
+      'gear.handle.down',
+      'gear.autobrake.max',
+      'gear.parkingBrake.set',
+      'systems.apu.start',
+      'systems.air.packLeft.auto',
+      'systems.air.engineBleedLeft.on',
+      'systems.ice.wing.on',
+    ]) {
+      assert.match(html, new RegExp(`data-aircraft-action="${actionId.replaceAll('.', '\\.')}"`), `${actionId} should be exposed as a guarded PMDG control`);
+    }
+    assert.doesNotMatch(html, /Monitoring-only in this pass/, 'physical PMDG selectors should no longer be presented as a read-only snapshot');
+    assert.match(html, /Air &amp; Systems/, 'the final section should describe its interactive control surface');
+    assert.equal((html.match(/data-pmdg-location=/g) || []).length, 9, 'location metadata should remain a small fixed set of accurate labels rather than another navigation system');
+  });
+
+  await test('AircraftTabShell gives PMDG 777 desktop search and 737-parity mobile section navigation', async () => {
+    const searchSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftPageSearch.vue',
+    ), 'utf8');
+    const ribbonSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'aircraft-specific',
+      'AircraftSectionRibbon.vue',
+    ), 'utf8');
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+      ({ useAircraftSpecificStore }) => {
+        const aircraftSpecific = useAircraftSpecificStore();
+        aircraftSpecific.applyProfile({
+          _profileKey: 'bundled/msfs/pmdg-777-300er',
+          profileRevision: 4,
+          aircraftSpecificTemplateId: 'pmdg-777',
+        });
+        aircraftSpecific.clearSnapshot('stale');
+      },
+    );
+
+    assert.match(html, /data-aircraft-template="pmdg-777"/, 'the PMDG 777 template should render');
+    assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, 'PMDG 777 should select section navigation on mobile');
+    assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 777 should retain desktop search while hiding it at the mobile breakpoint');
+    assert.match(html, /aircraft-specific-section--mobile-ribbon/, 'the PMDG 777 card should release overflow for sticky navigation');
+    assert.match(html, /data-aircraft-section-ribbon/, 'the reusable mobile section ribbon should render');
+    assert.match(html, /aria-label="PMDG 777 page sections"/, 'the ribbon should have aircraft-specific navigation semantics');
+    assert.match(html, /aria-label="Open all PMDG 777 sections"/, 'the center target should open the complete 777 section chooser');
+    assert.match(html, />1 of 10 /, 'the ribbon should communicate its position across the ten practical 777 groups');
+    assert.match(html, /aria-label="Open next section: Lights &amp; Cabin"/, 'the next target should identify the lights and cabin group');
+    assert.deepEqual(
+      [...html.matchAll(/id="pmdg-777-section-([^" ]+)"/g)].map((match) => match[1]),
+      ['mcp', 'lights', 'electrical', 'hydraulics-ice', 'fuel-engines', 'air', 'gear-high-lift', 'displays', 'utilities', 'outcomes'],
+      'every 777 navigation destination should map to one stable page anchor',
+    );
+    assert.match(ribbonSource, /@media \(max-width: 760px\)[\s\S]*?\.aircraft-section-ribbon\s*\{[\s\S]*?display:\s*grid;/, 'the 777 ribbon should replace search at the same mobile breakpoint as the 737');
+    assert.equal((ribbonSource.match(/@pointerdown\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both reusable ribbon arrows should bypass swipe tracking');
+    assert.equal((ribbonSource.match(/@pointerup\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both reusable ribbon arrows should remain reliable taps');
+    assert.match(searchSource, /details:not\(\[open\]\)/, 'Aircraft search should index controls hidden only by a closed details group');
+    assert.match(searchSource, /details\.open = true/, 'selecting a result should reveal its closed 777 system group');
+  });
+
+  await test('Fenix and FlyByWire pages share compact desktop search and mobile section navigation', async () => {
+    const cases = [
+      {
+        profileKey: 'bundled/msfs/fenix-a320',
+        templateId: 'fenix-a32x',
+        aircraftLabel: 'Fenix A320',
+        sectionPrefix: 'fenix-section-',
+        sectionIds: [
+          'throttle', 'fcu', 'exterior-lights', 'cabin-visibility', 'cockpit-lighting',
+          'electrical-apu', 'fuel', 'pneumatic', 'protection-hydraulics', 'engine-adirs',
+          'efis-navigation', 'switching', 'surveillance-radio', 'safety-misc',
+        ],
+      },
+      {
+        profileKey: 'bundled/msfs/fbw-a32nx',
+        templateId: 'fbw-a32nx',
+        aircraftLabel: 'FlyByWire A32NX',
+        sectionPrefix: 'fbw-a32nx-section-',
+        sectionIds: [
+          'throttle', 'fcu', 'flight-guidance', 'lights-signs', 'electrical-apu', 'air-ice',
+          'adirs-navigation', 'ground-engines', 'surveillance', 'switching-displays',
+          'light-readback', 'status',
+        ],
+      },
+      {
+        profileKey: 'bundled/msfs/fbw-a380x',
+        templateId: 'fbw-a380x',
+        aircraftLabel: 'FlyByWire A380X',
+        sectionPrefix: 'fbw-a380x-section-',
+        sectionIds: ['throttle', 'fcu-autopilot', 'exterior-lights', 'flight-configuration', 'systems'],
+      },
+    ];
+
+    for (const fixture of cases) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+        ({ useAircraftSpecificStore }) => {
+          const aircraftSpecific = useAircraftSpecificStore();
+          aircraftSpecific.applyProfile({
+            _profileKey: fixture.profileKey,
+            profileRevision: 1,
+            aircraftSpecificTemplateId: fixture.templateId,
+          });
+          aircraftSpecific.clearSnapshot('stale');
+        },
+      );
+
+      assert.match(html, new RegExp(`data-aircraft-template="${fixture.templateId}"`), `${fixture.aircraftLabel} should render its trusted template`);
+      assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, `${fixture.aircraftLabel} should use section navigation on mobile`);
+      assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, `${fixture.aircraftLabel} should retain compact search on desktop and hide it on mobile`);
+      assert.match(html, />Find controls</, `${fixture.aircraftLabel} should retain the compact desktop search launcher`);
+      assert.match(html, /aircraft-specific-section--mobile-ribbon/, `${fixture.aircraftLabel} should release overflow for sticky navigation`);
+      assert.match(html, /data-aircraft-section-ribbon/, `${fixture.aircraftLabel} should render the shared section ribbon`);
+      assert.match(html, new RegExp(`aria-label="${fixture.aircraftLabel} page sections"`), `${fixture.aircraftLabel} ribbon should have specific navigation semantics`);
+      assert.deepEqual(
+        [...html.matchAll(new RegExp(`id="${fixture.sectionPrefix}([^" ]+)"`, 'g'))].map((match) => match[1]),
+        fixture.sectionIds,
+        `${fixture.aircraftLabel} ribbon destinations should map exactly to its existing aircraft groups`,
+      );
+    }
+  });
+
+  await test('PMDG 737 cold-and-dark slice stays non-prescriptive and trusts only live SDK readback', async () => {
+    const readyValues = {
+      'systems.electrical.batteryMode': 'on',
+      'systems.electrical.standbyPowerMode': 'auto',
+      'systems.electrical.busTransferAuto': true,
+      'systems.electrical.groundPowerAvailable': true,
+      'systems.electrical.transferBus1Powered': true,
+      'systems.electrical.transferBus2Powered': true,
+      'systems.electrical.apuGeneratorOffBus': false,
+      'systems.electrical.batteryDischarge': false,
+      'systems.electrical.standbyPowerOff': false,
+      'systems.irs.leftMode': 'nav',
+      'systems.irs.rightMode': 'nav',
+      'systems.irs.leftAlign': true,
+      'systems.irs.rightAlign': true,
+      'systems.irs.leftFault': false,
+      'systems.irs.rightFault': false,
+      'flightControls.yawDamper': true,
+      'lights.emergencyMode': 'armed',
+      'systems.windowHeatCaptainForward': true,
+      'systems.windowHeatFirstOfficerForward': true,
+      'systems.windowHeatCaptainSide': true,
+      'systems.windowHeatFirstOfficerSide': true,
+      'systems.apuMode': 'off',
+      'systems.apuEgt': 0,
+      'systems.apuLowOilPressure': false,
+      'systems.apuFault': false,
+      'systems.apuOverspeed': false,
+    };
+    const actionCapabilities = Object.fromEntries([
+      'systems.electrical.battery.on',
+      'systems.electrical.standbyPower.auto',
+      'systems.electrical.busTransfer.on',
+      'systems.electrical.groundPower.connect',
+      'systems.apu.start',
+      'systems.electrical.apuGenerators.connect',
+      'systems.irs.left.nav',
+      'systems.irs.right.nav',
+      'flightControls.yawDamper.on',
+      'lights.emergency.armed',
+      'systems.windowHeatCaptainForward.on',
+      'systems.windowHeatFirstOfficerForward.on',
+      'systems.windowHeatCaptainSide.on',
+      'systems.windowHeatFirstOfficerSide.on',
+    ].map((actionId) => [actionId, true]));
+
+    const component = path.join(
+      'src', 'vue', 'components', 'aircraft-specific', 'templates', 'Pmdg737AircraftPanel.vue',
+    );
+    const { html: liveHtml } = await renderComponent(component, () => {}, {
+      props: {
+        values: readyValues,
+        unavailable: [],
+        sourceStatus: 'connected',
+        sourceStatuses: { sdk: 'connected' },
+        actionCapabilities,
+      },
+    });
+    assert.match(liveHtml, /Reference shortcuts — use your normal procedure/i, 'the guide should remain subordinate to the simmer\'s own procedure without a chatty preamble');
+    assert.doesNotMatch(liveHtml, /PMDG 737 · Quick group|LIVE PMDG READBACK/, 'the modal header should avoid redundant labels and status pills');
+    assert.match(liveHtml, /BUS 1 ON/, 'live electrical readback should remain visible');
+    assert.match(liveHtml, /Related overhead shortcuts/, 'secondary convenience controls should remain available behind disclosure');
+    assert.doesNotMatch(liveHtml, /VERIFIED|INITIAL POWER READY|\d+ \/ \d+/, 'the guide must not render checklist progress or completion claims');
+
+    const { html: staleHtml } = await renderComponent(component, () => {}, {
+      props: {
+        values: readyValues,
+        unavailable: [],
+        sourceStatus: 'stale',
+        sourceStatuses: { sdk: 'stale' },
+        actionCapabilities,
+      },
+    });
+    assert.match(staleHtml, /PMDG readback unavailable/, 'stale state should expose an explicit readback wait in the compact launcher summary');
+    assert.match(staleHtml, /READBACK UNAVAILABLE/, 'stale bus state must not be presented as unpowered live data');
+    assert.match(staleHtml, /BUS 1 --/, 'stale electrical values should not look live inside the guide');
+    assert.doesNotMatch(staleHtml, /VERIFIED|INITIAL POWER READY|\d+ \/ \d+/, 'stale state must not reintroduce checklist semantics');
   });
 
   await test('AircraftTabShell renders the dedicated iFly MAX 8 page instead of broad generic controls', async () => {
@@ -4539,7 +4801,7 @@ async function main() {
     assert.equal(new Set(renderedActionIds).size, 245, 'every rendered A32NX action ID should be unique');
     const throttleHtml = html.match(/<section(?=[^>]*data-fbw-section="virtual-throttle")[\s\S]*?<\/section>/)?.[0] || '';
     assert.ok(
-      html.indexOf('data-fbw-section="virtual-throttle"') < html.indexOf('Flight Control Unit'),
+      html.indexOf('data-fbw-section="virtual-throttle"') < html.indexOf('id="fbw-a32nx-section-fcu"'),
       'the high-value calibrated throttle should lead the A32NX controls',
     );
     assert.match(throttleHtml, /both levers \u00b7 calibrated forward detents/i);

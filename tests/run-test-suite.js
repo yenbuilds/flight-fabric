@@ -56,6 +56,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-vue-interactions.js']],
   ['node', ['tests/scripts/test-telemetry-ui.js']],
   ['node', ['tests/scripts/test-ws-connection-bootstrap.js']],
+  ['node', ['tests/scripts/test-pmdg-737-preview.js']],
   ['node', ['tests/scripts/test-approach-profile-renderer.js']],
   ['node', ['tests/scripts/test-no-hardcoded-aviation-data.js']],
   ['node', ['tests/scripts/test-schema-coverage.js']],

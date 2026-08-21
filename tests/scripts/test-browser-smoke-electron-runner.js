@@ -392,6 +392,9 @@ async function assertHeaderLayout(windowRef) {
     { value: 'auto', label: 'Automatic detection (recommended)' },
     { value: 'bundled/msfs/asobo-a320neo', label: 'Asobo A320neo' },
     { value: 'bundled/msfs/pmdg-777', label: 'PMDG 777' },
+    { value: 'bundled/msfs/fenix-a320', label: 'Fenix A320' },
+    { value: 'bundled/msfs/fbw-a32nx', label: 'FlyByWire A32NX' },
+    { value: 'bundled/msfs/fbw-a380x', label: 'FlyByWire A380X' },
   ], 'authorized selector should expose exactly automatic detection and bundled profile choices');
 
   await setInputValue(
@@ -741,22 +744,48 @@ async function runAircraftSearchSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.getElementById('aircraft-find-input')",
-    'Aircraft page search input',
+    "document.querySelector('[data-aircraft-template=\"pmdg-777\"]') && document.getElementById('aircraft-find-input')",
+    'PMDG 777 page and Aircraft search input',
   );
 
-  const shortcutFocusedSearch = await evaluate(windowRef, `(() => {
+  const collapsedSearch = await evaluate(windowRef, `(() => {
+    const bar = document.querySelector('.aircraft-find');
+    const launcher = document.querySelector('.aircraft-find__launcher');
+    const panel = document.getElementById('aircraft-find-panel');
+    const content = document.querySelector('.aircraft-tab-search-content');
+    if (!bar || !launcher || !panel || !content) return { missing: true };
+    const barRect = bar.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    return {
+      missing: false,
+      barHeight: barRect.height,
+      launcherDisplay: getComputedStyle(launcher).display,
+      panelDisplay: getComputedStyle(panel).display,
+      verticalOffset: Math.abs(contentRect.top - barRect.top),
+    };
+  })();`);
+  assert.equal(collapsedSearch.missing, false, 'collapsed Aircraft search should render');
+  assert.equal(collapsedSearch.barHeight, 0, 'collapsed Aircraft search should reserve no page height');
+  assert.equal(collapsedSearch.panelDisplay, 'none', 'Aircraft search panel should start collapsed');
+  assert.notEqual(collapsedSearch.launcherDisplay, 'none', 'Aircraft search launcher should remain discoverable');
+  assert.ok(collapsedSearch.verticalOffset <= 2, 'Aircraft content should start at the search anchor without a vertical gap');
+
+  await evaluate(windowRef, `(() => {
     document.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'f',
       ctrlKey: true,
       bubbles: true,
       cancelable: true,
     }));
-    return document.activeElement?.id === 'aircraft-find-input';
+    return true;
   })();`);
-  assert.equal(shortcutFocusedSearch, true, 'Ctrl+F should focus Aircraft search while the Aircraft tab is active');
+  await waitFor(
+    windowRef,
+    "document.activeElement?.id === 'aircraft-find-input'",
+    'Ctrl+F Aircraft search focus after the collapsed panel renders',
+  );
 
-  await setInputValue(windowRef, 'aircraft-find-input', 'gear');
+  await setInputValue(windowRef, 'aircraft-find-input', 'light');
   await waitFor(
     windowRef,
     "document.getElementById('aircraft-find-status')?.textContent.includes(' of ')",
@@ -778,80 +807,183 @@ async function runAircraftSearchSmoke(windowRef) {
   await setInputValue(windowRef, 'aircraft-find-input', 'heading');
   await waitFor(
     windowRef,
-    "document.getElementById('aircraft-find-status')?.textContent.includes(' of ')",
-    'Aircraft search common abbreviation matching',
-  );
-  assert.ok(
-    await evaluate(windowRef, "document.querySelector('[data-aircraft-find-current=\"true\"]')?.textContent.includes('HDG')"),
-    'Aircraft search should find the cockpit HDG label from the plain-language heading query',
+    "/HDG|HEADING/i.test(document.querySelector('[data-aircraft-find-current=\"true\"]')?.textContent || '')",
+    'Aircraft search common abbreviation matching after the query refreshes',
   );
 
-  await setInputValue(windowRef, 'aircraft-find-input', 'landing light');
+  await setInputValue(windowRef, 'aircraft-find-input', 'hyd eng pump l');
+  await waitFor(
+    windowRef,
+    "(() => { const current = document.querySelector('[data-aircraft-find-current=\"true\"]'); return /HYD ENG PUMP L/i.test(current?.textContent || '') && current?.closest('details')?.open === true; })()",
+    'PMDG 777 search result inside an initially collapsed system group',
+  );
+
+  await setInputValue(windowRef, 'aircraft-find-input', 'landing');
   await waitFor(
     windowRef,
     "document.querySelector('[data-aircraft-find-current=\"true\"]')?.textContent.includes('LANDING')",
-    'generic landing-light control search match',
+    'PMDG 777 landing-light control search match',
   );
 
   windowRef.setContentSize(390, 844);
   await wait(150);
-  const mobileSearch = await evaluate(windowRef, `(() => {
+  const mobileNavigation = await evaluate(windowRef, `(() => {
     const bar = document.querySelector('.aircraft-find');
-    const field = document.querySelector('.aircraft-find__field');
-    const buttons = [...document.querySelectorAll('.aircraft-find__navigation button')];
-    const genericLightButtons = [...document.querySelectorAll('.generic-light-command')];
+    const ribbon = document.querySelector('.aircraft-section-ribbon');
+    const buttons = [...(ribbon?.querySelectorAll('button') || [])];
     const header = document.getElementById('app-header');
     const footer = document.querySelector('.ff-app-footer');
     const destinationProgress = document.getElementById('vue-destination-progress-root');
-    if (!bar || !field || buttons.length !== 2) return { missing: true };
-    const barRect = bar.getBoundingClientRect();
-    const fieldRect = field.getBoundingClientRect();
+    if (!bar || !ribbon || buttons.length !== 3) return { missing: true };
+    const ribbonRect = ribbon.getBoundingClientRect();
     const headerRect = header?.getBoundingClientRect();
     return {
       missing: false,
       viewportWidth: window.innerWidth,
       pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
-      barLeft: barRect.left,
-      barRight: barRect.right,
-      fieldHeight: fieldRect.height,
+      searchDisplay: getComputedStyle(bar).display,
+      ribbonDisplay: getComputedStyle(ribbon).display,
+      ribbonLeft: ribbonRect.left,
+      ribbonRight: ribbonRect.right,
+      ribbonPosition: getComputedStyle(ribbon.parentElement).position,
       buttonSizes: buttons.map((button) => {
         const rect = button.getBoundingClientRect();
         return { width: rect.width, height: rect.height };
       }),
-      genericLightButtonCount: genericLightButtons.length,
-      undersizedGenericLightButtons: genericLightButtons.filter((button) => {
-        const rect = button.getBoundingClientRect();
-        return rect.width < 44 || rect.height < 44;
-      }).length,
-      position: getComputedStyle(bar).position,
+      destinationCount: document.querySelectorAll('[id^="pmdg-777-section-"]:not([id$="menu"]):not([id$="menu-title"])').length,
+      currentLabel: ribbon.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() || '',
       headerHeight: headerRect?.height || 0,
       footerDisplay: footer ? getComputedStyle(footer).display : 'missing',
       destinationProgressDisplay: destinationProgress ? getComputedStyle(destinationProgress).display : 'missing',
     };
   })();`);
-  assert.equal(mobileSearch.missing, false, 'mobile Aircraft search controls should render');
-  assert.equal(mobileSearch.position, 'static', 'Aircraft search should stay in normal flow instead of covering phone controls');
-  assert.ok(mobileSearch.headerHeight > 0 && mobileSearch.headerHeight <= 112, 'phone header should remain compact');
-  assert.equal(mobileSearch.footerDisplay, 'none', 'desktop status footer should not consume phone viewport space');
-  assert.equal(mobileSearch.destinationProgressDisplay, 'none', 'phone header should omit the tall destination progress row');
-  assert.ok(mobileSearch.fieldHeight >= 44, 'mobile Aircraft search field should meet the 44px touch target');
+  assert.equal(mobileNavigation.missing, false, 'PMDG 777 mobile section navigation should render');
+  assert.equal(mobileNavigation.searchDisplay, 'none', 'PMDG 777 search should yield to section navigation on mobile');
+  assert.equal(mobileNavigation.ribbonDisplay, 'grid', 'PMDG 777 section ribbon should be visible on mobile');
+  assert.equal(mobileNavigation.ribbonPosition, 'sticky', 'PMDG 777 section ribbon should remain reachable while scrolling');
+  assert.equal(mobileNavigation.destinationCount, 10, 'PMDG 777 ribbon should map to ten stable destinations');
+  assert.equal(mobileNavigation.currentLabel, 'MCP', 'PMDG 777 ribbon should initialize at the first permanent section');
+  assert.ok(mobileNavigation.headerHeight > 0 && mobileNavigation.headerHeight <= 112, 'phone header should remain compact');
+  assert.equal(mobileNavigation.footerDisplay, 'none', 'desktop status footer should not consume phone viewport space');
+  assert.equal(mobileNavigation.destinationProgressDisplay, 'none', 'phone header should omit the tall destination progress row');
   assert.deepEqual(
-    mobileSearch.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
+    mobileNavigation.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
     [],
-    'mobile Aircraft result navigation should use 44px touch targets',
+    'PMDG 777 ribbon controls should use 44px touch targets',
   );
-  assert.equal(mobileSearch.genericLightButtonCount, 10, 'generic Aircraft page should render explicit OFF/ON controls for five exterior lights');
-  assert.equal(mobileSearch.undersizedGenericLightButtons, 0, 'generic exterior-light controls should keep 44px phone touch targets');
-  assert.ok(mobileSearch.barLeft >= -2 && mobileSearch.barRight <= mobileSearch.viewportWidth + 2, 'mobile Aircraft search should fit the viewport');
-  assert.ok(mobileSearch.pageWidth <= mobileSearch.viewportWidth + 2, 'mobile Aircraft search should not introduce horizontal overflow');
+  assert.ok(mobileNavigation.ribbonLeft >= -2 && mobileNavigation.ribbonRight <= mobileNavigation.viewportWidth + 2, 'PMDG 777 ribbon should fit the viewport');
+  assert.ok(mobileNavigation.pageWidth <= mobileNavigation.viewportWidth + 2, 'PMDG 777 navigation should not introduce horizontal overflow');
+
+  await click(windowRef, "document.querySelector('.aircraft-section-ribbon__current')", 'PMDG 777 section chooser');
+  await waitFor(windowRef, "document.querySelector('[data-aircraft-section-menu]')", 'PMDG 777 section chooser dialog');
+  const mobileChooser = await evaluate(windowRef, `(() => {
+    const dialog = document.querySelector('[data-aircraft-section-menu] [role="dialog"]');
+    const choices = [...document.querySelectorAll('[data-aircraft-section-choice]')];
+    const rect = dialog?.getBoundingClientRect();
+    return {
+      choiceCount: choices.length,
+      top: rect?.top || 0,
+      bottom: rect?.bottom || 0,
+      undersizedChoices: choices.filter((choice) => choice.getBoundingClientRect().height < 44).length,
+    };
+  })();`);
+  assert.equal(mobileChooser.choiceCount, 10, 'PMDG 777 chooser should expose every ribbon destination');
+  assert.equal(mobileChooser.undersizedChoices, 0, 'PMDG 777 chooser rows should remain touch friendly');
+  assert.ok(mobileChooser.top >= -2 && mobileChooser.bottom <= 846, 'PMDG 777 chooser should fit the phone viewport');
+  await click(
+    windowRef,
+    "[...document.querySelectorAll('[data-aircraft-section-choice]')].find((button) => button.textContent.includes('Gear, Brakes'))",
+    'PMDG 777 Gear section choice',
+  );
+  await waitFor(
+    windowRef,
+    "!document.querySelector('[data-aircraft-section-menu]') && document.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() === 'Gear' && document.getElementById('pmdg-777-section-gear-high-lift')?.open === true",
+    'PMDG 777 chooser navigation to Gear',
+  );
+  const airbusRibbonCases = [
+    {
+      profileKey: 'bundled/msfs/fenix-a320',
+      templateId: 'fenix-a32x',
+      sectionPrefix: 'fenix-section-',
+      sectionCount: 14,
+    },
+    {
+      profileKey: 'bundled/msfs/fbw-a32nx',
+      templateId: 'fbw-a32nx',
+      sectionPrefix: 'fbw-a32nx-section-',
+      sectionCount: 12,
+    },
+    {
+      profileKey: 'bundled/msfs/fbw-a380x',
+      templateId: 'fbw-a380x',
+      sectionPrefix: 'fbw-a380x-section-',
+      sectionCount: 5,
+    },
+  ];
+
+  for (const fixture of airbusRibbonCases) {
+    await setInputValue(windowRef, 'aircraft-profile-correction-select', fixture.profileKey);
+    await waitFor(
+      windowRef,
+      `document.querySelector('[data-aircraft-template="${fixture.templateId}"]') && document.querySelector('.aircraft-find--mobile-hidden') && document.querySelector('[data-mobile-aircraft-navigation="section-ribbon"]')`,
+      `${fixture.templateId} Aircraft page and shared mobile navigation state`,
+    );
+    const mobileAirbus = await evaluate(windowRef, `(() => {
+      const search = document.querySelector('.aircraft-find');
+      const ribbon = document.querySelector('.aircraft-section-ribbon');
+      const buttons = [...(ribbon?.querySelectorAll('button') || [])];
+      const rect = ribbon?.getBoundingClientRect();
+      return {
+        searchClass: search?.className || '',
+        searchDisplay: search ? getComputedStyle(search).display : 'missing',
+        ribbonDisplay: ribbon ? getComputedStyle(ribbon).display : 'missing',
+        mobileMediaMatches: window.matchMedia('(max-width: 760px)').matches,
+        buttonSizes: buttons.map((button) => {
+          const buttonRect = button.getBoundingClientRect();
+          return { width: buttonRect.width, height: buttonRect.height };
+        }),
+        destinationCount: document.querySelectorAll('[id^="${fixture.sectionPrefix}"]').length,
+        left: rect?.left || 0,
+        right: rect?.right || 0,
+        viewportWidth: window.innerWidth,
+        pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
+      };
+    })();`);
+    assert.ok(mobileAirbus.viewportWidth <= 760 && mobileAirbus.mobileMediaMatches, `${fixture.templateId} browser fixture should be at the mobile breakpoint: ${JSON.stringify(mobileAirbus)}`);
+    assert.equal(mobileAirbus.searchDisplay, 'none', `${fixture.templateId} should hide Aircraft search on mobile`);
+    assert.equal(mobileAirbus.ribbonDisplay, 'grid', `${fixture.templateId} should show the shared section ribbon on mobile`);
+    assert.equal(mobileAirbus.destinationCount, fixture.sectionCount, `${fixture.templateId} should expose every mapped section destination`);
+    assert.deepEqual(
+      mobileAirbus.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
+      [],
+      `${fixture.templateId} ribbon controls should retain 44px touch targets`,
+    );
+    assert.ok(mobileAirbus.left >= -2 && mobileAirbus.right <= mobileAirbus.viewportWidth + 2, `${fixture.templateId} ribbon should fit the phone viewport`);
+    assert.ok(mobileAirbus.pageWidth <= mobileAirbus.viewportWidth + 2, `${fixture.templateId} should not introduce horizontal overflow`);
+
+    await click(windowRef, "document.querySelector('.aircraft-section-ribbon__current')", `${fixture.templateId} section chooser`);
+    await waitFor(
+      windowRef,
+      `document.querySelectorAll('[data-aircraft-section-choice]').length === ${fixture.sectionCount}`,
+      `${fixture.templateId} complete section chooser`,
+    );
+    await click(windowRef, "document.querySelector('.aircraft-section-menu__close')", `${fixture.templateId} section chooser close`);
+    await waitFor(windowRef, "!document.querySelector('[data-aircraft-section-menu]')", `${fixture.templateId} closed section chooser`);
+
+  }
+
+  await setInputValue(windowRef, 'aircraft-profile-correction-select', 'bundled/msfs/pmdg-777');
+  await waitFor(
+    windowRef,
+    "document.querySelector('[data-aircraft-template=\"pmdg-777\"]')",
+    'restored PMDG 777 fixture profile after Airbus ribbon checks',
+  );
   windowRef.setContentSize(viewportWidth, viewportHeight);
   await wait(150);
-
-  await click(windowRef, "document.querySelector('[aria-label=\"Clear Aircraft search\"]')", 'Aircraft search clear button');
   await waitFor(
     windowRef,
     "document.getElementById('aircraft-find-input')?.value === '' && !document.querySelector('[data-aircraft-find-match]')",
-    'cleared Aircraft search state',
+    'cleared Aircraft search state after profile navigation checks',
   );
 }
 

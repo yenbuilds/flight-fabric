@@ -138,6 +138,69 @@ function pressSdkAction(params: {
   };
 }
 
+function setSdkChangedAction(params: {
+  actionId: string;
+  eventId: number;
+  fieldId: string;
+  groupId: string;
+  rawValue: number;
+  timeoutMs?: number;
+}): AircraftIntegrationAction {
+  return {
+    id: params.actionId,
+    guard: {
+      cooldownMs: DEFAULT_COOLDOWN_MS,
+      groupId: params.groupId,
+      retry: 'never',
+    },
+    routes: [{
+      id: `pmdg737.${params.actionId}.sdk`,
+      transport: 'sdk',
+      adapter: SDK_ADAPTER_ID,
+      command: `#${params.eventId}`,
+      value: params.rawValue,
+      readback: {
+        fieldId: params.fieldId,
+        confirmation: 'changed',
+        timeoutMs: params.timeoutMs ?? DEFAULT_READBACK_TIMEOUT_MS,
+      },
+    }],
+    verification: 'untested',
+  };
+}
+
+function rotorBrakeOutcomeAction(params: {
+  actionId: string;
+  expectedValue: boolean;
+  groupId: string;
+  rotorBrakeValues: readonly number[];
+  readbackFields: readonly string[];
+}): AircraftIntegrationAction {
+  return {
+    id: params.actionId,
+    guard: {
+      cooldownMs: DEFAULT_COOLDOWN_MS,
+      groupId: params.groupId,
+      retry: 'never',
+    },
+    routes: [{
+      id: `pmdg737.${params.actionId}.rotorBrake`,
+      transport: 'simconnect-sequence',
+      operations: params.rotorBrakeValues.map((value) => ({
+        type: 'event' as const,
+        name: ROTOR_BRAKE_EVENT,
+        value,
+      })),
+      readbacks: params.readbackFields.map((fieldId) => ({
+        fieldId,
+        expectedValue: params.expectedValue,
+        timeoutMs: 4000,
+      })),
+    }],
+    verification: 'untested',
+  };
+}
+
 function turnSdkRadioKnobAction(params: {
   actionId: string;
   eventId: number;
@@ -516,6 +579,236 @@ for (const definition of [
       { id: 'low', rawValue: 2, value: 'low' },
       { id: 'high', rawValue: 3, value: 'high' },
     ],
+  });
+}
+
+// Cold-and-dark initial-power controls. These definitions are restricted to
+// stable selector positions published by the installed NG3 ClientData struct.
+// Spring-loaded source switches use reviewed ROTOR_BRAKE directions and must
+// confirm their electrical outcome on both transfer buses.
+addDetentActions({
+  prefix: 'systems.electrical.battery',
+  fieldId: 'systems.electrical.batteryMode',
+  groupId: 'systems.electrical.battery',
+  eventId: 69633,
+  positions: [
+    { id: 'off', rawValue: 0, value: 'off' },
+    { id: 'bat', rawValue: 1, value: 'bat' },
+    { id: 'on', rawValue: 2, value: 'on' },
+  ],
+});
+
+addDetentActions({
+  prefix: 'systems.electrical.standbyPower',
+  fieldId: 'systems.electrical.standbyPowerMode',
+  groupId: 'systems.electrical.standbyPower',
+  eventId: 69642,
+  positions: [
+    { id: 'bat', rawValue: 0, value: 'bat' },
+    { id: 'off', rawValue: 1, value: 'off' },
+    { id: 'auto', rawValue: 2, value: 'auto' },
+  ],
+});
+
+addBooleanActions({
+  prefix: 'systems.electrical.busTransfer',
+  fieldId: 'systems.electrical.busTransferAuto',
+  groupId: 'systems.electrical.busTransfer',
+  eventId: 69650,
+});
+
+for (const [side, eventId] of [
+  ['left', 69887],
+  ['right', 69888],
+] as const) {
+  addDetentActions({
+    prefix: `systems.irs.${side}`,
+    fieldId: `systems.irs.${side}Mode`,
+    groupId: `systems.irs.${side}`,
+    eventId,
+    positions: [
+      { id: 'off', rawValue: 0, value: 'off' },
+      { id: 'align', rawValue: 1, value: 'align' },
+      { id: 'nav', rawValue: 2, value: 'nav' },
+      { id: 'att', rawValue: 3, value: 'att' },
+    ],
+  });
+}
+
+for (const [prefix, fieldId, eventId] of [
+  ['systems.windowHeatCaptainForward', 'systems.windowHeatCaptainForward', 69767],
+  ['systems.windowHeatFirstOfficerForward', 'systems.windowHeatFirstOfficerForward', 69768],
+  ['systems.windowHeatCaptainSide', 'systems.windowHeatCaptainSide', 69770],
+  ['systems.windowHeatFirstOfficerSide', 'systems.windowHeatFirstOfficerSide', 69771],
+  ['flightControls.yawDamper', 'flightControls.yawDamper', 69695],
+] as const) {
+  addBooleanActions({
+    prefix,
+    fieldId,
+    groupId: `pmdg737.${prefix}`,
+    eventId,
+  });
+}
+
+for (const [suffix, rawValue, expectedValue] of [
+  ['off', 0, 'off'],
+  ['on', 1, 'on'],
+] as const) {
+  const actionId = `systems.apu.${suffix}`;
+  actions[actionId] = setSdkPositionAction({
+    actionId,
+    eventId: 69750,
+    expectedValue,
+    fieldId: 'systems.apuMode',
+    groupId: 'systems.apu',
+    rawValue,
+  });
+}
+
+actions['systems.apu.start'] = setSdkChangedAction({
+  actionId: 'systems.apu.start',
+  eventId: 69750,
+  fieldId: 'systems.apuMode',
+  groupId: 'systems.apu',
+  rawValue: 2,
+});
+
+for (const [suffix, expectedValue, rotorBrakeValues] of [
+  ['connect', true, [1702, 1704]],
+  ['disconnect', false, [1701, 1704]],
+] as const) {
+  const actionId = `systems.electrical.groundPower.${suffix}`;
+  actions[actionId] = rotorBrakeOutcomeAction({
+    actionId,
+    expectedValue,
+    groupId: 'systems.electrical.powerSource',
+    rotorBrakeValues,
+    readbackFields: [
+      'systems.electrical.transferBus1Powered',
+      'systems.electrical.transferBus2Powered',
+    ],
+  });
+}
+
+actions['systems.electrical.apuGenerators.connect'] = rotorBrakeOutcomeAction({
+  actionId: 'systems.electrical.apuGenerators.connect',
+  expectedValue: true,
+  groupId: 'systems.electrical.powerSource',
+  rotorBrakeValues: [2802, 2804, 2902, 2904],
+  readbackFields: [
+    'systems.electrical.transferBus1Powered',
+    'systems.electrical.transferBus2Powered',
+  ],
+});
+
+// Main-panel and control-stand selectors. These fixed intents use PMDG's
+// published direct event IDs and must confirm the exact NG3 ClientData state.
+addDetentActions({
+  prefix: 'gear.handle',
+  fieldId: 'gear.handleMode',
+  groupId: 'pmdg737.gear.handle',
+  eventId: 70087,
+  positions: [
+    { id: 'up', rawValue: 0, value: 'up' },
+    { id: 'off', rawValue: 1, value: 'off' },
+    { id: 'down', rawValue: 2, value: 'down' },
+  ],
+});
+
+addDetentActions({
+  prefix: 'gear.autobrake',
+  fieldId: 'gear.autobrakeMode',
+  groupId: 'pmdg737.gear.autobrake',
+  eventId: 70092,
+  positions: [
+    { id: 'rto', rawValue: 0, value: 'rto' },
+    { id: 'off', rawValue: 1, value: 'off' },
+    { id: 'level1', rawValue: 2, value: '1' },
+    { id: 'level2', rawValue: 3, value: '2' },
+    { id: 'level3', rawValue: 4, value: '3' },
+    { id: 'max', rawValue: 5, value: 'max' },
+  ],
+});
+
+for (const [suffix, expectedValue] of [
+  ['released', false],
+  ['set', true],
+] as const) {
+  actions[`gear.parkingBrake.${suffix}`] = pressSdkAction({
+    actionId: `gear.parkingBrake.${suffix}`,
+    eventId: 70325,
+    fieldId: 'gear.parkingBrake',
+    groupId: 'pmdg737.gear.parkingBrake',
+    expectedValue,
+  });
+}
+
+// PMDG publishes dedicated mouse targets for every normal 737 flap detent.
+// The direct targets avoid long relative sequences; standard handle index is
+// used only as a newer exact confirmation signal.
+for (const [suffix, eventId, expectedValue] of [
+  ['up', 76773, 0],
+  ['detent1', 76774, 1],
+  ['detent2', 76775, 2],
+  ['detent5', 76776, 3],
+  ['detent10', 76777, 4],
+  ['detent15', 76778, 5],
+  ['detent25', 76779, 6],
+  ['detent30', 76780, 7],
+  ['detent40', 76781, 8],
+] as const) {
+  actions[`flightControls.flaps.${suffix}`] = pressSdkAction({
+    actionId: `flightControls.flaps.${suffix}`,
+    eventId,
+    fieldId: 'flightControls.flapHandleIndex',
+    groupId: 'pmdg737.flightControls.flaps',
+    expectedValue,
+  });
+}
+
+for (const [prefix, fieldId, eventId] of [
+  ['systems.air.packLeft', 'systems.packLeftMode', 69832],
+  ['systems.air.packRight', 'systems.packRightMode', 69833],
+] as const) {
+  addDetentActions({
+    prefix,
+    fieldId,
+    groupId: `pmdg737.${prefix}`,
+    eventId,
+    positions: [
+      { id: 'off', rawValue: 0, value: 'off' },
+      { id: 'auto', rawValue: 1, value: 'auto' },
+      { id: 'high', rawValue: 2, value: 'high' },
+    ],
+  });
+}
+
+for (const [prefix, fieldId, eventId] of [
+  ['systems.air.engineBleedLeft', 'systems.engineBleedLeft', 69842],
+  ['systems.air.apuBleed', 'systems.apuBleed', 69843],
+  ['systems.air.engineBleedRight', 'systems.engineBleedRight', 69844],
+  ['systems.ice.wing', 'systems.wingAntiIce', 69788],
+  ['systems.ice.engineLeft', 'systems.engineAntiIceLeft', 69789],
+  ['systems.ice.engineRight', 'systems.engineAntiIceRight', 69790],
+] as const) {
+  addBooleanActions({
+    prefix,
+    fieldId,
+    groupId: `pmdg737.${prefix}`,
+    eventId,
+  });
+}
+
+for (const [suffix, expectedValue] of [
+  ['normal', false],
+  ['cutout', true],
+] as const) {
+  actions[`flightControls.stabTrimMainElectric.${suffix}`] = pressSdkAction({
+    actionId: `flightControls.stabTrimMainElectric.${suffix}`,
+    eventId: 70341,
+    fieldId: 'flightControls.stabTrimMainElectricCutout',
+    groupId: 'pmdg737.flightControls.stabTrimMainElectric',
+    expectedValue,
   });
 }
 

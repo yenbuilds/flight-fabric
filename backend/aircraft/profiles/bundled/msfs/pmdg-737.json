@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2025-01-03T00:00:00Z",
-  "updatedAt": "2026-07-31T00:00:00Z",
+  "updatedAt": "2026-08-20T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/boeing-base",
   "abstract": false,
@@ -117,7 +117,7 @@
     "developer": "PMDG",
     "platforms": ["msfs2020", "msfs2024"],
     "contributor": "YenBuilds",
-    "updated": "2026-07-31",
+    "updated": "2026-08-20",
     "status": "partial",
     "notes": "PMDG 737-800 family profile using the official NG3 SDK and guarded backend-owned event routes. SDK data and writes remain disabled until the user accepts the PMDG SDK EULA."
   },
@@ -130,8 +130,8 @@
         "supportsActiveMappings": true,
         "name": "PMDG 737 MSFS SDK and installed aircraft behavior definitions",
         "url": "https://manuals.pmdg.com/737/PMDG_737_MSFS_Introduction.pdf",
-        "retrievedAt": "2026-07-31",
-        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the NG3 ClientData contract, direct-position control events, data-broadcast requirement, model variants, and mandatory SDK EULA opt-in. The installed vendor behavior explicitly encodes NAV1 controls 729/732/733 and NAV2 controls 845/848/849 as control * 100 plus mouse action 1/7/8 before sending K:ROTOR_BRAKE. It also encodes the three-detent position-light control as 123 * 100 plus directional action 1/2 before K:ROTOR_BRAKE. Flight Fabric maps that contract through the clientdata-manifest adapter, checked-in pmdg-737-ng3-clientdata connector, and fixed native NAV/position-light events. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+        "retrievedAt": "2026-08-20",
+        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the 916-byte NG3 ClientData contract, direct-position control events, data-broadcast requirement, model variants, and mandatory SDK EULA opt-in. The installed header publishes battery, standby-power, transfer-bus, IRS, window-heat, APU, ground-power, bus-powered, gear-handle, autobrake, parking-brake, pack, bleed, anti-ice, yaw-damper, and stabilizer-trim readbacks. The installed behavior defines direct targets for all nine normal flap-handle detents; Flight Fabric confirms them against the standard FLAPS HANDLE INDEX because ClientData publishes flap needles rather than the handle. Spring-loaded ground-power and APU-generator controls use reviewed ROTOR_BRAKE direction/release sequences. Stable selectors use matching direct SDK event IDs and exact logical readback. Existing NAV1 controls 729/732/733, NAV2 controls 845/848/849, and position-light control 123 retain their reviewed ROTOR_BRAKE compatibility encodings. Flight Fabric maps that contract through the clientdata-manifest adapter and checked-in pmdg-737-ng3-clientdata connector. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
       }
     ],
     "verification": {
@@ -141,6 +141,7 @@
         "The 737-800 is the first live-validation target; the 600, 700, and 900 family profiles require in-aircraft testing.",
         "SDK readback requires EnableDataBroadcast=1 and the user to accept the PMDG EULA.",
         "The direct NAV and position-light routes are guarded and remain unverified until simulator confirmation.",
+        "Initial-power, flap-handle, gear, brake, pack, bleed, anti-ice, and stabilizer-trim writes remain unverified until end-to-end simulator passes are completed.",
         "MCP mode and selector actions remain untested until IAS/Mach, VS, and button behavior are confirmed in the aircraft.",
         "The official SDK exposes speedbrake annunciators but not a continuous handle position; spoiler state stays on standard SimConnect percent telemetry."
       ]

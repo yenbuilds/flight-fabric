@@ -1,0 +1,131 @@
+.pmdg-preview-toolbar {
+  position: fixed;
+  z-index: 2147483000;
+  top: max(0.5rem, env(safe-area-inset-top));
+  right: max(0.5rem, env(safe-area-inset-right));
+  width: min(21rem, calc(100vw - 1rem));
+  color: #f6f8fb;
+  font: 600 0.78rem/1.35 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: none;
+}
+
+.pmdg-preview-toolbar button,
+.pmdg-preview-toolbar select {
+  font: inherit;
+}
+
+.pmdg-preview-toggle,
+.pmdg-preview-panel {
+  pointer-events: auto;
+  border: 1px solid rgba(255, 177, 67, 0.55);
+  background: rgba(17, 22, 30, 0.97);
+  box-shadow: 0 0.75rem 2.5rem rgba(0, 0, 0, 0.42);
+}
+
+.pmdg-preview-toggle {
+  display: flex;
+  margin-left: auto;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  color: #ffbf5c;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.pmdg-preview-toggle-scenario {
+  color: #f6f8fb;
+  letter-spacing: 0;
+}
+
+.pmdg-preview-panel {
+  margin-top: 0.4rem;
+  padding: 0.85rem;
+  border-radius: 0.7rem;
+}
+
+.pmdg-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.92rem;
+}
+
+.pmdg-preview-close {
+  padding: 0.2rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: #aeb8c8;
+  cursor: pointer;
+}
+
+.pmdg-preview-safety,
+.pmdg-preview-description,
+.pmdg-preview-status {
+  margin: 0.55rem 0 0;
+  color: #aeb8c8;
+  font-weight: 500;
+}
+
+.pmdg-preview-safety {
+  color: #ffbf5c;
+}
+
+.pmdg-preview-label {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  color: #dce3ee;
+}
+
+.pmdg-preview-select,
+.pmdg-preview-reset {
+  width: 100%;
+  min-height: 2.25rem;
+  border: 1px solid #465267;
+  border-radius: 0.45rem;
+  background: #171e29;
+  color: #f6f8fb;
+}
+
+.pmdg-preview-select {
+  padding: 0.4rem 0.55rem;
+}
+
+.pmdg-preview-reset {
+  margin-top: 0.7rem;
+  cursor: pointer;
+}
+
+.pmdg-preview-select:focus-visible,
+.pmdg-preview-reset:focus-visible,
+.pmdg-preview-toggle:focus-visible,
+.pmdg-preview-close:focus-visible {
+  outline: 2px solid #42dca3;
+  outline-offset: 2px;
+}
+
+.pmdg-preview-status.is-dirty {
+  color: #ffbf5c;
+}
+
+.pmdg-preview-status.is-error {
+  color: #ff7b83;
+}
+
+.pmdg-preview-toolbar.is-open .pmdg-preview-toggle {
+  border-color: rgba(66, 220, 163, 0.65);
+}
+
+@media (max-width: 520px) {
+  .pmdg-preview-toolbar {
+    top: max(0.35rem, env(safe-area-inset-top));
+    right: max(0.35rem, env(safe-area-inset-right));
+    width: min(19rem, calc(100vw - 0.7rem));
+  }
+
+  .pmdg-preview-panel {
+    max-height: min(28rem, calc(100vh - 4rem));
+    overflow: auto;
+  }
+}

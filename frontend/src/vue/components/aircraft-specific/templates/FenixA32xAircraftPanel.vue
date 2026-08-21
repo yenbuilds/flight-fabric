@@ -77,6 +77,7 @@ export function reconcileFenixSelectorDraftState(state = {}, snapshot = {}, prev
 
 <script setup>
 import { computed, nextTick, reactive, watch } from 'vue';
+import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
 import FenixThrottleControl from './FenixThrottleControl.vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
@@ -674,6 +675,30 @@ const controlSections = computed(() => rawControlSections
   }))
   .filter((section) => section.controls.length > 0));
 
+const fenixMobileLabels = Object.freeze({
+  'exterior-lights': 'Exterior',
+  'cabin-visibility': 'Cabin',
+  'cockpit-lighting': 'Lighting',
+  'electrical-apu': 'Electrical',
+  fuel: 'Fuel',
+  pneumatic: 'Air',
+  'protection-hydraulics': 'Hyd / Ice',
+  'engine-adirs': 'Engines',
+  'efis-navigation': 'EFIS',
+  switching: 'Switching',
+  'surveillance-radio': 'Radio',
+  'safety-misc': 'GPWS',
+});
+const mobileSections = computed(() => [
+  { id: 'throttle', label: 'Throttle', title: 'Virtual Throttle' },
+  { id: 'fcu', label: 'FCU', title: 'Flight Guidance & FCU' },
+  ...controlSections.value.map((section) => ({
+    id: section.id,
+    label: fenixMobileLabels[section.id] || section.title,
+    title: section.title,
+  })),
+]);
+
 function hasValue(id) {
   return !unavailableFields.value.has(id)
     && Object.prototype.hasOwnProperty.call(props.values, id);
@@ -996,18 +1021,28 @@ function controlGridClass(control) {
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sourceStatus }}</span>
     </div>
 
-    <FenixThrottleControl
-      :left-position="fieldValue('propulsion.throttleLever1Position')"
-      :right-position="fieldValue('propulsion.throttleLever2Position')"
-      :source-status="sourceStatus"
-      :control-enabled="controlSessionReady"
-      :action-capabilities="actionCapabilities"
-      :pending="groupPending('propulsion.throttle')"
-      :request-action="requestThrottleAction"
+    <AircraftSectionRibbon
+      :sections="mobileSections"
+      section-id-prefix="fenix-section-"
+      :aircraft-label="`Fenix ${variant}`"
     />
 
+    <div id="fenix-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">
+      <FenixThrottleControl
+        :left-position="fieldValue('propulsion.throttleLever1Position')"
+        :right-position="fieldValue('propulsion.throttleLever2Position')"
+        :source-status="sourceStatus"
+        :control-enabled="controlSessionReady"
+        :action-capabilities="actionCapabilities"
+        :pending="groupPending('propulsion.throttle')"
+        :request-action="requestThrottleAction"
+      />
+    </div>
+
     <section
-      class="rounded-xl border border-cyan-500/25 bg-cyan-500/[0.035] p-3 sm:p-4"
+      id="fenix-section-fcu"
+      class="aircraft-mobile-navigable-section rounded-xl border border-cyan-500/25 bg-cyan-500/[0.035] p-3 sm:p-4"
+      tabindex="-1"
       data-fenix-section="flight-guidance-fcu"
     >
       <div class="dashboard-section-kicker">Flight Guidance &amp; FCU</div>
@@ -1179,6 +1214,9 @@ function controlGridClass(control) {
     <div
       v-for="section in controlSections"
       :key="section.id"
+      :id="`fenix-section-${section.id}`"
+      class="aircraft-mobile-navigable-section"
+      tabindex="-1"
       :data-aircraft-control-section="section.id"
     >
       <div class="dashboard-section-kicker">{{ section.title }}</div>

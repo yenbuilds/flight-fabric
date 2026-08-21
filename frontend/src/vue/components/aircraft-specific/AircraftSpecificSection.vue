@@ -105,6 +105,7 @@ function isActionPending(groupId) {
     v-if="aircraftSpecific.hasTemplate && templateComponent"
     id="aircraft-specific-section"
     class="flight-section-block ff-panel bg-surface-100 border border-surface-200 overflow-hidden"
+    :class="{ 'aircraft-specific-section--mobile-ribbon': ['fbw-a32nx', 'fbw-a380x', 'fenix-a32x', 'pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId) }"
   >
     <div class="p-3 sm:p-4 border-b border-surface-200 flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -201,3 +202,25 @@ function isActionPending(groupId) {
     </Suspense>
   </section>
 </template>
+
+<style>
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .aircraft-specific-section--mobile-ribbon {
+    overflow: visible !important;
+  }
+
+  .aircraft-mobile-navigable-section {
+    scroll-margin-top: 4.25rem;
+  }
+
+  .aircraft-mobile-navigable-section:focus {
+    outline: none;
+  }
+}
+
+@media (max-height: 500px) and (pointer: coarse) {
+  .aircraft-mobile-navigable-section {
+    scroll-margin-top: 4rem;
+  }
+}
+</style>

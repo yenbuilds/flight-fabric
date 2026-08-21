@@ -9,9 +9,11 @@ const props = defineProps({
 });
 
 const searchInput = ref(null);
+const searchLauncher = ref(null);
 const query = ref('');
 const matches = ref([]);
 const currentIndex = ref(-1);
+const expanded = ref(false);
 
 const RESULT_TARGET_SELECTOR = [
   '[data-aircraft-control-group]',
@@ -80,6 +82,24 @@ function isVisible(element) {
   return element.getClientRects?.().length > 0;
 }
 
+function isSearchable(element) {
+  if (isVisible(element)) return true;
+  const closedDetails = element.closest?.('details:not([open])');
+  return Boolean(
+    closedDetails
+    && props.target?.contains?.(closedDetails)
+    && isVisible(closedDetails),
+  );
+}
+
+function revealMatch(element) {
+  let details = element?.matches?.('details') ? element : element?.closest?.('details');
+  while (details) {
+    details.open = true;
+    details = details.parentElement?.closest?.('details') || null;
+  }
+}
+
 function searchableElementText(element) {
   const metadata = Array.from(element.attributes || [])
     .filter((attribute) => (
@@ -102,13 +122,31 @@ function collectMatches() {
 
   const candidates = Array.from(root.querySelectorAll(RESULT_TARGET_SELECTOR))
     .filter((element) => (
-      isVisible(element)
+      isSearchable(element)
       && normalizeSearchText(searchableElementText(element)).includes(needle)
     ));
 
+  const visibleTextMatches = new Set(candidates.filter((element) => (
+    normalizeSearchText(element.innerText || element.textContent || '').includes(needle)
+  )));
+
+  // Action IDs make controls searchable by system name, but a metadata-only
+  // child such as a generic "SET" button is a poor destination when its card
+  // already contains the query in visible cockpit text. Keep the useful card
+  // in that case, while retaining metadata-only matches that have no clearer
+  // ancestor.
+  const contextualCandidates = candidates.filter((candidate) => (
+    visibleTextMatches.has(candidate)
+    || !candidates.some((ancestor) => (
+      ancestor !== candidate
+      && ancestor.contains(candidate)
+      && visibleTextMatches.has(ancestor)
+    ))
+  ));
+
   // Prefer the smallest useful card/control. Parent sections contain the same
   // text as their children and would otherwise create noisy duplicate results.
-  return candidates.filter((candidate) => !candidates.some((other) => (
+  return contextualCandidates.filter((candidate) => !contextualCandidates.some((other) => (
     other !== candidate && candidate.contains(other)
   )));
 }
@@ -119,6 +157,7 @@ function markCurrentMatch({ scroll = false, behavior = 'smooth' } = {}) {
   }
   const current = matches.value[currentIndex.value];
   if (!current) return;
+  revealMatch(current);
   current.setAttribute('data-aircraft-find-current', 'true');
   if (scroll) {
     current.scrollIntoView?.({ behavior, block: 'center', inline: 'nearest' });
@@ -154,13 +193,28 @@ function clearSearch({ focus = false } = {}) {
   if (focus) nextTick(() => searchInput.value?.focus?.({ preventScroll: true }));
 }
 
+function expandSearch({ select = false } = {}) {
+  expanded.value = true;
+  nextTick(() => {
+    searchInput.value?.focus?.({ preventScroll: true });
+    if (select) searchInput.value?.select?.();
+  });
+}
+
+function collapseSearch() {
+  clearSearch();
+  expanded.value = false;
+  nextTick(() => searchLauncher.value?.focus?.({ preventScroll: true }));
+}
+
 function handleSearchKeydown(event) {
   if (event.key === 'Enter') {
     event.preventDefault();
     moveMatch(event.shiftKey ? -1 : 1);
   } else if (event.key === 'Escape') {
     event.preventDefault();
-    clearSearch({ focus: true });
+    if (query.value.trim()) clearSearch({ focus: true });
+    else collapseSearch();
   }
 }
 
@@ -178,8 +232,7 @@ function handleDocumentKeydown(event) {
   ) return;
 
   event.preventDefault();
-  searchInput.value?.focus?.({ preventScroll: true });
-  searchInput.value?.select?.();
+  expandSearch({ select: true });
 }
 
 useDocumentEvent('keydown', handleDocumentKeydown);
@@ -190,6 +243,7 @@ watch(query, () => {
 
 watch(() => props.contentKey, () => {
   clearSearch();
+  expanded.value = false;
 });
 
 onBeforeUnmount(clearMatchMarkers);
@@ -201,72 +255,106 @@ onBeforeUnmount(clearMatchMarkers);
     :class="{ 'aircraft-find--mobile-hidden': hideOnMobile }"
     role="search"
     aria-label="Find on Aircraft page"
+    data-no-swipe
   >
-    <div class="aircraft-find__row">
-      <div class="aircraft-find__field">
-        <label class="sr-only" for="aircraft-find-input">Find a cockpit control or value</label>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m21 21-4.35-4.35m2.35-5.4A7.75 7.75 0 1 1 3.5 11.25a7.75 7.75 0 0 1 15.5 0Z" />
-        </svg>
-        <input
-          id="aircraft-find-input"
-          ref="searchInput"
-          v-model="query"
-          type="search"
-          inputmode="search"
-          enterkeyhint="search"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Find a switch, light, or value..."
-          aria-describedby="aircraft-find-status"
-          @keydown="handleSearchKeydown"
-        >
-        <kbd class="aircraft-find__shortcut" aria-hidden="true">Ctrl F</kbd>
+    <button
+      v-show="!expanded"
+      ref="searchLauncher"
+      type="button"
+      class="aircraft-find__launcher"
+      aria-label="Find controls"
+      title="Find controls (Ctrl+F)"
+      aria-controls="aircraft-find-panel"
+      :aria-expanded="expanded"
+      @click="expandSearch()"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m21 21-4.35-4.35m2.35-5.4A7.75 7.75 0 1 1 3.5 11.25a7.75 7.75 0 0 1 15.5 0Z" />
+      </svg>
+      <span>Find controls</span>
+      <kbd class="aircraft-find__shortcut" aria-hidden="true">Ctrl F</kbd>
+    </button>
+
+    <div
+      id="aircraft-find-panel"
+      v-show="expanded"
+      class="aircraft-find__panel"
+    >
+      <div class="aircraft-find__row">
+        <div class="aircraft-find__field">
+          <label class="sr-only" for="aircraft-find-input">Find a cockpit control or value</label>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m21 21-4.35-4.35m2.35-5.4A7.75 7.75 0 1 1 3.5 11.25a7.75 7.75 0 0 1 15.5 0Z" />
+          </svg>
+          <input
+            id="aircraft-find-input"
+            ref="searchInput"
+            v-model="query"
+            type="search"
+            inputmode="search"
+            enterkeyhint="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Find a switch, light, or value..."
+            aria-describedby="aircraft-find-status"
+            @keydown="handleSearchKeydown"
+          >
+          <button
+            v-if="query"
+            type="button"
+            class="aircraft-find__clear"
+            aria-label="Clear Aircraft search"
+            title="Clear search"
+            @click="clearSearch({ focus: true })"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
+        </div>
+
+        <div class="aircraft-find__navigation" aria-label="Search result navigation">
+          <button
+            type="button"
+            aria-label="Previous match"
+            title="Previous match (Shift+Enter)"
+            :disabled="matches.length === 0"
+            @click="moveMatch(-1)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
+          </button>
+          <button
+            type="button"
+            aria-label="Next match"
+            title="Next match (Enter)"
+            :disabled="matches.length === 0"
+            @click="moveMatch(1)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+        </div>
+
         <button
-          v-if="query"
           type="button"
-          class="aircraft-find__clear"
-          aria-label="Clear Aircraft search"
-          title="Clear search"
-          @click="clearSearch({ focus: true })"
+          class="aircraft-find__collapse"
+          aria-label="Close Aircraft search"
+          title="Close search"
+          @click="collapseSearch"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
         </button>
       </div>
 
-      <div class="aircraft-find__navigation" aria-label="Search result navigation">
-        <button
-          type="button"
-          aria-label="Previous match"
-          title="Previous match (Shift+Enter)"
-          :disabled="matches.length === 0"
-          @click="moveMatch(-1)"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
-        </button>
-        <button
-          type="button"
-          aria-label="Next match"
-          title="Next match (Enter)"
-          :disabled="matches.length === 0"
-          @click="moveMatch(1)"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
+      <div
+        id="aircraft-find-status"
+        class="aircraft-find__status"
+        :class="{ 'aircraft-find__status--empty': query && matches.length === 0 }"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span>{{ resultText }}</span>
+        <span v-if="resultDetail" class="aircraft-find__detail">{{ resultDetail }}</span>
+        <span v-else-if="query && matches.length" class="aircraft-find__detail">Enter for next</span>
       </div>
-    </div>
-
-    <div
-      id="aircraft-find-status"
-      class="aircraft-find__status"
-      :class="{ 'aircraft-find__status--empty': query && matches.length === 0 }"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-    >
-      <span>{{ resultText }}</span>
-      <span v-if="resultDetail" class="aircraft-find__detail">{{ resultDetail }}</span>
-      <span v-else-if="query && matches.length" class="aircraft-find__detail">Enter for next</span>
     </div>
   </div>
 </template>
@@ -276,18 +364,58 @@ onBeforeUnmount(clearMatchMarkers);
   position: sticky;
   top: 4.75rem;
   z-index: 35;
+  display: flex;
+  height: 0;
+  align-items: flex-start;
+  justify-content: flex-end;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.aircraft-find__panel {
   display: grid;
+  width: min(38rem, 100%);
   gap: 0.45rem;
-  margin: 0 0 0.75rem;
   padding: 0.6rem;
   border: 1px solid rgb(var(--border) / 0.82);
   border-radius: var(--ff-radius-card, 0.5rem);
   background: rgb(var(--panel) / 0.94);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.04);
   backdrop-filter: blur(16px);
+  pointer-events: auto;
 }
 
-@media (max-width: 760px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
+.aircraft-find__launcher {
+  display: inline-flex;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgb(var(--border) / 0.82);
+  border-radius: 999px;
+  background: rgb(var(--panel) / 0.96);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  color: rgb(var(--foreground));
+  pointer-events: auto;
+}
+
+.aircraft-find__launcher > span,
+.aircraft-find__launcher > .aircraft-find__shortcut {
+  display: none;
+}
+
+.aircraft-find__launcher > svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: rgb(var(--primary));
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .aircraft-find--mobile-hidden {
     display: none;
   }
@@ -361,6 +489,7 @@ onBeforeUnmount(clearMatchMarkers);
 }
 
 .aircraft-find__clear,
+.aircraft-find__collapse,
 .aircraft-find__navigation button {
   display: inline-grid;
   min-width: 2.75rem;
@@ -380,7 +509,13 @@ onBeforeUnmount(clearMatchMarkers);
   background: transparent;
 }
 
+.aircraft-find__collapse {
+  flex: 0 0 2.75rem;
+}
+
 .aircraft-find__clear:hover,
+.aircraft-find__collapse:hover,
+.aircraft-find__launcher:hover,
 .aircraft-find__navigation button:hover:not(:disabled) {
   border-color: rgb(var(--primary) / 0.62);
   background: rgb(var(--primary) / 0.08);
@@ -392,6 +527,8 @@ onBeforeUnmount(clearMatchMarkers);
 }
 
 .aircraft-find__navigation button:focus-visible,
+.aircraft-find__collapse:focus-visible,
+.aircraft-find__launcher:focus-visible,
 .aircraft-find__clear:focus-visible {
   outline: 2px solid rgb(var(--primary));
   outline-offset: 2px;
@@ -403,6 +540,7 @@ onBeforeUnmount(clearMatchMarkers);
 }
 
 .aircraft-find__clear svg,
+.aircraft-find__collapse svg,
 .aircraft-find__navigation svg {
   width: 1.1rem;
   height: 1.1rem;
@@ -456,9 +594,12 @@ onBeforeUnmount(clearMatchMarkers);
 
 @media (max-width: 640px) {
   .aircraft-find {
-    position: static;
-    z-index: auto;
+    top: 0.5rem;
     margin-inline: -0.15rem;
+  }
+
+  .aircraft-find__panel {
+    width: 100%;
     padding: 0.5rem;
     box-shadow: none;
     backdrop-filter: none;

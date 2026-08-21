@@ -6,6 +6,7 @@ import {
   onMounted,
   ref,
 } from 'vue';
+import AircraftHotGroupModal from '../AircraftHotGroupModal.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 import { useDocumentEvent } from '../../../composables/useDocumentEvent.js';
 
@@ -33,6 +34,7 @@ const sectionMenu = ref(null);
 const sectionMenuButton = ref(null);
 const activeSectionIndex = ref(0);
 const sectionMenuOpen = ref(false);
+const initialPowerOpen = ref(false);
 let sectionScrollTarget = null;
 let sectionSyncTimer = null;
 let ribbonSwipeStart = null;
@@ -51,7 +53,7 @@ const mobileSections = Object.freeze([
   Object.freeze({ id: 'cabin', label: 'Cabin', title: 'Cabin & Visibility', detail: 'Signs, emergency lights and windshield wipers.' }),
   Object.freeze({ id: 'flight-controls', label: 'Controls', title: 'Flight Controls', detail: 'Flaps, speedbrake, yaw damper and trim status.' }),
   Object.freeze({ id: 'gear-brakes', label: 'Gear', title: 'Gear & Brakes', detail: 'Gear position, parking brake, autobrake and anti-skid.' }),
-  Object.freeze({ id: 'systems', label: 'Systems', title: 'Systems Snapshot', detail: 'Packs, bleed air, anti-ice and warning state.' }),
+  Object.freeze({ id: 'systems', label: 'Systems', title: 'Air & Systems', detail: 'Packs, bleed air, anti-ice, APU and warning state.' }),
 ]);
 
 const activeSection = computed(() => mobileSections[activeSectionIndex.value]);
@@ -137,6 +139,19 @@ function booleanControl(title, fieldId, prefix = fieldId) {
   };
 }
 
+function detentControl(title, fieldId, prefix, positions) {
+  return {
+    title,
+    fieldId,
+    groupId: prefix,
+    actions: positions.map(([id, label, value = id]) => ({
+      id: `${prefix}.${id}`,
+      label,
+      value,
+    })),
+  };
+}
+
 const exteriorControls = [
   {
     title: 'RETRACT LANDING L', fieldId: 'lights.landingRetractableLeftMode', groupId: 'lights.landingRetractableLeft',
@@ -188,6 +203,69 @@ const cabinControls = [
   },
 ];
 
+const flapHandleControl = detentControl(
+  'FLAP HANDLE',
+  'flightControls.flapHandleIndex',
+  'flightControls.flaps',
+  [
+    ['up', 'UP', 0], ['detent1', '1', 1], ['detent2', '2', 2],
+    ['detent5', '5', 3], ['detent10', '10', 4], ['detent15', '15', 5],
+    ['detent25', '25', 6], ['detent30', '30', 7], ['detent40', '40', 8],
+  ],
+);
+
+const flightControlSelectors = [
+  booleanControl('YAW DAMPER', 'flightControls.yawDamper'),
+  detentControl(
+    'STAB TRIM MAIN ELECTRIC',
+    'flightControls.stabTrimMainElectricCutout',
+    'flightControls.stabTrimMainElectric',
+    [['normal', 'NORMAL', false], ['cutout', 'CUTOUT', true]],
+  ),
+];
+
+const gearHandleControl = detentControl(
+  'GEAR HANDLE',
+  'gear.handleMode',
+  'gear.handle',
+  [['up', 'UP'], ['off', 'OFF'], ['down', 'DOWN']],
+);
+
+const autobrakeControl = detentControl(
+  'AUTOBRAKE',
+  'gear.autobrakeMode',
+  'gear.autobrake',
+  [['rto', 'RTO'], ['off', 'OFF'], ['level1', '1', '1'], ['level2', '2', '2'], ['level3', '3', '3'], ['max', 'MAX']],
+);
+
+const parkingBrakeControl = detentControl(
+  'PARKING BRAKE',
+  'gear.parkingBrake',
+  'gear.parkingBrake',
+  [['released', 'RELEASED', false], ['set', 'SET', true]],
+);
+
+const airControls = [
+  detentControl('PACK L', 'systems.packLeftMode', 'systems.air.packLeft', [['off', 'OFF'], ['auto', 'AUTO'], ['high', 'HIGH']]),
+  detentControl('PACK R', 'systems.packRightMode', 'systems.air.packRight', [['off', 'OFF'], ['auto', 'AUTO'], ['high', 'HIGH']]),
+  booleanControl('ENG BLEED L', 'systems.engineBleedLeft', 'systems.air.engineBleedLeft'),
+  booleanControl('APU BLEED', 'systems.apuBleed', 'systems.air.apuBleed'),
+  booleanControl('ENG BLEED R', 'systems.engineBleedRight', 'systems.air.engineBleedRight'),
+];
+
+const antiIceControls = [
+  booleanControl('WING ANTI-ICE', 'systems.wingAntiIce', 'systems.ice.wing'),
+  booleanControl('ENG ANTI-ICE L', 'systems.engineAntiIceLeft', 'systems.ice.engineLeft'),
+  booleanControl('ENG ANTI-ICE R', 'systems.engineAntiIceRight', 'systems.ice.engineRight'),
+];
+
+const apuSelectorControl = detentControl(
+  'APU SELECTOR',
+  'systems.apuMode',
+  'systems.apu',
+  [['off', 'OFF'], ['on', 'ON'], ['start', 'START']],
+);
+
 const flightControlIndicators = [
   { id: 'flightControls.leadingEdgeExtended', label: 'LE FLAPS EXT' },
   { id: 'flightControls.leadingEdgeTransit', label: 'LE FLAPS TRANSIT', tone: 'warning' },
@@ -200,17 +278,82 @@ const flightControlIndicators = [
 ];
 
 const systemIndicators = [
-  { id: 'systems.wingAntiIce', label: 'WING A.ICE' },
-  { id: 'systems.engineAntiIceLeft', label: 'ENG A.ICE L' },
-  { id: 'systems.engineAntiIceRight', label: 'ENG A.ICE R' },
-  { id: 'systems.engineBleedLeft', label: 'ENG BLEED L' },
-  { id: 'systems.engineBleedRight', label: 'ENG BLEED R' },
-  { id: 'systems.apuBleed', label: 'APU BLEED' },
   { id: 'systems.irsAligned', label: 'IRS ALIGNED' },
   { id: 'warnings.masterCaution', label: 'MASTER CAUTION', tone: 'warning' },
   { id: 'warnings.masterWarning', label: 'MASTER WARNING', tone: 'danger' },
 ];
 
+const coldDarkControls = Object.freeze([
+  Object.freeze({
+    stage: 'power', title: 'BATTERY', fieldId: 'systems.electrical.batteryMode',
+    target: 'on', targetLabel: 'ON', actionId: 'systems.electrical.battery.on', groupId: 'systems.electrical.battery',
+  }),
+  Object.freeze({
+    stage: 'power', title: 'STANDBY POWER', fieldId: 'systems.electrical.standbyPowerMode',
+    target: 'auto', targetLabel: 'AUTO', actionId: 'systems.electrical.standbyPower.auto', groupId: 'systems.electrical.standbyPower',
+  }),
+  Object.freeze({
+    stage: 'power', title: 'BUS TRANSFER', fieldId: 'systems.electrical.busTransferAuto',
+    target: true, targetLabel: 'AUTO', actionId: 'systems.electrical.busTransfer.on', groupId: 'systems.electrical.busTransfer',
+  }),
+  Object.freeze({
+    stage: 'irs', title: 'IRS LEFT', fieldId: 'systems.irs.leftMode',
+    target: 'nav', targetLabel: 'NAV', actionId: 'systems.irs.left.nav', groupId: 'systems.irs.left',
+  }),
+  Object.freeze({
+    stage: 'irs', title: 'IRS RIGHT', fieldId: 'systems.irs.rightMode',
+    target: 'nav', targetLabel: 'NAV', actionId: 'systems.irs.right.nav', groupId: 'systems.irs.right',
+  }),
+  Object.freeze({
+    stage: 'related', title: 'YAW DAMPER', fieldId: 'flightControls.yawDamper',
+    target: true, targetLabel: 'ON', actionId: 'flightControls.yawDamper.on', groupId: 'flightControls.yawDamper',
+  }),
+  Object.freeze({
+    stage: 'related', title: 'EMERGENCY LIGHTS', fieldId: 'lights.emergencyMode',
+    target: 'armed', targetLabel: 'ARMED', actionId: 'lights.emergency.armed', groupId: 'lights.emergency',
+  }),
+  Object.freeze({
+    stage: 'related', title: 'WINDOW HEAT · CAPT FORWARD', fieldId: 'systems.windowHeatCaptainForward',
+    target: true, targetLabel: 'ON', actionId: 'systems.windowHeatCaptainForward.on', groupId: 'systems.windowHeatCaptainForward',
+  }),
+  Object.freeze({
+    stage: 'related', title: 'WINDOW HEAT · F/O FORWARD', fieldId: 'systems.windowHeatFirstOfficerForward',
+    target: true, targetLabel: 'ON', actionId: 'systems.windowHeatFirstOfficerForward.on', groupId: 'systems.windowHeatFirstOfficerForward',
+  }),
+  Object.freeze({
+    stage: 'related', title: 'WINDOW HEAT · CAPT SIDE', fieldId: 'systems.windowHeatCaptainSide',
+    target: true, targetLabel: 'ON', actionId: 'systems.windowHeatCaptainSide.on', groupId: 'systems.windowHeatCaptainSide',
+  }),
+  Object.freeze({
+    stage: 'related', title: 'WINDOW HEAT · F/O SIDE', fieldId: 'systems.windowHeatFirstOfficerSide',
+    target: true, targetLabel: 'ON', actionId: 'systems.windowHeatFirstOfficerSide.on', groupId: 'systems.windowHeatFirstOfficerSide',
+  }),
+]);
+
+const coldDarkLive = computed(() => (
+  props.sourceStatus === 'connected' && sdkSourceStatus.value === 'connected'
+));
+const coldDarkSummary = computed(() => {
+  if (!coldDarkLive.value) return 'PMDG readback unavailable';
+  const groundPower = value('systems.electrical.groundPowerAvailable') === true ? 'AVAILABLE' : 'NOT AVAILABLE';
+  return `BATTERY ${coldDarkValueText('systems.electrical.batteryMode')} · GPU ${groundPower} · IRS ${coldDarkValueText('systems.irs.leftMode')}/${coldDarkValueText('systems.irs.rightMode')}`;
+});
+const coldDarkPowerControls = computed(() => coldDarkControls.filter((control) => control.stage === 'power'));
+const coldDarkIrsControls = computed(() => coldDarkControls.filter((control) => control.stage === 'irs'));
+const coldDarkRelatedControls = computed(() => coldDarkControls.filter((control) => control.stage === 'related'));
+const transferBusesPowered = computed(() => (
+  coldDarkLive.value
+  && value('systems.electrical.transferBus1Powered') === true
+  && value('systems.electrical.transferBus2Powered') === true
+));
+const apuSourceState = computed(() => {
+  if (!coldDarkLive.value || !hasValue('systems.apuMode')) return 'unavailable';
+  if (value('systems.apuFault') === true || value('systems.apuOverspeed') === true) return 'fault';
+  if (value('systems.electrical.apuGeneratorOffBus') === true) return 'ready';
+  const mode = value('systems.apuMode');
+  if (mode === 'start' || mode === 'on') return 'starting';
+  return 'off';
+});
 const gearIndicators = [
   { label: 'NOSE', safe: 'gear.noseSafe', unsafe: 'gear.noseUnsafe' },
   { label: 'LEFT', safe: 'gear.leftSafe', unsafe: 'gear.leftUnsafe' },
@@ -331,7 +474,17 @@ function requestRadioAction(radio, actionId) {
 
 function controlValue(control) {
   const current = value(control.fieldId);
-  return typeof current === 'boolean' || typeof current === 'string' ? current : null;
+  return typeof current === 'boolean'
+    || typeof current === 'string'
+    || (typeof current === 'number' && Number.isFinite(current))
+    ? current
+    : null;
+}
+
+function controlValueText(control) {
+  const current = controlValue(control);
+  const activeAction = control.actions?.find((action) => Object.is(action.value, current));
+  return activeAction?.label || valueText(control.fieldId);
 }
 
 function actionSupported(actionId) {
@@ -343,8 +496,10 @@ function groupPending(groupId) {
 }
 
 function actionDisabled(control, actionId) {
+  const target = control.actions?.find((action) => action.id === actionId)?.value;
   return props.sourceStatus !== 'connected'
     || controlValue(control) === null
+    || Object.is(controlValue(control), target)
     || !actionSupported(actionId)
     || groupPending(control.groupId);
 }
@@ -352,6 +507,46 @@ function actionDisabled(control, actionId) {
 function requestControlAction(control, actionId) {
   if (actionDisabled(control, actionId)) return false;
   return props.requestAction(actionId, control.groupId);
+}
+
+function coldDarkControlAtTarget(control) {
+  return coldDarkLive.value
+    && hasValue(control.fieldId)
+    && Object.is(value(control.fieldId), control.target);
+}
+
+function coldDarkValueText(id) {
+  return coldDarkLive.value ? valueText(id) : '--';
+}
+
+function coldDarkIntentDisabled(intent) {
+  if (!intent || !coldDarkLive.value || !actionSupported(intent.actionId)) return true;
+  if (intent.fieldId && !hasValue(intent.fieldId)) return true;
+  if (groupPending(intent.groupId)) return true;
+  if (intent.actionId === 'systems.electrical.groundPower.connect') {
+    return transferBusesPowered.value || value('systems.electrical.groundPowerAvailable') !== true;
+  }
+  if (intent.actionId === 'systems.apu.start') return apuSourceState.value !== 'off';
+  if (intent.actionId === 'systems.electrical.apuGenerators.connect') {
+    return transferBusesPowered.value || apuSourceState.value !== 'ready';
+  }
+  return coldDarkControlAtTarget(intent);
+}
+
+function requestColdDarkIntent(intent) {
+  if (coldDarkIntentDisabled(intent)) return false;
+  return props.requestAction(intent.actionId, intent.groupId);
+}
+
+function coldDarkTargetButtonLabel(control) {
+  return coldDarkControlAtTarget(control) ? control.targetLabel : `SET ${control.targetLabel}`;
+}
+
+function sourceStatusClass(ready, warning = false) {
+  if (!coldDarkLive.value) return 'border-surface-200 bg-surface-50 text-gray-500';
+  if (ready) return 'border-emerald-500/45 bg-emerald-500/10 text-emerald-200';
+  if (warning) return 'border-red-500/45 bg-red-500/10 text-red-200';
+  return 'border-amber-500/35 bg-amber-500/5 text-gray-200';
 }
 
 function actionButtonClass(selected) {
@@ -426,12 +621,24 @@ function handleSectionButtonClick(index) {
 
 function handleRibbonPointerDown(event) {
   if (event?.button != null && event.button !== 0) return;
+  // Keep the two dedicated arrow targets as unambiguous taps. Swiping remains
+  // available across the wider centre target, while a small pointer wobble on
+  // an arrow can no longer suppress its subsequent click.
+  if (event?.target?.closest?.('.pmdg-mobile-section-ribbon__neighbor')) {
+    clearRibbonSwipe();
+    return;
+  }
+  const x = Number(event?.clientX);
+  const y = Number(event?.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    clearRibbonSwipe();
+    return;
+  }
   ribbonSwipeStart = {
     pointerId: event.pointerId,
-    x: Number(event.clientX),
-    y: Number(event.clientY),
+    x,
+    y,
   };
-  event.currentTarget?.setPointerCapture?.(event.pointerId);
 }
 
 function clearRibbonSwipe() {
@@ -443,8 +650,11 @@ function handleRibbonPointerUp(event) {
   clearRibbonSwipe();
   if (!start || start.pointerId !== event.pointerId) return;
 
-  const deltaX = Number(event.clientX) - start.x;
-  const deltaY = Number(event.clientY) - start.y;
+  const endX = Number(event?.clientX);
+  const endY = Number(event?.clientY);
+  if (!Number.isFinite(endX) || !Number.isFinite(endY)) return;
+  const deltaX = endX - start.x;
+  const deltaY = endY - start.y;
   const ribbonWidth = sectionRibbon.value?.getBoundingClientRect?.().width || 320;
   const threshold = Math.max(44, ribbonWidth * 0.16);
   if (Math.abs(deltaX) < threshold || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
@@ -586,7 +796,6 @@ onBeforeUnmount(() => {
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <div>
         <h3 class="text-base font-semibold text-gray-100">PMDG Boeing {{ variant }}</h3>
-        <p class="text-xs text-gray-500">Official PMDG SDK state with guarded MCP, radio, light, sign, and wiper controls.</p>
       </div>
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sdkSourceStatus }}</span>
     </div>
@@ -618,49 +827,71 @@ onBeforeUnmount(() => {
       <p class="mt-1 text-xs leading-relaxed text-amber-100/75">{{ sdkStatusNotice }}</p>
     </div>
 
-    <nav
-      ref="sectionRibbon"
-      class="pmdg-mobile-section-ribbon"
-      aria-label="PMDG 737 page sections"
-      data-no-swipe
-      @pointerdown="handleRibbonPointerDown"
-      @pointerup="handleRibbonPointerUp"
-      @pointercancel="clearRibbonSwipe"
+    <div class="pmdg-mobile-section-ribbon-anchor">
+      <nav
+        ref="sectionRibbon"
+        class="pmdg-mobile-section-ribbon"
+        aria-label="PMDG 737 page sections"
+        data-no-swipe
+        @pointerdown="handleRibbonPointerDown"
+        @pointerup="handleRibbonPointerUp"
+        @pointercancel="clearRibbonSwipe"
+      >
+        <button
+          type="button"
+          class="pmdg-mobile-section-ribbon__neighbor"
+          :disabled="!previousSection"
+          :aria-label="previousSection ? `Open previous section: ${previousSection.title}` : 'Already at the first section'"
+          @pointerdown.stop="clearRibbonSwipe"
+          @pointerup.stop="clearRibbonSwipe"
+          @click="handleSectionButtonClick(activeSectionIndex - 1)"
+        >
+          <span aria-hidden="true">&lsaquo;</span>
+          <span>{{ previousSection?.label || 'Start' }}</span>
+        </button>
+        <button
+          ref="sectionMenuButton"
+          type="button"
+          class="pmdg-mobile-section-ribbon__current"
+          aria-haspopup="dialog"
+          :aria-expanded="sectionMenuOpen ? 'true' : 'false'"
+          aria-controls="pmdg-737-section-menu"
+          aria-label="Open all PMDG 737 sections"
+          @click="openSectionMenu"
+        >
+          <strong>{{ activeSection.label }}</strong>
+          <small>{{ activeSectionIndex + 1 }} of {{ mobileSections.length }} &middot; All sections</small>
+        </button>
+        <button
+          type="button"
+          class="pmdg-mobile-section-ribbon__neighbor"
+          :disabled="!nextSection"
+          :aria-label="nextSection ? `Open next section: ${nextSection.title}` : 'Already at the final section'"
+          @pointerdown.stop="clearRibbonSwipe"
+          @pointerup.stop="clearRibbonSwipe"
+          @click="handleSectionButtonClick(activeSectionIndex + 1)"
+        >
+          <span>{{ nextSection?.label || 'End' }}</span>
+          <span aria-hidden="true">&rsaquo;</span>
+        </button>
+      </nav>
+    </div>
+
+    <button
+      type="button"
+      class="pmdg-hot-group-launcher"
+      data-pmdg-hot-group-launcher="initial-power"
+      aria-haspopup="dialog"
+      aria-controls="pmdg-737-initial-power"
+      :aria-expanded="initialPowerOpen ? 'true' : 'false'"
+      @click="initialPowerOpen = true"
     >
-      <button
-        type="button"
-        class="pmdg-mobile-section-ribbon__neighbor"
-        :disabled="!previousSection"
-        :aria-label="previousSection ? `Open previous section: ${previousSection.title}` : 'Already at the first section'"
-        @click="handleSectionButtonClick(activeSectionIndex - 1)"
-      >
-        <span aria-hidden="true">&lsaquo;</span>
-        <span>{{ previousSection?.label || 'Start' }}</span>
-      </button>
-      <button
-        ref="sectionMenuButton"
-        type="button"
-        class="pmdg-mobile-section-ribbon__current"
-        aria-haspopup="dialog"
-        :aria-expanded="sectionMenuOpen ? 'true' : 'false'"
-        aria-controls="pmdg-737-section-menu"
-        aria-label="Open all PMDG 737 sections"
-        @click="openSectionMenu"
-      >
-        <strong>{{ activeSection.label }}</strong>
-        <small>{{ activeSectionIndex + 1 }} of {{ mobileSections.length }} &middot; All sections</small>
-      </button>
-      <button
-        type="button"
-        class="pmdg-mobile-section-ribbon__neighbor"
-        :disabled="!nextSection"
-        :aria-label="nextSection ? `Open next section: ${nextSection.title}` : 'Already at the final section'"
-        @click="handleSectionButtonClick(activeSectionIndex + 1)"
-      >
-        <span>{{ nextSection?.label || 'End' }}</span>
-        <span aria-hidden="true">&rsaquo;</span>
-      </button>
-    </nav>
+      <span class="pmdg-hot-group-launcher__copy">
+        <strong>Initial power</strong>
+        <small>{{ coldDarkSummary }}</small>
+      </span>
+      <span class="pmdg-hot-group-launcher__open">OPEN <span aria-hidden="true">&#8594;</span></span>
+    </button>
 
     <div
       v-if="sectionMenuOpen"
@@ -702,13 +933,172 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
+    <AircraftHotGroupModal
+      :open="initialPowerOpen"
+      modal-id="pmdg-737-initial-power"
+      title="Initial power"
+      description="Reference shortcuts — use your normal procedure."
+      close-label="Close Initial power quick group"
+      @close="initialPowerOpen = false"
+    >
+      <div class="space-y-3" data-pmdg-hot-group="initial-power">
+
+      <div class="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <article class="rounded-xl border border-surface-200 bg-surface-50 p-3">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Electrical</div>
+              <h5 class="mt-0.5 text-xs font-semibold text-gray-200">Common electrical starting point</h5>
+            </div>
+            <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
+          </div>
+          <div class="space-y-2">
+            <div
+              v-for="control in coldDarkPowerControls"
+              :key="control.fieldId"
+              class="flex min-h-12 items-center gap-2 rounded-lg border border-surface-200 bg-surface-100 p-2 text-gray-200"
+              :data-aircraft-control-group="control.groupId"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="text-[9px] font-semibold tracking-wide">{{ control.title }}</div>
+                <div class="mt-0.5 font-mono text-xs">{{ coldDarkValueText(control.fieldId) }}</div>
+              </div>
+              <button
+                type="button"
+                class="min-h-9 min-w-20 rounded border border-current/40 px-2 text-[9px] font-bold disabled:opacity-55"
+                :data-aircraft-action="control.actionId"
+                :disabled="coldDarkIntentDisabled(control)"
+                @click="requestColdDarkIntent(control)"
+              >{{ coldDarkTargetButtonLabel(control) }}</button>
+            </div>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-gray-500">
+            <span :class="coldDarkLive && value('systems.electrical.batteryDischarge') === true ? 'text-amber-300' : ''">BAT DISCHARGE {{ coldDarkValueText('systems.electrical.batteryDischarge') }}</span>
+            <span :class="coldDarkLive && value('systems.electrical.standbyPowerOff') === true ? 'text-amber-300' : ''">STBY PWR OFF {{ coldDarkValueText('systems.electrical.standbyPowerOff') }}</span>
+          </div>
+        </article>
+
+        <article class="rounded-xl border border-surface-200 bg-surface-50 p-3">
+          <div class="mb-2 flex items-start justify-between gap-2">
+            <div>
+              <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Power source</div>
+              <h5 class="mt-0.5 text-xs font-semibold text-gray-200">Use ground power or the APU as appropriate</h5>
+            </div>
+            <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
+          </div>
+          <div class="space-y-2">
+            <div class="rounded-lg border p-2.5" :class="sourceStatusClass(transferBusesPowered)">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[9px] font-semibold tracking-wide">AC TRANSFER BUSES</span>
+                <span class="font-mono text-[10px] font-bold">{{ !coldDarkLive ? 'READBACK UNAVAILABLE' : transferBusesPowered ? 'POWERED' : 'NOT POWERED' }}</span>
+              </div>
+              <div class="mt-1 flex gap-3 text-[9px] opacity-75">
+                <span>BUS 1 {{ coldDarkValueText('systems.electrical.transferBus1Powered') }}</span>
+                <span>BUS 2 {{ coldDarkValueText('systems.electrical.transferBus2Powered') }}</span>
+              </div>
+            </div>
+            <div class="flex min-h-14 items-center gap-2 rounded-lg border border-surface-200 bg-surface-100 p-2.5">
+              <div class="min-w-0 flex-1">
+                <div class="text-[9px] font-semibold text-gray-300">GROUND POWER</div>
+                <div class="mt-0.5 text-[9px] text-gray-500">{{ !coldDarkLive ? '--' : value('systems.electrical.groundPowerAvailable') === true ? 'AVAILABLE' : 'NOT AVAILABLE' }}</div>
+              </div>
+              <button
+                type="button"
+                class="min-h-9 rounded border border-cyan-400/45 bg-cyan-400/10 px-3 text-[9px] font-bold text-cyan-100 disabled:opacity-40"
+                data-aircraft-action="systems.electrical.groundPower.connect"
+                :disabled="coldDarkIntentDisabled({ actionId: 'systems.electrical.groundPower.connect', groupId: 'systems.electrical.powerSource' })"
+                @click="requestColdDarkIntent({ actionId: 'systems.electrical.groundPower.connect', groupId: 'systems.electrical.powerSource' })"
+              >CONNECT GPU</button>
+            </div>
+            <div class="flex min-h-14 items-center gap-2 rounded-lg border p-2.5" :class="sourceStatusClass(apuSourceState === 'ready', apuSourceState === 'fault')">
+              <div class="min-w-0 flex-1">
+                <div class="text-[9px] font-semibold">APU · {{ apuSourceState.toUpperCase() }}</div>
+                <div class="mt-0.5 font-mono text-[9px] opacity-75">SELECTOR {{ coldDarkValueText('systems.apuMode') }} · EGT {{ coldDarkValueText('systems.apuEgt') }} · LOW OIL {{ coldDarkValueText('systems.apuLowOilPressure') }}</div>
+              </div>
+              <button
+                v-if="apuSourceState === 'off'"
+                type="button"
+                class="min-h-9 rounded border border-cyan-400/45 bg-cyan-400/10 px-3 text-[9px] font-bold text-cyan-100 disabled:opacity-40"
+                data-aircraft-action="systems.apu.start"
+                :disabled="coldDarkIntentDisabled({ actionId: 'systems.apu.start', groupId: 'systems.apu' })"
+                @click="requestColdDarkIntent({ actionId: 'systems.apu.start', groupId: 'systems.apu' })"
+              >START APU</button>
+              <button
+                v-else-if="apuSourceState === 'ready'"
+                type="button"
+                class="min-h-9 rounded border border-cyan-400/45 bg-cyan-400/10 px-3 text-[9px] font-bold text-cyan-100 disabled:opacity-40"
+                data-aircraft-action="systems.electrical.apuGenerators.connect"
+                :disabled="coldDarkIntentDisabled({ actionId: 'systems.electrical.apuGenerators.connect', groupId: 'systems.electrical.powerSource' })"
+                @click="requestColdDarkIntent({ actionId: 'systems.electrical.apuGenerators.connect', groupId: 'systems.electrical.powerSource' })"
+              >CONNECT APU</button>
+              <span v-else class="text-[9px] font-semibold opacity-70">{{ apuSourceState === 'starting' ? 'MONITOR' : 'CHECK' }}</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="rounded-xl border border-surface-200 bg-surface-50 p-3">
+          <div class="mb-2 flex items-start justify-between gap-2">
+            <div>
+              <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">IRS</div>
+              <h5 class="mt-0.5 text-xs font-semibold text-gray-200">Mode selectors and alignment indications</h5>
+            </div>
+            <span class="pmdg-location-tag" data-pmdg-location="aft-overhead">AFT OVERHEAD</span>
+          </div>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+            <div
+              v-for="control in coldDarkIrsControls"
+              :key="control.fieldId"
+              class="flex min-h-12 items-center gap-2 rounded-lg border border-surface-200 bg-surface-100 p-2 text-gray-200"
+              :data-aircraft-control-group="control.groupId"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="text-[9px] font-semibold tracking-wide">{{ control.title }}</div>
+                <div class="mt-0.5 font-mono text-xs">{{ coldDarkValueText(control.fieldId) }}</div>
+              </div>
+              <button type="button" class="min-h-9 rounded border border-current/40 px-2 text-[9px] font-bold disabled:opacity-55" :data-aircraft-action="control.actionId" :disabled="coldDarkIntentDisabled(control)" @click="requestColdDarkIntent(control)">{{ coldDarkTargetButtonLabel(control) }}</button>
+            </div>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2 text-[9px] text-gray-500">
+            <span>IRS L ALIGN {{ coldDarkValueText('systems.irs.leftAlign') }}</span>
+            <span>IRS R ALIGN {{ coldDarkValueText('systems.irs.rightAlign') }}</span>
+            <span :class="coldDarkLive && (value('systems.irs.leftFault') === true || value('systems.irs.rightFault') === true) ? 'text-red-300' : ''">IRS FAULT {{ !coldDarkLive ? '--' : value('systems.irs.leftFault') === true || value('systems.irs.rightFault') === true ? 'ON' : 'OFF' }}</span>
+          </div>
+        </article>
+      </div>
+
+      <details class="rounded-xl border border-surface-200 bg-surface-50">
+        <summary class="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-gray-200 marker:content-none">
+          <span>
+            <span class="block text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Related overhead shortcuts</span>
+            <span class="mt-0.5 block text-xs font-semibold">Yaw damper, emergency lights and window heat</span>
+          </span>
+          <span class="shrink-0 text-[9px] text-gray-500">{{ coldDarkRelatedControls.length }} CONTROLS · OPTIONAL</span>
+        </summary>
+        <div class="border-t border-surface-200 p-3">
+          <p class="mb-2 text-[9px] leading-relaxed text-gray-500">
+            Convenience controls often used around initial setup. Each value is an independent PMDG readback.
+          </p>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div v-for="control in coldDarkRelatedControls" :key="control.fieldId" class="flex min-h-12 items-center gap-2 rounded-lg border border-surface-200 bg-surface-100 p-2 text-gray-200" :data-aircraft-control-group="control.groupId">
+              <div class="min-w-0 flex-1"><div class="text-[9px] font-semibold tracking-wide">{{ control.title }}</div><div class="mt-0.5 font-mono text-xs">{{ coldDarkValueText(control.fieldId) }}</div></div>
+              <button type="button" class="min-h-9 rounded border border-current/40 px-2 text-[9px] font-bold disabled:opacity-55" :data-aircraft-action="control.actionId" :disabled="coldDarkIntentDisabled(control)" @click="requestColdDarkIntent(control)">{{ coldDarkTargetButtonLabel(control) }}</button>
+            </div>
+          </div>
+        </div>
+      </details>
+      </div>
+    </AircraftHotGroupModal>
+
     <section
       id="pmdg-737-section-mcp"
       class="pmdg-mobile-navigable-section"
       data-pmdg-737-section="mcp"
       tabindex="-1"
     >
-      <div class="dashboard-section-kicker">Mode Control Panel</div>
+      <div class="pmdg-section-heading">
+        <div class="dashboard-section-kicker">Mode Control Panel</div>
+        <span class="pmdg-location-tag" data-pmdg-location="glareshield">GLARESHIELD</span>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
         <form v-for="field in mcpWindows" :key="field.id" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="field.id" @submit.prevent="requestMcpAction(field)">
           <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ field.label }}</div>
@@ -741,7 +1131,10 @@ onBeforeUnmount(() => {
       data-pmdg-737-section="radios"
       tabindex="-1"
     >
-      <div class="dashboard-section-kicker">Navigation Radios</div>
+      <div class="pmdg-section-heading">
+        <div class="dashboard-section-kicker">Navigation Radios</div>
+        <span class="pmdg-location-tag" data-pmdg-location="pedestal">PEDESTAL</span>
+      </div>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div v-for="radio in navRadios" :key="radio.id" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="radio.id">
           <div class="flex items-center justify-between gap-3">
@@ -766,10 +1159,13 @@ onBeforeUnmount(() => {
       data-pmdg-737-section="exterior"
       tabindex="-1"
     >
-      <div class="dashboard-section-kicker">Exterior Lights</div>
+      <div class="pmdg-section-heading">
+        <div class="dashboard-section-kicker">Exterior Lights</div>
+        <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
-          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>
+          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
           <div class="grid gap-1.5" :class="control.actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'">
             <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold leading-tight disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" :disabled="actionDisabled(control, action.id)" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
           </div>
@@ -783,10 +1179,13 @@ onBeforeUnmount(() => {
       data-pmdg-737-section="cabin"
       tabindex="-1"
     >
-      <div class="dashboard-section-kicker">Cabin &amp; Visibility</div>
+      <div class="pmdg-section-heading">
+        <div class="dashboard-section-kicker">Cabin &amp; Visibility</div>
+        <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         <div v-for="control in cabinControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
-          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>
+          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
           <div class="grid gap-1.5" :class="control.actions.length === 4 ? 'grid-cols-4' : 'grid-cols-3'">
             <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" :disabled="actionDisabled(control, action.id)" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
           </div>
@@ -794,17 +1193,33 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 gap-4 2xl:grid-cols-2">
       <section
         id="pmdg-737-section-flight-controls"
         class="pmdg-mobile-navigable-section"
         data-pmdg-737-section="flight-controls"
         tabindex="-1"
       >
-        <div class="dashboard-section-kicker">Flight Controls</div>
+        <div class="pmdg-section-heading">
+          <div class="dashboard-section-kicker">Flight Controls</div>
+        </div>
         <div class="grid grid-cols-2 gap-2 mb-2">
           <div class="rounded-lg border border-surface-200 bg-surface-50 p-3"><div class="text-[9px] uppercase tracking-widest text-gray-500">Flap needle L</div><div class="mt-1 font-mono text-lg font-semibold text-gray-100">{{ valueText('flightControls.flapNeedleLeft') }}</div></div>
           <div class="rounded-lg border border-surface-200 bg-surface-50 p-3"><div class="text-[9px] uppercase tracking-widest text-gray-500">Flap needle R</div><div class="mt-1 font-mono text-lg font-semibold text-gray-100">{{ valueText('flightControls.flapNeedleRight') }}</div></div>
+        </div>
+        <div class="mb-2 rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="flapHandleControl.groupId">
+          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ flapHandleControl.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(flapHandleControl) }}</span></div>
+          <div class="grid grid-cols-3 gap-1.5 sm:grid-cols-9">
+            <button v-for="action in flapHandleControl.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(flapHandleControl) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(flapHandleControl) === action.value" :disabled="actionDisabled(flapHandleControl, action.id)" @click="requestControlAction(flapHandleControl, action.id)">{{ action.label }}</button>
+          </div>
+        </div>
+        <div class="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div v-for="control in flightControlSelectors" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
+            <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" :disabled="actionDisabled(control, action.id)" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+            </div>
+          </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div v-for="indicator in flightControlIndicators" :key="indicator.id" class="rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass(indicator.id, indicator.tone)">{{ indicator.label }} <span class="float-right opacity-70">{{ valueText(indicator.id) }}</span></div>
@@ -817,46 +1232,164 @@ onBeforeUnmount(() => {
         data-pmdg-737-section="gear-brakes"
         tabindex="-1"
       >
-        <div class="dashboard-section-kicker">Gear &amp; Brakes</div>
+        <div class="pmdg-section-heading">
+          <div class="dashboard-section-kicker">Gear &amp; Brakes</div>
+          <span class="pmdg-location-tag" data-pmdg-location="main-panel-control-stand">MAIN PANEL · CONTROL STAND</span>
+        </div>
         <div class="grid grid-cols-3 gap-2 mb-2">
           <div v-for="gear in gearIndicators" :key="gear.label" class="rounded-lg border p-3 text-center" :class="gearClass(gear)"><div class="text-[10px] font-semibold">{{ gear.label }}</div><div class="mt-1 text-xs opacity-80">{{ gearState(gear).toUpperCase() }}</div></div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div class="rounded border border-surface-200 bg-surface-50 p-2.5 text-[10px] text-gray-300">GEAR HANDLE <span class="float-right font-semibold">{{ valueText('gear.handleMode') }}</span></div>
-          <div class="rounded border border-surface-200 bg-surface-50 p-2.5 text-[10px] text-gray-300">AUTOBRAKE <span class="float-right font-semibold">{{ valueText('gear.autobrakeMode') }}</span></div>
-          <div class="rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass('gear.parkingBrake', 'warning')">PARKING BRAKE <span class="float-right opacity-70">{{ valueText('gear.parkingBrake') }}</span></div>
+        <div class="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div v-for="control in [gearHandleControl, parkingBrakeControl]" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
+            <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
+            <div class="grid gap-1.5" :class="control.actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'">
+              <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" :disabled="actionDisabled(control, action.id)" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="mb-2 rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="autobrakeControl.groupId">
+          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ autobrakeControl.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(autobrakeControl) }}</span></div>
+          <div class="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+            <button v-for="action in autobrakeControl.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(autobrakeControl) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(autobrakeControl) === action.value" :disabled="actionDisabled(autobrakeControl, action.id)" @click="requestControlAction(autobrakeControl, action.id)">{{ action.label }}</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div class="rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass('gear.autobrakeDisarm', 'danger')">AUTOBRAKE DISARM <span class="float-right opacity-70">{{ valueText('gear.autobrakeDisarm') }}</span></div>
-          <div class="col-span-2 rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass('gear.antiSkidInoperative', 'danger')">ANTI-SKID INOP <span class="float-right opacity-70">{{ valueText('gear.antiSkidInoperative') }}</span></div>
+          <div class="rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass('gear.antiSkidInoperative', 'danger')">ANTI-SKID INOP <span class="float-right opacity-70">{{ valueText('gear.antiSkidInoperative') }}</span></div>
         </div>
       </section>
 
       <section
         id="pmdg-737-section-systems"
-        class="pmdg-mobile-navigable-section"
+        class="pmdg-mobile-navigable-section 2xl:col-span-2"
         data-pmdg-737-section="systems"
         tabindex="-1"
       >
-        <div class="dashboard-section-kicker">Systems Snapshot</div>
-        <p class="mb-2 text-[10px] text-gray-500">Monitoring-only in this pass.</p>
-        <div class="grid grid-cols-2 gap-2 mb-2">
-          <div class="rounded border border-surface-200 bg-surface-50 p-2.5 text-[10px] text-gray-300">PACK L <span class="float-right font-semibold">{{ valueText('systems.packLeftMode') }}</span></div>
-          <div class="rounded border border-surface-200 bg-surface-50 p-2.5 text-[10px] text-gray-300">PACK R <span class="float-right font-semibold">{{ valueText('systems.packRightMode') }}</span></div>
-          <div class="rounded border border-surface-200 bg-surface-50 p-2.5 text-[10px] text-gray-300">APU SELECTOR <span class="float-right font-semibold">{{ valueText('systems.apuMode') }}</span></div>
-          <div class="rounded border border-surface-200 bg-surface-50 p-2.5 text-[10px] text-gray-300">APU EGT <span class="float-right font-semibold">{{ valueText('systems.apuEgt') }}</span></div>
+        <div class="pmdg-section-heading">
+          <div class="dashboard-section-kicker">Air &amp; Systems</div>
+          <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="apuSelectorControl.groupId">
+            <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ apuSelectorControl.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(apuSelectorControl) }}</span></div>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button v-for="action in apuSelectorControl.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(apuSelectorControl) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(apuSelectorControl) === action.value" :disabled="actionDisabled(apuSelectorControl, action.id)" @click="requestControlAction(apuSelectorControl, action.id)">{{ action.label }}</button>
+            </div>
+          </div>
+          <div class="rounded-lg border border-surface-200 bg-surface-50 p-3">
+            <div class="text-[9px] uppercase tracking-widest text-gray-500">APU EGT</div>
+            <div class="mt-2 font-mono text-lg font-semibold text-gray-100">{{ valueText('systems.apuEgt') }}</div>
+          </div>
+        </div>
+        <div class="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div v-for="control in airControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
+            <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
+            <div class="grid gap-1.5" :class="control.actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'">
+              <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" :disabled="actionDisabled(control, action.id)" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div v-for="control in antiIceControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
+            <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button v-for="action in control.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(control) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(control) === action.value" :disabled="actionDisabled(control, action.id)" @click="requestControlAction(control, action.id)">{{ action.label }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <div v-for="indicator in systemIndicators" :key="indicator.id" class="rounded border px-2.5 py-2 text-[10px] font-semibold" :class="indicatorClass(indicator.id, indicator.tone)">{{ indicator.label }} <span class="float-right opacity-70">{{ valueText(indicator.id) }}</span></div>
         </div>
       </section>
     </div>
-
-    <p class="text-[10px] leading-relaxed text-amber-300/80">
-      Live NG3 SDK validation is still required for every 737 family variant. Confirm each enabled control against its cockpit switch before relying on it operationally.
-    </p>
   </div>
 </template>
 
 <style scoped>
+.pmdg-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pmdg-location-tag {
+  flex: 0 0 auto;
+  border: 1px solid rgb(148 163 184 / 0.2);
+  border-radius: 999px;
+  padding: 0.125rem 0.4rem;
+  color: rgb(148 163 184 / 0.72);
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pmdg-hot-group-launcher {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 3.7rem;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgb(var(--primary) / 0.32);
+  border-radius: 11px;
+  background:
+    linear-gradient(110deg, rgb(var(--primary) / 0.11), transparent 34%),
+    rgb(var(--panel-subtle) / 0.84);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025);
+  color: rgb(var(--foreground));
+  text-align: left;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.pmdg-hot-group-launcher:hover,
+.pmdg-hot-group-launcher:focus-visible {
+  border-color: rgb(var(--primary) / 0.64);
+  background-color: rgb(var(--primary) / 0.055);
+}
+
+.pmdg-hot-group-launcher:active {
+  transform: translateY(1px);
+}
+
+.pmdg-hot-group-launcher__copy {
+  display: block;
+  min-width: 0;
+}
+
+.pmdg-hot-group-launcher__copy strong,
+.pmdg-hot-group-launcher__copy small {
+  display: block;
+}
+
+.pmdg-hot-group-launcher__copy strong {
+  font-size: 0.86rem;
+  font-weight: 720;
+}
+
+.pmdg-hot-group-launcher__copy small {
+  overflow: hidden;
+  margin-top: 0.12rem;
+  color: rgb(var(--muted-foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pmdg-hot-group-launcher__open {
+  color: rgb(var(--primary));
+  font-family: var(--ff-font-mono);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.pmdg-mobile-section-ribbon-anchor,
 .pmdg-mobile-section-ribbon {
   display: none;
 }
@@ -967,16 +1500,40 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-@media (max-width: 760px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .pmdg-hot-group-launcher {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 3.6rem;
+    gap: 0.75rem;
+    padding: 0.62rem 0.7rem;
+  }
+
+  .pmdg-hot-group-launcher__copy strong {
+    font-size: 0.8rem;
+  }
+
+  .pmdg-mobile-section-ribbon-anchor {
+    position: sticky;
+    top: max(0.5rem, env(safe-area-inset-top, 0px));
+    z-index: 45;
+    display: block;
+    height: 2.75rem;
+    overflow: visible;
+    pointer-events: none;
+  }
+
   .pmdg-mobile-section-ribbon {
     display: grid;
     grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+    width: min(100%, 32rem);
+    margin-left: auto;
     min-height: 2.75rem;
     overflow: hidden;
-    border: 1px solid rgb(var(--border-strong) / 0.8);
+    border: 1px solid rgb(var(--border-strong) / 0.72);
     border-radius: 9px;
-    background: rgb(var(--panel) / 0.98);
-    box-shadow: 0 12px 28px rgb(0 0 0 / 0.38);
+    background: rgb(var(--panel-elevated) / 0.98);
+    box-shadow: 0 10px 24px rgb(0 0 0 / 0.3);
+    pointer-events: auto;
     touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
@@ -1022,7 +1579,7 @@ onBeforeUnmount(() => {
     gap: 0.35rem;
     border-right: 1px solid rgb(var(--border) / 0.72);
     border-left: 1px solid rgb(var(--border) / 0.72);
-    background: rgb(var(--primary) / 0.1);
+    background: rgb(var(--panel-subtle) / 0.9);
     text-align: center;
   }
 
@@ -1047,7 +1604,7 @@ onBeforeUnmount(() => {
   }
 
   .pmdg-mobile-navigable-section {
-    scroll-margin-top: 5.25rem;
+    scroll-margin-top: 4.25rem;
   }
 
   .pmdg-mobile-navigable-section:focus {

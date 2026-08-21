@@ -1839,6 +1839,12 @@ test(
     !shouldExcludeRuntimeModuleEntry(runtimeFileEntry('NOTICE.txt')),
 );
 test(
+  'afterPack removes dependency lint configs and hosted examples',
+  shouldExcludeRuntimeModuleEntry(runtimeFileEntry('eslint.config.js')) &&
+    shouldExcludeRuntimeModuleEntry(runtimeFileEntry('eslint.config.mjs')) &&
+    shouldExcludeRuntimeModuleEntry(runtimeFileEntry('.runkit_example.js')),
+);
+test(
   'packaged smoke compares actual backend package roots with the locked inventory',
   packagedSmokeScript.includes('unexpected packaged backend dependency') &&
     packagedSmokeScript.includes('missing packaged backend dependency'),
