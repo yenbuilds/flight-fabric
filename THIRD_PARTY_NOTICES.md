@@ -136,10 +136,6 @@ source as third-party code.
   This includes event and field mappings plus declarative connector definitions,
   allowing public-source builders to build the same PMDG-capable application as
   the downloadable release.
-- Permission: the project owner has confirmed permission to publish and use the
-  SDK interoperability implementation in this form. Retain the permission
-  record and recheck it before expanding the scope or importing more vendor
-  material.
 - Not redistributed: Flight Fabric does not include PMDG aircraft packages,
   SDK headers, manuals, EULA PDFs, artwork, or other PMDG binaries or content.
 - User authorization: PMDG SDK access stays disabled until the desktop user
