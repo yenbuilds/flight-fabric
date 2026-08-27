@@ -21,6 +21,18 @@ function sdkField(
   };
 }
 
+function lvarPercentField(id: string, name: string): AircraftIntegrationField {
+  return {
+    id,
+    sources: [{
+      route: { type: 'lvar', name: `L:${name}`, unit: 'Number' },
+      // PMDG's installed 737 cockpit behavior uses a 0..300 position for
+      // these dimmers. Keep the public contract in whole percentages.
+      decode: { type: 'number', scale: 1 / 3, precision: 0 },
+    }],
+  };
+}
+
 function simvarNumberField(
   id: string,
   name: string,
@@ -87,6 +99,71 @@ const PMDG_737_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'mcp.verticalSpeedFpm': numberField('mcp.verticalSpeedFpm', 'automation.ap.selected.vsFpm'),
   'mcp.courseCaptainDeg': numberField('mcp.courseCaptainDeg', 'automation.ap.selected.courseLeftDeg'),
   'mcp.courseFirstOfficerDeg': numberField('mcp.courseFirstOfficerDeg', 'automation.ap.selected.courseRightDeg'),
+
+  'lighting.overheadCircuitBreakerPercent': lvarPercentField(
+    'lighting.overheadCircuitBreakerPercent',
+    'OH_CB_PANEL_LIGHT_CONTROL',
+  ),
+  'lighting.overheadPanelPercent': lvarPercentField(
+    'lighting.overheadPanelPercent',
+    'OH_PANEL_LIGHT_CONTROL',
+  ),
+  'lighting.mainPanelCaptainPercent': lvarPercentField(
+    'lighting.mainPanelCaptainPercent',
+    'CA_MAIN_PANEL_LIGHT_CONTROL',
+  ),
+  'lighting.mainPanelFirstOfficerPercent': lvarPercentField(
+    'lighting.mainPanelFirstOfficerPercent',
+    'FO_MAIN_PANEL_LIGHT_CONTROL',
+  ),
+  'lighting.backgroundPercent': lvarPercentField(
+    'lighting.backgroundPercent',
+    'CA_BACKGROUND_BRT_CONTROL',
+  ),
+  'lighting.afdsFloodPercent': lvarPercentField(
+    'lighting.afdsFloodPercent',
+    'CA_AFDS_FLOOD_LIGHT_CONTROL',
+  ),
+  'lighting.pedestalFloodPercent': lvarPercentField(
+    'lighting.pedestalFloodPercent',
+    'PED_FLOOD_LIGHT_CONTROL',
+  ),
+  'lighting.pedestalPanelPercent': lvarPercentField(
+    'lighting.pedestalPanelPercent',
+    'PED_PANEL_LIGHT_CONTROL',
+  ),
+  'lighting.displayCaptainOutboardPercent': lvarPercentField(
+    'lighting.displayCaptainOutboardPercent',
+    'CA_OUTBD_DU_BRIGHT_CONTROL',
+  ),
+  'lighting.displayCaptainInboardPercent': lvarPercentField(
+    'lighting.displayCaptainInboardPercent',
+    'CA_INBD_DU_BRIGHT_CONTROL',
+  ),
+  'lighting.displayCaptainMapPercent': lvarPercentField(
+    'lighting.displayCaptainMapPercent',
+    'CA_INBD_DU_RDR_BRIGHT_CONTROL',
+  ),
+  'lighting.displayUpperPercent': lvarPercentField(
+    'lighting.displayUpperPercent',
+    'CA_UPPER_DU_BRIGHT_CONTROL',
+  ),
+  'lighting.displayLowerPercent': lvarPercentField(
+    'lighting.displayLowerPercent',
+    'CA_LOWER_DU_BRIGHT_CONTROL',
+  ),
+  'lighting.displayFirstOfficerOutboardPercent': lvarPercentField(
+    'lighting.displayFirstOfficerOutboardPercent',
+    'FO_OUTBD_DU_BRIGHT_CONTROL',
+  ),
+  'lighting.displayFirstOfficerInboardPercent': lvarPercentField(
+    'lighting.displayFirstOfficerInboardPercent',
+    'FO_INBD_DU_BRIGHT_CONTROL',
+  ),
+  'lighting.displayFirstOfficerMapPercent': lvarPercentField(
+    'lighting.displayFirstOfficerMapPercent',
+    'FO_INBD_DU_RDR_BRIGHT_CONTROL',
+  ),
 
   // PMDG's NG3 ClientData contract does not publish radio frequencies. These
   // standard MSFS readbacks are used only for the PMDG radio UI and for

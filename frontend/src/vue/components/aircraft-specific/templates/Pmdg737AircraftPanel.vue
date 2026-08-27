@@ -18,6 +18,9 @@ const props = defineProps({
   sourceStatuses: { type: Object, default: () => ({}) },
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
+  requestCommand: { type: Function, default: () => false },
+  isCommandSupported: { type: Function, default: () => false },
+  getCommand: { type: Function, default: () => null },
   isActionPending: { type: Function, default: () => false },
   profileKey: { type: String, default: '' },
 });
@@ -30,6 +33,9 @@ const eulaConfirmed = ref(false);
 const authorizationBusy = ref(false);
 const authorizationError = ref('');
 const mcpDrafts = ref({});
+const bothCourseDraft = ref('');
+const bothNavFrequencyDraft = ref('');
+const cockpitLightingDraft = ref('50');
 const sectionRibbon = ref(null);
 const sectionMenu = ref(null);
 const sectionMenuButton = ref(null);
@@ -51,6 +57,7 @@ const mobileSections = Object.freeze([
   Object.freeze({ id: 'mcp', label: 'MCP', title: 'Mode Control Panel', detail: 'Targets, flight directors and AFDS modes.' }),
   Object.freeze({ id: 'radios', label: 'Radios', title: 'Navigation Radios', detail: 'NAV active, standby and frequency transfer.' }),
   Object.freeze({ id: 'exterior', label: 'Exterior', title: 'Exterior Lights', detail: 'Landing, taxi, position and exterior lighting.' }),
+  Object.freeze({ id: 'cockpit-lighting', label: 'Lighting', title: 'Cockpit Lighting', detail: 'Panel backlighting, flood lights and display brightness.' }),
   Object.freeze({ id: 'cabin', label: 'Cabin', title: 'Cabin & Visibility', detail: 'Signs, emergency lights and windshield wipers.' }),
   Object.freeze({ id: 'flight-controls', label: 'Controls', title: 'Flight Controls', detail: 'Flaps, speedbrake, yaw damper and trim status.' }),
   Object.freeze({ id: 'gear-brakes', label: 'Gear', title: 'Gear & Brakes', detail: 'Gear position, parking brake, autobrake and anti-skid.' }),
@@ -92,9 +99,9 @@ const sdkStatusNotice = computed(() => {
 const mcpWindows = [
   { id: 'mcp.courseCaptainDeg', actionId: 'mcp.courseCaptain.set', label: 'COURSE L', unit: '\u00b0', digits: 3, min: 0, max: 359, step: 1 },
   { id: 'mcp.speed', label: 'IAS / MACH' },
-  { id: 'mcp.headingDeg', actionId: 'mcp.heading.set', label: 'HEADING', unit: '\u00b0', digits: 3, min: 0, max: 359, step: 1 },
-  { id: 'mcp.altitudeFt', actionId: 'mcp.altitude.set', label: 'ALTITUDE', unit: 'ft', locale: true, min: 0, max: 50000, step: 100 },
-  { id: 'mcp.verticalSpeedFpm', actionId: 'mcp.verticalSpeed.set', label: 'VERT SPEED', unit: 'fpm', signed: true, min: -7900, max: 6000, step: 100 },
+  { id: 'mcp.headingDeg', actionId: 'mcp.heading.set', commandId: 'flightGuidance.heading.set', label: 'HEADING', unit: '\u00b0', digits: 3, min: 0, max: 359, step: 1 },
+  { id: 'mcp.altitudeFt', actionId: 'mcp.altitude.set', commandId: 'flightGuidance.altitude.set', label: 'ALTITUDE', unit: 'ft', locale: true, min: 0, max: 50000, step: 100 },
+  { id: 'mcp.verticalSpeedFpm', actionId: 'mcp.verticalSpeed.set', commandId: 'flightGuidance.verticalSpeed.set', label: 'VERT SPEED', unit: 'fpm', signed: true, min: -7900, max: 6000, step: 100 },
   { id: 'mcp.courseFirstOfficerDeg', actionId: 'mcp.courseFirstOfficer.set', label: 'COURSE R', unit: '\u00b0', digits: 3, min: 0, max: 359, step: 1 },
 ];
 
@@ -104,20 +111,20 @@ const afdsModes = [
   ['afds.autothrottleActive', 'A/T'],
   ['afds.n1', 'N1', 'engage'],
   ['afds.speed', 'SPEED', 'engage'],
-  ['afds.levelChange', 'LVL CHG', 'engage'],
+  ['afds.levelChange', 'LVL CHG', 'engage', 'flightGuidance.flightLevelChange.engage'],
   ['afds.vnav', 'VNAV', 'engage'],
-  ['afds.headingSelect', 'HDG SEL', 'engage'],
+  ['afds.headingSelect', 'HDG SEL', 'engage', 'flightGuidance.headingSelect.engage'],
   ['afds.lnav', 'LNAV', 'engage'],
-  ['afds.vorLoc', 'VOR/LOC', 'engage'],
-  ['afds.approach', 'APP', 'engage'],
-  ['afds.altitudeHold', 'ALT HLD', 'engage'],
-  ['afds.verticalSpeed', 'V/S', 'engage'],
-  ['afds.cmdA', 'CMD A', 'engage'],
+  ['afds.vorLoc', 'VOR/LOC', 'engage', 'flightGuidance.localizer.engage'],
+  ['afds.approach', 'APP', 'engage', 'flightGuidance.approach.engage'],
+  ['afds.altitudeHold', 'ALT HLD', 'engage', 'flightGuidance.altitudeHold.engage'],
+  ['afds.verticalSpeed', 'V/S', 'engage', 'flightGuidance.verticalSpeed.engage'],
+  ['afds.cmdA', 'CMD A', 'engage', 'flightGuidance.autopilot1.engage'],
   ['afds.cmdB', 'CMD B', 'engage'],
   ['afds.cwsA', 'CWS A', 'engage'],
   ['afds.cwsB', 'CWS B', 'engage'],
   ['afds.flightDirectorFirstOfficer', 'FD R', 'toggle'],
-].map(([id, label, control]) => ({ id, label, control }));
+].map(([id, label, control, commandId]) => ({ id, label, control, commandId }));
 
 const navRadios = [
   {
@@ -127,29 +134,77 @@ const navRadios = [
     id: 'nav2', label: 'NAV 2', active: 'radios.nav2ActiveMhz', standby: 'radios.nav2StandbyMhz',
   },
 ];
+const bothCourseCommandId = 'flightGuidance.course.setBoth';
+const bothCourseControlGroup = 'mcp.courseBoth';
+const bothNavCommandId = 'radios.nav.setBothActive';
+const bothNavControlGroup = 'radios.navBoth';
+const cockpitLightingCommandId = 'configuration.lighting.cockpit';
+const cockpitLightingControlGroup = 'lighting.cockpit';
+const cockpitLightingGroups = Object.freeze([
+  Object.freeze({
+    label: 'Panels',
+    fields: Object.freeze([
+      'lighting.overheadCircuitBreakerPercent',
+      'lighting.overheadPanelPercent',
+      'lighting.mainPanelCaptainPercent',
+      'lighting.mainPanelFirstOfficerPercent',
+    ]),
+  }),
+  Object.freeze({
+    label: 'Flood & background',
+    fields: Object.freeze([
+      'lighting.backgroundPercent',
+      'lighting.afdsFloodPercent',
+      'lighting.pedestalFloodPercent',
+      'lighting.pedestalPanelPercent',
+    ]),
+  }),
+  Object.freeze({
+    label: 'Flight displays',
+    fields: Object.freeze([
+      'lighting.displayCaptainOutboardPercent',
+      'lighting.displayCaptainInboardPercent',
+      'lighting.displayCaptainMapPercent',
+      'lighting.displayUpperPercent',
+      'lighting.displayLowerPercent',
+      'lighting.displayFirstOfficerOutboardPercent',
+      'lighting.displayFirstOfficerInboardPercent',
+      'lighting.displayFirstOfficerMapPercent',
+    ]),
+  }),
+]);
+const cockpitLightingFieldIds = Object.freeze(
+  cockpitLightingGroups.flatMap((group) => group.fields),
+);
 
-function booleanControl(title, fieldId, prefix = fieldId) {
+function booleanControl(title, fieldId, prefix = fieldId, commandId = '') {
   return {
     title,
     fieldId,
     groupId: prefix,
     actions: [
-      { id: `${prefix}.off`, label: 'OFF', value: false },
-      { id: `${prefix}.on`, label: 'ON', value: true },
+      { id: `${prefix}.off`, label: 'OFF', value: false, ...(commandId ? { commandId, commandInput: { value: false } } : {}) },
+      { id: `${prefix}.on`, label: 'ON', value: true, ...(commandId ? { commandId, commandInput: { value: true } } : {}) },
     ],
   };
 }
 
-function detentControl(title, fieldId, prefix, positions) {
+function detentControl(title, fieldId, prefix, positions, commandId = '', toCommandValue = null) {
   return {
     title,
     fieldId,
     groupId: prefix,
-    actions: positions.map(([id, label, value = id]) => ({
-      id: `${prefix}.${id}`,
-      label,
-      value,
-    })),
+    actions: positions.map(([id, label, value = id]) => {
+      const commandValue = typeof toCommandValue === 'function' ? toCommandValue(id, value) : undefined;
+      return {
+        id: `${prefix}.${id}`,
+        label,
+        value,
+        ...(commandId && commandValue !== undefined
+          ? { commandId, commandInput: { value: commandValue } }
+          : {}),
+      };
+    }),
   };
 }
 
@@ -166,7 +221,7 @@ const exteriorControls = [
   booleanControl('FIXED LANDING R', 'lights.landingRight'),
   booleanControl('TURNOFF L', 'lights.turnoffLeft'),
   booleanControl('TURNOFF R', 'lights.turnoffRight'),
-  booleanControl('TAXI', 'lights.taxi'),
+  booleanControl('TAXI', 'lights.taxi', 'lights.taxi', 'lights.taxi.set'),
   booleanControl('LOGO', 'lights.logo'),
   {
     title: 'POSITION', fieldId: 'lights.positionMode', groupId: 'lights.position',
@@ -213,10 +268,20 @@ const flapHandleControl = detentControl(
     ['detent5', '5', 3], ['detent10', '10', 4], ['detent15', '15', 5],
     ['detent25', '25', 6], ['detent30', '30', 7], ['detent40', '40', 8],
   ],
+  'surfaces.flaps.set',
+  (id) => id === 'up' ? 'up' : id.replace('detent', ''),
 );
 
 const flightControlSelectors = [
   booleanControl('YAW DAMPER', 'flightControls.yawDamper'),
+  detentControl(
+    'SPEEDBRAKE',
+    'flightControls.speedbrakeArmed',
+    'flightControls.speedbrake',
+    [['disarm', 'DISARM', false], ['arm', 'ARM', true]],
+    'surfaces.spoilersArmed.set',
+    (_id, value) => value,
+  ),
   detentControl(
     'STAB TRIM MAIN ELECTRIC',
     'flightControls.stabTrimMainElectricCutout',
@@ -230,6 +295,8 @@ const gearHandleControl = detentControl(
   'gear.handleMode',
   'gear.handle',
   [['up', 'UP'], ['off', 'OFF'], ['down', 'DOWN']],
+  'surfaces.gear.set',
+  (id) => id === 'off' ? undefined : id,
 );
 
 const autobrakeControl = detentControl(
@@ -244,6 +311,8 @@ const parkingBrakeControl = detentControl(
   'gear.parkingBrake',
   'gear.parkingBrake',
   [['released', 'RELEASED', false], ['set', 'SET', true]],
+  'surfaces.parkingBrake.set',
+  (_id, value) => value,
 );
 
 const airControls = [
@@ -388,11 +457,18 @@ function formatWindow(field) {
 }
 
 function mcpInputConfig(field) {
-  if (field.id !== 'mcp.speed') return field;
-  const machMode = typeof value(field.id) === 'number' && value(field.id) > 0 && value(field.id) < 10;
-  return machMode
-    ? { ...field, actionId: 'mcp.mach.set', min: 0.4, max: 0.99, step: 0.01 }
-    : { ...field, actionId: 'mcp.ias.set', min: 100, max: 399, step: 1 };
+  let config = field;
+  if (field.id === 'mcp.speed') {
+    const machMode = typeof value(field.id) === 'number' && value(field.id) > 0 && value(field.id) < 10;
+    config = machMode
+      ? { ...field, actionId: 'mcp.mach.set', commandId: 'flightGuidance.mach.set', min: 0.4, max: 0.99, step: 0.01 }
+      : { ...field, actionId: 'mcp.ias.set', commandId: 'flightGuidance.speed.set', min: 100, max: 399, step: 1 };
+  }
+  const descriptor = config.commandId ? props.getCommand(config.commandId) : null;
+  const input = descriptor?.input;
+  return input?.kind === 'number'
+    ? { ...config, min: input.min, max: input.max, step: input.step }
+    : config;
 }
 
 function mcpDraft(field) {
@@ -408,12 +484,20 @@ function updateMcpDraft(field, event) {
   mcpDrafts.value = { ...mcpDrafts.value, [mcpDraftKey(config, field.id)]: event.target.value };
 }
 
+function mcpControlGroup(field) {
+  return field.id === 'mcp.courseCaptainDeg' || field.id === 'mcp.courseFirstOfficerDeg'
+    ? bothCourseControlGroup
+    : field.id;
+}
+
 function mcpDisabled(field) {
   const config = mcpInputConfig(field);
   return props.sourceStatus !== 'connected'
     || !hasValue(field.id)
-    || !actionSupported(config.actionId)
-    || groupPending(field.id);
+    || (config.commandId
+      ? !props.isCommandSupported(config.commandId)
+      : !actionSupported(config.actionId))
+    || groupPending(mcpControlGroup(field));
 }
 
 function requestMcpAction(field) {
@@ -421,9 +505,10 @@ function requestMcpAction(field) {
   const sent = submitMcpDraft({
     config,
     disabled: mcpDisabled(field),
-    groupId: field.id,
+    groupId: mcpControlGroup(field),
     rawValue: mcpDraft(field),
     requestAction: props.requestAction,
+    requestCommand: props.requestCommand,
   });
   if (sent !== false) {
     const nextDrafts = { ...mcpDrafts.value };
@@ -445,13 +530,16 @@ function afdsDisabled(mode) {
     || props.sourceStatus !== 'connected'
     || !hasValue(mode.id)
     || (mode.control === 'engage' && value(mode.id) === true)
-    || !actionSupported(actionId)
+    || (mode.commandId
+      ? !props.isCommandSupported(mode.commandId)
+      : !actionSupported(actionId))
     || groupPending(mode.id);
 }
 
 function requestAfdsAction(mode) {
   const actionId = afdsActionId(mode);
   if (afdsDisabled(mode)) return false;
+  if (mode.commandId) return props.requestCommand(mode.commandId, mode.id, {});
   return props.requestAction(actionId, mode.id);
 }
 
@@ -471,6 +559,123 @@ function radioActionDisabled(radio, actionId) {
 function requestRadioAction(radio, actionId) {
   if (radioActionDisabled(radio, actionId)) return false;
   return props.requestAction(actionId, radio.id);
+}
+
+function commandNumberInput(commandId, fallback) {
+  const descriptor = props.getCommand(commandId);
+  return descriptor?.input?.kind === 'number' ? descriptor.input : fallback;
+}
+
+function steppedNumber(rawValue, input) {
+  if (typeof rawValue === 'string' && !rawValue.trim()) return null;
+  const numericValue = Number(rawValue);
+  const position = (numericValue - input.min) / input.step;
+  return Number.isFinite(numericValue)
+    && numericValue >= input.min
+    && numericValue <= input.max
+    && Math.abs(position - Math.round(position)) < 1e-7
+    ? numericValue
+    : null;
+}
+
+function bothCourseInput() {
+  return commandNumberInput(
+    bothCourseCommandId,
+    { min: 0, max: 359, step: 1 },
+  );
+}
+
+function bothCourseValue() {
+  return steppedNumber(bothCourseDraft.value, bothCourseInput());
+}
+
+function bothCourseDisabled() {
+  return props.sourceStatus !== 'connected'
+    || !hasValue('mcp.courseCaptainDeg')
+    || !hasValue('mcp.courseFirstOfficerDeg')
+    || !props.isCommandSupported(bothCourseCommandId)
+    || bothCourseValue() === null
+    || groupPending(bothCourseControlGroup);
+}
+
+function requestBothCourse() {
+  const course = bothCourseValue();
+  if (bothCourseDisabled() || course === null) return false;
+  const sent = props.requestCommand(
+    bothCourseCommandId,
+    bothCourseControlGroup,
+    { value: course },
+  );
+  if (sent !== false) bothCourseDraft.value = '';
+  return sent;
+}
+
+function bothNavInput() {
+  return commandNumberInput(
+    bothNavCommandId,
+    { min: 108, max: 117.95, step: 0.05 },
+  );
+}
+
+function bothNavFrequency() {
+  return steppedNumber(bothNavFrequencyDraft.value, bothNavInput());
+}
+
+function bothNavDisabled() {
+  return props.sourceStatus !== 'connected'
+    || !hasValue('radios.nav1ActiveMhz')
+    || !hasValue('radios.nav2ActiveMhz')
+    || !props.isCommandSupported(bothNavCommandId)
+    || bothNavFrequency() === null
+    || groupPending(bothNavControlGroup);
+}
+
+function requestBothNavFrequency() {
+  const frequency = bothNavFrequency();
+  if (bothNavDisabled() || frequency === null) return false;
+  const sent = props.requestCommand(
+    bothNavCommandId,
+    bothNavControlGroup,
+    { value: frequency },
+  );
+  if (sent !== false) bothNavFrequencyDraft.value = '';
+  return sent;
+}
+
+function cockpitLightingInput() {
+  return commandNumberInput(
+    cockpitLightingCommandId,
+    { min: 0, max: 100, step: 1 },
+  );
+}
+
+function cockpitLightingValue() {
+  return steppedNumber(cockpitLightingDraft.value, cockpitLightingInput());
+}
+
+function cockpitLightingGroupText(fieldIds) {
+  if (!fieldIds.every(hasValue)) return '--';
+  const values = fieldIds.map((fieldId) => value(fieldId));
+  if (!values.every((current) => typeof current === 'number' && Number.isFinite(current))) return '--';
+  return values.every((current) => current === values[0]) ? `${values[0]}%` : 'MIXED';
+}
+
+function cockpitLightingDisabled() {
+  return props.sourceStatus !== 'connected'
+    || !cockpitLightingFieldIds.every(hasValue)
+    || !props.isCommandSupported(cockpitLightingCommandId)
+    || cockpitLightingValue() === null
+    || groupPending(cockpitLightingControlGroup);
+}
+
+function requestCockpitLighting() {
+  const brightness = cockpitLightingValue();
+  if (cockpitLightingDisabled() || brightness === null) return false;
+  return props.requestCommand(
+    cockpitLightingCommandId,
+    cockpitLightingControlGroup,
+    { value: brightness },
+  );
 }
 
 function controlValue(control) {
@@ -497,16 +702,23 @@ function groupPending(groupId) {
 }
 
 function actionDisabled(control, actionId) {
-  const target = control.actions?.find((action) => action.id === actionId)?.value;
+  const action = control.actions?.find((candidate) => candidate.id === actionId);
+  const target = action?.value;
   return props.sourceStatus !== 'connected'
     || controlValue(control) === null
     || Object.is(controlValue(control), target)
-    || !actionSupported(actionId)
+    || (action?.commandId
+      ? !props.isCommandSupported(action.commandId)
+      : !actionSupported(actionId))
     || groupPending(control.groupId);
 }
 
 function requestControlAction(control, actionId) {
   if (actionDisabled(control, actionId)) return false;
+  const action = control.actions?.find((candidate) => candidate.id === actionId);
+  if (action?.commandId) {
+    return props.requestCommand(action.commandId, control.groupId, action.commandInput || {});
+  }
   return props.requestAction(actionId, control.groupId);
 }
 
@@ -1121,7 +1333,7 @@ onBeforeUnmount(() => {
         <span class="pmdg-location-tag" data-pmdg-location="glareshield">GLARESHIELD</span>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-        <form v-for="field in mcpWindows" :key="field.id" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="field.id" @submit.prevent="requestMcpAction(field)">
+        <form v-for="field in mcpWindows" :key="field.id" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="mcpControlGroup(field)" @submit.prevent="requestMcpAction(field)">
           <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ field.label }}</div>
           <div class="mt-1 flex items-baseline gap-1"><span class="font-mono text-lg font-semibold text-gray-100">{{ formatWindow(field) }}</span><span v-if="field.unit" class="text-[10px] text-gray-500">{{ field.unit }}</span></div>
           <div class="mt-2 flex gap-1.5">
@@ -1141,6 +1353,45 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </div>
+      <form
+        class="mt-3 rounded-lg border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
+        data-aircraft-control-group="mcp.courseBoth"
+        data-pmdg-course-both-control
+        @submit.prevent="requestBothCourse"
+      >
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div class="min-w-0 flex-1">
+            <div class="text-[10px] font-semibold tracking-widest text-cyan-100">SET BOTH COURSE WINDOWS</div>
+            <p class="mt-1 text-[11px] leading-relaxed text-gray-400">
+              Set the captain and first-officer MCP courses together. Voice: &ldquo;set courses two seven zero&rdquo;.
+            </p>
+          </div>
+          <div class="flex min-w-0 gap-1.5 sm:w-72">
+            <div class="relative min-w-0 flex-1">
+              <input
+                v-model="bothCourseDraft"
+                class="h-10 w-full rounded border border-surface-300 bg-surface-100 px-2 pr-8 font-mono text-sm text-gray-100 disabled:opacity-45"
+                type="number"
+                inputmode="numeric"
+                :min="bothCourseInput().min"
+                :max="bothCourseInput().max"
+                :step="bothCourseInput().step"
+                placeholder="270"
+                aria-label="Set both MCP course windows"
+              />
+              <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-gray-500">&deg;</span>
+            </div>
+            <button
+              type="submit"
+              class="h-10 rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+              data-aircraft-command="flightGuidance.course.setBoth"
+              :disabled="bothCourseDisabled()"
+            >
+              SET BOTH
+            </button>
+          </div>
+        </div>
+      </form>
       <div class="mt-2 flex flex-wrap gap-1.5">
         <button v-for="mode in afdsModes" :key="mode.id" type="button" class="rounded border px-2 py-1 text-[10px] font-semibold tracking-wide disabled:cursor-not-allowed disabled:opacity-60" :class="indicatorClass(mode.id)" :data-aircraft-action="afdsActionId(mode) || undefined" :disabled="afdsDisabled(mode)" @click="requestAfdsAction(mode)">{{ mode.label }} <span class="opacity-70">{{ valueText(mode.id) }}</span></button>
       </div>
@@ -1172,6 +1423,45 @@ onBeforeUnmount(() => {
           <div class="mt-1.5 flex justify-between text-[9px] uppercase tracking-wider text-gray-600"><span>Active</span><span>Standby tuned by PMDG event</span></div>
         </div>
       </div>
+      <form
+        class="mt-3 rounded-lg border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
+        data-aircraft-control-group="radios.navBoth"
+        data-pmdg-nav-both-control
+        @submit.prevent="requestBothNavFrequency"
+      >
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div class="min-w-0 flex-1">
+            <div class="text-[10px] font-semibold tracking-widest text-cyan-100">SET BOTH ACTIVE</div>
+            <p class="mt-1 text-[11px] leading-relaxed text-gray-400">
+              Tune NAV 1 and NAV 2 active frequencies together. Voice: &ldquo;set nav radios one one zero decimal three&rdquo;.
+            </p>
+          </div>
+          <div class="flex min-w-0 gap-1.5 sm:w-72">
+            <div class="relative min-w-0 flex-1">
+              <input
+                v-model="bothNavFrequencyDraft"
+                class="h-10 w-full rounded border border-surface-300 bg-surface-100 px-2 pr-12 font-mono text-sm text-gray-100 disabled:opacity-45"
+                type="number"
+                inputmode="decimal"
+                :min="bothNavInput().min"
+                :max="bothNavInput().max"
+                :step="bothNavInput().step"
+                placeholder="110.30"
+                aria-label="Set both active NAV radio frequencies"
+              />
+              <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-gray-500">MHz</span>
+            </div>
+            <button
+              type="submit"
+              class="h-10 rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+              data-aircraft-command="radios.nav.setBothActive"
+              :disabled="bothNavDisabled()"
+            >
+              SET BOTH
+            </button>
+          </div>
+        </div>
+      </form>
     </section>
 
     <section
@@ -1192,6 +1482,82 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+    </section>
+
+    <section
+      id="pmdg-737-section-cockpit-lighting"
+      class="pmdg-mobile-navigable-section"
+      data-pmdg-737-section="cockpit-lighting"
+      tabindex="-1"
+    >
+      <div class="pmdg-section-heading">
+        <div class="dashboard-section-kicker">Cockpit Lighting</div>
+        <span class="text-[9px] font-semibold tracking-widest text-gray-500">16 DIMMERS</span>
+      </div>
+      <form
+        class="rounded-xl border border-cyan-400/25 bg-cyan-400/[0.06] p-4"
+        data-aircraft-control-group="lighting.cockpit"
+        data-pmdg-cockpit-lighting-control
+        @submit.prevent="requestCockpitLighting"
+      >
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-gray-100">Set the flight deck together</div>
+            <p class="mt-1 max-w-3xl text-xs leading-relaxed text-gray-400">
+              Applies one level to panel backlighting, AFDS and pedestal flood lighting, plus every operable captain, First Officer, upper and lower display-unit dimmer. Voice: &ldquo;set cockpit lighting fifty percent&rdquo;.
+            </p>
+            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div v-for="group in cockpitLightingGroups" :key="group.label" class="rounded-lg border border-surface-200 bg-surface-100/70 px-3 py-2">
+                <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ group.label }}</div>
+                <div class="mt-1 font-mono text-sm font-semibold text-gray-200">{{ cockpitLightingGroupText(group.fields) }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="w-full rounded-lg border border-surface-200 bg-surface-100 p-3 lg:w-[25rem]">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <label for="pmdg-737-cockpit-lighting" class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Target brightness</label>
+              <output class="font-mono text-lg font-semibold text-cyan-100">{{ cockpitLightingValue() ?? '--' }}%</output>
+            </div>
+            <input
+              id="pmdg-737-cockpit-lighting"
+              v-model="cockpitLightingDraft"
+              class="h-8 w-full cursor-pointer accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-45"
+              type="range"
+              :min="cockpitLightingInput().min"
+              :max="cockpitLightingInput().max"
+              :step="cockpitLightingInput().step"
+              :disabled="!props.isCommandSupported(cockpitLightingCommandId) || groupPending(cockpitLightingControlGroup)"
+              aria-label="Cockpit lighting target percentage"
+            />
+            <div class="mt-2 flex gap-2">
+              <div class="relative min-w-0 flex-1">
+                <input
+                  v-model="cockpitLightingDraft"
+                  class="h-10 w-full rounded border border-surface-300 bg-surface-50 px-2 pr-9 font-mono text-sm text-gray-100 disabled:opacity-45"
+                  type="number"
+                  inputmode="numeric"
+                  :min="cockpitLightingInput().min"
+                  :max="cockpitLightingInput().max"
+                  :step="cockpitLightingInput().step"
+                  aria-label="Cockpit lighting percentage"
+                />
+                <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-gray-500">%</span>
+              </div>
+              <button
+                type="submit"
+                class="h-10 rounded border border-cyan-400/55 bg-cyan-400/12 px-4 text-[10px] font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+                data-aircraft-command="configuration.lighting.cockpit"
+                :disabled="cockpitLightingDisabled()"
+              >
+                SET ALL
+              </button>
+            </div>
+          </div>
+        </div>
+        <p class="mt-3 text-[10px] leading-relaxed text-gray-500">
+          Discrete dome and spot lights, chart/map light mechanisms, EFB buttons and the inoperative lower-DU inner knob are intentionally unchanged.
+        </p>
+      </form>
     </section>
 
     <section

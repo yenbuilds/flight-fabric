@@ -14,6 +14,19 @@ const {
     value: unknown,
   ) => Readonly<{ ok: true; value?: number } | { ok: false; error: string }>;
 };
+const {
+  buildAircraftCommandCatalogue,
+  resolveAircraftCommandRequest,
+} = require('./aircraft-command-catalogue') as {
+  buildAircraftCommandCatalogue: (
+    profile: unknown,
+    options: {
+      profileRevision?: unknown;
+      resolveControl: (request: unknown) => GenericRecord;
+    },
+  ) => GenericRecord;
+  resolveAircraftCommandRequest: (request: unknown, profile: unknown) => GenericRecord;
+};
 
 type GenericRecord = Record<string, any>;
 type NormalizedControlRequest = {
@@ -40,7 +53,15 @@ type AircraftIntegrationAction = Readonly<{
 }>;
 type AircraftIntegrationDefinition = Readonly<{
   actions: Readonly<Record<string, AircraftIntegrationAction>>;
+  aircraft: Readonly<{
+    family: string;
+    vendor: string;
+  }>;
+  fields: Readonly<Record<string, Readonly<{ id: string }>>>;
   id: string;
+  presentation: Readonly<{
+    templateId: string;
+  }>;
 }>;
 type AircraftIntegrationRegistry = {
   resolveAction: (context: {
@@ -63,6 +84,7 @@ type AircraftIntegrationRegistry = {
 };
 type ResolveOptions = {
   capabilities?: unknown;
+  getSimState?: () => unknown;
   profile?: GenericRecord | null;
   profileRevision?: unknown;
   requireProfileToken?: boolean;
@@ -539,10 +561,13 @@ function validateProfileToken(
 }
 
 function validateSimState(options: ResolveOptions): { code: string; error: string } | null {
-  if (options.requireStableSimState !== true && !options.simState) return null;
+  const simState = typeof options.getSimState === 'function'
+    ? options.getSimState()
+    : options.simState;
+  if (options.requireStableSimState !== true && !simState) return null;
 
-  const state = options.simState && typeof options.simState === 'object'
-    ? options.simState as GenericRecord
+  const state = simState && typeof simState === 'object'
+    ? simState as GenericRecord
     : null;
   if (!state) {
     return {
@@ -1391,6 +1416,62 @@ function buildAircraftSpecificDependencies(profile: unknown, options: ResolveOpt
   };
 }
 
+function buildAircraftIntegrationInventory(
+  profile: unknown,
+  actionCapabilities: GenericRecord,
+): GenericRecord {
+  const integration = resolveDeclaredAircraftIntegration(profile);
+  if (!integration) {
+    return {
+      id: 'generic',
+      family: 'Generic aircraft',
+      vendor: '',
+      templateId: 'generic',
+      fields: [
+        'surfaces.gear',
+        'surfaces.flaps',
+        'surfaces.parkingBrake',
+        'surfaces.spoilers',
+        'lights.nav',
+        'lights.beacon',
+        'lights.strobe',
+        'lights.landing',
+        'lights.taxi',
+        'flightGuidance.autopilotMaster',
+        'flightGuidance.autothrottleArmed',
+        'flightGuidance.autothrottleActive',
+        'flightGuidance.flightDirector',
+        'flightGuidance.speedHold',
+        'flightGuidance.headingHold',
+        'flightGuidance.altitudeHold',
+        'flightGuidance.verticalSpeedHold',
+        'flightGuidance.flightLevelChange',
+        'flightGuidance.localizer',
+        'flightGuidance.approach',
+        'flightGuidance.selectedSpeed',
+        'flightGuidance.selectedHeading',
+        'flightGuidance.selectedAltitude',
+        'flightGuidance.selectedVerticalSpeed',
+      ].map((id) => ({ id })),
+      actions: [],
+    };
+  }
+
+  return {
+    id: integration.id,
+    family: integration.aircraft.family,
+    vendor: integration.aircraft.vendor,
+    templateId: integration.presentation.templateId,
+    fields: Object.keys(integration.fields).map((id) => ({ id })),
+    actions: Object.values(integration.actions).map((action) => ({
+      id: action.id,
+      supported: actionCapabilities[action.id] === true,
+      verification: action.verification,
+      ...(action.input ? { input: action.input } : {}),
+    })),
+  };
+}
+
 function buildAircraftControlCapabilities(profile: unknown, options: ResolveOptions = {}): GenericRecord {
   const aircraftSpecific: GenericRecord = {};
   const actions = getAircraftSpecificActionMap(profile);
@@ -1418,6 +1499,72 @@ function buildAircraftControlCapabilities(profile: unknown, options: ResolveOpti
     autopilotPulse: buildControlCapabilityGroup(UI_AUTOPILOT_PULSE_CAPABILITY_REQUESTS, profile, options),
     aircraftSpecific,
     aircraftSpecificDependencies: buildAircraftSpecificDependencies(profile, options),
+    aircraftIntegration: buildAircraftIntegrationInventory(profile, aircraftSpecific),
+    aircraftCommands: buildAircraftCommandCatalogue(profile, {
+      profileRevision: resolveCurrentProfileRevision(options),
+      resolveControl: (request) => resolveAircraftControl(request, {
+        ...options,
+        profile: (profile as GenericRecord | null | undefined) || options.profile || null,
+      }),
+    }),
+  };
+}
+
+function resolveAircraftCommand(rawRequest: unknown, options: ResolveOptions = {}): GenericRecord {
+  const profile = options.profile || profileLoader.getActiveProfile();
+  const translated = resolveAircraftCommandRequest(rawRequest, profile);
+  if (!translated.ok) {
+    return {
+      ...translated,
+      profileKey: getProfileKey(profile),
+      profileRevision: resolveCurrentProfileRevision(options),
+    };
+  }
+
+  const controlSteps = Array.isArray(translated.controlSteps)
+    ? translated.controlSteps
+    : [{ label: translated.definition.label, request: translated.controlRequest }];
+  const resolvedSteps: GenericRecord[] = [];
+  for (let index = 0; index < controlSteps.length; index += 1) {
+    const step = controlSteps[index];
+    const resolved = resolveAircraftControl(step.request, options);
+    if (!resolved.ok) {
+      return {
+        ...resolved,
+        command: translated.command,
+        commandId: translated.command.commandId,
+        commandLabel: translated.definition.label,
+        configurationId: translated.configurationId,
+        controlRequest: resolved.request || step.request,
+        controlRequests: controlSteps.map((candidate: GenericRecord) => candidate.request),
+        failedStepIndex: index,
+        failedStepLabel: step.label,
+        stepCount: controlSteps.length,
+        request: translated.command,
+      };
+    }
+    resolvedSteps.push({ label: step.label, resolved });
+  }
+
+  const primary = resolvedSteps[0].resolved;
+  return {
+    ...primary,
+    command: translated.command,
+    commandId: translated.command.commandId,
+    commandLabel: translated.definition.label,
+    configurationId: translated.configurationId,
+    controlRequest: primary.request,
+    controlRequests: resolvedSteps.map((step) => step.resolved.request),
+    actions: resolvedSteps.map((step) => step.resolved.action),
+    steps: resolvedSteps.map((step, index) => ({
+      index,
+      label: step.label,
+      request: step.resolved.request,
+      action: step.resolved.action,
+      resolvedBy: step.resolved.resolvedBy,
+    })),
+    stepCount: resolvedSteps.length,
+    request: translated.command,
   };
 }
 
@@ -1450,6 +1597,10 @@ function normalizeProviderExecutionResult(providerResult: unknown, resolved: Gen
   delete providerFields.profileRevision;
   delete providerFields.resolvedBy;
   delete providerFields.action;
+  delete providerFields.type;
+  delete providerFields.requestId;
+  const executionStarted = providerFields.executionStarted === true;
+  delete providerFields.executionStarted;
 
   const ok = providerFields.ok === true;
   const code = typeof providerFields.code === 'string' && providerFields.code.trim()
@@ -1464,6 +1615,7 @@ function normalizeProviderExecutionResult(providerResult: unknown, resolved: Gen
   return {
     ...providerFields,
     ok,
+    ...(executionStarted ? { executionStarted: true } : {}),
     code,
     error,
     ...base,
@@ -1517,12 +1669,125 @@ async function executeAircraftControl(
   return normalizeProviderExecutionResult(result, resolved);
 }
 
+async function executeAircraftCommand(
+  provider: AircraftControlProvider | null | undefined,
+  rawRequest: unknown,
+  options: ResolveOptions = {},
+): Promise<GenericRecord> {
+  const profile = options.profile || profileLoader.getActiveProfile();
+  const translated = resolveAircraftCommandRequest(rawRequest, profile);
+  if (!translated.ok) {
+    return {
+      ...translated,
+      profileKey: getProfileKey(profile),
+      profileRevision: resolveCurrentProfileRevision(options),
+    };
+  }
+
+  const providerCapabilities = getProviderAircraftControlCapabilities(provider);
+  const executionOptions = {
+    ...options,
+    profile,
+    capabilities: options.capabilities || providerCapabilities,
+  };
+  const controlSteps = Array.isArray(translated.controlSteps)
+    ? translated.controlSteps
+    : [{ label: translated.definition.label, request: translated.controlRequest }];
+
+  // Resolve the complete recipe before the first write. This keeps a missing
+  // aircraft action from leaving a known-invalid preset half applied.
+  const preflightSteps: GenericRecord[] = [];
+  for (let index = 0; index < controlSteps.length; index += 1) {
+    const step = controlSteps[index];
+    const resolved = resolveAircraftControl(step.request, executionOptions);
+    if (!resolved.ok) {
+      return {
+        ...resolved,
+        command: translated.command,
+        commandId: translated.command.commandId,
+        commandLabel: translated.definition.label,
+        configurationId: translated.configurationId,
+        controlRequest: resolved.request || step.request,
+        controlRequests: controlSteps.map((candidate: GenericRecord) => candidate.request),
+        completedStepCount: 0,
+        failedStepIndex: index,
+        failedStepLabel: step.label,
+        stepCount: controlSteps.length,
+        request: translated.command,
+      };
+    }
+    preflightSteps.push({ label: step.label, resolved });
+  }
+
+  const completedSteps: GenericRecord[] = [];
+  let lastExecutionResult: GenericRecord | null = null;
+  for (let index = 0; index < preflightSteps.length; index += 1) {
+    const step = preflightSteps[index];
+    const result = await executeAircraftControl(provider, step.resolved.request, executionOptions);
+    const stepResult = {
+      index,
+      label: step.label,
+      ok: result.ok === true,
+      code: result.code,
+      ...(result.ok === true ? {} : { error: result.error }),
+      request: result.request || step.resolved.request,
+      action: result.action || step.resolved.action,
+      resolvedBy: result.resolvedBy || step.resolved.resolvedBy,
+    };
+    if (!result.ok) {
+      return {
+        ...result,
+        ...(completedSteps.length > 0 || result.executionStarted === true
+          ? { executionStarted: true }
+          : {}),
+        error: `${translated.definition.label} stopped at ${step.label}: ${result.error || 'The action failed.'}`,
+        command: translated.command,
+        commandId: translated.command.commandId,
+        commandLabel: translated.definition.label,
+        configurationId: translated.configurationId,
+        controlRequest: result.request || step.resolved.request,
+        controlRequests: preflightSteps.map((candidate) => candidate.resolved.request),
+        actions: preflightSteps.map((candidate) => candidate.resolved.action),
+        completedStepCount: completedSteps.length,
+        failedStepIndex: index,
+        failedStepLabel: step.label,
+        stepCount: preflightSteps.length,
+        steps: [...completedSteps, stepResult],
+        request: translated.command,
+      };
+    }
+    completedSteps.push(stepResult);
+    lastExecutionResult = result;
+  }
+
+  const result = lastExecutionResult || completedSteps[completedSteps.length - 1];
+  return {
+    ...result,
+    ok: true,
+    code: result.code || 'executed',
+    error: '',
+    command: translated.command,
+    commandId: translated.command.commandId,
+    commandLabel: translated.definition.label,
+    configurationId: translated.configurationId,
+    controlRequest: result.request,
+    controlRequests: preflightSteps.map((step) => step.resolved.request),
+    actions: preflightSteps.map((step) => step.resolved.action),
+    completedStepCount: completedSteps.length,
+    stepCount: completedSteps.length,
+    steps: completedSteps,
+    request: translated.command,
+  };
+}
+
 const aircraftControlServiceApi = {
   AUTOPILOT_ACTION_KEYS,
   AUTOPILOT_SELECTOR_KEYS,
   GENERIC_MSFS_ACTIONS,
   buildAircraftControlCapabilities,
+  executeAircraftCommand,
   executeAircraftControl,
+  resolveAircraftCommand,
   resolveAircraftControl,
 };
 

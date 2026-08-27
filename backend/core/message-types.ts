@@ -129,6 +129,7 @@ const MSG = Object.freeze({
   PROFILE_EXPORTED: 'profileExported',
   PROFILE_LIST: 'profileList',
   PROFILE_ERROR: 'profileError',
+  AIRCRAFT_COMMAND_RESULT: 'aircraftCommandResult',
   AIRCRAFT_CONTROL_RESULT: 'aircraftControlResult',
   AUTHORIZATION_SCOPE: 'authorizationScope',
 

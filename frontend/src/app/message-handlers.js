@@ -43,13 +43,14 @@ const STATUS_STORE_MESSAGE_TYPES = new Set([
 const LOGBOOK_STORE_MESSAGE_TYPES = new Set(['logbook', 'historyIndexStatus']);
 const TIMELINE_STORE_MESSAGE_TYPES = new Set(['timelineList', 'timelineListError', 'deleteFlightCsvResult', 'historyIndexStatus']);
 
-function updateAircraftProfileDisplay({ aircraftControl, aircraftSpecificStore }, message) {
+function updateAircraftProfileDisplay({ aircraftControl, aircraftSpecificStore, voiceController }, message) {
   aircraftControl.setActiveProfileToken?.(message.profile || {});
   aircraftSpecificStore?.applyProfile?.(message.profile || {});
   const controlCapabilities = message.controlCapabilities || message.profile?.controlCapabilities || {};
   aircraftControl.applyControlCapabilities?.(controlCapabilities);
   aircraftSpecificStore?.applyActionCapabilities?.(controlCapabilities.aircraftSpecific || {});
   aircraftSpecificStore?.applyDependencies?.(controlCapabilities.aircraftSpecificDependencies || {});
+  voiceController?.handleAircraftContextChange?.({ preserveResult: true });
   aircraftControl.setFeedback({
     profileText: message.profile?._profileKey
       || message.profile?._qualifiedId
@@ -68,18 +69,25 @@ function handleSimState({
   setFlightState,
   aircraftControl,
   aircraftSpecificStore,
+  voiceController,
 }, message) {
   const simConnectedNow = message.simconnectConnected === true;
   setSimconnectTelemetryConnected(simConnectedNow);
   aircraftSpecificStore?.applySimState?.(message);
+  const aircraftControlSimState = aircraftControl.applySimState?.(message);
 
   if (getWasSimconnectConnected() && !simConnectedNow) {
     resetTelemetryDisplay('simconnectDisconnected');
     setSimconnectTelemetryConnected(false);
     setWasSimconnectConnected(false);
     aircraftControl.clearProfileToken?.('Simulator disconnected. Waiting for profile refresh.');
-    aircraftControl.clearPendingRequests('Simulator disconnected before control request completed.');
     aircraftControl.updateAvailability();
+    // The backend's live-state recheck still returns the correlated command
+    // result. Keep request ownership so partial preset feedback is not lost.
+    voiceController?.handleSimulatorStateChange?.(aircraftControlSimState || {
+      blocked: true,
+      reason: 'Simulator telemetry link unavailable.',
+    });
     return;
   }
 
@@ -101,6 +109,12 @@ function handleSimState({
     setFlightState('waiting', {
       copy: 'Connected to the simulator. Waiting for flight data from the active aircraft.',
     });
+  }
+
+  if (typeof voiceController?.handleSimulatorStateChange === 'function') {
+    voiceController.handleSimulatorStateChange(aircraftControlSimState || {});
+  } else {
+    voiceController?.refreshReadyState?.();
   }
 
 }
@@ -151,6 +165,7 @@ export function createAppMessageHandler({
   autopilotPanel,
   aircraftControl,
   aircraftSpecificStore = null,
+  voiceController = null,
   landingController,
   telemetryWarnings,
   statusIndicators,
@@ -165,7 +180,7 @@ export function createAppMessageHandler({
   desktopIntegration = null,
   getCabinAnnouncements = () => null,
 } = {}) {
-  const aircraftProfileDeps = { aircraftControl, aircraftSpecificStore };
+  const aircraftProfileDeps = { aircraftControl, aircraftSpecificStore, voiceController };
   const simStateDeps = {
     getHasSeenFlightTelemetry,
     getWasSimconnectConnected,
@@ -175,6 +190,7 @@ export function createAppMessageHandler({
     setFlightState,
     aircraftControl,
     aircraftSpecificStore,
+    voiceController,
   };
   const flightRecordingActionDeps = { consoleRef, alertRef };
   const cabinAnnouncementDeps = { getCabinAnnouncements };
@@ -245,12 +261,16 @@ export function createAppMessageHandler({
       case 'aircraftControlResult':
         aircraftControl.handleResult(message);
         break;
+      case 'aircraftCommandResult':
+        aircraftControl.handleResult(message);
+        break;
       case 'phase':
         break;
       case 'aircraftChanged':
         resetTelemetryDisplay('aircraftChanged');
         aircraftControl.resetProfileState?.('Aircraft changed. Waiting for profile capabilities.');
         aircraftSpecificStore?.prepareForAircraftChange?.();
+        voiceController?.handleAircraftContextChange?.();
         break;
       case 'simState':
         handleSimState(simStateDeps, message);
@@ -300,6 +320,24 @@ export function createAppMessageHandler({
         break;
       case 'dataSources':
         lvarInspector?.handleDataSourcesMessage(message);
+        if (message.controlCapabilities && typeof message.controlCapabilities === 'object') {
+          const applied = aircraftControl.applyControlCapabilities?.(
+            message.controlCapabilities,
+            {
+              profileKey: message.profileKey,
+              profileRevision: message.profileRevision,
+            },
+          );
+          if (applied !== false) {
+            aircraftSpecificStore?.applyActionCapabilities?.(
+              message.controlCapabilities.aircraftSpecific || {},
+            );
+            aircraftSpecificStore?.applyDependencies?.(
+              message.controlCapabilities.aircraftSpecificDependencies || {},
+            );
+            voiceController?.handleAircraftContextChange?.({ preserveResult: true });
+          }
+        }
         break;
       case 'flightRecording':
         if (!statusStore) statusIndicators?.updateRecordingIndicator(message);

@@ -1027,6 +1027,7 @@ test('TriStar AFCS pulses serialize physical controls and enforce a profile-scop
   }, tristarOptions);
   assertEqual(concurrentDisconnect.ok, false, 'AP disconnect must not race AP A');
   assertEqual(concurrentDisconnect.code, 'action_in_flight', 'shared physical AP group rejects concurrent pulse');
+  assertEqual(concurrentDisconnect.executionStarted, undefined, 'an in-flight guard fails before native dispatch');
   assertEqual(events.length, 1, 'concurrent shared-group request never reaches SimConnect');
 
   releaseFirstEvent();
@@ -1038,6 +1039,7 @@ test('TriStar AFCS pulses serialize physical controls and enforce a profile-scop
   }, tristarOptions);
   assertEqual(duplicateMaster.ok, false, 'rapid duplicate AP A pulse must fail closed');
   assertEqual(duplicateMaster.code, 'action_cooldown', 'rapid duplicate reports cooldown');
+  assertEqual(duplicateMaster.executionStarted, undefined, 'a cooldown rejection does not claim an aircraft write');
   assertEqual(events.length, 1, 'cooldown request never reaches SimConnect');
 
   const distinctHeading = await provider.executeAircraftControlAction({
@@ -2186,6 +2188,7 @@ test('TriStar light actions require fresh readback, confirm once, and preserve t
   );
   assertEqual(staleResult.ok, false, 'stale light output must fail closed');
   assertEqual(staleResult.code, 'aircraft_integration_readback_unavailable', 'stale preflight code');
+  assertEqual(staleResult.executionStarted, undefined, 'stale readback preflight does not imply dispatch');
   assertEqual(staleDispatches, 0, 'stale preflight cannot dispatch a light event');
 });
 
@@ -2241,6 +2244,7 @@ test('TriStar selector step completes on transport acknowledgement without inven
   );
   assertEqual(rejectedResult.ok, false, 'a rejected selector event should fail');
   assertEqual(rejectedResult.code, 'simconnect_sequence_execution_failed', 'transport rejection should retain its exact failure code');
+  assertEqual(rejectedResult.executionStarted, true, 'a native transport rejection follows a dispatch attempt');
   assertEqual(rejected.events.length, 1, 'a rejected selector event is never retried');
 });
 
@@ -2396,6 +2400,7 @@ test('delayed aircraft sequence aborts before its final write when the profile c
 
   assertEqual(result.ok, false, 'profile change must abort a delayed sequence');
   assertEqual(/profile changed/.test(result.error), true, 'abort should explain the stale aircraft generation');
+  assertEqual(result.executionStarted, true, 'the completed pre-delay write makes aircraft state uncertain');
   assertEqual(writes.length, 1, 'the final circuit write must not reach a different aircraft');
   assertEqual(writes[0].name, 'L:LANDING_2_RETRACTED', 'only the pre-delay write is accepted');
 });
@@ -2450,6 +2455,7 @@ test('FBW strobe selector movement cannot confirm while actual light output stay
 
   assertEqual(result.ok, false, 'cosmetic selector movement must not be success');
   assertEqual(result.code, 'aircraft_integration_readback_timeout', 'actual-output confirmation failure');
+  assertEqual(result.executionStarted, true, 'readback timeout follows native sequence dispatch');
   assertEqual(result.readbackAdvanced, true, 'failure distinguishes a newer mismatching state');
   assertEqual(result.expectedValue, true, 'failure reports the requested logical state');
   assertEqual(result.baselineValue, false, 'failure reports the pre-command state');
@@ -2666,6 +2672,35 @@ test('FBW fixed LVAR actions confirm once and same-target toggle actions are saf
   assertEqual(events.length, 1, 'changed target dispatches exactly once');
   assertEqual(events[0].name, 'ENGINE_BLEED_AIR_SOURCE_TOGGLE', 'adapter owns the documented event');
   assertEqual(events[0].value, 1, 'engine index remains fixed and bounded');
+});
+
+test('coordinated aircraft sequence resolves typed percentages into trusted LVAR values', () => {
+  const provider = new SimConnectTelemetryProvider();
+  const route = {
+    operations: [{
+      type: 'lvar',
+      name: 'L:CA_AFDS_FLOOD_LIGHT_CONTROL',
+      unit: 'Number',
+      inputValue: { source: 'input', scale: 3, round: 'nearest' },
+    }],
+  };
+  const action = {
+    input: { type: 'number', min: 0, max: 100, step: 1 },
+  };
+
+  const resolved = provider._resolveAircraftIntegrationSimConnectOperations(route, action, 42);
+  assertEqual(resolved.ok, true, 'a whole percentage should resolve');
+  assertDeepEqual(resolved.operations, [{
+    type: 'lvar',
+    name: 'L:CA_AFDS_FLOOD_LIGHT_CONTROL',
+    unit: 'Number',
+    value: 126,
+    inputValue: undefined,
+  }], 'the adapter-owned 0..300 conversion should be applied before native dispatch');
+
+  const invalid = provider._resolveAircraftIntegrationSimConnectOperations(route, action, 42.5);
+  assertEqual(invalid.ok, false, 'off-step percentages must fail before native dispatch');
+  assertEqual(invalid.operations.length, 0, 'an invalid logical input must resolve no operations');
 });
 
 function buildFbwA32nxThrottleProvider(initialValues) {

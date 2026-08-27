@@ -99,6 +99,7 @@ export const useAircraftSpecificStore = defineStore('aircraftSpecific', {
     dependencies: {},
     updatedAt: null,
     _requestAction: null,
+    _requestCommand: null,
   }),
 
   getters: {
@@ -170,8 +171,9 @@ export const useAircraftSpecificStore = defineStore('aircraftSpecific', {
       this.dependencies = copyDependencies(dependencies);
     },
 
-    bindRuntimeActions({ requestAction } = {}) {
+    bindRuntimeActions({ requestAction, requestCommand } = {}) {
       this._requestAction = typeof requestAction === 'function' ? requestAction : null;
+      this._requestCommand = typeof requestCommand === 'function' ? requestCommand : null;
     },
 
     isActionSupported(actionId) {
@@ -183,6 +185,11 @@ export const useAircraftSpecificStore = defineStore('aircraftSpecific', {
     requestAction(actionId, options = {}) {
       if (!this.isActionSupported(actionId) || typeof this._requestAction !== 'function') return false;
       return this._requestAction(actionId, options);
+    },
+
+    requestCommand(commandId, input = {}, options = {}) {
+      if (typeof this._requestCommand !== 'function') return false;
+      return this._requestCommand(commandId, input, options);
     },
 
     ingestState(message = {}) {

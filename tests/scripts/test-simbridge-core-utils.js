@@ -37,6 +37,7 @@ const {
   shouldStartCurrentApproachScorer,
 } = require(resolveBackendRuntimeFile('core', 'simbridge-core-utils.js'));
 const {
+  createProviderBroadcastRelay,
   snapshotStabilityScoringInputs,
   resolveRecordedStabilityScoringInputs,
 } = require(resolveBackendRuntimeFile('core', 'simbridge-core.js'));
@@ -872,6 +873,51 @@ test('recorded-profile stability fallback never consults the currently selected 
   assert(missing.profile.id === 'generic', 'unresolvable live profile should fail safe to explicit generic data');
   assert(activeProfileReads === 0, 'generic fallback must still avoid active profile state');
   assert(loadCalls.join(',') === 'retired-profile,generic', 'fallback should be deterministic and explicit');
+});
+
+test('provider data-source changes republish command capabilities only when availability changes', () => {
+  const broadcasts = [];
+  let sdkConnected = false;
+  const profile = {
+    id: 'pmdg-737',
+    namespace: 'bundled',
+    simulator: 'msfs',
+    _profileKey: 'bundled/msfs/pmdg-737',
+  };
+  const relay = createProviderBroadcastRelay({
+    broadcast(message) {
+      broadcasts.push(message);
+    },
+    getActiveProfile() {
+      return profile;
+    },
+    getActiveProfileRevision() {
+      return 8;
+    },
+    buildControlCapabilities() {
+      return {
+        aircraftCommands: {
+          configurationId: 'pmdg-737',
+          commands: sdkConnected ? [{ id: 'flightGuidance.heading.set' }] : [],
+        },
+      };
+    },
+  });
+
+  relay({ type: 'dataSources', sources: [] });
+  assert(broadcasts[0].profileKey === 'bundled/msfs/pmdg-737', 'initial source state should identify the active profile');
+  assert(broadcasts[0].profileRevision === 8, 'initial source state should identify the active profile revision');
+  assert(broadcasts[0].controlCapabilities.aircraftCommands.commands.length === 0, 'disconnected SDK should initially expose no SDK-routed commands');
+
+  relay({ type: 'dataSources', sources: [{ id: 'simconnect' }] });
+  assert(!Object.hasOwn(broadcasts[1], 'controlCapabilities'), 'unchanged capability catalogues should not be repeated');
+
+  sdkConnected = true;
+  relay({ type: 'dataSources', sources: [{ id: 'pmdg-sdk', connected: true }] });
+  assert(broadcasts[2].controlCapabilities.aircraftCommands.commands.length === 1, 'SDK connection should republish newly available commands');
+
+  relay({ type: 'dataSources', sources: [{ id: 'pmdg-sdk', connected: true, detail: 'updated' }] });
+  assert(!Object.hasOwn(broadcasts[3], 'controlCapabilities'), 'source detail changes should not repeat an unchanged catalogue');
 });
 
 console.log('\n════════════════════════════════════════════════════════════');

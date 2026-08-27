@@ -27,16 +27,16 @@ const surfaceCommands = computed(() => {
     : (telemetry.gear.parkingBrake === true ? 'SET' : 'RELEASED');
   const spoilersState = hasLiveTelemetry ? (telemetry.spoilers || '---') : '---';
   return [
-    { id: 'ctrl-gear-up-btn', label: 'Gear', value: 'UP', readback: gearState, command: { type: 'preset', id: 'gearUp' } },
-    { id: 'ctrl-gear-down-btn', label: 'Gear', value: 'DOWN', readback: gearState, command: { type: 'preset', id: 'gearDown' } },
-    { id: 'ctrl-flaps-dec-btn', label: 'Flaps', value: 'LESS', readback: flapsState, command: { type: 'preset', id: 'flapsDecrease' } },
-    { id: 'ctrl-flaps-inc-btn', label: 'Flaps', value: 'MORE', readback: flapsState, command: { type: 'preset', id: 'flapsIncrease' } },
-    { id: 'ctrl-park-brake-release-btn', label: 'Park Brake', value: 'RELEASE', readback: parkingBrakeState, command: { type: 'preset', id: 'parkingBrakeRelease' } },
-    { id: 'ctrl-park-brake-set-btn', label: 'Park Brake', value: 'SET', readback: parkingBrakeState, command: { type: 'preset', id: 'parkingBrakeSet' } },
-    { id: 'ctrl-spoilers-retract-btn', label: 'Spoilers', value: 'RETRACT', readback: spoilersState, command: { type: 'preset', id: 'spoilersRetract' } },
-    { id: 'ctrl-spoilers-extend-btn', label: 'Spoilers', value: 'EXTEND', readback: spoilersState, command: { type: 'preset', id: 'spoilersExtend' } },
-    { id: 'ctrl-spoilers-disarm-btn', label: 'Ground Spoilers', value: 'DISARM', readback: spoilersState, command: { type: 'preset', id: 'spoilersDisarm' } },
-    { id: 'ctrl-spoilers-arm-btn', label: 'Ground Spoilers', value: 'ARM', readback: spoilersState, command: { type: 'preset', id: 'spoilersArm' } },
+    { id: 'ctrl-gear-up-btn', label: 'Gear', value: 'UP', readback: gearState, command: { type: 'control', id: 'gearUp' } },
+    { id: 'ctrl-gear-down-btn', label: 'Gear', value: 'DOWN', readback: gearState, command: { type: 'control', id: 'gearDown' } },
+    { id: 'ctrl-flaps-dec-btn', label: 'Flaps', value: 'LESS', readback: flapsState, command: { type: 'control', id: 'flapsDecrease' } },
+    { id: 'ctrl-flaps-inc-btn', label: 'Flaps', value: 'MORE', readback: flapsState, command: { type: 'control', id: 'flapsIncrease' } },
+    { id: 'ctrl-park-brake-release-btn', label: 'Park Brake', value: 'RELEASE', readback: parkingBrakeState, command: { type: 'control', id: 'parkingBrakeRelease' } },
+    { id: 'ctrl-park-brake-set-btn', label: 'Park Brake', value: 'SET', readback: parkingBrakeState, command: { type: 'control', id: 'parkingBrakeSet' } },
+    { id: 'ctrl-spoilers-retract-btn', label: 'Spoilers', value: 'RETRACT', readback: spoilersState, command: { type: 'control', id: 'spoilersRetract' } },
+    { id: 'ctrl-spoilers-extend-btn', label: 'Spoilers', value: 'EXTEND', readback: spoilersState, command: { type: 'control', id: 'spoilersExtend' } },
+    { id: 'ctrl-spoilers-disarm-btn', label: 'Ground Spoilers', value: 'DISARM', readback: spoilersState, command: { type: 'control', id: 'spoilersDisarm' } },
+    { id: 'ctrl-spoilers-arm-btn', label: 'Ground Spoilers', value: 'ARM', readback: spoilersState, command: { type: 'control', id: 'spoilersArm' } },
   ];
 });
 
@@ -137,7 +137,7 @@ const primaryModes = computed(() => {
       dataMode: 'master',
       stateLabel: booleanStateLabel(autopilot.master),
       active: autopilot.master === true,
-      command: { type: 'preset', id: 'autopilotMasterToggle' },
+      command: { type: 'control', id: 'autopilotMasterToggle' },
     },
     {
       id: 'ap-athr-btn',
@@ -146,7 +146,7 @@ const primaryModes = computed(() => {
       dataMode: '',
       stateLabel: getAthrStateLabel(autopilot),
       active: autopilot.athrActive === true || autopilot.athrArmed === true,
-      command: { type: 'preset', id: 'autothrottleToggle' },
+      command: { type: 'control', id: 'autothrottleToggle' },
     },
   ];
 });
@@ -168,10 +168,10 @@ const activeSelector = computed(() => (
 const navModes = computed(() => {
   const autopilot = aircraftControls.autopilot;
   return [
-    { id: 'ap-fd-btn', stateId: 'ap-fd-btn-state', label: 'FD', active: autopilot.fdActive === true, command: { type: 'preset', id: 'flightDirectorToggle' } },
-    { id: 'ap-flc-btn', stateId: 'ap-flc-state', label: 'FLC', active: autopilot.flcHold === true, command: { type: 'preset', id: 'flcToggle' } },
-    { id: 'ap-loc-btn', stateId: 'ap-loc-state', label: 'LOC', active: autopilot.locHold === true, command: { type: 'preset', id: 'locToggle' } },
-    { id: 'ap-app-btn', stateId: 'ap-app-state', label: 'APP', active: autopilot.appHold === true, command: { type: 'preset', id: 'appToggle' } },
+    { id: 'ap-fd-btn', stateId: 'ap-fd-btn-state', label: 'FD', active: autopilot.fdActive === true, command: { type: 'control', id: 'flightDirectorToggle' } },
+    { id: 'ap-flc-btn', stateId: 'ap-flc-state', label: 'FLC', active: autopilot.flcHold === true, command: { type: 'control', id: 'flcToggle' } },
+    { id: 'ap-loc-btn', stateId: 'ap-loc-state', label: 'LOC', active: autopilot.locHold === true, command: { type: 'control', id: 'locToggle' } },
+    { id: 'ap-app-btn', stateId: 'ap-app-state', label: 'APP', active: autopilot.appHold === true, command: { type: 'control', id: 'appToggle' } },
   ];
 });
 
@@ -276,7 +276,7 @@ function getCommandTitle(command) {
   return availabilityButtonTitle.value || undefined;
 }
 
-function requestPresetCommand(command) {
+function requestControlCommand(command) {
   aircraftControls.requestControlCommand(command, {
     pendingKey: getPendingKey(command),
   });
@@ -315,58 +315,11 @@ function requestLightSet(light, value) {
 
 <template>
   <div class="controls-shell page-stack">
-    <div class="page-intro">
-      <div class="flex flex-wrap items-center gap-2 mb-1">
-        <h2 class="text-sm font-semibold tracking-wide">Flight Controls</h2>
-        <span
-          id="controls-experimental-badge"
-          class="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300"
-          style="font-family:'B612 Mono',monospace;"
-        >
-          Experimental
-        </span>
-      </div>
-      <p class="text-xs text-gray-500 leading-relaxed max-w-4xl">
-        Send fixed standard simulator controls. An unsupported aircraft may simply ignore a command.
-      </p>
-    </div>
-
-    <div class="controls-status-panel">
-      <div class="controls-status-header">
-        <div class="controls-subkicker">Control Status</div>
-        <div id="controls-availability-text" class="text-xs text-gray-400">{{ aircraftControls.availability.reason }}</div>
-      </div>
-      <div class="controls-status-grid">
-        <div class="controls-status-item">
-          <div class="controls-status-label">Last Command</div>
-          <div id="controls-last-action" class="text-sm font-semibold text-gray-200">{{ aircraftControls.feedback.actionText }}</div>
-        </div>
-        <div class="controls-status-item">
-          <div class="controls-status-label">Resolution</div>
-          <div id="controls-last-route" class="text-sm text-gray-300">{{ aircraftControls.feedback.routeText }}</div>
-        </div>
-        <div class="controls-status-item">
-          <div class="controls-status-label">Profile</div>
-          <div id="controls-last-profile" class="text-sm text-gray-300">{{ aircraftControls.feedback.profileText }}</div>
-        </div>
-      </div>
-    </div>
-
     <section class="controls-section">
       <div class="controls-section-header">
         <div>
           <div class="controls-kicker">Surfaces</div>
           <div class="text-xs text-gray-500 mt-1">Live readbacks with fixed, capability-gated standard simulator commands.</div>
-        </div>
-        <div class="flex items-center gap-2">
-          <div
-            id="ap-status-indicator"
-            class="w-2.5 h-2.5 rounded-full"
-            :class="apStatusActive ? 'bg-accent' : 'bg-gray-600'"
-          ></div>
-          <span id="ap-status-text" class="text-sm" :class="apStatusActive ? 'text-accent' : 'text-gray-400'">
-            {{ apStatusText }}
-          </span>
         </div>
       </div>
       <div class="controls-section-body grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -377,7 +330,7 @@ function requestLightSet(light, value) {
           :class="[modeButtonClass, isCommandDisabled(command.command) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(command.command) ? 'border-accent/50 bg-accent/10' : '']"
           :disabled="isCommandDisabled(command.command)"
           :aria-busy="isCommandBusy(command.command) ? 'true' : 'false'"
-          @click="requestPresetCommand(command.command)"
+          @click="requestControlCommand(command.command)"
         >
           <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">{{ command.label }}</div>
           <div class="text-lg font-semibold text-gray-200">{{ command.value }}</div>
@@ -454,6 +407,16 @@ function requestLightSet(light, value) {
             {{ autopilotCapabilityText }}
           </div>
         </div>
+        <div class="flex items-center gap-2">
+          <div
+            id="ap-status-indicator"
+            class="w-2.5 h-2.5 rounded-full"
+            :class="apStatusActive ? 'bg-accent' : 'bg-gray-600'"
+          ></div>
+          <span id="ap-status-text" class="text-sm" :class="apStatusActive ? 'text-accent' : 'text-gray-400'">
+            {{ apStatusText }}
+          </span>
+        </div>
       </div>
 
       <div class="controls-section-body space-y-4">
@@ -471,7 +434,7 @@ function requestLightSet(light, value) {
             :data-mode="mode.dataMode || undefined"
             :disabled="isCommandDisabled(mode.command)"
             :aria-busy="isCommandBusy(mode.command) ? 'true' : 'false'"
-            @click="requestPresetCommand(mode.command)"
+            @click="requestControlCommand(mode.command)"
           >
             <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">{{ mode.label }}</div>
             <div :id="mode.stateId" class="text-xl font-semibold" :class="mode.active ? 'text-accent' : 'text-gray-400'">{{ mode.stateLabel }}</div>
@@ -585,7 +548,7 @@ function requestLightSet(light, value) {
               :class="[mode.active ? 'border-accent bg-accent/10' : '', isCommandDisabled(mode.command) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(mode.command) ? 'ring-1 ring-accent/40' : '']"
               :disabled="isCommandDisabled(mode.command)"
               :aria-busy="isCommandBusy(mode.command) ? 'true' : 'false'"
-              @click="requestPresetCommand(mode.command)"
+              @click="requestControlCommand(mode.command)"
             >
               <span :id="mode.stateId" :class="mode.active ? 'text-accent' : 'text-gray-400'">{{ isCommandBusy(mode.command) ? '...' : mode.label }}</span>
             </button>
@@ -609,6 +572,33 @@ function requestLightSet(light, value) {
       </div>
       </div>
     </section>
+
+    <details id="controls-diagnostics" class="controls-status-panel">
+      <summary id="controls-diagnostics-toggle" class="controls-status-header">
+        <span class="controls-kicker">Control diagnostics</span>
+        <span class="controls-status-summary">
+          <span id="controls-availability-text" class="text-xs text-gray-400">{{ aircraftControls.availability.reason }}</span>
+          <span class="controls-status-chevron" aria-hidden="true">⌄</span>
+        </span>
+      </summary>
+      <div class="controls-status-context text-xs text-gray-500">
+        Standard simulator controls are active because this aircraft does not have a dedicated control page. Some add-ons may ignore these commands.
+      </div>
+      <div class="controls-status-grid">
+        <div class="controls-status-item">
+          <div class="controls-status-label">Last Command</div>
+          <div id="controls-last-action" class="text-sm font-semibold text-gray-200">{{ aircraftControls.feedback.actionText }}</div>
+        </div>
+        <div class="controls-status-item">
+          <div class="controls-status-label">Resolution</div>
+          <div id="controls-last-route" class="text-sm text-gray-300">{{ aircraftControls.feedback.routeText }}</div>
+        </div>
+        <div class="controls-status-item">
+          <div class="controls-status-label">Profile</div>
+          <div id="controls-last-profile" class="text-sm text-gray-300">{{ aircraftControls.feedback.profileText }}</div>
+        </div>
+      </div>
+    </details>
 
     <AutopilotTargetEditor
       :open="Boolean(activeSelector)"
@@ -691,7 +681,7 @@ function requestLightSet(light, value) {
 .controls-status-panel {
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgb(var(--card) / 0.96), rgb(var(--panel-subtle) / 0.86));
+    linear-gradient(180deg, rgb(var(--card) / 0.97), rgb(var(--panel-subtle) / 0.96));
 }
 
 .controls-status-header {
@@ -700,9 +690,41 @@ function requestLightSet(light, value) {
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
-  border-bottom: 1px solid rgb(245 158 11 / 0.18);
-  background: rgb(245 158 11 / 0.055);
-  padding: 0.72rem 1rem;
+  cursor: pointer;
+  list-style: none;
+  background: linear-gradient(180deg, rgb(var(--panel-subtle) / 0.88) 0%, rgb(var(--panel) / 0.68) 100%);
+  padding: 0.9rem 1rem;
+}
+
+.controls-status-header::-webkit-details-marker {
+  display: none;
+}
+
+.controls-status-panel[open] .controls-status-header {
+  border-bottom: 1px solid rgb(var(--border) / 0.72);
+}
+
+.controls-status-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.controls-status-chevron {
+  color: rgb(var(--muted-foreground));
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.controls-status-panel[open] .controls-status-chevron {
+  transform: rotate(180deg);
+}
+
+.controls-status-context {
+  border-bottom: 1px solid rgb(var(--border) / 0.58);
+  padding: 0.75rem 1rem;
 }
 
 .controls-status-grid {
@@ -751,8 +773,7 @@ function requestLightSet(light, value) {
   padding: 1rem;
 }
 
-.controls-kicker,
-.controls-subkicker {
+.controls-kicker {
   font-family: var(--ff-font-mono);
   text-transform: uppercase;
   font-weight: 700;
@@ -762,12 +783,6 @@ function requestLightSet(light, value) {
   color: rgb(var(--primary));
   font-size: 0.72rem;
   letter-spacing: 0.18em;
-}
-
-.controls-subkicker {
-  color: rgb(var(--warning));
-  font-size: 0.66rem;
-  letter-spacing: 0.16em;
 }
 
 .controls-command-card,

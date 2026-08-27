@@ -280,9 +280,15 @@ test('literal event-bus events are documented', () => {
 
 test('Electron preload invoke channels have ipcMain handlers', () => {
   const preload = stripCommentsPreserveLines(read('electron/preload.js'));
-  const main = stripCommentsPreserveLines(read('electron/main.js'));
+  const electronPkg = JSON.parse(read('electron/package.json'));
+  const handlerSources = (electronPkg.build?.files || [])
+    .filter((fileName) => typeof fileName === 'string' && !fileName.includes('*') && fileName.endsWith('.js'))
+    .map((fileName) => path.join(ROOT, 'electron', fileName))
+    .filter((fileName) => fs.existsSync(fileName))
+    .map((fileName) => stripCommentsPreserveLines(fs.readFileSync(fileName, 'utf8')))
+    .join('\n');
   const handlers = new Set([
-    ...main.matchAll(/\b(?:ipcMain\.handle|registerTrustedIpcHandler)\s*\(\s*['"]([^'"]+)['"]/g),
+    ...handlerSources.matchAll(/\b(?:ipcMain\.handle|registerTrustedIpcHandler)\s*\(\s*['"]([^'"]+)['"]/g),
   ].map((m) => m[1]));
   const missing = [];
 
@@ -369,8 +375,10 @@ test('frontend servers prefer bundled frontend-dist with source asset fallback',
 
   assert(backendHttpServer.includes("resolveRepoAssetPath('frontend-dist')"), 'backend HTTP server should look for frontend-dist');
   assert(backendHttpServer.includes('resolveFrontendAssetCandidates'), 'backend HTTP server should resolve frontend asset fallbacks');
+  assert(backendHttpServer.includes("'.mjs': 'application/javascript'"), 'backend HTTP server should serve MapLibre module workers as JavaScript');
   assert(electronMain.includes("path.join(appRoot, 'frontend-dist')"), 'Electron frontend server should look for frontend-dist in dev');
   assert(electronMain.includes('getFrontendAssetCandidates'), 'Electron frontend server should resolve frontend asset fallbacks');
+  assert(electronMain.includes("'.mjs': 'text/javascript'"), 'Electron frontend server should serve MapLibre module workers as JavaScript');
 });
 
 test('frontend build and Electron launch paths use the bundled frontend output', () => {
@@ -385,6 +393,9 @@ test('frontend build and Electron launch paths use the bundled frontend output',
   assert(frontendBuild.includes('flight-phases.js'), 'frontend build wrapper should copy flight-phases.js');
   assert(frontendBuild.includes("'vendor'"), 'frontend build wrapper should copy vendor assets');
   assert(frontendBuild.includes("'themes'"), 'frontend build wrapper should copy bundled themes');
+  assert(frontendBuild.includes("'maplibre-gl-worker.mjs'"), 'frontend build wrapper should package the MapLibre module worker');
+  assert(frontendBuild.includes("'maplibre-gl-shared.mjs'"), 'frontend build wrapper should package the MapLibre worker shared module');
+  assert(frontendBuild.includes('assertBundledMapLibreRuntime()'), 'frontend build wrapper should verify the MapLibre runtime assets');
   assert(frontendBuild.includes('buildTailwindCss()'), 'frontend build wrapper should compile Tailwind CSS');
   assert(frontendBuild.includes("'-o', TAILWIND_OUTPUT"), 'frontend build wrapper should write Tailwind to frontend-dist');
   assert(electronPkg.scripts?.start?.includes('frontend:build'), 'electron start should build the frontend first');

@@ -109,10 +109,10 @@ const lightControls = Object.freeze([
 })));
 
 const surfaceCommands = Object.freeze([
-  { id: 'gear-up', key: 'gearUp', label: 'Gear Up', command: Object.freeze({ type: 'preset', id: 'gearUp' }) },
-  { id: 'gear-down', key: 'gearDown', label: 'Gear Down', command: Object.freeze({ type: 'preset', id: 'gearDown' }) },
-  { id: 'flaps-less', key: 'flapsDecrease', label: 'Flaps Less', command: Object.freeze({ type: 'preset', id: 'flapsDecrease' }) },
-  { id: 'flaps-more', key: 'flapsIncrease', label: 'Flaps More', command: Object.freeze({ type: 'preset', id: 'flapsIncrease' }) },
+  { id: 'gear-up', key: 'gearUp', label: 'Gear Up', command: Object.freeze({ type: 'control', id: 'gearUp' }) },
+  { id: 'gear-down', key: 'gearDown', label: 'Gear Down', command: Object.freeze({ type: 'control', id: 'gearDown' }) },
+  { id: 'flaps-less', key: 'flapsDecrease', label: 'Flaps Less', command: Object.freeze({ type: 'control', id: 'flapsDecrease' }) },
+  { id: 'flaps-more', key: 'flapsIncrease', label: 'Flaps More', command: Object.freeze({ type: 'control', id: 'flapsIncrease' }) },
 ]);
 
 const engines = Object.freeze([

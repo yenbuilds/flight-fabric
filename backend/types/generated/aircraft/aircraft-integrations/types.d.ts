@@ -59,6 +59,7 @@ export type AircraftIntegrationNumberInput = Readonly<{
     type: 'number';
 }>;
 export type AircraftIntegrationInputValue = Readonly<{
+    encoding?: 'frequency-bcd16';
     offset?: number;
     round?: 'nearest';
     scale?: number;
@@ -126,10 +127,11 @@ export type SimConnectSequenceOperation = Readonly<{
     type: 'event';
     value?: number;
 } | {
+    inputValue?: AircraftIntegrationInputValue;
     name: string;
     type: 'lvar';
     unit: string;
-    value: boolean | number;
+    value?: boolean | number;
 } | {
     milliseconds: number;
     type: 'delay';

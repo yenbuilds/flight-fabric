@@ -1,4 +1,5 @@
 import {
+  describeAircraftCommandRequest,
   describeAircraftControlAction,
   describeAircraftControlRequest,
   getAircraftControlRequestPendingKey,
@@ -24,6 +25,31 @@ export function createAircraftControlController({
   const pendingRequests = new Map();
   const pendingClearTimers = new Map();
   let activeProfileToken = null;
+  let simStateBlocker = '';
+
+  function getSimStateBlocker(state = {}) {
+    if (state?.simconnectConnected === false) {
+      return 'Simulator telemetry link unavailable.';
+    }
+    if (state?.inMenu === true || state?.blocked === true) {
+      return 'Simulator is in a menu or loading state.';
+    }
+    const lifecycleState = typeof state?.lifecycleState === 'string'
+      ? state.lifecycleState.trim().toLowerCase()
+      : '';
+    if (['blocked', 'crashed', 'in_menu', 'loading', 'shutting_down', 'shutting-down'].includes(lifecycleState)) {
+      return 'Simulator lifecycle state is not safe for aircraft control writes.';
+    }
+    return '';
+  }
+
+  function applySimState(state = {}) {
+    simStateBlocker = getSimStateBlocker(state);
+    return {
+      blocked: Boolean(simStateBlocker),
+      reason: simStateBlocker,
+    };
+  }
 
   function createRequestId() {
     const id = `ctrl-${Date.now()}-${nextRequestId}`;
@@ -35,8 +61,25 @@ export function createAircraftControlController({
     controlsStore?.setFeedback?.(feedback);
   }
 
-  function applyControlCapabilities(capabilities = {}) {
+  function applyControlCapabilities(capabilities = {}, expectedProfileToken = null) {
+    if (expectedProfileToken && typeof expectedProfileToken === 'object') {
+      const expectedProfileKey = typeof expectedProfileToken.profileKey === 'string'
+        ? expectedProfileToken.profileKey.trim()
+        : '';
+      const expectedProfileRevision = Number(expectedProfileToken.profileRevision);
+      if (
+        !activeProfileToken
+        || !expectedProfileKey
+        || !Number.isSafeInteger(expectedProfileRevision)
+        || expectedProfileRevision < 0
+        || activeProfileToken.profileKey !== expectedProfileKey
+        || activeProfileToken.profileRevision !== expectedProfileRevision
+      ) {
+        return false;
+      }
+    }
     controlsStore?.applyControlCapabilities?.(capabilities);
+    return true;
   }
 
   function setActiveProfileToken(profile = {}) {
@@ -103,6 +146,14 @@ export function createAircraftControlController({
       };
     }
 
+    if (simStateBlocker) {
+      return {
+        enabled: false,
+        reason: simStateBlocker,
+        toast: 'Return to the active flight before sending control commands.',
+      };
+    }
+
     if (!activeProfileToken) {
       return {
         enabled: false,
@@ -126,7 +177,8 @@ export function createAircraftControlController({
 
   function clearPendingRequests(reason) {
     const hadPending = pendingRequests.size > 0 || pendingClearTimers.size > 0;
-    for (const pending of pendingRequests.values()) {
+    const abandonedRequests = [...pendingRequests.values()];
+    for (const pending of abandonedRequests) {
       if (pending?.pendingKey) {
         controlsStore?.clearCommandPending?.(pending.pendingKey);
       }
@@ -137,6 +189,15 @@ export function createAircraftControlController({
       controlsStore?.clearCommandPending?.(pendingKey);
     }
     pendingClearTimers.clear();
+    for (const pending of abandonedRequests) {
+      notifyResult(pending, {
+        ok: false,
+        cancelled: true,
+        error: typeof reason === 'string' && reason.trim()
+          ? reason.trim()
+          : 'Aircraft control request was cancelled.',
+      });
+    }
     if (hadPending && typeof reason === 'string' && reason.trim()) {
       setFeedback({
         routeText: reason.trim(),
@@ -145,12 +206,21 @@ export function createAircraftControlController({
     }
   }
 
-  function send(request, { pendingKey = '', minimumPendingMs = 0 } = {}) {
+  function send(request, {
+    pendingKey = '',
+    minimumPendingMs = 0,
+    messageType = 'executeAircraftControl',
+    onResult = null,
+  } = {}) {
     const requestedPendingKey = (typeof pendingKey === 'string' && pendingKey.trim())
-      || getAircraftControlRequestPendingKey(request);
+      || (messageType === 'executeAircraftCommand'
+        ? `aircraft-command:${request?.commandId || 'unknown'}`
+        : getAircraftControlRequestPendingKey(request));
     const availability = updateAvailability();
     if (!availability.enabled) {
-      const description = describeAircraftControlRequest(request);
+      const description = messageType === 'executeAircraftCommand'
+        ? describeAircraftCommandRequest(request, controlsStore?.getAircraftCommand?.(request?.commandId))
+        : describeAircraftControlRequest(request);
       setFeedback({
         actionText: description,
         routeText: availability.reason,
@@ -163,7 +233,9 @@ export function createAircraftControlController({
 
     const wsSend = getWsSend();
     const requestId = createRequestId();
-    const description = describeAircraftControlRequest(request);
+    const description = messageType === 'executeAircraftCommand'
+      ? describeAircraftCommandRequest(request, controlsStore?.getAircraftCommand?.(request?.commandId))
+      : describeAircraftControlRequest(request);
     const resolvedPendingKey = requestedPendingKey;
     const canStorePending = Boolean(
       resolvedPendingKey
@@ -181,6 +253,7 @@ export function createAircraftControlController({
       pendingKey: canStorePending ? resolvedPendingKey : '',
       description,
       minimumPendingMs: boundedMinimumPendingMs,
+      onResult: typeof onResult === 'function' ? onResult : null,
       startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : 0,
     });
     setFeedback({
@@ -192,12 +265,43 @@ export function createAircraftControlController({
     });
     wsSend({
       ...request,
-      type: 'executeAircraftControl',
+      type: messageType,
       requestId,
       profileKey: activeProfileToken.profileKey,
       profileRevision: activeProfileToken.profileRevision,
     });
     return true;
+  }
+
+  function sendCommand(commandId, input = {}, options = {}) {
+    if (typeof commandId !== 'string' || !commandId.trim()) return false;
+    const normalizedCommandId = commandId.trim();
+    if (controlsStore?.isAircraftCommandSupported?.(normalizedCommandId) === false) {
+      const description = describeAircraftCommandRequest(
+        { commandId: normalizedCommandId, input },
+        controlsStore?.getAircraftCommand?.(normalizedCommandId),
+      );
+      setFeedback({
+        actionText: description,
+        routeText: 'The active aircraft does not expose this command.',
+        status: 'failed',
+        commandKey: options.pendingKey || `aircraft-command:${normalizedCommandId}`,
+      });
+      return false;
+    }
+    return send({ commandId: normalizedCommandId, input }, {
+      ...options,
+      messageType: 'executeAircraftCommand',
+    });
+  }
+
+  function notifyResult(pending, result) {
+    if (typeof pending?.onResult !== 'function') return;
+    try {
+      pending.onResult(result);
+    } catch {
+      // A result observer must not interrupt the shared feedback/toast path.
+    }
   }
 
   function handleResult(msg) {
@@ -228,10 +332,22 @@ export function createAircraftControlController({
       }
     }
 
-    const description = pending?.description || describeAircraftControlRequest(msg?.request);
+    const description = pending?.description
+      || (msg?.commandId
+        ? describeAircraftCommandRequest(msg?.request || msg?.command, { label: msg?.commandLabel })
+        : describeAircraftControlRequest(msg?.request));
     const profileKey = typeof msg?.profileKey === 'string' && msg.profileKey.trim()
       ? msg.profileKey.trim()
       : 'generic';
+    const completedStepCount = Number(msg?.completedStepCount);
+    const stepCount = Number(msg?.stepCount);
+    const stepSummary = Number.isSafeInteger(completedStepCount)
+      && completedStepCount >= 0
+      && Number.isSafeInteger(stepCount)
+      && stepCount > 1
+      && completedStepCount <= stepCount
+      ? `${completedStepCount} of ${stepCount} steps`
+      : '';
 
     if (msg?.ok) {
       const transportLabel = msg.transportMode === 'direct-lvar'
@@ -239,6 +355,7 @@ export function createAircraftControlController({
         : '';
       const routeParts = [
         msg.resolvedBy === 'profile' ? 'Profile override' : 'Generic fallback',
+        stepSummary,
         describeAircraftControlAction(msg.action),
         transportLabel,
         msg.backendSource || '',
@@ -253,11 +370,33 @@ export function createAircraftControlController({
         commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request),
       });
       emitToast('success', 'Aircraft control sent', `${description} \u00b7 ${routeText}`, { durationMs: 3600 });
+      notifyResult(pending, msg);
       return;
     }
 
+    const executionStarted = msg?.executionStarted === true;
+    const hasIncompleteStepProgress = Number.isSafeInteger(completedStepCount)
+      && completedStepCount >= 0
+      && Number.isSafeInteger(stepCount)
+      && stepCount > 0
+      && completedStepCount < stepCount
+      && (completedStepCount > 0 || executionStarted);
+    const partialStepSummary = hasIncompleteStepProgress
+      ? (completedStepCount > 0
+          ? `${completedStepCount} of ${stepCount} steps completed before failure`
+          : `0 of ${stepCount} ${stepCount === 1 ? 'step' : 'steps'} confirmed before failure`)
+      : '';
+    const partialFailureAdvice = partialStepSummary || executionStarted
+      ? 'Verify aircraft state.'
+      : '';
+    const failureMessage = [
+      partialStepSummary,
+      msg?.error || 'Request failed.',
+      partialFailureAdvice,
+    ].filter(Boolean).join(' \u00b7 ');
     const routeParts = [
       msg?.resolvedBy === 'profile' ? 'Profile override' : (msg?.resolvedBy === 'generic' ? 'Generic fallback' : ''),
+      partialStepSummary,
       describeAircraftControlAction(msg?.action),
       msg?.code || '',
     ].filter(Boolean);
@@ -265,22 +404,27 @@ export function createAircraftControlController({
     setFeedback({
       actionText: description,
       routeText: routeParts.length > 0
-        ? `${routeParts.join(' \u00b7 ')} \u00b7 ${msg?.error || 'Request failed.'}`
-        : (msg?.error || 'Request failed.'),
+        ? [routeParts.join(' \u00b7 '), msg?.error || 'Request failed.', partialFailureAdvice]
+          .filter(Boolean)
+          .join(' \u00b7 ')
+        : failureMessage,
       profileText: profileKey,
       status: 'failed',
       commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request),
     });
-    emitToast('error', 'Aircraft control failed', msg?.error || 'Request failed.', { durationMs: 5200 });
+    emitToast('error', 'Aircraft control failed', failureMessage, { durationMs: 5200 });
+    notifyResult(pending, msg);
   }
 
   return {
     applyControlCapabilities,
+    applySimState,
     clearProfileToken,
     clearPendingRequests,
     handleResult,
     resetProfileState,
     send,
+    sendCommand,
     setActiveProfileToken,
     setFeedback,
     updateAvailability,

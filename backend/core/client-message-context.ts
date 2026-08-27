@@ -2,6 +2,7 @@
 
 export type ClientMessageContextState = {
   lastSimState: unknown;
+  getSimState?: unknown;
   getPhase: unknown;
   flightCsvWriter: unknown;
   flightCsvStore?: unknown;
@@ -31,6 +32,7 @@ export type ClientMessageContextState = {
 export function buildClientMessageContext(state: ClientMessageContextState): ClientMessageContextState {
   return {
     lastSimState: state.lastSimState,
+    getSimState: state.getSimState,
     getPhase: state.getPhase,
     flightCsvWriter: state.flightCsvWriter,
     flightCsvStore: state.flightCsvStore,

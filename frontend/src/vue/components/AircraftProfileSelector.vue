@@ -85,19 +85,23 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="status.aircraftProfileNameVisible" class="flex max-w-[190px] items-center sm:max-w-[310px]">
-    <span id="aircraft-profile-name" class="truncate text-[10px] text-muted-fg">
+  <div v-if="status.aircraftProfileNameVisible" class="relative flex w-full min-w-0 max-w-[190px] items-center sm:max-w-[200px]">
+    <span
+      id="aircraft-profile-name"
+      class="min-w-0 flex-1 truncate text-[10px] text-muted-fg"
+      :title="profileSummaryLabel"
+    >
       {{ profileSummaryLabel }}
     </span>
     <details
       v-if="profiles.profileSelectionAvailable"
       id="aircraft-profile-correction"
-      class="group relative ml-1 shrink-0"
+      class="group ml-1 shrink-0"
       data-no-swipe
     >
       <summary
         id="aircraft-profile-correction-btn"
-        class="cursor-pointer list-none rounded px-1.5 py-0.5 text-[10px] text-cyan-400 transition-colors hover:bg-cyan-500/10 hover:text-cyan-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 [&::-webkit-details-marker]:hidden"
+        class="inline-flex min-h-11 cursor-pointer list-none items-center rounded px-1.5 text-[10px] text-cyan-400 transition-colors hover:bg-cyan-500/10 hover:text-cyan-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 [&::-webkit-details-marker]:hidden"
         aria-label="Correct aircraft profile match"
       >
         Wrong aircraft?
@@ -105,7 +109,7 @@ onUnmounted(() => {
 
       <div
         id="aircraft-profile-correction-panel"
-        class="absolute right-0 top-full z-[70] mt-2 w-72 rounded-lg border border-surface-300 bg-surface-100 p-3 text-left shadow-2xl"
+        class="aircraft-profile-correction-panel absolute right-0 top-full z-[70] mt-2 rounded-lg border border-surface-300 bg-surface-100 p-3 text-left shadow-2xl"
       >
         <div class="text-xs font-semibold text-gray-200">Aircraft match</div>
         <p class="mt-1 text-[10px] leading-relaxed text-gray-400">
@@ -143,3 +147,16 @@ onUnmounted(() => {
     </details>
   </div>
 </template>
+
+<style scoped>
+.aircraft-profile-correction-panel {
+  width: min(18rem, calc(100vw - 1.5rem));
+}
+
+@media (max-width: 640px) {
+  .aircraft-profile-correction-panel {
+    right: auto;
+    left: 0;
+  }
+}
+</style>

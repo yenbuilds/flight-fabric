@@ -85,6 +85,7 @@ async function main() {
   const { useStatusStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'status.js'));
   const { useThemeStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'theme.js'));
   const { useSystemHostStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'system-host.js'));
+  const { useVoiceControlStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'voice-control.js'));
   const {
     matchesMedia,
     readStorageJson,
@@ -2297,6 +2298,74 @@ async function main() {
   });
 
   console.log('\n--- aircraft controls store ---\n');
+  await test('voice command results stay retryable while acknowledgement remains visible', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+
+    assert.equal(voice.runtime.shortcut, '', 'voice should not claim a global shortcut before the user chooses one');
+
+    voice.setState('sending', 'Sending selected heading\u2026');
+    assert.equal(voice.ready, false, 'an in-flight backend command should block a second PTT');
+
+    voice.setState('sent', 'Sent selected heading: 270.');
+    assert.equal(voice.ready, true, 'confirmed success should leave PTT available for the next command');
+
+    voice.setState('failed', 'Could not send selected heading: 270.');
+    assert.equal(voice.ready, true, 'a correlated backend failure should remain immediately retryable');
+
+    voice.setState('unmatched', 'Command not recognized. Nothing was executed.');
+    assert.equal(voice.ready, true, 'an unmatched phrase should leave the on-screen PTT available for a retry');
+
+    voice.setState('error', 'Microphone permission was denied.');
+    assert.equal(voice.ready, true, 'a capture failure should remain visible without trapping the on-screen PTT');
+
+    voice.setState('transcribed', 'Development transcription complete. Nothing was sent.');
+    assert.equal(voice.ready, true, 'development transcription should leave PTT available for another sample');
+
+    assert.equal(voice.runtime.development, false, 'development mode must default off');
+    voice.applyRuntimeInfo({
+      available: true,
+      development: true,
+      pushToTalk: {
+        accelerator: 'Control+Alt+Space',
+        error: 'Shortcut is already in use',
+        registered: false,
+      },
+    });
+    assert.equal(voice.runtime.development, true, 'only explicit main-process runtime info should enable development mode');
+    assert.equal(voice.runtime.shortcutRegistered, false, 'failed global shortcut registration should remain visible in the voice store');
+    assert.equal(voice.runtime.shortcutError, 'Shortcut is already in use', 'the registration error should remain available to readiness UI');
+
+    voice.setState('blocked', 'Simulator telemetry link unavailable.');
+    assert.equal(voice.ready, false, 'an unavailable aircraft-control gate should still disable PTT');
+  });
+
+  await test('voice preferences stay bounded and delegate to the active runtime', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    const calls = [];
+    voice.bindRuntime({
+      refreshInputDevices: () => calls.push(['refresh']),
+      setInputDevice: (value) => calls.push(['device', value]),
+      setSpokenReadbacks: (value) => calls.push(['readbacks', value]),
+    });
+
+    voice.setInputDevices([
+      { deviceId: 'usb-mic', label: 'USB headset' },
+      { deviceId: 'usb-mic', label: 'Duplicate' },
+      { deviceId: '', label: 'Missing ID' },
+    ]);
+    assert.deepEqual(voice.inputDevices, [{ deviceId: 'usb-mic', label: 'USB headset' }]);
+    voice.selectInputDevice('usb-mic');
+    voice.toggleSpokenReadbacks(false);
+    voice.refreshInputDevices();
+    assert.deepEqual(calls, [
+      ['device', 'usb-mic'],
+      ['readbacks', false],
+      ['refresh'],
+    ]);
+  });
+
   await test('aircraft-specific store scopes snapshots to the active profile revision and resets safely', () => {
     resetStoreTestContext();
     const aircraftSpecific = useAircraftSpecificStore();
@@ -2436,8 +2505,8 @@ async function main() {
     assert.equal(controls.autopilot.master, null, 'initial AP master should be unknown until telemetry arrives');
     assert.equal(controls.autopilot.athrActive, null, 'initial A/T state should be unknown until telemetry arrives');
     assert.equal(controls.autopilot.spdDisplay, '---', 'autopilot selectors should start reset');
-    assert.equal(controls.isCommandPending({ type: 'preset', id: 'gearUp' }), false, 'control pending state should start cleared');
-    assert.equal(await controls.requestControlCommand({ type: 'preset', id: 'gearUp' }), false, 'control requests should report when no runtime action is bound');
+    assert.equal(controls.isCommandPending({ type: 'control', id: 'gearUp' }), false, 'control pending state should start cleared');
+    assert.equal(await controls.requestControlCommand({ type: 'control', id: 'gearUp' }), false, 'control requests should report when no runtime action is bound');
     for (const pulseId of autopilotPulseIds) {
       assert.equal(controls.controlCapabilities.autopilotPulse[pulseId], false, `${pulseId} pulse capability should default closed`);
       assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: pulseId }), false, `${pulseId} should require an explicit active-profile capability`);
@@ -2524,7 +2593,7 @@ async function main() {
       altTarget: 12450,
       vsTarget: -702,
     });
-    assert.equal(controls.isCommandDisabled({ type: 'preset', id: 'gearUp' }), false, 'available controls should not report disabled while idle');
+    assert.equal(controls.isCommandDisabled({ type: 'control', id: 'gearUp' }), false, 'available controls should not report disabled while idle');
     controls.applyControlCapabilities({
       surface: {
         gearUp: false,
@@ -2544,15 +2613,15 @@ async function main() {
         ins: true,
       },
     });
-    assert.equal(controls.isCommandSupported({ type: 'preset', id: 'gearUp' }), false, 'unsupported surface writes should be capability-gated');
-    assert.equal(controls.isCommandDisabled({ type: 'preset', id: 'gearUp' }), true, 'unsupported surface writes should render disabled');
-    assert.equal(controls.isCommandSupported({ type: 'preset', id: 'parkingBrakeSet' }), true, 'explicit parking-brake capability should enable both fixed directions');
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'gearUp' }), false, 'unsupported surface writes should be capability-gated');
+    assert.equal(controls.isCommandDisabled({ type: 'control', id: 'gearUp' }), true, 'unsupported surface writes should render disabled');
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'parkingBrakeSet' }), true, 'explicit parking-brake capability should enable both fixed directions');
     assert.equal(controls.isCommandSupported({ type: 'light-set', light: 'landing', value: true }), true, 'explicit light capability should enable the matching light command');
     assert.equal(controls.setCommandPending({ type: 'light-set', light: 'landing', value: true }), true, 'light writes should reserve one shared pending key per physical light');
     assert.equal(controls.isCommandDisabled({ type: 'light-set', light: 'landing', value: false }), true, 'a pending ON write should block a concurrent OFF write for the same light');
     assert.equal(controls.clearCommandPending('light-set:landing'), true, 'canonical light pending keys should clear cleanly');
-    assert.equal(controls.isCommandSupported({ type: 'preset', id: 'flcToggle' }), false, 'unsupported AP mode writes should be capability-gated');
-    assert.equal(controls.isCommandDisabled({ type: 'preset', id: 'flcToggle' }), true, 'unsupported AP mode writes should render disabled');
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'flcToggle' }), false, 'unsupported AP mode writes should be capability-gated');
+    assert.equal(controls.isCommandDisabled({ type: 'control', id: 'flcToggle' }), true, 'unsupported AP mode writes should render disabled');
     assert.equal(controls.isCommandDisabled({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' }), true, 'unsupported selector writes should render disabled');
     assert.equal(controls.isCommandDisabled({ type: 'selector-hold', mode: 'alt' }), false, 'omitted capabilities should keep legacy enabled behavior');
     assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: 'apMaster' }), true, 'explicit pulse capabilities should enable the matching command object');
@@ -2565,24 +2634,106 @@ async function main() {
     assert.equal(controls.isCommandDisabled({ type: 'autopilot-pulse', id: 'ins' }), true, 'a pending pulse should disable duplicate UI dispatch');
     assert.equal(controls.clearCommandPending('autopilot-pulse:ins'), true, 'canonical pulse pending keys should clear cleanly');
     assert.equal(controls.isCommandDisabled({ type: 'autopilot-pulse', id: 'ins' }), false, 'clearing pulse pending state should restore a supported command');
+
+    controls.applyControlCapabilities({
+      surface: { gearUp: false, parkingBrake: true },
+      lights: { landing: true },
+      autopilot: { heading: false },
+      aircraftCommands: {
+        configurationId: 'test-canonical',
+        profileKey: 'bundled/msfs/test',
+        profileRevision: 8,
+        inventory: [
+          {
+            id: 'surfaces.gear.set',
+            label: 'Landing gear',
+            group: 'surfaces',
+            input: { kind: 'enum', values: ['up', 'down'] },
+            supported: true,
+            actionIds: ['gear.handle.up', 'gear.handle.down'],
+            speech: { patterns: ['gear {value}'] },
+          },
+          {
+            id: 'lights.taxi.set',
+            label: 'Taxi lights',
+            group: 'lights',
+            input: { kind: 'boolean' },
+            supported: false,
+          },
+        ],
+        commands: [
+          { id: 'surfaces.gear.set', label: 'Landing gear', input: { kind: 'enum', values: ['up', 'down'] } },
+          { id: 'flightGuidance.heading.set', label: 'Selected heading', input: { kind: 'number', min: 0, max: 359, step: 1 } },
+          {
+            id: 'configuration.lights.takeoff',
+            label: 'Takeoff lights',
+            group: 'presets',
+            kind: 'preset',
+            description: 'Landing ON · Taxi ON · Strobe ON',
+            input: { kind: 'none' },
+          },
+        ],
+      },
+      aircraftIntegration: {
+        id: 'test-aircraft',
+        family: 'Test 737',
+        vendor: 'Fixture Aviation',
+        templateId: 'test-737',
+        fields: [{ id: 'mcp.headingDeg' }],
+        actions: [{
+          id: 'mcp.heading.set',
+          supported: true,
+          verification: 'verified',
+          input: { type: 'number', min: 0, max: 359, step: 1 },
+        }],
+      },
+    });
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'gearUp' }), true, 'a present catalogue should be authoritative over legacy surface capabilities');
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'parkingBrakeSet' }), false, 'commands absent from the active catalogue should be unavailable even if a legacy capability is true');
+    assert.equal(controls.isCommandSupported({ type: 'selector-set', mode: 'hdg' }), true, 'selector availability should resolve through its canonical command ID');
+    assert.equal(controls.isCommandSupported({ type: 'light-set', light: 'landing', value: true }), false, 'light availability should resolve through the canonical catalogue');
+    assert.equal(controls.isCommandSupported('flightGuidance.heading.set'), true, 'canonical IDs should be accepted directly by the shared support check');
+    assert.equal(
+      controls.isCommandSupported({ type: 'canonical', commandId: 'configuration.lights.takeoff', input: {} }),
+      true,
+      'catalogue-driven quick actions should resolve support through their canonical command ID',
+    );
+    assert.equal(controls.getAircraftCommand('configuration.lights.takeoff').kind, 'preset', 'preset presentation metadata should survive catalogue ingestion');
+    assert.equal(
+      controls.getAircraftCommand('configuration.lights.takeoff').description,
+      'Landing ON · Taxi ON · Strobe ON',
+      'aircraft-specific preset descriptions should survive catalogue ingestion',
+    );
+    assert.equal(controls.aircraftCommandCatalogue.inventory.length, 2, 'the complete command inventory should survive capability ingestion');
+    assert.deepEqual(
+      controls.aircraftCommandCatalogue.inventory[0].actionIds,
+      ['gear.handle.up', 'gear.handle.down'],
+      'canonical settings should retain their aircraft-specific mappings for guide de-duplication',
+    );
+    assert.equal(controls.aircraftCommandCatalogue.inventory[1].supported, false, 'unsupported configured settings should remain visible in the guide inventory');
+    assert.equal(controls.aircraftIntegration.family, 'Test 737', 'aircraft identity should survive integration inventory ingestion');
+    assert.equal(controls.aircraftIntegration.fields[0].id, 'mcp.headingDeg', 'integration readbacks should survive inventory ingestion');
+    assert.equal(controls.aircraftIntegration.actions[0].verification, 'verified', 'integration control verification should survive inventory ingestion');
     controls.resetControlCapabilities();
+    assert.equal(controls.aircraftCommandCatalogue.inventory.length, 0, 'capability reset should clear stale command inventory');
+    assert.equal(controls.aircraftIntegration.id, '', 'capability reset should clear stale aircraft integration identity');
 
     controls.setCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' });
     controls.prepareForAircraftChange('Switching aircraft.');
     assert.equal(controls.feedback.routeText, 'Switching aircraft.', 'aircraft change reset should explain profile capability refresh');
     assert.equal(controls.feedback.profileText, 'Detecting active profile...', 'aircraft change reset should clear stale profile feedback');
     assert.equal(controls.isCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' }), false, 'aircraft change reset should clear pending commands from the previous aircraft');
-    assert.equal(controls.isCommandSupported({ type: 'preset', id: 'gearUp' }), false, 'surface controls should be gated while the replacement profile is unknown');
-    assert.equal(controls.isCommandSupported({ type: 'preset', id: 'autopilotMasterToggle' }), false, 'AP controls should be gated while the replacement profile is unknown');
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'gearUp' }), false, 'surface controls should be gated while the replacement profile is unknown');
+    assert.equal(controls.isCommandSupported({ type: 'control', id: 'autopilotMasterToggle' }), false, 'AP controls should be gated while the replacement profile is unknown');
     assert.equal(controls.isCommandSupported({ type: 'light-set', light: 'landing', value: true }), false, 'light controls should be gated while the replacement profile is unknown');
     assert.equal(controls.isCommandSupported({ type: 'autopilot-pulse', id: 'apMaster' }), false, 'momentary AP keys should stay gated while the replacement profile is unknown');
     controls.resetControlCapabilities();
 
-    controls.setCommandPending({ type: 'preset', id: 'gearUp' });
-    assert.equal(controls.isCommandPending({ type: 'preset', id: 'gearUp' }), true, 'pending commands should be tracked by command metadata');
-    assert.equal(controls.isCommandDisabled({ type: 'preset', id: 'gearUp' }), true, 'pending commands should report disabled through the store');
-    controls.clearCommandPending({ type: 'preset', id: 'gearUp' });
-    assert.equal(controls.isCommandPending({ type: 'preset', id: 'gearUp' }), false, 'clearing pending commands should restore idle state');
+    controls.setCommandPending({ type: 'control', id: 'gearUp' });
+    assert.equal(controls.isCommandPending({ type: 'control', id: 'gearUp' }), true, 'pending commands should be tracked by command metadata');
+    assert.equal(controls.isCommandDisabled({ type: 'control', id: 'gearUp' }), true, 'pending commands should report disabled through the store');
+    controls.clearCommandPending({ type: 'control', id: 'gearUp' });
+    assert.equal(controls.isCommandPending({ type: 'control', id: 'gearUp' }), false, 'clearing pending commands should restore idle state');
 
     const requestedCommands = [];
     controls.bindCommandAction(async (command, options) => {
@@ -2591,13 +2742,13 @@ async function main() {
     });
     assert.equal(controls.commandActionBound, true, 'runtime-bound control actions should report as bound');
     assert.equal(
-      await controls.requestControlCommand({ type: 'preset', id: 'autopilotMasterToggle' }, { source: 'component' }),
+      await controls.requestControlCommand({ type: 'control', id: 'autopilotMasterToggle' }, { source: 'component' }),
       true,
       'store-backed control requests should delegate to the runtime action',
     );
     assert.deepEqual(
       requestedCommands,
-      [{ command: { type: 'preset', id: 'autopilotMasterToggle' }, options: { source: 'component' } }],
+      [{ command: { type: 'control', id: 'autopilotMasterToggle' }, options: { source: 'component' } }],
       'delegated control requests should preserve the command payload and options',
     );
 
@@ -2611,9 +2762,9 @@ async function main() {
 
     controls.resetFeedback();
     assert.equal(controls.feedback.routeText, 'Waiting for first write.', 'resetFeedback should restore default route copy');
-    controls.setCommandPending('preset:autopilotMasterToggle');
+    controls.setCommandPending('control:autopilotMasterToggle');
     controls.resetPendingCommands();
-    assert.equal(controls.isCommandPending('preset:autopilotMasterToggle'), false, 'resetPendingCommands should clear tracked command state');
+    assert.equal(controls.isCommandPending('control:autopilotMasterToggle'), false, 'resetPendingCommands should clear tracked command state');
   });
 
   console.log('\n--- lvar inspector store ---\n');
@@ -5085,10 +5236,10 @@ async function main() {
 
     store.setMapEmptyState({
       visible: false,
-      message: 'Using CARTO fallback tiles',
+      message: 'Using OpenFreeMap dark basemap',
     });
     assert.equal(store.mapEmptyVisible, false, 'setMapEmptyState should update visibility');
-    assert.equal(store.mapEmptyMessage, 'Using CARTO fallback tiles', 'setMapEmptyState should update the visible copy');
+    assert.equal(store.mapEmptyMessage, 'Using OpenFreeMap dark basemap', 'setMapEmptyState should update the visible copy');
 
     store.setScrubberState({
       visible: true,

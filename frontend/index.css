@@ -4324,9 +4324,13 @@ body.ff-app-shell.timeline-viewer-modal-open {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   #app-header {
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  }
+
+  .header-desktop-status {
+    display: none !important;
   }
 
   .app-header-row {

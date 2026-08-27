@@ -1,4 +1,4 @@
-import { createLandingCardRenderer, mergeLandingMessageUltimateStability } from './card.js';
+import { createLandingCardRenderer, replaceLandingMessageUltimateStability } from './card.js';
 import { approachProfileApi } from './approach-profile-global.js';
 import { gradeHex, gradeSeverity, normalizeLandingData } from './scoring.js';
 import {
@@ -134,8 +134,11 @@ export function createLandingController({
     throw new Error('Landing store is required before landing controller');
   }
 
-  let lastUltimateStability = null;
+  // A score packet can precede the final landing packet in preview/history
+  // flows. Keep only an unconsumed score eligible for that one landing.
+  let pendingUltimateStability = null;
   let lastLandingData = null;
+  let liveLandingAwaitingStability = false;
   let flightUpsetCount = 0;
 
   function getLandingStore() {
@@ -155,7 +158,7 @@ export function createLandingController({
     $,
     windowRef,
     getLandingStore,
-    getLastUltimateStability: () => lastUltimateStability,
+    getPendingUltimateStability: () => pendingUltimateStability,
     setLastLandingData: (data) => {
       lastLandingData = data;
     },
@@ -259,8 +262,9 @@ export function createLandingController({
       flightSummary: event.flightSummary || null,
     };
 
+    let timelineUltimateStability = null;
     if (event.ultimateStability) {
-      lastUltimateStability = {
+      timelineUltimateStability = {
         ...event.ultimateStability,
         approachProfile: event.approachProfile || [],
         runwayReferenceElevFt: Number.isFinite(event.runwayReferenceElevFt)
@@ -271,7 +275,7 @@ export function createLandingController({
           : (Number.isFinite(event.runwayReferenceElevFt) ? event.runwayReferenceElevFt : null),
       };
     } else if (event.approachProfile) {
-      lastUltimateStability = {
+      timelineUltimateStability = {
         approachProfile: event.approachProfile,
         runwayReferenceElevFt: Number.isFinite(event.runwayReferenceElevFt)
           ? event.runwayReferenceElevFt
@@ -282,7 +286,20 @@ export function createLandingController({
       };
     }
 
-    showLanding(msg);
+    const previousPendingUltimateStability = pendingUltimateStability;
+    const previousLastLandingData = lastLandingData;
+    const previousLiveLandingAwaitingStability = liveLandingAwaitingStability;
+    // Timeline cards are self-contained display state, not live attempt state.
+    pendingUltimateStability = timelineUltimateStability;
+    try {
+      showLanding(timelineUltimateStability
+        ? replaceLandingMessageUltimateStability(msg, timelineUltimateStability)
+        : msg);
+    } finally {
+      pendingUltimateStability = previousPendingUltimateStability;
+      lastLandingData = previousLastLandingData;
+      liveLandingAwaitingStability = previousLiveLandingAwaitingStability;
+    }
     if (openModal) {
       getLandingStore()?.setLandingModalLoading?.(false);
     } else {
@@ -291,16 +308,16 @@ export function createLandingController({
   }
 
   function updateStabilityBreakdown(msg) {
-    lastUltimateStability = msg;
-    if (lastLandingData) {
-      const mergedLandingData = mergeLandingMessageUltimateStability(lastLandingData, msg);
-      if (mergedLandingData !== lastLandingData) {
-        lastLandingData = mergedLandingData;
-        updateDataLandingPreview(lastLandingData);
-        getLandingStore()?.applyLandingCardMessage?.(lastLandingData, {
-          flightUpsetCount,
-        });
-      }
+    if (liveLandingAwaitingStability && lastLandingData) {
+      lastLandingData = replaceLandingMessageUltimateStability(lastLandingData, msg);
+      updateDataLandingPreview(lastLandingData);
+      getLandingStore()?.applyLandingCardMessage?.(lastLandingData, {
+        flightUpsetCount,
+      });
+      liveLandingAwaitingStability = false;
+      pendingUltimateStability = null;
+    } else {
+      pendingUltimateStability = msg;
     }
     renderStabilityBreakdown(msg);
     if (msg.approachProfile && msg.approachProfile.length > 0) {
@@ -475,7 +492,22 @@ export function createLandingController({
   }
 
   function handleLandingMessage(msg) {
-    if (msg?.final) showLanding(msg);
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.final === false) {
+      // The initial touchdown packet is the live attempt boundary. Retire any
+      // score already consumed by the previous landing before rollout ends.
+      pendingUltimateStability = null;
+      liveLandingAwaitingStability = false;
+      return;
+    }
+    if (msg.final !== true) return;
+
+    const stabilityForLanding = pendingUltimateStability;
+    showLanding(stabilityForLanding
+      ? replaceLandingMessageUltimateStability(msg, stabilityForLanding)
+      : msg);
+    pendingUltimateStability = null;
+    liveLandingAwaitingStability = !stabilityForLanding;
   }
 
   function handleFlightSummaryMessage(msg) {
@@ -495,8 +527,9 @@ export function createLandingController({
 
   function resetSession() {
     flightUpsetCount = 0;
-    lastUltimateStability = null;
+    pendingUltimateStability = null;
     lastLandingData = null;
+    liveLandingAwaitingStability = false;
     landingCardRenderer.clearLandingCard();
     resetDataLandingPreview();
     getLandingStore()?.setFlightUpsetCount?.(flightUpsetCount);

@@ -130,6 +130,55 @@ test('outbound projection keeps privileged payloads intact and sanitizes Trusted
     }],
   });
 
+  const projectedCapabilityRefresh = projectServerMessageForClient({}, {
+    type: 'dataSources',
+    primary: null,
+    secondary: [],
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 8,
+    controlCapabilities: {
+      aircraftCommands: {
+        configurationId: 'pmdg-737',
+        profileKey: 'bundled/msfs/pmdg-737',
+        profileRevision: 8,
+        inventory: [{
+          id: 'flightGuidance.heading.set',
+          label: 'Selected heading',
+          supported: true,
+          actionIds: ['mcp.heading.set'],
+          speech: { patterns: ['set heading {value}'] },
+        }],
+        commands: [{
+          id: 'flightGuidance.heading.set',
+          label: 'Selected heading',
+          speech: { patterns: ['set heading {value}'] },
+        }],
+      },
+      aircraftIntegration: {
+        id: 'pmdg-737',
+        family: '737',
+        vendor: 'PMDG',
+        fields: Array.from({ length: 140 }, (_, index) => ({ id: `systems.field${index}` })),
+        actions: [],
+      },
+    },
+  });
+  assert.equal(projectedCapabilityRefresh?.profileKey, 'bundled/msfs/pmdg-737');
+  assert.equal(projectedCapabilityRefresh?.profileRevision, 8);
+  assert.deepEqual(
+    projectedCapabilityRefresh?.controlCapabilities.aircraftCommands.commands[0].speech.patterns,
+    ['set heading {value}'],
+  );
+  assert.deepEqual(
+    projectedCapabilityRefresh?.controlCapabilities.aircraftCommands.inventory[0].actionIds,
+    ['mcp.heading.set'],
+  );
+  assert.equal(
+    projectedCapabilityRefresh?.controlCapabilities.aircraftIntegration.fields.length,
+    140,
+    'the complete reviewed integration inventory should survive client projection beyond the generic metadata limit',
+  );
+
   assert.deepEqual(
     projectServerMessageForClient({}, {
       type: 'flightPlan',
@@ -203,6 +252,49 @@ test('outbound projection keeps privileged payloads intact and sanitizes Trusted
     type: 'logbook',
     entries: [{ aircraft: 'private' }],
   }), null);
+});
+
+test('aircraft-profile projection preserves bounded command catalogue leaf arrays', () => {
+  const commandCatalogue = {
+    configurationId: 'pmdg-737-v1',
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 4,
+    commands: [{
+      id: 'surfaces.flaps.set',
+      label: 'Flap detent',
+      group: 'surfaces',
+      input: {
+        kind: 'enum',
+        values: ['up', '1', '5', '30'],
+      },
+      speech: {
+        patterns: ['set flaps {value}', 'flaps {value}'],
+        hints: ['FLAPS'],
+      },
+      sourcePath: 'C:\\private\\aircraft-profile.json',
+    }],
+  };
+
+  const projected = projectServerMessageForClient({}, {
+    type: 'aircraftProfile',
+    profile: {
+      id: 'pmdg-737',
+      name: 'PMDG 737',
+      controlCapabilities: { aircraftCommands: commandCatalogue },
+    },
+    controlCapabilities: { aircraftCommands: commandCatalogue },
+  });
+
+  for (const capabilities of [
+    projected?.controlCapabilities,
+    projected?.profile.controlCapabilities,
+  ]) {
+    const command = capabilities.aircraftCommands.commands[0];
+    assert.deepEqual(command.input.values, ['up', '1', '5', '30']);
+    assert.deepEqual(command.speech.patterns, ['set flaps {value}', 'flaps {value}']);
+    assert.deepEqual(command.speech.hints, ['FLAPS']);
+    assert.equal(command.sourcePath, undefined);
+  }
 });
 
 test('outbound projection scrubs relative simulator identities and lifecycle reasons', () => {
@@ -416,7 +508,21 @@ test('outbound projection narrows app settings and aircraft-control responses by
   assert.equal(projectedControl?.action.privateField, undefined);
   assert.equal(projectedControl?.providerDiagnostic, undefined);
   assert.equal(projectedControl?.profileKey, 'local/msfs/fnx-a320');
+  assert.equal(projectedControl?.executionStarted, undefined);
   assert.equal(JSON.stringify(projectedControl).includes('C:\\private'), false);
+
+  const projectedUnconfirmedControl = projectServerMessageForClient(
+    { __ffAircraftControlClient: true },
+    {
+      ...controlResult,
+      code: 'aircraft_integration_readback_timeout',
+      error: 'The transport accepted the command, but private readback details did not confirm it.',
+      executionStarted: true,
+    },
+  );
+  assert.equal(projectedUnconfirmedControl?.error, 'Aircraft control request failed.');
+  assert.equal(projectedUnconfirmedControl?.executionStarted, true);
+  assert.equal(JSON.stringify(projectedUnconfirmedControl).includes('private readback'), false);
 
   assert.deepEqual(projectServerMessageForClient({}, {
     type: 'aircraftControlResult',
@@ -428,6 +534,78 @@ test('outbound projection narrows app settings and aircraft-control responses by
   }), {
     type: 'aircraftControlResult',
     requestId: 'request-2',
+    ok: false,
+    code: 'auth_required',
+    error: 'Aircraft controls require a privileged session or trusted-LAN aircraft control permission.',
+  });
+
+  const commandResult = {
+    ...controlResult,
+    type: 'aircraftCommandResult',
+    requestId: 'command-1',
+    commandId: 'surfaces.gear.set',
+    commandLabel: 'Set landing gear',
+    configurationId: 'pmdg-737-v1',
+    request: {
+      commandId: 'surfaces.gear.set',
+      input: { value: 'down' },
+      profileKey: 'local/msfs/fnx-a320',
+      profileRevision: 4,
+      requestId: 'command-1',
+      privateField: 'C:\\private',
+    },
+    command: {
+      commandId: 'surfaces.gear.set',
+      input: { value: 'down' },
+      profileKey: 'local/msfs/fnx-a320',
+      profileRevision: 4,
+      requestId: 'command-1',
+      privateField: 'C:\\private',
+    },
+    controlRequest: controlResult.request,
+    completedStepCount: 0,
+    stepCount: 3,
+    steps: [{
+      index: 0,
+      ok: false,
+      privateField: 'C:\\private',
+    }],
+  };
+  assert.equal(projectServerMessageForClient({}, commandResult), null);
+
+  const projectedCommand = projectServerMessageForClient(
+    { __ffAircraftControlClient: true },
+    commandResult,
+  );
+  assert.equal(projectedCommand?.commandId, 'surfaces.gear.set');
+  assert.equal(projectedCommand?.commandLabel, 'Set landing gear');
+  assert.equal(projectedCommand?.configurationId, 'pmdg-737-v1');
+  assert.equal(projectedCommand?.completedStepCount, 0);
+  assert.equal(projectedCommand?.stepCount, 3);
+  assert.equal(projectedCommand?.executionStarted, undefined, 'a recorded failed step is not itself proof of dispatch');
+  assert.equal(projectedCommand?.steps, undefined);
+  assert.deepEqual(projectedCommand?.request.input, { value: 'down' });
+  assert.equal(projectedCommand?.request.privateField, undefined);
+  assert.equal(projectedCommand?.controlRequest.privateField, undefined);
+  assert.equal(JSON.stringify(projectedCommand).includes('C:\\private'), false);
+
+  const projectedStartedCommand = projectServerMessageForClient(
+    { __ffAircraftControlClient: true },
+    { ...commandResult, executionStarted: true },
+  );
+  assert.equal(projectedStartedCommand?.executionStarted, true);
+  assert.equal(projectedStartedCommand?.steps, undefined);
+
+  assert.deepEqual(projectServerMessageForClient({}, {
+    type: 'aircraftCommandResult',
+    requestId: 'command-2',
+    ok: false,
+    code: 'auth_required',
+    error: 'Aircraft controls require a privileged session or trusted-LAN aircraft control permission.',
+    leaked: 'C:\\private',
+  }), {
+    type: 'aircraftCommandResult',
+    requestId: 'command-2',
     ok: false,
     code: 'auth_required',
     error: 'Aircraft controls require a privileged session or trusted-LAN aircraft control permission.',

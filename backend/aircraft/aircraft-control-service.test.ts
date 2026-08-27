@@ -3,7 +3,9 @@ const test = require('node:test');
 
 const {
   buildAircraftControlCapabilities,
+  executeAircraftCommand,
   executeAircraftControl,
+  resolveAircraftCommand,
   resolveAircraftControl,
 } = require('./aircraft-control-service');
 const {
@@ -44,6 +46,548 @@ function buildTriStarProfile() {
     _profileKey: 'bundled/msfs/inibuilds-tristar',
   });
 }
+
+function buildPmdg737Profile() {
+  return buildProfile({
+    id: 'pmdg-737',
+    _profileKey: 'bundled/msfs/pmdg-737',
+    integration: {
+      aircraftSpecific: { adapter: 'pmdg-737' },
+      controls: { genericFallback: false },
+    },
+  });
+}
+
+test('aircraft command catalogue treats generic fallback as a first-class configuration', () => {
+  const capabilities = buildAircraftControlCapabilities(buildBroadGenericControlProfile(), {
+    profileRevision: 4,
+  });
+  assert.equal(capabilities.aircraftCommands.configurationId, 'generic');
+  assert.equal(capabilities.aircraftCommands.profileKey, 'bundled/msfs/generic');
+  assert.equal(capabilities.aircraftCommands.profileRevision, 4);
+  assert.equal(capabilities.aircraftIntegration.id, 'generic');
+  assert.equal(capabilities.aircraftIntegration.family, 'Generic aircraft');
+  assert.equal(capabilities.aircraftIntegration.fields.length, 24);
+  assert.deepEqual(capabilities.aircraftIntegration.fields.slice(0, 4), [
+    { id: 'surfaces.gear' },
+    { id: 'surfaces.flaps' },
+    { id: 'surfaces.parkingBrake' },
+    { id: 'surfaces.spoilers' },
+  ]);
+  assert.equal(
+    capabilities.aircraftIntegration.fields.some(({ id }) => id === 'flightGuidance.selectedHeading'),
+    true,
+  );
+  assert.deepEqual(capabilities.aircraftIntegration.actions, []);
+  const commands = new Map<string, any>(
+    capabilities.aircraftCommands.commands.map((command) => [command.id, command]),
+  );
+  assert.deepEqual(commands.get('flightGuidance.heading.set').input, {
+    kind: 'number', min: 0, max: 359, step: 1, units: 'degrees',
+  });
+  assert.equal(commands.has('surfaces.gear.set'), true);
+  assert.equal(commands.has('surfaces.flaps.adjust'), true);
+  const inventory = new Map<string, any>(
+    capabilities.aircraftCommands.inventory.map((command) => [command.id, command]),
+  );
+  assert.equal(inventory.get('flightGuidance.heading.set').supported, true);
+  assert.equal(
+    inventory.get('flightGuidance.ins.toggle').supported,
+    false,
+    'configured but unavailable generic settings should remain in the integration inventory',
+  );
+  assert.deepEqual(commands.get('configuration.lights.takeoff'), {
+    id: 'configuration.lights.takeoff',
+    label: 'Takeoff lights',
+    group: 'presets',
+    kind: 'preset',
+    input: { kind: 'none' },
+    description: 'Landing ON · Taxi ON · Strobe ON',
+    speech: {
+      patterns: ['set lights for takeoff', 'takeoff lights'],
+      hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
+    },
+  });
+});
+
+test('PMDG 737 command configuration maps a canonical heading command to the trusted family action', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 271 },
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 9,
+  }, {
+    profile: buildPmdg737Profile(),
+    profileRevision: 9,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['sdk'],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.configurationId, 'pmdg-737');
+  assert.equal(result.commandId, 'flightGuidance.heading.set');
+  assert.equal(result.controlRequest.actionId, 'mcp.heading.set');
+  assert.equal(result.controlRequest.value, 271);
+  assert.deepEqual(result.action, {
+    type: 'aircraft-integration',
+    name: 'pmdg-737',
+    verification: 'untested',
+  });
+});
+
+test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slice', () => {
+  const capabilities = buildAircraftControlCapabilities(buildPmdg737Profile(), {
+    profileRevision: 9,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['sdk', 'simconnect-sequence'],
+    },
+  });
+  const commands = new Map<string, any>(
+    capabilities.aircraftCommands.commands.map((command) => [command.id, command]),
+  );
+  const inventory = new Map<string, any>(
+    capabilities.aircraftCommands.inventory.map((command) => [command.id, command]),
+  );
+
+  assert.equal(capabilities.aircraftIntegration.id, 'pmdg-737');
+  assert.equal(capabilities.aircraftIntegration.vendor, 'PMDG');
+  assert.equal(capabilities.aircraftIntegration.family, '737');
+  assert.equal(
+    capabilities.aircraftIntegration.fields.some((field) => field.id === 'mcp.headingDeg'),
+    true,
+    'the integration guide should be derived from the complete adapter field registry',
+  );
+  assert.equal(
+    capabilities.aircraftIntegration.actions.some((action) => action.id === 'mcp.heading.set'),
+    true,
+    'the integration guide should be derived from the complete adapter action registry',
+  );
+  assert.deepEqual(inventory.get('flightGuidance.heading.set').actionIds, ['mcp.heading.set']);
+  assert.equal(inventory.get('flightGuidance.heading.set').supported, true);
+
+  assert.deepEqual([...commands.keys()], [
+    'flightGuidance.heading.set',
+    'flightGuidance.course.setBoth',
+    'flightGuidance.altitude.set',
+    'flightGuidance.speed.set',
+    'flightGuidance.mach.set',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.autopilot1.engage',
+    'flightGuidance.headingSelect.engage',
+    'flightGuidance.altitudeHold.engage',
+    'flightGuidance.verticalSpeed.engage',
+    'flightGuidance.flightLevelChange.engage',
+    'flightGuidance.localizer.engage',
+    'flightGuidance.approach.engage',
+    'surfaces.gear.set',
+    'surfaces.flaps.set',
+    'surfaces.parkingBrake.set',
+    'surfaces.spoilersArmed.set',
+    'configuration.lighting.cockpit',
+    'radios.nav.setBothActive',
+    'lights.taxi.set',
+    'configuration.lights.takeoff',
+  ]);
+  assert.deepEqual(commands.get('flightGuidance.altitude.set').speech.patterns, [
+    'set altitude {value}',
+    'altitude {value}',
+    'set flight level {value}',
+    'flight level {value}',
+  ]);
+  assert.equal(commands.get('flightGuidance.course.setBoth').kind, 'action');
+  assert.deepEqual(commands.get('flightGuidance.course.setBoth').input, {
+    kind: 'number', min: 0, max: 359, step: 1, units: 'degrees',
+  });
+  assert.deepEqual(commands.get('flightGuidance.course.setBoth').speech.patterns, [
+    'set course {value}',
+    'set courses {value}',
+    'set both course {value}',
+    'set both courses {value}',
+    'set course windows {value}',
+    'set both course windows {value}',
+  ]);
+  assert.deepEqual(commands.get('surfaces.flaps.set').input.values, [
+    'up', '1', '2', '5', '10', '15', '25', '30', '40',
+  ]);
+  assert.deepEqual(commands.get('surfaces.parkingBrake.set').speech.patterns, [
+    'parking brake {value}', '{value} parking brake',
+  ]);
+  assert.deepEqual(commands.get('surfaces.spoilersArmed.set').speech.patterns, [
+    'ground spoilers {value}',
+    '{value} ground spoilers',
+    '{value} spoilers',
+    'speed brake {value}',
+    '{value} speed brake',
+  ]);
+  assert.equal(commands.get('surfaces.parkingBrake.set').kind, 'action');
+  assert.equal(commands.get('surfaces.spoilersArmed.set').kind, 'action');
+  assert.equal(commands.get('configuration.lighting.cockpit').kind, 'preset');
+  assert.deepEqual(commands.get('configuration.lighting.cockpit').input, {
+    kind: 'number', min: 0, max: 100, step: 1, units: 'percent',
+  });
+  assert.deepEqual(commands.get('configuration.lighting.cockpit').speech.patterns, [
+    'set cockpit lighting {value}',
+    'set cockpit lights {value}',
+    'set all cockpit lights {value}',
+  ]);
+  assert.equal(commands.get('radios.nav.setBothActive').kind, 'action');
+  assert.deepEqual(commands.get('radios.nav.setBothActive').input, {
+    kind: 'number', min: 108, max: 117.95, step: 0.05, units: 'megahertz',
+  });
+  assert.deepEqual(commands.get('radios.nav.setBothActive').speech.patterns, [
+    'set nav radios {value}',
+    'set both nav radios {value}',
+    'tune nav radios {value}',
+  ]);
+  assert.equal(commands.get('configuration.lights.takeoff').kind, 'preset');
+  assert.equal(
+    commands.get('configuration.lights.takeoff').description,
+    'Landing L/R ON · Runway turnoffs ON · Taxi ON · Position STROBE + STEADY',
+  );
+});
+
+test('PMDG 737 paired NAV command maps one validated frequency to one coordinated action', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'radios.nav.setBothActive',
+    input: { value: 110.3 },
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 9,
+  }, {
+    profile: buildPmdg737Profile(),
+    profileRevision: 9,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.controlRequests.length, 1);
+  assert.equal(result.controlRequest.actionId, 'radios.navBoth.setActive');
+  assert.equal(result.controlRequest.value, 110.3);
+
+  const invalid = resolveAircraftCommand({
+    commandId: 'radios.nav.setBothActive',
+    input: { value: 110.32 },
+  }, {
+    profile: buildPmdg737Profile(),
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.code, 'invalid_command_input');
+});
+
+test('PMDG 737 paired course command maps one validated course to one coordinated action', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'flightGuidance.course.setBoth',
+    input: { value: 273 },
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 9,
+  }, {
+    profile: buildPmdg737Profile(),
+    profileRevision: 9,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.controlRequests.length, 1);
+  assert.equal(result.controlRequest.actionId, 'mcp.courseBoth.set');
+  assert.equal(result.controlRequest.value, 273);
+
+  for (const value of [-1, 359.5, 360]) {
+    const invalid = resolveAircraftCommand({
+      commandId: 'flightGuidance.course.setBoth',
+      input: { value },
+    }, {
+      profile: buildPmdg737Profile(),
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['simconnect-sequence'],
+      },
+    });
+    assert.equal(invalid.ok, false, `course ${value} must be rejected`);
+    assert.equal(invalid.code, 'invalid_command_input');
+  }
+});
+
+test('PMDG 737 normal surface commands map all four explicit boolean states', () => {
+  for (const [commandId, value, actionId] of [
+    ['surfaces.spoilersArmed.set', true, 'flightControls.speedbrake.arm'],
+    ['surfaces.spoilersArmed.set', false, 'flightControls.speedbrake.disarm'],
+    ['surfaces.parkingBrake.set', true, 'gear.parkingBrake.set'],
+    ['surfaces.parkingBrake.set', false, 'gear.parkingBrake.released'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/pmdg-737',
+      profileRevision: 9,
+    }, {
+      profile: buildPmdg737Profile(),
+      profileRevision: 9,
+      requireProfileToken: true,
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['sdk'],
+      },
+    });
+
+    assert.equal(result.ok, true, `${commandId}=${value} should resolve`);
+    assert.equal(result.controlRequests.length, 1, `${commandId} must dispatch exactly one action`);
+    assert.equal(result.controlRequest.actionId, actionId);
+  }
+});
+
+test('PMDG 737 takeoff-light preset resolves to one guarded aircraft-specific recipe', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 9,
+  }, {
+    profile: buildPmdg737Profile(),
+    profileRevision: 9,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['sdk'],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.stepCount, 8);
+  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
+    'lights.landingRetractableLeft.on',
+    'lights.landingRetractableRight.on',
+    'lights.landingLeft.on',
+    'lights.landingRight.on',
+    'lights.turnoffLeft.on',
+    'lights.turnoffRight.on',
+    'lights.taxi.on',
+    'lights.position.strobeSteady',
+  ]);
+});
+
+test('PMDG 737 cockpit-lighting preset maps one percentage to all four guarded groups', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'configuration.lighting.cockpit',
+    input: { value: 42 },
+    profileKey: 'bundled/msfs/pmdg-737',
+    profileRevision: 9,
+  }, {
+    profile: buildPmdg737Profile(),
+    profileRevision: 9,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.stepCount, 4);
+  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
+    'lighting.cockpit.panels.set',
+    'lighting.cockpit.ambient.set',
+    'lighting.cockpit.captainDisplays.set',
+    'lighting.cockpit.firstOfficerDisplays.set',
+  ]);
+  assert.deepEqual(result.controlRequests.map((request) => request.value), [42, 42, 42, 42]);
+
+  for (const value of [-1, 42.5, 101]) {
+    const invalid = resolveAircraftCommand({
+      commandId: 'configuration.lighting.cockpit',
+      input: { value },
+    }, {
+      profile: buildPmdg737Profile(),
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['simconnect-sequence'],
+      },
+    });
+    assert.equal(invalid.ok, false, `cockpit lighting ${value} must be rejected`);
+    assert.equal(invalid.code, 'invalid_command_input');
+  }
+});
+
+test('aircraft command validation rejects out-of-range input before provider execution', async () => {
+  let calls = 0;
+  const result = await executeAircraftCommand({
+    async executeAircraftControlAction() {
+      calls += 1;
+      return { ok: true };
+    },
+  }, {
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 360 },
+  }, {
+    profile: buildBroadGenericControlProfile(),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'invalid_command_input');
+  assert.equal(calls, 0);
+});
+
+test('executeAircraftCommand preserves the canonical request while using the guarded legacy provider path', async () => {
+  const calls = [];
+  const provider = {
+    aircraftControlCapabilities: { actionTypes: ['key-event'] },
+    async executeAircraftControlAction(action, options) {
+      calls.push({ action, options });
+      return { ok: true, code: 'executed', type: 'forged-result', requestId: 'forged-request' };
+    },
+  };
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'surfaces.gear.set',
+    input: { value: 'down' },
+    profileKey: 'bundled/msfs/generic',
+    profileRevision: 3,
+  }, {
+    profile: buildBroadGenericControlProfile(),
+    profileRevision: 3,
+    requireProfileToken: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.commandId, 'surfaces.gear.set');
+  assert.equal(result.type, undefined);
+  assert.equal(result.requestId, undefined);
+  assert.deepEqual(result.request.input, { value: 'down' });
+  assert.deepEqual(result.controlRequest, {
+    control: 'gear',
+    operation: 'down',
+    profileKey: 'bundled/msfs/generic',
+    profileRevision: 3,
+    requestId: null,
+    target: '',
+    value: undefined,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].action.name, 'GEAR_DOWN');
+});
+
+test('executeAircraftCommand applies a takeoff-light preset in order through the shared provider path', async () => {
+  const calls = [];
+  const provider = {
+    aircraftControlCapabilities: { actionTypes: ['key-event'] },
+    async executeAircraftControlAction(action, options) {
+      calls.push({ action, request: options.request });
+      return { ok: true, code: 'executed' };
+    },
+  };
+
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+  }, {
+    profile: buildBroadGenericControlProfile(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.commandId, 'configuration.lights.takeoff');
+  assert.equal(result.completedStepCount, 3);
+  assert.equal(result.stepCount, 3);
+  assert.deepEqual(calls.map((call) => call.action.name), [
+    'LANDING_LIGHTS_SET',
+    'TAXI_LIGHTS_SET',
+    'STROBES_SET',
+  ]);
+  assert.deepEqual(calls.map((call) => call.request.value), [true, true, true]);
+});
+
+test('takeoff-light preset stops after the first failed action and reports partial completion', async () => {
+  const calls = [];
+  const provider = {
+    aircraftControlCapabilities: { actionTypes: ['key-event'] },
+    async executeAircraftControlAction(action) {
+      calls.push(action.name);
+      return action.name === 'TAXI_LIGHTS_SET'
+        ? { ok: false, code: 'write_failed', error: 'Taxi light write failed.' }
+        : { ok: true, code: 'executed' };
+    },
+  };
+
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+  }, {
+    profile: buildBroadGenericControlProfile(),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'write_failed');
+  assert.equal(result.completedStepCount, 1);
+  assert.equal(result.executionStarted, true, 'a completed earlier step makes aircraft state uncertain');
+  assert.equal(result.failedStepIndex, 1);
+  assert.equal(result.failedStepLabel, 'Taxi lights ON');
+  assert.deepEqual(calls, ['LANDING_LIGHTS_SET', 'TAXI_LIGHTS_SET']);
+});
+
+test('a first-step provider rejection does not imply that preset execution started', async () => {
+  const provider = {
+    aircraftControlCapabilities: { actionTypes: ['key-event'] },
+    async executeAircraftControlAction() {
+      return { ok: false, code: 'action_cooldown', error: 'Wait before retrying.' };
+    },
+  };
+
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+  }, {
+    profile: buildBroadGenericControlProfile(),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.completedStepCount, 0);
+  assert.equal(result.steps.length, 1, 'the failed step remains available to privileged diagnostics');
+  assert.equal(result.executionStarted, undefined);
+});
+
+test('executeAircraftCommand preserves one percentage across every cockpit-lighting group', async () => {
+  const calls = [];
+  const provider = {
+    aircraftControlCapabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+    async executeAircraftControlAction(action, options) {
+      calls.push({ action, request: options.request });
+      return { ok: true, code: 'executed' };
+    },
+  };
+
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'configuration.lighting.cockpit',
+    input: { value: 42 },
+  }, {
+    profile: buildPmdg737Profile(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.completedStepCount, 4);
+  assert.equal(result.stepCount, 4);
+  assert.deepEqual(calls.map((call) => call.request.actionId), [
+    'lighting.cockpit.panels.set',
+    'lighting.cockpit.ambient.set',
+    'lighting.cockpit.captainDisplays.set',
+    'lighting.cockpit.firstOfficerDisplays.set',
+  ]);
+  assert.deepEqual(calls.map((call) => call.request.value), [42, 42, 42, 42]);
+});
 
 test('resolveAircraftControl uses generic MSFS fallback for gear down', () => {
   const result = resolveAircraftControl(
@@ -1333,6 +1877,7 @@ test('executeAircraftControl returns a normalized unsupported-provider result', 
 
   assert.equal(result.ok, false);
   assert.equal(result.code, 'provider_unsupported');
+  assert.equal(result.executionStarted, undefined);
   assert.equal(result.error, 'The active simulator provider does not support aircraft control actions.');
   assert.equal(result.resolvedBy, 'generic');
   assert.deepEqual(result.action, {
@@ -1363,8 +1908,31 @@ test('executeAircraftControl normalizes provider failures without letting provid
   assert.equal(result.ok, false);
   assert.equal(result.code, 'sidecar_unavailable');
   assert.equal(result.error, 'No sidecar.');
+  assert.equal(result.executionStarted, undefined);
   assert.equal(result.request.control, 'gear');
   assert.equal(result.action.type, 'key-event');
+});
+
+test('executeAircraftControl preserves an explicit provider dispatch boundary', async () => {
+  const provider = {
+    async executeAircraftControlAction() {
+      return {
+        ok: false,
+        code: 'action_failed',
+        error: 'The native write was not acknowledged.',
+        executionStarted: true,
+      };
+    },
+  };
+
+  const result = await executeAircraftControl(
+    provider,
+    { control: 'gear', operation: 'down' },
+    { profile: buildProfile() }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.executionStarted, true);
 });
 
 test('executeAircraftControl catches provider exceptions as provider_error', async () => {
@@ -1383,6 +1951,7 @@ test('executeAircraftControl catches provider exceptions as provider_error', asy
   assert.equal(result.ok, false);
   assert.equal(result.code, 'provider_error');
   assert.equal(result.error, 'bridge exploded');
+  assert.equal(result.executionStarted, undefined);
 });
 
 test('resolveAircraftControl requires a current profile token when requested', () => {
@@ -1466,6 +2035,7 @@ test('executeAircraftControl rejects blocked simulator states before provider ex
   assert.equal(called, false);
   assert.equal(result.ok, false);
   assert.equal(result.code, 'sim_state_blocked');
+  assert.equal(result.executionStarted, undefined);
 });
 
 export {};

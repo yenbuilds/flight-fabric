@@ -2,6 +2,7 @@ import { getEventAttitudeDeg, normalizeTimelineTrackPoints } from './track-point
 import { getTimelineEventMarkerVisual } from './map.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from '../live-map/plane-icon.js';
 import { unwrapLatLngPath, unwrapLongitudeNear } from '../live-map/geo.js';
+import { createOpenFreeMapDarkLayer } from '../maps/openfreemap.js';
 
 const MAP_TRACK_RENDER_POINT_LIMIT = 700;
 const MAP_TRACK_RENDER_DETAIL_POINT_LIMIT = 1500;
@@ -378,7 +379,6 @@ export function createTimelineMapController({
 } = {}) {
   let timelineMap = null;
   let timelineBaseLayer = null;
-  let timelineBaseLayerFallbackActive = false;
   let timelineBaseLayerInitialLoadSynced = false;
   let timelineMapResizeObserver = null;
   let timelineMapResizeRaf = null;
@@ -514,38 +514,18 @@ export function createTimelineMapController({
       setMapEmptyState({ message: 'Online map tiles disabled' });
       syncMapSizeAfterInitialTileLoad();
     } else {
-      const activateOsmFallback = () => {
-        if (!timelineMap || timelineBaseLayerFallbackActive) return;
-        timelineBaseLayerFallbackActive = true;
-        timelineBaseLayerInitialLoadSynced = false;
-        try {
-          if (timelineBaseLayer) timelineMap.removeLayer(timelineBaseLayer);
-        } catch {}
-        timelineBaseLayer = windowRef.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          updateWhenIdle: true,
-          updateWhenZooming: false,
-          keepBuffer: 1,
-        }).addTo(timelineMap);
-        timelineBaseLayer.on('load', syncMapSizeAfterInitialTileLoad);
-        if (timelineStore.mapEmptyVisible === false) {
-          setMapEmptyState({ message: 'Using OpenStreetMap fallback tiles' });
-        }
-        consoleRef.warn('[TimelineMap] CARTO dark tiles failed; switched to OpenStreetMap fallback');
-      };
-
-      timelineBaseLayer = windowRef.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
-        updateWhenIdle: true,
-        updateWhenZooming: false,
-        keepBuffer: 1,
-      });
-      timelineBaseLayer.on('load', syncMapSizeAfterInitialTileLoad);
-      timelineBaseLayer.on('tileerror', activateOsmFallback);
-      timelineBaseLayer.addTo(timelineMap);
+      try {
+        timelineBaseLayer = createOpenFreeMapDarkLayer(windowRef.L).addTo(timelineMap);
+        const vectorMap = timelineBaseLayer.getMaplibreMap?.();
+        vectorMap?.once?.('load', syncMapSizeAfterInitialTileLoad);
+        vectorMap?.once?.('error', (event) => {
+          consoleRef.warn('[TimelineMap] OpenFreeMap dark basemap unavailable', event?.error || event);
+        });
+      } catch (error) {
+        timelineBaseLayer = null;
+        syncMapSizeAfterInitialTileLoad();
+        consoleRef.warn('[TimelineMap] OpenFreeMap dark basemap could not start', error);
+      }
     }
 
     if (windowRef.L.DomEvent && mapEl) {
@@ -866,7 +846,6 @@ export function createTimelineMapController({
     }
     timelineMap = null;
     timelineBaseLayer = null;
-    timelineBaseLayerFallbackActive = false;
     timelineBaseLayerInitialLoadSynced = false;
     timelineMapInitErrorMessage = '';
     timelineEventLayer = null;

@@ -261,6 +261,7 @@ const BUNDLED_THEMES_DIR = resolveRepoAssetPath('frontend', 'themes');
 const STATIC_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css',
   '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
@@ -486,6 +487,7 @@ export function buildContentSecurityPolicy(
     'ws://localhost:*',
     'ws://127.0.0.1:*',
     'ws://[::1]:*',
+    'https://tiles.openfreemap.org',
   ]);
   const requestHost = extractHostnameFromHostHeader(req.headers.host);
   if (remoteAccessEnable && isPrivateLanIpv4(requestHost)) {
@@ -506,7 +508,7 @@ export function buildContentSecurityPolicy(
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com",
+    "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
     `connect-src ${[...connectSources].join(' ')}`,
     "worker-src 'self' blob:",

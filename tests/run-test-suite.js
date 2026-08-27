@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const { ROOT, getRepoScratchAppData, getRepoScratchPath } = require('../scripts/repo-scratch');
 
 const TEST_STEPS = [
+  ['node', ['--test', 'tests/scripts/test-run-test-suite-isolation.js']],
   ['npm', ['run', 'build:backend:runtime']],
   ['npm', ['run', 'test:backend:companions']],
   ['npm', ['run', 'test:cabin-announcements']],
@@ -54,6 +55,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-vue-stores.js']],
   ['node', ['tests/scripts/test-vue-components.js']],
   ['node', ['tests/scripts/test-vue-interactions.js']],
+  ['npm', ['run', 'test:voice']],
   ['node', ['tests/scripts/test-telemetry-ui.js']],
   ['node', ['tests/scripts/test-ws-connection-bootstrap.js']],
   ['node', ['tests/scripts/test-pmdg-737-preview.js']],
@@ -163,23 +165,71 @@ function formatStep(tool, args) {
   return [tool, ...args].join(' ');
 }
 
-function main() {
+function isPathWithin(parentPath, childPath) {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function createIsolatedTestEnvironment(baseEnv = process.env) {
+  const scratchRoot = getRepoScratchPath();
+  const testHome = getRepoScratchPath('test-suite-home');
+  const documents = path.join(testHome, 'Documents');
+  const originalHome = baseEnv.USERPROFILE || baseEnv.HOME;
+  const cargoHome = baseEnv.CARGO_HOME || (originalHome ? path.join(originalHome, '.cargo') : undefined);
+  const rustupHome = baseEnv.RUSTUP_HOME || (originalHome ? path.join(originalHome, '.rustup') : undefined);
   const appData = getRepoScratchAppData('test-suite-appdata');
   const localAppData = getRepoScratchPath('test-suite-appdata', 'AppData', 'Local');
-  const xdgConfigHome = getRepoScratchPath('test-suite-home', '.config');
-  const oneDrive = getRepoScratchPath('test-suite-home', 'OneDrive');
+  const xdgConfigHome = path.join(testHome, '.config');
+  const oneDrive = path.join(testHome, 'OneDrive');
+  fs.mkdirSync(testHome, { recursive: true });
+  fs.mkdirSync(documents, { recursive: true });
   fs.mkdirSync(appData, { recursive: true });
   fs.mkdirSync(localAppData, { recursive: true });
   fs.mkdirSync(xdgConfigHome, { recursive: true });
   fs.mkdirSync(oneDrive, { recursive: true });
+
   const env = {
-    ...process.env,
+    ...baseEnv,
+    HOME: testHome,
+    USERPROFILE: testHome,
     APPDATA: appData,
     LOCALAPPDATA: localAppData,
     XDG_CONFIG_HOME: xdgConfigHome,
     OneDrive: oneDrive,
+    ONEDRIVE: oneDrive,
+    OneDriveConsumer: oneDrive,
+    OneDriveCommercial: oneDrive,
     FLIGHT_FABRIC_SKIP_WINDOWS_KNOWN_DOCUMENTS: '1',
   };
+  if (cargoHome) env.CARGO_HOME = cargoHome;
+  if (rustupHome) env.RUSTUP_HOME = rustupHome;
+
+  for (const [name, targetPath] of Object.entries({
+    HOME: env.HOME,
+    USERPROFILE: env.USERPROFILE,
+    APPDATA: env.APPDATA,
+    LOCALAPPDATA: env.LOCALAPPDATA,
+    XDG_CONFIG_HOME: env.XDG_CONFIG_HOME,
+    OneDrive: env.OneDrive,
+    ONEDRIVE: env.ONEDRIVE,
+    OneDriveConsumer: env.OneDriveConsumer,
+    OneDriveCommercial: env.OneDriveCommercial,
+  })) {
+    if (!isPathWithin(scratchRoot, targetPath)) {
+      throw new Error(`Refusing to run tests with ${name} outside the repository scratch directory: ${targetPath}`);
+    }
+  }
+
+  return env;
+}
+
+function main() {
+  const env = createIsolatedTestEnvironment();
+
+  if (process.argv.includes('--check-environment')) {
+    console.log(`Test environment is isolated under ${getRepoScratchPath()}`);
+    return;
+  }
 
   for (const [tool, args] of TEST_STEPS) {
     console.log(`\n> ${formatStep(tool, args)}`);
@@ -201,4 +251,9 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = {
+  createIsolatedTestEnvironment,
+  isPathWithin,
+};

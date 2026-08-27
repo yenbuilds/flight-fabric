@@ -27,6 +27,13 @@ const AUTOPILOT_SELECTOR_TARGETS = Object.freeze({
   vs: 'verticalSpeed',
 });
 
+const AUTOPILOT_SELECTOR_COMMAND_IDS = Object.freeze({
+  spd: 'flightGuidance.speed.set',
+  hdg: 'flightGuidance.heading.set',
+  alt: 'flightGuidance.altitude.set',
+  vs: 'flightGuidance.verticalSpeed.set',
+});
+
 const AUTOPILOT_SELECTOR_HOLD_TARGETS = Object.freeze({
   spd: 'speedHold',
   hdg: 'headingHold',
@@ -44,71 +51,91 @@ const AUTOPILOT_MODE_STATE_KEYS = Object.freeze({
   flightLevelChange: 'flcHold',
 });
 
-const PRESET_CONTROL_COMMANDS = Object.freeze({
+const CONTROL_COMMANDS = Object.freeze({
   gearUp: {
-    request: { control: 'gear', operation: 'up' },
+    commandId: 'surfaces.gear.set', input: { value: 'up' },
+    legacyRequest: { control: 'gear', operation: 'up' },
     busyLabel: 'Sending\u2026',
   },
   gearDown: {
-    request: { control: 'gear', operation: 'down' },
+    commandId: 'surfaces.gear.set', input: { value: 'down' },
+    legacyRequest: { control: 'gear', operation: 'down' },
     busyLabel: 'Sending\u2026',
   },
   flapsDecrease: {
-    request: { control: 'flaps', operation: 'decrement' },
+    commandId: 'surfaces.flaps.adjust', input: { value: 'decrease' },
+    legacyRequest: { control: 'flaps', operation: 'decrement' },
     busyLabel: 'Sending\u2026',
   },
   flapsIncrease: {
-    request: { control: 'flaps', operation: 'increment' },
+    commandId: 'surfaces.flaps.adjust', input: { value: 'increase' },
+    legacyRequest: { control: 'flaps', operation: 'increment' },
     busyLabel: 'Sending\u2026',
   },
   parkingBrakeRelease: {
-    request: { control: 'parkingBrake', operation: 'set', value: false },
+    commandId: 'surfaces.parkingBrake.set', input: { value: false },
+    legacyRequest: { control: 'parkingBrake', operation: 'set', value: false },
     busyLabel: 'Releasing\u2026',
     minimumPendingMs: 350,
   },
   parkingBrakeSet: {
-    request: { control: 'parkingBrake', operation: 'set', value: true },
+    commandId: 'surfaces.parkingBrake.set', input: { value: true },
+    legacyRequest: { control: 'parkingBrake', operation: 'set', value: true },
     busyLabel: 'Setting\u2026',
     minimumPendingMs: 350,
   },
   spoilersRetract: {
-    request: { control: 'spoilers', operation: 'set', value: 0 },
+    commandId: 'surfaces.spoilers.set', input: { value: 'retracted' },
+    legacyRequest: { control: 'spoilers', operation: 'set', value: 0 },
     busyLabel: 'Retracting\u2026',
     minimumPendingMs: 350,
   },
   spoilersExtend: {
-    request: { control: 'spoilers', operation: 'set', value: 16383 },
+    commandId: 'surfaces.spoilers.set', input: { value: 'full' },
+    legacyRequest: { control: 'spoilers', operation: 'set', value: 16383 },
     busyLabel: 'Extending\u2026',
     minimumPendingMs: 350,
   },
   spoilersDisarm: {
-    request: { control: 'spoilers', operation: 'disarm' },
+    commandId: 'surfaces.spoilersArmed.set', input: { value: false },
+    legacyRequest: { control: 'spoilers', operation: 'disarm' },
     busyLabel: 'Disarming\u2026',
     minimumPendingMs: 350,
   },
   spoilersArm: {
-    request: { control: 'spoilers', operation: 'arm' },
+    commandId: 'surfaces.spoilersArmed.set', input: { value: true },
+    legacyRequest: { control: 'spoilers', operation: 'arm' },
     busyLabel: 'Arming\u2026',
     minimumPendingMs: 350,
   },
   autopilotMasterToggle: {
-    request: { control: 'autopilot', target: 'master', operation: 'toggle' },
+    commandId: 'flightGuidance.autopilot.toggle', input: {},
+    legacyRequest: { control: 'autopilot', target: 'master', operation: 'toggle' },
     busyLabel: 'Toggling\u2026',
   },
   autothrottleToggle: {
-    request: { control: 'autopilot', target: 'autothrottle', operation: 'toggle' },
+    commandId: 'flightGuidance.autothrottle.toggle', input: {},
+    legacyRequest: { control: 'autopilot', target: 'autothrottle', operation: 'toggle' },
     busyLabel: 'Toggling\u2026',
   },
   flightDirectorToggle: {
-    request: { control: 'autopilot', target: 'flightDirector', operation: 'toggle' },
+    commandId: 'flightGuidance.flightDirector.toggle', input: {},
+    legacyRequest: { control: 'autopilot', target: 'flightDirector', operation: 'toggle' },
     busyLabel: 'Toggling\u2026',
   },
 });
 
-const PRESET_MODE_TOGGLE_TARGETS = Object.freeze({
-  flcToggle: 'flightLevelChange',
-  locToggle: 'loc',
-  appToggle: 'app',
+const CONTROL_MODE_TOGGLE_TARGETS = Object.freeze({
+  flcToggle: Object.freeze({ target: 'flightLevelChange', commandId: 'flightGuidance.flightLevelChange.set' }),
+  locToggle: Object.freeze({ target: 'loc', commandId: 'flightGuidance.localizer.set' }),
+  appToggle: Object.freeze({ target: 'app', commandId: 'flightGuidance.approach.set' }),
+});
+
+const AUTOPILOT_SELECTOR_HOLD_COMMAND_IDS = Object.freeze({
+  spd: 'flightGuidance.speedHold.set',
+  hdg: 'flightGuidance.headingHold.set',
+  alt: 'flightGuidance.altitudeHold.set',
+  vs: 'flightGuidance.verticalSpeedHold.set',
 });
 
 const GENERIC_LIGHT_TARGETS = Object.freeze({
@@ -121,55 +148,55 @@ const GENERIC_LIGHT_TARGETS = Object.freeze({
 
 const AUTOPILOT_PULSE_COMMANDS = Object.freeze({
   autothrottle: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'autothrottle', operation: 'toggle' }),
+    commandId: 'flightGuidance.autothrottle.toggle', input: Object.freeze({}),
     busyLabel: 'Toggling\u2026',
   }),
   verticalSpeedHold: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'verticalSpeedHold', operation: 'toggle' }),
+    commandId: 'flightGuidance.verticalSpeedHold.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   altitudeHold: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'altitudeHold', operation: 'toggle' }),
+    commandId: 'flightGuidance.altitudeHold.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   machHold: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'machHold', operation: 'toggle' }),
+    commandId: 'flightGuidance.machHold.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   headingHold: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'headingHold', operation: 'toggle' }),
+    commandId: 'flightGuidance.headingHold.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   flightDirector: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'flightDirector', operation: 'toggle' }),
+    commandId: 'flightGuidance.flightDirector.toggle', input: Object.freeze({}),
     busyLabel: 'Toggling\u2026',
   }),
   apMaster: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'master', operation: 'toggle' }),
+    commandId: 'flightGuidance.autopilot.toggle', input: Object.freeze({}),
     busyLabel: 'Toggling\u2026',
   }),
   apDisconnect: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'master', operation: 'set', value: false }),
+    commandId: 'flightGuidance.autopilot.set', input: Object.freeze({ value: false }),
     busyLabel: 'Disconnecting\u2026',
   }),
   app: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'app', operation: 'toggle' }),
+    commandId: 'flightGuidance.approach.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   loc: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'loc', operation: 'toggle' }),
+    commandId: 'flightGuidance.localizer.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   nav1: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'nav1', operation: 'toggle' }),
+    commandId: 'flightGuidance.nav1.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   ins: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'ins', operation: 'toggle' }),
+    commandId: 'flightGuidance.ins.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
   backcourse: Object.freeze({
-    request: Object.freeze({ control: 'autopilot', target: 'backcourse', operation: 'toggle' }),
+    commandId: 'flightGuidance.backcourse.toggle', input: Object.freeze({}),
     busyLabel: 'Sending\u2026',
   }),
 });
@@ -291,34 +318,49 @@ export function createAutopilotPanel({
     };
   }
 
-  function sendPresetCommand(commandId, button = null) {
-    const preset = PRESET_CONTROL_COMMANDS[commandId];
-    if (preset) {
-      const command = { type: 'preset', id: commandId };
-      return aircraftControl.send(preset.request, {
-        ...getSendOptions(command, button, preset.busyLabel),
-        minimumPendingMs: preset.minimumPendingMs || 0,
+  function sendSharedCommand(commandId, input, legacyRequest, options) {
+    // Capability snapshots from pre-command-API backends have no catalogue.
+    // Keep that narrow upgrade path; a present catalogue is authoritative and
+    // never falls through when a command is unsupported for this aircraft.
+    if (controlsStore?.aircraftCommandCatalogue?.configurationId) {
+      return aircraftControl.sendCommand(commandId, input, options);
+    }
+    return legacyRequest ? aircraftControl.send(legacyRequest, options) : false;
+  }
+
+  function sendControlCommand(commandId, button = null) {
+    const control = CONTROL_COMMANDS[commandId];
+    if (control) {
+      const command = { type: 'control', id: commandId };
+      return sendSharedCommand(control.commandId, control.input, control.legacyRequest, {
+        ...getSendOptions(command, button, control.busyLabel),
+        minimumPendingMs: control.minimumPendingMs || 0,
       });
     }
 
-    const modeTarget = PRESET_MODE_TOGGLE_TARGETS[commandId];
-    if (!modeTarget) return false;
+    const modeBinding = CONTROL_MODE_TOGGLE_TARGETS[commandId];
+    if (!modeBinding) return false;
 
-    const nextValue = !getAutopilotModeActive(modeTarget);
-    const command = { type: 'preset', id: commandId };
-    return aircraftControl.send(
-      { control: 'autopilot', target: modeTarget, operation: 'set', value: nextValue },
+    const nextValue = !getAutopilotModeActive(modeBinding.target);
+    const command = { type: 'control', id: commandId };
+    return sendSharedCommand(
+      modeBinding.commandId,
+      { value: nextValue },
+      { control: 'autopilot', target: modeBinding.target, operation: 'set', value: nextValue },
       getSendOptions(command, button, nextValue ? 'Engaging\u2026' : 'Disengaging\u2026'),
     );
   }
 
   function sendSelectorHoldCommand(mode, button = null) {
     const target = AUTOPILOT_SELECTOR_HOLD_TARGETS[mode];
-    if (!target) return false;
+    const commandId = AUTOPILOT_SELECTOR_HOLD_COMMAND_IDS[mode];
+    if (!target || !commandId) return false;
 
     const nextValue = !getAutopilotModeActive(target);
     const command = { type: 'selector-hold', mode };
-    return aircraftControl.send(
+    return sendSharedCommand(
+      commandId,
+      { value: nextValue },
       { control: 'autopilot', target, operation: 'set', value: nextValue },
       getSendOptions(command, button, nextValue ? 'Engaging\u2026' : 'Disengaging\u2026'),
     );
@@ -326,11 +368,14 @@ export function createAutopilotPanel({
 
   function sendSelectorAdjustCommand(mode, action, button = null) {
     const target = AUTOPILOT_SELECTOR_TARGETS[mode];
-    if (!target || !action) return false;
+    const commandId = AUTOPILOT_SELECTOR_COMMAND_IDS[mode];
+    if (!target || !commandId || !action) return false;
 
     const value = computeNextAutopilotSelectorValue(mode, action);
     const command = { type: 'selector-adjust', mode, action };
-    return aircraftControl.send(
+    return sendSharedCommand(
+      commandId,
+      { value },
       { control: 'autopilot', target, operation: 'set', value },
       getSendOptions(command, button, 'Setting\u2026'),
     );
@@ -338,11 +383,14 @@ export function createAutopilotPanel({
 
   function sendSelectorSetCommand(mode, rawValue, button = null) {
     const target = AUTOPILOT_SELECTOR_TARGETS[mode];
+    const commandId = AUTOPILOT_SELECTOR_COMMAND_IDS[mode];
     const validated = validateAutopilotTargetValue(mode, rawValue);
-    if (!target || !validated.ok) return false;
+    if (!target || !commandId || !validated.ok) return false;
 
     const command = { type: 'selector-set', mode, value: validated.value };
-    return aircraftControl.send(
+    return sendSharedCommand(
+      commandId,
+      { value: validated.value },
       { control: 'autopilot', target, operation: 'set', value: validated.value },
       getSendOptions(command, button, 'Setting\u2026'),
     );
@@ -361,8 +409,18 @@ export function createAutopilotPanel({
     if (controlsStore?.isCommandPending?.(pendingKey) === true) return false;
     if (lastSentAt > 0 && Number.isFinite(nowMs) && nowMs - lastSentAt < AUTOPILOT_PULSE_COOLDOWN_MS) return false;
 
-    const sent = aircraftControl.send(
-      pulse.request,
+    const legacyTarget = commandId === 'apMaster' || commandId === 'apDisconnect'
+      ? 'master'
+      : commandId;
+    const sent = sendSharedCommand(
+      pulse.commandId,
+      pulse.input,
+      {
+        control: 'autopilot',
+        target: legacyTarget,
+        operation: commandId === 'apDisconnect' ? 'set' : 'toggle',
+        ...(commandId === 'apDisconnect' ? { value: false } : {}),
+      },
       {
         ...getSendOptions(command, button, pulse.busyLabel),
         pendingKey,
@@ -379,7 +437,9 @@ export function createAutopilotPanel({
     if (value !== true && value !== false) return false;
 
     const command = { type: 'light-set', light: target, value };
-    return aircraftControl.send(
+    return sendSharedCommand(
+      `lights.${target}.set`,
+      { value },
       { control: 'lights', target, operation: 'set', value },
       {
         ...getSendOptions(command, button, value ? 'Turning on\u2026' : 'Turning off\u2026'),
@@ -388,11 +448,27 @@ export function createAutopilotPanel({
     );
   }
 
+  function sendCanonicalCommand(command, button = null) {
+    const commandId = typeof command?.commandId === 'string' ? command.commandId.trim() : '';
+    if (!commandId || controlsStore?.isAircraftCommandSupported?.(commandId) !== true) return false;
+    const input = command.input && typeof command.input === 'object' && !Array.isArray(command.input)
+      ? command.input
+      : {};
+    return aircraftControl.sendCommand(commandId, input, {
+      ...getSendOptions(command, button, 'Applying…'),
+      minimumPendingMs: 350,
+    });
+  }
+
   function executeControlCommand(command = {}, { button = null } = {}) {
     if (!command || typeof command !== 'object') return false;
 
-    if (command.type === 'preset') {
-      return sendPresetCommand(command.id, button);
+    if (command.type === 'canonical') {
+      return sendCanonicalCommand(command, button);
+    }
+
+    if (command.type === 'control') {
+      return sendControlCommand(command.id, button);
     }
 
     if (command.type === 'selector-hold') {

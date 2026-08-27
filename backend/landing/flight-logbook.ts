@@ -863,8 +863,10 @@ function linearSlope(values: Array<number | null | undefined>): number | null {
     denominator += (index - xMean) * (index - xMean);
   }
   const raw = denominator === 0 ? 0 : numerator / denominator;
+  // Express the fitted slope across the full window so sample count does not change the label.
+  const windowChange = raw * (length - 1);
   const magnitude = Math.abs(yMean);
-  return magnitude > 0.001 ? raw / magnitude : raw;
+  return magnitude > 0.001 ? windowChange / magnitude : windowChange;
 }
 
 function linearTrend(values: Array<number | null | undefined>, metric: string): 'improving' | 'regressing' | 'stable' | null {

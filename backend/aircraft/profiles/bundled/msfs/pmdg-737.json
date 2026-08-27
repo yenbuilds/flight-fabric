@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2025-01-03T00:00:00Z",
-  "updatedAt": "2026-08-20T00:00:00Z",
+  "updatedAt": "2026-08-24T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/boeing-base",
   "abstract": false,
@@ -91,7 +91,7 @@
       "backend": "pmdg",
       "genericFallback": false,
       "standardSurfaceFallback": false,
-      "_comment": "PMDG 737 writes use the shared adapter and official SDK routes only. Generic AP, gear/flap key-event, and alternate LVar write paths are intentionally absent."
+      "_comment": "PMDG 737 writes use the shared adapter, official SDK routes, and the exact 0..300 dimmer LVars defined by the installed PMDG cockpit behavior. Generic AP, gear/flap key-event, and unrelated LVar write paths are intentionally absent."
     },
     "signalReliability": {
       "stabilityScore": "authoritative"
@@ -117,7 +117,7 @@
     "developer": "PMDG",
     "platforms": ["msfs2020", "msfs2024"],
     "contributor": "YenBuilds",
-    "updated": "2026-08-20",
+    "updated": "2026-08-24",
     "status": "partial",
     "notes": "PMDG 737-800 family profile using the official NG3 SDK and guarded backend-owned event routes. SDK data and writes remain disabled until the user accepts the PMDG SDK EULA."
   },
@@ -131,7 +131,17 @@
         "name": "PMDG 737 MSFS SDK and installed aircraft behavior definitions",
         "url": "https://manuals.pmdg.com/737/PMDG_737_MSFS_Introduction.pdf",
         "retrievedAt": "2026-08-20",
-        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the 916-byte NG3 ClientData contract, direct-position control events, data-broadcast requirement, model variants, and mandatory SDK EULA opt-in. The installed header publishes battery, standby-power, transfer-bus, IRS, window-heat, APU, ground-power, bus-powered, gear-handle, autobrake, parking-brake, pack, bleed, anti-ice, yaw-damper, and stabilizer-trim readbacks. The installed behavior defines direct targets for all nine normal flap-handle detents; Flight Fabric confirms them against the standard FLAPS HANDLE INDEX because ClientData publishes flap needles rather than the handle. Spring-loaded ground-power and APU-generator controls use reviewed ROTOR_BRAKE direction/release sequences. Stable selectors use matching direct SDK event IDs and exact logical readback. Existing NAV1 controls 729/732/733, NAV2 controls 845/848/849, and position-light control 123 retain their reviewed ROTOR_BRAKE compatibility encodings. Flight Fabric maps that contract through the clientdata-manifest adapter and checked-in pmdg-737-ng3-clientdata connector. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the 916-byte NG3 ClientData contract, direct-position control events, data-broadcast requirement, model variants, and mandatory SDK EULA opt-in. The installed header publishes battery, standby-power, transfer-bus, IRS, window-heat, APU, ground-power, bus-powered, gear-handle, autobrake, parking-brake, pack, bleed, anti-ice, yaw-damper, and stabilizer-trim readbacks. The installed behavior defines direct targets for all nine normal flap-handle detents; Flight Fabric confirms them against the standard FLAPS HANDLE INDEX because ClientData publishes flap needles rather than the handle. It also defines 0..300 LVar positions for 16 continuously dimmable controls: OH_CB_PANEL_LIGHT_CONTROL, OH_PANEL_LIGHT_CONTROL, CA_MAIN_PANEL_LIGHT_CONTROL, FO_MAIN_PANEL_LIGHT_CONTROL, CA_BACKGROUND_BRT_CONTROL, CA_AFDS_FLOOD_LIGHT_CONTROL, PED_FLOOD_LIGHT_CONTROL, PED_PANEL_LIGHT_CONTROL, CA_OUTBD_DU_BRIGHT_CONTROL, CA_INBD_DU_BRIGHT_CONTROL, CA_INBD_DU_RDR_BRIGHT_CONTROL, CA_UPPER_DU_BRIGHT_CONTROL, CA_LOWER_DU_BRIGHT_CONTROL, FO_OUTBD_DU_BRIGHT_CONTROL, FO_INBD_DU_BRIGHT_CONTROL, and FO_INBD_DU_RDR_BRIGHT_CONTROL. The cockpit-lighting preset writes those exact positions in four guarded groups and confirms every LVar as a whole percentage. Discrete dome/spot lights, chart/map mechanisms, EFB buttons, CDU internals, and the explicitly inoperative lower-DU inner knob are excluded. Spring-loaded ground-power and APU-generator controls use reviewed ROTOR_BRAKE direction/release sequences. Stable selectors use matching direct SDK event IDs and exact logical readback. Existing NAV1 controls 729/732/733, NAV2 controls 845/848/849, and position-light control 123 retain their reviewed ROTOR_BRAKE compatibility encodings. The installed PMDG SDK assigns direct course-set events #84132 to the captain window and #84133 to the first-officer window. Flight Fabric maps that contract through the clientdata-manifest adapter and checked-in pmdg-737-ng3-clientdata connector. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator Aircraft Radio Navigation Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm",
+        "retrievedAt": "2026-08-24",
+        "notes": "NAV1_RADIO_SET and NAV2_RADIO_SET accept Frequency BCD16 payloads and directly set their respective active NAV frequencies. Flight Fabric sends both events in one guarded PMDG command and independently confirms both active-frequency SimVars."
       }
     ],
     "verification": {
@@ -141,7 +151,10 @@
         "The 737-800 is the first live-validation target; the 600, 700, and 900 family profiles require in-aircraft testing.",
         "SDK readback requires EnableDataBroadcast=1 and the user to accept the PMDG EULA.",
         "The direct NAV and position-light routes are guarded and remain unverified until simulator confirmation.",
-        "Initial-power, flap-handle, gear, brake, pack, bleed, anti-ice, and stabilizer-trim writes remain unverified until end-to-end simulator passes are completed.",
+        "The paired NAV 1 + NAV 2 active-frequency command uses documented standard simulator events but remains unverified in a live PMDG 737 cockpit.",
+        "The paired captain + first-officer MCP course command uses the installed SDK direct-set events but remains unverified in a live PMDG 737 cockpit.",
+        "The 16-dimmer cockpit-lighting percentage preset follows the installed 737-800 behavior definitions but remains unverified end to end in the simulator and requires family-variant confirmation.",
+        "Initial-power, flap-handle, speedbrake, gear, brake, pack, bleed, anti-ice, and stabilizer-trim writes remain unverified until end-to-end simulator passes are completed.",
         "MCP mode and selector actions remain untested until IAS/Mach, VS, and button behavior are confirmed in the aircraft.",
         "The official SDK exposes speedbrake annunciators but not a continuous handle position; spoiler state stays on standard SimConnect percent telemetry."
       ]

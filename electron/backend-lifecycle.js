@@ -39,6 +39,16 @@ function selectBackendRuntimePorts(configuredPorts, activeLaunch, managedProcess
   return configuredPorts;
 }
 
+function shouldOfferWindowsPortFallback(portStates) {
+  if (!Array.isArray(portStates)) return false;
+  const unavailable = portStates.filter((state) => state?.probe?.available !== true);
+  return unavailable.length > 0 && unavailable.every((state) => (
+    String(state?.probe?.errorCode || '').toUpperCase() === 'EACCES'
+      && Array.isArray(state?.listenerPids)
+      && state.listenerPids.length === 0
+  ));
+}
+
 function isExactReadinessLine(line, marker) {
   return typeof marker === 'string' && marker.length > 0 && String(line ?? '').trim() === marker;
 }
@@ -132,4 +142,5 @@ module.exports = {
   isExactReadinessLine,
   parseConfiguredTcpPort,
   selectBackendRuntimePorts,
+  shouldOfferWindowsPortFallback,
 };

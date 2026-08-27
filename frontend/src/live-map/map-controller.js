@@ -6,6 +6,7 @@ import {
   unwrapLongitudeNear,
 } from './geo.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from './plane-icon.js';
+import { createOpenFreeMapDarkLayer } from '../maps/openfreemap.js';
 
 const HEADING_DEADBAND_DEG = 0.75;
 const HEADING_SMOOTHING_FACTOR = 0.35;
@@ -55,7 +56,6 @@ export function createLiveMapController({
 } = {}) {
   let liveMap = null;
   let liveBaseLayer = null;
-  let liveBaseLayerFallbackActive = false;
   let livePath = null;
   let liveCursor = null;
   let targetLine = null;
@@ -185,30 +185,18 @@ export function createLiveMapController({
       liveMapStore.setMeta('Online map tiles disabled');
       invalidateSizeStaggered();
     } else {
-      const activateOsmFallback = () => {
-        if (!liveMap || liveBaseLayerFallbackActive) return;
-        liveBaseLayerFallbackActive = true;
-        try {
-          if (liveBaseLayer) liveMap.removeLayer(liveBaseLayer);
-        } catch {}
-        liveBaseLayer = windowRef.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        }).addTo(liveMap);
-        liveMapStore.setMeta('Using OpenStreetMap fallback tiles');
-        consoleRef.warn('[LiveMap] CARTO dark tiles failed; switched to OpenStreetMap fallback');
-      };
-
-      liveBaseLayer = windowRef.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
-      });
-      liveBaseLayer.on('load', () => {
-        invalidateSizeStaggered();
-      });
-      liveBaseLayer.on('tileerror', activateOsmFallback);
-      liveBaseLayer.addTo(liveMap);
+      try {
+        liveBaseLayer = createOpenFreeMapDarkLayer(windowRef.L).addTo(liveMap);
+        const vectorMap = liveBaseLayer.getMaplibreMap?.();
+        vectorMap?.once?.('load', invalidateSizeStaggered);
+        vectorMap?.once?.('error', (event) => {
+          consoleRef.warn('[LiveMap] OpenFreeMap dark basemap unavailable', event?.error || event);
+        });
+      } catch (error) {
+        liveBaseLayer = null;
+        liveMapStore.setMeta('Dark basemap unavailable');
+        consoleRef.warn('[LiveMap] OpenFreeMap dark basemap could not start', error);
+      }
     }
 
     const pauseAutoFollow = () => {

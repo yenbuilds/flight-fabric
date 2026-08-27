@@ -54,10 +54,10 @@ const engines = Object.freeze([
 ]);
 
 const genericCommands = Object.freeze([
-  { id: 'ctrl-gear-up-btn', key: 'gearUp', label: 'Gear Up', command: { type: 'preset', id: 'gearUp' } },
-  { id: 'ctrl-gear-down-btn', key: 'gearDown', label: 'Gear Down', command: { type: 'preset', id: 'gearDown' } },
-  { id: 'ctrl-flaps-dec-btn', key: 'flapsDecrease', label: 'Flaps Less', command: { type: 'preset', id: 'flapsDecrease' } },
-  { id: 'ctrl-flaps-inc-btn', key: 'flapsIncrease', label: 'Flaps More', command: { type: 'preset', id: 'flapsIncrease' } },
+  { id: 'ctrl-gear-up-btn', key: 'gearUp', label: 'Gear Up', command: { type: 'control', id: 'gearUp' } },
+  { id: 'ctrl-gear-down-btn', key: 'gearDown', label: 'Gear Down', command: { type: 'control', id: 'gearDown' } },
+  { id: 'ctrl-flaps-dec-btn', key: 'flapsDecrease', label: 'Flaps Less', command: { type: 'control', id: 'flapsDecrease' } },
+  { id: 'ctrl-flaps-inc-btn', key: 'flapsIncrease', label: 'Flaps More', command: { type: 'control', id: 'flapsIncrease' } },
 ]);
 
 const simvarStatus = computed(() => (

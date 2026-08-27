@@ -1,18 +1,30 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "Flight Fabric - airline flying telemetry and debrief app",
   "main": "main.js",
   "author": "Flight Fabric",
   "license": "AGPL-3.0-only",
   "scripts": {
+    "build:voice-ptt": "cargo build --manifest-path voice-native/ptt-hook/Cargo.toml --release",
+    "provision:voice-model": "node scripts/provision-voice-model.js",
+    "prestart": "npm run provision:voice-model && npm run build:voice-ptt",
     "start": "npm --prefix .. run frontend:build && npm --prefix .. run build:backend:runtime && electron .",
+    "predev": "npm run provision:voice-model && npm run build:voice-ptt",
     "dev": "npm --prefix .. run frontend:build && npm --prefix .. run build:backend:runtime && electron . --dev",
+    "prebuild": "npm run provision:voice-model && npm run build:voice-ptt",
     "build": "electron-builder",
+    "prebuild:win": "npm run provision:voice-model && npm run build:voice-ptt",
     "build:win": "electron-builder --win",
+    "prebuild:portable": "npm run provision:voice-model && npm run build:voice-ptt",
     "build:portable": "electron-builder --win portable",
+    "prebuild:nsis": "npm run provision:voice-model && npm run build:voice-ptt",
     "build:nsis": "electron-builder --win nsis",
     "dist": "npm run build:win"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "1.13.5",
+    "sherpa-onnx-win-x64": "1.13.5"
   },
   "devDependencies": {
     "@electron/asar": "4.2.1",
@@ -48,7 +60,21 @@
       "network-info.js",
       "process-liveness.js",
       "runtime-owner-lock.js",
-      "msfs-detect.js"
+      "msfs-detect.js",
+      "voice-model-integrity.js",
+      "voice-model-manifest.js",
+      "voice-push-to-talk-hook.js",
+      "voice-push-to-talk.js",
+      "voice-runtime.js",
+      "voice-speech-engine.js",
+      "voice-speech-worker.js",
+      "windows-local-tts.js",
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/sherpa-onnx-win-x64/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/sherpa-onnx-win-x64/**/*"
     ],
     "extraResources": [
       {
@@ -167,6 +193,32 @@
           "THIRD_PARTY_NOTICES.md",
           "LICENSE.md",
           "OURAIRPORTS-DATA-LICENSE.txt"
+        ]
+      },
+      {
+        "from": "resources/models/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+        "to": "models/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+        "filter": [
+          "decoder-epoch-99-avg-1-chunk-16-left-128.onnx",
+          "encoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
+          "joiner-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
+          "bpe.vocab",
+          "tokens.txt"
+        ]
+      },
+      {
+        "from": "voice-native/ptt-hook/target/release/flight-fabric-ptt-hook.exe",
+        "to": "voice/ptt-hook.exe"
+      },
+      {
+        "from": "resources/voice/hotwords.txt",
+        "to": "voice/hotwords.txt"
+      },
+      {
+        "from": "licenses",
+        "to": "legal/voice",
+        "filter": [
+          "**/*"
         ]
       }
     ],

@@ -408,7 +408,11 @@ async function main() {
     { initLogbookRuntime },
     { createTelemetryDisplay },
     { createTelemetryWarnings },
-    { AIRCRAFT_CONTROL_BUTTON_SELECTOR },
+    {
+      AIRCRAFT_CONTROL_BUTTON_SELECTOR,
+      getAircraftControlCanonicalCommandId,
+      getAircraftControlCommandPendingKey,
+    },
     {
       adjustAutopilotTargetValue,
       formatAutopilotTargetValue,
@@ -1203,6 +1207,86 @@ async function main() {
     );
   });
 
+  await test('aircraft command results return through the shared request observer exactly once', () => {
+    setActivePinia(createPinia());
+    const aircraftControlsStore = useAircraftControlsStore();
+    const sent = [];
+    const observedResults = [];
+    const aircraftControl = createAircraftControlController({
+      WebSocketRef: { OPEN: 1 },
+      getWs: () => ({ readyState: 1 }),
+      getWsSend: () => (payload) => sent.push(payload),
+      getAuthorizationScope: () => 'aircraft-control',
+      getSimconnectConnected: () => true,
+      aircraftControlsStore,
+    });
+    aircraftControl.setActiveProfileToken({
+      _profileKey: 'bundled/msfs/pmdg-737',
+      profileRevision: 7,
+    });
+    aircraftControl.applyControlCapabilities({
+      aircraftCommands: {
+        configurationId: 'pmdg-737',
+        profileKey: 'bundled/msfs/pmdg-737',
+        profileRevision: 7,
+        commands: [{
+          id: 'flightGuidance.heading.set',
+          label: 'Selected heading',
+          input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+        }],
+      },
+    });
+    assert.equal(aircraftControl.sendCommand(
+      'flightGuidance.heading.set',
+      { value: 270 },
+      {
+        pendingKey: 'voice:flightGuidance.heading.set',
+        onResult: (result) => observedResults.push(result),
+      },
+    ), true);
+
+    const handler = createAppMessageHandler({
+      alertRef: () => {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
+      getSimconnectTelemetryConnected: () => true,
+      setSimconnectTelemetryConnected: () => {},
+      getWasSimconnectConnected: () => false,
+      setWasSimconnectConnected: () => {},
+      getHasSeenFlightTelemetry: () => false,
+      markFlightTelemetryActive: () => {},
+      resetTelemetryDisplay: () => {},
+      setFlightState: () => {},
+      telemetryDisplay: {},
+      appPreferences: {},
+      autopilotPanel: {},
+      aircraftControl,
+      landingController: {},
+      telemetryWarnings: {},
+      statusIndicators: {},
+      lvarInspector: {},
+      appSettingsController: { apply() {} },
+      updateEngines: () => {},
+      flightStore: null,
+    });
+    const result = {
+      type: 'aircraftCommandResult',
+      requestId: sent[0].requestId,
+      ok: false,
+      code: 'readback-timeout',
+      error: 'Aircraft readback did not confirm the requested heading.',
+    };
+    handler(result);
+    assert.deepEqual(observedResults, [result], 'the shared controller should notify the originating voice request');
+    assert.equal(
+      aircraftControlsStore.isCommandPending('voice:flightGuidance.heading.set'),
+      false,
+      'the same correlated result should clear shared pending state',
+    );
+
+    handler(result);
+    assert.equal(observedResults.length, 1, 'a replayed result must not notify the request observer twice');
+  });
+
   await test('app message handler raises a persistent restart-required banner after restart-required settings saves', () => {
     setActivePinia(createPinia());
     const statusStore = useStatusStore();
@@ -1385,6 +1469,7 @@ async function main() {
     });
     aircraftControlsStore.setCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' });
     const feedback = [];
+    let voiceContextRefreshes = 0;
     const handler = createAppMessageHandler({
       alertRef: () => {},
       LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
@@ -1414,10 +1499,15 @@ async function main() {
         },
       },
       aircraftSpecificStore,
+      voiceController: {
+        handleAircraftContextChange() {
+          voiceContextRefreshes += 1;
+        },
+      },
       landingController: {},
       telemetryWarnings: {},
       statusIndicators: {},
-      lvarInspector: {},
+      lvarInspector: { handleDataSourcesMessage() {} },
       appSettingsController: { apply() {} },
       updateEngines: () => {},
       flightStore: null,
@@ -1469,14 +1559,43 @@ async function main() {
     assert.equal(aircraftSpecificStore.values['afds.cmdA'], true, 'message handler should route matching aircraft-specific snapshots into Pinia');
     assert.equal(aircraftSpecificStore.values['afds.cmdB'], false, 'message handler should preserve explicit false aircraft-specific values');
     assert.equal(aircraftSpecificStore.sourceStatus, 'connected', 'message handler should preserve the provider-neutral source aggregate');
+
+    const refreshesBeforeCapabilityUpdate = voiceContextRefreshes;
+    handler({
+      type: 'dataSources',
+      sources: [{ id: 'pmdg-sdk', connected: true }],
+      profileKey: 'bundled/msfs/pmdg-737',
+      profileRevision: 4,
+      controlCapabilities: {
+        aircraftCommands: {
+          configurationId: 'pmdg-737',
+          commands: [{
+            id: 'flightGuidance.heading.set',
+            speech: { patterns: ['set heading {value}'] },
+          }],
+        },
+        aircraftSpecific: { 'afds.cmdA.set': true },
+      },
+    });
+    assert.equal(
+      aircraftControlsStore.aircraftCommandCatalogue.commands['flightGuidance.heading.set']?.id,
+      'flightGuidance.heading.set',
+      'data-source capability refreshes should update the active aircraft command catalogue',
+    );
+    assert.equal(
+      voiceContextRefreshes,
+      refreshesBeforeCapabilityUpdate + 1,
+      'voice hints should rebuild when provider-backed commands become available',
+    );
   });
 
   await test('app message handler clears aircraft write token on simulator disconnect', () => {
     let wasSimconnectConnected = true;
     let simconnectTelemetryConnected = true;
     let resetReason = '';
-    let pendingReason = '';
+    let pendingClearCount = 0;
     let availabilityUpdates = 0;
+    let voiceGate = null;
     const clearReasons = [];
 
     const handler = createAppMessageHandler({
@@ -1503,13 +1622,21 @@ async function main() {
         clearProfileToken(reason) {
           clearReasons.push(reason);
         },
-        clearPendingRequests(reason) {
-          pendingReason = reason;
+        clearPendingRequests() {
+          pendingClearCount += 1;
+        },
+        applySimState() {
+          return { blocked: true, reason: 'Simulator telemetry link unavailable.' };
         },
         updateAvailability() {
           availabilityUpdates += 1;
         },
         setFeedback() {},
+      },
+      voiceController: {
+        handleSimulatorStateChange(state) {
+          voiceGate = state;
+        },
       },
       landingController: {},
       telemetryWarnings: {},
@@ -1530,8 +1657,79 @@ async function main() {
       ['Simulator disconnected. Waiting for profile refresh.'],
       'sim disconnect should invalidate the aircraft write token',
     );
-    assert.equal(pendingReason, 'Simulator disconnected before control request completed.');
+    assert.equal(pendingClearCount, 0, 'sim disconnect should retain pending ownership for the backend rejection result');
     assert.equal(availabilityUpdates, 1, 'sim disconnect should refresh aircraft-control availability');
+    assert.deepEqual(
+      voiceGate,
+      { blocked: true, reason: 'Simulator telemetry link unavailable.' },
+      'sim disconnect should block new voice capture without discarding an in-flight result',
+    );
+  });
+
+  await test('app message handler routes simulator menu gates to aircraft controls and voice', () => {
+    let wasSimconnectConnected = true;
+    let simconnectTelemetryConnected = true;
+    const transitions = [];
+    let latestGate = { blocked: false, reason: '' };
+    const aircraftControl = {
+      applySimState(message) {
+        const lifecycleState = String(message.lifecycleState || '').toLowerCase();
+        const blocked = message.inMenu === true || lifecycleState === 'loading';
+        latestGate = {
+          blocked,
+          reason: blocked ? 'Simulator is in a menu or loading state.' : '',
+        };
+        transitions.push(`control:${blocked ? 'blocked' : 'ready'}`);
+        return latestGate;
+      },
+      updateAvailability() {
+        transitions.push(`availability:${latestGate.blocked ? 'blocked' : 'ready'}`);
+      },
+      setFeedback() {},
+    };
+    const voiceController = {
+      handleSimulatorStateChange(state) {
+        transitions.push(`voice:${state.blocked ? 'blocked' : 'ready'}`);
+      },
+    };
+    const handler = createAppMessageHandler({
+      alertRef: () => {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
+      getSimconnectTelemetryConnected: () => simconnectTelemetryConnected,
+      setSimconnectTelemetryConnected: (value) => {
+        simconnectTelemetryConnected = value;
+      },
+      getWasSimconnectConnected: () => wasSimconnectConnected,
+      setWasSimconnectConnected: (value) => {
+        wasSimconnectConnected = value;
+      },
+      getHasSeenFlightTelemetry: () => true,
+      markFlightTelemetryActive: () => {},
+      resetTelemetryDisplay: () => {},
+      setFlightState: () => {},
+      telemetryDisplay: {},
+      appPreferences: {},
+      autopilotPanel: {},
+      aircraftControl,
+      voiceController,
+      landingController: {},
+      telemetryWarnings: {},
+      statusIndicators: {},
+      lvarInspector: {},
+      appSettingsController: { apply() {} },
+      updateEngines: () => {},
+      flightStore: null,
+    });
+
+    handler({ type: 'simState', simconnectConnected: true, inMenu: true, lifecycleState: 'IN_MENU' });
+    handler({ type: 'simState', simconnectConnected: true, inMenu: false, lifecycleState: 'LOADING' });
+    handler({ type: 'simState', simconnectConnected: true, inMenu: false, lifecycleState: 'ACTIVE' });
+
+    assert.deepEqual(transitions, [
+      'control:blocked', 'availability:blocked', 'voice:blocked',
+      'control:blocked', 'availability:blocked', 'voice:blocked',
+      'control:ready', 'availability:ready', 'voice:ready',
+    ], 'simState gates should disable controls before voice refresh and restore both on return to flight');
   });
 
   await test('raw WebSocket bridge keeps Vue flight telemetry live when legacy telemetry gate is stale', () => {
@@ -1871,6 +2069,26 @@ async function main() {
   });
 
   console.log('\n--- aircraft controls ---\n');
+  await test('ordinary aircraft controls are never classified as presets', () => {
+    assert.equal(
+      getAircraftControlCanonicalCommandId({ type: 'control', id: 'parkingBrakeSet' }),
+      'surfaces.parkingBrake.set',
+    );
+    assert.equal(
+      getAircraftControlCanonicalCommandId({ type: 'control', id: 'spoilersArm' }),
+      'surfaces.spoilersArmed.set',
+    );
+    assert.equal(
+      getAircraftControlCommandPendingKey({ type: 'control', id: 'spoilersArm' }),
+      'control:spoilersArm',
+    );
+    assert.equal(
+      getAircraftControlCanonicalCommandId({ type: 'preset', id: 'parkingBrakeSet' }),
+      '',
+      'legacy preset classification must not resolve an ordinary control',
+    );
+  });
+
   await test('aircraft control controller and autopilot panel delegate visible state and runtime-bound commands into the Vue store', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
@@ -1964,6 +2182,52 @@ async function main() {
       _profileKey: 'bundled/msfs/pmdg-777',
       profileRevision: 3,
     });
+    controller.applyControlCapabilities({
+      aircraftCommands: {
+        configurationId: 'generic',
+        profileKey: 'bundled/msfs/pmdg-777',
+        profileRevision: 3,
+        commands: [{
+          id: 'flightGuidance.heading.set',
+          label: 'Selected heading',
+          group: 'flightGuidance',
+          input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+        }, {
+          id: 'flightGuidance.verticalSpeed.set',
+          label: 'Selected vertical speed',
+          group: 'flightGuidance',
+          input: { kind: 'number', min: -9900, max: 9900, step: 100, units: 'feet-per-minute' },
+        }, {
+          id: 'flightGuidance.altitude.set',
+          label: 'Selected altitude',
+          group: 'flightGuidance',
+          input: { kind: 'number', min: 0, max: 60000, step: 100, units: 'feet' },
+        }, {
+          id: 'configuration.lights.takeoff',
+          label: 'Takeoff lights',
+          group: 'presets',
+          kind: 'preset',
+          description: 'Landing ON · Taxi ON · Strobe ON',
+          input: { kind: 'none' },
+        }],
+      },
+    });
+    const commandIdsBeforeStaleRefresh = Object.keys(
+      aircraftControlsStore.aircraftCommandCatalogue.commands,
+    );
+    assert.equal(
+      controller.applyControlCapabilities(
+        { aircraftCommands: { configurationId: 'pmdg-737', commands: [] } },
+        { profileKey: 'bundled/msfs/pmdg-737', profileRevision: 4 },
+      ),
+      false,
+      'late capability refreshes from a previous aircraft should be rejected',
+    );
+    assert.deepEqual(
+      Object.keys(aircraftControlsStore.aircraftCommandCatalogue.commands),
+      commandIdsBeforeStaleRefresh,
+      'a stale refresh should not replace the active aircraft command catalogue',
+    );
 
     controller.updateAvailability();
     assert.equal(aircraftControlsStore.availability.enabled, false, 'read-only clients should not present aircraft controls as ready');
@@ -1983,6 +2247,71 @@ async function main() {
     assert.equal(aircraftControlsStore.availability.enabled, true, 'availability should flow into the Vue store');
     assert.equal(commandButton.disabled, false, 'available control buttons should remain enabled');
     assert.equal(aircraftControlsStore.commandActionBound, true, 'autopilot runtime should bind the Vue-owned control action bridge');
+
+    controller.applySimState({
+      simconnectConnected: true,
+      inMenu: true,
+      lifecycleState: 'IN_MENU',
+    });
+    controller.updateAvailability();
+    assert.equal(aircraftControlsStore.availability.enabled, false, 'sim menu state should disable frontend aircraft controls');
+    assert.match(aircraftControlsStore.availability.reason, /menu or loading state/i);
+    assert.equal(
+      aircraftControlsStore.isCommandDisabled({
+        type: 'canonical',
+        commandId: 'configuration.lights.takeoff',
+        input: {},
+      }),
+      true,
+      'sim menu state should disable aircraft presets through shared availability',
+    );
+    const sentBeforeMenuPreset = sent.length;
+    assert.equal(
+      controller.sendCommand('configuration.lights.takeoff'),
+      false,
+      'the frontend command bridge should reject presets while the simulator is in a menu',
+    );
+    assert.equal(sent.length, sentBeforeMenuPreset, 'menu-blocked presets must not reach the websocket bridge');
+
+    controller.applySimState({
+      simconnectConnected: true,
+      inMenu: false,
+      lifecycleState: 'LOADING',
+    });
+    assert.equal(controller.updateAvailability().enabled, false, 'unsafe loading lifecycle should keep controls blocked');
+    assert.match(aircraftControlsStore.availability.reason, /lifecycle state is not safe/i);
+
+    controller.applySimState({
+      simconnectConnected: false,
+      inMenu: false,
+      lifecycleState: 'DISCONNECTED',
+    });
+    assert.equal(controller.updateAvailability().enabled, false, 'a disconnected simState should keep controls blocked');
+    assert.match(aircraftControlsStore.availability.reason, /telemetry link unavailable/i);
+
+    controller.applySimState({
+      simconnectConnected: true,
+      inMenu: false,
+      lifecycleState: 'ACTIVE',
+      blocked: true,
+    });
+    assert.equal(controller.updateAvailability().enabled, false, 'an explicit blocked sim state should keep controls disabled');
+
+    controller.applySimState({
+      simconnectConnected: true,
+      inMenu: false,
+      lifecycleState: 'ACTIVE',
+    });
+    assert.equal(controller.updateAvailability().enabled, true, 'returning to active flight should restore aircraft controls');
+    assert.equal(
+      aircraftControlsStore.isCommandDisabled({
+        type: 'canonical',
+        commandId: 'configuration.lights.takeoff',
+        input: {},
+      }),
+      false,
+      'returning to active flight should restore aircraft presets',
+    );
 
     autopilotPanel.update({
       master: true,
@@ -2017,22 +2346,20 @@ async function main() {
     assert.deepEqual(
       sent[0],
       {
-        type: 'executeAircraftControl',
+        type: 'executeAircraftCommand',
         requestId: sent[0].requestId,
         profileKey: 'bundled/msfs/pmdg-777',
         profileRevision: 3,
-        control: 'autopilot',
-        target: 'heading',
-        operation: 'set',
-        value: 97,
+        commandId: 'flightGuidance.heading.set',
+        input: { value: 97 },
       },
-      'Vue-owned selector adjustments should resolve against the current MCP values before sending',
+      'Vue-owned selector adjustments should resolve against current MCP values and use the shared command API',
     );
     assert.equal(aircraftControlsStore.isCommandPending('selector-adjust:hdg:inc10'), true, 'Vue-owned control commands should mark the matching pending key in the store');
 
     controller.send(
       { control: 'autopilot', target: 'master', operation: 'toggle' },
-      { pendingKey: 'preset:autopilotMasterToggle', busyLabel: 'Toggling...' },
+      { pendingKey: 'control:autopilotMasterToggle', busyLabel: 'Toggling...' },
     );
     assert.deepEqual(
       sent[1],
@@ -2047,7 +2374,7 @@ async function main() {
       },
       'control sends should go through the websocket bridge with a generated request id',
     );
-    assert.equal(aircraftControlsStore.isCommandPending('preset:autopilotMasterToggle'), true, 'direct control sends should also mark pending state in the store');
+    assert.equal(aircraftControlsStore.isCommandPending('control:autopilotMasterToggle'), true, 'direct control sends should also mark pending state in the store');
     assert.equal(aircraftControlsStore.feedback.actionText, 'AP master toggle', 'control sends should update action feedback in the store');
     assert.match(aircraftControlsStore.feedback.routeText, /Sending control request/, 'control sends should update route feedback in the store');
 
@@ -2059,7 +2386,7 @@ async function main() {
       backendSource: 'SimConnect',
       profileKey: 'bundled/msfs/pmdg-777',
     });
-    assert.equal(aircraftControlsStore.isCommandPending('preset:autopilotMasterToggle'), false, 'control results should clear store-backed pending state for the completed command');
+    assert.equal(aircraftControlsStore.isCommandPending('control:autopilotMasterToggle'), false, 'control results should clear store-backed pending state for the completed command');
     assert.equal(aircraftControlsStore.feedback.profileText, 'bundled/msfs/pmdg-777', 'successful control results should update profile feedback');
     assert.match(aircraftControlsStore.feedback.routeText, /Profile override/, 'successful control results should update route feedback');
     assert.equal(toasts.at(-1).kind, 'success', 'successful control results should show a success toast');
@@ -2088,7 +2415,7 @@ async function main() {
 
     controller.send(
       { control: 'autopilot', target: 'master', operation: 'toggle' },
-      { pendingKey: 'preset:autopilotMasterToggle' },
+      { pendingKey: 'control:autopilotMasterToggle' },
     );
     controller.handleResult({
       requestId: sent[2].requestId,
@@ -2125,8 +2452,8 @@ async function main() {
       true,
       'blank V/S adjustments should still send a selector write',
     );
-    assert.equal(sent.at(-1).target, 'verticalSpeed', 'blank V/S adjustment should target selected vertical speed');
-    assert.equal(sent.at(-1).value, 100, 'blank V/S adjustment should start from zero, not live aircraft V/S');
+    assert.equal(sent.at(-1).commandId, 'flightGuidance.verticalSpeed.set', 'blank V/S adjustment should target selected vertical speed');
+    assert.equal(sent.at(-1).input.value, 100, 'blank V/S adjustment should start from zero, not live aircraft V/S');
 
     controller.clearPendingRequests('Connection lost before control request completed.');
     assert.equal(aircraftControlsStore.isCommandPending('selector-adjust:hdg:inc10'), false, 'clearing pending requests should clear any remaining store-backed pending state');
@@ -2157,16 +2484,14 @@ async function main() {
     assert.deepEqual(
       sent[exactTargetIndex],
       {
-        type: 'executeAircraftControl',
+        type: 'executeAircraftCommand',
         requestId: sent[exactTargetIndex].requestId,
         profileKey: 'bundled/msfs/pmdg-777',
         profileRevision: 4,
-        control: 'autopilot',
-        target: 'altitude',
-        operation: 'set',
-        value: 12300,
+        commandId: 'flightGuidance.altitude.set',
+        input: { value: 12300 },
       },
-      'focused tuning must preserve the profile token and use the existing autopilot target request',
+      'focused tuning must preserve the profile token and use the shared command request',
     );
     assert.equal(aircraftControlsStore.feedback.status, 'sending', 'focused target feedback should enter the sending state');
     assert.equal(aircraftControlsStore.feedback.commandKey, 'selector-set:alt', 'focused target feedback should identify its physical selector');
@@ -2181,6 +2506,149 @@ async function main() {
     });
     assert.equal(aircraftControlsStore.feedback.status, 'sent', 'accepted target feedback should distinguish sent from live readback confirmation');
     assert.equal(aircraftControlsStore.isCommandPending('selector-set:alt'), false, 'accepted target should clear its focused-editor pending state');
+
+    const takeoffLightsIndex = sent.length;
+    assert.equal(
+      await aircraftControlsStore.requestControlCommand({
+        type: 'canonical',
+        commandId: 'configuration.lights.takeoff',
+        input: {},
+      }),
+      true,
+      'quick actions should delegate their canonical preset through the same runtime bridge as voice',
+    );
+    assert.deepEqual(
+      sent[takeoffLightsIndex],
+      {
+        type: 'executeAircraftCommand',
+        requestId: sent[takeoffLightsIndex].requestId,
+        profileKey: 'bundled/msfs/pmdg-777',
+        profileRevision: 4,
+        commandId: 'configuration.lights.takeoff',
+        input: {},
+      },
+      'quick actions should send one canonical preset rather than expanding aircraft actions in the UI',
+    );
+    assert.equal(
+      aircraftControlsStore.isCommandPending('aircraft-command:configuration.lights.takeoff'),
+      true,
+      'the whole preset should own one pending key',
+    );
+    aircraftControlNowMs += 350;
+    controller.handleResult({
+      requestId: sent[takeoffLightsIndex].requestId,
+      ok: true,
+      resolvedBy: 'profile',
+      action: { type: 'aircraft-integration', name: 'pmdg-737' },
+      completedStepCount: 8,
+      stepCount: 8,
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.match(aircraftControlsStore.feedback.routeText, /8 of 8 steps/, 'preset feedback should report aggregate completion');
+    assert.equal(
+      aircraftControlsStore.isCommandPending('aircraft-command:configuration.lights.takeoff'),
+      false,
+      'the correlated preset result should clear its aggregate pending key',
+    );
+
+    controller.handleResult({
+      ok: false,
+      request: { commandId: 'configuration.lights.takeoff', input: {} },
+      commandId: 'configuration.lights.takeoff',
+      resolvedBy: 'profile',
+      action: { type: 'aircraft-integration', name: 'pmdg-737' },
+      completedStepCount: 3,
+      stepCount: 8,
+      error: 'Taxi light write failed.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.match(
+      aircraftControlsStore.feedback.routeText,
+      /3 of 8 steps completed before failure/i,
+      'partial preset failure feedback should state exactly how much completed',
+    );
+    assert.match(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'partial preset page feedback should tell the pilot what to do next');
+    assert.match(toasts.at(-1).message, /3 of 8 steps completed before failure/i, 'partial preset failure toast should preserve aggregate progress');
+    assert.match(toasts.at(-1).message, /verify aircraft state/i, 'partial preset failure toast should tell the pilot what to do next');
+
+    controller.handleResult({
+      ok: false,
+      request: { commandId: 'configuration.lights.takeoff', input: {} },
+      commandId: 'configuration.lights.takeoff',
+      completedStepCount: 0,
+      stepCount: 8,
+      steps: [{ index: 0, ok: false, code: 'action_cooldown' }],
+      error: 'Aircraft profile changed before execution.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /steps completed before failure/i, 'a zero-write rejection must not claim partial application');
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'a zero-write rejection must not ask the pilot to verify an unchanged aircraft');
+    assert.doesNotMatch(toasts.at(-1).message, /steps completed before failure/i, 'the zero-write failure toast must not claim partial application');
+    assert.doesNotMatch(toasts.at(-1).message, /verify aircraft state/i, 'the zero-write failure toast must not show partial-application advice');
+
+    controller.handleResult({
+      ok: false,
+      request: { commandId: 'configuration.lights.takeoff', input: {} },
+      commandId: 'configuration.lights.takeoff',
+      completedStepCount: 0,
+      stepCount: 8,
+      executionStarted: true,
+      error: 'Aircraft control request failed.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.match(
+      aircraftControlsStore.feedback.routeText,
+      /0 of 8 steps confirmed before failure/i,
+      'an unconfirmed first preset step should not be reported as a safe preflight rejection',
+    );
+    assert.match(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'unconfirmed first-step page feedback should tell the pilot what to do next');
+    assert.match(toasts.at(-1).message, /0 of 8 steps confirmed before failure/i, 'the first-step failure toast should preserve uncertain progress');
+    assert.match(toasts.at(-1).message, /verify aircraft state/i, 'the first-step failure toast should tell the pilot what to do next');
+
+    controller.handleResult({
+      ok: false,
+      request: { commandId: 'surfaces.gear.set', input: { value: 'down' } },
+      commandId: 'surfaces.gear.set',
+      completedStepCount: 0,
+      stepCount: 1,
+      executionStarted: true,
+      error: 'Aircraft control request failed.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.match(aircraftControlsStore.feedback.routeText, /0 of 1 step confirmed before failure/i, 'an unconfirmed single command should preserve uncertain execution feedback');
+    assert.match(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'an unconfirmed single command should tell the pilot what to do next');
+    assert.match(toasts.at(-1).message, /0 of 1 step confirmed before failure/i, 'the single-command failure toast should preserve uncertain execution feedback');
+
+    controller.handleResult({
+      ok: false,
+      request: { commandId: 'surfaces.gear.set', input: { value: 'down' } },
+      commandId: 'surfaces.gear.set',
+      completedStepCount: 0,
+      stepCount: 1,
+      error: 'Aircraft profile changed before execution.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /confirmed before failure/i, 'a single-command preflight rejection must not imply uncertain execution');
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'a single-command preflight rejection must not ask the pilot to verify an unchanged aircraft');
+
+    controller.handleResult({
+      ok: false,
+      request: { control: 'gear', operation: 'down' },
+      executionStarted: true,
+      error: 'Aircraft control request failed.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.match(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'a direct provider failure should preserve uncertain aircraft-state advice');
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /confirmed before failure/i, 'a direct control result must not invent recipe step counts');
+
+    controller.handleResult({
+      ok: false,
+      request: { control: 'gear', operation: 'down' },
+      error: 'Simulator state blocked the request before provider execution.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'a direct pre-provider rejection must not imply uncertain execution');
+
     const sentBeforeInvalidExactTarget = sent.length;
     assert.equal(
       await aircraftControlsStore.requestControlCommand({ type: 'selector-set', mode: 'alt', value: 12345 }),
@@ -2201,15 +2669,15 @@ async function main() {
     });
     const genericBaselineCommands = [
       {
-        command: { type: 'preset', id: 'parkingBrakeSet' },
+        command: { type: 'control', id: 'parkingBrakeSet' },
         request: { control: 'parkingBrake', operation: 'set', value: true },
       },
       {
-        command: { type: 'preset', id: 'spoilersExtend' },
+        command: { type: 'control', id: 'spoilersExtend' },
         request: { control: 'spoilers', operation: 'set', value: 16383 },
       },
       {
-        command: { type: 'preset', id: 'spoilersArm' },
+        command: { type: 'control', id: 'spoilersArm' },
         request: { control: 'spoilers', operation: 'arm' },
       },
       {
@@ -2476,7 +2944,7 @@ async function main() {
         toasts.push({ kind, title, message });
       },
     });
-    const pendingKey = 'preset:autopilotMasterToggle';
+    const pendingKey = 'control:autopilotMasterToggle';
 
     controller.setActiveProfileToken({
       _profileKey: 'bundled/msfs/inibuilds-tristar',
@@ -3291,14 +3759,128 @@ async function main() {
     });
 
     assert.equal(landingStore.landingCard.approach.stabilityText, 'UNSTABLE', 'late gate verdict should refresh the live landing card');
-    assert.equal(landingStore.landingCard.approach.stabilityNoteText, '2 substantial/required findings · Approach score 84%', 'late gate status should preserve the existing score as secondary context');
+    assert.equal(landingStore.landingCard.approach.stabilityNoteText, '2 substantial/required findings · Approach score 85%', 'the final score event should replace the provisional landing score');
     assert.equal(landingStore.landingCard.debrief.confidenceText, 'High', 'late stability score should restore high data confidence when touchdown data exists');
     assert.equal(landingPreviews.length, 2, 'late stability should refresh the Last Landing summary');
     assert.equal(landingPreviews.at(-1).ultimateStability.gateStable, false, 'Last Landing should receive the late gate verdict');
-    assert.equal(landingPreviews.at(-1).ultimateStability.score, 84, 'late gate facts should merge without replacing an existing landing score');
+    assert.equal(landingPreviews.at(-1).ultimateStability.score, 85, 'Last Landing should use the authoritative final score event');
     assert.deepEqual(landingEvents, ['landing-received'], 'late stability refresh should not emit a duplicate landing-received event');
 
     unsubscribeLandingReceived();
+  });
+
+  await test('landing controller scopes stability results to consecutive landing attempts', () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    setActivePinia(createPinia());
+
+    const landingPreviews = [];
+    const landingStore = useLandingStore();
+    const controller = createLandingController({
+      $: (id) => documentRef.getElementById(id),
+      documentRef,
+      windowRef,
+      setText: () => {},
+      landingStore,
+      flightStore: {
+        updateLandingPreview(rawLanding) {
+          landingPreviews.push(rawLanding);
+          return rawLanding;
+        },
+      },
+    });
+
+    controller.handleLandingMessage({ final: false });
+    controller.handleLandingMessage({
+      final: true,
+      vs: -420,
+      grade: 'Firm',
+      icao: 'YSSY',
+      runway: '34L',
+      ultimateStability: {
+        score: null,
+        samples: null,
+        gateStable: null,
+        gateFailures: [],
+      },
+    });
+    controller.handleUltimateStabilityScoreMessage({
+      score: 42,
+      samples: 610,
+      verdict: 'unstable',
+      gateStable: false,
+      gateFailures: ['vs_unstable_after_gate'],
+      breakdown: { vs_ok: 42 },
+      approachProfile: [],
+    });
+
+    assert.equal(landingStore.landingCard.approach.stabilityText, 'UNSTABLE', 'the first landing should show its own unstable result');
+    assert.equal(landingPreviews.at(-1).ultimateStability.score, 42, 'the first Last Landing preview should receive the first score');
+    assert.equal(landingStore.stabilityBreakdownVisible, true, 'the first landing should show its own stability breakdown');
+    landingStore.setApproachProfile({ svgHtml: '<svg data-attempt="first"></svg>' });
+    landingStore.setTopdownProfile({ svgHtml: '<svg data-attempt="first"></svg>' });
+
+    controller.handleLandingMessage({ final: false });
+    controller.handleLandingMessage({
+      final: true,
+      vs: -145,
+      grade: 'Perfect',
+      icao: 'YSSY',
+      runway: '34L',
+      ultimateStability: {
+        score: null,
+        samples: null,
+        gateStable: null,
+        gateFailures: [],
+      },
+    });
+
+    assert.deepEqual(
+      landingPreviews.at(-1).ultimateStability,
+      { score: null, samples: null, gateStable: null, gateFailures: [] },
+      'a new touchdown must not inherit the previous landing stability while its score is pending',
+    );
+    assert.equal(landingStore.stabilityBreakdownVisible, false, 'a new final landing must not retain the previous landing breakdown');
+    assert.deepEqual(landingStore.stabilityMetrics, [], 'a new final landing must clear the previous landing metrics');
+    assert.equal(landingStore.approachProfile.visible, false, 'a new final landing must not retain the previous landing approach profile');
+    assert.equal(landingStore.topdownProfile.visible, false, 'a new final landing must not retain the previous landing top-down profile');
+
+    controller.handleUltimateStabilityScoreMessage({
+      score: 97,
+      samples: 940,
+      verdict: 'stable',
+      gateStable: true,
+      gateFailures: [],
+      breakdown: { vs_ok: 98 },
+      approachProfile: [],
+    });
+
+    assert.equal(landingStore.landingCard.approach.stabilityText, 'STABLE', 'the second landing should show its own stable verdict');
+    assert.equal(landingStore.landingCard.approach.stabilityNoteText, 'Approach score 97%', 'the second landing should show its own score');
+    assert.equal(landingPreviews.at(-1).ultimateStability.score, 97, 'Last Landing should replace the first score with the second score');
+    assert.equal(landingPreviews.at(-1).ultimateStability.gateStable, true, 'Last Landing should replace the first gate verdict');
+    assert.deepEqual(landingPreviews.at(-1).ultimateStability.gateFailures, [], 'an explicit empty failure list should clear the first landing failures');
+    assert.equal(landingStore.stabilityMetrics.find((metric) => metric.key === 'vs_ok')?.valueText, '98%', 'the second landing should replace the first breakdown');
+
+    controller.handleLandingMessage({
+      final: true,
+      vs: -210,
+      grade: 'Good',
+      icao: 'YMML',
+      runway: '27',
+      ultimateStability: {
+        score: null,
+        samples: null,
+        gateStable: null,
+        gateFailures: [],
+      },
+    });
+    assert.deepEqual(
+      landingPreviews.at(-1).ultimateStability,
+      { score: null, samples: null, gateStable: null, gateFailures: [] },
+      'a final packet must remain a safe attempt boundary if the initial touchdown packet was missed',
+    );
   });
 
   await test('landing controller publishes rendered approach-profile SVG state into the landing store', () => {
@@ -3672,7 +4254,8 @@ async function main() {
     const glyphEl = new FakeElement('live-plane-glyph');
     glyphEl.style = {};
     let livePlaneIconConfig = null;
-    const tileLayerUrls = [];
+    const basemapStyles = [];
+    const basemapAttributions = [];
     const renderedTracks = [];
     const cursorElement = {
       querySelector(selector) {
@@ -3696,11 +4279,14 @@ async function main() {
       map() {
         return mapInstance;
       },
-      tileLayer(url) {
-        tileLayerUrls.push(url);
+      maplibreGL(options) {
+        basemapStyles.push(options.style);
+        basemapAttributions.push(options.attributionControl?.customAttribution || '');
         return {
-          on() { return this; },
           addTo() { return this; },
+          getMaplibreMap() {
+            return { once() {} };
+          },
         };
       },
       marker(_latlng, options = {}) {
@@ -3747,7 +4333,7 @@ async function main() {
     for (const [lat, lon] of hiddenTrackPoints) {
       controller.handlePositionMessage({ lat, lon, hdg: 87 });
     }
-    assert.deepEqual(tileLayerUrls, [], 'hidden live map should defer Leaflet initialization');
+    assert.deepEqual(basemapStyles, [], 'hidden live map should defer Leaflet initialization');
     liveMapVisible = true;
     controller.handleTabActivated();
 
@@ -3759,7 +4345,8 @@ async function main() {
 
     assert.equal(liveMapStore.mapEmptyVisible, false, 'first live position should hide the live-map empty state through the store');
     assert.match(liveMapStore.metaText, /Lat -33\.94610 - Lon 151\.17720 - HDG 087 deg/, 'live positions should keep updating the live-map meta text');
-    assert.match(tileLayerUrls[0] || '', /basemaps\.cartocdn\.com\/dark_all/, 'live map should prefer dark CARTO tiles for readable overlays by default');
+    assert.equal(basemapStyles[0], 'https://tiles.openfreemap.org/styles/dark', 'live map should use the unambiguous OpenFreeMap dark vector style');
+    assert.match(basemapAttributions[0], /OpenFreeMap.*OpenMapTiles.*OpenStreetMap/, 'live map should display the provider and data attribution');
     assert.match(livePlaneIconConfig?.html || '', /<svg\b/, 'live plane marker should use SVG instead of a text glyph');
     assert.equal(glyphEl.style.transform, 'rotate(87deg)', 'live plane marker should point at the reported heading');
 
@@ -3927,7 +4514,7 @@ async function main() {
       'live map heading updates should smooth visible heading changes',
     );
 
-    tileLayerUrls.length = 0;
+    basemapStyles.length = 0;
     const quietTileController = createLiveMapController({
       mapEl,
       liveMapStore,
@@ -3945,7 +4532,7 @@ async function main() {
       lon: 151.1772,
       hdg: 87,
     });
-    assert.deepEqual(tileLayerUrls, [], 'live map should skip online tiles when the user disables them');
+    assert.deepEqual(basemapStyles, [], 'live map should skip the online basemap when the user disables it');
   });
 
   await test('live-map runtime no longer requires the legacy empty-state element to initialize', async () => {
@@ -3988,10 +4575,12 @@ async function main() {
       map() {
         return mapInstance;
       },
-      tileLayer() {
+      maplibreGL() {
         return {
-          on() { return this; },
           addTo() { return this; },
+          getMaplibreMap() {
+            return { once() {} };
+          },
         };
       },
       marker() {
@@ -5222,9 +5811,11 @@ async function main() {
         if (mapCalls === 1) throw new Error('Map container is already initialized.');
         return fakeMap;
       },
-      tileLayer: () => ({
-        on() { return this; },
+      maplibreGL: () => ({
         addTo() { return this; },
+        getMaplibreMap() {
+          return { once() {} };
+        },
       }),
       DomEvent: {
         disableScrollPropagation() {},
@@ -5291,7 +5882,8 @@ async function main() {
 
     const removedLayers = [];
     const clearLayerCalls = [];
-    const tileLayerUrls = [];
+    const basemapStyles = [];
+    const basemapAttributions = [];
     let cursorLayer = null;
     let mapSize = { x: 640, y: 360 };
     let fitBoundsCalls = 0;
@@ -5313,11 +5905,14 @@ async function main() {
     const fakeL = {
       canvas: () => ({ renderer: 'canvas' }),
       map: () => fakeMap,
-      tileLayer: (url) => {
-        tileLayerUrls.push(url);
+      maplibreGL: (options) => {
+        basemapStyles.push(options.style);
+        basemapAttributions.push(options.attributionControl?.customAttribution || '');
         return {
-          on() { return this; },
           addTo() { return this; },
+          getMaplibreMap() {
+            return { once() {} };
+          },
         };
       },
       DomEvent: {
@@ -5379,7 +5974,8 @@ async function main() {
       track: [{ lat: 1, lon: 2, timestampMs: 1000, hdgTrueDeg: 90 }],
     };
     controller.render(baseTimeline);
-    assert.match(tileLayerUrls[0] || '', /basemaps\.cartocdn\.com\/dark_all/, 'timeline replay map should prefer dark CARTO tiles for readable overlays by default');
+    assert.equal(basemapStyles[0], 'https://tiles.openfreemap.org/styles/dark', 'timeline replay map should use the unambiguous OpenFreeMap dark vector style');
+    assert.match(basemapAttributions[0], /OpenFreeMap.*OpenMapTiles.*OpenStreetMap/, 'timeline replay map should display the provider and data attribution');
     const initialFitBoundsCalls = fitBoundsCalls;
     mapEl.clientWidth = 900;
     mapEl.clientHeight = 520;
@@ -5522,9 +6118,11 @@ async function main() {
     const fakeL = {
       canvas: () => ({ renderer: 'canvas' }),
       map: () => fakeMap,
-      tileLayer: () => ({
-        on() { return this; },
+      maplibreGL: () => ({
         addTo() { return this; },
+        getMaplibreMap() {
+          return { once() {} };
+        },
       }),
       DomEvent: {
         disableScrollPropagation() {},

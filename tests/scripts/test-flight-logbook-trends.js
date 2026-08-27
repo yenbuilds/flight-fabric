@@ -47,8 +47,9 @@ function linearSlope(values) {
     den += (i - xMean) * (i - xMean);
   }
   const raw = den === 0 ? 0 : num / den;
+  const windowChange = raw * (n - 1);
   const mag = Math.abs(yMean);
-  return mag > 0.001 ? raw / mag : raw;
+  return mag > 0.001 ? windowChange / mag : windowChange;
 }
 
 function linearTrend(values, metric) {
@@ -1005,6 +1006,30 @@ test('VS: stable when slope is near zero', () => {
   // Flat VS values
   const values = [-400, -400, -400, -400, -400];
   assertEqual(linearTrend(values, 'vs'), 'stable', 'VS stable');
+});
+
+test('VS: equal window changes keep the same label across sample counts', () => {
+  const shortSeries = [-400, -350, -300];
+  const longSeries = Array.from({ length: 20 }, (_value, index) => -400 + ((100 * index) / 19));
+  assertEqual(linearTrend(shortSeries, 'vs'), 'improving', 'short VS series');
+  assertEqual(linearTrend(longSeries, 'vs'), 'improving', 'long VS series');
+});
+
+test('grouped trend fallback keeps labels stable across sample counts', () => {
+  const makeEntries = (aircraft, count, timestampOffset) => Array.from({ length: count }, (_value, index) => ({
+    id: `${aircraft}-${index}`,
+    timestampMs: timestampOffset + index,
+    aircraft,
+    vsFpm: -400 + ((100 * index) / (count - 1)),
+  }));
+  const stats = flightLogbook.computeStatsFromEntries([
+    ...makeEntries('Short Series', 3, 1000),
+    ...makeEntries('Long Series', 20, 2000),
+  ]);
+  const shortTrend = stats.trends.aircraft.find((row) => row.key === 'Short Series');
+  const longTrend = stats.trends.aircraft.find((row) => row.key === 'Long Series');
+  assertEqual(shortTrend?.trendVs, 'improving', 'short grouped trend');
+  assertEqual(longTrend?.trendVs, 'improving', 'long grouped trend');
 });
 
 // G-force metric: slope < 0 = improving (decreasing G)

@@ -834,6 +834,34 @@ test('history index store computes logbook stats from indexed columns without lo
   });
 });
 
+test('history index trend labels are independent of sample count for equal window changes', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    const makeLandings = (aircraft: string, count: number, timestampOffset: number) => Array.from({ length: count }, (_value, index) => ({
+      landingId: `${aircraft}-${index}`,
+      timestampMs: timestampOffset + index,
+      timestamp: new Date(timestampOffset + index).toISOString(),
+      aircraft,
+      vsFpm: -400 + ((100 * index) / (count - 1)),
+      payload: { id: `${aircraft}-${index}` },
+    }));
+    store.replaceSourcesLandingsIndex([{
+      source: { filePath: sourcePath(tmpRoot, 'trend-sample-count.csv'), mtimeMs: 10, sizeBytes: 100 },
+      landings: [
+        ...makeLandings('Short Series', 3, 1000),
+        ...makeLandings('Long Series', 20, 2000),
+      ],
+    }]);
+
+    const aircraftTrends = store.queryLogbookStats().trends.aircraft;
+    const shortTrend = aircraftTrends.find((row) => row.key === 'Short Series');
+    const longTrend = aircraftTrends.find((row) => row.key === 'Long Series');
+    assert.equal(shortTrend?.trendVs, 'improving');
+    assert.equal(longTrend?.trendVs, 'improving');
+  });
+});
+
 test('history index store quarantines a corrupt database and rebuilds once', (t) => {
   if (skipIfNoSqlite(t)) return;
 

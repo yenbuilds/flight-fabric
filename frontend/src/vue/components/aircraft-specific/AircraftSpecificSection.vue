@@ -95,6 +95,20 @@ function requestAction(actionId, groupId = actionId, value) {
   });
 }
 
+function requestCommand(commandId, groupId = commandId, input = {}) {
+  return aircraftSpecific.requestCommand(commandId, input, {
+    pendingKey: getPendingKey(groupId),
+  });
+}
+
+function isCommandSupported(commandId) {
+  return aircraftControls.isAircraftCommandSupported(commandId);
+}
+
+function getCommand(commandId) {
+  return aircraftControls.getAircraftCommand(commandId);
+}
+
 function isActionPending(groupId) {
   return aircraftControls.isCommandPending(getPendingKey(groupId));
 }
@@ -193,6 +207,9 @@ function isActionPending(groupId) {
         :source-statuses="aircraftSpecific.sourceStatuses"
         :action-capabilities="aircraftSpecific.actionCapabilities"
         :request-action="requestAction"
+        :request-command="requestCommand"
+        :is-command-supported="isCommandSupported"
+        :get-command="getCommand"
         :is-action-pending="isActionPending"
         :profile-key="aircraftSpecific.activeProfileKey || ''"
       />

@@ -7,6 +7,49 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+const VOICE_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
+const MAX_VOICE_AUDIO_BYTES = 8192 * Float32Array.BYTES_PER_ELEMENT;
+const MAX_READBACK_CHARS = 240;
+
+function requireVoiceSessionId(value) {
+  if (typeof value !== 'string' || !VOICE_SESSION_ID_RE.test(value)) {
+    throw new TypeError('Invalid voice session identifier');
+  }
+  return value;
+}
+
+function requireReadbackText(value) {
+  if (typeof value !== 'string'
+      || value.length === 0
+      || value.length > MAX_READBACK_CHARS
+      || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new TypeError('Invalid local readback text');
+  }
+  return value;
+}
+
+function onVoiceEvent(channel, callback) {
+  if (typeof callback !== 'function') throw new TypeError('Voice callback must be a function');
+  const listener = (_event, payload) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+function sendVoiceAudio({ sampleRate, samples, sequence, sessionId } = {}) {
+  requireVoiceSessionId(sessionId);
+  if (!Number.isSafeInteger(sequence) || sequence < 0) throw new TypeError('Invalid voice audio sequence');
+  if (!Number.isSafeInteger(sampleRate) || sampleRate < 8000 || sampleRate > 192000) {
+    throw new TypeError('Invalid voice audio sample rate');
+  }
+  if (!(samples instanceof ArrayBuffer)
+      || samples.byteLength === 0
+      || samples.byteLength > MAX_VOICE_AUDIO_BYTES
+      || samples.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new TypeError('Invalid voice audio buffer');
+  }
+  ipcRenderer.send('voice:speech-audio', { sampleRate, samples, sequence, sessionId });
+}
+
 // Expose protected methods to the renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   // Backend control
@@ -70,6 +113,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // MSFS install detection
   detectMsfsInstalls: () => ipcRenderer.invoke('msfs-detect-installs'),
+
+  // Offline voice control. Audio is accepted only while a bounded recognition
+  // session is active and never leaves the local Electron process tree.
+  voice: Object.freeze({
+    cancelReadback: () => ipcRenderer.invoke('voice:readback-cancel'),
+    cancelRecognition: (sessionId) => ipcRenderer.invoke(
+      'voice:speech-cancel',
+      requireVoiceSessionId(sessionId),
+    ),
+    finishRecognition: (sessionId) => ipcRenderer.invoke(
+      'voice:speech-finish',
+      requireVoiceSessionId(sessionId),
+    ),
+    getReadbackInfo: () => ipcRenderer.invoke('voice:get-readback-info'),
+    getRuntimeInfo: () => ipcRenderer.invoke('voice:get-runtime-info'),
+    onPushToTalk: (callback) => onVoiceEvent('voice:push-to-talk', callback),
+    onRecognitionEvent: (callback) => onVoiceEvent('voice:speech-event', callback),
+    onRuntimeState: (callback) => onVoiceEvent('voice:runtime-state', callback),
+    sendAudio: sendVoiceAudio,
+    setRecognitionEnabled: (enabled) => ipcRenderer.invoke(
+      'voice:set-recognition-enabled',
+      enabled === true,
+    ),
+    setPushToTalkShortcut: (shortcut) => ipcRenderer.invoke(
+      'voice:set-push-to-talk-shortcut',
+      typeof shortcut === 'string' ? shortcut.slice(0, 64) : '',
+    ),
+    speakReadback: (text) => ipcRenderer.invoke(
+      'voice:readback-speak',
+      requireReadbackText(text),
+    ),
+    startRecognition: () => ipcRenderer.invoke('voice:speech-start'),
+  }),
   
   // App info
   isPackaged: process.env.ELECTRON_IS_PACKAGED === 'true',

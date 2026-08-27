@@ -45,6 +45,14 @@ type WsLike = {
 };
 type DebugLike = { log: (_scope: string, _event: string, _payload?: AnyRecord) => void };
 
+let aircraftControlRequestTail: Promise<void> = Promise.resolve();
+
+function serializeAircraftControlRequest<T>(operation: () => Promise<T>): Promise<T> {
+  const result = aircraftControlRequestTail.then(operation, operation);
+  aircraftControlRequestTail = result.then(() => undefined, () => undefined);
+  return result;
+}
+
 // Last known fuel unit preference - replayed to newly-connected clients on requestState.
 let lastFuelUnitPref = null;
 const VALID_FUEL_UNITS = new Set(['gal', 'lbs', 'kg']);
@@ -322,9 +330,12 @@ function sendPrivilegeDenied(ws: WsLike, msg: AnyRecord) {
         settingsFile: SETTINGS_FILE_LABEL,
       }));
       return;
+    case 'executeAircraftCommand':
     case 'executeAircraftControl':
       ws.send(JSON.stringify({
-        type: MSG.AIRCRAFT_CONTROL_RESULT,
+        type: msg.type === 'executeAircraftCommand'
+          ? MSG.AIRCRAFT_COMMAND_RESULT
+          : MSG.AIRCRAFT_CONTROL_RESULT,
         requestId: msg.requestId || null,
         ok: false,
         code: 'auth_required',
@@ -625,6 +636,7 @@ function clearRouteTarget(ws: WsLike, clearTarget: unknown, broadcast: (_payload
 async function handleClientMessage(ws, msg, context) {
   const {
     lastSimState,
+    getSimState,
     getPhase,
     flightCsvWriter,
     flightCsvStore : runtimeFlightCsvStore,
@@ -791,20 +803,23 @@ async function handleClientMessage(ws, msg, context) {
     case 'executeAircraftControl': {
       const requestId = msg.requestId || null;
       try {
-        const activeProfile = profileLoader.getActiveProfile();
-        const result = await aircraftControlService.executeAircraftControl(provider, msg, {
-          profile: activeProfile,
-          profileRevision: typeof profileLoader.getActiveProfileRevision === 'function'
-            ? profileLoader.getActiveProfileRevision()
-            : null,
-          requireProfileToken: true,
-          requireStableSimState: true,
-          simState: lastSimState,
+        const result = await serializeAircraftControlRequest(async () => {
+          const activeProfile = profileLoader.getActiveProfile();
+          return aircraftControlService.executeAircraftControl(provider, msg, {
+            profile: activeProfile,
+            profileRevision: typeof profileLoader.getActiveProfileRevision === 'function'
+              ? profileLoader.getActiveProfileRevision()
+              : null,
+            requireProfileToken: true,
+            requireStableSimState: true,
+            simState: lastSimState,
+            getSimState: typeof getSimState === 'function' ? getSimState : undefined,
+          });
         });
         ws.send(JSON.stringify({
+          ...result,
           type: MSG.AIRCRAFT_CONTROL_RESULT,
           requestId,
-          ...result,
         }));
       } catch (err) {
         Debug.log('ws', 'executeAircraftControl error', { error: err.message });
@@ -1023,6 +1038,40 @@ async function handleClientMessage(ws, msg, context) {
           requestId,
           scoringMode,
           error: 'Failed to generate timeline',
+        }));
+      }
+      break;
+    }
+
+    case 'executeAircraftCommand': {
+      const requestId = msg.requestId || null;
+      try {
+        const result = await serializeAircraftControlRequest(async () => {
+          const activeProfile = profileLoader.getActiveProfile();
+          return aircraftControlService.executeAircraftCommand(provider, msg, {
+            profile: activeProfile,
+            profileRevision: typeof profileLoader.getActiveProfileRevision === 'function'
+              ? profileLoader.getActiveProfileRevision()
+              : null,
+            requireProfileToken: true,
+            requireStableSimState: true,
+            simState: lastSimState,
+            getSimState: typeof getSimState === 'function' ? getSimState : undefined,
+          });
+        });
+        ws.send(JSON.stringify({
+          ...result,
+          type: MSG.AIRCRAFT_COMMAND_RESULT,
+          requestId,
+        }));
+      } catch (err) {
+        Debug.log('ws', 'executeAircraftCommand error', { error: err.message });
+        ws.send(JSON.stringify({
+          type: MSG.AIRCRAFT_COMMAND_RESULT,
+          requestId,
+          ok: false,
+          code: 'internal_error',
+          error: 'Aircraft command request failed internally.',
         }));
       }
       break;

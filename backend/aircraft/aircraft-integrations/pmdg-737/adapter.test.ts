@@ -28,8 +28,8 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     assert.equal(integration.presentation.templateId, 'pmdg-737');
   }
 
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 105);
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 153);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 121);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 161);
   assert.equal(
     PMDG_737_INTEGRATION.fields['aircraft.model'].sources[0].decode.values['737-800 BBJ BW'],
     '737-800 BBJ BW',
@@ -52,6 +52,10 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   assert.deepEqual(PMDG_737_INTEGRATION.fields['flightControls.flapHandleIndex'].sources[0], {
     route: { type: 'simvar', name: 'FLAPS HANDLE INDEX', unit: 'Number' },
     decode: { type: 'number', precision: 0 },
+  });
+  assert.deepEqual(PMDG_737_INTEGRATION.fields['lighting.afdsFloodPercent'].sources[0], {
+    route: { type: 'lvar', name: 'L:CA_AFDS_FLOOD_LIGHT_CONTROL', unit: 'Number' },
+    decode: { type: 'number', scale: 1 / 3, precision: 0 },
   });
 
   const connectorFields = Object.fromEntries(
@@ -156,7 +160,10 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   }
 
   for (const [actionId, command, fieldId, expectedValue] of [
+    ['gear.parkingBrake.released', '#70325', 'gear.parkingBrake', false],
     ['gear.parkingBrake.set', '#70325', 'gear.parkingBrake', true],
+    ['flightControls.speedbrake.disarm', '#76423', 'flightControls.speedbrakeArmed', false],
+    ['flightControls.speedbrake.arm', '#76424', 'flightControls.speedbrakeArmed', true],
     ['flightControls.flaps.detent30', '#76780', 'flightControls.flapHandleIndex', 7],
     ['flightControls.stabTrimMainElectric.cutout', '#70341', 'flightControls.stabTrimMainElectricCutout', true],
   ] as const) {
@@ -183,6 +190,124 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   });
   assert.equal(headingSet.routes[0].readback.fieldId, 'mcp.headingDeg');
   assert.equal(headingSet.routes[0].readback.expectedInput, true);
+
+  const courseCaptainSet = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'mcp.courseCaptain.set',
+  });
+  const courseFirstOfficerSet = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'mcp.courseFirstOfficer.set',
+  });
+  const courseBothSet = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'mcp.courseBoth.set',
+  });
+  assert.equal(courseCaptainSet.guard.groupId, 'pmdg737.mcp.course');
+  assert.equal(courseFirstOfficerSet.guard.groupId, courseCaptainSet.guard.groupId);
+  assert.equal(courseBothSet.guard.groupId, courseCaptainSet.guard.groupId);
+  assert.deepEqual(courseBothSet.input, { type: 'number', min: 0, max: 359, step: 1 });
+  assert.deepEqual(courseBothSet.routes[0].operations, [
+    {
+      type: 'event', name: '#84132',
+      inputValue: { source: 'input', round: 'nearest' },
+    },
+    {
+      type: 'event', name: '#84133',
+      inputValue: { source: 'input', round: 'nearest' },
+    },
+  ]);
+  assert.deepEqual(courseBothSet.routes[0].readbacks, [
+    { fieldId: 'mcp.courseCaptainDeg', expectedInput: true, timeoutMs: 2500 },
+    { fieldId: 'mcp.courseFirstOfficerDeg', expectedInput: true, timeoutMs: 2500 },
+  ]);
+
+  for (const [actionId, expectedLvars, expectedFields] of [
+    [
+      'lighting.cockpit.panels.set',
+      [
+        'L:OH_CB_PANEL_LIGHT_CONTROL',
+        'L:OH_PANEL_LIGHT_CONTROL',
+        'L:CA_MAIN_PANEL_LIGHT_CONTROL',
+        'L:FO_MAIN_PANEL_LIGHT_CONTROL',
+      ],
+      [
+        'lighting.overheadCircuitBreakerPercent',
+        'lighting.overheadPanelPercent',
+        'lighting.mainPanelCaptainPercent',
+        'lighting.mainPanelFirstOfficerPercent',
+      ],
+    ],
+    [
+      'lighting.cockpit.ambient.set',
+      [
+        'L:CA_BACKGROUND_BRT_CONTROL',
+        'L:CA_AFDS_FLOOD_LIGHT_CONTROL',
+        'L:PED_FLOOD_LIGHT_CONTROL',
+        'L:PED_PANEL_LIGHT_CONTROL',
+      ],
+      [
+        'lighting.backgroundPercent',
+        'lighting.afdsFloodPercent',
+        'lighting.pedestalFloodPercent',
+        'lighting.pedestalPanelPercent',
+      ],
+    ],
+    [
+      'lighting.cockpit.captainDisplays.set',
+      [
+        'L:CA_OUTBD_DU_BRIGHT_CONTROL',
+        'L:CA_INBD_DU_BRIGHT_CONTROL',
+        'L:CA_INBD_DU_RDR_BRIGHT_CONTROL',
+        'L:CA_UPPER_DU_BRIGHT_CONTROL',
+      ],
+      [
+        'lighting.displayCaptainOutboardPercent',
+        'lighting.displayCaptainInboardPercent',
+        'lighting.displayCaptainMapPercent',
+        'lighting.displayUpperPercent',
+      ],
+    ],
+    [
+      'lighting.cockpit.firstOfficerDisplays.set',
+      [
+        'L:FO_OUTBD_DU_BRIGHT_CONTROL',
+        'L:FO_INBD_DU_BRIGHT_CONTROL',
+        'L:FO_INBD_DU_RDR_BRIGHT_CONTROL',
+        'L:CA_LOWER_DU_BRIGHT_CONTROL',
+      ],
+      [
+        'lighting.displayFirstOfficerOutboardPercent',
+        'lighting.displayFirstOfficerInboardPercent',
+        'lighting.displayFirstOfficerMapPercent',
+        'lighting.displayLowerPercent',
+      ],
+    ],
+  ] as const) {
+    const action = defaultAircraftIntegrationRegistry.resolveAction({
+      adapterId: PMDG_737_ADAPTER_ID,
+      profileKey: PMDG_737_800_PROFILE_KEY,
+      actionId,
+    });
+    assert.deepEqual(action.input, { type: 'number', min: 0, max: 100, step: 1 });
+    assert.equal(action.guard.groupId, 'pmdg737.lighting.cockpit');
+    assert.equal(action.guard.cooldownMs, 0);
+    assert.equal(action.routes[0].transport, 'simconnect-sequence');
+    assert.deepEqual(action.routes[0].operations, expectedLvars.map((name) => ({
+      type: 'lvar',
+      name,
+      unit: 'Number',
+      inputValue: { source: 'input', scale: 3, round: 'nearest' },
+    })));
+    assert.deepEqual(action.routes[0].readbacks, expectedFields.map((fieldId) => ({
+      fieldId,
+      expectedInput: true,
+      timeoutMs: 2500,
+    })));
+  }
 
   const verticalSpeedSet = defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: PMDG_737_ADAPTER_ID,
@@ -277,6 +402,28 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   assert.equal(nav1Transfer.routes[0].readback.confirmation, 'changed');
   assert.equal(nav1Transfer.routes[1].command, '#70361');
   assert.deepEqual(nav1Transfer.routes[1].values, [0x20000000, 0x00020000]);
+
+  const navBothSetActive = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY,
+    actionId: 'radios.navBoth.setActive',
+  });
+  assert.deepEqual(navBothSetActive.input, { type: 'number', min: 108, max: 117.95, step: 0.05 });
+  assert.equal(navBothSetActive.guard.groupId, 'pmdg737.radios.navBoth');
+  assert.deepEqual(navBothSetActive.routes[0].operations, [
+    {
+      type: 'event', name: 'NAV1_RADIO_SET',
+      inputValue: { source: 'input', encoding: 'frequency-bcd16' },
+    },
+    {
+      type: 'event', name: 'NAV2_RADIO_SET',
+      inputValue: { source: 'input', encoding: 'frequency-bcd16' },
+    },
+  ]);
+  assert.deepEqual(navBothSetActive.routes[0].readbacks, [
+    { fieldId: 'radios.nav1ActiveMhz', expectedInput: true, timeoutMs: 2500 },
+    { fieldId: 'radios.nav2ActiveMhz', expectedInput: true, timeoutMs: 2500 },
+  ]);
 
   const nav2InnerIncrement = defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: PMDG_737_ADAPTER_ID,

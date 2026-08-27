@@ -16,6 +16,7 @@ import { createAppMessageHandler } from './message-handlers.js';
 import { createStatusIndicatorsController } from '../ui/status-indicators.js';
 import { createLvarInspectorController } from '../data-sources/lvar-inspector-controller.js';
 import { createConnection } from '../ws/connection.js';
+import { createVoiceControlController } from '../voice/voice-controller.js';
 import { getCabinAnnouncements, setAppServices } from '../../app-shared.js';
 import {
   emitTelemetryReset,
@@ -253,6 +254,7 @@ export async function initAppRuntime({
   const preferencesStore = requireRuntimeStore(runtimeStores, 'preferences');
   const aircraftControlsStore = requireRuntimeStore(runtimeStores, 'aircraftControls');
   const aircraftSpecificStore = requireRuntimeStore(runtimeStores, 'aircraftSpecific');
+  const voiceStore = requireRuntimeStore(runtimeStores, 'voiceControl');
   const lvarInspectorStore = requireRuntimeStore(runtimeStores, 'lvarInspector');
   const logbookStore = requireRuntimeStore(runtimeStores, 'logbook');
   const simbriefStore = requireRuntimeStore(runtimeStores, 'simbrief');
@@ -338,6 +340,15 @@ export async function initAppRuntime({
         pendingKey,
       });
     },
+    requestCommand(commandId, input = {}, { pendingKey = '' } = {}) {
+      return aircraftControl.sendCommand(commandId, input, { pendingKey });
+    },
+  });
+  const voiceController = createVoiceControlController({
+    aircraftControl,
+    aircraftControlsStore,
+    voiceStore,
+    globalRef: window,
   });
 
   const autopilotPanel = createAutopilotPanel({
@@ -386,6 +397,7 @@ export async function initAppRuntime({
       aircraftControl.clearProfileToken('Backend connection lost. Waiting for profile refresh.');
       aircraftControl.clearPendingRequests('Connection lost before control request completed.');
       aircraftControl.updateAvailability();
+      voiceController.handleAircraftContextChange();
 
       // Reset telemetry display so gauges don't show stale values
       resetTelemetryDisplay('wsDisconnected');
@@ -656,6 +668,7 @@ export async function initAppRuntime({
     autopilotPanel,
     aircraftControl,
     aircraftSpecificStore,
+    voiceController,
     landingController,
     telemetryWarnings,
     statusIndicators,
@@ -685,6 +698,8 @@ export async function initAppRuntime({
   // === Initialize ===
   simbriefStore?.restore?.();
   connection.initialize();
+  void voiceController.initialize();
+  window.addEventListener('beforeunload', () => { void voiceController.dispose(); }, { once: true });
 }
 
 

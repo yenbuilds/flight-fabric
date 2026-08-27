@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "main": "index.js",
   "engines": {
@@ -36,6 +36,7 @@
     "test:http-server-simbrief": "npm run build:backend:runtime && node --test dist/backend/core/http-server.test.js",
     "test:user-identity": "node tests/scripts/test-user-identity.js",
     "test:electron": "node electron/test-electron.js",
+    "test:voice": "node --test frontend/src/voice/command-interpreter.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/voice-controller.test.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/windows-local-tts.test.js",
     "test:electron:output-guard": "node --test tests/scripts/test-electron-release-output-failure-guard.js",
     "test:electron:ipc-runtime": "node tests/scripts/test-electron-ipc-runtime.js",
     "test:electron:sqlite": "node tests/scripts/test-electron-sqlite-runtime.js",

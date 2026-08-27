@@ -24,6 +24,7 @@ const MIME_TYPES = Object.freeze({
   '.html': 'text/html; charset=utf-8',
   '.ico': 'image/x-icon',
   '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.png': 'image/png',
@@ -198,6 +199,54 @@ function buildFixtureSettings() {
   }, {
     defaults: sharedSettings.APP_SETTINGS_DEFAULTS,
   });
+}
+
+function buildFixtureControlCapabilities(configurationId, profileKey, profileRevision = null) {
+  return {
+    aircraftCommands: {
+      configurationId,
+      profileKey,
+      profileRevision,
+      commands: [
+        {
+          id: 'configuration.lighting.cockpit',
+          label: 'Cockpit lighting',
+          group: 'presets',
+          kind: 'preset',
+          description: 'Set panel and display dimmers to one brightness.',
+          input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+          speech: {
+            patterns: ['set cockpit lighting {value}'],
+            hints: ['COCKPIT LIGHTING'],
+          },
+        },
+        {
+          id: 'configuration.lights.takeoff',
+          label: 'Takeoff lights',
+          group: 'presets',
+          kind: 'preset',
+          description: 'Runway turnoffs ON · Taxi ON · Strobe ON',
+          input: { kind: 'none' },
+          speech: {
+            patterns: ['set lights for takeoff'],
+            hints: ['TAKEOFF LIGHTS'],
+          },
+        },
+        {
+          id: 'configuration.lights.cruise',
+          label: 'Cruise lighting',
+          group: 'presets',
+          kind: 'preset',
+          description: 'Logo ON · Cabin signs AUTO',
+          input: { kind: 'none' },
+          speech: {
+            patterns: ['set lights for cruise'],
+            hints: ['CRUISE LIGHTS'],
+          },
+        },
+      ],
+    },
+  };
 }
 
 function buildFixtureFlights() {
@@ -466,6 +515,10 @@ function createFixtureBackend() {
             simulator: 'msfs',
             _profileKey: 'bundled/msfs/generic',
           },
+          controlCapabilities: buildFixtureControlCapabilities(
+            'generic',
+            'bundled/msfs/generic',
+          ),
         });
         sendAppSettings(ws);
         sendJson(ws, {
@@ -505,10 +558,11 @@ function createFixtureBackend() {
           restartReasons: [],
         });
         const selectedAircraft = {
-          'bundled/msfs/pmdg-777': { id: 'pmdg-777', name: 'PMDG 777', templateId: 'pmdg-777' },
-          'bundled/msfs/fenix-a320': { id: 'fenix-a320', name: 'Fenix A320', templateId: 'fenix-a32x' },
-          'bundled/msfs/fbw-a32nx': { id: 'fbw-a32nx', name: 'FlyByWire A32NX', templateId: 'fbw-a32nx' },
-          'bundled/msfs/fbw-a380x': { id: 'fbw-a380x', name: 'FlyByWire A380X', templateId: 'fbw-a380x' },
+          auto: { id: 'generic', name: 'Generic Aircraft', profileKey: 'bundled/msfs/generic' },
+          'bundled/msfs/pmdg-777': { id: 'pmdg-777', name: 'PMDG 777', profileKey: 'bundled/msfs/pmdg-777', templateId: 'pmdg-777' },
+          'bundled/msfs/fenix-a320': { id: 'fenix-a320', name: 'Fenix A320', profileKey: 'bundled/msfs/fenix-a320', templateId: 'fenix-a32x' },
+          'bundled/msfs/fbw-a32nx': { id: 'fbw-a32nx', name: 'FlyByWire A32NX', profileKey: 'bundled/msfs/fbw-a32nx', templateId: 'fbw-a32nx' },
+          'bundled/msfs/fbw-a380x': { id: 'fbw-a380x', name: 'FlyByWire A380X', profileKey: 'bundled/msfs/fbw-a380x', templateId: 'fbw-a380x' },
         }[state.appSettings.aircraft?.profile];
         if (selectedAircraft) {
           sendJson(ws, {
@@ -518,10 +572,15 @@ function createFixtureBackend() {
               name: selectedAircraft.name,
               namespace: 'bundled',
               simulator: 'msfs',
-              _profileKey: state.appSettings.aircraft.profile,
+              _profileKey: selectedAircraft.profileKey,
               profileRevision: 1,
               aircraftSpecificTemplateId: selectedAircraft.templateId,
             },
+            controlCapabilities: buildFixtureControlCapabilities(
+              selectedAircraft.id,
+              selectedAircraft.profileKey,
+              1,
+            ),
           });
         }
         break;
@@ -808,6 +867,16 @@ async function main() {
   log(`serving browser smoke frontend from ${appUrl}`);
 
   try {
+    for (const fileName of ['maplibre-gl-worker.mjs', 'maplibre-gl-shared.mjs']) {
+      const response = await fetch(`http://127.0.0.1:${frontendAddress.port}/${fileName}`);
+      assert.equal(response.status, 200, `${fileName} should be available to the packaged map runtime`);
+      assert.match(
+        response.headers.get('content-type') || '',
+        /javascript/i,
+        `${fileName} should be served with a JavaScript MIME type`,
+      );
+    }
+
     await spawnElectronRunner({
       electronBinary,
       url: appUrl,

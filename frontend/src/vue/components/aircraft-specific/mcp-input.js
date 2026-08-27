@@ -2,8 +2,10 @@ export function mcpDraftKey(config, fallbackId = '') {
   const fieldId = typeof config?.fieldId === 'string' && config.fieldId
     ? config.fieldId
     : (typeof config?.id === 'string' && config.id ? config.id : fallbackId);
-  const actionId = typeof config?.actionId === 'string' ? config.actionId : '';
-  return `${fieldId}:${actionId}`;
+  const controlId = typeof config?.commandId === 'string'
+    ? config.commandId
+    : (typeof config?.actionId === 'string' ? config.actionId : '');
+  return `${fieldId}:${controlId}`;
 }
 
 export function parseMcpDraftNumber(rawValue, config) {
@@ -28,9 +30,14 @@ export function submitMcpDraft({
   groupId,
   rawValue,
   requestAction,
+  requestCommand,
 }) {
-  if (disabled || typeof requestAction !== 'function') return false;
+  if (disabled) return false;
   const next = parseMcpDraftNumber(rawValue, config);
   if (next === null) return false;
+  if (typeof config?.commandId === 'string' && typeof requestCommand === 'function') {
+    return requestCommand(config.commandId, groupId, { value: next });
+  }
+  if (typeof requestAction !== 'function') return false;
   return requestAction(config.actionId, groupId, next);
 }

@@ -1783,6 +1783,103 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     'fixed secondary SimConnect parameters are part of the trusted route',
   );
 
+  const sdkNamedSequence = structuredClone(parameterizedSequence);
+  sdkNamedSequence.id = 'sdk-named-sequence';
+  sdkNamedSequence.trustedProfileKeys = ['bundled/msfs/sdk-named-sequence'];
+  sdkNamedSequence.actions['test.set'].routes[0].operations[0].name = '#84132';
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([sdkNamedSequence]),
+    'an exact five-digit third-party SDK event may be used by a trusted sequence',
+  );
+  for (const [id, name] of [
+    ['short-sdk-sequence-name', '#8413'],
+    ['long-sdk-sequence-name', '#841320'],
+    ['unsafe-sdk-sequence-name', '#84A32'],
+  ] as const) {
+    const invalid = structuredClone(sdkNamedSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    invalid.actions['test.set'].routes[0].operations[0].name = name;
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
+
+  const encodedInputSequence = structuredClone(validBase);
+  encodedInputSequence.id = 'encoded-input-sequence';
+  encodedInputSequence.trustedProfileKeys = ['bundled/msfs/encoded-input-sequence'];
+  encodedInputSequence.actions['test.set'].input = {
+    type: 'number', min: 108, max: 117.95, step: 0.05,
+  };
+  encodedInputSequence.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{
+      type: 'event',
+      name: 'NAV1_RADIO_SET',
+      inputValue: { source: 'input', encoding: 'frequency-bcd16' },
+    }],
+    readback: { fieldId: 'test.value', expectedInput: true, timeoutMs: 100 },
+  }];
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([encodedInputSequence]),
+    'the exact allowlisted BCD16 frequency encoding is valid for typed SimConnect input',
+  );
+
+  const lvarInputSequence = structuredClone(validBase);
+  lvarInputSequence.id = 'lvar-input-sequence';
+  lvarInputSequence.trustedProfileKeys = ['bundled/msfs/lvar-input-sequence'];
+  lvarInputSequence.actions['test.set'].input = {
+    type: 'number', min: 0, max: 100, step: 1,
+  };
+  lvarInputSequence.actions['test.set'].routes = [{
+    id: 'test.set.sequence',
+    transport: 'simconnect-sequence',
+    operations: [{
+      type: 'lvar',
+      name: 'L:test',
+      unit: 'Number',
+      inputValue: { source: 'input', scale: 3, round: 'nearest' },
+    }],
+    readback: { fieldId: 'test.value', expectedInput: true, timeoutMs: 100 },
+  }];
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([lvarInputSequence]),
+    'a trusted LVAR sequence may derive a bounded numeric write from typed input',
+  );
+
+  for (const [id, mutate] of [
+    ['lvar-input-with-fixed-value', (operation: any) => { operation.value = 1; }],
+    ['lvar-input-encoding', (operation: any) => { operation.inputValue.encoding = 'frequency-bcd16'; }],
+  ] as const) {
+    const invalid = structuredClone(lvarInputSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    mutate(invalid.actions['test.set'].routes[0].operations[0]);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
+
+  for (const [id, mutate] of [
+    ['unknown-input-encoding', (inputValue: any) => { inputValue.encoding = 'unknown'; }],
+    ['mixed-input-encoding', (inputValue: any) => { inputValue.scale = 100; }],
+  ] as const) {
+    const invalid = structuredClone(encodedInputSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    mutate(invalid.actions['test.set'].routes[0].operations[0].inputValue);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
+
   const multiReadbackSequence = structuredClone(validBase);
   multiReadbackSequence.id = 'multi-readback-sequence';
   multiReadbackSequence.trustedProfileKeys = ['bundled/msfs/multi-readback-sequence'];

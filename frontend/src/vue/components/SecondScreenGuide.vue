@@ -53,7 +53,7 @@ function dismissGuide() {
   <aside
     v-if="isSecondScreen && !dismissed"
     id="second-screen-guide"
-    class="mb-4 rounded-2xl border border-cyan-400/30 bg-cyan-400/10 p-4 shadow-lg shadow-black/10"
+    class="mb-4 hidden rounded-2xl border border-cyan-400/30 bg-cyan-400/10 p-4 shadow-lg shadow-black/10 min-[641px]:block"
     aria-labelledby="second-screen-guide-title"
   >
     <div class="flex items-start gap-3">

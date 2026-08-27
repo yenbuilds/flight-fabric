@@ -110,7 +110,7 @@ const DEFAULT_SETTINGS: SettingsObject = {
     // fully quiet app.
     updateChecks: true,
 
-    // Allow online map tiles from CARTO/OpenStreetMap in map views
+    // Allow the online OpenFreeMap basemap in map views
     // (default: true). Turn off for local overlays without third-party tile
     // server requests.
     onlineMapTiles: true,

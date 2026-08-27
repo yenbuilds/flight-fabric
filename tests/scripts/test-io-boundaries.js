@@ -58,7 +58,7 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/utils/safe-fs.ts', 'safety-primitive', 'closeSync=2,copyFileSync=1,existsSync=6,fsyncSync=1,lstatSync=5,openSync=1,realpathSync=1,renameSync=1,unlinkSync=1,writeFileSync=2'],
   ['backend/utils/storage-paths.ts', 'guarded-settings', 'existsSync=1,mkdirSync=1,readdirSync=1,statSync=2'],
   ['backend/utils/user-identity.ts', 'guarded-settings', 'existsSync=1,readFileSync=1'],
-  ['electron/main.js', 'desktop-runtime', 'appendFileSync=2,close=3,closeSync=1,createReadStream=1,existsSync=23,fstat=1,lstatSync=2,mkdirSync=2,open=1,openSync=1,readFile=1,readSync=1,realpathSync=2,statSync=3,writeFileSync=2'],
+  ['electron/main.js', 'desktop-runtime', 'appendFileSync=2,close=3,closeSync=1,createReadStream=1,existsSync=24,fstat=1,lstatSync=2,mkdirSync=2,open=1,openSync=1,readFile=1,readSync=1,realpathSync=2,statSync=3,writeFileSync=2'],
   ['electron/settings-store.js', 'guarded-settings', 'existsSync=3,readFileSync=1'],
 ];
 

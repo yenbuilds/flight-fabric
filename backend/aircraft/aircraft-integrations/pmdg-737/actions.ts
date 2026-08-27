@@ -294,7 +294,151 @@ function pressSdkRadioTransferAction(params: {
   };
 }
 
+function setBothNavRadiosActiveAction(): AircraftIntegrationAction {
+  return {
+    id: 'radios.navBoth.setActive',
+    input: { type: 'number', min: 108, max: 117.95, step: 0.05 },
+    guard: {
+      cooldownMs: DEFAULT_COOLDOWN_MS,
+      groupId: 'pmdg737.radios.navBoth',
+      retry: 'never',
+    },
+    routes: [{
+      id: 'pmdg737.radios.navBoth.setActive.simconnectSequence',
+      transport: 'simconnect-sequence',
+      operations: [
+        {
+          type: 'event',
+          name: 'NAV1_RADIO_SET',
+          inputValue: { source: 'input', encoding: 'frequency-bcd16' },
+        },
+        {
+          type: 'event',
+          name: 'NAV2_RADIO_SET',
+          inputValue: { source: 'input', encoding: 'frequency-bcd16' },
+        },
+      ],
+      readbacks: [
+        { fieldId: 'radios.nav1ActiveMhz', expectedInput: true, timeoutMs: 2500 },
+        { fieldId: 'radios.nav2ActiveMhz', expectedInput: true, timeoutMs: 2500 },
+      ],
+    }],
+    verification: 'untested',
+  };
+}
+
+function setBothMcpCourseWindowsAction(): AircraftIntegrationAction {
+  return {
+    id: 'mcp.courseBoth.set',
+    input: { type: 'number', min: 0, max: 359, step: 1 },
+    guard: {
+      cooldownMs: DEFAULT_COOLDOWN_MS,
+      groupId: 'pmdg737.mcp.course',
+      retry: 'never',
+    },
+    routes: [{
+      id: 'pmdg737.mcp.courseBoth.set.simconnectSequence',
+      transport: 'simconnect-sequence',
+      operations: [
+        {
+          type: 'event',
+          name: '#84132',
+          inputValue: { source: 'input', round: 'nearest' },
+        },
+        {
+          type: 'event',
+          name: '#84133',
+          inputValue: { source: 'input', round: 'nearest' },
+        },
+      ],
+      readbacks: [
+        { fieldId: 'mcp.courseCaptainDeg', expectedInput: true, timeoutMs: 2500 },
+        { fieldId: 'mcp.courseFirstOfficerDeg', expectedInput: true, timeoutMs: 2500 },
+      ],
+    }],
+    verification: 'untested',
+  };
+}
+
+function setCockpitLightingGroupAction(params: {
+  actionId: string;
+  controls: readonly Readonly<{ fieldId: string; lvar: string }>[];
+}): AircraftIntegrationAction {
+  return {
+    id: params.actionId,
+    input: { type: 'number', min: 0, max: 100, step: 1 },
+    guard: {
+      // The four reviewed lighting groups form one parameterized preset and
+      // execute serially. A zero cooldown lets adjacent groups share the same
+      // exclusion key while the in-flight guard still rejects overlap.
+      cooldownMs: 0,
+      groupId: 'pmdg737.lighting.cockpit',
+      retry: 'never',
+    },
+    routes: [{
+      id: `pmdg737.${params.actionId}.simconnectSequence`,
+      transport: 'simconnect-sequence',
+      operations: params.controls.map((control) => ({
+        type: 'lvar' as const,
+        name: `L:${control.lvar}`,
+        unit: 'Number',
+        inputValue: { source: 'input' as const, scale: 3, round: 'nearest' as const },
+      })),
+      readbacks: params.controls.map((control) => ({
+        fieldId: control.fieldId,
+        expectedInput: true as const,
+        timeoutMs: 2500,
+      })),
+    }],
+    verification: 'untested',
+  };
+}
+
 const actions: Record<string, AircraftIntegrationAction> = {};
+
+actions['radios.navBoth.setActive'] = setBothNavRadiosActiveAction();
+actions['mcp.courseBoth.set'] = setBothMcpCourseWindowsAction();
+
+for (const group of [
+  {
+    actionId: 'lighting.cockpit.panels.set',
+    controls: [
+      { fieldId: 'lighting.overheadCircuitBreakerPercent', lvar: 'OH_CB_PANEL_LIGHT_CONTROL' },
+      { fieldId: 'lighting.overheadPanelPercent', lvar: 'OH_PANEL_LIGHT_CONTROL' },
+      { fieldId: 'lighting.mainPanelCaptainPercent', lvar: 'CA_MAIN_PANEL_LIGHT_CONTROL' },
+      { fieldId: 'lighting.mainPanelFirstOfficerPercent', lvar: 'FO_MAIN_PANEL_LIGHT_CONTROL' },
+    ],
+  },
+  {
+    actionId: 'lighting.cockpit.ambient.set',
+    controls: [
+      { fieldId: 'lighting.backgroundPercent', lvar: 'CA_BACKGROUND_BRT_CONTROL' },
+      { fieldId: 'lighting.afdsFloodPercent', lvar: 'CA_AFDS_FLOOD_LIGHT_CONTROL' },
+      { fieldId: 'lighting.pedestalFloodPercent', lvar: 'PED_FLOOD_LIGHT_CONTROL' },
+      { fieldId: 'lighting.pedestalPanelPercent', lvar: 'PED_PANEL_LIGHT_CONTROL' },
+    ],
+  },
+  {
+    actionId: 'lighting.cockpit.captainDisplays.set',
+    controls: [
+      { fieldId: 'lighting.displayCaptainOutboardPercent', lvar: 'CA_OUTBD_DU_BRIGHT_CONTROL' },
+      { fieldId: 'lighting.displayCaptainInboardPercent', lvar: 'CA_INBD_DU_BRIGHT_CONTROL' },
+      { fieldId: 'lighting.displayCaptainMapPercent', lvar: 'CA_INBD_DU_RDR_BRIGHT_CONTROL' },
+      { fieldId: 'lighting.displayUpperPercent', lvar: 'CA_UPPER_DU_BRIGHT_CONTROL' },
+    ],
+  },
+  {
+    actionId: 'lighting.cockpit.firstOfficerDisplays.set',
+    controls: [
+      { fieldId: 'lighting.displayFirstOfficerOutboardPercent', lvar: 'FO_OUTBD_DU_BRIGHT_CONTROL' },
+      { fieldId: 'lighting.displayFirstOfficerInboardPercent', lvar: 'FO_INBD_DU_BRIGHT_CONTROL' },
+      { fieldId: 'lighting.displayFirstOfficerMapPercent', lvar: 'FO_INBD_DU_RDR_BRIGHT_CONTROL' },
+      { fieldId: 'lighting.displayLowerPercent', lvar: 'CA_LOWER_DU_BRIGHT_CONTROL' },
+    ],
+  },
+] as const) {
+  actions[group.actionId] = setCockpitLightingGroupAction(group);
+}
 
 function addBooleanActions(params: {
   eventId: number;
@@ -380,13 +524,13 @@ for (const definition of [
 // stay in cockpit units; the adapter owns PMDG's Mach and vertical-speed wire
 // encodings so browser clients never send raw SDK parameters.
 for (const definition of [
-  ['mcp.courseCaptain.set', 'mcp.courseCaptainDeg', 84132, 0, 359, 1, 1, 0, 'pmdg737.mcp.courseCaptain'],
+  ['mcp.courseCaptain.set', 'mcp.courseCaptainDeg', 84132, 0, 359, 1, 1, 0, 'pmdg737.mcp.course'],
   ['mcp.ias.set', 'mcp.speed', 84134, 100, 399, 1, 1, 0, 'pmdg737.mcp.speed'],
   ['mcp.mach.set', 'mcp.speed', 84135, 0.4, 0.99, 0.01, 100, 0, 'pmdg737.mcp.speed'],
   ['mcp.heading.set', 'mcp.headingDeg', 84136, 0, 359, 1, 1, 0, 'pmdg737.mcp.heading'],
   ['mcp.altitude.set', 'mcp.altitudeFt', 84137, 0, 50000, 100, 1, 0, 'pmdg737.mcp.altitude'],
   ['mcp.verticalSpeed.set', 'mcp.verticalSpeedFpm', 84138, -7900, 6000, 100, 1, 10000, 'pmdg737.mcp.verticalSpeed'],
-  ['mcp.courseFirstOfficer.set', 'mcp.courseFirstOfficerDeg', 84133, 0, 359, 1, 1, 0, 'pmdg737.mcp.courseFirstOfficer'],
+  ['mcp.courseFirstOfficer.set', 'mcp.courseFirstOfficerDeg', 84133, 0, 359, 1, 1, 0, 'pmdg737.mcp.course'],
 ] as const) {
   actions[definition[0]] = setSdkNumberAction({
     actionId: definition[0],
@@ -739,6 +883,22 @@ for (const [suffix, expectedValue] of [
     eventId: 70325,
     fieldId: 'gear.parkingBrake',
     groupId: 'pmdg737.gear.parkingBrake',
+    expectedValue,
+  });
+}
+
+// PMDG NG3 publishes dedicated control-stand mouse targets for the DOWN and
+// ARM detents. Use those exact targets instead of moving the continuous lever,
+// and confirm the authoritative SPEEDBRAKE ARMED annunciator after each write.
+for (const [suffix, eventId, expectedValue] of [
+  ['disarm', 76423, false], // THIRD_PARTY_EVENT_ID_MIN + 6791 (DOWN)
+  ['arm', 76424, true], // THIRD_PARTY_EVENT_ID_MIN + 6792 (ARM)
+] as const) {
+  actions[`flightControls.speedbrake.${suffix}`] = pressSdkAction({
+    actionId: `flightControls.speedbrake.${suffix}`,
+    eventId,
+    fieldId: 'flightControls.speedbrakeArmed',
+    groupId: 'pmdg737.flightControls.speedbrake',
     expectedValue,
   });
 }

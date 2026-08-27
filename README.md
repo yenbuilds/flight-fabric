@@ -38,7 +38,7 @@ timeline.
 
 | Fly and control | After you land | On another screen |
 | --- | --- | --- |
-| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable aircraft controls for supported aircraft. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
+| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable controls and local offline push-to-talk voice commands for supported aircraft. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
 
 ## Get flying
 
@@ -47,6 +47,19 @@ timeline.
 2. Check the installer SHA-256 value against the checksum published in that
    release's notes.
 3. Install Flight Fabric, start MSFS 2024, and open the app.
+
+Voice recognition is off by default. Open **Aircraft**, then **Voice control**,
+and turn on **Enable voice control**. Once enabled, record a global shortcut in
+**Voice settings**, or use the on-screen hold-to-talk button. While recognition
+is off, Flight Fabric does not start its speech engine or push-to-talk helper,
+enumerate microphones, or accept a recognition session.
+Microphone audio is read only during an active push-to-talk session, processed
+locally in memory, and is never saved, logged, or sent over the network. The
+explicit microphone Refresh action briefly opens and closes the default input
+only to reveal available device names; it does not read, process, save, or send
+audio. Flight Fabric can speak command results through an installed Windows
+SAPI voice. This uses no browser or network text-to-speech service, and starting
+a new push-to-talk session stops any speech already playing.
 
 Windows builds are not currently code signed, so SmartScreen or antivirus
 software may show an **Unknown publisher** warning. Only download Flight Fabric
@@ -168,6 +181,36 @@ selected source and SHA-256 checksum.
 Do not commit the DLL to a public fork. Review the
 [Microsoft Flight Simulator SDK licence](https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_EULA.htm)
 that applies to your installation.
+
+</details>
+
+<details>
+<summary><strong>Provide the offline voice model</strong></summary>
+
+Flight Fabric uses the Apache-2.0
+`sherpa-onnx-streaming-zipformer-en-2023-06-26` model for offline voice
+recognition. The model weights are build inputs and are not stored in Git.
+
+On the first `npm run electron` or `npm run build`, the build tooling downloads
+the approximately 70 MiB runtime subset from an immutable upstream revision,
+checks every file against the sizes and SHA-256 values pinned in
+`electron/voice-model-manifest.js`, and caches it under
+`electron/resources/models/`. Later builds reuse the verified cache. Packaged
+applications include the verified model and never download it at runtime.
+
+For an offline build, download and extract Sherpa's
+[`sherpa-onnx-streaming-zipformer-en-2023-06-26` archive](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2),
+then point `FF_VOICE_MODEL_DIR` at the extracted directory:
+
+```powershell
+$env:FF_VOICE_MODEL_DIR = 'D:\models\sherpa-onnx-streaming-zipformer-en-2023-06-26'
+npm --prefix electron run provision:voice-model
+```
+
+The repository supplies the small BPE vocabulary used for Flight Fabric's
+aviation hotwords. `FF_VOICE_MODEL_DIR` therefore only needs the upstream
+encoder, decoder, joiner, and `tokens.txt` files. The provisioner fails closed
+if any required file has unexpected contents.
 
 </details>
 

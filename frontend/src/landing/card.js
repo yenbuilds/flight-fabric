@@ -18,7 +18,7 @@ function normalizeGateFailures(value) {
   return [];
 }
 
-function normalizeUltimateStability(value) {
+function normalizeUltimateStability(value, { preserveEmpty = false } = {}) {
   if (!value || typeof value !== 'object') return null;
 
   const score = value.score != null ? Number(value.score) : NaN;
@@ -44,7 +44,7 @@ function normalizeUltimateStability(value) {
     || gateFailures.length > 0
     || Boolean(breakdown)
     || Boolean(scoringContext);
-  if (!hasData) return null;
+  if (!hasData && !preserveEmpty) return null;
 
   return {
     score: Number.isFinite(score) ? score : null,
@@ -60,33 +60,56 @@ function normalizeUltimateStability(value) {
 export function mergeLandingMessageUltimateStability(msg, fallbackUltimateStability) {
   if (!msg || typeof msg !== 'object') return msg;
 
-  const current = normalizeUltimateStability(msg.ultimateStability);
+  const hasCurrentValue = Object.prototype.hasOwnProperty.call(msg, 'ultimateStability');
+  if (hasCurrentValue && (msg.ultimateStability === null || typeof msg.ultimateStability !== 'object')) {
+    return msg;
+  }
+
+  const currentSource = msg.ultimateStability;
+  const current = normalizeUltimateStability(currentSource, { preserveEmpty: true });
   const fallback = normalizeUltimateStability(fallbackUltimateStability);
   if (!fallback) return msg;
+
+  const hasCurrentField = (...keys) => Boolean(currentSource)
+    && keys.some((key) => Object.prototype.hasOwnProperty.call(currentSource, key));
+  const verdict = hasCurrentField('verdict', 'stabilityVerdict')
+    ? current?.verdict ?? null
+    : fallback.verdict ?? null;
+  const breakdown = hasCurrentField('breakdown')
+    ? current?.breakdown ?? null
+    : fallback.breakdown ?? null;
+  const scoringContext = hasCurrentField('scoringContext')
+    ? current?.scoringContext ?? null
+    : fallback.scoringContext ?? null;
 
   return {
     ...msg,
     ultimateStability: {
-      score: current?.score ?? fallback.score,
-      samples: current?.samples ?? fallback.samples,
-      gateStable: current?.gateStable ?? fallback.gateStable,
-      verdict: current?.verdict ?? fallback.verdict,
-      gateFailures: current?.gateFailures?.length
-        ? current.gateFailures
+      score: hasCurrentField('score') ? current?.score ?? null : fallback.score,
+      samples: hasCurrentField('samples') ? current?.samples ?? null : fallback.samples,
+      gateStable: hasCurrentField('gateStable') ? current?.gateStable ?? null : fallback.gateStable,
+      ...(verdict ? { verdict } : {}),
+      gateFailures: hasCurrentField('gateFailures')
+        ? current?.gateFailures ?? []
         : fallback.gateFailures,
-      ...(current?.breakdown || fallback.breakdown
-        ? { breakdown: current?.breakdown || fallback.breakdown }
-        : {}),
-      ...(current?.scoringContext || fallback.scoringContext
-        ? { scoringContext: current?.scoringContext || fallback.scoringContext }
-        : {}),
+      ...(breakdown ? { breakdown } : {}),
+      ...(scoringContext ? { scoringContext } : {}),
     },
+  };
+}
+
+export function replaceLandingMessageUltimateStability(msg, ultimateStability) {
+  if (!msg || typeof msg !== 'object') return msg;
+
+  return {
+    ...msg,
+    ultimateStability: normalizeUltimateStability(ultimateStability, { preserveEmpty: true }),
   };
 }
 
 export function createLandingCardRenderer({
   getLandingStore = () => null,
-  getLastUltimateStability = () => null,
+  getPendingUltimateStability = () => null,
   setLastLandingData = () => {},
   getFlightUpsetCount = () => 0,
   updateDataLandingPreview = () => {},
@@ -101,8 +124,8 @@ export function createLandingCardRenderer({
     const landingStore = getLandingStore();
     if (!landingStore) return null;
 
-    const lastUltimateStability = getLastUltimateStability();
-    const cardMsg = mergeLandingMessageUltimateStability(msg, lastUltimateStability);
+    const pendingUltimateStability = getPendingUltimateStability();
+    const cardMsg = mergeLandingMessageUltimateStability(msg, pendingUltimateStability);
     if (cardMsg.final) setLastLandingData(cardMsg);
 
     updateDataLandingPreview(cardMsg);
@@ -116,12 +139,13 @@ export function createLandingCardRenderer({
       vsFpm: cardMsg?.vs_fpm ?? null,
     });
 
-    if (lastUltimateStability && lastUltimateStability.breakdown) {
-      renderStabilityBreakdown(lastUltimateStability);
-    }
-    if (lastUltimateStability && lastUltimateStability.approachProfile && lastUltimateStability.approachProfile.length > 0) {
-      renderApproachProfile(lastUltimateStability, cardMsg);
-    }
+    const stabilityDetails = pendingUltimateStability || cardMsg.ultimateStability || {};
+    renderStabilityBreakdown(stabilityDetails);
+
+    const profileDetails = pendingUltimateStability?.approachProfile?.length > 0
+      ? pendingUltimateStability
+      : (cardMsg.approachProfile?.length > 0 ? cardMsg : { approachProfile: [] });
+    renderApproachProfile(profileDetails, cardMsg);
 
     renderInflightSummary(cardMsg.flightSummary || null);
     return cardMsg;

@@ -23,6 +23,7 @@ import { useSystemHostStore } from './stores/system-host.js';
 import { useTabsStore } from './stores/tabs.js';
 import { useThemeStore } from './stores/theme.js';
 import { useTimelineStore } from './stores/timeline.js';
+import { useVoiceControlStore } from './stores/voice-control.js';
 import { createThemeRuntime } from '../theme/runtime.js';
 import {
   subscribeAppSettings,
@@ -75,6 +76,7 @@ const systemHost = useSystemHostStore(pinia);
 const tabs = useTabsStore(pinia);
 const theme = useThemeStore(pinia);
 const timeline = useTimelineStore(pinia);
+const voiceControl = useVoiceControlStore(pinia);
 const themeRuntime = createThemeRuntime({ documentRef: document });
 const footerVersionEl = document.getElementById('app-version');
 
@@ -143,5 +145,6 @@ export const vueRuntimeContext = {
     tabs,
     theme,
     timeline,
+    voiceControl,
   },
 };

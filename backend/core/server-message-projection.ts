@@ -82,6 +82,7 @@ export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Ob
   MSG.FLIGHT_STATUS,
   MSG.DELETE_FLIGHT_CSV_RESULT,
   MSG.FLIGHT_ANALYSIS_RESCORE_RESULT,
+  MSG.AIRCRAFT_COMMAND_RESULT,
   MSG.AIRCRAFT_CONTROL_RESULT,
   MSG.FLIGHT_PLAN,
   MSG.DESTINATION_TARGET,
@@ -315,25 +316,39 @@ function stripKnownSensitiveFields(value: unknown, depth = 0): unknown {
   return projected;
 }
 
-function sanitizeMetadataValue(value: unknown, depth = 0): unknown {
-  if (depth > 5) return undefined;
+function sanitizeMetadataValue(
+  value: unknown,
+  depth = 0,
+  maxDepth = 5,
+  maxCollectionEntries = 100,
+): unknown {
+  if (depth > maxDepth) return undefined;
   const simple = safeSimpleValue(value, 240);
   if (simple !== undefined) return simple;
   if (Array.isArray(value)) {
     return value
-      .slice(0, 100)
-      .map((item) => sanitizeMetadataValue(item, depth + 1))
+      .slice(0, maxCollectionEntries)
+      .map((item) => sanitizeMetadataValue(item, depth + 1, maxDepth, maxCollectionEntries))
       .filter((item) => item !== undefined);
   }
   if (!value || typeof value !== 'object') return undefined;
 
   const projected: ServerMessage = {};
-  for (const [key, nested] of Object.entries(value as ServerMessage).slice(0, 100)) {
+  for (const [key, nested] of Object.entries(value as ServerMessage).slice(0, maxCollectionEntries)) {
     if (SENSITIVE_FIELD_NAMES.has(key.toLowerCase())) continue;
-    const sanitized = sanitizeMetadataValue(nested, depth + 1);
+    const sanitized = sanitizeMetadataValue(nested, depth + 1, maxDepth, maxCollectionEntries);
     if (sanitized !== undefined) projected[key] = sanitized;
   }
   return projected;
+}
+
+function sanitizeControlCapabilities(value: unknown): unknown {
+  // Command input enum values and speech strings are scalar leaves at depth 6:
+  // aircraftCommands -> commands[] -> command -> input/speech -> array -> value.
+  // Aircraft integrations can legitimately expose more than 100 reviewed
+  // readbacks/actions, so keep this trusted catalogue complete for the UI.
+  // Keep the broader metadata surface on the stricter default depth limit.
+  return sanitizeMetadataValue(value, 0, 6, 512);
 }
 
 function sanitizeEndReason(value: unknown): string {
@@ -405,7 +420,7 @@ function projectAircraftProfile(message: ServerMessage): ServerMessage {
   }
   profile.aircraftTitle = safeAircraftLabel(rawProfile.aircraftTitle, rawProfile.name);
   if (rawProfile.controlCapabilities && typeof rawProfile.controlCapabilities === 'object') {
-    profile.controlCapabilities = sanitizeMetadataValue(rawProfile.controlCapabilities);
+    profile.controlCapabilities = sanitizeControlCapabilities(rawProfile.controlCapabilities);
   }
 
   const projected: ServerMessage = {
@@ -416,7 +431,7 @@ function projectAircraftProfile(message: ServerMessage): ServerMessage {
   const previousDisplayName = safeAircraftLabel(message.previousDisplayName, null);
   const source = safeBoundedString(message.source, 80, SAFE_CONTROL_TOKEN);
   const provenance = projectProvenance(message.provenance);
-  const controlCapabilities = sanitizeMetadataValue(message.controlCapabilities);
+  const controlCapabilities = sanitizeControlCapabilities(message.controlCapabilities);
   if (previousDisplayName) projected.previousDisplayName = previousDisplayName;
   if (source) projected.source = source;
   if (provenance) projected.provenance = provenance;
@@ -484,12 +499,20 @@ function projectDataSources(message: ServerMessage): ServerMessage {
     ? message.sources.map(projectDataSource)
     : [primary, ...secondary].filter(Boolean);
 
-  return {
+  const projected: ServerMessage = {
     type: message.type,
     primary,
     secondary,
     sources,
   };
+  const profileKey = safeProfileLocator(message.profileKey);
+  if (profileKey) projected.profileKey = profileKey;
+  if (Number.isSafeInteger(message.profileRevision) && message.profileRevision >= 0) {
+    projected.profileRevision = message.profileRevision;
+  }
+  const controlCapabilities = sanitizeControlCapabilities(message.controlCapabilities);
+  if (controlCapabilities !== undefined) projected.controlCapabilities = controlCapabilities;
+  return projected;
 }
 
 function projectFlightPlan(message: ServerMessage): ServerMessage {
@@ -712,6 +735,33 @@ function sanitizeControlRequest(value: unknown): ServerMessage | null {
   return projected;
 }
 
+function sanitizeAircraftCommandRequest(value: unknown): ServerMessage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const request = value as ServerMessage;
+  const commandId = safeBoundedString(request.commandId, 96, SAFE_CONTROL_TOKEN);
+  if (!commandId) return null;
+
+  const projected: ServerMessage = { commandId };
+  const rawInput = request.input;
+  if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
+    const inputKeys = Object.keys(rawInput);
+    if (inputKeys.length === 0) {
+      projected.input = {};
+    } else if (inputKeys.length === 1 && inputKeys[0] === 'value') {
+      const inputValue = safeSimpleValue((rawInput as ServerMessage).value, 120);
+      if (inputValue !== undefined) projected.input = { value: inputValue };
+    }
+  }
+  const profileKey = safeProfileLocator(request.profileKey);
+  if (profileKey) projected.profileKey = profileKey;
+  if (Number.isSafeInteger(request.profileRevision) && request.profileRevision >= 0) {
+    projected.profileRevision = request.profileRevision;
+  }
+  const requestId = safeRequestId(request.requestId);
+  if (requestId) projected.requestId = requestId;
+  return projected;
+}
+
 function sanitizeControlAction(value: unknown): ServerMessage | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const action = value as ServerMessage;
@@ -768,7 +818,10 @@ function projectAircraftControlResult(
   };
   const code = safeBoundedString(message.code, 80, SAFE_CONTROL_CODE);
   if (code) projected.code = code;
-  if (!ok) projected.error = 'Aircraft control request failed.';
+  if (!ok) {
+    projected.error = 'Aircraft control request failed.';
+    if (message.executionStarted === true) projected.executionStarted = true;
+  }
 
   const request = sanitizeControlRequest(message.request);
   const profileKey = safeProfileLocator(message.profileKey);
@@ -786,6 +839,44 @@ function projectAircraftControlResult(
   if (backendSource) projected.backendSource = backendSource;
   if (SAFE_TRANSPORT_MODES.has(message.transportMode)) {
     projected.transportMode = message.transportMode;
+  }
+  return projected;
+}
+
+function projectAircraftCommandResult(
+  client: ClientScopeFlags | null | undefined,
+  message: ServerMessage,
+): ServerMessage | null {
+  const projected = projectAircraftControlResult(client, {
+    ...message,
+    request: message.controlRequest,
+  });
+  if (!projected || client?.__ffAircraftControlClient !== true) return projected;
+
+  const command = sanitizeAircraftCommandRequest(message.request || message.command);
+  const controlRequest = sanitizeControlRequest(message.controlRequest);
+  const commandId = safeBoundedString(message.commandId, 96, SAFE_CONTROL_TOKEN);
+  const commandLabel = safeBoundedString(message.commandLabel, 160, SAFE_ACTION_TEXT);
+  const configurationId = safeBoundedString(message.configurationId, 96, SAFE_CONTROL_TOKEN);
+  if (command) {
+    projected.request = command;
+    projected.command = command;
+  } else {
+    delete projected.request;
+  }
+  if (controlRequest) projected.controlRequest = controlRequest;
+  if (commandId) projected.commandId = commandId;
+  if (commandLabel) projected.commandLabel = commandLabel;
+  if (configurationId) projected.configurationId = configurationId;
+  if (Number.isSafeInteger(message.stepCount) && message.stepCount > 0 && message.stepCount <= 64) {
+    projected.stepCount = message.stepCount;
+  }
+  if (
+    Number.isSafeInteger(message.completedStepCount)
+    && message.completedStepCount >= 0
+    && message.completedStepCount <= 64
+  ) {
+    projected.completedStepCount = message.completedStepCount;
   }
   return projected;
 }
@@ -919,6 +1010,8 @@ export function projectServerMessageForClient(
       return projectDeleteFlightResult(value);
     case MSG.AIRCRAFT_CONTROL_RESULT:
       return projectAircraftControlResult(client, value);
+    case MSG.AIRCRAFT_COMMAND_RESULT:
+      return projectAircraftCommandResult(client, value);
     case MSG.FLIGHT_PLAN:
       return projectFlightPlan(value);
     case MSG.DESTINATION_TARGET:

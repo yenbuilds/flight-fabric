@@ -59,7 +59,7 @@ function keepTailwindBeforeBundledCss() {
  *   contexts; create a thin re-export in src/shared/ for ES module consumers.
  *
  * External libraries:
- * - Leaflet: vendored under vendor/leaflet/ and served as a static asset.
+ * - Leaflet and MapLibre: bundled from frontend npm dependencies.
  * - Tailwind CSS: compiled separately via the tailwindcss CLI step in build-electron.js.
  *   The pre-compiled tailwind.css is treated as a static passthrough asset here.
  */

@@ -196,6 +196,7 @@ async function main() {
     { useAppSettingsStore },
     { useAircraftControlsStore },
     { useAircraftSpecificStore },
+    { useVoiceControlStore },
     { useTimelineStore },
     { usePreferencesStore },
     { useStatusStore },
@@ -222,6 +223,7 @@ async function main() {
     import(toFrontendUrl('src', 'vue', 'stores', 'app-settings.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-controls.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-specific.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'voice-control.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'timeline.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'preferences.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'status.js')),
@@ -254,6 +256,7 @@ async function main() {
       useAppSettingsStore,
       useAircraftControlsStore,
       useAircraftSpecificStore,
+      useVoiceControlStore,
       useLiveMapStore,
       useLogbookStore,
       usePreferencesStore,
@@ -947,7 +950,9 @@ async function main() {
     assert.match(html, /Keep this off on public or shared networks\./, 'remote access help should warn against public or shared networks');
     assert.match(html, /after startup and then daily/, 'update checks help should describe low-cadence checks');
     assert.match(html, /Turn this off for a fully quiet app\./, 'update checks help should describe quiet-app behavior');
-    assert.match(html, /Turn this off to avoid third-party map tile traffic/, 'online map tile help should describe third-party tile traffic');
+    assert.match(html, /OpenFreeMap/, 'online map help should identify the basemap provider');
+    assert.match(html, /dark vector basemap/, 'online map help should identify the dark map style');
+    assert.match(html, /Turn this off to avoid third-party map traffic/, 'online map help should describe third-party map traffic');
     assert.match(html, /About Flight Fabric/, 'about panel should render inside shell');
     assert.match(html, /AGPL-3\.0-only/, 'about panel should render the project AGPL license identifier');
     assert.match(html, /License \(AGPLv3\)/, 'about panel license button should describe the bundled AGPL license');
@@ -1150,7 +1155,7 @@ async function main() {
     assert.doesNotMatch(html, /id="tab-livemap" class="tab-section active"/, 'Live should not remain the first-paint default');
   });
 
-  await test('SecondScreenGuide explains reusable viewing and session-scoped control pairing on phones', async () => {
+  await test('SecondScreenGuide hides its complete panel on mobile while retaining desktop guidance', async () => {
     globalThis.location = {
       pathname: '/remote',
       search: '?wsPort=9199',
@@ -1168,6 +1173,7 @@ async function main() {
       );
 
       assert.match(html, /id="second-screen-guide"/, 'remote browser should render the first-run second-screen guide');
+      assert.match(html, /id="second-screen-guide"[^>]*class="[^"]*\bhidden\b[^"]*min-\[641px\]:block/, 'the complete guide container should stay hidden through the mobile breakpoint');
       assert.match(html, /Keep this second screen for every flight/, 'guide should make repeat-flight behavior explicit');
       assert.match(html, /New flights appear automatically/, 'guide should tell users a new flight needs no scan');
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Viewer mode\s*</, 'guide should expose the current read-only state');
@@ -1806,7 +1812,7 @@ async function main() {
           routeText: 'Profile override - K:AP_ALT_VAR_SET_ENGLISH - SimConnect',
           profileText: 'bundled/msfs/pmdg-777',
         });
-        controls.setCommandPending({ type: 'preset', id: 'gearUp' });
+        controls.setCommandPending({ type: 'control', id: 'gearUp' });
         controls.setCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' });
         controls.applyControlCapabilities({
           surface: {
@@ -1856,9 +1862,12 @@ async function main() {
     }
 
     assert.match(html, /id="controls-availability-text"/, 'availability text target should render');
-    assert.match(html, /id="controls-experimental-badge"[\s\S]*Experimental/, 'control tab should expose a concise experimental badge in the header');
-    assert.match(html, /Send fixed standard simulator controls\. An unsupported aircraft may simply ignore a command\./, 'control tab should explain the best-effort generic surface concisely');
-    assert.match(html, /Control Status/, 'status panel should use a functional label instead of repeating the experimental warning');
+    assert.doesNotMatch(html, /Standard Aircraft Controls|id="controls-fallback-badge"|id="controls-experimental-badge"/, 'generic controls should not render the redundant fallback intro or status pills');
+    assert.match(html, /Standard simulator controls are active because this aircraft does not have a dedicated control page\. Some add-ons may ignore these commands\./, 'collapsed diagnostics should retain the useful generic-control context');
+    assert.match(html, /Control diagnostics/, 'status disclosure should be labeled as secondary diagnostics');
+    assert.match(html, /<details id="controls-diagnostics"/, 'control status should render as a disclosure');
+    assert.doesNotMatch(html, /<details id="controls-diagnostics"[^>]*\sopen(?:\s|>)/, 'control diagnostics should be collapsed by default');
+    assert.match(html, /<summary id="controls-diagnostics-toggle"/, 'control diagnostics should expose a native keyboard-accessible toggle');
     assert.doesNotMatch(html, /Experimental Write Controls|Experimental Write Surface/, 'control tab should not repeat experimental write wording');
     assert.match(html, /id="controls-last-action"/, 'last action feedback target should render');
     assert.match(html, /id="controls-last-route"/, 'last route feedback target should render');
@@ -1866,6 +1875,8 @@ async function main() {
     assert.match(html, /class="controls-status-panel"/, 'control availability and feedback should render in one consolidated status panel');
     assert.equal((html.match(/class="controls-status-item"/g) || []).length, 3, 'consolidated control status panel should render three feedback items');
     assert.match(html, /class="controls-section"/, 'control groups should render in normalized app sections');
+    assert.doesNotMatch(html, /Surfaces[\s\S]*id="ap-status-indicator"[\s\S]*Exterior Lights/, 'surface section should not own autopilot status');
+    assert.match(html, /Autopilot[\s\S]*id="ap-status-indicator"/, 'autopilot section should own autopilot status');
     assert.equal((html.match(/controls-command-tooltip-anchor/g) || []).length, 2, 'surface command buttons should render without tooltip anchors');
     assert.match(html, /id="ap-capability-note"[\s\S]*Standard simulator writes are enabled for this profile\./, 'autopilot section should render a compact profile capability note');
     assert.doesNotMatch(html, /Profile-gated experimental write path/, 'autopilot header should not repeat experimental write-path wording');
@@ -2326,6 +2337,20 @@ async function main() {
   });
 
   await test('AircraftTabShell renders generic controls when no trusted template is active', async () => {
+    const shellSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftTabShell.vue',
+    ), 'utf8');
+    const searchSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftPageSearch.vue',
+    ), 'utf8');
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
     );
@@ -2333,13 +2358,550 @@ async function main() {
     assert.match(html, /data-aircraft-page-mode="generic"/, 'an unmatched aircraft should select the generic control surface');
     assert.match(html, /aria-label="Find on Aircraft page"/, 'the generic Aircraft page should expose its shared search');
     assert.match(html, />Find controls</, 'Aircraft search should start as a compact discoverable launcher');
+    assert.match(html, /data-aircraft-integration-guide-trigger/, 'the generic fallback should expose the shared aircraft integration guide');
+    assert.match(html, />Integration guide</, 'the integration guide should use a clear, discoverable launcher label');
+    assert.match(html, /aria-controls="aircraft-integration-cheatsheet-modal"/, 'the guide launcher should identify its modal target');
     assert.match(html, /aria-label="Close Aircraft search"/, 'expanded Aircraft search should have an explicit close control');
     assert.match(html, /placeholder="Find a switch, light, or value\.\.\."/, 'Aircraft search should use task-oriented cockpit copy');
     assert.match(html, /aria-label="Previous match"/, 'Aircraft search should expose touch-friendly previous navigation');
     assert.match(html, /aria-label="Next match"/, 'Aircraft search should expose touch-friendly next navigation');
-    assert.match(html, /Flight Controls/, 'the generic control surface should remain available as the fallback');
-    assert.match(html, /id="controls-experimental-badge"[\s\S]*Experimental/, 'generic control safety disclosure should remain visible');
+    assert.match(html, /id="controls-diagnostics"/, 'the generic control surface should retain compact diagnostic context');
+    assert.doesNotMatch(html, /Standard Aircraft Controls|id="controls-fallback-badge"|id="controls-experimental-badge"/, 'the generic control surface should omit the redundant intro and status pills');
+    assert.match(html, /data-aircraft-voice-control-trigger/, 'desktop aircraft pages should expose a compact voice-control launcher');
+    assert.match(html, /aria-controls="aircraft-voice-control-modal"/, 'the voice launcher should identify its modal target');
+    assert.doesNotMatch(
+      shellSource,
+      /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+      'Aircraft presets should never compete with the intrinsic-width utility toolbar in one row',
+    );
+    assert.match(
+      shellSource,
+      /\.aircraft-page-presets\s*\{[\s\S]*?width:\s*100%;/,
+      'Aircraft presets should own the full content row at every viewport width',
+    );
+    assert.match(
+      shellSource,
+      /aircraft-page-tool-actions--search-expanded[\s\S]*?flex-basis:\s*100%;/,
+      'expanded Aircraft search should wrap to a full tablet and mobile row',
+    );
+    assert.match(
+      shellSource,
+      /@media \(max-width: 760px\), \(max-height: 500px\) and \(pointer: coarse\)/,
+      'the voice launcher should stay out of portrait and landscape mobile button workflows',
+    );
+    assert.match(
+      searchSource,
+      /MOBILE_SEARCH_HIDDEN_QUERY[\s\S]*?mobileRibbonSearchHidden\.value/,
+      'mobile ribbon pages should synchronize search state with the breakpoint that hides the search UI',
+    );
+    assert.match(
+      searchSource,
+      /event\.defaultPrevented[\s\S]*?modalDialogIsOpen\(\)/,
+      'the page-level search shortcut should yield to an open modal and an already-handled key event',
+    );
+    assert.match(
+      searchSource,
+      /searchHadFocus[\s\S]*?focusMobileRibbon\(\)/,
+      'hiding Aircraft search for a mobile ribbon should move search focus to visible section navigation',
+    );
+    assert.match(
+      searchSource,
+      /\.aircraft-find__clear\s*\{[\s\S]*?min-width:\s*2\.75rem;[\s\S]*?min-height:\s*2\.75rem;/,
+      'the search clear action should remain a full touch target',
+    );
+    assert.match(
+      searchSource,
+      /\.aircraft-find__field input\s*\{[\s\S]*?min-height:\s*2\.75rem;/,
+      'the search input itself should fill a touch-sized field instead of relying on its wrapper',
+    );
+    assert.match(
+      searchSource,
+      /\.aircraft-find__field input::placeholder\s*\{[\s\S]*?var\(--muted-foreground\)[\s\S]*?!important;/,
+      'the Aircraft placeholder should override the low-contrast global placeholder token',
+    );
+    assert.match(
+      searchSource,
+      /@media \(max-width: 640px\)[\s\S]*?\.aircraft-find__field input\s*\{[\s\S]*?font-size:\s*1rem;/,
+      'mobile Aircraft search should use a 16px input font to avoid focus zoom',
+    );
+    assert.match(
+      searchSource,
+      /@media \(max-width: 480px\)[\s\S]*?\.aircraft-find__field\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/,
+      'phone layouts should give the search field its own row before its typing width becomes cramped',
+    );
+    assert.doesNotMatch(html, /id="voice-input-device"/, 'the closed voice modal should not add its full settings surface to the Aircraft page');
     assert.doesNotMatch(html, /id="aircraft-specific-section"/, 'generic mode should not mount the aircraft-specific section');
+  });
+
+  await test('AircraftTabShell reports compact voice states without presenting failures as ready', async () => {
+    const renderVoiceState = async (status) => renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+      ({ useVoiceControlStore }) => useVoiceControlStore().setState(status, `Test ${status}.`),
+    );
+    const cases = [
+      ['disabled', 'off', 'Off'],
+      ['initializing', 'busy', 'Starting'],
+      ['starting', 'busy', 'Starting'],
+      ['listening', 'listening', 'Listening'],
+      ['finishing', 'busy', 'Processing'],
+      ['sending', 'busy', 'Sending'],
+      ['ready', 'ready', 'Ready'],
+      ['sent', 'ready', 'Command sent'],
+      ['failed', 'attention', 'Command failed'],
+      ['error', 'attention', 'Needs attention'],
+      ['unmatched', 'attention', 'Try again'],
+      ['transcribed', 'ready', 'Transcribed'],
+      ['blocked', 'attention', 'Check setup'],
+      ['unavailable', 'attention', 'Check setup'],
+    ];
+    const mappedStatuses = new Set(cases.map(([status]) => status));
+    const voiceControllerSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'voice',
+      'voice-controller.js',
+    ), 'utf8');
+    const emittedStatuses = new Set(
+      [...voiceControllerSource.matchAll(/voiceStore\.setState\(\s*['"]([^'"]+)['"]/g)]
+        .map((match) => match[1]),
+    );
+
+    for (const status of emittedStatuses) {
+      assert.equal(mappedStatuses.has(status), true, `voice status ${status} should have an intentional launcher mapping`);
+    }
+
+    for (const [status, state, label] of cases) {
+      const rendered = await renderVoiceState(status);
+      assert.match(
+        rendered.html,
+        new RegExp(`data-voice-state="${state}"`),
+        `${status} should use the ${state} launcher treatment`,
+      );
+      assert.match(rendered.html, new RegExp(label), `${status} should render the ${label} launcher label`);
+    }
+  });
+
+  await test('VoiceControlPanel labels capture, recognition, and command phases accurately', async () => {
+    const renderPanelState = async (status) => renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({
+          available: true,
+          enabled: true,
+          engine: { modelId: 'test-model' },
+          pushToTalk: { accelerator: '', registered: false },
+        });
+        voice.setState(status, `Test ${status}.`);
+      },
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match((await renderPanelState('initializing')).html, /Starting voice control/, 'runtime initialization should not present an enabled hold-to-talk action');
+    assert.match((await renderPanelState('starting')).html, /Release to cancel/, 'microphone startup should explain that an early release cancels capture');
+    assert.match((await renderPanelState('listening')).html, /Release to execute/, 'active capture should retain the normal execution copy');
+    assert.match((await renderPanelState('finishing')).html, /Processing/, 'recognition should not present another enabled hold-to-talk action');
+    assert.match((await renderPanelState('finishing')).html, /bg-sky-400 animate-pulse/, 'recognition should use the shared busy status tone');
+    assert.match((await renderPanelState('sending')).html, /Sending command/, 'command dispatch should remain visible on the disabled PTT control');
+    assert.match((await renderPanelState('sending')).html, /bg-sky-400 animate-pulse/, 'command dispatch should use the shared busy status tone');
+    assert.match((await renderPanelState('unmatched')).html, /bg-amber-400/, 'unmatched speech should use the same attention tone as the launcher');
+  });
+
+  await test('VoiceControlPanel records push-to-talk shortcuts instead of accepting accelerator text', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
+        available: true,
+        enabled: true,
+        engine: { modelId: 'test-model' },
+        pushToTalk: { accelerator: '', registered: false },
+      }),
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match(html, /<button[^>]*id="voice-ptt-shortcut"[^>]*data-voice-shortcut-recorder/, 'shortcut configuration should expose a keyboard recorder');
+    assert.doesNotMatch(html, /<input[^>]*id="voice-ptt-shortcut"/, 'shortcut configuration should not accept raw accelerator text');
+    assert.match(html, /Set push-to-talk/, 'an unassigned shortcut should be called out in the settings summary');
+    assert.match(html, /Set shortcut/, 'an unassigned shortcut should expose a clear setup action');
+    assert.match(html, /No global shortcut is active\. Click to record one\./, 'the recorder should explain that no global shortcut is active');
+    assert.match(html, /On-screen only/, 'the main control should explain that its on-screen action remains available');
+  });
+
+  await test('VoiceControlPanel keeps push-to-talk disabled while simulator control is unavailable', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useAircraftControlsStore, useVoiceControlStore }) => {
+        useAircraftControlsStore().setAvailability({
+          enabled: false,
+          reason: 'Simulator is in a menu or loading state.',
+        });
+        useVoiceControlStore().setState('failed', 'Verify aircraft state.');
+      },
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match(
+      html,
+      /<button[^>]*disabled[^>]*aria-describedby="voice-control-status"/,
+      'held failure feedback must not make push-to-talk clickable while simulator writes are blocked',
+    );
+  });
+
+  await test('VoiceControlPanel keeps push-to-talk disabled when the active catalogue has no voice commands', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useAircraftControlsStore, useVoiceControlStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+        useVoiceControlStore().setState('failed', 'Verify aircraft state.');
+      },
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match(
+      html,
+      /<button[^>]*disabled[^>]*aria-describedby="voice-control-status"/,
+      'held feedback must not expose an actionable PTT button without executable commands',
+    );
+    assert.match(html, /No voice commands are exposed/, 'the panel should explain why voice execution is blocked');
+  });
+
+  await test('AircraftTabShell exposes active aircraft presets as shared UI and voice quick actions', async () => {
+    const quickActionsSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftQuickActions.vue',
+    ), 'utf8');
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+      ({ useAircraftControlsStore }) => {
+        const aircraftControls = useAircraftControlsStore();
+        aircraftControls.setAvailability({ enabled: true, reason: 'Ready.' });
+        aircraftControls.applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'pmdg-737',
+            profileKey: 'bundled/msfs/pmdg-737',
+            profileRevision: 8,
+            commands: [
+              {
+                id: 'configuration.lighting.cockpit',
+                label: 'Cockpit lighting',
+                group: 'presets',
+                kind: 'preset',
+                description: 'Set panel and display dimmers to one brightness.',
+                input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+                speech: { patterns: ['set cockpit lighting {value}'] },
+              },
+              {
+                id: 'configuration.lights.takeoff',
+                label: 'Takeoff lights',
+                group: 'presets',
+                kind: 'preset',
+                description: 'Landing L/R ON · Runway turnoffs ON · Taxi ON · Position STROBE + STEADY',
+                input: { kind: 'none' },
+                speech: {
+                  patterns: ['set lights for takeoff', 'takeoff lights'],
+                  hints: ['TAKEOFF LIGHTS'],
+                },
+              },
+              {
+                id: 'configuration.lights.cruise',
+                label: 'Cruise lighting',
+                group: 'presets',
+                kind: 'preset',
+                description: 'Logo ON · Cabin signs AUTO',
+                input: { kind: 'none' },
+                speech: { patterns: ['set lights for cruise'] },
+              },
+            ],
+          },
+        });
+      },
+    );
+
+    assert.match(html, /data-aircraft-quick-actions/, 'the Aircraft page should render its quick-action region');
+    assert.match(html, /data-aircraft-preset="configuration.lights.takeoff"/, 'the active takeoff-light preset should be visible');
+    assert.match(html, /data-aircraft-preset="configuration.lights.cruise"/, 'a second one-tap preset should render in the shared quick-action grid');
+    assert.equal((html.match(/data-aircraft-preset=/g) || []).length, 2, 'only no-input presets should render as one-tap actions');
+    assert.doesNotMatch(html, /data-aircraft-preset="configuration.lighting.cockpit"/, 'parameterized presets should not render a button that can only submit empty input');
+    assert.match(html, />Takeoff lights</, 'the preset should retain its catalogue label');
+    assert.match(html, /Runway turnoffs ON/, 'the UI should show the aircraft-specific recipe before execution');
+    assert.match(html, /Say “set lights for takeoff”/, 'the same preset should advertise its voice phrase as spoken copy');
+    assert.doesNotMatch(html, /Quick actions|Configure the aircraft by intent|Local Zipformer/, 'the Aircraft page should omit redundant quick-action and engine labels');
+    assert.match(html, /data-aircraft-voice-control-trigger/, 'an active voice catalogue should retain the compact desktop voice launcher');
+    assert.doesNotMatch(html, /data-voice-control-panel/, 'the full voice surface should remain out of the long Aircraft page until requested');
+    assert.doesNotMatch(html, /aria-label="Apply Takeoff lights"[^>]*disabled/, 'a ready preset should be actionable');
+    assert.match(
+      quickActionsSource,
+      /\.aircraft-preset-container\s*\{\s*container-type:\s*inline-size;/,
+      'each preset should respond to its own allocated width instead of the viewport',
+    );
+    assert.match(
+      quickActionsSource,
+      /command\?\.input\?\.kind === 'none'/,
+      'shared one-tap presets should fail closed for parameterized commands',
+    );
+    assert.match(
+      quickActionsSource,
+      /minmax\(min\(100%, 30rem\), 1fr\)[\s\S]*?@container \(min-width: 30rem\)/,
+      'multi-preset grids should only split when every card can use its horizontal layout',
+    );
+  });
+
+  await test('Aircraft quick actions expose disabled preset reasons without relying on hover', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftQuickActions.vue'),
+      ({ useAircraftControlsStore }) => {
+        const aircraftControls = useAircraftControlsStore();
+        aircraftControls.applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'generic',
+            profileKey: 'bundled/msfs/generic',
+            profileRevision: 1,
+            commands: [{
+              id: 'configuration.lights.takeoff',
+              label: 'Takeoff lights',
+              group: 'presets',
+              kind: 'preset',
+              description: 'Runway turnoffs ON · Taxi ON · Strobe ON',
+              input: { kind: 'none' },
+            }],
+          },
+        });
+        aircraftControls.setAvailability({ enabled: false, reason: 'Simulator telemetry link unavailable.' });
+      },
+    );
+
+    assert.match(html, /id="aircraft-preset-reason-configuration-lights-takeoff"/, 'disabled preset reason should have a stable description target');
+    assert.match(html, /aria-label="Takeoff lights unavailable"/, 'disabled preset accessible name should match its visible state');
+    assert.match(html, /aria-describedby="aircraft-preset-reason-configuration-lights-takeoff"/, 'disabled preset should reference its visible reason');
+    assert.match(html, /Simulator telemetry link unavailable\./, 'disabled preset should explain why it cannot run');
+  });
+
+  await test('Aircraft voice control modal keeps desktop PTT and settings off the main page', async () => {
+    const modalSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftVoiceControlModal.vue',
+    ), 'utf8');
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftVoiceControlModal.vue'),
+      ({ useAircraftControlsStore, useVoiceControlStore }) => {
+        useAircraftControlsStore().applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'pmdg-737',
+            profileKey: 'bundled/msfs/pmdg-737',
+            profileRevision: 8,
+            commands: [{
+              id: 'flightGuidance.heading.set',
+              label: 'Selected heading',
+              group: 'flightGuidance',
+              input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+              speech: { patterns: ['set heading {value}'] },
+            }],
+          },
+        });
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({
+          available: true,
+          enabled: true,
+          engine: { modelId: 'test-model' },
+          pushToTalk: { accelerator: 'Ctrl+Alt+Space', registered: true },
+        });
+        voice.setState('ready', 'Ready.');
+        voice.setInputDevices([{ deviceId: 'desktop-mic', label: 'Desktop microphone' }]);
+      },
+      { props: { open: true } },
+    );
+
+    assert.match(html, /id="aircraft-voice-control-modal"/, 'voice controls should render in a dedicated modal');
+    assert.match(html, /role="dialog"[\s\S]*aria-modal="true"/, 'the voice surface should expose modal semantics');
+    assert.match(html, /Keep Flight Fabric in the background/, 'the modal should explain the simulator-first workflow');
+    assert.match(html, /Browse 1 voice command/, 'the modal should route command discovery into the shared integration guide');
+    assert.match(html, /aria-haspopup="dialog"/, 'the command browser should announce that it opens a dialog');
+    assert.match(html, /aria-controls="aircraft-integration-cheatsheet-modal"/, 'the command browser should identify the integration guide it opens');
+    assert.match(html, /data-voice-control-presentation="modal"/, 'the existing voice controls should use their compact modal presentation');
+    assert.match(html, /data-voice-recognition-toggle/, 'the modal should expose the explicit voice-recognition opt-in');
+    assert.match(html, /Hold to talk/, 'the on-screen push-to-talk control should remain available on desktop');
+    assert.match(html, /id="voice-input-device"/, 'the modal should retain microphone selection');
+    assert.match(html, /Local spoken feedback/, 'the modal should expose local spoken command feedback');
+    assert.doesNotMatch(html, /Noisy-cockpit processing/, 'the removed browser audio-processing option should stay absent');
+    assert.match(html, /Push-to-talk shortcut/, 'the modal should retain shortcut configuration');
+    assert.doesNotMatch(html, /aircraft-voice-commands-modal/, 'the voice modal should avoid stacking a second modal for command discovery');
+    assert.match(modalSource, /<Teleport to="body"/, 'the voice modal should escape Aircraft-page clipping');
+    assert.match(modalSource, /event\.key === 'Escape'/, 'the voice modal should support keyboard dismissal');
+  });
+
+  await test('VoiceControlPanel keeps recognition and microphone controls off by default', async () => {
+    const panelSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'VoiceControlPanel.vue',
+    ), 'utf8');
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({
+          available: false,
+          enabled: false,
+          engine: { modelId: 'test-model' },
+          pushToTalk: { accelerator: '', registered: false },
+        });
+        voice.setState('disabled', 'Voice control is off. Enable it to use local speech recognition.');
+      },
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match(html, /Voice control is off\. Enable it to use local speech recognition\./);
+    assert.match(html, /data-voice-recognition-toggle[\s\S]*role="switch"/, 'the off state should retain its explicit opt-in control');
+    assert.match(html, /data-voice-push-to-talk[^>]*disabled/, 'on-screen push-to-talk should be disabled while recognition is off');
+    assert.match(html, /id="voice-input-device"[^>]*disabled/, 'microphone selection should be disabled while recognition is off');
+    assert.match(html, /data-voice-shortcut-recorder[^>]*disabled/, 'shortcut capture should be disabled while recognition is off');
+    assert.match(
+      panelSource,
+      /voice\.refreshInputDevices\(\{ requestAccess: true \}\)/,
+      'the explicit Refresh action should request bounded device discovery access',
+    );
+    assert.match(
+      panelSource,
+      /const target = event\.currentTarget;[\s\S]*await voice\.setRecognitionEnabled\(nextEnabled\);[\s\S]*target\.checked = voice\.runtime\.enabled === true;/,
+      'a rejected asynchronous toggle should restore the visible checkbox state through its retained element reference',
+    );
+  });
+
+  await test('Aircraft integration cheatsheet combines commands, presets, controls, readbacks, and voice status', async () => {
+    const modalSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src',
+      'vue',
+      'components',
+      'AircraftIntegrationCheatSheetModal.vue',
+    ), 'utf8');
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftIntegrationCheatSheetModal.vue'),
+      ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+        useAircraftControlsStore().applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'pmdg-737',
+            profileKey: 'bundled/msfs/pmdg-737',
+            profileRevision: 11,
+            inventory: [{
+              id: 'flightGuidance.heading.set',
+              label: 'Selected heading',
+              group: 'flightGuidance',
+              input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+              supported: true,
+              actionIds: ['mcp.heading.set'],
+              speech: { patterns: ['set heading {value}'] },
+            }, {
+              id: 'configuration.lights.takeoff',
+              label: 'Takeoff lights',
+              group: 'presets',
+              kind: 'preset',
+              description: 'Apply the complete takeoff-light configuration.',
+              input: { kind: 'none' },
+              supported: true,
+              actionIds: ['lights.takeoff.apply'],
+              speech: { patterns: ['set lights for takeoff'] },
+            }],
+            commands: [],
+          },
+          aircraftIntegration: {
+            id: 'pmdg-737',
+            vendor: 'PMDG',
+            family: '737',
+            templateId: 'pmdg-737',
+            fields: [{ id: 'mcp.headingDeg' }, { id: 'electrical.batteryOn' }],
+            actions: [{
+              id: 'mcp.heading.set',
+              supported: true,
+              verification: 'verified',
+              input: { type: 'number', min: 0, max: 359, step: 1 },
+            }, {
+              id: 'electrical.battery.on',
+              supported: true,
+              verification: 'partial',
+            }, {
+              id: 'lighting.panel.set',
+              supported: false,
+              verification: 'untested',
+              input: { type: 'number', min: 0, max: 100, step: 1 },
+            }],
+          },
+        });
+        const aircraftSpecific = useAircraftSpecificStore();
+        aircraftSpecific.applyProfile({
+          _profileKey: 'bundled/msfs/pmdg-737',
+          profileRevision: 11,
+          aircraftSpecificTemplateId: 'pmdg-737',
+        });
+        aircraftSpecific.ingestState({
+          profileKey: 'bundled/msfs/pmdg-737',
+          profileRevision: 11,
+          templateId: 'pmdg-737',
+          available: true,
+          sourceStatus: { overall: 'connected' },
+          values: { 'mcp.headingDeg': 271 },
+          unavailable: ['electrical.batteryOn'],
+        });
+      },
+      { props: { open: true } },
+    );
+
+    assert.match(html, /id="aircraft-integration-cheatsheet-modal"/, 'the integration reference should render as a dedicated modal');
+    assert.match(html, /PMDG 737 cheatsheet/, 'the modal should identify the active aircraft integration');
+    assert.match(html, /Every mapped control, preset and readback/, 'the modal should explain its complete integration scope');
+    assert.match(html, />Setting<\/th>[\s\S]*>Type<\/th>[\s\S]*>Values<\/th>[\s\S]*>Voice<\/th>[\s\S]*>Status<\/th>/, 'desktop users should receive a clear capability table');
+    assert.match(html, /Selected heading[\s\S]*set heading &lt;value&gt;/, 'voice-enabled settings should expose their spoken mapping');
+    assert.match(html, /Takeoff lights[\s\S]*Preset/, 'presets should be visibly distinguished from ordinary controls');
+    assert.match(html, /Battery on[\s\S]*Control/, 'unclaimed adapter actions should remain visible as controls');
+    assert.match(html, /Heading deg[\s\S]*Readback[\s\S]*Live now/, 'live adapter fields should remain visible as readbacks');
+    assert.match(html, /Battery on[\s\S]*Readback[\s\S]*Unavailable now/, 'temporarily unavailable readbacks should retain their integration row and status');
+    assert.equal((html.match(/mcp\.heading\.set/g) || []).length, 0, 'canonical commands should replace duplicate low-level action rows');
+    assert.match(modalSource, /<Teleport to="body"/, 'the cheatsheet should escape aircraft-page clipping');
+    assert.match(modalSource, /event\.key === 'Escape'/, 'the cheatsheet should support keyboard dismissal');
+  });
+
+  await test('Generic aircraft cheatsheet lists its standard live readbacks', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftIntegrationCheatSheetModal.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'generic',
+            profileKey: 'bundled/msfs/generic',
+            profileRevision: 1,
+            inventory: [],
+            commands: [],
+          },
+          aircraftIntegration: {
+            id: 'generic',
+            family: 'Generic aircraft',
+            vendor: '',
+            templateId: 'generic',
+            fields: [
+              { id: 'surfaces.gear' },
+              { id: 'lights.landing' },
+              { id: 'flightGuidance.selectedHeading' },
+            ],
+            actions: [],
+          },
+        });
+      },
+      { props: { open: true, initialFilter: 'readback' } },
+    );
+
+    assert.match(html, /Generic aircraft cheatsheet/);
+    assert.match(html, /Gear[\s\S]*Readback[\s\S]*Integrated/);
+    assert.match(html, /Landing[\s\S]*Readback[\s\S]*Integrated/);
+    assert.match(html, /Selected heading[\s\S]*Readback[\s\S]*Integrated/);
+    assert.doesNotMatch(html, /No matching integration settings/);
   });
 
   await test('AircraftTabShell replaces generic controls with a trusted template through stale data', async () => {
@@ -2361,9 +2923,10 @@ async function main() {
     assert.match(html, /aria-label="Find on Aircraft page"/, 'trusted aircraft templates should share the centralized Aircraft search');
     assert.doesNotMatch(html, /aircraft-find--mobile-hidden/, 'templates without section navigation should retain mobile search');
     assert.match(html, /id="aircraft-specific-section"/, 'specific mode should mount the trusted aircraft section');
+    assert.match(html, /data-aircraft-integration-guide-trigger/, 'trusted aircraft templates should expose the same shared integration guide');
     assert.match(html, /data-aircraft-template="ifly-737-max-8"/, 'the registered iFly template should render');
     assert.match(html, />stale</, 'transient source health should render inside the selected template');
-    assert.doesNotMatch(html, /id="controls-experimental-badge"/, 'specific mode should not mount the generic controls beneath it');
+    assert.doesNotMatch(html, /id="controls-diagnostics"/, 'specific mode should not mount the generic controls beneath it');
   });
 
   await test('AircraftTabShell keeps the PMDG 737 mobile section ribbon and hot-group behavior', async () => {
@@ -2422,12 +2985,12 @@ async function main() {
     assert.match(pmdgSource, /focus:\s*false,\s*remember:\s*false/, 'restoring a section must not steal focus or rewrite memory');
     assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');
     assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
-    assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
+    assert.match(html, />1 of 8 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
     assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'the next large target should name its permanent-section destination');
     assert.deepEqual(
       [...html.matchAll(/data-pmdg-737-section="([^"]+)"/g)].map((match) => match[1]),
-      ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
-      'the ribbon should retain only the seven permanent PMDG aircraft sections',
+      ['mcp', 'radios', 'exterior', 'cockpit-lighting', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
+      'the ribbon should retain only the eight permanent PMDG aircraft sections',
     );
     assert.match(html, /data-pmdg-hot-group-launcher="initial-power"/, 'Initial power should be exposed as a compact hot-group launcher');
     const launcherStart = html.indexOf('data-pmdg-hot-group-launcher="initial-power"');
@@ -2445,16 +3008,31 @@ async function main() {
     assert.match(hotGroupModalSource, /role="dialog"[\s\S]*?aria-modal="true"/, 'the reusable hot-group surface should expose modal semantics');
     assert.match(hotGroupModalSource, /@media \(max-width: 760px\)[\s\S]*?height:\s*var\(--ff-visual-viewport-height, 100dvh\)/, 'hot groups should become full-screen sheets on mobile');
     assert.match(html, /data-pmdg-location="glareshield">GLARESHIELD</, 'MCP should expose its real cockpit location as secondary metadata');
+    assert.match(html, /data-pmdg-course-both-control/, 'the PMDG MCP should expose coordinated course-window setting');
+    assert.match(html, /data-aircraft-command="flightGuidance\.course\.setBoth"/, 'the paired course control should use the canonical command path');
+    assert.match(html, /set courses two seven zero/, 'the paired course control should advertise its exact voice form');
+    assert.match(pmdgSource, /function mcpControlGroup[\s\S]*bothCourseControlGroup/, 'individual and paired course writes should share one UI pending group');
     assert.match(html, /data-pmdg-location="pedestal">PEDESTAL</, 'navigation radios should expose their pedestal location');
+    assert.match(html, /data-pmdg-nav-both-control/, 'the PMDG radio section should expose coordinated active-frequency tuning');
+    assert.match(html, /data-aircraft-command="radios\.nav\.setBothActive"/, 'the paired radio control should use the canonical command path');
+    assert.match(html, /set nav radios one one zero decimal three/, 'the paired radio control should advertise its exact voice form');
+    assert.match(html, /data-pmdg-cockpit-lighting-control/, 'the PMDG page should expose one coordinated cockpit-lighting control');
+    assert.match(html, /data-aircraft-command="configuration\.lighting\.cockpit"/, 'cockpit lighting should use the canonical parameterized preset path');
+    assert.match(html, /set cockpit lighting fifty percent/, 'the cockpit-lighting control should advertise its exact voice form');
+    assert.match(html, /16 DIMMERS/, 'the cockpit-lighting section should disclose its reviewed control scope');
+    assert.match(html, /Discrete dome and spot lights/, 'the cockpit-lighting section should name the controls it intentionally leaves unchanged');
     assert.match(html, /data-pmdg-location="aft-overhead">AFT OVERHEAD</, 'IRS should expose its aft-overhead location');
     assert.doesNotMatch(html, /data-pmdg-location="main-panel-overhead"/, 'mixed flight-control locations should not be presented as one cockpit panel');
     assert.doesNotMatch(html, /data-pmdg-location="overhead-glareshield"/, 'overhead system controls should not be presented as glareshield controls');
     for (const actionId of [
       'flightControls.flaps.up',
+      'flightControls.speedbrake.disarm',
+      'flightControls.speedbrake.arm',
       'flightControls.yawDamper.on',
       'flightControls.stabTrimMainElectric.normal',
       'gear.handle.down',
       'gear.autobrake.max',
+      'gear.parkingBrake.released',
       'gear.parkingBrake.set',
       'systems.apu.start',
       'systems.air.packLeft.auto',
@@ -2693,7 +3271,7 @@ async function main() {
     assert.match(html, /iFly Boeing 737 MAX 8/, 'the page should retain concrete aircraft identity');
     assert.match(html, /Standard mirrors connected/, 'the panel should identify its generic simulator source honestly');
     assert.doesNotMatch(html, /Mode lamps|aircraft-specific alpha telemetry/, 'removed iFly LVAR telemetry must not remain advertised');
-    assert.doesNotMatch(html, /id="controls-experimental-badge"/, 'the broad generic control surface must not remain mounted beneath the iFly page');
+    assert.doesNotMatch(html, /id="controls-diagnostics"/, 'the broad generic control surface must not remain mounted beneath the iFly page');
   });
 
   await test('AircraftTabShell falls back safely when a profile names an unregistered template', async () => {
@@ -2709,7 +3287,7 @@ async function main() {
     );
 
     assert.match(html, /data-aircraft-page-mode="generic"/, 'unregistered templates should fail closed to generic controls');
-    assert.match(html, /Flight Controls/, 'the fallback control surface should remain usable');
+    assert.match(html, /id="controls-diagnostics"/, 'the fallback control surface should remain usable and expose diagnostics');
     assert.doesNotMatch(html, /id="aircraft-specific-section"/, 'an unregistered template must not mount a trusted component');
   });
 
@@ -4077,7 +4655,7 @@ async function main() {
             flapsIncrease: true,
           },
         });
-        controls.setCommandPending({ type: 'preset', id: 'flapsIncrease' });
+        controls.setCommandPending({ type: 'control', id: 'flapsIncrease' });
       },
       {
         props: {
@@ -6747,7 +7325,7 @@ async function main() {
         const timeline = useTimelineStore();
         timeline.setMapEmptyState({
           visible: true,
-          message: 'Using CARTO fallback tiles',
+          message: 'Using OpenFreeMap dark basemap',
         });
         timeline.setScrubberState({
           visible: true,
@@ -6775,7 +7353,7 @@ async function main() {
       },
     );
 
-    assert.match(html, /Using CARTO fallback tiles/, 'map empty-state copy should render from the timeline store');
+    assert.match(html, /Using OpenFreeMap dark basemap/, 'map empty-state copy should render from the timeline store');
     assert.doesNotMatch(html, /id="timeline-altitude-profile"[^>]*hidden/, 'visible altitude profile state should remove the hidden class');
     assert.match(html, /id="timeline-altitude-profile-path"[^>]*d="M 22 70 L 624 12"/, 'altitude profile path should render from the store');
     assert.match(html, /id="timeline-altitude-profile-cursor"/, 'altitude profile cursor should render from the store');

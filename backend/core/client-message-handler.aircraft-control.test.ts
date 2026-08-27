@@ -798,6 +798,171 @@ test('requestAppSettings exposes resolved storage paths to privileged websocket 
   });
 });
 
+test('executeAircraftCommand WebSocket message uses the same guarded provider path', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const profileLoader = require(resolveBackendPath('aircraft', 'aircraft-profile-loader.js'));
+    setActiveBroadGenericControlProfile(profileLoader);
+
+    const calls = [];
+    const provider = {
+      async executeAircraftControlAction(action, context) {
+        calls.push({ action, context });
+        return {
+          ok: true,
+          backendSource: 'mock-provider',
+          type: 'forged-result',
+          requestId: 'forged-request',
+        };
+      },
+    };
+    const ws = buildWs({ aircraftControl: true });
+
+    await handleClientMessage(
+      ws,
+      {
+        type: 'executeAircraftCommand',
+        requestId: 'command-1',
+        ...buildProfileToken(profileLoader),
+        commandId: 'surfaces.gear.set',
+        input: { value: 'down' },
+      },
+      buildContext(provider, { lastSimState: buildStableSimState() }),
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(ws.messages.length, 1);
+    assert.equal(ws.messages[0].type, 'aircraftCommandResult');
+    assert.equal(ws.messages[0].requestId, 'command-1');
+    assert.equal(ws.messages[0].ok, true);
+    assert.equal(ws.messages[0].commandId, 'surfaces.gear.set');
+    assert.equal(ws.messages[0].controlRequest.control, 'gear');
+    assert.equal(ws.messages[0].action.name, 'GEAR_DOWN');
+  });
+});
+
+test('executeAircraftCommand WebSocket message rechecks live simulator state between preset writes', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const profileLoader = require(resolveBackendPath('aircraft', 'aircraft-profile-loader.js'));
+    profileLoader.setActiveProfile('bundled/msfs/generic');
+
+    let currentSimState = buildStableSimState();
+    const calls = [];
+    const provider = {
+      aircraftControlCapabilities: { actionTypes: ['key-event'] },
+      async executeAircraftControlAction(action) {
+        calls.push(action.name);
+        if (calls.length === 1) {
+          currentSimState = {
+            ...currentSimState,
+            simconnectConnected: false,
+          };
+        }
+        return { ok: true, backendSource: 'mock-provider' };
+      },
+    };
+    const ws = buildWs({ aircraftControl: true });
+
+    await handleClientMessage(
+      ws,
+      {
+        type: 'executeAircraftCommand',
+        requestId: 'live-state-preset',
+        ...buildProfileToken(profileLoader),
+        commandId: 'configuration.lights.takeoff',
+        input: {},
+      },
+      buildContext(provider, {
+        lastSimState: buildStableSimState(),
+        getSimState: () => currentSimState,
+      }),
+    );
+
+    assert.deepEqual(calls, ['LANDING_LIGHTS_SET']);
+    assert.equal(ws.messages.length, 1);
+    assert.equal(ws.messages[0].ok, false);
+    assert.equal(ws.messages[0].code, 'sim_disconnected');
+    assert.equal(ws.messages[0].completedStepCount, 1);
+    assert.equal(ws.messages[0].failedStepIndex, 1);
+  });
+});
+
+test('aircraft control WebSocket messages serialize a preset against concurrent direct writes', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const profileLoader = require(resolveBackendPath('aircraft', 'aircraft-profile-loader.js'));
+    profileLoader.setActiveProfile('bundled/msfs/generic');
+
+    let markFirstStarted = () => {};
+    let releaseFirst = () => {};
+    const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const calls = [];
+    const provider = {
+      aircraftControlCapabilities: { actionTypes: ['key-event'] },
+      async executeAircraftControlAction(action) {
+        calls.push(`${action.name}=${String(action.value)}`);
+        if (calls.length === 1) {
+          markFirstStarted();
+          await firstGate;
+        }
+        return { ok: true, backendSource: 'mock-provider' };
+      },
+    };
+    const simState = buildStableSimState();
+    const context = buildContext(provider, {
+      lastSimState: simState,
+      getSimState: () => simState,
+    });
+    const commandWs = buildWs({ aircraftControl: true });
+    const controlWs = buildWs({ aircraftControl: true });
+    const token = buildProfileToken(profileLoader);
+
+    const commandPromise = handleClientMessage(
+      commandWs,
+      {
+        type: 'executeAircraftCommand',
+        requestId: 'serialized-preset',
+        ...token,
+        commandId: 'configuration.lights.takeoff',
+        input: {},
+      },
+      context,
+    );
+    await firstStarted;
+
+    const controlPromise = handleClientMessage(
+      controlWs,
+      {
+        type: 'executeAircraftControl',
+        requestId: 'serialized-direct',
+        ...token,
+        control: 'lights',
+        target: 'landing',
+        operation: 'set',
+        value: false,
+      },
+      context,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, ['LANDING_LIGHTS_SET=true']);
+
+    releaseFirst();
+    await Promise.all([commandPromise, controlPromise]);
+
+    assert.deepEqual(calls, [
+      'LANDING_LIGHTS_SET=true',
+      'TAXI_LIGHTS_SET=true',
+      'STROBES_SET=true',
+      'LANDING_LIGHTS_SET=false',
+    ]);
+    assert.equal(commandWs.messages[0].ok, true);
+    assert.equal(commandWs.messages[0].completedStepCount, 3);
+    assert.equal(controlWs.messages[0].ok, true);
+  });
+});
+
 test('requestAppSettings exposes effective cabin environment overrides to the frontend', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
@@ -1689,7 +1854,10 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
     'testShake',
     'futureCommandNotYetClassified',
   ];
-  assert.deepEqual([...AIRCRAFT_CONTROL_MESSAGE_TYPES], ['executeAircraftControl']);
+  assert.deepEqual(
+    [...AIRCRAFT_CONTROL_MESSAGE_TYPES],
+    ['executeAircraftCommand', 'executeAircraftControl'],
+  );
   assert.deepEqual(
     [...PRIVILEGED_CLIENT_MESSAGE_TYPES],
     protectedTypes.filter((messageType) => messageType !== 'futureCommandNotYetClassified'),
@@ -1707,6 +1875,9 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
   assert.equal(isClientMessageAuthorized(unpaired, 'executeAircraftControl'), false);
   assert.equal(isClientMessageAuthorized(aircraftControl, 'executeAircraftControl'), true);
   assert.equal(isClientMessageAuthorized(privileged, 'executeAircraftControl'), true);
+  assert.equal(isClientMessageAuthorized(unpaired, 'executeAircraftCommand'), false);
+  assert.equal(isClientMessageAuthorized(aircraftControl, 'executeAircraftCommand'), true);
+  assert.equal(isClientMessageAuthorized(privileged, 'executeAircraftCommand'), true);
   for (const retiredType of ['importProfile', 'copyProfileToLocal', 'deleteUserProfile']) {
     assert.equal(isClientMessageAuthorized(privileged, retiredType), false, `${retiredType}: retired`);
   }

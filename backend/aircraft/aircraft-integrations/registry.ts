@@ -17,7 +17,7 @@ const SAFE_ADAPTER_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const SAFE_LOGICAL_ID_RE = /^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/;
 const SAFE_PROFILE_KEY_RE = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/;
 const SAFE_ROUTE_ID_RE = /^[a-z0-9][A-Za-z0-9.-]{0,127}$/;
-const SAFE_SEQUENCE_EVENT_RE = /^[A-Z][A-Z0-9_:.]{0,79}$/;
+const SAFE_SEQUENCE_EVENT_RE = /^(?:[A-Z][A-Z0-9_:.]{0,79}|#[0-9]{5})$/;
 const SAFE_SEQUENCE_LVAR_RE = /^L:[A-Za-z0-9][A-Za-z0-9_:.]{0,126}$/;
 const SAFE_SEQUENCE_SIMVAR_RE = /^[A-Z][A-Z0-9 _:.]{0,126}$/;
 const SAFE_SEQUENCE_UNIT_RE = /^[A-Za-z][A-Za-z0-9 _./:+%()-]{0,47}$/;
@@ -374,6 +374,13 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
                 || (hasInputValue && (
                   !action.input
                   || operation.inputValue?.source !== 'input'
+                  || (operation.inputValue.encoding !== undefined
+                    && operation.inputValue.encoding !== 'frequency-bcd16')
+                  || (operation.inputValue.encoding !== undefined && (
+                    operation.inputValue.scale !== undefined
+                    || operation.inputValue.offset !== undefined
+                    || operation.inputValue.round !== undefined
+                  ))
                   || (operation.inputValue.scale !== undefined
                     && !Number.isFinite(operation.inputValue.scale))
                   || (operation.inputValue.offset !== undefined
@@ -383,11 +390,27 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
                 ));
             }
             if (operation.type === 'lvar') {
+              const hasFixedValue = operation.value !== undefined;
+              const hasInputValue = operation.inputValue !== undefined;
               return !SAFE_SEQUENCE_LVAR_RE.test(normalizeString(operation.name))
                 || !SAFE_SEQUENCE_UNIT_RE.test(normalizeString(operation.unit))
-                || (typeof operation.value !== 'boolean' && typeof operation.value !== 'number')
-                || (typeof operation.value === 'number' && (
+                || [hasFixedValue, hasInputValue].filter(Boolean).length !== 1
+                || (hasFixedValue
+                  && typeof operation.value !== 'boolean'
+                  && typeof operation.value !== 'number')
+                || (hasFixedValue && typeof operation.value === 'number' && (
                   !Number.isFinite(operation.value) || Math.abs(operation.value) > 1_000_000
+                ))
+                || (hasInputValue && (
+                  !action.input
+                  || operation.inputValue?.source !== 'input'
+                  || operation.inputValue.encoding !== undefined
+                  || (operation.inputValue.scale !== undefined
+                    && !Number.isFinite(operation.inputValue.scale))
+                  || (operation.inputValue.offset !== undefined
+                    && !Number.isFinite(operation.inputValue.offset))
+                  || (operation.inputValue.round !== undefined
+                    && operation.inputValue.round !== 'nearest')
                 ));
             }
             if (operation.type === 'delay') {

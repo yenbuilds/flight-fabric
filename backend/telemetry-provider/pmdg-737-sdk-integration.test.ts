@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const profileLoader = require('../aircraft/aircraft-profile-loader');
+const { executeAircraftCommand } = require('../aircraft/aircraft-control-service');
 const userSettings = require('../core/user-settings');
 const {
   PMDG_737_SDK_EULA_ACCEPTANCE_VERSION,
@@ -47,6 +48,60 @@ function stubPmdg737SdkIntegration(provider) {
         type: 'sdk',
         adapterId: 'clientdata-manifest',
         path: 'automation.ap.selected.iasMach',
+      },
+      decode: { type: 'number', precision: 2 },
+    },
+    'mcp.courseCaptainDeg': {
+      id: 'mcp.courseCaptainDeg',
+      source: {
+        type: 'sdk',
+        adapterId: 'clientdata-manifest',
+        path: 'automation.ap.selected.courseLeftDeg',
+      },
+      decode: { type: 'number', precision: 0 },
+    },
+    'mcp.courseFirstOfficerDeg': {
+      id: 'mcp.courseFirstOfficerDeg',
+      source: {
+        type: 'sdk',
+        adapterId: 'clientdata-manifest',
+        path: 'automation.ap.selected.courseRightDeg',
+      },
+      decode: { type: 'number', precision: 0 },
+    },
+    'flightControls.speedbrakeArmed': {
+      id: 'flightControls.speedbrakeArmed',
+      source: {
+        type: 'sdk',
+        adapterId: 'clientdata-manifest',
+        path: 'spoilers.armed',
+      },
+      decode: { type: 'boolean', trueValues: [true], falseValues: [false] },
+    },
+    'gear.parkingBrake': {
+      id: 'gear.parkingBrake',
+      source: {
+        type: 'sdk',
+        adapterId: 'clientdata-manifest',
+        path: 'brakes.parking',
+      },
+      decode: { type: 'boolean', trueValues: [true], falseValues: [false] },
+    },
+    'radios.nav1ActiveMhz': {
+      id: 'radios.nav1ActiveMhz',
+      source: {
+        type: 'simvar',
+        name: 'NAV ACTIVE FREQUENCY:1',
+        path: 'nav1ActiveMhz',
+      },
+      decode: { type: 'number', precision: 2 },
+    },
+    'radios.nav2ActiveMhz': {
+      id: 'radios.nav2ActiveMhz',
+      source: {
+        type: 'simvar',
+        name: 'NAV ACTIVE FREQUENCY:2',
+        path: 'nav2ActiveMhz',
       },
       decode: { type: 'number', precision: 2 },
     },
@@ -225,6 +280,273 @@ test('PMDG 737 flight director uses one complete SDK mouse click and confirms th
   assert.equal(alreadyOn.ok, true, 'an already-satisfied FD target should succeed');
   assert.equal(alreadyOn.idempotent, true, 'an already-satisfied FD target should be a no-op');
   assert.equal(events.length, 2, 'the idempotent FD target must not send another toggle');
+});
+
+test('PMDG 737 paired NAV command writes both active radios with BCD16 and confirms both readbacks', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const rustSnapshot: any = {
+    status: 'running',
+    updatedAt: new Date().toISOString(),
+  };
+  const events: Array<{ name: string; value: number }> = [];
+  provider._data = { nav1ActiveMhz: 109.5, nav2ActiveMhz: 112.3 };
+  provider._rustSimvarSnapshotSequence = 1;
+  provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      throw new Error('paired NAV tuning must not use an LVAR write');
+    },
+    async sendEvent(name, value) {
+      events.push({ name, value });
+      if (name === 'NAV1_RADIO_SET') provider._data.nav1ActiveMhz = 110.3;
+      if (name === 'NAV2_RADIO_SET') provider._data.nav2ActiveMhz = 110.3;
+      provider._rustSimvarSnapshotSequence += 1;
+      rustSnapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubPmdg737SdkIntegration(provider);
+
+  const profile = profileLoader.loadProfile(PMDG_737_PROFILE_KEY);
+  const execute = () => executeAircraftCommand(provider, {
+    commandId: 'radios.nav.setBothActive',
+    input: { value: 110.3 },
+    profileKey: PMDG_737_PROFILE_KEY,
+    profileRevision: PMDG_737_PROFILE_REVISION,
+  }, {
+    profile,
+    profileRevision: PMDG_737_PROFILE_REVISION,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+
+  const result = await execute();
+  assert.equal(result.ok, true);
+  assert.equal(result.commandId, 'radios.nav.setBothActive');
+  assert.equal(result.controlRequest.actionId, 'radios.navBoth.setActive');
+  assert.deepEqual(events, [
+    { name: 'NAV1_RADIO_SET', value: 0x1030 },
+    { name: 'NAV2_RADIO_SET', value: 0x1030 },
+  ]);
+  assert.deepEqual(result.confirmedValues, {
+    'radios.nav1ActiveMhz': 110.3,
+    'radios.nav2ActiveMhz': 110.3,
+  });
+
+  provider._aircraftIntegrationActionLastAttemptAt.clear();
+  const repeated = await execute();
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.noOp, true, 'already-satisfied paired tuning should not dispatch again');
+  assert.equal(events.length, 2);
+});
+
+test('PMDG 737 paired course command writes both MCP windows and confirms both SDK readbacks', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const sdkSnapshot: any = {
+    adapterId: 'clientdata-manifest',
+    status: 'running',
+    normalized: {
+      automation: { ap: { selected: { courseLeftDeg: 180, courseRightDeg: 90 } } },
+    },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+  };
+  const events: Array<{ name: string; value: number }> = [];
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    async setNamedVar() {
+      throw new Error('paired MCP course setting must not use an LVAR write');
+    },
+    async sendEvent(name, value) {
+      events.push({ name, value });
+      if (name === '#84132') sdkSnapshot.normalized.automation.ap.selected.courseLeftDeg = value;
+      if (name === '#84133') sdkSnapshot.normalized.automation.ap.selected.courseRightDeg = value;
+      sdkSnapshot.snapshotSequence += 1;
+      sdkSnapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  provider._sdkBridge = {
+    getSnapshot: () => sdkSnapshot,
+    isDataConnected: () => true,
+  };
+  stubPmdg737SdkIntegration(provider);
+
+  const profile = profileLoader.loadProfile(PMDG_737_PROFILE_KEY);
+  const execute = () => executeAircraftCommand(provider, {
+    commandId: 'flightGuidance.course.setBoth',
+    input: { value: 273 },
+    profileKey: PMDG_737_PROFILE_KEY,
+    profileRevision: PMDG_737_PROFILE_REVISION,
+  }, {
+    profile,
+    profileRevision: PMDG_737_PROFILE_REVISION,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+
+  const result = await execute();
+  assert.equal(result.ok, true);
+  assert.equal(result.commandId, 'flightGuidance.course.setBoth');
+  assert.equal(result.controlRequest.actionId, 'mcp.courseBoth.set');
+  assert.deepEqual(events, [
+    { name: '#84132', value: 273 },
+    { name: '#84133', value: 273 },
+  ]);
+  assert.deepEqual(result.confirmedValues, {
+    'mcp.courseCaptainDeg': 273,
+    'mcp.courseFirstOfficerDeg': 273,
+  });
+
+  provider._aircraftIntegrationActionLastAttemptAt.clear();
+  const repeated = await execute();
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.noOp, true, 'already-satisfied paired course setting should not dispatch again');
+  assert.equal(events.length, 2);
+});
+
+test('PMDG 737 spoiler and parking-brake commands execute explicit states without unsafe repeat toggles', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const sdkSnapshot: any = {
+    adapterId: 'clientdata-manifest',
+    status: 'running',
+    normalized: {
+      brakes: { parking: false },
+      spoilers: { armed: false },
+    },
+    snapshotSequence: 1,
+    updatedAt: new Date().toISOString(),
+  };
+  const events: Array<{ name: string; value: number }> = [];
+  const bridge = {
+    getSnapshot() {
+      return { source: 'mock-sidecar' };
+    },
+    async sendEvent(name, value) {
+      events.push({ name, value });
+      if (value === 0x20000000) {
+        if (name === '#76424') sdkSnapshot.normalized.spoilers.armed = true;
+        if (name === '#76423') sdkSnapshot.normalized.spoilers.armed = false;
+        if (name === '#70325') {
+          sdkSnapshot.normalized.brakes.parking = !sdkSnapshot.normalized.brakes.parking;
+        }
+        sdkSnapshot.snapshotSequence += 1;
+        sdkSnapshot.updatedAt = new Date().toISOString();
+      }
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  provider._sdkBridge = {
+    getSnapshot: () => sdkSnapshot,
+    isDataConnected: () => true,
+  };
+  stubPmdg737SdkIntegration(provider);
+
+  const integration = {
+    type: 'aircraft-integration',
+    name: PMDG_737_ADAPTER_ID,
+    verification: 'untested',
+  };
+  const execute = async (actionId) => {
+    provider._aircraftIntegrationActionLastAttemptAt.clear();
+    return provider.executeAircraftControlAction(integration, {
+      profileKey: PMDG_737_PROFILE_KEY,
+      profileRevision: PMDG_737_PROFILE_REVISION,
+      request: { actionId },
+    });
+  };
+
+  const arm = await execute('flightControls.speedbrake.arm');
+  assert.equal(arm.ok, true);
+  assert.equal(arm.confirmedValue, true);
+  assert.deepEqual(events, [
+    { name: '#76424', value: 0x20000000 },
+    { name: '#76424', value: 0x00020000 },
+  ]);
+
+  const armAgain = await execute('flightControls.speedbrake.arm');
+  assert.equal(armAgain.noOp, true, 'repeating ARM should not touch the lever again');
+  assert.equal(events.length, 2);
+
+  const disarm = await execute('flightControls.speedbrake.disarm');
+  assert.equal(disarm.ok, true);
+  assert.equal(disarm.confirmedValue, false);
+  assert.deepEqual(events.slice(2), [
+    { name: '#76423', value: 0x20000000 },
+    { name: '#76423', value: 0x00020000 },
+  ]);
+
+  const setParkingBrake = await execute('gear.parkingBrake.set');
+  assert.equal(setParkingBrake.ok, true);
+  assert.equal(setParkingBrake.confirmedValue, true);
+  assert.deepEqual(events.slice(4), [
+    { name: '#70325', value: 0x20000000 },
+    { name: '#70325', value: 0x00020000 },
+  ]);
+
+  const setParkingBrakeAgain = await execute('gear.parkingBrake.set');
+  assert.equal(setParkingBrakeAgain.noOp, true, 'repeating SET must not fire the toggle event');
+  assert.equal(events.length, 6);
+
+  const releaseParkingBrake = await execute('gear.parkingBrake.released');
+  assert.equal(releaseParkingBrake.ok, true);
+  assert.equal(releaseParkingBrake.confirmedValue, false);
+  assert.deepEqual(events.slice(6), [
+    { name: '#70325', value: 0x20000000 },
+    { name: '#70325', value: 0x00020000 },
+  ]);
+
+  const profile = profileLoader.loadProfile(PMDG_737_PROFILE_KEY);
+  const executeCanonical = async (commandId, value) => {
+    provider._aircraftIntegrationActionLastAttemptAt.clear();
+    return executeAircraftCommand(provider, {
+      commandId,
+      input: { value },
+      profileKey: PMDG_737_PROFILE_KEY,
+      profileRevision: PMDG_737_PROFILE_REVISION,
+    }, {
+      profile,
+      profileRevision: PMDG_737_PROFILE_REVISION,
+      requireProfileToken: true,
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['sdk'],
+      },
+    });
+  };
+
+  const canonicalArm = await executeCanonical('surfaces.spoilersArmed.set', true);
+  assert.equal(canonicalArm.ok, true);
+  assert.equal(canonicalArm.commandId, 'surfaces.spoilersArmed.set');
+  assert.equal(canonicalArm.controlRequest.actionId, 'flightControls.speedbrake.arm');
+  assert.deepEqual(events.slice(8, 10), [
+    { name: '#76424', value: 0x20000000 },
+    { name: '#76424', value: 0x00020000 },
+  ]);
+
+  const canonicalSetParkingBrake = await executeCanonical('surfaces.parkingBrake.set', true);
+  assert.equal(canonicalSetParkingBrake.ok, true);
+  assert.equal(canonicalSetParkingBrake.commandId, 'surfaces.parkingBrake.set');
+  assert.equal(canonicalSetParkingBrake.controlRequest.actionId, 'gear.parkingBrake.set');
+  assert.deepEqual(events.slice(10), [
+    { name: '#70325', value: 0x20000000 },
+    { name: '#70325', value: 0x00020000 },
+  ]);
 });
 
 test('PMDG 737 A/T ARM preserves its reversed SDK wire polarity in both directions', async () => {

@@ -22,6 +22,7 @@ const {
   isExactReadinessLine,
   parseConfiguredTcpPort,
   selectBackendRuntimePorts,
+  shouldOfferWindowsPortFallback,
 } = require('./backend-lifecycle');
 const {
   classifyFlightFabricBackendIdentity,
@@ -37,11 +38,13 @@ const { resolvePmdg777SdkEulaPath } = require('./pmdg-777-sdk-eula');
 const { isManagedProcessAlive } = require('./process-liveness');
 const { isExactLauncherUrl, isTrustedIpcSender } = require('./ipc-sender-policy');
 const {
+  TRUSTED_AUDIO_PERMISSION,
   TRUSTED_RENDERER_PERMISSION,
   installSessionPermissionPolicy,
   isTrustedRendererPermission,
 } = require('./session-permission-policy');
 const { resolveBackendEntry } = require('../scripts/backend-runtime-paths');
+const { ZIPFORMER_MODEL } = require('./voice-model-manifest');
 const {
   copySharedRuntimeAssets,
   shouldExcludeRuntimeModuleEntry,
@@ -212,7 +215,8 @@ for (const [label, url] of [
   ['MobiFlight install guide', 'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/'],
   ['MobiFlight enable guide', 'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/'],
   ['OpenStreetMap copyright', 'https://www.openstreetmap.org/copyright'],
-  ['CARTO attribution', 'https://carto.com/'],
+  ['OpenFreeMap attribution', 'https://openfreemap.org/'],
+  ['OpenMapTiles attribution', 'https://openmaptiles.org/'],
   ['Leaflet attribution', 'https://leafletjs.com/'],
 ]) {
   test(`external URL policy allows ${label}`, resolveAllowedExternalUrl(url) === url);
@@ -236,7 +240,7 @@ for (const [label, url] of [
   ['fragment', 'https://github.com/yenbuilds/flight-fabric/releases/latest#download'],
   ['unapproved MobiFlight page', 'https://docs.mobiflight.com/'],
   ['OpenStreetMap lookalike', 'https://www.openstreetmap.org.attacker.example/copyright'],
-  ['leading whitespace', ' https://carto.com/'],
+  ['leading whitespace', ' https://openfreemap.org/'],
   ['oversized URL', `https://github.com/yenbuilds/flight-fabric/releases/${'a'.repeat(2048)}`],
   ['malformed URL', 'not a URL'],
 ]) {
@@ -254,6 +258,7 @@ function createPermissionPolicyContext(frameUrl = frontendUrl) {
     requestingUrl: frameUrl,
     isMainFrame: true,
     mainWebContents,
+    isAudioCaptureAuthorized: () => false,
     isFrontendAppUrl: isTestFrontendAppUrl,
     launcherHtmlPath,
   };
@@ -266,6 +271,59 @@ test(
 test(
   'session permission policy allows clipboard writes from the exact launcher main frame',
   isTrustedRendererPermission(createPermissionPolicyContext(launcherUrl)),
+);
+test(
+  'session permission policy allows only authorized audio capture from the trusted frontend main frame',
+  isTrustedRendererPermission({
+    ...createPermissionPolicyContext(frontendUrl),
+    isAudioCaptureAuthorized: () => true,
+    permission: TRUSTED_AUDIO_PERMISSION,
+    phase: 'request',
+    mediaTypes: ['audio'],
+  })
+    && isTrustedRendererPermission({
+      ...createPermissionPolicyContext(frontendUrl),
+      isAudioCaptureAuthorized: () => true,
+      permission: TRUSTED_AUDIO_PERMISSION,
+      phase: 'check',
+      mediaType: 'audio',
+    })
+    && !isTrustedRendererPermission({
+      ...createPermissionPolicyContext(frontendUrl),
+      isAudioCaptureAuthorized: () => true,
+      permission: TRUSTED_AUDIO_PERMISSION,
+      phase: 'request',
+      mediaTypes: ['audio', 'video'],
+    })
+    && !isTrustedRendererPermission({
+      ...createPermissionPolicyContext(launcherUrl),
+      isAudioCaptureAuthorized: () => true,
+      permission: TRUSTED_AUDIO_PERMISSION,
+      phase: 'request',
+      mediaTypes: ['audio'],
+    }),
+);
+test(
+  'session permission policy denies trusted idle microphone requests',
+  !isTrustedRendererPermission({
+    ...createPermissionPolicyContext(frontendUrl),
+    permission: TRUSTED_AUDIO_PERMISSION,
+    phase: 'request',
+    mediaTypes: ['audio'],
+  })
+    && !isTrustedRendererPermission({
+      ...createPermissionPolicyContext(frontendUrl),
+      permission: TRUSTED_AUDIO_PERMISSION,
+      phase: 'check',
+      mediaType: 'audio',
+    })
+    && !isTrustedRendererPermission({
+      ...createPermissionPolicyContext(frontendUrl),
+      isAudioCaptureAuthorized: () => { throw new Error('authorization unavailable'); },
+      permission: TRUSTED_AUDIO_PERMISSION,
+      phase: 'request',
+      mediaTypes: ['audio'],
+    }),
 );
 test(
   'session permission policy denies every non-clipboard renderer permission',
@@ -307,12 +365,14 @@ let installedRequestHandler = null;
 let installedCheckHandler = null;
 const permissionDecisions = [];
 const installedPermissionContext = createPermissionPolicyContext();
+let audioCaptureAuthorized = false;
 installSessionPermissionPolicy({
   electronSession: {
     setPermissionRequestHandler(handler) { installedRequestHandler = handler; },
     setPermissionCheckHandler(handler) { installedCheckHandler = handler; },
   },
   getMainWebContents: () => installedPermissionContext.mainWebContents,
+  isAudioCaptureAuthorized: () => audioCaptureAuthorized,
   isFrontendAppUrl: isTestFrontendAppUrl,
   launcherHtmlPath,
   onDecision: (decision) => permissionDecisions.push(decision),
@@ -326,9 +386,16 @@ installedRequestHandler(
 );
 installedRequestHandler(
   installedPermissionContext.webContents,
-  'media',
+  TRUSTED_AUDIO_PERMISSION,
   (granted) => permissionRequestResults.push(granted),
-  { requestingUrl: frontendUrl, isMainFrame: true },
+  { requestingUrl: frontendUrl, isMainFrame: true, mediaTypes: ['audio'] },
+);
+audioCaptureAuthorized = true;
+installedRequestHandler(
+  installedPermissionContext.webContents,
+  TRUSTED_AUDIO_PERMISSION,
+  (granted) => permissionRequestResults.push(granted),
+  { requestingUrl: frontendUrl, isMainFrame: true, mediaTypes: ['audio'] },
 );
 const trustedPermissionCheck = installedCheckHandler(
   installedPermissionContext.webContents,
@@ -342,14 +409,29 @@ const deniedPermissionCheck = installedCheckHandler(
   'http://127.0.0.1:8000',
   { requestingUrl: frontendUrl, isMainFrame: true },
 );
+const trustedAudioPermissionCheck = installedCheckHandler(
+  installedPermissionContext.webContents,
+  TRUSTED_AUDIO_PERMISSION,
+  'http://127.0.0.1:8000',
+  { requestingUrl: frontendUrl, isMainFrame: true, mediaType: 'audio' },
+);
+audioCaptureAuthorized = false;
+const idleAudioPermissionCheck = installedCheckHandler(
+  installedPermissionContext.webContents,
+  TRUSTED_AUDIO_PERMISSION,
+  'http://127.0.0.1:8000',
+  { requestingUrl: frontendUrl, isMainFrame: true, mediaType: 'audio' },
+);
 test(
   'session policy installs complete request and check handlers with single fail-closed decisions',
   typeof installedRequestHandler === 'function'
     && typeof installedCheckHandler === 'function'
-    && permissionRequestResults.join(',') === 'true,false'
+    && permissionRequestResults.join(',') === 'true,false,true'
     && trustedPermissionCheck === true
     && deniedPermissionCheck === false
-    && permissionDecisions.length === 4,
+    && trustedAudioPermissionCheck === true
+    && idleAudioPermissionCheck === false
+    && permissionDecisions.length === 7,
 );
 
 section('Managed Process Liveness');
@@ -409,6 +491,22 @@ test(
 test(
   'configured ports take effect after the managed child is cleared',
   selectBackendRuntimePorts(updatedPorts, activeLaunch, null) === updatedPorts,
+);
+test(
+  'Windows reserved-port fallback requires access denial with no listener',
+  shouldOfferWindowsPortFallback([
+    { probe: { available: false, errorCode: 'EACCES' }, listenerPids: [] },
+    { probe: { available: true, errorCode: '' }, listenerPids: [] },
+  ]) === true
+    && shouldOfferWindowsPortFallback([
+      { probe: { available: false, errorCode: 'EADDRINUSE' }, listenerPids: [4242] },
+    ]) === false
+    && shouldOfferWindowsPortFallback([
+      { probe: { available: false, errorCode: 'EACCES' }, listenerPids: [4242] },
+    ]) === false
+    && shouldOfferWindowsPortFallback([
+      { probe: { available: false, errorCode: 'EACCES' }, listenerPids: null },
+    ]) === false,
 );
 let invalidPortRejected = false;
 let duplicatePortsRejected = false;
@@ -526,6 +624,7 @@ test(
 
 const settingsStoreSource = fs.readFileSync(path.join(electronDir, 'settings-store.js'), 'utf8');
 const electronMainSource = fs.readFileSync(path.join(electronDir, 'main.js'), 'utf8').replace(/\r\n?/g, '\n');
+const voiceRuntimeSource = fs.readFileSync(path.join(electronDir, 'voice-runtime.js'), 'utf8');
 const packagedLifecycleProbeSource = fs.readFileSync(
   path.join(projectRoot, 'tests', 'scripts', 'test-electron-packaged-lifecycle.js'),
   'utf8',
@@ -545,6 +644,42 @@ test(
   electronMainSource.includes('httpPortAvailable') &&
     electronMainSource.includes('backend HTTP') &&
     electronMainSource.includes('Port ${checks.httpPortResolved} already in use'),
+);
+test(
+  'Electron media permission follows active voice-session ownership',
+  electronMainSource.includes(
+    'isAudioCaptureAuthorized: (webContents) => voiceRuntime?.isAudioCaptureAuthorized(webContents) === true',
+  )
+    && electronMainSource.includes("mainWindow.webContents.on('did-start-navigation'")
+    && electronMainSource.includes("mainWindow.webContents.on('render-process-gone'")
+    && electronMainSource.includes('voiceRuntime?.cancelActiveSession();'),
+);
+test(
+  'Windows taskbar metadata names the packaged Flight Fabric icon explicitly',
+  electronMainSource.includes('mainWindow.setAppDetails({')
+    && electronMainSource.includes('appId: APP_USER_MODEL_ID,')
+    && electronMainSource.includes('appIconPath: TASKBAR_ICON_PATH,')
+    && electronMainSource.includes('appIconIndex: 0,'),
+);
+test(
+  'Windows reserved backend ports use a confirmed persistent fallback',
+  electronMainSource.includes('shouldOfferWindowsPortFallback(backendPortStates)') &&
+    electronMainSource.includes('findAvailableBackendPortPair(Math.max(wsPort, httpPort) + 1)') &&
+    electronMainSource.includes("buttons: ['Use Available Ports', 'Cancel Startup and Quit']") &&
+    electronMainSource.includes('settingsStore.saveSettings({') &&
+    electronMainSource.includes('backendWsPort = result.settings.wsPort;') &&
+    electronMainSource.includes('backendHttpPort = result.settings.httpPort;'),
+);
+test(
+  'Windows reserved backend ports are not treated as a process to kill',
+  electronMainSource.includes("if (process.platform === 'win32' && shouldOfferWindowsPortFallback(backendPortStates))") &&
+    electronMainSource.includes('listenerPids: wsPortProbe.available ? [] : getListeningProcessIdsOnPort(wsPort)') &&
+    electronMainSource.indexOf('shouldOfferWindowsPortFallback(backendPortStates)')
+      < electronMainSource.indexOf("promptToFreeBackendPort(wsPort, 'backend WebSocket')"),
+);
+test(
+  'verified backend cleanup waits for the port even when no kill is reported',
+  electronMainSource.includes('waitForPortAvailable(port, killed ? 5000 : 1500)'),
 );
 test(
   'Electron launches backend with explicit WS and HTTP ports',
@@ -859,6 +994,33 @@ test('build bundles managed process liveness helper', electronPkg.build.files.in
 test('build bundles backend cleanup policy', electronPkg.build.files.includes('backend-cleanup-policy.js'));
 test('build bundles backend lifecycle helper', electronPkg.build.files.includes('backend-lifecycle.js'));
 test('build bundles Windows process identity helper', electronPkg.build.files.includes('backend-process-identity.js'));
+test(
+  'build pins and unpacks the offline voice runtime',
+  electronPkg.dependencies?.['sherpa-onnx-node'] === '1.13.5'
+    && electronPkg.dependencies?.['sherpa-onnx-win-x64'] === '1.13.5'
+    && electronPkg.build.files.includes('voice-runtime.js')
+    && JSON.stringify(electronPkg.build.asarUnpack || []).includes('sherpa-onnx-win-x64'),
+);
+test(
+  'build bundles the verified Zipformer model, aviation hotwords, and native PTT helper',
+  JSON.stringify(electronPkg.build.extraResources || []).includes(ZIPFORMER_MODEL.id)
+    && JSON.stringify(electronPkg.build.extraResources || []).includes('resources/voice/hotwords.txt')
+    && JSON.stringify(electronPkg.build.extraResources || []).includes('flight-fabric-ptt-hook.exe'),
+);
+const packagedVoiceModelResource = (electronPkg.build.extraResources || []).find((resource) => (
+  resource && typeof resource === 'object' && resource.to === `models/${ZIPFORMER_MODEL.id}`
+));
+test(
+  'build packages exactly the verified voice model manifest instead of arbitrary cache files',
+  JSON.stringify([...(packagedVoiceModelResource?.filter || [])].sort())
+    === JSON.stringify(ZIPFORMER_MODEL.files.map((file) => file.name).sort()),
+);
+test(
+  'build bundles offline voice licence and native-runtime notices',
+  JSON.stringify(electronPkg.build.extraResources || []).includes('legal/voice')
+    && ['Apache-2.0.txt', 'CC-BY-4.0.txt', 'ONNX-Runtime-MIT.txt', 'ONNX-Runtime-ThirdPartyNotices.txt']
+      .every((filename) => fs.existsSync(path.join(electronDir, 'licenses', filename))),
+);
 test('build has appId', typeof electronPkg.build?.appId === 'string');
 test('build has productName', typeof electronPkg.build?.productName === 'string');
 test('build has app icon config', electronPkg.build?.icon === 'taskbar-icon.ico');
@@ -924,11 +1086,12 @@ test(
     mainSource.includes('new Tray(trayIconPath)')
 );
 test(
-  'sets the Windows app identity to Flight Fabric',
+  'sets distinct production and development Windows app identities',
   mainSource.includes("const APP_PRODUCT_NAME = 'Flight Fabric'") &&
     mainSource.includes("const APP_ID = 'com.flightfabric.app'") &&
+    mainSource.includes("const APP_USER_MODEL_ID = app.isPackaged ? APP_ID : `${APP_ID}.dev`") &&
     mainSource.includes('app.setName(APP_PRODUCT_NAME)') &&
-    mainSource.includes('app.setAppUserModelId(APP_ID)')
+    mainSource.includes('app.setAppUserModelId(APP_USER_MODEL_ID)')
 );
 
 // Check for backend process management
@@ -1208,7 +1371,8 @@ test(
 test(
   'backend port conflicts cannot continue with an unmanaged backend',
   !mainSource.includes("'Continue Anyway'") &&
-    (mainSource.match(/if \(!killed\) return null;/g) || []).length === 2 &&
+    (mainSource.match(/if \(!released\) return null;/g) || []).length === 2 &&
+    mainSource.includes('if (!(await checkBackendPortsForSpawn(launchPorts))) return false;') &&
     mainSource.includes('app.quit();')
 );
 test(
@@ -1292,6 +1456,7 @@ test(
     mainSource.includes('injectRendererCspNonce') &&
     mainSource.includes('fs.createReadStream'),
 );
+test('serves ES module workers with a JavaScript MIME type', mainSource.includes("'.mjs': 'text/javascript'"));
 test(
   'desktop renderer responses use a restrictive per-request CSP',
   mainSource.includes("res.setHeader('Content-Security-Policy', buildRendererContentSecurityPolicy(cspNonce))") &&
@@ -1368,7 +1533,12 @@ test(
   'every incoming Electron IPC channel uses the trusted sender registrar',
   trustedIpcChannels.length === 30
     && new Set(trustedIpcChannels).size === trustedIpcChannels.length
-    && (mainSource.match(/ipcMain\.handle\(/g) || []).length === 1,
+    && (mainSource.match(/ipcMain\.handle\(/g) || []).length === 1
+    && (mainSource.match(/ipcMain\.on\(/g) || []).length === 1
+    && mainSource.includes('if (listener) return undefined;')
+    && voiceRuntimeSource.includes('registerTrustedIpcHandler(AUDIO_CHANNEL,')
+    && voiceRuntimeSource.includes('{ listener: true }')
+    && !voiceRuntimeSource.includes('ipcMain.on('),
 );
 test(
   'default Electron session installs deny-by-default request and check handlers before creating the UI',
@@ -1416,6 +1586,11 @@ test(
 test('exposes setRecordingBadge', preloadSource.includes('setRecordingBadge') && preloadSource.includes("ipcRenderer.invoke('recording-badge-set'"));
 test('exposes onBackendStatus listener', preloadSource.includes('onBackendStatus'));
 test('exposes onBackendLog listener', preloadSource.includes('onBackendLog'));
+test(
+  'exposes the bounded voice-recognition opt-in',
+  preloadSource.includes('setRecognitionEnabled')
+    && preloadSource.includes("'voice:set-recognition-enabled'"),
+);
 
 // Check for security
 test('uses ipcRenderer.invoke (not send)', preloadSource.includes('ipcRenderer.invoke'));

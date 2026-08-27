@@ -21,6 +21,7 @@ export const TRUSTED_LAN_SAFE_READ_MESSAGE_TYPES = Object.freeze([
 ] as const);
 
 export const AIRCRAFT_CONTROL_MESSAGE_TYPES = Object.freeze([
+  'executeAircraftCommand',
   'executeAircraftControl',
 ] as const);
 

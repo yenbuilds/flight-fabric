@@ -21,6 +21,7 @@ const { getLocalIPv4AddressesFromInterfaces } = require('./network-info');
 const { resolveAllowedExternalUrl } = require('./external-url-policy');
 const { isTrustedIpcSender } = require('./ipc-sender-policy');
 const { installSessionPermissionPolicy } = require('./session-permission-policy');
+const { createVoiceRuntime } = require('./voice-runtime');
 const { canStopBackendPortOwner } = require('./backend-cleanup-policy');
 const { acquireRuntimeOwnerLock } = require('./runtime-owner-lock');
 const { isManagedProcessAlive } = require('./process-liveness');
@@ -37,10 +38,12 @@ const {
   createStartupReadinessGate,
   isExactReadinessLine,
   parseConfiguredTcpPort,
+  shouldOfferWindowsPortFallback,
 } = require('./backend-lifecycle');
 
 const APP_PRODUCT_NAME = 'Flight Fabric';
 const APP_ID = 'com.flightfabric.app';
+const APP_USER_MODEL_ID = app.isPackaged ? APP_ID : `${APP_ID}.dev`;
 const BACKEND_SHUTDOWN_MESSAGE = `${JSON.stringify({ type: 'shutdown', reason: 'electron_stop' })}\n`;
 // Give normal cleanup 12 seconds, then let Electron own the complete Windows
 // tree kill. The backend's parent-only last resort is deliberately later.
@@ -85,7 +88,7 @@ function buildEmergencyFallbackDocument() {
 
 app.setName(APP_PRODUCT_NAME);
 if (process.platform === 'win32') {
-  app.setAppUserModelId(APP_ID);
+  app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
 function firstExistingPath(candidates) {
@@ -563,6 +566,7 @@ let trayRecordingBadgeAppliedState = null;
 let startupHealth = null;
 let lifecycleSmokeQuitScheduled = false;
 let lifecycleSmokeBeforeQuitRecorded = false;
+let voiceRuntime = null;
 
 // Backend state for IPC
 let backendStatus = 'stopped';
@@ -606,6 +610,7 @@ const MIME_TYPES = {
   '.html': 'text/html',
   '.css': 'text/css',
   '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
   '.json': 'application/json',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
@@ -643,9 +648,9 @@ function buildRendererContentSecurityPolicy(nonce) {
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com",
+    "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
-    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
+    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://tiles.openfreemap.org",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
   ].join('; ');
@@ -1005,8 +1010,9 @@ function getWindowFromEvent(event) {
   return BrowserWindow.fromWebContents(event?.sender) || mainWindow;
 }
 
-function registerTrustedIpcHandler(channel, handler) {
-  ipcMain.handle(channel, (event, ...args) => {
+function registerTrustedIpcHandler(channel, handler, options = {}) {
+  const listener = options.listener === true;
+  const trustedHandler = (event, ...args) => {
     if (!isTrustedIpcSender({
       event,
       mainWebContents: mainWindow?.webContents || null,
@@ -1014,16 +1020,23 @@ function registerTrustedIpcHandler(channel, handler) {
       launcherHtmlPath: LAUNCHER_HTML,
     })) {
       debugLog('Rejected IPC request from an untrusted sender:', channel);
+      if (listener) return undefined;
       throw new Error('Untrusted Electron IPC sender');
     }
     return handler(event, ...args);
-  });
+  };
+  if (listener) {
+    ipcMain.on(channel, trustedHandler);
+    return;
+  }
+  ipcMain.handle(channel, trustedHandler);
 }
 
 function installDefaultSessionPermissionPolicy() {
   installSessionPermissionPolicy({
     electronSession: session.defaultSession,
     getMainWebContents: () => mainWindow?.webContents || null,
+    isAudioCaptureAuthorized: (webContents) => voiceRuntime?.isAudioCaptureAuthorized(webContents) === true,
     isFrontendAppUrl,
     launcherHtmlPath: LAUNCHER_HTML,
     onDecision: ({ granted, permission, phase }) => {
@@ -1191,20 +1204,27 @@ function fetchBackendBootstrapViaBackend() {
   });
 }
 
-function canListenOnPort(port, host = '127.0.0.1') {
+function probePortAvailability(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const tester = net.createServer();
 
-    tester.once('error', () => {
-      resolve(false);
+    tester.once('error', (error) => {
+      resolve({
+        available: false,
+        errorCode: typeof error?.code === 'string' ? error.code : '',
+      });
     });
 
     tester.once('listening', () => {
-      tester.close(() => resolve(true));
+      tester.close(() => resolve({ available: true, errorCode: '' }));
     });
 
     tester.listen(port, host);
   });
+}
+
+async function canListenOnPort(port, host = '127.0.0.1') {
+  return (await probePortAvailability(port, host)).available;
 }
 
 async function findAvailablePort(startPort, host = '127.0.0.1', maxAttempts = 20) {
@@ -1215,6 +1235,141 @@ async function findAvailablePort(startPort, host = '127.0.0.1', maxAttempts = 20
     if (available) return candidate;
   }
   return null;
+}
+
+async function findAvailableBackendPortPair(startPort, maxAttempts = 512) {
+  const firstPort = Math.max(1024, Math.trunc(Number(startPort)) || 1024);
+  for (let offset = 0; offset < maxAttempts; offset += 1) {
+    const wsPort = firstPort + (offset * 2);
+    const httpPort = wsPort + 1;
+    if (httpPort > 65535) return null;
+    // eslint-disable-next-line no-await-in-loop
+    const [wsProbe, httpProbe] = await Promise.all([
+      probePortAvailability(wsPort),
+      probePortAvailability(httpPort),
+    ]);
+    if (wsProbe.available && httpProbe.available) {
+      return createBackendPortSnapshot(wsPort, httpPort);
+    }
+  }
+  return null;
+}
+
+async function waitForPortAvailable(port, timeoutMs) {
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  do {
+    // eslint-disable-next-line no-await-in-loop
+    if (await canListenOnPort(port)) return true;
+    if (Date.now() >= deadline) return false;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  } while (Date.now() <= deadline);
+  return false;
+}
+
+function getListeningProcessIdsOnPort(port) {
+  if (process.platform !== 'win32') return null;
+  const safePort = normalizeTcpPort(port);
+  if (!safePort) return null;
+
+  try {
+    const output = execFileSync('netstat.exe', ['-ano'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    const pids = new Set();
+    for (const line of output.trim().split('\n')) {
+      const parts = line.trim().split(/\s+/);
+      const localAddress = parts[1] || '';
+      const state = parts[3] || '';
+      if (state.toUpperCase() !== 'LISTENING' || !localAddress.endsWith(`:${safePort}`)) {
+        continue;
+      }
+      const pid = parseInt(parts[4], 10);
+      if (Number.isFinite(pid) && pid > 0) pids.add(pid);
+    }
+    return [...pids];
+  } catch {
+    return null;
+  }
+}
+
+function hasExplicitBackendPortEnvironmentOverride() {
+  return [process.env.SIMBRIDGE_WS_PORT, process.env.HTTP_PORT]
+    .some((value) => value !== undefined && String(value).trim() !== '');
+}
+
+async function showReservedBackendPortFailure(detail) {
+  if (lifecycleSmokeConfig) return;
+  await dialog.showMessageBox({
+    type: 'error',
+    title: 'Backend Ports Unavailable',
+    message: 'Windows will not allow Flight Fabric to use the configured backend ports.',
+    detail,
+    buttons: ['Quit Flight Fabric'],
+    defaultId: 0,
+  });
+}
+
+async function promptToUseAvailableBackendPorts(blockedPorts, replacementPorts) {
+  const blockedPortText = blockedPorts.map(({ label, port }) => `${label} ${port}`).join(', ');
+  if (lifecycleSmokeConfig) {
+    recordLifecycleSmokeEvent('startup-blocked', {
+      reason: 'windows-reserved-backend-port',
+      blockedPorts: blockedPorts.map(({ port }) => port),
+    });
+    return false;
+  }
+
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    title: 'Backend Ports Unavailable',
+    message: 'Windows will not allow Flight Fabric to use the configured backend ports.',
+    detail: `No process is listening on ${blockedPortText}. Windows may have reserved these ports for virtual networking. Flight Fabric can use WebSocket ${replacementPorts.wsPort} and HTTP ${replacementPorts.httpPort} instead. This choice will be saved.`,
+    buttons: ['Use Available Ports', 'Cancel Startup and Quit'],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  if (response !== 0) return false;
+
+  const [wsProbe, httpProbe] = await Promise.all([
+    probePortAvailability(replacementPorts.wsPort),
+    probePortAvailability(replacementPorts.httpPort),
+  ]);
+  if (!wsProbe.available || !httpProbe.available) {
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Replacement Ports Became Unavailable',
+      message: 'The selected backend ports are no longer available.',
+      detail: 'Restart Flight Fabric to search for another available pair.',
+      buttons: ['Quit Flight Fabric'],
+      defaultId: 0,
+    });
+    return false;
+  }
+
+  const currentSettings = settingsStore.getSettings();
+  const result = settingsStore.saveSettings({
+    ...currentSettings,
+    wsPort: replacementPorts.wsPort,
+    httpPort: replacementPorts.httpPort,
+  });
+  if (!result.success) {
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Replacement Ports Could Not Be Saved',
+      message: 'Flight Fabric could not save the available backend ports.',
+      detail: result.message || 'The settings file could not be updated.',
+      buttons: ['Quit Flight Fabric'],
+      defaultId: 0,
+    });
+    return false;
+  }
+
+  backendWsPort = result.settings.wsPort;
+  backendHttpPort = result.settings.httpPort;
+  debugLog(`Saved replacement backend ports: WebSocket ${backendWsPort}, HTTP ${backendHttpPort}`);
+  return true;
 }
 
 async function promptToFreeBackendPort(port, label) {
@@ -1241,10 +1396,7 @@ async function promptToFreeBackendPort(port, label) {
   // still independently requires both Electron ownership locks before it may
   // recover an Electron-marked listener left behind by a crashed desktop app.
   const killed = killProcessOnPort(port, { allowElectronOwnerRecovery: true });
-  if (killed) {
-    await new Promise((r) => setTimeout(r, 1500));
-    if (await canListenOnPort(port)) return true;
-  }
+  if (await waitForPortAvailable(port, killed ? 5000 : 1500)) return true;
 
   await dialog.showMessageBox({
     type: 'error',
@@ -1278,21 +1430,8 @@ function killProcessOnPort(port, options = {}) {
   };
 
   try {
-    const output = execFileSync('netstat.exe', ['-ano'], {
-      encoding: 'utf8',
-      timeout: 5000,
-    });
-    const pids = new Set();
-    for (const line of output.trim().split('\n')) {
-      const parts = line.trim().split(/\s+/);
-      const localAddress = parts[1] || '';
-      const state = parts[3] || '';
-      if (state.toUpperCase() !== 'LISTENING' || !localAddress.endsWith(`:${safePort}`)) {
-        continue;
-      }
-      const pid = parseInt(parts[4], 10);
-      if (Number.isFinite(pid) && pid > 0) pids.add(pid);
-    }
+    const pids = getListeningProcessIdsOnPort(safePort);
+    if (!Array.isArray(pids)) return false;
     let killedCount = 0;
     for (const pid of pids) {
       const initialIdentity = readWindowsProcessIdentity(pid);
@@ -1371,7 +1510,7 @@ async function runStartupHealthChecks() {
     }
     return null;
   }
-  const { wsPort, httpPort } = configuredPorts;
+  let { wsPort, httpPort } = configuredPorts;
 
   const requestedFrontendPort = frontendPort;
   const frontendPortAvailable = await canListenOnPort(requestedFrontendPort, FRONTEND_HOST);
@@ -1385,19 +1524,64 @@ async function runStartupHealthChecks() {
 
   const resolvedFrontendPortAvailable = await canListenOnPort(frontendPort, FRONTEND_HOST);
 
-  // Check backend port availability - attempt cleanup if busy (mirrors start-simbridge.bat)
-  let wsPortAvailable = await canListenOnPort(wsPort);
-  if (!wsPortAvailable) {
-    const killed = await promptToFreeBackendPort(wsPort, 'backend WebSocket');
-    if (!killed) return null;
-    wsPortAvailable = true;
-  }
+  const [wsPortProbe, httpPortProbe] = await Promise.all([
+    probePortAvailability(wsPort),
+    probePortAvailability(httpPort),
+  ]);
+  const backendPortStates = [
+    {
+      label: 'backend WebSocket',
+      port: wsPort,
+      probe: wsPortProbe,
+      listenerPids: wsPortProbe.available ? [] : getListeningProcessIdsOnPort(wsPort),
+    },
+    {
+      label: 'backend HTTP',
+      port: httpPort,
+      probe: httpPortProbe,
+      listenerPids: httpPortProbe.available ? [] : getListeningProcessIdsOnPort(httpPort),
+    },
+  ];
 
-  let httpPortAvailable = await canListenOnPort(httpPort);
-  if (!httpPortAvailable) {
-    const killed = await promptToFreeBackendPort(httpPort, 'backend HTTP');
-    if (!killed) return null;
+  let wsPortAvailable = wsPortProbe.available;
+  let httpPortAvailable = httpPortProbe.available;
+  if (process.platform === 'win32' && shouldOfferWindowsPortFallback(backendPortStates)) {
+    const blockedPorts = backendPortStates.filter(({ probe }) => !probe.available);
+    if (hasExplicitBackendPortEnvironmentOverride()) {
+      recordLifecycleSmokeEvent('startup-blocked', { reason: 'reserved-environment-backend-port' });
+      await showReservedBackendPortFailure('A backend port is set by SIMBRIDGE_WS_PORT or HTTP_PORT, so Flight Fabric cannot safely save a replacement. Change or remove the environment override, then restart Flight Fabric.');
+      return null;
+    }
+
+    const replacementPorts = await findAvailableBackendPortPair(Math.max(wsPort, httpPort) + 1);
+    if (!replacementPorts) {
+      recordLifecycleSmokeEvent('startup-blocked', { reason: 'no-backend-port-fallback' });
+      await showReservedBackendPortFailure('No available backend port pair was found. Restart Windows or change the backend ports in Flight Fabric settings.');
+      return null;
+    }
+
+    if (!(await promptToUseAvailableBackendPorts(blockedPorts, replacementPorts))) return null;
+    ({ wsPort, httpPort } = replacementPorts);
+    wsPortAvailable = true;
     httpPortAvailable = true;
+  } else {
+    if (!wsPortAvailable) {
+      wsPortAvailable = await canListenOnPort(wsPort);
+      if (!wsPortAvailable) {
+        const released = await promptToFreeBackendPort(wsPort, 'backend WebSocket');
+        if (!released) return null;
+        wsPortAvailable = true;
+      }
+    }
+
+    if (!httpPortAvailable) {
+      httpPortAvailable = await canListenOnPort(httpPort);
+      if (!httpPortAvailable) {
+        const released = await promptToFreeBackendPort(httpPort, 'backend HTTP');
+        if (!released) return null;
+        httpPortAvailable = true;
+      }
+    }
   }
 
   const checks = {
@@ -2155,6 +2339,14 @@ async function shutdownApplication({ relaunch = false } = {}) {
 
   applicationShutdownPromise = (async () => {
     let stopped = false;
+    if (voiceRuntime) {
+      try {
+        await runBoundedShutdownTask('Voice runtime shutdown', () => voiceRuntime.shutdown());
+      } catch (error) {
+        console.warn('[electron] Voice shutdown failed during app exit:', error.message || error);
+      }
+      voiceRuntime = null;
+    }
     try {
       stopped = await stopBackend();
     } catch (error) {
@@ -2431,6 +2623,18 @@ function createWindow() {
     show: false, // Don't show until ready
   });
 
+  if (process.platform === 'win32' && fs.existsSync(TASKBAR_ICON_PATH)) {
+    try {
+      mainWindow.setAppDetails({
+        appId: APP_USER_MODEL_ID,
+        appIconPath: TASKBAR_ICON_PATH,
+        appIconIndex: 0,
+      });
+    } catch (err) {
+      debugLog('Windows taskbar icon metadata could not be applied:', err.message);
+    }
+  }
+
   if (recordingBadgeState !== 'stopped') {
     try {
       setTaskbarRecordingBadgeImage(recordingBadgeState, { force: true });
@@ -2460,6 +2664,14 @@ function createWindow() {
     openExternalBrowserUrl(url, 'top-level navigation');
   });
 
+  mainWindow.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame !== false) voiceRuntime?.cancelActiveSession();
+  });
+
+  mainWindow.webContents.on('render-process-gone', () => {
+    voiceRuntime?.cancelActiveSession();
+  });
+
   loadDesktopApp(mainWindow).then(() => {
     debugLog('Desktop UI loaded successfully');
   }).catch((desktopErr) => {
@@ -2485,6 +2697,7 @@ function createWindow() {
   mainWindow.on('close', hideWindowToTrayOnClose);
 
   mainWindow.on('closed', () => {
+    voiceRuntime?.cancelActiveSession();
     mainWindow = null;
     taskbarRecordingBadgeAppliedState = null;
   });
@@ -2910,6 +3123,15 @@ void app.whenReady().then(async () => {
   if (!lifecycleSmokeConfig) {
     createWindow();
     createTray();
+    voiceRuntime = createVoiceRuntime({
+      app,
+      appDir: __dirname,
+      debugLog,
+      getMainWindow: () => mainWindow,
+      ipcMain,
+      registerTrustedIpcHandler,
+    });
+    void voiceRuntime.initialize();
   }
   recordLifecycleSmokeEvent('app-initialized');
   // Backend ownership must not depend on renderer navigation or

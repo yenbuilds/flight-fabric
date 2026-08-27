@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
+const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { ZIPFORMER_MODEL } = require('../../electron/voice-model-manifest');
 const {
   REQUIRED_PACKAGED_BACKEND_STARTUP_FILES,
   resolvePackagedBackendStartupFile,
@@ -19,6 +21,14 @@ const RUST_SIDECAR_BINARY = path.join(
 );
 const PACKAGED_BACKEND_PACKAGE_JSON = path.join(PACKAGED_BACKEND, 'package.json');
 const PACKAGED_BACKEND_NODE_MODULES = path.join(PACKAGED_BACKEND, 'node_modules');
+const PACKAGED_VOICE_MODEL = path.join(
+  WIN_UNPACKED,
+  'resources',
+  'models',
+  ZIPFORMER_MODEL.id,
+);
+const PACKAGED_PTT_HELPER = path.join(WIN_UNPACKED, 'resources', 'voice', 'ptt-hook.exe');
+const PACKAGED_VOICE_HOTWORDS = path.join(WIN_UNPACKED, 'resources', 'voice', 'hotwords.txt');
 const BACKEND_PACKAGE_LOCK = path.join(ROOT, 'backend', 'package-lock.json');
 const PACKAGED_STANDARD_CABIN_AUDIO = path.join(
   WIN_UNPACKED,
@@ -170,6 +180,69 @@ function packagePathParts(packageName) {
 
 function packagedModulePackageJson(packageName) {
   return path.join(PACKAGED_BACKEND_NODE_MODULES, ...packagePathParts(packageName), 'package.json');
+}
+
+function validatePackagedVoiceRuntime(unpackedExe) {
+  const executablePath = path.join(WIN_UNPACKED, unpackedExe);
+  const resourcesPath = path.join(WIN_UNPACKED, 'resources');
+  const marker = '[FF_PACKAGED_VOICE_PROBE]';
+  const probe = `
+    const path = require('node:path');
+    const resourcesPath = process.env.FF_VOICE_PROBE_RESOURCES;
+    const { createVoiceSpeechEngine } = require(path.join(resourcesPath, 'app.asar', 'voice-speech-engine.js'));
+    (async () => {
+      const engine = createVoiceSpeechEngine({ isPackaged: true, resourcesPath });
+      const terminal = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Packaged recognizer did not finalize')), 20000);
+        engine.onEvent((event) => {
+          if (event.type !== 'final' && event.type !== 'error') return;
+          clearTimeout(timer);
+          resolve(event);
+        });
+      });
+      const info = await engine.initialize();
+      const session = engine.start();
+      engine.pushAudio({
+        sessionId: session.sessionId,
+        sequence: 0,
+        sampleRate: 16000,
+        samples: new Float32Array(1600),
+      });
+      if (!engine.finish(session.sessionId)) throw new Error('Packaged recognizer refused finalization');
+      const event = await terminal;
+      await engine.shutdown();
+      if (event.type === 'error') throw new Error(event.message || 'Packaged recognizer failed');
+      console.log(${JSON.stringify(marker)} + JSON.stringify({
+        modelId: info.modelId,
+        ready: info.ready,
+        terminalType: event.type,
+      }));
+    })().catch((error) => {
+      console.error(error && error.stack ? error.stack : String(error));
+      process.exitCode = 1;
+    });
+  `;
+  const env = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: '1',
+    FF_VOICE_PROBE_RESOURCES: resourcesPath,
+  };
+  delete env.NODE_OPTIONS;
+  const result = childProcess.spawnSync(executablePath, ['-e', probe], {
+    cwd: WIN_UNPACKED,
+    encoding: 'utf8',
+    env,
+    timeout: 45_000,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0 || !String(result.stdout || '').includes(marker)) {
+    fail(
+      'packaged Zipformer native runtime initializes and finalizes PCM '
+      + `(exit ${result.status}; ${result.error?.message || result.stderr || result.stdout || 'no output'})`,
+    );
+    return;
+  }
+  ok('packaged Zipformer native runtime initializes and finalizes PCM');
 }
 
 function collectPackagedPackageRoots(modulesRoot, relativeModulesPrefix = '') {
@@ -486,6 +559,27 @@ if (exists(WIN_UNPACKED, 'win-unpacked exists')) {
   } else {
     fail('win-unpacked executable exists');
   }
+  for (const modelFile of ZIPFORMER_MODEL.files) {
+    exists(
+      path.join(PACKAGED_VOICE_MODEL, modelFile.name),
+      `verified voice model file bundled: ${modelFile.name}`,
+    );
+  }
+  if (fs.existsSync(PACKAGED_VOICE_MODEL)) {
+    const expectedModelFiles = ZIPFORMER_MODEL.files.map((file) => file.name).sort();
+    const packagedModelEntries = fs.readdirSync(PACKAGED_VOICE_MODEL, { withFileTypes: true });
+    const packagedModelFiles = packagedModelEntries.map((entry) => entry.name).sort();
+    if (
+      packagedModelEntries.every((entry) => entry.isFile())
+      && JSON.stringify(packagedModelFiles) === JSON.stringify(expectedModelFiles)
+    ) {
+      ok('packaged voice model inventory exactly matches the verified manifest');
+    } else {
+      fail(`packaged voice model inventory differs: ${packagedModelFiles.join(', ')}`);
+    }
+  }
+  exists(PACKAGED_VOICE_HOTWORDS, 'aviation voice hotwords bundled');
+  exists(PACKAGED_PTT_HELPER, 'native push-to-talk helper bundled');
   for (const relativePath of REQUIRED_PACKAGED_BACKEND_STARTUP_FILES) {
     exists(
       resolvePackagedBackendStartupFile(PACKAGED_BACKEND, relativePath),
@@ -513,6 +607,7 @@ if (exists(WIN_UNPACKED, 'win-unpacked exists')) {
       `legacy/generated backend path absent: ${relativeParts.join('/')}`
     );
   }
+  if (unpackedExe) validatePackagedVoiceRuntime(unpackedExe);
 }
 
 console.log('------------------------------------');

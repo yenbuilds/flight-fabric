@@ -1,0 +1,2 @@
+electron/resources/voice/hotwords.txt text eol=lf
+electron/resources/voice/bpe.vocab text eol=lf

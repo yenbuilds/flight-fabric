@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Last reviewed: 2026-08-12.
+Last reviewed: 2026-08-22.
 
 The GNU Affero General Public License version 3 in `LICENSE.md` applies to
 Flight Fabric source code and its AGPL-covered modifications. Other third-party
@@ -198,6 +198,35 @@ source as third-party code.
   ClientData/event transport. Procedural-macro crates are build inputs whose
   generated code contributes to the executable.
 
+## Offline Voice Recognition and Push-to-Talk
+
+- `sherpa-onnx-node` and `sherpa-onnx-win-x64` 1.13.5, by the next-gen Kaldi
+  team and contributors, are bundled for local speech recognition under the
+  Apache License 2.0: https://github.com/k2-fsa/sherpa-onnx
+- The Windows package includes ONNX Runtime libraries used by sherpa-onnx.
+  ONNX Runtime is Copyright Microsoft Corporation and licensed under the MIT
+  License: https://github.com/microsoft/onnxruntime
+- The bundled `sherpa-onnx-streaming-zipformer-en-2023-06-26` English
+  LibriSpeech model is distributed under Apache License 2.0. Its upstream model
+  repository is
+  https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26.
+- The LibriSpeech corpus was prepared by Vassil Panayotov with assistance from
+  Daniel Povey and is available under the Creative Commons Attribution 4.0
+  International licence: https://www.openslr.org/12.
+- Exact shipped model-file sizes and SHA-256 values are pinned in
+  `electron/voice-model-manifest.js` and verified before recognition starts.
+  A source build may download the pinned runtime subset from the immutable
+  upstream revision recorded there. Packaged applications bundle the verified
+  files; recognition is offline and the application does not download models
+  at runtime.
+- The packaged desktop app includes the Apache 2.0 and Creative Commons
+  Attribution 4.0 licences, the ONNX Runtime MIT licence, and ONNX Runtime
+  upstream third-party notices under
+  `resources/legal/voice`.
+- The Windows push-to-talk helper is Flight Fabric code compiled with the Rust
+  standard library and has no third-party crate dependencies. Rust standard
+  library components are available under Apache-2.0 OR MIT terms.
+
 ## Packaged Backend Node.js Runtime
 
 - Direct packages: `ajv`, `ajv-formats`, `dotenv`, `ws`
@@ -276,14 +305,25 @@ source as third-party code.
 - License: MIT (Copyright (c) 2009 Kazuhiko Arase)
 - Used to render offline QR codes for the phone browser dashboard URL in the Electron launcher and dashboard System tab; no network calls.
 
-## Leaflet (vendored)
+## Leaflet
 
 - Source: https://leafletjs.com - by Volodymyr Agafonkin and Leaflet contributors
 - Version: 1.9.4
-- Vendored into: `frontend/vendor/leaflet/` and `frontend-dist/vendor/leaflet/`
+- Bundled from the `leaflet` npm package into the main frontend. A legacy
+  upstream distribution is also retained under `frontend/vendor/leaflet/`.
 - License: BSD-2-Clause (Copyright (c) 2010-2023, Volodymyr Agafonkin; Copyright (c) 2010-2011, CloudMade)
 - License text: https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE
 - Used for: interactive flight-track map in the live-map and timeline tabs.
+
+## MapLibre GL JS and MapLibre GL Leaflet
+
+- Sources: https://maplibre.org/ and
+  https://github.com/maplibre/maplibre-gl-leaflet
+- Versions: MapLibre GL JS 6.6.0; MapLibre GL Leaflet 0.1.4
+- Licenses: MapLibre GL JS is BSD-3-Clause; MapLibre GL Leaflet is ISC.
+- Used for: rendering OpenFreeMap vector basemaps beneath the existing Leaflet
+  flight overlays. Both libraries are bundled locally with the frontend; no
+  JavaScript or stylesheet CDN is used.
 
 ## Three.js (vendored)
 
@@ -319,31 +359,33 @@ source as third-party code.
   committed to this repository or included in desktop packages. Upstream files
   retain their embedded attribution comments.
 
-## OpenStreetMap Tiles and Data
+## OpenStreetMap Data
 
-- Source: https://tile.openstreetmap.org and https://www.openstreetmap.org/copyright
+- Source: https://www.openstreetmap.org/copyright
 - License/data terms: Open Data Commons Open Database License (ODbL) 1.0
-- Tile-service policy: https://operations.osmfoundation.org/policies/tiles/
-- Used for: default 2D basemap tiles in live-map and timeline views.
-- Attribution: displayed in-app via Leaflet map attribution controls.
-- Static-site screenshot: `site/flightfabric/assets/live-map.png` retains the
-  visible Leaflet, OpenStreetMap, and CARTO attribution from the captured map.
-- Service note: OpenStreetMap data is open, but the community tile service is
-  capacity-limited and best-effort. Flight Fabric requests only tiles needed
-  for an interactively viewed map and does not provide bulk-download or offline
-  prefetch features.
+- Used through OpenFreeMap/OpenMapTiles for the live-map and timeline basemaps.
+- Attribution: displayed in-app via the Leaflet attribution control.
+- Flight Fabric does not request tiles from the community-operated
+  `tile.openstreetmap.org` service.
 
-## CARTO Basemaps
+## OpenFreeMap Basemaps
 
-- Source: https://carto.com and https://basemaps.cartocdn.com
-- Basemap terms: https://carto.com/legal/bmap/
-- Terms/attribution: https://carto.com/attribution/
-- Used for: fallback dark basemap tiles in live-map and timeline Leaflet views.
-- Attribution: displayed in-app as OpenStreetMap + CARTO.
-- Service note: CARTO's current documentation says commercial use requires an
-  Enterprise licence and qualifying non-commercial use requires a CARTO grant.
-  This notice does not itself grant access; distributors/operators must confirm
-  that their use is authorized under CARTO's then-current basemap terms.
+- Source: https://openfreemap.org and https://tiles.openfreemap.org
+- Terms: https://openfreemap.org/tos/
+- Privacy: https://openfreemap.org/privacy/
+- Project license: MIT; underlying map data and components retain their own
+  licenses, including OpenStreetMap's ODbL and OpenMapTiles attribution.
+- Used for: the dark vector basemap in live-map and timeline views.
+- Attribution: displayed in-app as OpenFreeMap, OpenMapTiles, and OpenStreetMap.
+- Service note: OpenFreeMap explicitly permits commercial use of its public
+  instance without registration, request limits, or API keys. It is provided
+  without an SLA and may change or be discontinued.
+
+## Historical CARTO Screenshot
+
+- `site/flightfabric/assets/live-map.png` depicts an older Flight Fabric build
+  and retains its visible OpenStreetMap and CARTO attribution.
+- Current application builds do not request CARTO basemap tiles.
 
 ## GitHub Release and Update Hosting (hosted service only)
 

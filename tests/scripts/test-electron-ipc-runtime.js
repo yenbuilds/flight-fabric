@@ -37,7 +37,18 @@ async function runElectronProbe() {
     await app.whenReady();
 
     server = http.createServer((request, response) => {
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      const headers = {
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; worker-src 'self' blob:",
+      };
+      if (request.url === '/frontend/assets/pcm-worklet.js') {
+        response.writeHead(200, {
+          ...headers,
+          'Content-Type': 'application/javascript; charset=utf-8',
+        });
+        response.end(fs.readFileSync(path.join(ROOT, 'frontend-dist', 'assets', 'pcm-worklet.js')));
+        return;
+      }
+      response.writeHead(200, { ...headers, 'Content-Type': 'text/html; charset=utf-8' });
       response.end(`<!doctype html><title>${request.url === '/frontend/' ? 'Frontend' : 'Outside'} IPC probe</title>`);
     });
     await new Promise((resolve, reject) => {
@@ -62,12 +73,16 @@ async function runElectronProbe() {
     windows.push(trustedWindow);
     const decisions = [];
     const permissionDecisions = [];
+    let audioCaptureAuthorized = false;
 
     installSessionPermissionPolicy({
       electronSession: session.defaultSession,
       getMainWebContents: () => trustedWindow.webContents,
       isFrontendAppUrl,
       launcherHtmlPath,
+      isAudioCaptureAuthorized: (webContents) => (
+        audioCaptureAuthorized && webContents === trustedWindow.webContents
+      ),
       onDecision: (decision) => permissionDecisions.push(decision),
     });
 
@@ -113,7 +128,61 @@ async function runElectronProbe() {
     assert.equal(decisions.at(-1).trusted, true);
     assert.equal(decisions.at(-1).mainFrame, true);
     assert.equal(await queryPermission(trustedWindow.webContents, 'clipboard-write'), 'granted');
+    assert.equal(await queryPermission(trustedWindow.webContents, 'microphone'), 'denied');
+    audioCaptureAuthorized = true;
+    assert.equal(await queryPermission(trustedWindow.webContents, 'microphone'), 'granted');
+    const microphoneProbe = await trustedWindow.webContents.executeJavaScript(`(async () => {
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const inputs = (await navigator.mediaDevices.enumerateDevices())
+          .filter((device) => device.kind === 'audioinput')
+          .map((device) => ({ deviceId: device.deviceId, label: device.label }));
+        return { opened: true, inputs };
+      } catch (error) {
+        return { opened: false, error: error?.message || String(error) };
+      } finally {
+        for (const track of stream?.getTracks?.() || []) track.stop();
+      }
+    })()`);
+    assert.equal(
+      microphoneProbe.opened,
+      true,
+      `an authorized microphone probe must open: ${microphoneProbe.error || 'unknown error'}`,
+    );
+    assert.ok(
+      microphoneProbe.inputs.some((device) => device.deviceId && device.label),
+      'an authorized microphone probe must expose a named audio input',
+    );
+    audioCaptureAuthorized = false;
+    assert.equal(await queryPermission(trustedWindow.webContents, 'microphone'), 'denied');
     assert.equal(await queryPermission(trustedWindow.webContents, 'geolocation'), 'denied');
+    assert.equal(
+      await trustedWindow.webContents.executeJavaScript(
+        'navigator.mediaDevices.enumerateDevices().then((devices) => Array.isArray(devices))',
+      ),
+      true,
+      'idle device enumeration should remain available without opening the microphone',
+    );
+    const workletProbe = await trustedWindow.webContents.executeJavaScript(`(async () => {
+      const context = new AudioContext({ latencyHint: 'interactive' });
+      try {
+        await context.audioWorklet.addModule('/frontend/assets/pcm-worklet.js');
+        const node = new AudioWorkletNode(context, 'flight-fabric-pcm-capture', {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+          processorOptions: { chunkFrames: 2048 },
+        });
+        node.port.postMessage({ type: 'cancel' });
+        node.disconnect();
+        return { loaded: true, sampleRate: context.sampleRate };
+      } finally {
+        await context.close();
+      }
+    })()`);
+    assert.equal(workletProbe.loaded, true);
+    assert.ok(workletProbe.sampleRate >= 8000 && workletProbe.sampleRate <= 192000);
     const geolocationRequest = await trustedWindow.webContents.executeJavaScript(`new Promise((resolve) => {
       navigator.geolocation.getCurrentPosition(
         () => resolve({ granted: true }),
@@ -155,6 +224,7 @@ async function runElectronProbe() {
     assert.deepEqual(await invokeSettings(trustedWindow.webContents), { runtimeProbe: true });
     assert.equal(decisions.at(-1).trusted, true);
     assert.equal(await queryPermission(trustedWindow.webContents, 'clipboard-write'), 'granted');
+    assert.equal(await queryPermission(trustedWindow.webContents, 'microphone'), 'denied');
     const launcherCopyResult = await trustedWindow.webContents.executeJavaScript(`(async () => {
       window.__launcherClipboardWrites = [];
       Object.defineProperty(navigator, 'clipboard', {
@@ -184,6 +254,8 @@ async function runElectronProbe() {
       decisions,
       permissionDecisions,
       launcherCopyResult,
+      workletProbe,
+      microphoneProbe,
     });
   } catch (err) {
     writeResult({
@@ -226,6 +298,7 @@ function runParentProbe() {
       '--use-angle=swiftshader',
       '--disable-gpu-sandbox',
       '--no-sandbox',
+      '--use-fake-device-for-media-stream',
       __filename,
     ], {
       cwd: path.dirname(electronExecutable),
@@ -259,11 +332,40 @@ function runParentProbe() {
       'runtime probe should reject a foreign window, untrusted page, and altered launcher URL',
     );
     assert.equal(
-      payload.permissionDecisions.some((decision) => (
-        decision.granted && decision.permission !== 'clipboard-sanitized-write'
+      payload.permissionDecisions.every((decision) => (
+        !decision.granted
+        || decision.permission === 'clipboard-sanitized-write'
+        || (
+          decision.permission === 'media'
+          && decision.isMainFrame === true
+          && /\/frontend\/$/.test(decision.requestingUrl || '')
+          && (decision.mediaType === 'audio'
+            || (Array.isArray(decision.mediaTypes)
+              && decision.mediaTypes.length === 1
+              && decision.mediaTypes[0] === 'audio'))
+        )
       )),
-      false,
-      'no renderer permission other than trusted clipboard writes may be granted',
+      true,
+      'only trusted clipboard writes and trusted frontend audio may be granted',
+    );
+    assert.ok(
+      payload.permissionDecisions.some((decision) => decision.granted && decision.permission === 'media'),
+      'the trusted frontend microphone permission check should be granted while capture is authorized',
+    );
+    assert.ok(
+      payload.permissionDecisions.some((decision) => (
+        decision.granted
+        && decision.permission === 'media'
+        && decision.phase === 'request'
+        && Array.isArray(decision.mediaTypes)
+        && decision.mediaTypes.length === 1
+        && decision.mediaTypes[0] === 'audio'
+      )),
+      'the authorized microphone probe should reach the trusted audio request handler',
+    );
+    assert.ok(
+      payload.permissionDecisions.some((decision) => !decision.granted && decision.permission === 'media'),
+      'the trusted frontend microphone permission check should be denied while capture is idle',
     );
     assert.ok(
       payload.permissionDecisions.some((decision) => (
@@ -283,6 +385,12 @@ function runParentProbe() {
       'foreign and untrusted clipboard checks should be denied',
     );
     assert.deepEqual(payload.launcherCopyResult.writes, ['http://192.168.1.10:8100/']);
+    assert.equal(payload.workletProbe.loaded, true, 'the production PCM AudioWorklet should load under CSP');
+    assert.equal(payload.microphoneProbe.opened, true, 'the authorized microphone probe should open');
+    assert.ok(
+      payload.microphoneProbe.inputs.some((device) => device.deviceId && device.label),
+      'the authorized microphone probe should reveal a named input',
+    );
     assert.ok(payload.electron, 'probe should report its Electron version');
 
     console.log('Electron IPC and session permission runtime probe passed');

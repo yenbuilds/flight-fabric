@@ -533,6 +533,54 @@ function waitForServerListening(server, label) {
   });
 }
 
+function createProviderBroadcastRelay({
+  broadcast,
+  buildControlCapabilities,
+  getActiveProfile,
+  getActiveProfileRevision,
+}: AnyRecord = {}) {
+  let lastControlCapabilitiesSignature: string | null = null;
+
+  return (message: AnyRecord = {}) => {
+    if (message?.type !== MSG.DATA_SOURCES) {
+      broadcast(message);
+      return;
+    }
+
+    try {
+      const profile = getActiveProfile?.() || null;
+      const profileKey = profile?._profileKey
+        || profile?._qualifiedId
+        || (profile?.namespace && profile?.simulator && profile?.id
+          ? `${profile.namespace}/${profile.simulator}/${profile.id}`
+          : (profile?.id || 'generic'));
+      const profileRevision = Number(getActiveProfileRevision?.());
+      const normalizedProfileRevision = Number.isSafeInteger(profileRevision) && profileRevision >= 0
+        ? profileRevision
+        : null;
+      const controlCapabilities = buildControlCapabilities?.(profile) || null;
+      const signature = JSON.stringify({
+        profileKey,
+        profileRevision: normalizedProfileRevision,
+        controlCapabilities,
+      });
+
+      if (signature !== lastControlCapabilitiesSignature) {
+        lastControlCapabilitiesSignature = signature;
+        broadcast({
+          ...message,
+          profileKey,
+          profileRevision: normalizedProfileRevision,
+          controlCapabilities,
+        });
+        return;
+      }
+    } catch {}
+
+    broadcast(message);
+  };
+}
+
 async function runSimbridgeCore({
   provider,
   pollRateMs = 100,
@@ -790,6 +838,7 @@ async function runSimbridgeCore({
       }
       const context = buildClientMessageContext({
           lastSimState: runtimeState.sim.lastState,
+          getSimState: () => runtimeState.sim.lastState,
           getPhase,
           flightCsvWriter,
           flightCsvStore,
@@ -1922,7 +1971,12 @@ async function runSimbridgeCore({
 
   // Start provider connections and wire provider broadcasts before start().
   if (typeof provider.setBroadcast === 'function') {
-    provider.setBroadcast(broadcast);
+    provider.setBroadcast(createProviderBroadcastRelay({
+      broadcast,
+      buildControlCapabilities,
+      getActiveProfile: () => profileLoader.getActiveProfile(),
+      getActiveProfileRevision: () => profileLoader.getActiveProfileRevision?.(),
+    }));
   }
   try {
     await Promise.all([wsListeningPromise, httpListeningPromise]);
@@ -4746,6 +4800,7 @@ async function runSimbridgeCore({
 }
 
 module.exports = {
+  createProviderBroadcastRelay,
   runSimbridgeCore,
   snapshotStabilityScoringInputs,
   resolveRecordedStabilityScoringInputs,

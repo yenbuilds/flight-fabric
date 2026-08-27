@@ -11,6 +11,8 @@ dist/
 frontend-dist/
 backend-build/
 backend/telemetry-provider/rust-simconnect-sidecar/target/
+electron/voice-native/ptt-hook/target/
+electron/resources/models/
 
 # Downloaded binaries
 bin/
