@@ -43,7 +43,11 @@ export function formatAviationReadback(match = {}) {
   if (commandId === 'flightGuidance.course.setBoth') {
     return `Both courses ${spokenDigits(value, 3)} set.`;
   }
-  if (commandId === 'flightGuidance.altitude.set') {
+  if ([
+    'flightGuidance.altitude.set',
+    'flightGuidance.altitudeHundred.set',
+    'flightGuidance.altitudeThousand.set',
+  ].includes(commandId)) {
     return `Altitude ${spokenAltitude(value)} set.`;
   }
   if (commandId === 'flightGuidance.speed.set') {
@@ -57,6 +61,12 @@ export function formatAviationReadback(match = {}) {
     const numericValue = Number(value);
     if (numericValue === 0) return 'Vertical speed zero set.';
     return `Vertical speed ${numericValue > 0 ? 'climb' : 'descend'} ${spokenAltitude(numericValue)} set.`;
+  }
+  if (commandId === 'flightGuidance.flightPathAngle.set') {
+    const numericValue = Number(value);
+    const [whole, decimal] = Math.abs(numericValue).toFixed(1).split('.');
+    const direction = numericValue < 0 ? 'minus ' : (numericValue > 0 ? 'plus ' : '');
+    return `Flight path angle ${direction}${spokenDigits(whole)} decimal ${spokenDigits(decimal)} set.`;
   }
   if (commandId === 'radios.nav.setBothActive') {
     const [whole, decimals] = Number(value).toFixed(2).split('.');
@@ -73,6 +83,9 @@ export function formatAviationReadback(match = {}) {
   }
   if (commandId === 'surfaces.flaps.set') {
     return `Flaps ${String(value)} set.`;
+  }
+  if (commandId === 'surfaces.autobrake.set') {
+    return `Autobrake ${value === 'rto' ? 'R T O' : String(value)} set.`;
   }
   if (commandId === 'configuration.lighting.cockpit') {
     return `Cockpit lighting ${String(value)} percent set.`;

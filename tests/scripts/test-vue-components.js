@@ -213,6 +213,7 @@ async function main() {
     { AIRCRAFT_CONTROL_BUTTON_SELECTOR },
     { resolveAircraftSpecificTemplate },
     { mcpDraftKey, submitMcpDraft },
+    { buildPmdg777CommandInput },
     { triggerFenixThrottleHaptic },
   ] = await Promise.all([
     import(toFrontendUrl('src', 'vue', 'stores', 'settings-form.js')),
@@ -240,6 +241,7 @@ async function main() {
     import(toFrontendUrl('src', 'aircraft', 'control-ui.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'template-registry.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js')),
+    import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'pmdg777-command-routing.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'paired-throttle-detents.js')),
   ]);
 
@@ -3099,6 +3101,90 @@ async function main() {
     assert.match(searchSource, /details\.open = true/, 'selecting a result should reveal its closed 777 system group');
   });
 
+  await test('PMDG 777 uses its active command catalogue as the authoritative shared UI route', async () => {
+    const componentPath = path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'Pmdg777AircraftPanel.vue');
+    const commandInputs = new Map([
+      ['flightGuidance.heading.set', { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' }],
+      ['flightGuidance.flightDirectorCaptain.set', { kind: 'boolean' }],
+      ['flightGuidance.headingReference.set', { kind: 'enum', values: ['hdg', 'trk'] }],
+      ['surfaces.gear.set', { kind: 'enum', values: ['up', 'down'] }],
+      ['surfaces.autobrake.set', { kind: 'enum', values: ['rto', 'off', 'disarm', '1', '2', 'max'] }],
+      ['lights.beacon.set', { kind: 'boolean' }],
+    ]);
+    const { html } = await renderComponent(
+      componentPath,
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'pmdg-777',
+            profileKey: 'bundled/msfs/pmdg-777',
+            profileRevision: 14,
+            commands: [...commandInputs].map(([id, input]) => ({
+              id,
+              label: id,
+              group: id.split('.')[0],
+              input,
+              speech: { patterns: [id] },
+            })),
+          },
+        });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/pmdg-777',
+          sourceStatus: 'connected',
+          sourceStatuses: { sdk: 'connected' },
+          values: {
+            'flightGuidance.headingDeg': 271,
+            'flightGuidance.headingMode': 'HDG',
+            'flightGuidance.fdLeft': false,
+            'controls.gearDown': true,
+            'controls.autobrakeMode': 'off',
+            'lights.beacon': false,
+            'systems.electrical.batteryOn': false,
+          },
+          actionCapabilities: {},
+          isCommandSupported: (commandId) => commandInputs.has(commandId),
+          getCommand: (commandId) => {
+            const input = commandInputs.get(commandId);
+            return input ? { id: commandId, input } : null;
+          },
+        },
+      },
+    );
+    const tagFor = (actionId) => html.match(
+      new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`),
+    )?.[0] || '';
+
+    assert.doesNotMatch(tagFor('mcp.heading.set'), /\sdisabled(?:=| |>)/, 'the heading target should use its canonical numeric contract');
+    assert.doesNotMatch(tagFor('afds.flightDirectorCaptain.on'), /\sdisabled(?:=| |>)/, 'the left flight director should use the same boolean command advertised to voice');
+    assert.doesNotMatch(tagFor('afds.headingMode.trk'), /\sdisabled(?:=| |>)/, 'HDG/TRK should route through its canonical enum command');
+    assert.doesNotMatch(tagFor('controls.gear.up'), /\sdisabled(?:=| |>)/, 'gear should use its canonical enum command');
+    assert.doesNotMatch(tagFor('controls.autobrake.max'), /\sdisabled(?:=| |>)/, 'autobrake should use its canonical enum command');
+    assert.doesNotMatch(tagFor('lights.beacon.on'), /\sdisabled(?:=| |>)/, 'beacon UI should use the same command advertised to voice');
+    assert.match(tagFor('systems.electrical.battery.on'), /\sdisabled(?:=| |>)/, 'an unmigrated system control must not inherit unrelated command availability');
+
+    const source = fs.readFileSync(path.join(frontendRoot, componentPath), 'utf8');
+    assert.match(source, /props\.requestCommand\(commandId, control\.groupId,/u, 'migrated fixed controls should dispatch canonical commands');
+    assert.match(source, /requestCommand:\s*props\.requestCommand/u, 'migrated MCP selectors should dispatch canonical commands');
+    assert.match(source, /configurationId === 'pmdg-777'/u, 'a present PMDG 777 catalogue should be authoritative while retaining the old-backend fallback');
+  });
+
+  await test('PMDG 777 gear buttons dispatch the canonical enum payload', () => {
+    const gearControl = { groupId: 'controls.gear' };
+
+    assert.deepEqual(
+      buildPmdg777CommandInput(gearControl, { id: 'controls.gear.up', value: false }),
+      { value: 'up' },
+      'Gear UP must not leak its boolean readback value into the enum command',
+    );
+    assert.deepEqual(
+      buildPmdg777CommandInput(gearControl, { id: 'controls.gear.down', value: true }),
+      { value: 'down' },
+      'Gear DOWN must not leak its boolean readback value into the enum command',
+    );
+  });
+
   await test('Fenix and FlyByWire pages share compact desktop search and mobile section navigation', async () => {
     const cases = [
       {
@@ -5626,6 +5712,76 @@ async function main() {
     assert.match(html, /Unofficial Fenix A32X compatibility\. Flight Fabric is not affiliated with FenixSim\./);
     assert.match(html, /Most expanded controls still need live testing across every A319, A320, and A321 release\./);
     assert.doesNotMatch(html, /S_OH_|I_FCU_|MF\.SimVars|MobiFlight/);
+  });
+
+  await test('Fenix A32x uses its active command catalogue as the authoritative shared UI route', async () => {
+    const componentPath = path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FenixA32xAircraftPanel.vue');
+    const commandInputs = new Map([
+      ['flightGuidance.autopilot1.set', { kind: 'boolean' }],
+      ['flightGuidance.speedMode.set', { kind: 'enum', values: ['selected', 'managed'] }],
+      ['flightGuidance.speed.set', { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' }],
+      ['flightGuidance.heading.set', { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' }],
+      ['flightGuidance.altitudeHundred.set', { kind: 'number', min: 0, max: 49000, step: 100, units: 'feet' }],
+      ['lights.beacon.set', { kind: 'boolean' }],
+      ['surfaces.parkingBrake.set', { kind: 'boolean' }],
+    ]);
+    const { html } = await renderComponent(
+      componentPath,
+      ({ useAircraftControlsStore }) => {
+        const controls = useAircraftControlsStore();
+        controls.setAvailability({ enabled: true, reason: 'Ready.' });
+        controls.applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'fenix-a32x',
+            profileKey: 'bundled/msfs/fenix-a320',
+            profileRevision: 12,
+            commands: [...commandInputs].map(([id, input]) => ({
+              id,
+              label: id,
+              group: id.split('.')[0],
+              input,
+              speech: { patterns: [id] },
+            })),
+          },
+        });
+      },
+      {
+        props: {
+          profileKey: 'bundled/msfs/fenix-a320',
+          sourceStatus: 'connected',
+          values: {
+            'flightGuidance.ap1': false,
+            'flightGuidance.speedManaged': false,
+            'flightGuidance.speedValue': 250,
+            'flightGuidance.headingDeg': 271,
+            'flightGuidance.altitudeFt': 12000,
+            'flightGuidance.altitudeIncrementMode': 'hundred',
+            'lights.beacon': false,
+            'systems.parkingBrake': false,
+            'systems.engineMode': 'normal',
+          },
+          actionCapabilities: {},
+          isCommandSupported: (commandId) => commandInputs.has(commandId),
+          getCommand: (commandId) => {
+            const input = commandInputs.get(commandId);
+            return input ? { id: commandId, input } : null;
+          },
+        },
+      },
+    );
+    const tagFor = (actionId) => html.match(
+      new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`),
+    )?.[0] || '';
+
+    assert.doesNotMatch(tagFor('flightGuidance.ap1.on'), /\sdisabled(?:=| |>)/, 'AP1 should use its supported canonical command even without a direct UI action capability');
+    assert.doesNotMatch(tagFor('lights.beacon.on'), /\sdisabled(?:=| |>)/, 'beacon UI should use the same command advertised to voice');
+    assert.match(tagFor('systems.engineMode.start'), /\sdisabled(?:=| |>)/, 'an unmigrated control must not inherit unrelated command availability');
+    assert.doesNotMatch(html, /data-fenix-selector-input="speed"[^>]*disabled/, 'the speed target should use its canonical command input contract');
+
+    const source = fs.readFileSync(path.join(frontendRoot, componentPath), 'utf8');
+    assert.match(source, /props\.requestCommand\(commandId, control\.groupId,/u, 'migrated fixed controls should dispatch canonical commands');
+    assert.match(source, /requestCommand:\s*props\.requestCommand/u, 'migrated typed selectors should dispatch canonical commands');
+    assert.match(source, /configurationId === 'fenix-a32x'/u, 'a present Fenix catalogue should be authoritative while retaining the old-backend fallback');
   });
 
   await test('Fenix A32x controls fail closed without their own live readback', async () => {

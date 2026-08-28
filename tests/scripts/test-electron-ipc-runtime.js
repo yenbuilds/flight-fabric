@@ -289,30 +289,44 @@ function runParentProbe() {
     delete env.ELECTRON_RUN_AS_NODE;
 
     const electronExecutable = resolveElectronExecutable();
+    const stdoutPath = path.join(tmpDir, 'electron.stdout.log');
+    const stderrPath = path.join(tmpDir, 'electron.stderr.log');
+    const stdoutFd = fs.openSync(stdoutPath, 'w');
+    const stderrFd = fs.openSync(stderrPath, 'w');
     // The probe exercises WebContents/WebFrameMain identity and URL routing. The
     // production sandbox setting is covered separately; disabling the OS sandbox
     // here lets this hidden renderer run inside sandboxed CI/agent environments.
-    const result = childProcess.spawnSync(electronExecutable, [
-      '--in-process-gpu',
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--disable-gpu-sandbox',
-      '--no-sandbox',
-      '--use-fake-device-for-media-stream',
-      __filename,
-    ], {
-      cwd: path.dirname(electronExecutable),
-      env,
-      encoding: 'utf8',
-      timeout: 30_000,
-      windowsHide: true,
-    });
+    let result;
+    try {
+      result = childProcess.spawnSync(electronExecutable, [
+        '--in-process-gpu',
+        '--use-gl=angle',
+        '--use-angle=swiftshader',
+        '--disable-gpu-sandbox',
+        '--no-sandbox',
+        '--use-fake-device-for-media-stream',
+        __filename,
+      ], {
+        cwd: path.dirname(electronExecutable),
+        detached: true,
+        env,
+        stdio: ['ignore', stdoutFd, stderrFd],
+        timeout: 30_000,
+        windowsHide: true,
+      });
+    } finally {
+      fs.closeSync(stdoutFd);
+      fs.closeSync(stderrFd);
+    }
+
+    const stdout = fs.readFileSync(stdoutPath, 'utf8');
+    const stderr = fs.readFileSync(stderrPath, 'utf8');
 
     if (result.error) throw result.error;
     if (!fs.existsSync(resultPath)) {
       throw new Error(
         `Electron IPC probe did not write a result (exit ${result.status}).\n`
-        + `STDOUT:\n${result.stdout || ''}\nSTDERR:\n${result.stderr || ''}`,
+        + `STDOUT:\n${stdout}\nSTDERR:\n${stderr}`,
       );
     }
 
@@ -320,7 +334,7 @@ function runParentProbe() {
     assert.equal(
       payload.ok,
       true,
-      `${payload.error || 'Electron IPC runtime probe failed'}\nSTDOUT:\n${result.stdout || ''}\nSTDERR:\n${result.stderr || ''}`,
+      `${payload.error || 'Electron IPC runtime probe failed'}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`,
     );
     assert.ok(payload.decisions.length >= 5, 'runtime probe should record every explicit sender decision');
     assert.ok(

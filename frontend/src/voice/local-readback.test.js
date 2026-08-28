@@ -25,6 +25,9 @@ test('aviation readbacks speak flight guidance values unambiguously', () => {
     commandId: 'flightGuidance.verticalSpeed.set', label: 'Selected vertical speed', input: { value: -1500 },
   }), 'Vertical speed descend one thousand five hundred set.');
   assert.equal(formatAviationReadback({
+    commandId: 'flightGuidance.flightPathAngle.set', label: 'Selected flight path angle', input: { value: -2.5 },
+  }), 'Flight path angle minus two decimal five set.');
+  assert.equal(formatAviationReadback({
     commandId: 'radios.nav.setBothActive', label: 'NAV radios', input: { value: 113.9 },
   }), 'Nav radios one one three decimal nine zero set.');
 });
@@ -39,6 +42,9 @@ test('aviation readbacks use natural state confirmations', () => {
   assert.equal(formatAviationReadback({
     commandId: 'surfaces.flaps.adjust', label: 'Flaps one detent', input: { value: 'increase' },
   }), 'Flaps increased one detent.');
+  assert.equal(formatAviationReadback({
+    commandId: 'surfaces.autobrake.set', label: 'Autobrake', input: { value: 'rto' },
+  }), 'Autobrake R T O set.');
   assert.equal(formatAviationReadback({
     commandId: 'configuration.lights.takeoff', label: 'Takeoff lights', input: {},
   }), 'Takeoff lights set.');

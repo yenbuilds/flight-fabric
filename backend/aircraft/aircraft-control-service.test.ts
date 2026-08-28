@@ -58,6 +58,30 @@ function buildPmdg737Profile() {
   });
 }
 
+function buildFenixA32xProfile(variant: 'a319' | 'a320' | 'a321' = 'a320') {
+  return buildProfile({
+    id: `fenix-${variant}`,
+    _profileKey: `bundled/msfs/fenix-${variant}`,
+    integration: {
+      aircraftSpecific: { adapter: 'fenix-a32x' },
+      controls: { genericFallback: false },
+    },
+  });
+}
+
+function buildPmdg777Profile(
+  variant: 'pmdg-777' | 'pmdg-777-200er' | 'pmdg-777-200lr' | 'pmdg-777f' = 'pmdg-777',
+) {
+  return buildProfile({
+    id: variant,
+    _profileKey: `bundled/msfs/${variant}`,
+    integration: {
+      aircraftSpecific: { adapter: 'pmdg-777' },
+      controls: { genericFallback: false },
+    },
+  });
+}
+
 test('aircraft command catalogue treats generic fallback as a first-class configuration', () => {
   const capabilities = buildAircraftControlCapabilities(buildBroadGenericControlProfile(), {
     profileRevision: 4,
@@ -104,7 +128,11 @@ test('aircraft command catalogue treats generic fallback as a first-class config
     input: { kind: 'none' },
     description: 'Landing ON · Taxi ON · Strobe ON',
     speech: {
-      patterns: ['set lights for takeoff', 'takeoff lights'],
+      patterns: [
+        'set lights for takeoff', 'set lights for take off',
+        'set lights for a takeoff', 'set lights for a take off',
+        'takeoff lights', 'take off lights',
+      ],
       hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
     },
   });
@@ -136,6 +164,352 @@ test('PMDG 737 command configuration maps a canonical heading command to the tru
     name: 'pmdg-737',
     verification: 'untested',
   });
+});
+
+test('Fenix A32X catalogue exposes one reviewed UI and voice command slice across all three variants', () => {
+  const supportedCommandIds = [
+    'flightGuidance.speed.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitudeHundred.set',
+    'flightGuidance.altitudeThousand.set',
+    'flightGuidance.autopilot1.set',
+    'flightGuidance.autopilot2.set',
+    'flightGuidance.autothrust.set',
+    'flightGuidance.localizer.set',
+    'flightGuidance.approach.set',
+    'flightGuidance.expedite.set',
+    'flightGuidance.speedMode.set',
+    'flightGuidance.headingMode.set',
+    'flightGuidance.altitudeMode.set',
+    'propulsion.throttleDetent.set',
+    'surfaces.parkingBrake.set',
+    'lights.beacon.set',
+    'lights.strobeMode.set',
+    'lights.navLogoMode.set',
+    'lights.noseMode.set',
+    'configuration.lights.takeoff',
+  ];
+
+  for (const variant of ['a319', 'a320', 'a321'] as const) {
+    const capabilities = buildAircraftControlCapabilities(buildFenixA32xProfile(variant), {
+      profileRevision: 12,
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['lvar', 'mobiflight-calculator', 'simconnect-sequence'],
+      },
+    });
+    assert.equal(capabilities.aircraftCommands.configurationId, 'fenix-a32x');
+    assert.equal(capabilities.aircraftCommands.profileKey, `bundled/msfs/fenix-${variant}`);
+    assert.deepEqual(
+      capabilities.aircraftCommands.commands.map((command) => command.id),
+      supportedCommandIds,
+    );
+    assert.equal(
+      capabilities.aircraftCommands.commands.every((command) => command.speech?.patterns?.length > 0),
+      true,
+      'every reviewed Fenix command must be reachable from the active voice catalogue',
+    );
+    const commands = new Map<string, any>(
+      capabilities.aircraftCommands.commands.map((command) => [command.id, command]),
+    );
+    assert.deepEqual(commands.get('flightGuidance.altitudeHundred.set').speech.patterns, [
+      'set altitude {value} in hundreds',
+      'altitude {value} in hundreds',
+      'set flight level {value} in hundreds',
+      'flight level {value} in hundreds',
+    ]);
+    assert.deepEqual(commands.get('propulsion.throttleDetent.set').input.values, [
+      'idle', 'climb', 'flex', 'toga',
+    ]);
+  }
+});
+
+test('Fenix A32X commands map canonical intent only to guarded adapter actions', () => {
+  const profile = buildFenixA32xProfile();
+  const options = {
+    profile,
+    profileRevision: 12,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['lvar', 'mobiflight-calculator', 'simconnect-sequence'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.autopilot1.set', true, 'flightGuidance.ap1.on'],
+    ['flightGuidance.autopilot2.set', false, 'flightGuidance.ap2.off'],
+    ['flightGuidance.autothrust.set', true, 'flightGuidance.autothrust.on'],
+    ['flightGuidance.localizer.set', false, 'flightGuidance.localizer.off'],
+    ['flightGuidance.approach.set', true, 'flightGuidance.approach.on'],
+    ['flightGuidance.expedite.set', false, 'flightGuidance.expedite.off'],
+    ['flightGuidance.speedMode.set', 'selected', 'flightGuidance.speedManaged.off'],
+    ['flightGuidance.headingMode.set', 'managed', 'flightGuidance.headingManaged.on'],
+    ['flightGuidance.altitudeMode.set', 'selected', 'flightGuidance.altitudeManaged.off'],
+    ['propulsion.throttleDetent.set', 'flex', 'propulsion.throttle.flexMct'],
+    ['surfaces.parkingBrake.set', true, 'systems.parkingBrake.set'],
+    ['lights.strobeMode.set', 'auto', 'lights.strobe.auto'],
+    ['lights.navLogoMode.set', 'logo', 'lights.navLogo.logo'],
+    ['lights.noseMode.set', 'taxi', 'lights.nose.taxi'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/fenix-a320',
+      profileRevision: 12,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve`);
+    assert.equal(result.configurationId, 'fenix-a32x');
+    assert.equal(result.controlRequests.length, 1);
+    assert.equal(result.controlRequest.actionId, actionId);
+  }
+});
+
+test('Fenix A32X altitude voice commands preserve the explicit live FCU increment contract', () => {
+  const options = {
+    profile: buildFenixA32xProfile(),
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['mobiflight-calculator'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.altitudeHundred.set', 12500, 'flightGuidance.altitudeHundred.set'],
+    ['flightGuidance.altitudeThousand.set', 12000, 'flightGuidance.altitudeThousand.set'],
+  ] as const) {
+    const result = resolveAircraftCommand({ commandId, input: { value } }, options);
+    assert.equal(result.ok, true);
+    assert.equal(result.controlRequest.actionId, actionId);
+    assert.equal(result.controlRequest.value, value);
+  }
+
+  for (const [commandId, value] of [
+    ['flightGuidance.altitudeHundred.set', 12550],
+    ['flightGuidance.altitudeThousand.set', 12500],
+  ] as const) {
+    const result = resolveAircraftCommand({ commandId, input: { value } }, options);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'invalid_command_input');
+  }
+});
+
+test('Fenix A32X takeoff-light voice preset remains an ordered guarded recipe', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+    profileKey: 'bundled/msfs/fenix-a320',
+    profileRevision: 12,
+  }, {
+    profile: buildFenixA32xProfile(),
+    profileRevision: 12,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['lvar'],
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
+    'lights.landingLeft.on',
+    'lights.landingRight.on',
+    'lights.runwayTurnoff.on',
+    'lights.nose.takeoff',
+    'lights.strobe.on',
+    'lights.navLogo.nav',
+  ]);
+});
+
+test('PMDG 777 catalogue exposes one reviewed UI and voice command slice across all four variants', () => {
+  const supportedCommandIds = [
+    'flightGuidance.speed.set',
+    'flightGuidance.mach.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.flightPathAngle.set',
+    'flightGuidance.flightDirectorCaptain.set',
+    'flightGuidance.autopilot1.engage',
+    'flightGuidance.autothrottleArmLeft.set',
+    'flightGuidance.lnav.engage',
+    'flightGuidance.vnav.engage',
+    'flightGuidance.flightLevelChange.engage',
+    'flightGuidance.headingHold.engage',
+    'flightGuidance.verticalSpeed.engage',
+    'flightGuidance.altitudeHold.engage',
+    'flightGuidance.localizer.engage',
+    'flightGuidance.approach.engage',
+    'flightGuidance.autothrottleArmRight.set',
+    'flightGuidance.autopilot2.engage',
+    'flightGuidance.flightDirectorFirstOfficer.set',
+    'flightGuidance.headingReference.set',
+    'flightGuidance.verticalReference.set',
+    'surfaces.gear.set',
+    'surfaces.flaps.set',
+    'surfaces.spoilersArmed.set',
+    'surfaces.parkingBrake.set',
+    'surfaces.autobrake.set',
+    'lights.beacon.set',
+    'lights.nav.set',
+    'lights.strobe.set',
+    'lights.taxi.set',
+    'configuration.lights.takeoff',
+  ];
+
+  for (const variant of ['pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'] as const) {
+    const capabilities = buildAircraftControlCapabilities(buildPmdg777Profile(variant), {
+      profileRevision: 14,
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['sdk'],
+      },
+    });
+    assert.equal(capabilities.aircraftCommands.configurationId, 'pmdg-777');
+    assert.equal(capabilities.aircraftCommands.profileKey, `bundled/msfs/${variant}`);
+    assert.deepEqual(
+      capabilities.aircraftCommands.commands.map((command) => command.id),
+      supportedCommandIds,
+    );
+    assert.equal(
+      capabilities.aircraftCommands.commands.every((command) => command.speech?.patterns?.length > 0),
+      true,
+      'every reviewed PMDG 777 command must be reachable from the active voice catalogue',
+    );
+    if (variant === 'pmdg-777') {
+      const commands = new Map<string, any>(
+        capabilities.aircraftCommands.commands.map((command) => [command.id, command]),
+      );
+      assert.deepEqual(commands.get('flightGuidance.flightPathAngle.set').input, {
+        kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees',
+      });
+      assert.equal(commands.get('flightGuidance.lnav.engage').speech.patterns.includes('l n a b'), true);
+      assert.equal(commands.get('surfaces.autobrake.set').speech.patterns.includes('set otto brake {value}'), true);
+      assert.equal(
+        commands.get('configuration.lights.takeoff').speech.patterns.includes('set lights for a take off'),
+        true,
+      );
+    }
+  }
+});
+
+test('PMDG 777 commands map canonical intent only to guarded adapter actions', () => {
+  const options = {
+    profile: buildPmdg777Profile(),
+    profileRevision: 14,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['sdk'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.flightDirectorCaptain.set', true, 'afds.flightDirectorCaptain.on'],
+    ['flightGuidance.autothrottleArmLeft.set', false, 'afds.autothrottleArmLeft.off'],
+    ['flightGuidance.headingReference.set', 'trk', 'afds.headingMode.trk'],
+    ['flightGuidance.verticalReference.set', 'fpa', 'afds.verticalMode.fpa'],
+    ['surfaces.gear.set', 'down', 'controls.gear.down'],
+    ['surfaces.flaps.set', '20', 'controls.flaps.twenty'],
+    ['surfaces.spoilersArmed.set', true, 'controls.speedbrake.armed'],
+    ['surfaces.parkingBrake.set', false, 'controls.parkingBrake.off'],
+    ['surfaces.autobrake.set', 'max', 'controls.autobrake.max'],
+    ['lights.strobe.set', true, 'lights.strobe.on'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/pmdg-777',
+      profileRevision: 14,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve`);
+    assert.equal(result.configurationId, 'pmdg-777');
+    assert.equal(result.controlRequests.length, 1);
+    assert.equal(result.controlRequest.actionId, actionId);
+  }
+
+  for (const [commandId, actionId] of [
+    ['flightGuidance.autopilot1.engage', 'afds.apLeft.engage'],
+    ['flightGuidance.autopilot2.engage', 'afds.apRight.engage'],
+    ['flightGuidance.lnav.engage', 'afds.lnav.engage'],
+    ['flightGuidance.vnav.engage', 'afds.vnav.engage'],
+    ['flightGuidance.flightLevelChange.engage', 'afds.levelChange.engage'],
+    ['flightGuidance.headingHold.engage', 'afds.headingHold.engage'],
+    ['flightGuidance.verticalSpeed.engage', 'afds.verticalSpeed.engage'],
+    ['flightGuidance.altitudeHold.engage', 'afds.altitudeHold.engage'],
+    ['flightGuidance.localizer.engage', 'afds.vorLoc.engage'],
+    ['flightGuidance.approach.engage', 'afds.approach.engage'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: {},
+      profileKey: 'bundled/msfs/pmdg-777',
+      profileRevision: 14,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve`);
+    assert.equal(result.controlRequest.actionId, actionId);
+  }
+});
+
+test('PMDG 777 MCP commands preserve the exact guarded selector contracts', () => {
+  const options = {
+    profile: buildPmdg777Profile(),
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['sdk'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.speed.set', 245, 'mcp.ias.set'],
+    ['flightGuidance.mach.set', 0.84, 'mcp.mach.set'],
+    ['flightGuidance.heading.set', 273, 'mcp.heading.set'],
+    ['flightGuidance.altitude.set', 35000, 'mcp.altitude.set'],
+    ['flightGuidance.verticalSpeed.set', -1200, 'mcp.verticalSpeed.set'],
+    ['flightGuidance.flightPathAngle.set', -2.5, 'mcp.fpa.set'],
+  ] as const) {
+    const result = resolveAircraftCommand({ commandId, input: { value } }, options);
+    assert.equal(result.ok, true, `${commandId}=${value} should resolve`);
+    assert.equal(result.controlRequest.actionId, actionId);
+    assert.equal(result.controlRequest.value, value);
+  }
+
+  for (const [commandId, value] of [
+    ['flightGuidance.speed.set', 99],
+    ['flightGuidance.heading.set', 360],
+    ['flightGuidance.altitude.set', 35050],
+    ['flightGuidance.verticalSpeed.set', 6100],
+    ['flightGuidance.flightPathAngle.set', -2.55],
+    ['surfaces.flaps.set', '10'],
+  ] as const) {
+    const result = resolveAircraftCommand({ commandId, input: { value } }, options);
+    assert.equal(result.ok, false, `${commandId}=${value} must fail closed`);
+    assert.equal(result.code, 'invalid_command_input');
+  }
+});
+
+test('PMDG 777 takeoff-light preset remains an ordered guarded recipe', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+    profileKey: 'bundled/msfs/pmdg-777f',
+    profileRevision: 14,
+  }, {
+    profile: buildPmdg777Profile('pmdg-777f'),
+    profileRevision: 14,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['sdk'],
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.stepCount, 8);
+  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
+    'lights.landingLeft.on',
+    'lights.landingNose.on',
+    'lights.landingRight.on',
+    'lights.turnoffLeft.on',
+    'lights.turnoffRight.on',
+    'lights.taxi.on',
+    'lights.strobe.on',
+    'lights.nav.on',
+  ]);
 });
 
 test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slice', () => {

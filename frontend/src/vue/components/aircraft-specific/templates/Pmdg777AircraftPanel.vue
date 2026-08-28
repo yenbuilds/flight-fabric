@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
+import { buildPmdg777CommandInput } from '../pmdg777-command-routing.js';
+import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 
 const props = defineProps({
   values: { type: Object, default: () => ({}) },
@@ -10,10 +12,14 @@ const props = defineProps({
   sourceStatuses: { type: Object, default: () => ({}) },
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
+  requestCommand: { type: Function, default: () => false },
+  isCommandSupported: { type: Function, default: () => false },
+  getCommand: { type: Function, default: () => null },
   isActionPending: { type: Function, default: () => false },
   profileKey: { type: String, default: '' },
 });
 
+const aircraftControls = useAircraftControlsStore();
 const unavailableFields = computed(() => new Set(props.unavailable));
 const electronApi = typeof window !== 'undefined' ? window.electronAPI : null;
 const authorizationState = ref('unknown');
@@ -78,39 +84,53 @@ const mcpWindows = [
 ];
 
 const afdsModes = [
-  { id: 'flightGuidance.fdLeft', label: 'FD L', control: 'toggle', actionPrefix: 'afds.flightDirectorCaptain' },
-  { id: 'flightGuidance.apLeft', label: 'AP L', control: 'engage', actionPrefix: 'afds.apLeft' },
-  { id: 'flightGuidance.autothrottleArmedLeft', label: 'A/T ARM L', control: 'toggle', actionPrefix: 'afds.autothrottleArmLeft' },
+  { id: 'flightGuidance.fdLeft', label: 'FD L', control: 'toggle', actionPrefix: 'afds.flightDirectorCaptain', commandId: 'flightGuidance.flightDirectorCaptain.set' },
+  { id: 'flightGuidance.apLeft', label: 'AP L', control: 'engage', actionPrefix: 'afds.apLeft', commandId: 'flightGuidance.autopilot1.engage' },
+  { id: 'flightGuidance.autothrottleArmedLeft', label: 'A/T ARM L', control: 'toggle', actionPrefix: 'afds.autothrottleArmLeft', commandId: 'flightGuidance.autothrottleArmLeft.set' },
   { id: 'flightGuidance.autothrottleActive', label: 'A/T' },
-  { id: 'flightGuidance.lnav', label: 'LNAV', control: 'engage', actionPrefix: 'afds.lnav' },
-  { id: 'flightGuidance.vnav', label: 'VNAV', control: 'engage', actionPrefix: 'afds.vnav' },
-  { id: 'flightGuidance.flch', label: 'FLCH', control: 'engage', actionPrefix: 'afds.levelChange' },
-  { id: 'flightGuidance.headingHold', label: 'HDG HOLD', control: 'engage', actionPrefix: 'afds.headingHold' },
-  { id: 'flightGuidance.verticalSpeed', label: 'V/S FPA', control: 'engage', actionPrefix: 'afds.verticalSpeed' },
-  { id: 'flightGuidance.altitudeHold', label: 'ALT HOLD', control: 'engage', actionPrefix: 'afds.altitudeHold' },
-  { id: 'flightGuidance.localizer', label: 'LOC', control: 'engage', actionPrefix: 'afds.vorLoc' },
-  { id: 'flightGuidance.approach', label: 'APP', control: 'engage', actionPrefix: 'afds.approach' },
-  { id: 'flightGuidance.autothrottleArmedRight', label: 'A/T ARM R', control: 'toggle', actionPrefix: 'afds.autothrottleArmRight' },
-  { id: 'flightGuidance.apRight', label: 'AP R', control: 'engage', actionPrefix: 'afds.apRight' },
-  { id: 'flightGuidance.fdRight', label: 'FD R', control: 'toggle', actionPrefix: 'afds.flightDirectorFirstOfficer' },
+  { id: 'flightGuidance.lnav', label: 'LNAV', control: 'engage', actionPrefix: 'afds.lnav', commandId: 'flightGuidance.lnav.engage' },
+  { id: 'flightGuidance.vnav', label: 'VNAV', control: 'engage', actionPrefix: 'afds.vnav', commandId: 'flightGuidance.vnav.engage' },
+  { id: 'flightGuidance.flch', label: 'FLCH', control: 'engage', actionPrefix: 'afds.levelChange', commandId: 'flightGuidance.flightLevelChange.engage' },
+  { id: 'flightGuidance.headingHold', label: 'HDG HOLD', control: 'engage', actionPrefix: 'afds.headingHold', commandId: 'flightGuidance.headingHold.engage' },
+  { id: 'flightGuidance.verticalSpeed', label: 'V/S FPA', control: 'engage', actionPrefix: 'afds.verticalSpeed', commandId: 'flightGuidance.verticalSpeed.engage' },
+  { id: 'flightGuidance.altitudeHold', label: 'ALT HOLD', control: 'engage', actionPrefix: 'afds.altitudeHold', commandId: 'flightGuidance.altitudeHold.engage' },
+  { id: 'flightGuidance.localizer', label: 'LOC', control: 'engage', actionPrefix: 'afds.vorLoc', commandId: 'flightGuidance.localizer.engage' },
+  { id: 'flightGuidance.approach', label: 'APP', control: 'engage', actionPrefix: 'afds.approach', commandId: 'flightGuidance.approach.engage' },
+  { id: 'flightGuidance.autothrottleArmedRight', label: 'A/T ARM R', control: 'toggle', actionPrefix: 'afds.autothrottleArmRight', commandId: 'flightGuidance.autothrottleArmRight.set' },
+  { id: 'flightGuidance.apRight', label: 'AP R', control: 'engage', actionPrefix: 'afds.apRight', commandId: 'flightGuidance.autopilot2.engage' },
+  { id: 'flightGuidance.fdRight', label: 'FD R', control: 'toggle', actionPrefix: 'afds.flightDirectorFirstOfficer', commandId: 'flightGuidance.flightDirectorFirstOfficer.set' },
 ];
 
 const selectorControls = [
   {
     title: 'HDG / TRK', fieldId: 'flightGuidance.headingMode', groupId: 'mcp.heading',
+    commandId: 'flightGuidance.headingReference.set',
     actions: [
-      { id: 'afds.headingMode.hdg', label: 'HDG', value: 'HDG' },
-      { id: 'afds.headingMode.trk', label: 'TRK', value: 'TRK' },
+      { id: 'afds.headingMode.hdg', label: 'HDG', value: 'HDG', commandInput: 'hdg' },
+      { id: 'afds.headingMode.trk', label: 'TRK', value: 'TRK', commandInput: 'trk' },
     ],
   },
   {
     title: 'V/S / FPA', fieldId: 'flightGuidance.verticalMode', groupId: 'mcp.vertical',
+    commandId: 'flightGuidance.verticalReference.set',
     actions: [
-      { id: 'afds.verticalMode.vs', label: 'V/S', value: 'VS' },
-      { id: 'afds.verticalMode.fpa', label: 'FPA', value: 'FPA' },
+      { id: 'afds.verticalMode.vs', label: 'V/S', value: 'VS', commandInput: 'vs' },
+      { id: 'afds.verticalMode.fpa', label: 'FPA', value: 'FPA', commandInput: 'fpa' },
     ],
   },
 ];
+
+const sharedControlCommandIds = Object.freeze({
+  'controls.gear': 'surfaces.gear.set',
+  'controls.autobrake': 'surfaces.autobrake.set',
+  'controls.flaps': 'surfaces.flaps.set',
+  'controls.speedbrake': 'surfaces.spoilersArmed.set',
+  'controls.parkingBrake': 'surfaces.parkingBrake.set',
+  'lights.beacon': 'lights.beacon.set',
+  'lights.nav': 'lights.nav.set',
+  'lights.strobe': 'lights.strobe.set',
+  'lights.taxi': 'lights.taxi.set',
+});
 
 const exteriorControls = [
   ['LANDING L', 'lights.landingLeft', 'lights.landingLeft'],
@@ -528,43 +548,61 @@ function valueText(id) {
   return String(current).toUpperCase();
 }
 
+function pmdg777CommandCatalogueActive() {
+  return aircraftControls.aircraftCommandCatalogue?.configurationId === 'pmdg-777';
+}
+
+function withCanonicalMcpCommand(config, commandId) {
+  if (!pmdg777CommandCatalogueActive()) return config;
+  const descriptor = props.getCommand(commandId);
+  return descriptor?.input?.kind === 'number'
+    ? {
+      ...config,
+      commandId,
+      min: descriptor.input.min,
+      max: descriptor.input.max,
+      step: descriptor.input.step,
+    }
+    : { ...config, commandId };
+}
+
 function mcpInputConfig(field) {
   if (field.key === 'speed') {
     if (hasValue('flightGuidance.mach') && !hasValue('flightGuidance.speedKts')) {
-      return {
+      return withCanonicalMcpCommand({
         fieldId: 'flightGuidance.mach', actionId: 'mcp.mach.set', label: 'MACH', unit: '',
         min: 0.4, max: 0.99, step: 0.01, precision: 3,
-      };
+      }, 'flightGuidance.mach.set');
     }
-    return {
+    return withCanonicalMcpCommand({
       fieldId: 'flightGuidance.speedKts', actionId: 'mcp.ias.set', label: 'IAS', unit: 'kt',
       min: 100, max: 399, step: 1,
-    };
+    }, 'flightGuidance.speed.set');
   }
   if (field.key === 'heading') {
-    return {
+    return withCanonicalMcpCommand({
       fieldId: 'flightGuidance.headingDeg', actionId: 'mcp.heading.set',
       label: value('flightGuidance.headingMode') === 'TRK' ? 'TRACK' : 'HEADING', unit: '\u00b0',
       min: 0, max: 359, step: 1, digits: 3,
-    };
+    }, 'flightGuidance.heading.set');
   }
   if (field.key === 'altitude') {
-    return {
+    return withCanonicalMcpCommand({
       fieldId: 'flightGuidance.altitudeFt', actionId: 'mcp.altitude.set', label: 'ALTITUDE', unit: 'ft',
       min: 0, max: 50000, step: 100, locale: true,
-    };
+    }, 'flightGuidance.altitude.set');
   }
   const fpaMode = value('flightGuidance.verticalMode') === 'FPA'
     || (!hasValue('flightGuidance.vsFpm') && hasValue('flightGuidance.fpaDeg'));
   return fpaMode
-    ? {
+    ? withCanonicalMcpCommand({
       fieldId: 'flightGuidance.fpaDeg', actionId: 'mcp.fpa.set', label: 'FPA', unit: '\u00b0',
       min: -9.9, max: 9.9, step: 0.1, precision: 1, signed: true,
-    }
-    : {
+    }, 'flightGuidance.flightPathAngle.set')
+    : withCanonicalMcpCommand({
       fieldId: 'flightGuidance.vsFpm', actionId: 'mcp.verticalSpeed.set', label: 'VERT SPEED', unit: 'fpm',
       min: -7900, max: 6000, step: 100, signed: true,
-    };
+    }, 'flightGuidance.verticalSpeed.set');
 }
 
 function formatMcpWindow(field) {
@@ -599,7 +637,9 @@ function mcpDisabled(field) {
   const config = mcpInputConfig(field);
   return sdkSourceStatus.value !== 'connected'
     || !hasValue(config.fieldId)
-    || !actionSupported(config.actionId)
+    || (config.commandId
+      ? !props.isCommandSupported(config.commandId)
+      : !actionSupported(config.actionId))
     || groupPending(field.groupId);
 }
 
@@ -611,6 +651,7 @@ function requestMcpAction(field) {
     groupId: field.groupId,
     rawValue: mcpDraft(field),
     requestAction: props.requestAction,
+    requestCommand: props.requestCommand,
   });
   if (sent !== false) {
     const nextDrafts = { ...mcpDrafts.value };
@@ -632,13 +673,19 @@ function afdsDisabled(mode) {
     || sdkSourceStatus.value !== 'connected'
     || !hasValue(mode.id)
     || (mode.control === 'engage' && value(mode.id) === true)
-    || !actionSupported(actionId)
+    || (pmdg777CommandCatalogueActive() && mode.commandId
+      ? !props.isCommandSupported(mode.commandId)
+      : !actionSupported(actionId))
     || groupPending(mode.id);
 }
 
 function requestAfdsAction(mode) {
   const actionId = afdsActionId(mode);
   if (afdsDisabled(mode)) return false;
+  if (pmdg777CommandCatalogueActive() && mode.commandId) {
+    const input = mode.control === 'toggle' ? { value: value(mode.id) !== true } : {};
+    return props.requestCommand(mode.commandId, mode.id, input);
+  }
   return props.requestAction(actionId, mode.id);
 }
 
@@ -655,6 +702,21 @@ function actionSupported(actionId) {
   return props.actionCapabilities[actionId] === true;
 }
 
+function commandIdFor(control) {
+  return control.commandId || sharedControlCommandIds[control.groupId] || '';
+}
+
+function actionFor(control, actionId) {
+  return control.actions?.find((candidate) => candidate.id === actionId) || null;
+}
+
+function commandRouteSupported(control, actionId) {
+  const commandId = commandIdFor(control);
+  return pmdg777CommandCatalogueActive() && commandId
+    ? props.isCommandSupported(commandId)
+    : actionSupported(actionId);
+}
+
 function groupPending(groupId) {
   return props.isActionPending(groupId) === true;
 }
@@ -662,12 +724,17 @@ function groupPending(groupId) {
 function actionDisabled(control, actionId) {
   return sdkSourceStatus.value !== 'connected'
     || controlValue(control) === null
-    || !actionSupported(actionId)
+    || !commandRouteSupported(control, actionId)
     || groupPending(control.groupId);
 }
 
 function requestControlAction(control, actionId) {
   if (actionDisabled(control, actionId)) return false;
+  const commandId = commandIdFor(control);
+  if (pmdg777CommandCatalogueActive() && commandId) {
+    const action = actionFor(control, actionId);
+    return props.requestCommand(commandId, control.groupId, buildPmdg777CommandInput(control, action));
+  }
   return props.requestAction(actionId, control.groupId);
 }
 

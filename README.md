@@ -1,8 +1,8 @@
 <div align="center">
   <img src="readme-assets/flight-fabric-icon.png" width="112" alt="Flight Fabric logo">
   <h1>Flight Fabric</h1>
-  <p><strong>See the whole flight. Learn from every landing.</strong></p>
-  <p>Your second screen, aircraft companion, and flight recorder for airline flying in Microsoft Flight Simulator 2024.</p>
+  <p><strong>Live flight data, selected aircraft controls, and landing debriefs.</strong></p>
+  <p>A second-screen companion and recorder for Microsoft Flight Simulator 2024.</p>
   <p>
     <a href="https://github.com/yenbuilds/flight-fabric/releases/latest"><strong>Download for Windows</strong></a>
     &nbsp;&middot;&nbsp;
@@ -14,11 +14,9 @@
 
 ![Flight Fabric tour showing live telemetry, selected aircraft controls, full flight timeline replay, and a detailed landing debrief](readme-assets/flight-fabric-tour.gif)
 
-Flight Fabric is built for airline flying in Microsoft Flight Simulator 2024.
-It puts useful simulator data and selected controls on a dedicated
-screen, showing your aircraft, route, and systems in real time. After landing,
-it turns the recording into an approach and landing debrief with a full flight
-timeline.
+Flight Fabric keeps your aircraft, route, systems, and selected controls on a
+separate screen. After landing, it provides an approach and landing debrief,
+with a replayable flight timeline.
 
 > [!IMPORTANT]
 > Flight Fabric is free, experimental alpha software for consumer flight
@@ -38,7 +36,7 @@ timeline.
 
 | Fly and control | After you land | On another screen |
 | --- | --- | --- |
-| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable controls and local offline push-to-talk voice commands for supported aircraft. | Review approach and touchdown data, replay maps, event timelines, landing trends, and saved history. | Use the Windows app, a spare screen, OBS widgets, or a phone or tablet on your trusted home network. |
+| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable controls and local, offline push-to-talk voice commands where supported. | Review approach and touchdown data, maps, event timelines, landing trends, and saved history. | Use the Windows app, another display, OBS widgets, or a phone or tablet on your trusted home network. |
 
 ## Get flying
 
@@ -48,35 +46,47 @@ timeline.
    release's notes.
 3. Install Flight Fabric, start MSFS 2024, and open the app.
 
-Voice recognition is off by default. Open **Aircraft**, then **Voice control**,
-and turn on **Enable voice control**. Once enabled, record a global shortcut in
-**Voice settings**, or use the on-screen hold-to-talk button. While recognition
-is off, Flight Fabric does not start its speech engine or push-to-talk helper,
-enumerate microphones, or accept a recognition session.
-Microphone audio is read only during an active push-to-talk session, processed
-locally in memory, and is never saved, logged, or sent over the network. The
-explicit microphone Refresh action briefly opens and closes the default input
-only to reveal available device names; it does not read, process, save, or send
-audio. Flight Fabric can speak command results through an installed Windows
-SAPI voice. This uses no browser or network text-to-speech service, and starting
-a new push-to-talk session stops any speech already playing.
+Voice control is off by default. Open **Aircraft** > **Voice control**, enable
+it, then set a global shortcut in **Voice settings** or use the on-screen
+hold-to-talk button. While it is off, Flight Fabric does not start voice
+recognition, the push-to-talk helper, or microphone discovery.
 
-Windows builds are not currently code signed, so SmartScreen or antivirus
-software may show an **Unknown publisher** warning. Only download Flight Fabric
-from the official release page. If the checksum does not match, or the file came
-from somewhere else, do not run it.
+During a push-to-talk session, microphone audio is processed locally in memory.
+It is never saved, logged, or sent over the network. **Refresh microphones**
+briefly opens and closes the default input only to list device names; it does
+not read, process, save, or send audio. Windows SAPI can read command results
+aloud without a browser or network text-to-speech service, and a new
+push-to-talk session stops the current readback.
 
-Flight Fabric currently supports the full Windows and SimConnect workflow with
-**Microsoft Flight Simulator 2024**. MSFS 2020 is not a tested or supported
-target; some features may work through SimConnect, but compatibility is not
-guaranteed.
+Aircraft-specific voice catalogues cover PMDG 737, PMDG 777-300ER/200ER/200LR/F,
+and Fenix A319/A320/A321 families. Other profiles expose only standard commands
+confirmed by their active guarded catalogue.
+
+## Premium aircraft support
+
+These premium add-on aircraft include both the extended aircraft-specific controls
+page and aircraft-specific voice commands. Controls and commands are shown only
+when they are supported by the active aircraft profile.
+
+| Aircraft family | Extended aircraft-specific controls | Aircraft-specific voice commands |
+| --- | :---: | :---: |
+| Fenix Airbus A319, A320, A321 | Yes | Yes |
+| PMDG Boeing 737-600, 737-700, 737-800, 737-900 | Yes | Yes |
+| PMDG Boeing 777-300ER, 777-200ER, 777-200LR, 777F | Yes | Yes |
+
+Windows builds are currently unsigned, so SmartScreen or antivirus may show an
+**Unknown publisher** warning. Download only from the official release page and
+do not run a file with a mismatched checksum or an unknown source.
+
+The supported Windows and SimConnect target is **Microsoft Flight Simulator
+2024**. MSFS 2020 is untested and unsupported; any compatibility is incidental.
 
 ## Put Flight Fabric on another screen
 
 ### Phone, tablet, or second computer
 
-Flight Fabric can serve its dashboard to another device on the same trusted
-private network as your simulator PC.
+You can open the dashboard on another device on the same trusted private
+network as the simulator PC.
 
 1. In Flight Fabric, open **Settings**, then **Network**.
 2. Enable **Allow trusted LAN access**.
@@ -84,9 +94,8 @@ private network as your simulator PC.
 4. On the simulator PC, open `http://localhost:8100/setup`.
 5. Scan the QR code or use the complete URL shown there.
 
-Treat the paired URL like a temporary password. Its token expires when the
-backend restarts. LAN traffic is not encrypted, so use this feature only on a
-private network you trust.
+Treat the paired URL as a temporary password. Its token expires when the backend
+restarts. LAN traffic is unencrypted, so use this only on a private network.
 
 ### OBS overlays
 
@@ -100,8 +109,8 @@ http://localhost:8100/widgets-compact/widget-bottom.html
 
 ## Build from source
 
-This section is for contributors and anyone who prefers to build Flight Fabric
-themselves. Most users can use the installer above.
+Use these instructions only when building from source. Most users should use the
+installer above.
 
 <details>
 <summary><strong>Requirements and setup</strong></summary>
@@ -145,9 +154,9 @@ npm run data:sync:required
 <details>
 <summary><strong>Provide SimConnect.dll</strong></summary>
 
-`SimConnect.dll` is not included in the public source mirror because its
-redistribution terms are currently uncertain. It remains Microsoft's
-proprietary runtime and is not licensed under Flight Fabric's AGPL.
+`SimConnect.dll` is not included in the public source mirror. It is Microsoft's
+proprietary runtime, and its redistribution terms are uncertain; the Flight
+Fabric AGPL does not cover it.
 
 1. In Microsoft Flight Simulator 2024, enable **Developer Mode** under General
    options.
@@ -160,8 +169,8 @@ proprietary runtime and is not licensed under Flight Fabric's AGPL.
    C:\MSFS 2024 SDK\SimConnect SDK\lib\SimConnect.dll
    ```
 
-The build detects that location automatically. For a custom SDK location,
-either copy the DLL to:
+The build detects that location automatically. For a custom SDK location, copy
+the DLL to:
 
 ```text
 backend\telemetry-provider\simconnect\SimConnect.dll
@@ -174,9 +183,9 @@ $env:FF_SIMCONNECT_DLL_PATH = 'D:\path\to\SimConnect.dll'
 npm run build
 ```
 
-An existing DLL at the repository path takes priority. Otherwise, the build
-checks `FF_SIMCONNECT_DLL_PATH` and then installed SDK locations. It logs the
-selected source and SHA-256 checksum.
+The repository DLL takes priority; otherwise the build checks
+`FF_SIMCONNECT_DLL_PATH`, then installed SDK locations. It logs the selected
+source and SHA-256 checksum.
 
 Do not commit the DLL to a public fork. Review the
 [Microsoft Flight Simulator SDK licence](https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_EULA.htm)
@@ -187,16 +196,15 @@ that applies to your installation.
 <details>
 <summary><strong>Provide the offline voice model</strong></summary>
 
-Flight Fabric uses the Apache-2.0
-`sherpa-onnx-streaming-zipformer-en-2023-06-26` model for offline voice
-recognition. The model weights are build inputs and are not stored in Git.
+Offline voice recognition uses the Apache-2.0
+`sherpa-onnx-streaming-zipformer-en-2023-06-26` model. Its weights are build
+inputs, pinned to an immutable upstream revision, and are not stored in Git.
 
-On the first `npm run electron` or `npm run build`, the build tooling downloads
-the approximately 70 MiB runtime subset from an immutable upstream revision,
-checks every file against the sizes and SHA-256 values pinned in
-`electron/voice-model-manifest.js`, and caches it under
-`electron/resources/models/`. Later builds reuse the verified cache. Packaged
-applications include the verified model and never download it at runtime.
+The first `npm run electron` or `npm run build` downloads the roughly 70 MiB
+runtime subset from a pinned upstream revision, checks every file against the
+sizes and SHA-256 values in `electron/voice-model-manifest.js`, then caches it
+under `electron/resources/models/`. Later builds reuse the verified cache.
+Packaged apps include that model and never download it at runtime.
 
 For an offline build, download and extract Sherpa's
 [`sherpa-onnx-streaming-zipformer-en-2023-06-26` archive](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2),
@@ -207,10 +215,10 @@ $env:FF_VOICE_MODEL_DIR = 'D:\models\sherpa-onnx-streaming-zipformer-en-2023-06-
 npm --prefix electron run provision:voice-model
 ```
 
-The repository supplies the small BPE vocabulary used for Flight Fabric's
-aviation hotwords. `FF_VOICE_MODEL_DIR` therefore only needs the upstream
-encoder, decoder, joiner, and `tokens.txt` files. The provisioner fails closed
-if any required file has unexpected contents.
+The repository supplies the BPE vocabulary for aviation hotwords, so
+`FF_VOICE_MODEL_DIR` needs only the upstream encoder, decoder, joiner, and
+`tokens.txt` files. Provisioning fails if any required file differs from the
+pinned contents.
 
 </details>
 
@@ -235,7 +243,7 @@ Packaged output is written to `dist/electron`.
 
 ## License and Corresponding Source
 
-Flight Fabric is free software licensed under the
+Flight Fabric is free software, licensed under the
 [GNU Affero General Public License version 3](LICENSE.md),
 `AGPL-3.0-only`. Complete corresponding source for each released version is
 available from the [Flight Fabric releases page](https://github.com/yenbuilds/flight-fabric/releases).

@@ -5,6 +5,16 @@ const FALSE_WORDS = new Set(['off', 'disengage', 'disengaged', 'disarm', 'disarm
 const ENUM_ALIASES = Object.freeze({
   one: '1', two: '2', five: '5', ten: '10', fifteen: '15', twenty: '20',
   'twenty five': '25', thirty: '30', forty: '40',
+  clb: 'climb',
+  'flex mct': 'flex',
+  'take off': 'takeoff',
+  'f p a': 'fpa',
+  'h d g': 'hdg',
+  'r t o': 'rto',
+  'are t o': 'rto',
+  'our ta': 'rto',
+  't r k': 'trk',
+  'v s': 'vs',
 });
 const LEADING_FILLERS = new Set(['o', 'oh', 'uh', 'um']);
 const LITERAL_ALIASES = Object.freeze({

@@ -34,7 +34,7 @@ test('voice manifest pins the compact Zipformer runtime subset', () => {
     Object.values(ZIPFORMER_MODEL.components).filter((filename) => !pinnedFiles.has(filename)),
     [],
   );
-  assert.equal(VOICE_HOTWORDS.bytes, 1_533);
+  assert.equal(VOICE_HOTWORDS.bytes, 2_309);
   assert.match(VOICE_HOTWORDS.sha256, /^[A-F0-9]{64}$/);
 });
 
@@ -54,7 +54,7 @@ test('voice model paths remain beneath the configured resource directory', () =>
 
 test('tracked aviation hotwords pass integrity verification', async () => {
   const filename = path.resolve(__dirname, 'resources', 'voice', 'hotwords.txt');
-  assert.deepEqual(await verifyVoiceHotwords(filename), { bytes: 1_533, verified: true });
+  assert.deepEqual(await verifyVoiceHotwords(filename), { bytes: 2_309, verified: true });
   const hotwords = fs.readFileSync(filename, 'utf8');
   for (const digit of ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE']) {
     assert.match(hotwords, new RegExp(`^${digit} :`, 'm'));
@@ -85,6 +85,26 @@ test('literal aircraft command hints stay represented in the Zipformer hotwords'
   const missing = [...new Set(literalHints)].filter((hint) => !hotwordPhrases.has(hint));
 
   assert.deepEqual(missing, [], `Missing Zipformer hotwords for catalogue hints: ${missing.join(', ')}`);
+});
+
+test('generated PMDG 777 command hints stay represented in the Zipformer hotwords', () => {
+  const hotwordPhrases = new Set(
+    fs.readFileSync(path.resolve(__dirname, 'resources', 'voice', 'hotwords.txt'), 'utf8')
+      .split(/\r?\n/u)
+      .map((line) => line.split(':', 1)[0].trim())
+      .filter(Boolean),
+  );
+  const required = [
+    'FLIGHT PATH ANGLE', 'F P A', 'AUTOPILOT LEFT', 'AUTOPILOT RIGHT',
+    'AUTO PILOT LEFT', 'AUTO PILOT RIGHT', 'LEFT FLIGHT DIRECTOR',
+    'RIGHT FLIGHT DIRECTOR', 'CAPTAIN FLIGHT DIRECTOR',
+    'FIRST OFFICER FLIGHT DIRECTOR', 'LEFT AUTOTHROTTLE ARM',
+    'RIGHT AUTOTHROTTLE ARM', 'L NAV', 'L N A B', 'V NAV', 'HEADING REFERENCE',
+    'H D G', 'T R K', 'VERTICAL REFERENCE', 'V S', 'AUTOBRAKE', 'R T O',
+    'AUTO BRAKE', 'OTTO BRAKE', 'F L C H', 'LOC', 'APP', 'NAV LIGHTS',
+  ];
+
+  assert.deepEqual(required.filter((hint) => !hotwordPhrases.has(hint)), []);
 });
 
 test('push-to-talk shortcuts require modifiers and one bounded key', () => {

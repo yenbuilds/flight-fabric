@@ -1,11 +1,10 @@
 # Flight Fabric Electron app
 
-This directory contains the Windows launcher and packaging configuration.
+This directory contains the Windows launcher and packaging setup.
 
 ## Release artifacts
 
-The `user` release profile produces a Windows installer and a local portable
-build used for packaging tests:
+The `user` release profile builds a Windows installer and a portable test build:
 
 ```bash
 npm run build
@@ -17,12 +16,10 @@ Output files:
 - `dist/electron/Flight Fabric <version>.exe`
 - `dist/electron/win-unpacked/Flight Fabric.exe`
 
-`npm run electron:release` also runs packaged smoke tests, backend lifecycle
-checks, final content verification, and the release summary. Publish only the
-installer and `SHA256SUMS.txt`; never upload the portable executable. Stage the
-installer for GitHub as `Flight.Fabric.Setup.<version>.exe`; the checksum file
-uses that exact published filename even though the local builder output keeps
-spaces.
+`npm run electron:release` runs the packaged smoke, lifecycle, content, and
+summary checks. Publish only the installer and `SHA256SUMS.txt`, never the
+portable executable. Upload the installer as `Flight.Fabric.Setup.<version>.exe`;
+the checksum file uses that name even though the local output uses spaces.
 
 ## Features
 
@@ -69,20 +66,11 @@ npm run build
 ```
 
 `npm run build` and `npm run electron:build -- --profile=user` use the same
-build script. It:
-
-1. validates the `user` release profile;
-2. checks the required OurAirports data and runs
-   `scripts/sync-aviation-data.js --required-only` when airport/runway CSVs or
-   their manifest are missing or stale;
-3. compiles the backend into `dist/backend/`;
-4. builds and copies the Rust SimConnect sidecar;
-5. copies production backend dependencies;
-6. builds the frontend into `frontend-dist/`;
-7. packages installer, portable, and unpacked Windows builds;
-8. verifies the packaged contents; and
-9. extracts the installer into an empty scratch directory and launches that
-   payload's backend, so a build cannot rely on files left by an older install.
+script. It validates the user profile and required airport data, builds the
+backend, Rust SimConnect sidecar, frontend, and production dependencies, then
+creates the installer, portable build, and unpacked app. It also verifies the
+package and starts the installer payload's backend from an empty scratch
+directory, preventing a stale installation from satisfying the check.
 
 For the first build on a clean machine, run:
 
@@ -107,8 +95,8 @@ npm run test:electron:installer-payload
 
 Build output goes to `dist/electron/`.
 
-The build removes old `SHA256SUMS` files before replacing the executables. Create
-upload checksums only after the final packaged checks pass.
+The build removes stale `SHA256SUMS` files before replacing the executables.
+Create upload checksums only after the final packaged checks pass.
 
 ### Build troubleshooting
 
@@ -145,23 +133,22 @@ is:
 npm run data:sync:required
 ```
 
-If OurAirports has published newer CSVs and the pinned checksums in
-`scripts/sync-aviation-data.js` have not been updated yet, the sync command can
-fail with a checksum mismatch. For local development only, refresh the required
-files and manifest without checksum verification:
+If OurAirports publishes newer CSVs before the pinned checksums in
+`scripts/sync-aviation-data.js` are updated, sync can fail with a checksum
+mismatch. For local development only, refresh the files and manifest without
+checksum verification:
 
 ```bash
 node scripts/sync-aviation-data.js --required-only --skip-verify
 ```
 
-For release work, update and review the checksum pins instead of relying on
-`--skip-verify`.
+For a release, update and review the checksum pins; do not use `--skip-verify`.
 
 #### Expected local warnings
 
 Local builds are unsigned unless signing variables are set. The frontend may
-also warn about older scripts and Leaflet images; the build copies those assets
-for compatibility.
+warn about legacy scripts and Leaflet images; the build copies those assets for
+compatibility.
 
 ## Packaged structure
 
@@ -175,8 +162,8 @@ resources/
   launcher/
 ```
 
-The build copies the backend, production dependencies, frontend, shared assets,
-launcher files, and Rust sidecar into this directory.
+The build places the backend, production dependencies, frontend, shared assets,
+launcher files, and Rust sidecar here.
 
 ## Source layout
 
@@ -236,15 +223,14 @@ The backend HTTP server defaults to port `8100` and serves the mobile dashboard 
 http://<LAN-IP>:8100/remote?mobile=1
 ```
 
-Remote access is disabled by default. Enable `network.remoteAccess` only for a
-trusted device on your private network.
+Remote access is off by default. Enable `network.remoteAccess` only on a trusted
+private network.
 
-Remote browsers can only view data by default. Aircraft controls require the
-separate `network.remoteAircraftControl` setting and the paired Mobile Browser
-link shown on the Flight Fabric PC. Treat that URL and QR code as private. Its
-random token expires when the backend restarts and grants access only to
-aircraft controls, not settings, recordings, history, file deletion, or profile
-management.
+Remote browsers are view-only by default. Aircraft controls also require
+`network.remoteAircraftControl` and the paired Mobile Browser link shown on the
+Flight Fabric PC. Treat its URL and QR code as private. The token expires when
+the backend restarts and grants aircraft-control access only; it cannot access
+settings, recordings, history, file deletion, or profile management.
 
 If a phone cannot connect:
 
@@ -255,10 +241,10 @@ If a phone cannot connect:
 3. Confirm Windows Firewall allows the active backend process on private
    networks. Packaged releases use `Flight Fabric.exe`; `start-simbridge.bat`
    uses Node.js.
-4. Confirm the phone is on the same private Wi-Fi network and that device
-   isolation is disabled.
-5. Check VPNs, Private Relay, DNS filters, and router security tools. If turning
-   one off fixes the connection, review its logs and allow the local traffic.
+4. Confirm the phone is on the same private Wi-Fi network and device isolation
+   is off.
+5. Check VPNs, Private Relay, DNS filters, and router security tools. If one is
+   blocking the connection, allow the local traffic rather than leaving it off.
 
 ## Code signing
 

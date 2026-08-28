@@ -123,6 +123,17 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       },
     },
     {
+      id: 'flightGuidance.flightPathAngle.set', label: 'Selected flight path angle', group: 'flightGuidance',
+      input: { kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees' },
+      speech: {
+        patterns: [
+          'set flight path angle {value}', 'flight path angle {value}',
+          'set fpa {value}', 'fpa {value}', 'set f p a {value}', 'f p a {value}',
+        ],
+        hints: ['FLIGHT PATH ANGLE', 'F P A'],
+      },
+    },
+    {
       id: 'flightGuidance.autopilot.set', label: 'Autopilot master', group: 'flightGuidance',
       input: BOOLEAN_INPUT,
       speech: { patterns: ['autopilot {value}'], hints: ['AUTOPILOT'] },
@@ -130,7 +141,155 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'flightGuidance.autopilot1.engage', label: 'Autopilot 1', group: 'flightGuidance',
       input: NONE_INPUT,
-      speech: { patterns: ['engage autopilot one', 'command a'], hints: ['COMMAND A'] },
+      speech: {
+        patterns: [
+          'engage autopilot one', 'engage auto pilot one',
+          'engage autopilot left', 'engage auto pilot left',
+          'engage left autopilot', 'engage left auto pilot', 'command a',
+        ],
+        hints: ['AUTOPILOT LEFT', 'AUTO PILOT LEFT', 'COMMAND A'],
+      },
+    },
+    {
+      id: 'flightGuidance.autopilot2.engage', label: 'Autopilot 2', group: 'flightGuidance',
+      input: NONE_INPUT,
+      speech: {
+        patterns: [
+          'engage autopilot two', 'engage auto pilot two',
+          'engage autopilot right', 'engage auto pilot right',
+          'engage right autopilot', 'engage right auto pilot',
+        ],
+        hints: ['AUTOPILOT RIGHT', 'AUTO PILOT RIGHT'],
+      },
+    },
+    ...[
+      ['flightGuidance.flightDirectorCaptain.set', 'Captain flight director', 'captain flight director', 'CAPTAIN FLIGHT DIRECTOR'],
+      ['flightGuidance.flightDirectorFirstOfficer.set', 'First Officer flight director', 'first officer flight director', 'FIRST OFFICER FLIGHT DIRECTOR'],
+      ['flightGuidance.autothrottleArmLeft.set', 'Left autothrottle arm', 'left autothrottle arm', 'LEFT AUTOTHROTTLE ARM'],
+      ['flightGuidance.autothrottleArmRight.set', 'Right autothrottle arm', 'right autothrottle arm', 'RIGHT AUTOTHROTTLE ARM'],
+    ].map(([id, label, phrase, hint]) => ({
+      id,
+      label,
+      group: 'flightGuidance',
+      input: BOOLEAN_INPUT,
+      speech: {
+        patterns: [
+          `${phrase} {value}`,
+          `{value} ${phrase}`,
+          ...(phrase === 'captain flight director'
+            ? ['left flight director {value}', '{value} left flight director', 'flight director left {value}']
+            : []),
+          ...(phrase === 'first officer flight director'
+            ? ['right flight director {value}', '{value} right flight director', 'flight director right {value}']
+            : []),
+          ...(phrase.includes('autothrottle')
+            ? [`${phrase.replace('autothrottle', 'auto throttle')} {value}`, `{value} ${phrase.replace('autothrottle', 'auto throttle')}`]
+            : []),
+        ],
+        hints: [hint],
+      },
+    })),
+    ...[
+      ['flightGuidance.lnav.engage', 'LNAV', 'lnav', 'l nav', 'L NAV'],
+      ['flightGuidance.vnav.engage', 'VNAV', 'vnav', 'v nav', 'V NAV'],
+    ].map(([id, label, phrase, spacedPhrase, hint]) => ({
+      id,
+      label,
+      group: 'flightGuidance',
+      input: NONE_INPUT,
+      speech: {
+        patterns: [
+          `engage ${phrase}`, phrase, `engage ${spacedPhrase}`, spacedPhrase,
+          ...(phrase === 'lnav' ? ['engage l n a b', 'l n a b'] : []),
+        ],
+        hints: phrase === 'lnav' ? [hint, 'L N A B'] : [hint],
+      },
+    })),
+    {
+      id: 'flightGuidance.headingHold.engage', label: 'Heading hold', group: 'flightGuidance',
+      input: NONE_INPUT,
+      speech: { patterns: ['engage heading hold', 'heading hold'], hints: ['HEADING HOLD'] },
+    },
+    {
+      id: 'flightGuidance.headingReference.set',
+      label: 'Heading reference',
+      group: 'flightGuidance',
+      input: { kind: 'enum', values: ['hdg', 'trk'] },
+      speech: {
+        patterns: ['set heading reference {value}', 'heading reference {value}'],
+        hints: ['HEADING REFERENCE', 'H D G', 'T R K'],
+      },
+    },
+    {
+      id: 'flightGuidance.verticalReference.set',
+      label: 'Vertical reference',
+      group: 'flightGuidance',
+      input: { kind: 'enum', values: ['vs', 'fpa'] },
+      speech: {
+        patterns: ['set vertical reference {value}', 'vertical reference {value}'],
+        hints: ['VERTICAL REFERENCE', 'V S', 'F P A'],
+      },
+    },
+    ...[
+      ['flightGuidance.autopilot1.set', 'Autopilot 1', 'autopilot one', 'AUTOPILOT ONE'],
+      ['flightGuidance.autopilot2.set', 'Autopilot 2', 'autopilot two', 'AUTOPILOT TWO'],
+      ['flightGuidance.autothrust.set', 'Autothrust', 'autothrust', 'AUTOTHRUST'],
+      ['flightGuidance.expedite.set', 'Expedite mode', 'expedite', 'EXPEDITE'],
+    ].map(([id, label, phrase, hint]) => ({
+      id,
+      label,
+      group: 'flightGuidance',
+      input: BOOLEAN_INPUT,
+      speech: {
+        patterns: [`${phrase} {value}`, `{value} ${phrase}`],
+        hints: [hint],
+      },
+    })),
+    ...[
+      ['flightGuidance.speedMode.set', 'Speed guidance mode', 'speed'],
+      ['flightGuidance.headingMode.set', 'Heading guidance mode', 'heading'],
+      ['flightGuidance.altitudeMode.set', 'Altitude guidance mode', 'altitude'],
+    ].map(([id, label, target]) => ({
+      id,
+      label,
+      group: 'flightGuidance',
+      input: { kind: 'enum' as const, values: ['selected', 'managed'] },
+      speech: {
+        patterns: [`set ${target} mode {value}`, `${target} mode {value}`],
+        hints: [`${target.toUpperCase()} MODE`],
+      },
+    })),
+    {
+      id: 'flightGuidance.altitudeHundred.set',
+      label: 'Selected altitude (100-foot mode)',
+      description: 'Set the FCU altitude while its increment selector is in the 100-foot position.',
+      group: 'flightGuidance',
+      input: { kind: 'number', min: 0, max: 49000, step: 100, units: 'feet' },
+      speech: {
+        patterns: [
+          'set altitude {value} in hundreds',
+          'altitude {value} in hundreds',
+          'set flight level {value} in hundreds',
+          'flight level {value} in hundreds',
+        ],
+        hints: ['ALTITUDE IN HUNDREDS', 'FLIGHT LEVEL IN HUNDREDS'],
+      },
+    },
+    {
+      id: 'flightGuidance.altitudeThousand.set',
+      label: 'Selected altitude (1,000-foot mode)',
+      description: 'Set the FCU altitude while its increment selector is in the 1,000-foot position.',
+      group: 'flightGuidance',
+      input: { kind: 'number', min: 0, max: 49000, step: 1000, units: 'feet' },
+      speech: {
+        patterns: [
+          'set altitude {value} in thousands',
+          'altitude {value} in thousands',
+          'set flight level {value} in thousands',
+          'flight level {value} in thousands',
+        ],
+        hints: ['ALTITUDE IN THOUSANDS', 'FLIGHT LEVEL IN THOUSANDS'],
+      },
     },
     ...[
       ['flightGuidance.autopilot.toggle', 'Autopilot master'],
@@ -158,7 +317,25 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       label,
       group: 'flightGuidance',
       input: NONE_INPUT,
-      speech: { patterns: [`engage ${label.toLowerCase()}`], hints: [hint] },
+      speech: {
+        patterns: [
+          `engage ${label.toLowerCase()}`,
+          ...(id === 'flightGuidance.altitudeHold.engage' ? ['altitude hold'] : []),
+          ...(id === 'flightGuidance.verticalSpeed.engage'
+            ? ['engage vertical speed', 'vertical speed mode']
+            : []),
+          ...(id === 'flightGuidance.flightLevelChange.engage'
+            ? ['engage flch', 'flch', 'engage f l c h', 'f l c h']
+            : []),
+          ...(id === 'flightGuidance.localizer.engage'
+            ? ['engage localizer', 'engage loc', 'loc', 'engage vor loc']
+            : []),
+          ...(id === 'flightGuidance.approach.engage'
+            ? ['engage approach', 'approach', 'engage app', 'app']
+            : []),
+        ],
+        hints: [hint],
+      },
     })),
     {
       id: 'flightGuidance.speedHold.set', label: 'Speed hold', group: 'flightGuidance',
@@ -221,6 +398,18 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       },
     },
     {
+      id: 'surfaces.autobrake.set', label: 'Autobrake', group: 'surfaces',
+      input: { kind: 'enum', values: ['rto', 'off', 'disarm', '1', '2', 'max'] },
+      speech: {
+        patterns: [
+          'set autobrake {value}', 'autobrake {value}',
+          'set auto brake {value}', 'auto brake {value}',
+          'set otto brake {value}', 'otto brake {value}',
+        ],
+        hints: ['AUTOBRAKE', 'R T O'],
+      },
+    },
+    {
       id: 'surfaces.spoilers.set', label: 'Spoilers', group: 'surfaces',
       input: { kind: 'enum', values: ['retracted', 'full'] },
       speech: { patterns: ['spoilers {value}'], hints: ['SPOILERS'] },
@@ -278,8 +467,52 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       kind: 'preset',
       input: NONE_INPUT,
       speech: {
-        patterns: ['set lights for takeoff', 'takeoff lights'],
+        patterns: [
+          'set lights for takeoff', 'set lights for take off',
+          'set lights for a takeoff', 'set lights for a take off',
+          'takeoff lights', 'take off lights',
+        ],
         hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
+      },
+    },
+    {
+      id: 'propulsion.throttleDetent.set',
+      label: 'Throttle detent',
+      group: 'propulsion',
+      input: { kind: 'enum', values: ['idle', 'climb', 'flex', 'toga'] },
+      speech: {
+        patterns: ['set throttles {value}', 'throttles {value}', 'set throttle detent {value}'],
+        hints: ['THROTTLES', 'THROTTLE DETENT', 'IDLE', 'CLIMB', 'FLEX', 'TOGA'],
+      },
+    },
+    {
+      id: 'lights.strobeMode.set',
+      label: 'Strobe lights',
+      group: 'lights',
+      input: { kind: 'enum', values: ['off', 'auto', 'on'] },
+      speech: {
+        patterns: ['strobe lights {value}', 'strobe light {value}'],
+        hints: ['STROBE LIGHTS'],
+      },
+    },
+    {
+      id: 'lights.navLogoMode.set',
+      label: 'Navigation and logo lights',
+      group: 'lights',
+      input: { kind: 'enum', values: ['off', 'nav', 'logo'] },
+      speech: {
+        patterns: ['nav logo lights {value}', 'navigation logo lights {value}'],
+        hints: ['NAV LOGO LIGHTS', 'NAVIGATION LOGO LIGHTS'],
+      },
+    },
+    {
+      id: 'lights.noseMode.set',
+      label: 'Nose light',
+      group: 'lights',
+      input: { kind: 'enum', values: ['off', 'taxi', 'takeoff'] },
+      speech: {
+        patterns: ['nose light {value}', 'nose lights {value}'],
+        hints: ['NOSE LIGHT'],
       },
     },
     ...['nav', 'beacon', 'strobe', 'landing', 'taxi'].map((light) => ({
@@ -540,8 +773,226 @@ export const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
   ]),
 });
 
+export const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'fenix-a32x',
+  bindings: Object.freeze([
+    input(
+      'flightGuidance.speed.set',
+      aircraftAction('flightGuidance.speed.set'),
+      'value',
+      { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+    ),
+    input(
+      'flightGuidance.heading.set',
+      aircraftAction('flightGuidance.heading.set'),
+      'value',
+      { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+    ),
+    input(
+      'flightGuidance.altitudeHundred.set',
+      aircraftAction('flightGuidance.altitudeHundred.set'),
+    ),
+    input(
+      'flightGuidance.altitudeThousand.set',
+      aircraftAction('flightGuidance.altitudeThousand.set'),
+    ),
+    choice('flightGuidance.autopilot1.set', {
+      false: aircraftAction('flightGuidance.ap1.off'),
+      true: aircraftAction('flightGuidance.ap1.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.autopilot2.set', {
+      false: aircraftAction('flightGuidance.ap2.off'),
+      true: aircraftAction('flightGuidance.ap2.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.autothrust.set', {
+      false: aircraftAction('flightGuidance.autothrust.off'),
+      true: aircraftAction('flightGuidance.autothrust.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.localizer.set', {
+      false: aircraftAction('flightGuidance.localizer.off'),
+      true: aircraftAction('flightGuidance.localizer.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.approach.set', {
+      false: aircraftAction('flightGuidance.approach.off'),
+      true: aircraftAction('flightGuidance.approach.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.expedite.set', {
+      false: aircraftAction('flightGuidance.expedite.off'),
+      true: aircraftAction('flightGuidance.expedite.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.speedMode.set', {
+      selected: aircraftAction('flightGuidance.speedManaged.off'),
+      managed: aircraftAction('flightGuidance.speedManaged.on'),
+    }),
+    choice('flightGuidance.headingMode.set', {
+      selected: aircraftAction('flightGuidance.headingManaged.off'),
+      managed: aircraftAction('flightGuidance.headingManaged.on'),
+    }),
+    choice('flightGuidance.altitudeMode.set', {
+      selected: aircraftAction('flightGuidance.altitudeManaged.off'),
+      managed: aircraftAction('flightGuidance.altitudeManaged.on'),
+    }),
+    choice('propulsion.throttleDetent.set', {
+      idle: aircraftAction('propulsion.throttle.idle'),
+      climb: aircraftAction('propulsion.throttle.climb'),
+      flex: aircraftAction('propulsion.throttle.flexMct'),
+      toga: aircraftAction('propulsion.throttle.toga'),
+    }),
+    choice('surfaces.parkingBrake.set', {
+      false: aircraftAction('systems.parkingBrake.released'),
+      true: aircraftAction('systems.parkingBrake.set'),
+    }, BOOLEAN_INPUT),
+    choice('lights.beacon.set', {
+      false: aircraftAction('lights.beacon.off'),
+      true: aircraftAction('lights.beacon.on'),
+    }, BOOLEAN_INPUT),
+    choice('lights.strobeMode.set', {
+      off: aircraftAction('lights.strobe.off'),
+      auto: aircraftAction('lights.strobe.auto'),
+      on: aircraftAction('lights.strobe.on'),
+    }),
+    choice('lights.navLogoMode.set', {
+      off: aircraftAction('lights.navLogo.off'),
+      nav: aircraftAction('lights.navLogo.nav'),
+      logo: aircraftAction('lights.navLogo.logo'),
+    }),
+    choice('lights.noseMode.set', {
+      off: aircraftAction('lights.nose.off'),
+      taxi: aircraftAction('lights.nose.taxi'),
+      takeoff: aircraftAction('lights.nose.takeoff'),
+    }),
+    sequence(
+      'configuration.lights.takeoff',
+      'Landing L/R ON · runway turnoff ON · nose TAKEOFF · strobe ON · nav lights ON',
+      [
+        { label: 'Landing light left ON', request: aircraftAction('lights.landingLeft.on') },
+        { label: 'Landing light right ON', request: aircraftAction('lights.landingRight.on') },
+        { label: 'Runway turnoff lights ON', request: aircraftAction('lights.runwayTurnoff.on') },
+        { label: 'Nose light TAKEOFF', request: aircraftAction('lights.nose.takeoff') },
+        { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
+        { label: 'Navigation lights ON', request: aircraftAction('lights.navLogo.nav') },
+      ],
+    ),
+  ]),
+});
+
+export const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'pmdg-777',
+  bindings: Object.freeze([
+    input(
+      'flightGuidance.speed.set',
+      aircraftAction('mcp.ias.set'),
+      'value',
+      { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+    ),
+    input('flightGuidance.mach.set', aircraftAction('mcp.mach.set')),
+    input(
+      'flightGuidance.heading.set',
+      aircraftAction('mcp.heading.set'),
+      'value',
+      { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+    ),
+    input(
+      'flightGuidance.altitude.set',
+      aircraftAction('mcp.altitude.set'),
+      'value',
+      { kind: 'number', min: 0, max: 50000, step: 100, units: 'feet' },
+    ),
+    input(
+      'flightGuidance.verticalSpeed.set',
+      aircraftAction('mcp.verticalSpeed.set'),
+      'value',
+      { kind: 'number', min: -7900, max: 6000, step: 100, units: 'feet-per-minute' },
+    ),
+    input('flightGuidance.flightPathAngle.set', aircraftAction('mcp.fpa.set')),
+    choice('flightGuidance.flightDirectorCaptain.set', {
+      false: aircraftAction('afds.flightDirectorCaptain.off'),
+      true: aircraftAction('afds.flightDirectorCaptain.on'),
+    }, BOOLEAN_INPUT),
+    fixed('flightGuidance.autopilot1.engage', aircraftAction('afds.apLeft.engage')),
+    choice('flightGuidance.autothrottleArmLeft.set', {
+      false: aircraftAction('afds.autothrottleArmLeft.off'),
+      true: aircraftAction('afds.autothrottleArmLeft.on'),
+    }, BOOLEAN_INPUT),
+    fixed('flightGuidance.lnav.engage', aircraftAction('afds.lnav.engage')),
+    fixed('flightGuidance.vnav.engage', aircraftAction('afds.vnav.engage')),
+    fixed('flightGuidance.flightLevelChange.engage', aircraftAction('afds.levelChange.engage')),
+    fixed('flightGuidance.headingHold.engage', aircraftAction('afds.headingHold.engage')),
+    fixed('flightGuidance.verticalSpeed.engage', aircraftAction('afds.verticalSpeed.engage')),
+    fixed('flightGuidance.altitudeHold.engage', aircraftAction('afds.altitudeHold.engage')),
+    fixed('flightGuidance.localizer.engage', aircraftAction('afds.vorLoc.engage')),
+    fixed('flightGuidance.approach.engage', aircraftAction('afds.approach.engage')),
+    choice('flightGuidance.autothrottleArmRight.set', {
+      false: aircraftAction('afds.autothrottleArmRight.off'),
+      true: aircraftAction('afds.autothrottleArmRight.on'),
+    }, BOOLEAN_INPUT),
+    fixed('flightGuidance.autopilot2.engage', aircraftAction('afds.apRight.engage')),
+    choice('flightGuidance.flightDirectorFirstOfficer.set', {
+      false: aircraftAction('afds.flightDirectorFirstOfficer.off'),
+      true: aircraftAction('afds.flightDirectorFirstOfficer.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.headingReference.set', {
+      hdg: aircraftAction('afds.headingMode.hdg'),
+      trk: aircraftAction('afds.headingMode.trk'),
+    }),
+    choice('flightGuidance.verticalReference.set', {
+      vs: aircraftAction('afds.verticalMode.vs'),
+      fpa: aircraftAction('afds.verticalMode.fpa'),
+    }),
+    choice('surfaces.gear.set', {
+      up: aircraftAction('controls.gear.up'),
+      down: aircraftAction('controls.gear.down'),
+    }),
+    choice('surfaces.flaps.set', {
+      up: aircraftAction('controls.flaps.up'),
+      1: aircraftAction('controls.flaps.one'),
+      5: aircraftAction('controls.flaps.five'),
+      15: aircraftAction('controls.flaps.fifteen'),
+      20: aircraftAction('controls.flaps.twenty'),
+      25: aircraftAction('controls.flaps.twentyFive'),
+      30: aircraftAction('controls.flaps.thirty'),
+    }, { kind: 'enum', values: ['up', '1', '5', '15', '20', '25', '30'] }),
+    choice('surfaces.spoilersArmed.set', {
+      false: aircraftAction('controls.speedbrake.stowed'),
+      true: aircraftAction('controls.speedbrake.armed'),
+    }, BOOLEAN_INPUT),
+    choice('surfaces.parkingBrake.set', {
+      false: aircraftAction('controls.parkingBrake.off'),
+      true: aircraftAction('controls.parkingBrake.on'),
+    }, BOOLEAN_INPUT),
+    choice('surfaces.autobrake.set', {
+      rto: aircraftAction('controls.autobrake.rto'),
+      off: aircraftAction('controls.autobrake.off'),
+      disarm: aircraftAction('controls.autobrake.disarm'),
+      1: aircraftAction('controls.autobrake.one'),
+      2: aircraftAction('controls.autobrake.two'),
+      max: aircraftAction('controls.autobrake.max'),
+    }),
+    ...['beacon', 'nav', 'strobe', 'taxi'].map((light) => choice(`lights.${light}.set`, {
+      false: aircraftAction(`lights.${light}.off`),
+      true: aircraftAction(`lights.${light}.on`),
+    }, BOOLEAN_INPUT)),
+    sequence(
+      'configuration.lights.takeoff',
+      'Landing L/Nose/R ON · Runway turnoffs ON · Taxi ON · Strobe ON · Navigation ON',
+      [
+        { label: 'Landing light left ON', request: aircraftAction('lights.landingLeft.on') },
+        { label: 'Landing nose light ON', request: aircraftAction('lights.landingNose.on') },
+        { label: 'Landing light right ON', request: aircraftAction('lights.landingRight.on') },
+        { label: 'Runway turnoff light left ON', request: aircraftAction('lights.turnoffLeft.on') },
+        { label: 'Runway turnoff light right ON', request: aircraftAction('lights.turnoffRight.on') },
+        { label: 'Taxi light ON', request: aircraftAction('lights.taxi.on') },
+        { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
+        { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
+      ],
+    ),
+  ]),
+});
+
 const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>([
+  ['fenix-a32x', FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-737', PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION],
+  ['pmdg-777', PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION],
 ]);
 
 function getDeclaredAdapterId(profile: unknown): string {
@@ -799,8 +1250,10 @@ export function getAircraftCommandDefinition(commandId: unknown): AircraftComman
 
 module.exports = {
   AIRCRAFT_COMMAND_DEFINITIONS,
+  FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION,
   GENERIC_AIRCRAFT_COMMAND_CONFIGURATION,
   PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION,
+  PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION,
   buildAircraftCommandCatalogue,
   getAircraftCommandDefinition,
   normalizeAircraftCommandRequest,

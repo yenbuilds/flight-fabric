@@ -108,6 +108,18 @@ const props = defineProps({
     type: Function,
     default: () => false,
   },
+  requestCommand: {
+    type: Function,
+    default: () => false,
+  },
+  isCommandSupported: {
+    type: Function,
+    default: () => false,
+  },
+  getCommand: {
+    type: Function,
+    default: () => null,
+  },
   isActionPending: {
     type: Function,
     default: () => false,
@@ -141,6 +153,7 @@ const flightGuidanceControls = Object.freeze([
     title: 'AUTOPILOT 1',
     fieldId: 'flightGuidance.ap1',
     groupId: 'flightGuidance.ap1',
+    commandId: 'flightGuidance.autopilot1.set',
     actions: [
       { id: 'flightGuidance.ap1.off', label: 'DISCONNECT', value: false },
       { id: 'flightGuidance.ap1.on', label: 'ENGAGE', value: true },
@@ -150,6 +163,7 @@ const flightGuidanceControls = Object.freeze([
     title: 'AUTOPILOT 2',
     fieldId: 'flightGuidance.ap2',
     groupId: 'flightGuidance.ap2',
+    commandId: 'flightGuidance.autopilot2.set',
     actions: [
       { id: 'flightGuidance.ap2.off', label: 'DISCONNECT', value: false },
       { id: 'flightGuidance.ap2.on', label: 'ENGAGE', value: true },
@@ -159,6 +173,7 @@ const flightGuidanceControls = Object.freeze([
     title: 'AUTOTHRUST',
     fieldId: 'flightGuidance.autothrust',
     groupId: 'flightGuidance.autothrust',
+    commandId: 'flightGuidance.autothrust.set',
     actions: [
       { id: 'flightGuidance.autothrust.off', label: 'DISCONNECT', value: false },
       { id: 'flightGuidance.autothrust.on', label: 'ARM', value: true },
@@ -168,6 +183,7 @@ const flightGuidanceControls = Object.freeze([
     title: 'LOCALIZER',
     fieldId: 'flightGuidance.localizer',
     groupId: 'flightGuidance.localizer',
+    commandId: 'flightGuidance.localizer.set',
     actions: [
       { id: 'flightGuidance.localizer.off', label: 'OFF', value: false },
       { id: 'flightGuidance.localizer.on', label: 'ON', value: true },
@@ -177,6 +193,7 @@ const flightGuidanceControls = Object.freeze([
     title: 'APPROACH',
     fieldId: 'flightGuidance.approach',
     groupId: 'flightGuidance.approach',
+    commandId: 'flightGuidance.approach.set',
     actions: [
       { id: 'flightGuidance.approach.off', label: 'OFF', value: false },
       { id: 'flightGuidance.approach.on', label: 'ON', value: true },
@@ -186,6 +203,7 @@ const flightGuidanceControls = Object.freeze([
     title: 'EXPEDITE',
     fieldId: 'flightGuidance.expedite',
     groupId: 'flightGuidance.expedite',
+    commandId: 'flightGuidance.expedite.set',
     actions: [
       { id: 'flightGuidance.expedite.off', label: 'OFF', value: false },
       { id: 'flightGuidance.expedite.on', label: 'ON', value: true },
@@ -198,27 +216,30 @@ const managedModeControls = Object.freeze([
     title: 'SPEED',
     fieldId: 'flightGuidance.speedManaged',
     groupId: 'flightGuidance.speed',
+    commandId: 'flightGuidance.speedMode.set',
     actions: [
-      { id: 'flightGuidance.speedManaged.off', label: 'PULL SELECTED', value: false },
-      { id: 'flightGuidance.speedManaged.on', label: 'PUSH MANAGED', value: true },
+      { id: 'flightGuidance.speedManaged.off', label: 'PULL SELECTED', value: false, commandInput: 'selected' },
+      { id: 'flightGuidance.speedManaged.on', label: 'PUSH MANAGED', value: true, commandInput: 'managed' },
     ],
   },
   {
     title: 'HEADING',
     fieldId: 'flightGuidance.headingManaged',
     groupId: 'flightGuidance.heading',
+    commandId: 'flightGuidance.headingMode.set',
     actions: [
-      { id: 'flightGuidance.headingManaged.off', label: 'PULL SELECTED', value: false },
-      { id: 'flightGuidance.headingManaged.on', label: 'PUSH MANAGED', value: true },
+      { id: 'flightGuidance.headingManaged.off', label: 'PULL SELECTED', value: false, commandInput: 'selected' },
+      { id: 'flightGuidance.headingManaged.on', label: 'PUSH MANAGED', value: true, commandInput: 'managed' },
     ],
   },
   {
     title: 'ALTITUDE',
     fieldId: 'flightGuidance.altitudeManaged',
     groupId: 'flightGuidance.altitude',
+    commandId: 'flightGuidance.altitudeMode.set',
     actions: [
-      { id: 'flightGuidance.altitudeManaged.off', label: 'PULL SELECTED', value: false },
-      { id: 'flightGuidance.altitudeManaged.on', label: 'PUSH MANAGED', value: true },
+      { id: 'flightGuidance.altitudeManaged.off', label: 'PULL SELECTED', value: false, commandInput: 'selected' },
+      { id: 'flightGuidance.altitudeManaged.on', label: 'PUSH MANAGED', value: true, commandInput: 'managed' },
     ],
   },
 ]);
@@ -230,6 +251,7 @@ const selectorControls = Object.freeze([
     fieldId: 'flightGuidance.speedValue',
     groupId: 'flightGuidance.speed',
     actionId: 'flightGuidance.speed.set',
+    commandId: 'flightGuidance.speed.set',
     unit: 'KTS',
     inputmode: 'numeric',
     min: 100,
@@ -242,6 +264,7 @@ const selectorControls = Object.freeze([
     fieldId: 'flightGuidance.headingDeg',
     groupId: 'flightGuidance.heading',
     actionId: 'flightGuidance.heading.set',
+    commandId: 'flightGuidance.heading.set',
     unit: 'DEG',
     inputmode: 'numeric',
     min: 0,
@@ -689,6 +712,13 @@ const fenixMobileLabels = Object.freeze({
   'surveillance-radio': 'Radio',
   'safety-misc': 'GPWS',
 });
+const sharedControlCommandIds = Object.freeze({
+  'lights.beacon': 'lights.beacon.set',
+  'lights.strobe': 'lights.strobeMode.set',
+  'lights.navLogo': 'lights.navLogoMode.set',
+  'lights.nose': 'lights.noseMode.set',
+  'systems.parkingBrake': 'surfaces.parkingBrake.set',
+});
 const mobileSections = computed(() => [
   { id: 'throttle', label: 'Throttle', title: 'Virtual Throttle' },
   { id: 'fcu', label: 'FCU', title: 'Flight Guidance & FCU' },
@@ -738,18 +768,52 @@ function actionSupported(actionId) {
   return props.actionCapabilities[actionId] === true;
 }
 
+function fenixCommandCatalogueActive() {
+  return aircraftControls.aircraftCommandCatalogue?.configurationId === 'fenix-a32x';
+}
+
+function commandIdFor(control) {
+  return control.commandId || sharedControlCommandIds[control.groupId] || '';
+}
+
+function actionFor(control, actionId) {
+  return control.actions?.find((candidate) => candidate.id === actionId) || null;
+}
+
+function commandRouteSupported(control, actionId) {
+  const commandId = commandIdFor(control);
+  return fenixCommandCatalogueActive() && commandId
+    ? props.isCommandSupported(commandId)
+    : actionSupported(actionId);
+}
+
 function groupPending(groupId) {
   return props.isActionPending(groupId) === true;
 }
 
 function requestThrottleAction(actionId) {
+  const detents = {
+    'propulsion.throttle.idle': 'idle',
+    'propulsion.throttle.climb': 'climb',
+    'propulsion.throttle.flexMct': 'flex',
+    'propulsion.throttle.toga': 'toga',
+  };
+  if (fenixCommandCatalogueActive()) {
+    const value = detents[actionId];
+    if (!value || !props.isCommandSupported('propulsion.throttleDetent.set')) return false;
+    return props.requestCommand(
+      'propulsion.throttleDetent.set',
+      'propulsion.throttle',
+      { value },
+    );
+  }
   return props.requestAction(actionId, 'propulsion.throttle');
 }
 
 function actionDisabled(control, actionId) {
   return !controlSessionReady.value
     || controlValue(control) === null
-    || !actionSupported(actionId)
+    || !commandRouteSupported(control, actionId)
     || groupPending(control.groupId);
 }
 
@@ -766,15 +830,22 @@ function actionDisabledReason(control, actionId) {
     return aircraftControls.availability.reason || 'Aircraft control is unavailable in this browser session.';
   }
   if (controlValue(control) === null) return 'Live switch readback unavailable.';
-  if (!actionSupported(actionId) && props.controlSetupRequired) {
+  if (!commandRouteSupported(control, actionId) && props.controlSetupRequired) {
     return 'Requires MobiFlight Event Module setup.';
   }
-  if (!actionSupported(actionId)) return 'Compatible write transport unavailable.';
+  if (!commandRouteSupported(control, actionId)) return 'Compatible write transport unavailable.';
   return 'Control temporarily unavailable.';
 }
 
 function requestControlAction(control, actionId) {
   if (actionDisabled(control, actionId)) return false;
+  const commandId = commandIdFor(control);
+  if (fenixCommandCatalogueActive() && commandId) {
+    const action = actionFor(control, actionId);
+    return props.requestCommand(commandId, control.groupId, {
+      value: action?.commandInput ?? action?.value,
+    });
+  }
   return props.requestAction(actionId, control.groupId);
 }
 
@@ -791,7 +862,7 @@ function controlStatus(control) {
     return aircraftControls.availability.reason || 'Aircraft control is unavailable in this browser session.';
   }
   if (controlValue(control) === null) return 'Live switch readback unavailable; control disabled.';
-  if (!control.actions.some((action) => actionSupported(action.id))) {
+  if (!control.actions.some((action) => commandRouteSupported(control, action.id))) {
     return props.controlSetupRequired
       ? 'Requires MobiFlight Event Module setup.'
       : 'Compatible write transport unavailable.';
@@ -813,11 +884,21 @@ function selectorActionId(control) {
 
 function selectorConfig(control) {
   const altitudeStep = altitudeIncrementMode() === 'thousand' ? 1000 : 100;
-  return {
+  const configured = {
     ...control,
     actionId: selectorActionId(control),
+    commandId: control.id === 'altitude'
+      ? (altitudeIncrementMode() === 'thousand'
+        ? 'flightGuidance.altitudeThousand.set'
+        : 'flightGuidance.altitudeHundred.set')
+      : control.commandId,
     step: control.id === 'altitude' ? altitudeStep : control.step,
   };
+  if (!fenixCommandCatalogueActive()) return { ...configured, commandId: '' };
+  const descriptor = props.getCommand(configured.commandId);
+  return descriptor?.input?.kind === 'number'
+    ? { ...configured, min: descriptor.input.min, max: descriptor.input.max, step: descriptor.input.step }
+    : configured;
 }
 
 function selectorPending(control) {
@@ -849,7 +930,9 @@ function selectorDisabled(control) {
     || selectorIsMach(control)
     || (control.id === 'altitude' && altitudeIncrementMode() === null)
     || selectorBaselineIssue(control) !== null
-    || !actionSupported(config.actionId)
+    || (config.commandId
+      ? !props.isCommandSupported(config.commandId)
+      : !actionSupported(config.actionId))
     || selectorPending(control);
 }
 
@@ -888,10 +971,13 @@ function selectorDisabledReason(control) {
   if (baselineIssue === 'increment') {
     return `Live FCU value is not aligned to the active ${config.step.toLocaleString('en-US')} ${control.unit} increment; selector disabled.`;
   }
-  if (!actionSupported(config.actionId) && props.controlSetupRequired) {
+  const routeSupported = config.commandId
+    ? props.isCommandSupported(config.commandId)
+    : actionSupported(config.actionId);
+  if (!routeSupported && props.controlSetupRequired) {
     return 'Requires MobiFlight Event Module setup for Fenix FCU writes.';
   }
-  if (!actionSupported(config.actionId)) return 'Compatible Fenix FCU write transport unavailable.';
+  if (!routeSupported) return 'Compatible Fenix FCU write transport unavailable.';
   return 'FCU target temporarily unavailable.';
 }
 
@@ -953,6 +1039,7 @@ function submitSelector(control) {
     groupId: control.groupId,
     rawValue,
     requestAction: props.requestAction,
+    requestCommand: props.requestCommand,
   });
   const next = resolveFenixSelectorSubmitState({
     draft: selectorDrafts[control.id],
