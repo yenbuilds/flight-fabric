@@ -375,10 +375,10 @@ test('frontend servers prefer bundled frontend-dist with source asset fallback',
 
   assert(backendHttpServer.includes("resolveRepoAssetPath('frontend-dist')"), 'backend HTTP server should look for frontend-dist');
   assert(backendHttpServer.includes('resolveFrontendAssetCandidates'), 'backend HTTP server should resolve frontend asset fallbacks');
-  assert(backendHttpServer.includes("'.mjs': 'application/javascript'"), 'backend HTTP server should serve MapLibre module workers as JavaScript');
+  assert(backendHttpServer.includes("'.mjs': 'application/javascript'"), 'backend HTTP server should serve JavaScript modules with the correct MIME type');
   assert(electronMain.includes("path.join(appRoot, 'frontend-dist')"), 'Electron frontend server should look for frontend-dist in dev');
   assert(electronMain.includes('getFrontendAssetCandidates'), 'Electron frontend server should resolve frontend asset fallbacks');
-  assert(electronMain.includes("'.mjs': 'text/javascript'"), 'Electron frontend server should serve MapLibre module workers as JavaScript');
+  assert(electronMain.includes("'.mjs': 'text/javascript'"), 'Electron frontend server should serve JavaScript modules with the correct MIME type');
 });
 
 test('frontend build and Electron launch paths use the bundled frontend output', () => {
@@ -390,12 +390,12 @@ test('frontend build and Electron launch paths use the bundled frontend output',
 
   assert(rootPkg.devDependencies?.tailwindcss, 'root package should install Tailwind for browser frontend builds');
   assert(frontendPkg.scripts?.build === 'node build.js', 'frontend build should run the build wrapper');
-  assert(frontendPkg.dependencies?.['maplibre-gl'] === '5.14.0', 'Leaflet integration should pin the last compatible MapLibre major');
+  assert(frontendPkg.dependencies?.leaflet === '^1.9.4', 'map views should use the bundled Leaflet runtime');
+  assert(!frontendPkg.dependencies?.['maplibre-gl'], 'standard raster maps should not ship the failed MapLibre runtime');
   assert(frontendBuild.includes('flight-phases.js'), 'frontend build wrapper should copy flight-phases.js');
   assert(frontendBuild.includes("'vendor'"), 'frontend build wrapper should copy vendor assets');
   assert(frontendBuild.includes("'themes'"), 'frontend build wrapper should copy bundled themes');
-  assert(frontendBuild.includes('MAPLIBRE_MAJOR < 6'), 'frontend build wrapper should support the pinned embedded MapLibre worker');
-  assert(frontendBuild.includes('assertBundledMapLibreRuntime()'), 'frontend build wrapper should verify the MapLibre runtime assets');
+  assert(!frontendBuild.includes('MapLibre'), 'frontend build wrapper should not retain unused MapLibre worker handling');
   assert(frontendBuild.includes('buildTailwindCss()'), 'frontend build wrapper should compile Tailwind CSS');
   assert(frontendBuild.includes("'-o', TAILWIND_OUTPUT"), 'frontend build wrapper should write Tailwind to frontend-dist');
   assert(electronPkg.scripts?.start?.includes('frontend:build'), 'electron start should build the frontend first');

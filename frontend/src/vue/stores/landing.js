@@ -579,7 +579,16 @@ export const useLandingStore = defineStore('landing', {
     applyLandingCardMessage(msg, options = {}) {
       if (!msg || typeof msg !== 'object') return false;
 
-      const summaryPresentation = buildLandingPresentation(msg);
+      const observedLandingVsFpm = msg.vs !== null
+        && msg.vs !== undefined
+        && msg.vs !== ''
+        && Number.isFinite(Number(msg.vs))
+        ? Number(msg.vs)
+        : null;
+      const hasKnownNonDescendingRate = observedLandingVsFpm !== null && observedLandingVsFpm >= 0;
+      const summaryPresentation = buildLandingPresentation(hasKnownNonDescendingRate
+        ? { ...msg, grade: null, color: null }
+        : msg);
       const verdict = summaryPresentation.verdict;
       const normalized = verdict.normalized;
       const tdz = msg.touchdownDistance;
@@ -595,8 +604,11 @@ export const useLandingStore = defineStore('landing', {
       landingCard.gforceText = msg.gforce ? `G: ${msg.gforce.toFixed(2)}` : 'G: --';
       landingCard.airportText = msg.icao || '--';
       landingCard.runwayText = msg.runway ? `RWY ${msg.runway}` : '--';
-      landingCard.vsText = Number.isFinite(Number(msg.vs)) ? String(Math.round(Number(msg.vs))) : '--';
-      landingCard.vsColor = msg.color || 'inherit';
+      const landingVsFpm = observedLandingVsFpm !== null && observedLandingVsFpm < 0
+        ? observedLandingVsFpm
+        : null;
+      landingCard.vsText = landingVsFpm === null ? '--' : String(Math.round(landingVsFpm));
+      landingCard.vsColor = hasKnownNonDescendingRate ? 'inherit' : (msg.color || 'inherit');
 
       landingCard.gradeBreakdownText = summaryPresentation.touchdownDetailText;
       landingCard.gradeBreakdownVisible = summaryPresentation.touchdownDetailParts.length > 0;

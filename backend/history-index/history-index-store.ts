@@ -411,6 +411,9 @@ function readLandingRow(row: AnyRecord): AnyRecord {
       };
     }
   }
+  const recordedVsFpm = nullableNumber(row.vs_fpm);
+  const landingVsFpm = recordedVsFpm !== null && recordedVsFpm < 0 ? recordedVsFpm : null;
+  const landingGrade = recordedVsFpm !== null && landingVsFpm === null ? null : row.grade;
   return {
     landingId: row.landing_id,
     flightKey: row.flight_key,
@@ -422,8 +425,8 @@ function readLandingRow(row: AnyRecord): AnyRecord {
     aircraftProfileId: row.aircraft_profile_id,
     icao: row.icao,
     runway: row.runway,
-    vsFpm: row.vs_fpm,
-    grade: row.grade,
+    vsFpm: landingVsFpm,
+    grade: landingGrade,
     outcomeGrade: row.outcome_grade,
     gateStable,
     stabilityScore,
@@ -1179,7 +1182,7 @@ function createHistoryIndexStore(db: AnyRecord) {
         ${config.labelSql} AS label
         ${config.extraSelect},
         COUNT(*) AS count,
-        ROUND(AVG(vs_fpm)) AS avg_vs_fpm,
+        ROUND(AVG(CASE WHEN vs_fpm < 0 THEN vs_fpm END)) AS avg_vs_fpm,
         ROUND(AVG(stability_score)) AS avg_stability_score,
         MAX(timestamp_ms) AS latest_timestamp_ms
       FROM history_landings
@@ -1217,7 +1220,10 @@ function createHistoryIndexStore(db: AnyRecord) {
         avgStabilityScore: roundNullableNumber(row.avg_stability_score),
         stableRatePct: verdictValues.length > 0 ? Math.round((stableCount / verdictValues.length) * 100) : null,
         marginalRatePct: verdictValues.length > 0 ? Math.round((marginalCount / verdictValues.length) * 100) : null,
-        trendVs: linearTrend(trendRows.map((trendRow: AnyRecord) => nullableNumber(trendRow.vs_fpm)), 'vs'),
+        trendVs: linearTrend(trendRows.map((trendRow: AnyRecord) => {
+          const vsFpm = nullableNumber(trendRow.vs_fpm);
+          return vsFpm !== null && vsFpm < 0 ? vsFpm : null;
+        }), 'vs'),
         trendStability: linearTrend(trendRows.map((trendRow: AnyRecord) => nullableNumber(trendRow.stability_score)), 'stability'),
         latestTimestampMs: nullableInteger(row.latest_timestamp_ms),
       };
@@ -1228,8 +1234,8 @@ function createHistoryIndexStore(db: AnyRecord) {
     const totals = db.prepare(`
       SELECT
         COUNT(*) AS total,
-        ROUND(AVG(vs_fpm)) AS avg_vs_fpm,
-        ROUND(MAX(vs_fpm)) AS best_vs_fpm,
+        ROUND(AVG(CASE WHEN vs_fpm < 0 THEN vs_fpm END)) AS avg_vs_fpm,
+        ROUND(MAX(CASE WHEN vs_fpm < 0 THEN vs_fpm END)) AS best_vs_fpm,
         COUNT(DISTINCT NULLIF(TRIM(icao), '')) AS airports,
         COUNT(DISTINCT NULLIF(TRIM(aircraft), '')) AS aircraft,
         SUM(CASE
@@ -1242,6 +1248,7 @@ function createHistoryIndexStore(db: AnyRecord) {
       SELECT grade AS label, COUNT(*) AS count
       FROM history_landings
       WHERE grade IS NOT NULL AND TRIM(grade) <> ''
+        AND (vs_fpm IS NULL OR vs_fpm < 0)
       GROUP BY grade
     `).all();
     const outcomeRows = db.prepare(`

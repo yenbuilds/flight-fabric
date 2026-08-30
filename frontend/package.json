@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-frontend",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -15,9 +15,7 @@
   },
   "dependencies": {
     "@floating-ui/vue": "^2.0.0",
-    "@maplibre/maplibre-gl-leaflet": "^0.1.4",
     "leaflet": "^1.9.4",
-    "maplibre-gl": "5.14.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.34"
   }

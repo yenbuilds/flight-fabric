@@ -204,8 +204,15 @@ export function createLandingController({
       getLandingStore()?.openLandingModal?.({ loading: false });
     }
 
-    const verticalSpeed = event.vs_fpm || 0;
-    const grade = event.grade || null;
+    const observedVerticalSpeed = typeof event.vs_fpm === 'number' && Number.isFinite(event.vs_fpm)
+      ? event.vs_fpm
+      : null;
+    const verticalSpeed = observedVerticalSpeed !== null && observedVerticalSpeed < 0
+      ? event.vs_fpm
+      : null;
+    const grade = observedVerticalSpeed !== null && observedVerticalSpeed >= 0
+      ? null
+      : (event.grade || null);
     const color = gradeHex(gradeSeverity(grade));
     const msg = {
       vs: verticalSpeed,

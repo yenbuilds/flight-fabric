@@ -1398,8 +1398,22 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     isCurrentTimelineRequestMessage(message) {
-      return Number.isSafeInteger(message?.requestId)
-        && message.requestId === this.timelineRequestId;
+      if (Number.isSafeInteger(message?.requestId)) {
+        return message.requestId === this.timelineRequestId;
+      }
+
+      // Older locally running backends can return a Timeline payload without
+      // echoing its request ID. Accept that compatibility response only while
+      // a request is actively loading and only when its identity matches the
+      // selected recording; an uncorrelated late response must never replace a
+      // newer flight selection.
+      const requestedKey = this.timelineLoadingFlightKey;
+      const timeline = message?.timeline;
+      const responseKey = timeline?.filePath || timeline?.flightId || '';
+      return this.timelineLoadStatus === 'loading'
+        && Boolean(requestedKey)
+        && Boolean(responseKey)
+        && flightPathMatches(requestedKey, responseKey);
     },
 
     requestFlightLanding(flight) {

@@ -325,12 +325,15 @@ const trendGroups = computed(() => {
 const hasTrendGroups = computed(() => trendGroups.value.length > 0);
 
 const bestEntry = computed(() => {
-  if (!hasEntries.value) return null;
-  return logbook.entries.reduce((best, entry) => {
-    const currentVs = typeof entry?.vsFpm === 'number' ? entry.vsFpm : Infinity;
-    const bestVs = typeof best?.vsFpm === 'number' ? best.vsFpm : Infinity;
-    return Math.abs(currentVs) < Math.abs(bestVs) ? entry : best;
-  }, logbook.entries[0]);
+  const gradedRates = logbook.entries.filter((entry) => (
+    typeof entry?.vsFpm === 'number'
+    && Number.isFinite(entry.vsFpm)
+    && entry.vsFpm < 0
+  ));
+  if (gradedRates.length === 0) return null;
+  return gradedRates.reduce((best, entry) => (
+    Math.abs(entry.vsFpm) < Math.abs(best.vsFpm) ? entry : best
+  ), gradedRates[0]);
 });
 
 const bestInlineText = computed(() => {

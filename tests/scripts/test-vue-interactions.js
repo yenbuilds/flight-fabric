@@ -4254,14 +4254,8 @@ async function main() {
     const glyphEl = new FakeElement('live-plane-glyph');
     glyphEl.style = {};
     let livePlaneIconConfig = null;
-    const basemapStyles = [];
-    const basemapAttributions = [];
-    const basemapHandlers = {};
-    const fallbackTiles = [];
+    const basemapTiles = [];
     const renderedTracks = [];
-    let maplibreLayer = null;
-    let queuedMaplibreFrame = null;
-    let unsafeMaplibreCallbackCalls = 0;
     const cursorElement = {
       querySelector(selector) {
         return selector === '.live-plane-glyph' ? glyphEl : null;
@@ -4276,12 +4270,7 @@ async function main() {
       getZoom() { return 11; },
       getCenter() { return { lat: -33.9, lng: 151.2 }; },
       invalidateSize() {},
-      removeLayer(layer) {
-        if (layer === maplibreLayer) {
-          layer._map = null;
-          layer._glMap = null;
-        }
-      },
+      removeLayer() {},
       getSize() { return { x: 0, y: 0 }; },
     };
 
@@ -4289,36 +4278,10 @@ async function main() {
       map() {
         return mapInstance;
       },
-      maplibreGL(options) {
-        basemapStyles.push(options.style);
-        basemapAttributions.push(options.attributionControl?.customAttribution || '');
-        maplibreLayer = {
-          _map: mapInstance,
-          _glMap: {},
-          _zoomEnd() { unsafeMaplibreCallbackCalls += 1; },
-          _transitionEnd() { unsafeMaplibreCallbackCalls += 1; },
-          addTo() { return this; },
-          getMaplibreMap() {
-            return {
-              once(eventName, handler) {
-                basemapHandlers[eventName] = handler;
-              },
-            };
-          },
-        };
-        return maplibreLayer;
-      },
-      Util: {
-        requestAnimFrame(callback, context) {
-          queuedMaplibreFrame = () => callback.call(context);
-        },
-      },
-      DomUtil: {
-        setTransform() {},
-      },
       tileLayer(url, options) {
-        fallbackTiles.push({ url, options });
+        basemapTiles.push({ url, options });
         return {
+          once() { return this; },
           on() { return this; },
           addTo() { return this; },
         };
@@ -4367,7 +4330,7 @@ async function main() {
     for (const [lat, lon] of hiddenTrackPoints) {
       controller.handlePositionMessage({ lat, lon, hdg: 87 });
     }
-    assert.deepEqual(basemapStyles, [], 'hidden live map should defer Leaflet initialization');
+    assert.deepEqual(basemapTiles, [], 'hidden live map should defer Leaflet initialization');
     liveMapVisible = true;
     controller.handleTabActivated();
 
@@ -4379,18 +4342,8 @@ async function main() {
 
     assert.equal(liveMapStore.mapEmptyVisible, false, 'first live position should hide the live-map empty state through the store');
     assert.match(liveMapStore.metaText, /Lat -33\.94610 - Lon 151\.17720 - HDG 087 deg/, 'live positions should keep updating the live-map meta text');
-    assert.equal(basemapStyles[0], 'https://tiles.openfreemap.org/styles/dark', 'live map should use the unambiguous OpenFreeMap dark vector style');
-    assert.match(basemapAttributions[0], /OpenFreeMap.*OpenMapTiles.*OpenStreetMap/, 'live map should display the provider and data attribution');
-    basemapHandlers.error?.({ error: new Error('fixture vector-map failure') });
-    assert.equal(fallbackTiles.length, 1, 'live map should switch to one raster fallback when the vector basemap fails');
-    assert.equal(fallbackTiles[0].url, 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png', 'live map fallback should use OpenFreeMap raster tiles');
-    assert.equal(fallbackTiles[0].options.maxNativeZoom, 6, 'live map fallback should not request unavailable high-detail raster tiles');
-    assert.match(fallbackTiles[0].options.attribution, /OpenFreeMap.*Natural Earth/, 'live map fallback should retain provider attribution');
-    assert.equal(liveMapStore.metaText, 'Using simplified OpenFreeMap basemap', 'live map should disclose the active fallback');
-    maplibreLayer._zoomEnd();
-    maplibreLayer._transitionEnd();
-    queuedMaplibreFrame?.();
-    assert.equal(unsafeMaplibreCallbackCalls, 0, 'removed vector layers should ignore queued zoom and resize callbacks');
+    assert.equal(basemapTiles[0]?.url, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'live map should use standard OpenStreetMap raster tiles');
+    assert.match(basemapTiles[0]?.options?.attribution || '', /OpenStreetMap.*contributors/, 'live map should display OpenStreetMap attribution');
     assert.match(livePlaneIconConfig?.html || '', /<svg\b/, 'live plane marker should use SVG instead of a text glyph');
     assert.equal(glyphEl.style.transform, 'rotate(87deg)', 'live plane marker should point at the reported heading');
 
@@ -4558,7 +4511,7 @@ async function main() {
       'live map heading updates should smooth visible heading changes',
     );
 
-    basemapStyles.length = 0;
+    basemapTiles.length = 0;
     const quietTileController = createLiveMapController({
       mapEl,
       liveMapStore,
@@ -4576,7 +4529,7 @@ async function main() {
       lon: 151.1772,
       hdg: 87,
     });
-    assert.deepEqual(basemapStyles, [], 'live map should skip the online basemap when the user disables it');
+    assert.deepEqual(basemapTiles, [], 'live map should skip the online basemap when the user disables it');
   });
 
   await test('live-map runtime no longer requires the legacy empty-state element to initialize', async () => {
@@ -4619,12 +4572,11 @@ async function main() {
       map() {
         return mapInstance;
       },
-      maplibreGL() {
+      tileLayer() {
         return {
+          once() { return this; },
+          on() { return this; },
           addTo() { return this; },
-          getMaplibreMap() {
-            return { once() {} };
-          },
         };
       },
       marker() {
@@ -5855,11 +5807,10 @@ async function main() {
         if (mapCalls === 1) throw new Error('Map container is already initialized.');
         return fakeMap;
       },
-      maplibreGL: () => ({
+      tileLayer: () => ({
+        once() { return this; },
+        on() { return this; },
         addTo() { return this; },
-        getMaplibreMap() {
-          return { once() {} };
-        },
       }),
       DomEvent: {
         disableScrollPropagation() {},
@@ -5926,10 +5877,7 @@ async function main() {
 
     const removedLayers = [];
     const clearLayerCalls = [];
-    const basemapStyles = [];
-    const basemapAttributions = [];
-    const basemapHandlers = {};
-    const fallbackTiles = [];
+    const basemapTiles = [];
     let cursorLayer = null;
     let mapSize = { x: 640, y: 360 };
     let fitBoundsCalls = 0;
@@ -5951,23 +5899,10 @@ async function main() {
     const fakeL = {
       canvas: () => ({ renderer: 'canvas' }),
       map: () => fakeMap,
-      maplibreGL: (options) => {
-        basemapStyles.push(options.style);
-        basemapAttributions.push(options.attributionControl?.customAttribution || '');
-        return {
-          addTo() { return this; },
-          getMaplibreMap() {
-            return {
-              once(eventName, handler) {
-                basemapHandlers[eventName] = handler;
-              },
-            };
-          },
-        };
-      },
       tileLayer(url, options) {
-        fallbackTiles.push({ url, options });
+        basemapTiles.push({ url, options });
         return {
+          once() { return this; },
           on() { return this; },
           addTo() { return this; },
         };
@@ -6031,13 +5966,8 @@ async function main() {
       track: [{ lat: 1, lon: 2, timestampMs: 1000, hdgTrueDeg: 90 }],
     };
     controller.render(baseTimeline);
-    assert.equal(basemapStyles[0], 'https://tiles.openfreemap.org/styles/dark', 'timeline replay map should use the unambiguous OpenFreeMap dark vector style');
-    assert.match(basemapAttributions[0], /OpenFreeMap.*OpenMapTiles.*OpenStreetMap/, 'timeline replay map should display the provider and data attribution');
-    basemapHandlers.error?.({ error: new Error('fixture vector-map failure') });
-    assert.equal(fallbackTiles.length, 1, 'timeline replay should switch to one raster fallback when the vector basemap fails');
-    assert.equal(fallbackTiles[0].url, 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png', 'timeline replay fallback should use OpenFreeMap raster tiles');
-    assert.equal(fallbackTiles[0].options.maxNativeZoom, 6, 'timeline replay fallback should not request unavailable high-detail raster tiles');
-    assert.match(fallbackTiles[0].options.attribution, /OpenFreeMap.*Natural Earth/, 'timeline replay fallback should retain provider attribution');
+    assert.equal(basemapTiles[0]?.url, 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'timeline replay map should use standard OpenStreetMap raster tiles');
+    assert.match(basemapTiles[0]?.options?.attribution || '', /OpenStreetMap.*contributors/, 'timeline replay map should display OpenStreetMap attribution');
     const initialFitBoundsCalls = fitBoundsCalls;
     mapEl.clientWidth = 900;
     mapEl.clientHeight = 520;
@@ -6189,11 +6119,10 @@ async function main() {
     const fakeL = {
       canvas: () => ({ renderer: 'canvas' }),
       map: () => fakeMap,
-      maplibreGL: () => ({
+      tileLayer: () => ({
+        once() { return this; },
+        on() { return this; },
         addTo() { return this; },
-        getMaplibreMap() {
-          return { once() {} };
-        },
       }),
       DomEvent: {
         disableScrollPropagation() {},
@@ -6472,6 +6401,13 @@ async function main() {
     assert.equal(landingCard.classList.contains('hidden'), true, 'wrapper visibility is now owned by Vue store state');
     assert.equal(waitingState.classList.contains('hidden'), false, 'waiting shell DOM is no longer toggled directly by the controller');
     assert.deepEqual(landingEvents, ['landing-received'], 'timeline landing action should emit the landing-received event');
+
+    controller.showTimelineLanding({ type: 'landing', vs_fpm: null, grade: null });
+    assert.equal(landingStore.landingCard.vsText, '--', 'timeline handoff must preserve an unavailable touchdown rate');
+    assert.equal(landingStore.landingCard.gradeText, '--', 'timeline handoff must preserve an unavailable touchdown grade');
+    controller.showTimelineLanding({ type: 'landing', vs_fpm: 150, grade: 'PERFECT' });
+    assert.equal(landingStore.landingCard.vsText, '--', 'timeline handoff must suppress a non-descending touchdown rate');
+    assert.equal(landingStore.landingCard.gradeText, '--', 'timeline handoff must suppress a stale non-descending grade');
     unsubscribeLandingReceived();
   });
 

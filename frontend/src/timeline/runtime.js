@@ -151,14 +151,24 @@ export function createTimelineRuntime({
     if (msg.type === 'timeline' && msg.timeline) {
       if (!isCurrentTimelineRequestMessage(msg)) return;
       const isAnalysisRescoreRefresh = timelineStore.isFlightAnalysisRescoreRefreshMessage?.(msg) === true;
-      timelinePage.loadTimeline(msg.timeline);
-      finishTimelineLoading();
-      timelineStore.openPendingFlightLandingFromTimeline?.(timelinePage.getCurrentTimeline?.() || msg.timeline);
-      if (timelineStore.timelineMobileViewerOpen) {
-        scheduleTimelineViewerMapRender();
-      }
-      if (isAnalysisRescoreRefresh) {
-        timelineStore.finishFlightAnalysisRescoreRefresh?.(msg);
+      try {
+        timelinePage.loadTimeline(msg.timeline);
+        timelineStore.openPendingFlightLandingFromTimeline?.(timelinePage.getCurrentTimeline?.() || msg.timeline);
+        if (timelineStore.timelineMobileViewerOpen) {
+          scheduleTimelineViewerMapRender();
+        }
+        if (isAnalysisRescoreRefresh) {
+          timelineStore.finishFlightAnalysisRescoreRefresh?.(msg);
+        }
+      } catch (error) {
+        const errorMessage = `Could not display timeline: ${error?.message || 'unknown error'}`;
+        console.error('[Timeline] Failed to display Timeline response', error);
+        timelineStore.failPendingFlightLanding?.(errorMessage);
+        timelinePage.showEmpty?.({ message: errorMessage });
+      } finally {
+        // A map or rendering exception must not strand the viewer in its
+        // loading state after the backend has already supplied a response.
+        finishTimelineLoading();
       }
     }
 

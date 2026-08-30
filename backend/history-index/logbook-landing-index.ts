@@ -80,6 +80,19 @@ function landingToIndexInput(landing: AnyRecord, source: CsvFileIdentity): AnyRe
   const sourceLandingId = typeof landing.id === 'string' && landing.id
     ? landing.id
     : String(landing.timestampMs ?? 0);
+  const recordedVsFpm = landing.vsFpm !== null
+    && landing.vsFpm !== undefined
+    && Number.isFinite(Number(landing.vsFpm))
+      ? Number(landing.vsFpm)
+      : null;
+  const hasKnownNonDescendingRate = recordedVsFpm !== null && recordedVsFpm >= 0;
+  const indexedVsFpm = recordedVsFpm !== null && recordedVsFpm < 0 ? recordedVsFpm : null;
+  const indexedGrade = hasKnownNonDescendingRate
+    ? null
+    : (typeof landing.grade === 'string' ? landing.grade : null);
+  const indexedOutcomeGrade = hasKnownNonDescendingRate
+    ? logbookOutcomeGrade(landing)
+    : (typeof landing.outcomeGrade === 'string' ? landing.outcomeGrade : logbookOutcomeGrade(landing));
   return {
     // landing.id is display data and is not guaranteed to be globally unique.
     // Scope the SQLite primary key to the authoritative CSV source while the
@@ -94,9 +107,9 @@ function landingToIndexInput(landing: AnyRecord, source: CsvFileIdentity): AnyRe
     aircraftProfileId: typeof landing.aircraftProfileId === 'string' ? landing.aircraftProfileId : null,
     icao: typeof landing.icao === 'string' ? landing.icao : null,
     runway: typeof landing.runway === 'string' ? landing.runway : null,
-    vsFpm: Number.isFinite(Number(landing.vsFpm)) ? Number(landing.vsFpm) : null,
-    grade: typeof landing.grade === 'string' ? landing.grade : null,
-    outcomeGrade: typeof landing.outcomeGrade === 'string' ? landing.outcomeGrade : logbookOutcomeGrade(landing),
+    vsFpm: indexedVsFpm,
+    grade: indexedGrade,
+    outcomeGrade: indexedOutcomeGrade,
     gateStable: typeof landing.gateStable === 'boolean' ? landing.gateStable : null,
     stabilityScore:
       landing.stabilityScore !== null

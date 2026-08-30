@@ -2300,6 +2300,13 @@ async function main() {
     });
     assert.equal(flight.lastLanding.stability, 'NO VERDICT', 'landing preview should explicitly distinguish missing stability from a 0% score');
 
+    flight.updateLandingPreview({ final: true, vs: null, grade: null });
+    assert.equal(flight.lastLanding.vs, '--', 'unavailable touchdown rate must not render as zero');
+    assert.equal(flight.lastLanding.grade, '--', 'unavailable touchdown rate must not invent a grade');
+    flight.updateLandingPreview({ final: true, vs: 150, grade: 'PERFECT' });
+    assert.equal(flight.lastLanding.vs, '--', 'non-descending touchdown rate must not be displayed');
+    assert.equal(flight.lastLanding.grade, '--', 'non-descending touchdown rate must not retain a legacy grade');
+
     flight.updateLandingPreview({
       final: true,
       vs: -280,
@@ -3069,6 +3076,19 @@ async function main() {
     landing.closeLandingModal();
     assert.equal(landing.landingModalOpen, false, 'landing modal should close through store state');
     assert.equal(landing.landingModalError, '', 'closing the landing modal should clear modal errors');
+  });
+
+  await test('landing store renders unavailable touchdown rate and grade conservatively', () => {
+    resetStoreTestContext();
+    const landing = useLandingStore();
+
+    landing.applyLandingCardMessage({ final: true, vs: null, grade: null });
+    assert.equal(landing.landingCard.vsText, '--', 'null touchdown rate must not render as zero');
+    assert.equal(landing.landingCard.gradeText, '--', 'null touchdown rate must not render a grade');
+    landing.applyLandingCardMessage({ final: true, vs: 150, grade: 'PERFECT', color: '#22c55e' });
+    assert.equal(landing.landingCard.vsText, '--', 'non-descending touchdown rate must not be displayed');
+    assert.equal(landing.landingCard.gradeText, '--', 'non-descending touchdown rate must not retain a legacy grade');
+    assert.equal(landing.landingCard.vsColor, 'inherit', 'non-descending touchdown rate must not retain a success color');
   });
 
   await test('landing store formats landing-card summary, metrics, and in-flight rows', async () => {
@@ -4216,6 +4236,22 @@ async function main() {
     assert.equal(store.timelineMobileViewerOpen, true, 'requestTimeline should open the fullscreen mobile timeline viewer when a request is sent');
     assert.equal(store.mapEmptyVisible, true, 'requestTimeline should show replay-map loading feedback while the backend responds');
     assert.equal(store.mapEmptyMessage, 'Loading timeline replay...', 'requestTimeline should replace stale replay-map empty copy while loading');
+    assert.equal(
+      store.isCurrentTimelineRequestMessage({
+        type: 'timeline',
+        timeline: { filePath: 'flight.csv', flightId: 'F2' },
+      }),
+      true,
+      'a matching legacy Timeline response without a request ID should complete the active loading request',
+    );
+    assert.equal(
+      store.isCurrentTimelineRequestMessage({
+        type: 'timeline',
+        timeline: { filePath: 'other-flight.csv', flightId: 'OTHER' },
+      }),
+      false,
+      'an uncorrelated legacy Timeline response must not replace the selected flight',
+    );
     store.closeTimelineMobileViewer();
     assert.equal(store.timelineMobileViewerOpen, false, 'closeTimelineMobileViewer should hide the fullscreen mobile timeline viewer without clearing the loaded timeline');
     store.clearTimelineLoading();
@@ -5279,10 +5315,10 @@ async function main() {
 
     store.setMapEmptyState({
       visible: false,
-      message: 'Using OpenFreeMap dark basemap',
+      message: 'Using OpenStreetMap standard basemap',
     });
     assert.equal(store.mapEmptyVisible, false, 'setMapEmptyState should update visibility');
-    assert.equal(store.mapEmptyMessage, 'Using OpenFreeMap dark basemap', 'setMapEmptyState should update the visible copy');
+    assert.equal(store.mapEmptyMessage, 'Using OpenStreetMap standard basemap', 'setMapEmptyState should update the visible copy');
 
     store.setScrubberState({
       visible: true,

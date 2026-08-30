@@ -10,14 +10,6 @@ const VITE_BIN = path.join(FRONTEND_DIR, 'node_modules', 'vite', 'bin', 'vite.js
 const TAILWIND_CONFIG = path.join(ROOT, 'tailwind.config.js');
 const TAILWIND_INPUT = path.join(FRONTEND_DIR, 'tailwind-input.css');
 const TAILWIND_OUTPUT = path.join(OUT_DIR, 'tailwind.css');
-const MAPLIBRE_PACKAGE_PATH = path.join(FRONTEND_DIR, 'node_modules', 'maplibre-gl', 'package.json');
-const MAPLIBRE_DIST_DIR = path.join(FRONTEND_DIR, 'node_modules', 'maplibre-gl', 'dist');
-const MAPLIBRE_VERSION = JSON.parse(fs.readFileSync(MAPLIBRE_PACKAGE_PATH, 'utf8')).version;
-const MAPLIBRE_MAJOR = Number.parseInt(MAPLIBRE_VERSION.split('.')[0], 10);
-const MAPLIBRE_RUNTIME_FILES = [
-  'maplibre-gl-worker.mjs',
-  'maplibre-gl-shared.mjs',
-];
 const TAILWIND_CLI_CANDIDATES = [
   path.join(ROOT, 'node_modules', 'tailwindcss', 'lib', 'cli.js'),
   path.join(ROOT, 'electron', 'node_modules', 'tailwindcss', 'lib', 'cli.js'),
@@ -72,19 +64,6 @@ function copyDirTo(sourceRelativePath, destinationRelativePath) {
   fs.cpSync(srcPath, destPath, { recursive: true });
 }
 
-function copyMapLibreRuntimeFiles() {
-  if (MAPLIBRE_MAJOR < 6) return;
-
-  for (const fileName of MAPLIBRE_RUNTIME_FILES) {
-    const srcPath = path.join(MAPLIBRE_DIST_DIR, fileName);
-    const destPath = path.join(OUT_DIR, fileName);
-    if (!fs.existsSync(srcPath)) {
-      throw new Error(`Missing MapLibre runtime dependency: ${srcPath}`);
-    }
-    fs.copyFileSync(srcPath, destPath);
-  }
-}
-
 function assertBundledIndexHtml() {
   const indexPath = path.join(OUT_DIR, 'index.html');
   if (!fs.existsSync(indexPath)) {
@@ -136,39 +115,6 @@ function assertBundledVoiceWorklet() {
   }
 }
 
-function assertBundledMapLibreRuntime() {
-  const mainPath = path.join(OUT_DIR, 'main.js');
-  if (!fs.existsSync(mainPath)) {
-    throw new Error(`Missing built MapLibre runtime entry: ${mainPath}`);
-  }
-
-  const main = fs.readFileSync(mainPath, 'utf8');
-  if (MAPLIBRE_MAJOR < 6) {
-    if (!main.includes('createObjectURL') || !main.includes('Worker(')) {
-      throw new Error(`Built frontend does not contain the MapLibre ${MAPLIBRE_VERSION} embedded worker runtime.`);
-    }
-    return;
-  }
-
-  const workerPath = path.join(OUT_DIR, 'maplibre-gl-worker.mjs');
-  const sharedPath = path.join(OUT_DIR, 'maplibre-gl-shared.mjs');
-
-  for (const requiredPath of [mainPath, workerPath, sharedPath]) {
-    if (!fs.existsSync(requiredPath)) {
-      throw new Error(`Missing built MapLibre runtime asset: ${requiredPath}`);
-    }
-  }
-
-  if (!main.includes('maplibre-gl-worker.mjs')) {
-    throw new Error('Built frontend entry does not reference the MapLibre module worker.');
-  }
-
-  const worker = fs.readFileSync(workerPath, 'utf8');
-  if (!worker.includes('./maplibre-gl-shared.mjs')) {
-    throw new Error('Built MapLibre worker does not reference its shared runtime module.');
-  }
-}
-
 function buildBundle() {
   if (fs.existsSync(OUT_DIR)) {
     fs.rmSync(OUT_DIR, { recursive: true, force: true });
@@ -187,13 +133,10 @@ function buildBundle() {
   for (const relativePath of STATIC_DIRS) {
     copyDir(relativePath);
   }
-  copyMapLibreRuntimeFiles();
-
   buildTailwindCss();
 
   assertBundledIndexHtml();
   assertBundledVoiceWorklet();
-  assertBundledMapLibreRuntime();
   log('Frontend bundle ready.');
 }
 

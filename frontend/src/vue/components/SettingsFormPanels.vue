@@ -136,7 +136,7 @@ const settings = useSettingsEditorStore();
           <div class="min-w-0 flex-1">
             <span class="settings-toggle-head">
               <label for="setting-online-map-tiles" class="block text-sm font-medium text-gray-200 cursor-pointer">Use online map tiles</label>
-              <HelpTooltip label="Online map tiles help">Map views use OpenFreeMap's dark vector basemap, with a simplified OpenFreeMap raster fallback. Turn this off to avoid third-party map traffic.</HelpTooltip>
+              <HelpTooltip label="Online map tiles help">Map views use OpenStreetMap's standard labeled basemap. Turn this off to avoid third-party map traffic.</HelpTooltip>
             </span>
           </div>
         </div>

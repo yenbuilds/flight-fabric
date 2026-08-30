@@ -212,6 +212,23 @@ test('computeStatsFromEntries matches logbook panel aggregate values', () => {
   assertEqual(stats.trends.runways[0].label, 'KBOS 33R', 'runway trend label');
 });
 
+test('landing-rate statistics ignore non-descending values without dropping landings', () => {
+  const stats = flightLogbook.computeStatsFromEntries([
+    { vsFpm: -300, grade: 'GOOD', aircraft: 'A320', timestampMs: 1 },
+    { vsFpm: -180, grade: 'PERFECT', aircraft: 'A320', timestampMs: 2 },
+    { vsFpm: 150, grade: 'PERFECT', aircraft: 'A320', timestampMs: 3 },
+    { vsFpm: null, grade: null, aircraft: 'A320', timestampMs: 4 },
+  ]);
+
+  assertEqual(stats.total, 4, 'all touchdown records remain counted');
+  assertEqual(stats.avgVsFpm, -240, 'average excludes unavailable/invalid rates');
+  assertEqual(stats.bestVsFpm, -180, 'softest rate excludes unavailable/invalid rates');
+  assertEqual(stats.grades.PERFECT, 1, 'positive rate cannot add a PERFECT grade');
+  assertEqual(stats.trends.aircraft[0].count, 4, 'trend group retains every touchdown');
+  assertEqual(stats.trends.aircraft[0].avgVsFpm, -240, 'trend average excludes unavailable/invalid rates');
+  assertEqual(stats.trends.aircraft[0].trendVs, null, 'two valid rates are insufficient for a trend');
+});
+
 test('logbook PERFECT outcomes require explicit stable, target, and clean evidence', () => {
   const verified = {
     grade: 'PERFECT',
@@ -350,6 +367,21 @@ test('addEntry grades camelCase live payloads through their recorded aircraft pr
   flightLogbook.clearAll();
 });
 
+test('addEntry retains a non-descending touchdown without exposing a rate grade', () => {
+  flightLogbook.clearAll();
+  const entry = flightLogbook.addEntry({
+    timestamp_ms: 4,
+    vs_fpm: 150,
+    grade: 'PERFECT',
+    aircraft: 'A320',
+  });
+
+  assertEqual(entry.vsFpm, null, 'non-descending rate');
+  assertEqual(entry.grade, null, 'non-descending grade');
+  assertEqual(flightLogbook.getEntries().length, 1, 'touchdown remains in the logbook');
+  flightLogbook.clearAll();
+});
+
 test('logbook compatible writes do not downgrade future versions', () => {
   const logbookFile = flightLogbook.LOGBOOK_FILE;
   fs.mkdirSync(path.dirname(logbookFile), { recursive: true });
@@ -462,6 +494,23 @@ async function runAsyncTests() {
     assertNull(landings[0].stabilityScore, 'stabilityScore');
     assertEqual(landings[0].stabilityVerdict, 'no_verdict', 'stabilityVerdict');
     assertNull(landings[0].stabilityBreakdown, 'stabilityBreakdown');
+  });
+
+  await testAsync('CSV history retains a non-descending touchdown with unavailable rate and grade', async () => {
+    const logsRoot = path.join(tempHome, 'Documents', 'Flight Fabric');
+    const logsDir = path.join(logsRoot, 'Flight Logs');
+    fs.rmSync(logsRoot, { recursive: true, force: true });
+    fs.mkdirSync(logsDir, { recursive: true });
+
+    const csvPath = createCanonicalCsvPath(logsDir, 'unavailable-landing-rate');
+    const headers = ['ts', 'record_type', 'vs_fpm', 'grade', 'aircraft'];
+    const rows = [[1, 'LANDING', 150, 'PERFECT', 'A320']];
+    fs.writeFileSync(csvPath, [headers.join(','), ...rows.map((row) => row.join(','))].join('\n'), 'utf8');
+
+    const landings = await flightLogbook.getLandingsFromCSVs({ bypassCachePaths: [csvPath] });
+    assertEqual(landings.length, 1, 'touchdown remains available');
+    assertNull(landings[0].vsFpm, 'touchdown rate');
+    assertNull(landings[0].grade, 'touchdown grade');
   });
 
   await testAsync('getLandingsFromCSVs reads canonical bundles and preserves ts=0', async () => {

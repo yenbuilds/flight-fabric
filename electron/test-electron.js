@@ -215,9 +215,6 @@ for (const [label, url] of [
   ['MobiFlight install guide', 'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/'],
   ['MobiFlight enable guide', 'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/'],
   ['OpenStreetMap copyright', 'https://www.openstreetmap.org/copyright'],
-  ['OpenFreeMap attribution', 'https://openfreemap.org/'],
-  ['OpenMapTiles attribution', 'https://openmaptiles.org/'],
-  ['Natural Earth attribution', 'https://www.naturalearthdata.com/'],
   ['Leaflet attribution', 'https://leafletjs.com/'],
 ]) {
   test(`external URL policy allows ${label}`, resolveAllowedExternalUrl(url) === url);
@@ -241,7 +238,7 @@ for (const [label, url] of [
   ['fragment', 'https://github.com/yenbuilds/flight-fabric/releases/latest#download'],
   ['unapproved MobiFlight page', 'https://docs.mobiflight.com/'],
   ['OpenStreetMap lookalike', 'https://www.openstreetmap.org.attacker.example/copyright'],
-  ['leading whitespace', ' https://openfreemap.org/'],
+  ['leading whitespace', ' https://www.openstreetmap.org/copyright'],
   ['oversized URL', `https://github.com/yenbuilds/flight-fabric/releases/${'a'.repeat(2048)}`],
   ['malformed URL', 'not a URL'],
 ]) {
@@ -1464,6 +1461,13 @@ test(
     mainSource.includes("script-src 'self' 'nonce-${nonce}'") &&
     mainSource.includes("script-src-attr 'none'") &&
     !mainSource.match(/script-src[^"\n]*unsafe-eval/),
+);
+test(
+  'desktop OpenStreetMap tile requests carry app-specific identification',
+  mainSource.includes("const OPENSTREETMAP_TILE_REQUEST_PATTERN = 'https://tile.openstreetmap.org/*'") &&
+    mainSource.includes('function installOpenStreetMapRequestIdentification()') &&
+    mainSource.includes("requestHeaders['User-Agent'] = userAgent") &&
+    mainSource.indexOf('installOpenStreetMapRequestIdentification();') < mainSource.indexOf('createWindow();'),
 );
 test(
   'emergency renderer fallback hash-approves its fixed inline script',

@@ -8,10 +8,7 @@ const FIXED_EXTERNAL_URLS = new Set([
   'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/',
   'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/',
   'https://leafletjs.com/',
-  'https://openfreemap.org/',
-  'https://openmaptiles.org/',
   'https://www.openstreetmap.org/copyright',
-  'https://www.naturalearthdata.com/',
 ]);
 
 function isReleasePath(pathname) {

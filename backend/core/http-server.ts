@@ -487,7 +487,6 @@ export function buildContentSecurityPolicy(
     'ws://localhost:*',
     'ws://127.0.0.1:*',
     'ws://[::1]:*',
-    'https://tiles.openfreemap.org',
   ]);
   const requestHost = extractHostnameFromHostHeader(req.headers.host);
   if (remoteAccessEnable && isPrivateLanIpv4(requestHost)) {
@@ -508,7 +507,7 @@ export function buildContentSecurityPolicy(
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob: https://tiles.openfreemap.org",
+    "img-src 'self' data: blob: https://tile.openstreetmap.org",
     "media-src 'self' data: blob:",
     `connect-src ${[...connectSources].join(' ')}`,
     "worker-src 'self' blob:",
@@ -953,7 +952,10 @@ export function startHttpServer({
     }
 
     if (requestUrl === '/' || requestUrl === '/remote' || requestUrl === '/remote.html' || requestUrl === '/overlay' || requestUrl.startsWith('/remote?') || requestUrl.startsWith('/?')) {
-      res.setHeader('Referrer-Policy', 'no-referrer');
+      // OpenStreetMap requires web tile requests to carry a valid Referer.
+      // Origin-only cross-site referrers identify this dashboard without
+      // exposing a session pairing token from the document query string.
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       streamFirstExistingFile(res, resolveFrontendAssetCandidates('index.html'), 'text/html', cspNonce);
       return;
     }

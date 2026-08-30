@@ -304,14 +304,14 @@ async function assertCompactFlightLayout(windowRef) {
   }
 }
 
-async function assertMapLibreWorkerRuntime(windowRef) {
+async function assertLeafletRuntime(windowRef) {
   const result = await evaluate(windowRef, `(() => ({
     leaflet: typeof window.L?.map,
-    maplibreLeafletAdapter: typeof window.L?.maplibreGL,
+    tileLayer: typeof window.L?.tileLayer,
   }))()`);
 
   assert.equal(result?.leaflet, 'function', 'Leaflet should load in Electron');
-  assert.equal(result?.maplibreLeafletAdapter, 'function', 'The bundled MapLibre Leaflet adapter should load in Electron');
+  assert.equal(result?.tileLayer, 'function', 'The bundled Leaflet raster tile layer should load in Electron');
 }
 
 async function assertMobileShellLayout(windowRef) {
@@ -1802,7 +1802,7 @@ async function main() {
   await seedSimbriefFixture(windowRef);
   await windowRef.loadURL(targetUrl);
   await installClipboardProbe(windowRef);
-  await assertMapLibreWorkerRuntime(windowRef);
+  await assertLeafletRuntime(windowRef);
   await runSmoke(windowRef);
   await windowRef.close();
   await app.quit();

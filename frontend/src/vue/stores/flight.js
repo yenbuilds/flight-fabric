@@ -645,9 +645,18 @@ export const useFlightStore = defineStore('flight', {
 
     updateLandingPreview(rawLanding) {
       if (!rawLanding) return null;
-      const presentation = buildLandingPresentation(rawLanding);
+      const observedVs = rawLanding.vs !== null
+        && rawLanding.vs !== undefined
+        && rawLanding.vs !== ''
+        && Number.isFinite(Number(rawLanding.vs))
+        ? Number(rawLanding.vs)
+        : null;
+      const hasKnownNonDescendingRate = observedVs !== null && observedVs >= 0;
+      const vs = observedVs !== null && observedVs < 0 ? observedVs : NaN;
+      const presentation = buildLandingPresentation(hasKnownNonDescendingRate
+        ? { ...rawLanding, grade: null, color: null }
+        : rawLanding);
       const normalized = presentation.verdict.normalized;
-      const vs = Number(rawLanding.vs);
       const baseStatus = rawLanding.final
         ? 'Latest touchdown report is ready.'
         : 'Preview from selected Logbook timeline event.';

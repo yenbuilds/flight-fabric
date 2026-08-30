@@ -3049,6 +3049,60 @@ async function runAsyncTests() {
         assert(recordedSnapshotLanding?.landingGradePreview == null, 'normal timeline must not add retired grade-preview state');
         assert(recordedSnapshotLanding?.landingRateContext?.profile?.id === 'fbw-a380x', 'recorded scoring context should be exposed');
 
+        const unavailableRateContext = JSON.stringify({
+          schemaVersion: 1,
+          criteriaSource: 'recorded',
+          policy: { id: 'landing-rate-v2', version: 2 },
+          profile: { id: 'fbw-a380x', name: 'FlyByWire A380X', resolved: true },
+          thresholds: {
+            perfectMinFpm: -150,
+            goodMinFpm: -300,
+            firmMinFpm: -400,
+            hardMinFpm: -600,
+          },
+          measurement: {
+            available: false,
+            reason: 'non_descending_touchdown_rate',
+            source: 'touchdown_frame',
+            observedVsFpm: 150,
+          },
+        });
+        const unavailableRateTimeline = timelineGenerator._generateTimelineFromRows(
+          'unavailable-rate.csv',
+          [
+            sample('unavailable-rate', 0),
+            sample('unavailable-rate', 1000, {
+              ra_ft: 0,
+              on_ground: true,
+              vs_fpm: -180,
+              alt_plane_ft: 700,
+            }),
+            {
+              ...sample('unavailable-rate', 1000, {
+                ra_ft: 0,
+                on_ground: true,
+                vs_fpm: null,
+                alt_plane_ft: 700,
+              }),
+              record_type: 'LANDING',
+              sample_index: 732,
+              grade: null,
+              landing_rate_context: unavailableRateContext,
+            },
+          ],
+        );
+        assert(unavailableRateTimeline.success === true, `expected unavailable-rate success, got ${unavailableRateTimeline.error}`);
+        const unavailableRateLanding = unavailableRateTimeline.timeline.events.find((event) => event.type === 'landing');
+        assert(unavailableRateLanding?.vs_fpm === null, 'LANDING row must clear the nearby SAMPLE touchdown rate');
+        assert(unavailableRateLanding?.grade === null, 'LANDING row must clear the nearby SAMPLE touchdown grade');
+        const unavailableRateAnalysis = unavailableRateTimeline.timeline.analysisRescore?.landings?.find(
+          (landing) => landing.landingKey === '732',
+        );
+        assert(
+          unavailableRateAnalysis?.metrics?.landingRate?.reason === 'recorded_landing_rate_unavailable',
+          'timeline must explain that the recorded landing rate is unavailable',
+        );
+
         const currentPreview = timelineGenerator._generateTimelineFromRows(
           'recorded-context-grade.csv',
           [contextBackedRow],

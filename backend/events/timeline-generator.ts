@@ -669,7 +669,9 @@ function getReplayStabilityPolicyFromRow(
  */
 function _computeGradeFromVs(vsFpm, profileId: unknown = null) {
   if (vsFpm == null || !Number.isFinite(Number(vsFpm))) return null;
-  const result = gradeLandingForRecordedProfile(Number(vsFpm), profileId);
+  const numericVsFpm = Number(vsFpm);
+  if (numericVsFpm >= 0) return null;
+  const result = gradeLandingForRecordedProfile(numericVsFpm, profileId);
   return result ? result.grade : null;
 }
 
@@ -806,11 +808,8 @@ function applyReplayLandingGrade(
     profileId: string;
   },
 ): AnyRecord {
-  const fallbackGrade = toNonEmptyString(event?.grade);
   event.vs_fpm = resolved.headline.vsFpm;
-  event.grade = resolved.mode === 'current-preview'
-    ? resolved.headline.grade
-    : (resolved.headline.grade ?? fallbackGrade);
+  event.grade = resolved.headline.grade;
   event.landingKey = resolved.landingKey;
   event.landingRateContext = resolved.context;
   event._analysisRescoreProfileId = resolved.profileId;

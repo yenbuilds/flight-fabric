@@ -129,9 +129,9 @@
 /**
  * Landing event data (partial — the full payload from buildLandingPayload() has 60+ fields).
  * @typedef {Object} LandingEvent
- * @property {number} vs_fpm - Touchdown vertical speed in fpm (negative = descent)
- * @property {'PERFECT'|'GOOD'|'FIRM'|'HARD'|'VERY HARD'} grade - Landing quality grade
- * @property {'lime'|'deepskyblue'|'gold'|'orange'|'red'} _ui_color - Grade colour for UI rendering
+ * @property {number|null} vs_fpm - Touchdown vertical speed in fpm (negative = descent), or null when conventional V/S cannot support a trustworthy rate
+ * @property {'PERFECT'|'GOOD'|'FIRM'|'HARD'|'VERY HARD'|null} grade - Landing quality grade, or null when the rate is unavailable
+ * @property {'lime'|'deepskyblue'|'gold'|'orange'|'red'|null} _ui_color - Grade colour for UI rendering
  * @property {number|null} gforce - Measured peak normal load factor at touchdown, or null when unavailable
  * @property {number|null} ias_kts - Indicated airspeed at touchdown in knots
  * @property {number|null} gs_kts - Ground speed at touchdown in knots

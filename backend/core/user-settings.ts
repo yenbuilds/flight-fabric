@@ -110,7 +110,7 @@ const DEFAULT_SETTINGS: SettingsObject = {
     // fully quiet app.
     updateChecks: true,
 
-    // Allow the online OpenFreeMap vector and raster basemaps in map views
+    // Allow the online OpenStreetMap standard basemap in map views.
     // (default: true). Turn off for local overlays without third-party tile
     // server requests.
     onlineMapTiles: true,

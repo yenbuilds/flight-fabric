@@ -357,6 +357,14 @@ function toRecordedNumber(value: unknown): number | null {
   return toNum(value);
 }
 
+function isDescendingLandingRate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value < 0;
+}
+
+function descendingLandingRateOrNull(value: unknown): number | null {
+  return isDescendingLandingRate(value) ? value : null;
+}
+
 function toBool(value: unknown): boolean | null {
   if (value === true || value === 1 || value === '1' || value === 'true') return true;
   if (value === false || value === 0 || value === '0' || value === 'false') return false;
@@ -709,7 +717,12 @@ function logbookOutcomeGrade(entry: Partial<LandingEntry>): string | null {
     : (typeof entry.touchdownDistanceGrade === 'string' && entry.touchdownDistanceGrade.trim()
       ? entry.touchdownDistanceGrade.trim()
       : null);
-  const vsGrade = typeof entry.grade === 'string' && entry.grade.trim() ? entry.grade.trim() : null;
+  const hasKnownInvalidRate = entry.vsFpm !== null
+    && entry.vsFpm !== undefined
+    && !isDescendingLandingRate(entry.vsFpm);
+  const vsGrade = !hasKnownInvalidRate && typeof entry.grade === 'string' && entry.grade.trim()
+    ? entry.grade.trim()
+    : null;
   const touchdownSeverity = logbookGradeSeverity(touchdownGrade);
   const vsSeverity = logbookGradeSeverity(vsGrade);
   const outcomeGrade = touchdownSeverity > vsSeverity ? touchdownGrade : (vsGrade || touchdownGrade);
@@ -935,11 +948,11 @@ function computeGroupTrendRows(
         key,
         label: labels.get(key) || key,
         count: groupEntries.length,
-        avgVsFpm: averageRounded(groupEntries.map((entry) => entry.vsFpm)),
+        avgVsFpm: averageRounded(groupEntries.map((entry) => descendingLandingRateOrNull(entry.vsFpm))),
         avgStabilityScore: averageRounded(groupEntries.map((entry) => entry.stabilityScore)),
         stableRatePct: verdictValues.length > 0 ? Math.round((stableCount / verdictValues.length) * 100) : null,
         marginalRatePct: verdictValues.length > 0 ? Math.round((marginalCount / verdictValues.length) * 100) : null,
-        trendVs: linearTrend(chronological.map((entry) => entry.vsFpm), 'vs'),
+        trendVs: linearTrend(chronological.map((entry) => descendingLandingRateOrNull(entry.vsFpm)), 'vs'),
         trendStability: linearTrend(chronological.map((entry) => entry.stabilityScore), 'stability'),
         latestTimestampMs: Number.isFinite(latestTimestampMs) ? latestTimestampMs : null,
       };
@@ -968,11 +981,13 @@ function getTrends(options?: TrendsOptions): GenericRecord {
 
   const points = chronoWindow.map((entry) => ({
     timestampMs: entry.timestampMs,
-    vsFpm: entry.vsFpm,
+    vsFpm: descendingLandingRateOrNull(entry.vsFpm),
     gforce: entry.gforce,
     stabilityScore: entry.stabilityScore,
     stabilityVerdict: resolveLandingEntryStabilityVerdict(entry),
-    grade: entry.grade,
+    grade: entry.vsFpm !== null && entry.vsFpm !== undefined && !isDescendingLandingRate(entry.vsFpm)
+      ? null
+      : entry.grade,
     icao: entry.icao,
     aircraft: entry.aircraft,
   }));
@@ -1078,7 +1093,6 @@ function parseLandingsFromContent(
     const recoveredBounceCount = consumeHistoryBounceCount(bounceState);
     const headline = resolveLandingRateHeadline(row, headlineGradeFromVs);
     const vsFpm = headline.vsFpm;
-    if (vsFpm === null || vsFpm >= 0) continue;
     const grade = headline.grade;
     const persistedBounceCount = toRecordedNumber(row.bounce_count);
     const bounceCount = persistedBounceCount ?? (recoveredBounceCount > 0 ? recoveredBounceCount : null);
@@ -1493,16 +1507,20 @@ function computeStatsFromEntries(entries: LandingEntry[]): GenericRecord {
   const aircraftSet = new Set<string>();
 
   for (const entry of entries) {
-    if (entry.grade) grades[entry.grade] = (grades[entry.grade] || 0) + 1;
+    const landingRate = descendingLandingRateOrNull(entry.vsFpm);
+    const hasKnownInvalidRate = entry.vsFpm !== null
+      && entry.vsFpm !== undefined
+      && landingRate === null;
+    if (!hasKnownInvalidRate && entry.grade) grades[entry.grade] = (grades[entry.grade] || 0) + 1;
     const outcomeGrade = logbookOutcomeGrade(entry);
     if (outcomeGrade) outcomeGrades[outcomeGrade] = (outcomeGrades[outcomeGrade] || 0) + 1;
     if (entry.touchdownDistanceGrade === 'Long Landing' || outcomeGrade === 'Long Landing') {
       longLandingCount += 1;
     }
-    if (Number.isFinite(entry.vsFpm)) {
-      vsSum += entry.vsFpm as number;
+    if (landingRate !== null) {
+      vsSum += landingRate;
       vsCount += 1;
-      if ((entry.vsFpm as number) > bestVs) bestVs = entry.vsFpm as number;
+      if (landingRate > bestVs) bestVs = landingRate;
     }
     if (entry.icao) airports.add(entry.icao);
     if (entry.aircraft) aircraftSet.add(entry.aircraft);

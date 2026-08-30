@@ -44,6 +44,8 @@ const {
 const APP_PRODUCT_NAME = 'Flight Fabric';
 const APP_ID = 'com.flightfabric.app';
 const APP_USER_MODEL_ID = app.isPackaged ? APP_ID : `${APP_ID}.dev`;
+const OPENSTREETMAP_TILE_REQUEST_PATTERN = 'https://tile.openstreetmap.org/*';
+const OPENSTREETMAP_CONTACT_URL = 'https://github.com/yenbuilds/flight-fabric';
 const BACKEND_SHUTDOWN_MESSAGE = `${JSON.stringify({ type: 'shutdown', reason: 'electron_stop' })}\n`;
 // Give normal cleanup 12 seconds, then let Electron own the complete Windows
 // tree kill. The backend's parent-only last resort is deliberately later.
@@ -648,9 +650,9 @@ function buildRendererContentSecurityPolicy(nonce) {
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob: https://tiles.openfreemap.org",
+    "img-src 'self' data: blob: https://tile.openstreetmap.org",
     "media-src 'self' data: blob:",
-    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://tiles.openfreemap.org",
+    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
   ].join('; ');
@@ -1043,6 +1045,22 @@ function installDefaultSessionPermissionPolicy() {
       if (!granted) debugLog(`Denied renderer permission ${phase}:`, permission);
     },
   });
+}
+
+function installOpenStreetMapRequestIdentification() {
+  const productToken = APP_PRODUCT_NAME.replace(/\s+/g, '');
+  const userAgent = `${productToken}/${app.getVersion()} (+${OPENSTREETMAP_CONTACT_URL})`;
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: [OPENSTREETMAP_TILE_REQUEST_PATTERN] },
+    (details, callback) => {
+      const requestHeaders = { ...(details.requestHeaders || {}) };
+      for (const headerName of Object.keys(requestHeaders)) {
+        if (headerName.toLowerCase() === 'user-agent') delete requestHeaders[headerName];
+      }
+      requestHeaders['User-Agent'] = userAgent;
+      callback({ requestHeaders });
+    },
+  );
 }
 
 async function loadDesktopApp(targetWindow = mainWindow, options = {}) {
@@ -3083,6 +3101,7 @@ registerTrustedIpcHandler('reveal-legal-folder', async () => {
 void app.whenReady().then(async () => {
   if (!gotTheLock) return;
   installDefaultSessionPermissionPolicy();
+  installOpenStreetMapRequestIdentification();
   const lock = await acquireRuntimeOwnerLock({ owner: 'electron' });
   if (!lock.acquired) {
     recordLifecycleSmokeEvent('startup-blocked', { reason: 'runtime-owner-lock' });

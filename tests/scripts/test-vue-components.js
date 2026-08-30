@@ -952,8 +952,8 @@ async function main() {
     assert.match(html, /Keep this off on public or shared networks\./, 'remote access help should warn against public or shared networks');
     assert.match(html, /after startup and then daily/, 'update checks help should describe low-cadence checks');
     assert.match(html, /Turn this off for a fully quiet app\./, 'update checks help should describe quiet-app behavior');
-    assert.match(html, /OpenFreeMap/, 'online map help should identify the basemap provider');
-    assert.match(html, /dark vector basemap/, 'online map help should identify the dark map style');
+    assert.match(html, /OpenStreetMap/, 'online map help should identify the basemap provider');
+    assert.match(html, /standard labeled basemap/, 'online map help should identify the labeled map style');
     assert.match(html, /Turn this off to avoid third-party map traffic/, 'online map help should describe third-party map traffic');
     assert.match(html, /About Flight Fabric/, 'about panel should render inside shell');
     assert.match(html, /AGPL-3\.0-only/, 'about panel should render the project AGPL license identifier');
@@ -7481,7 +7481,7 @@ async function main() {
         const timeline = useTimelineStore();
         timeline.setMapEmptyState({
           visible: true,
-          message: 'Using OpenFreeMap dark basemap',
+          message: 'Using OpenStreetMap standard basemap',
         });
         timeline.setScrubberState({
           visible: true,
@@ -7509,7 +7509,7 @@ async function main() {
       },
     );
 
-    assert.match(html, /Using OpenFreeMap dark basemap/, 'map empty-state copy should render from the timeline store');
+    assert.match(html, /Using OpenStreetMap standard basemap/, 'map empty-state copy should render from the timeline store');
     assert.doesNotMatch(html, /id="timeline-altitude-profile"[^>]*hidden/, 'visible altitude profile state should remove the hidden class');
     assert.match(html, /id="timeline-altitude-profile-path"[^>]*d="M 22 70 L 624 12"/, 'altitude profile path should render from the store');
     assert.match(html, /id="timeline-altitude-profile-cursor"/, 'altitude profile cursor should render from the store');

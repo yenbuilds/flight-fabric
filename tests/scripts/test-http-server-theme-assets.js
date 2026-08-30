@@ -291,10 +291,9 @@ async function run() {
     assertIncludes(lanPolicy, "script-src 'self' 'nonce-fixture-nonce'", 'CSP should permit only self-hosted and nonced scripts');
     assertNotIncludes(lanPolicy, "'unsafe-eval'", 'CSP should reject eval-style script execution');
     assertIncludes(lanPolicy, 'ws://192.168.50.49:*', 'trusted LAN CSP should allow the selected host on the WebSocket port');
-    assertIncludes(lanPolicy, 'https://tiles.openfreemap.org', 'CSP should allow the configured OpenFreeMap vector basemap');
-    assertIncludes(lanPolicy, 'img-src \'self\' data: blob: https://tiles.openfreemap.org', 'CSP should allow the OpenFreeMap raster fallback');
+    assertIncludes(lanPolicy, 'img-src \'self\' data: blob: https://tile.openstreetmap.org', 'CSP should allow the configured OpenStreetMap raster basemap');
     assertNotIncludes(lanPolicy, 'basemaps.cartocdn.com', 'CSP should not add a credential-dependent CARTO fallback');
-    assertNotIncludes(lanPolicy, 'tile.openstreetmap.org', 'CSP should not request the community OpenStreetMap tile service');
+    assertNotIncludes(lanPolicy, 'tiles.openfreemap.org', 'CSP should not retain the failed OpenFreeMap vector service');
     const reboundPolicy = httpServer.buildContentSecurityPolicy(
       { headers: { host: 'evil.example:8100' } },
       'fixture-nonce',
@@ -336,6 +335,11 @@ async function run() {
         ? dashboardPolicy.match(/script-src 'self' 'nonce-([^']+)'/)
         : null;
       assertEqual(dashboardPage.statusCode, 200, 'dashboard should still load with CSP enabled');
+      assertEqual(
+        dashboardPage.headers['referrer-policy'],
+        'strict-origin-when-cross-origin',
+        'dashboard tile requests should identify their origin without exposing pairing-token query parameters',
+      );
       assertEqual(Boolean(nonceMatch), true, 'dashboard CSP should contain a per-response script nonce');
       assertNotIncludes(dashboardPolicy, "script-src 'self' 'unsafe-inline'", 'dashboard CSP must not allow arbitrary inline scripts');
       assertNotIncludes(dashboardPolicy, "'unsafe-eval'", 'dashboard CSP must not allow eval-style script execution');

@@ -207,6 +207,55 @@ test('persisted rate grade is fallback-only when no conventional V/S exists', ()
   });
 });
 
+test('non-descending conventional V/S is never exposed or graded as a landing rate', () => {
+  assert.deepEqual(resolveLandingRateHeadline({
+    vs_fpm: 150,
+    grade: 'PERFECT',
+  }, a32nxGrade), {
+    vsFpm: null,
+    grade: null,
+  });
+  assert.deepEqual(resolveLandingRateHeadline({
+    vs_fpm: 0,
+    grade: 'PERFECT',
+  }, a32nxGrade, {
+    vs_fpm: -300,
+    grade: 'FIRM',
+  }), {
+    vsFpm: null,
+    grade: null,
+  });
+});
+
+test('explicitly unavailable recorded rate cannot be reconstructed from a nearby sample', () => {
+  assert.deepEqual(resolveLandingRateHeadline({
+    vs_fpm: null,
+    grade: null,
+    landing_rate_context: {
+      schemaVersion: 1,
+      criteriaSource: 'recorded',
+      policy: { id: 'landing-rate-v2', version: 2 },
+      profile: { id: 'generic' },
+      thresholds: {
+        perfectMinFpm: -150,
+        goodMinFpm: -300,
+        firmMinFpm: -400,
+        hardMinFpm: -600,
+      },
+      measurement: {
+        available: false,
+        reason: 'non_descending_touchdown_rate',
+      },
+    },
+  }, a32nxGrade, {
+    vs_fpm: -243.3,
+    grade: 'GOOD',
+  }), {
+    vsFpm: null,
+    grade: null,
+  });
+});
+
 test('legacy runway-excursion sentinel remains a separate fact, never a rate grade', () => {
   assert.equal(isLegacyRunwayExcursionGrade(' runway excursion '), true);
   assert.deepEqual(resolveLandingRateHeadline({

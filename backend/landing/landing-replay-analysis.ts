@@ -138,8 +138,30 @@ function resolveLandingRateHeadline(
   fallback: GenericRecord | null = null,
   options: LandingHeadlineOptions = {},
 ): LandingHeadline {
-  const persistedVsFpm = toFiniteNumber(row?.vs_fpm);
-  const fallbackVsFpm = toFiniteNumber(fallback?.vs_fpm ?? fallback?.vsFpm);
+  const landingRateContext = parseLandingRateContext(
+    row?.landing_rate_context ?? row?.landingRateContext,
+  ) || parseLandingRateContext(
+    fallback?.landing_rate_context ?? fallback?.landingRateContext,
+  );
+  if (landingRateContext?.measurement?.available === false) {
+    return { vsFpm: null, grade: null };
+  }
+
+  const persistedObservedVsFpm = toFiniteNumber(row?.vs_fpm);
+  const fallbackObservedVsFpm = toFiniteNumber(fallback?.vs_fpm ?? fallback?.vsFpm);
+  // Conventional vertical speed is a usable landing-rate measurement only
+  // while descending. A zero/positive value may still accompany a real WOW
+  // transition (for example on an upslope), but it cannot support an impact
+  // rate or grade and must not be replaced with a nearby inferred value.
+  if (
+    (persistedObservedVsFpm !== null && persistedObservedVsFpm >= 0)
+    || (persistedObservedVsFpm === null && fallbackObservedVsFpm !== null && fallbackObservedVsFpm >= 0)
+  ) {
+    return { vsFpm: null, grade: null };
+  }
+
+  const persistedVsFpm = persistedObservedVsFpm;
+  const fallbackVsFpm = fallbackObservedVsFpm;
   const resolvedVsFpm = persistedVsFpm ?? fallbackVsFpm;
   const persistedGrade = isLegacyRunwayExcursionGrade(row?.grade)
     ? null

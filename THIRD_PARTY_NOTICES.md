@@ -315,16 +315,6 @@ source as third-party code.
 - License text: https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE
 - Used for: interactive flight-track map in the live-map and timeline tabs.
 
-## MapLibre GL JS and MapLibre GL Leaflet
-
-- Sources: https://maplibre.org/ and
-  https://github.com/maplibre/maplibre-gl-leaflet
-- Versions: MapLibre GL JS 6.6.0; MapLibre GL Leaflet 0.1.4
-- Licenses: MapLibre GL JS is BSD-3-Clause; MapLibre GL Leaflet is ISC.
-- Used for: rendering OpenFreeMap vector basemaps beneath the existing Leaflet
-  flight overlays. Both libraries are bundled locally with the frontend; no
-  JavaScript or stylesheet CDN is used.
-
 ## Three.js (vendored)
 
 - Source: https://threejs.org/ and https://github.com/mrdoob/three.js
@@ -359,42 +349,22 @@ source as third-party code.
   committed to this repository or included in desktop packages. Upstream files
   retain their embedded attribution comments.
 
-## OpenStreetMap Data
+## OpenStreetMap Standard Tiles and Data
 
 - Source: https://www.openstreetmap.org/copyright
 - License/data terms: Open Data Commons Open Database License (ODbL) 1.0
-- Used through OpenFreeMap/OpenMapTiles for the live-map and timeline vector
-  basemaps.
-- Attribution: displayed in-app via the Leaflet attribution control.
-- Flight Fabric does not request tiles from the community-operated
-  `tile.openstreetmap.org` service.
-
-## OpenFreeMap Basemaps
-
-- Source: https://openfreemap.org and https://tiles.openfreemap.org
-- Terms: https://openfreemap.org/tos/
-- Privacy: https://openfreemap.org/privacy/
-- Project license: MIT; underlying map data and components retain their own
-  licenses, including OpenStreetMap's ODbL and OpenMapTiles attribution.
-- Used for: the dark vector basemap and simplified Natural Earth raster
-  fallback in live-map and timeline views.
-- Attribution: displayed in-app as OpenFreeMap, OpenMapTiles, and OpenStreetMap.
-- Service note: OpenFreeMap explicitly permits commercial use of its public
-  instance without registration, request limits, or API keys. It is provided
-  without an SLA and may change or be discontinued.
-
-## Natural Earth Raster Fallback
-
-- Source: https://www.naturalearthdata.com/
-- Terms: Natural Earth states that all versions of its raster and vector map
-  data are in the public domain.
-- Used for: a simplified Leaflet-native fallback, served by OpenFreeMap, when
-  the primary vector basemap cannot render. Flight Fabric removes the vector
-  layer before activating the fallback.
-- Attribution: displayed in-app as OpenFreeMap and Natural Earth while the
-  fallback is active.
-- Network control: requests remain governed by the same "Use online map tiles"
-  setting as the primary basemap.
+- Tile service and usage policy:
+  https://operations.osmfoundation.org/policies/tiles/
+- Used for: the standard labeled raster basemap in live-map and timeline views.
+  Tiles are fetched interactively from `https://tile.openstreetmap.org` and are
+  not bundled with Flight Fabric.
+- Attribution: displayed in-app as `OpenStreetMap contributors` through the
+  Leaflet attribution control.
+- Service note: Flight Fabric does not prefetch tiles or offer offline tile
+  downloads. The community-operated service is best effort and can be disabled
+  in Settings. Desktop tile requests use a Flight Fabric-specific user agent;
+  LAN browsers use their normal browser identification, origin referrer, and
+  cache.
 
 ## Historical CARTO Screenshot
 

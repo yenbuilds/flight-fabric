@@ -6,10 +6,7 @@ import {
   unwrapLongitudeNear,
 } from './geo.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from './plane-icon.js';
-import {
-  createOpenFreeMapDarkLayer,
-  createOpenFreeMapRasterFallbackLayer,
-} from '../maps/openfreemap.js';
+import { createOpenStreetMapLayer } from '../maps/openstreetmap.js';
 
 const HEADING_DEADBAND_DEG = 0.75;
 const HEADING_SMOOTHING_FACTOR = 0.35;
@@ -59,7 +56,6 @@ export function createLiveMapController({
 } = {}) {
   let liveMap = null;
   let liveBaseLayer = null;
-  let liveBaseLayerFallbackActive = false;
   let livePath = null;
   let liveCursor = null;
   let targetLine = null;
@@ -189,38 +185,17 @@ export function createLiveMapController({
       liveMapStore.setMeta('Online map tiles disabled');
       invalidateSizeStaggered();
     } else {
-      const activateRasterFallback = (reason) => {
-        if (!liveMap || liveBaseLayerFallbackActive) return;
-        liveBaseLayerFallbackActive = true;
-        try {
-          if (liveBaseLayer) liveMap.removeLayer(liveBaseLayer);
-        } catch {}
-
-        try {
-          liveBaseLayer = createOpenFreeMapRasterFallbackLayer(windowRef.L);
-          liveBaseLayer.on?.('load', invalidateSizeStaggered);
-          liveBaseLayer.on?.('tileerror', (event) => {
-            consoleRef.warn('[LiveMap] OpenFreeMap raster fallback unavailable', event?.error || event);
-          });
-          liveBaseLayer.addTo(liveMap);
-          liveMapStore.setMeta('Using simplified OpenFreeMap basemap');
-          consoleRef.warn('[LiveMap] OpenFreeMap vector map unavailable; switched to raster fallback', reason);
-        } catch (fallbackError) {
-          liveBaseLayer = null;
-          liveMapStore.setMeta('Dark basemap unavailable');
-          consoleRef.warn('[LiveMap] OpenFreeMap raster fallback could not start', fallbackError);
-        }
-      };
-
       try {
-        liveBaseLayer = createOpenFreeMapDarkLayer(windowRef.L).addTo(liveMap);
-        const vectorMap = liveBaseLayer.getMaplibreMap?.();
-        vectorMap?.once?.('load', invalidateSizeStaggered);
-        vectorMap?.once?.('error', (event) => {
-          activateRasterFallback(event?.error || event);
+        liveBaseLayer = createOpenStreetMapLayer(windowRef.L).addTo(liveMap);
+        liveBaseLayer.once?.('load', invalidateSizeStaggered);
+        liveBaseLayer.on?.('tileerror', (event) => {
+          liveMapStore.setMeta('OpenStreetMap basemap unavailable');
+          consoleRef.warn('[LiveMap] OpenStreetMap tile could not load', event?.error || event);
         });
       } catch (error) {
-        activateRasterFallback(error);
+        liveBaseLayer = null;
+        liveMapStore.setMeta('OpenStreetMap basemap unavailable');
+        consoleRef.warn('[LiveMap] OpenStreetMap basemap could not start', error);
       }
     }
 
@@ -728,7 +703,6 @@ export function createLiveMapController({
     } catch {}
     liveMap = null;
     liveBaseLayer = null;
-    liveBaseLayerFallbackActive = false;
     livePath = null;
     liveCursor = null;
     targetLine = null;

@@ -1041,7 +1041,12 @@ async function runTests() {
   await testAsync('exclusive startup refuses to resume or append to a prior quoted CSV', async () => {
     const outputDir = path.join(testDir, 'resume-quoted-index');
     const flightId = 'test-resume-quoted-index';
-    const firstWriter = new writer.FlightCSVWriter({ flightId, outputDir });
+    const recordingStartEpochMs = Date.parse('2026-01-01T12:00:00.000Z');
+    const firstWriter = new writer.FlightCSVWriter({
+      flightId,
+      outputDir,
+      recordingStartEpochMs,
+    });
     assert(firstWriter.start(), 'first writer should start');
     assert(firstWriter.writeSample({
       timestampMs: Date.now(),
@@ -1053,7 +1058,11 @@ async function runTests() {
     const firstStats = await firstWriter.close();
     const originalBytes = fs.readFileSync(firstStats.filePath);
 
-    const secondWriter = new writer.FlightCSVWriter({ flightId, outputDir });
+    const secondWriter = new writer.FlightCSVWriter({
+      flightId,
+      outputDir,
+      recordingStartEpochMs,
+    });
     assert(!secondWriter.start(), 'second writer must refuse the existing recording');
     assert(!secondWriter.writeSample({
       timestampMs: Date.now() + 1,

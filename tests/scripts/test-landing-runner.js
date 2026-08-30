@@ -861,6 +861,92 @@ test('touchdown VS prefers recent airborne sample when WOW frame is damped', () 
   assert.strictEqual(finalEvent.vs, -650, `Expected VS -650 fpm from recent airborne sample, got ${finalEvent.vs}`);
 });
 
+test('non-descending conventional VS preserves touchdown but leaves rate and grade unavailable', () => {
+  const runner = createLandingRunner();
+  const broadcasts = [];
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_101_000_000;
+
+  try {
+    runner.update(
+      makeFrame({ wow: false, display: { iasKts: 140, vsFpm: 200, raFt: 120 } }),
+      (payload) => broadcasts.push(payload),
+      { nowEpochMs: t0, nowIso: new Date(t0).toISOString() },
+      makeCtx(),
+    );
+    runner.update(
+      makeFrame({ wow: true, display: { iasKts: 138, vsFpm: 150, raFt: 0 } }),
+      (payload) => broadcasts.push(payload),
+      { nowEpochMs: t0 + 100, nowIso: new Date(t0 + 100).toISOString() },
+      makeCtx(),
+    );
+    runner.update(
+      makeFrame({ wow: true, display: { iasKts: 60, vsFpm: 0, raFt: 0 } }),
+      (payload) => broadcasts.push(payload),
+      { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() },
+      makeCtx(),
+    );
+  } finally {
+    off();
+  }
+
+  const finalBroadcast = broadcasts.find((event) => event?.type === 'landing' && event.final === true);
+  const finalPayload = finalPayloads.find((event) => event?.landing_final === true);
+  assert(finalBroadcast, 'Expected final landing broadcast');
+  assert(finalPayload, 'Expected final landing payload');
+  assert.strictEqual(finalBroadcast.vs, null, 'UI broadcast must not invent a touchdown rate');
+  assert.strictEqual(finalBroadcast.grade, null, 'UI broadcast must not grade an unavailable rate');
+  assert.strictEqual(finalPayload.vs_fpm, null, 'Recorded landing must retain an unavailable rate as null');
+  assert.strictEqual(finalPayload.grade, null, 'Recorded landing must retain an unavailable grade as null');
+  assert.strictEqual(finalPayload.first_touchdown_vs_fpm, null, 'Bounce diagnostics must not retain a positive impact rate');
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.available, false);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.reason, 'non_descending_touchdown_rate');
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.observedVsFpm, 150);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.touchdownFrameVsFpm, 150);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.lastAirborneVsFpm, 200);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.lastAirborneSampleAgeMs, 100);
+});
+
+test('stale airborne sink rate is not reused after the touchdown pre-sample window', () => {
+  const runner = createLandingRunner();
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_102_000_000;
+
+  try {
+    runner.update(
+      makeFrame({ wow: false, display: { iasKts: 140, vsFpm: -300, raFt: 120 } }),
+      () => {},
+      { nowEpochMs: t0, nowIso: new Date(t0).toISOString() },
+      makeCtx(),
+    );
+    runner.update(
+      makeFrame({ wow: true, display: { iasKts: 138, vsFpm: 0, raFt: 0 } }),
+      () => {},
+      { nowEpochMs: t0 + 500, nowIso: new Date(t0 + 500).toISOString() },
+      makeCtx(),
+    );
+    runner.update(
+      makeFrame({ wow: true, display: { iasKts: 60, vsFpm: 0, raFt: 0 } }),
+      () => {},
+      { nowEpochMs: t0 + 120000, nowIso: new Date(t0 + 120000).toISOString() },
+      makeCtx(),
+    );
+  } finally {
+    off();
+  }
+
+  const finalPayload = finalPayloads.find((event) => event?.landing_final === true);
+  assert(finalPayload, 'Expected the touchdown to be preserved');
+  assert.strictEqual(finalPayload.vs_fpm, null);
+  assert.strictEqual(finalPayload.grade, null);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.available, false);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.observedVsFpm, 0);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.lastAirborneVsFpm, -300);
+  assert.strictEqual(finalPayload.landing_rate_context.measurement.lastAirborneSampleAgeMs, 500);
+});
+
 test('landing uses measured simulator G-force instead of estimating it from vertical speed', () => {
   const finalEvent = finalizeLanding(createLandingRunner, {
     gforce: 1.82,

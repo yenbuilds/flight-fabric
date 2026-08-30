@@ -80,6 +80,34 @@ test('logbook landing index scopes repeated display ids to their CSV source', ()
   assert.equal(second.stabilityScore, null);
 });
 
+test('logbook landing index never coerces an unavailable or non-descending rate to zero', () => {
+  const source = {
+    filePath: 'C:/Flight Logs/unavailable-rate.csv',
+    mtimeMs: 10,
+    sizeBytes: 100,
+  };
+  assert.equal(landingToIndexInput({ id: 'missing', vsFpm: null }, source).vsFpm, null);
+  assert.equal(landingToIndexInput({ id: 'zero', vsFpm: 0 }, source).vsFpm, null);
+  const positive = landingToIndexInput({
+    id: 'positive',
+    vsFpm: 150,
+    grade: 'PERFECT',
+    outcomeGrade: 'PERFECT',
+  }, source);
+  assert.equal(positive.vsFpm, null);
+  assert.equal(positive.grade, null);
+  assert.equal(positive.outcomeGrade, null);
+  const positiveLongLanding = landingToIndexInput({
+    id: 'positive-long',
+    vsFpm: 150,
+    grade: 'PERFECT',
+    outcomeGrade: 'PERFECT',
+    touchdownDistanceGrade: 'Long Landing',
+  }, source);
+  assert.equal(positiveLongLanding.outcomeGrade, 'Long Landing');
+  assert.equal(landingToIndexInput({ id: 'descending', vsFpm: -180 }, source).vsFpm, -180);
+});
+
 test('logbook landing index preserves recording session identity', () => {
   const source = {
     filePath: 'C:/Flight Logs/session.csv',
@@ -798,16 +826,32 @@ test('history index store computes logbook stats from indexed columns without lo
         stabilityScore: null,
         touchdownDistanceGrade: 'Good',
         payload: { id: 'stats-4', heavy: 'payload-four' },
+      }, {
+        landingId: 'stats-5',
+        timestampMs: 5000,
+        timestamp: '2026-07-09T00:00:05.000Z',
+        aircraft: 'A320',
+        icao: 'KSFO',
+        runway: '28L',
+        vsFpm: 150,
+        grade: 'Perfect',
+        outcomeGrade: null,
+        gateStable: null,
+        stabilityScore: null,
+        payload: { id: 'stats-5', heavy: 'payload-five', vsFpm: 150, grade: 'Perfect' },
       }],
     }]);
 
     const page = store.queryLogbookEntries({ limit: 2 });
     assert.equal(page.entries.length, 2);
-    assert.equal(page.totalMatching, 4);
+    assert.equal(page.totalMatching, 5);
     assert.equal(Object.prototype.hasOwnProperty.call(page, 'allEntries'), false);
+    assert.equal(page.entries[0].id, 'stats-5');
+    assert.equal(page.entries[0].vsFpm, null);
+    assert.equal(page.entries[0].grade, null);
 
     const stats = store.queryLogbookStats();
-    assert.equal(stats.total, 4);
+    assert.equal(stats.total, 5);
     assert.deepEqual(stats.grades, { Good: 2, Hard: 1, Perfect: 1 });
     assert.deepEqual(stats.outcomeGrades, { Good: 1, Hard: 1, 'Long Landing': 1, Perfect: 1 });
     assert.equal(stats.longLandingCount, 1);

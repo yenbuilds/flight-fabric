@@ -875,9 +875,19 @@ type PendingBounceConfirmation = {
   candidate: BounceCandidate;
   touchdownEpochMs: number;
   bouncePosition: { lat_deg: number | null; lon_deg: number | null };
-  bounceVsFpm: number;
+  bounceVsFpm: number | null;
   bounceGforce: number | null;
   bounceVsSource: string;
+};
+
+type TouchdownVsSelection = {
+  vsFpm: number | null;
+  observedVsFpm: number | null;
+  source: string;
+  reason: string | null;
+  touchdownFrameVsFpm: number | null;
+  lastAirborneVsFpm: number | null;
+  lastAirborneSampleAgeMs: number | null;
 };
 
 function finitePosition(frame: AnyRecord | null | undefined): { lat: number; lon: number } | null {
@@ -957,7 +967,7 @@ function updateBounceCandidatePhysicalEvidence(candidate: BounceCandidate, frame
 
 function assessBounceCandidate(input: {
   candidate: BounceCandidate;
-  bounceVsFpm: number;
+  bounceVsFpm: number | null;
   bounceGforce: number | null;
   minTouchdownVsFpm: number;
   aircraftProfileId?: unknown;
@@ -1135,7 +1145,7 @@ function buildFinalLandingBroadcast(input: {
 
 function createLandingRunner(): LandingRunner {
   let previousWOW = false;
-  let lastVS = 0;
+  let lastVS: number | null = null;
   let initialized = false;
 
   // Track latest airborne VS sample so touchdown can prefer pre-impact sink rate
@@ -1177,7 +1187,7 @@ function createLandingRunner(): LandingRunner {
 
   function reset(): void {
     previousWOW = false;
-    lastVS = 0;
+    lastVS = null;
     initialized = false;
     lastAirborneVsFpm = null;
     lastAirborneVsEpochMs = null;
@@ -1288,15 +1298,15 @@ function createLandingRunner(): LandingRunner {
   function selectTouchdownVsFpm({ display, vs, lastVS, nowEpochMs }: {
     display?: AnyRecord | null;
     vs?: number | null;
-    lastVS: number;
+    lastVS: number | null;
     nowEpochMs: number;
-  }): { vsFpm: number; source: string } {
+  }): TouchdownVsSelection {
     const rawVs = Number.isFinite(vs)
       ? vs as number
-      : (Number.isFinite(lastVS) ? lastVS : 0);
+      : (Number.isFinite(lastVS) ? lastVS as number : null);
     const touchdownVsFpm = (display && Number.isFinite(display.vsFpm))
       ? display.vsFpm
-      : msToFpm(rawVs);
+      : (rawVs == null ? null : msToFpm(rawVs));
 
     // Conservative safety window: only use pre-touchdown airborne sample when it
     // was observed very recently and indicates a higher sink rate than touchdown frame.
@@ -1304,12 +1314,16 @@ function createLandingRunner(): LandingRunner {
       ? Math.max(0, config.landing.touchdownPreSampleWindowMs)
       : 350;
     const recentAirborneEpochMs = lastAirborneVsEpochMs as number | null;
+    const lastAirborneSampleAgeMs = Number.isFinite(nowEpochMs) && recentAirborneEpochMs != null
+      ? nowEpochMs - recentAirborneEpochMs
+      : null;
     const hasRecentAirborneSample = Number.isFinite(lastAirborneVsFpm)
       && Number.isFinite(lastAirborneVsEpochMs)
       && Number.isFinite(nowEpochMs)
       && recentAirborneEpochMs != null
-      && (nowEpochMs - recentAirborneEpochMs >= 0)
-      && (nowEpochMs - recentAirborneEpochMs <= PRE_TOUCHDOWN_WINDOW_MS);
+      && lastAirborneSampleAgeMs != null
+      && lastAirborneSampleAgeMs >= 0
+      && lastAirborneSampleAgeMs <= PRE_TOUCHDOWN_WINDOW_MS;
 
     const candidates: Array<{ value: number; source: string }> = [];
     if (Number.isFinite(touchdownVsFpm)) {
@@ -1319,7 +1333,15 @@ function createLandingRunner(): LandingRunner {
       candidates.push({ value: lastAirborneVsFpm as number, source: 'last_airborne' });
     }
     if (candidates.length === 0) {
-      return { vsFpm: 0, source: 'fallback_zero' };
+      return {
+        vsFpm: null,
+        observedVsFpm: null,
+        source: 'unavailable',
+        reason: 'touchdown_rate_unavailable',
+        touchdownFrameVsFpm: null,
+        lastAirborneVsFpm: Number.isFinite(lastAirborneVsFpm) ? lastAirborneVsFpm : null,
+        lastAirborneSampleAgeMs,
+      };
     }
 
     // Prefer the more negative recent conventional sample so a post-impact WOW
@@ -1330,7 +1352,16 @@ function createLandingRunner(): LandingRunner {
       if (candidate.value < selected.value) selected = candidate;
     }
     const { value, source } = selected;
-    return { vsFpm: value, source };
+    const available = value < 0;
+    return {
+      vsFpm: available ? value : null,
+      observedVsFpm: value,
+      source,
+      reason: available ? null : 'non_descending_touchdown_rate',
+      touchdownFrameVsFpm: Number.isFinite(touchdownVsFpm) ? touchdownVsFpm : null,
+      lastAirborneVsFpm: Number.isFinite(lastAirborneVsFpm) ? lastAirborneVsFpm : null,
+      lastAirborneSampleAgeMs,
+    };
   }
 
   function commitConfirmedBounce(
@@ -1499,7 +1530,9 @@ function createLandingRunner(): LandingRunner {
       lastAirborneSimTouchdownSignature = getMsfsTouchdownSignature(frame);
       const airborneVsFpm = (display && typeof display.vsFpm === 'number')
         ? display.vsFpm
-        : msToFpm(typeof vs === 'number' ? vs : lastVS);
+        : (typeof vs === 'number'
+          ? msToFpm(vs)
+          : (Number.isFinite(lastVS) ? msToFpm(lastVS as number) : null));
       if (Number.isFinite(airborneVsFpm)) {
         lastAirborneVsFpm = airborneVsFpm;
         lastAirborneVsEpochMs = nowEpochMsCurrent;
@@ -1722,11 +1755,21 @@ function createLandingRunner(): LandingRunner {
         : metersToFeet(ra);
 
       const gforce = getMeasuredGForce(frame);
-      const grade = gradeLandingForProfile(
-        typeof vs_fpm === 'number' ? vs_fpm : 0,
-        ctx.aircraftProfileId,
-      );
-      const landingRateContext = buildLandingRateScoringContext(ctx.aircraftProfileId);
+      const grade = vs_fpm == null
+        ? { grade: null, color: null }
+        : gradeLandingForProfile(vs_fpm, ctx.aircraftProfileId);
+      const landingRateContext = {
+        ...buildLandingRateScoringContext(ctx.aircraftProfileId),
+        measurement: {
+          available: vs_fpm != null,
+          reason: vsSelection.reason,
+          source: vsSelection.source,
+          observedVsFpm: vsSelection.observedVsFpm,
+          touchdownFrameVsFpm: vsSelection.touchdownFrameVsFpm,
+          lastAirborneVsFpm: vsSelection.lastAirborneVsFpm,
+          lastAirborneSampleAgeMs: vsSelection.lastAirborneSampleAgeMs,
+        },
+      };
       // Everything after an accepted touchdown belongs to this landing attempt,
       // even if a noisy aircraft-title update changes the process-wide profile
       // during rollout. Runway/geometry data deliberately remains live.

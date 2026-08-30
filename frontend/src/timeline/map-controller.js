@@ -2,10 +2,7 @@ import { getEventAttitudeDeg, normalizeTimelineTrackPoints } from './track-point
 import { getTimelineEventMarkerVisual } from './map.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from '../live-map/plane-icon.js';
 import { unwrapLatLngPath, unwrapLongitudeNear } from '../live-map/geo.js';
-import {
-  createOpenFreeMapDarkLayer,
-  createOpenFreeMapRasterFallbackLayer,
-} from '../maps/openfreemap.js';
+import { createOpenStreetMapLayer } from '../maps/openstreetmap.js';
 
 const MAP_TRACK_RENDER_POINT_LIMIT = 700;
 const MAP_TRACK_RENDER_DETAIL_POINT_LIMIT = 1500;
@@ -383,7 +380,6 @@ export function createTimelineMapController({
 } = {}) {
   let timelineMap = null;
   let timelineBaseLayer = null;
-  let timelineBaseLayerFallbackActive = false;
   let timelineBaseLayerInitialLoadSynced = false;
   let timelineMapResizeObserver = null;
   let timelineMapResizeRaf = null;
@@ -537,38 +533,16 @@ export function createTimelineMapController({
       setMapEmptyState({ message: 'Online map tiles disabled' });
       syncMapSizeAfterInitialTileLoad();
     } else {
-      const activateRasterFallback = (reason) => {
-        if (!timelineMap || timelineBaseLayerFallbackActive) return;
-        timelineBaseLayerFallbackActive = true;
-        timelineBaseLayerInitialLoadSynced = false;
-        try {
-          if (timelineBaseLayer) timelineMap.removeLayer(timelineBaseLayer);
-        } catch {}
-
-        try {
-          timelineBaseLayer = createOpenFreeMapRasterFallbackLayer(windowRef.L);
-          timelineBaseLayer.on?.('load', syncMapSizeAfterInitialTileLoad);
-          timelineBaseLayer.on?.('tileerror', (event) => {
-            consoleRef.warn('[TimelineMap] OpenFreeMap raster fallback unavailable', event?.error || event);
-          });
-          timelineBaseLayer.addTo(timelineMap);
-          consoleRef.warn('[TimelineMap] OpenFreeMap vector map unavailable; switched to raster fallback', reason);
-        } catch (fallbackError) {
-          timelineBaseLayer = null;
-          syncMapSizeAfterInitialTileLoad();
-          consoleRef.warn('[TimelineMap] OpenFreeMap raster fallback could not start', fallbackError);
-        }
-      };
-
       try {
-        timelineBaseLayer = createOpenFreeMapDarkLayer(windowRef.L).addTo(timelineMap);
-        const vectorMap = timelineBaseLayer.getMaplibreMap?.();
-        vectorMap?.once?.('load', syncMapSizeAfterInitialTileLoad);
-        vectorMap?.once?.('error', (event) => {
-          activateRasterFallback(event?.error || event);
+        timelineBaseLayer = createOpenStreetMapLayer(windowRef.L).addTo(timelineMap);
+        timelineBaseLayer.once?.('load', syncMapSizeAfterInitialTileLoad);
+        timelineBaseLayer.on?.('tileerror', (event) => {
+          consoleRef.warn('[TimelineMap] OpenStreetMap tile could not load', event?.error || event);
         });
       } catch (error) {
-        activateRasterFallback(error);
+        timelineBaseLayer = null;
+        syncMapSizeAfterInitialTileLoad();
+        consoleRef.warn('[TimelineMap] OpenStreetMap basemap could not start', error);
       }
     }
 
@@ -894,7 +868,6 @@ export function createTimelineMapController({
     }
     timelineMap = null;
     timelineBaseLayer = null;
-    timelineBaseLayerFallbackActive = false;
     timelineBaseLayerInitialLoadSynced = false;
     timelineMapInitErrorMessage = '';
     timelineEventLayer = null;
