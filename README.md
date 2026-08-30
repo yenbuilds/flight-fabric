@@ -60,7 +60,7 @@ push-to-talk session stops the current readback.
 
 Aircraft-specific voice catalogues cover FlyByWire A32NX, PMDG 737,
 PMDG 777-300ER/200ER/200LR/F, and Fenix A319/A320/A321 families. The A32NX
-catalogue is a guarded beta slice for FCU speed/Mach, heading, altitude,
+catalogue covers FCU speed/Mach, heading, altitude,
 vertical speed/FPA and managed/selected modes, AP1/AP2, captain flight director,
 autothrust, LOC/APPR/EXPED, forward throttle detents, standard gear and flap
 steps, parking brake, spoiler arming, selected exterior lights, and takeoff lights.
@@ -77,12 +77,12 @@ are supported by the active aircraft profile.
 
 | Aircraft family | Extended aircraft-specific controls | Aircraft-specific voice commands |
 | --- | :---: | :---: |
-| FlyByWire Airbus A32NX | Yes (beta) | Yes (beta) |
+| FlyByWire Airbus A32NX | Yes | Yes |
 | Fenix Airbus A319, A320, A321 | Yes | Yes |
 | PMDG Boeing 737-600, 737-700, 737-800, 737-900 | Yes | Yes |
 | PMDG Boeing 777-300ER, 777-200ER, 777-200LR, 777F | Yes | Yes |
 
-The A32NX beta uses FlyByWire's fixed custom client events for guarded flight
+The A32NX integration uses FlyByWire's fixed custom client events for guarded flight
 guidance targets and requires fresh logical readback after dispatch.
 
 Windows builds are currently unsigned, so SmartScreen or antivirus may show an
