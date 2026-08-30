@@ -69,17 +69,21 @@ SimConnect, with mode guards and newer logical readback required after dispatch.
 Other profiles expose only standard commands confirmed by their active guarded
 catalogue.
 
-## Premium aircraft support
+## Aircraft integration support
 
-These premium add-on aircraft include both the extended aircraft-specific controls
-page and aircraft-specific voice commands. Controls and commands are shown only
-when they are supported by the active aircraft profile.
+These aircraft include both the extended aircraft-specific controls page and
+aircraft-specific voice commands. Controls and commands are shown only when they
+are supported by the active aircraft profile.
 
 | Aircraft family | Extended aircraft-specific controls | Aircraft-specific voice commands |
 | --- | :---: | :---: |
+| FlyByWire Airbus A32NX | Yes (beta) | Yes (beta) |
 | Fenix Airbus A319, A320, A321 | Yes | Yes |
 | PMDG Boeing 737-600, 737-700, 737-800, 737-900 | Yes | Yes |
 | PMDG Boeing 777-300ER, 777-200ER, 777-200LR, 777F | Yes | Yes |
+
+The A32NX beta uses FlyByWire's fixed custom client events for guarded flight
+guidance targets and requires fresh logical readback after dispatch.
 
 Windows builds are currently unsigned, so SmartScreen or antivirus may show an
 **Unknown publisher** warning. Download only from the official release page and
