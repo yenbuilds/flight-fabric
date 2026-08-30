@@ -1,30 +1,30 @@
-# Flight Fabric 0.6.1
+# Flight Fabric 0.7.0
 
-Flight Fabric 0.6.1 extends the shared aircraft-control and offline voice
-surface to the Fenix A319/A320/A321 and PMDG 777 families. Matching visible
-controls and voice phrases now resolve through the same profile-aware,
-fail-closed command catalogue.
+Flight Fabric 0.7.0 adds a dedicated aircraft-specific command and offline
+voice catalogue for the free FlyByWire A32NX. Its reviewed beta surface uses
+FlyByWire's documented fixed custom client events and the same profile-aware,
+fail-closed command pipeline as visible aircraft controls.
 
 ## Added
 
-- Fenix A319, A320, and A321 profiles expose one reviewed 20-command catalogue
-  for FCU targets and modes, AP1/AP2, autothrust, forward throttle detents,
-  parking brake, selected exterior lights, and the takeoff-light preset.
-- PMDG 777-300ER, 777-200ER, 777-200LR, and 777F profiles expose one reviewed
-  32-command catalogue for MCP targets, AFDS modes and selectors, gear, flaps,
-  speedbrake, parking brake, autobrake, selected exterior lights, and the
-  takeoff-light preset.
-- Matching controls on the dedicated Fenix and PMDG 777 pages use the same
-  canonical commands advertised to local push-to-talk voice control. Controls
-  outside those reviewed catalogues keep their existing guarded UI-only routes.
-- The local voice vocabulary covers Fenix and PMDG 777 terminology including
-  managed FCU modes, throttle detents, LNAV, VNAV, FPA, TRK, FLCH, and RTO.
-- The README and website include a premium-aircraft matrix for families with
-  both extended controls and aircraft-specific voice commands.
+- The FlyByWire A32NX profile exposes a dedicated 26-command catalogue for
+  speed/Mach, heading, altitude, vertical speed/FPA, managed and selected FCU
+  modes, AP1/AP2, captain flight director, autothrust, LOC, APPR, EXPED,
+  forward throttle detents, standard gear and flap steps, parking brake,
+  spoiler arming, selected exterior lights, and the takeoff-light preset.
+- FCU targets use only fixed adapter-owned `A32NX.FCU_*` custom client events.
+  Speed/Mach and vertical-speed/FPA commands require a fresh matching selector
+  mode before dispatch, and changed targets require newer logical readback.
+- Local push-to-talk voice recognition understands A32NX terminology including
+  AP one/two, autothrust, managed and selected modes, FPA, LOC, APPR, EXPED,
+  throttle detents, spoilers, and selected exterior-light positions.
+- Existing executable A32NX gear and relative-flap commands remain available;
+  the dedicated catalogue adds reviewed aircraft-specific routes without
+  enabling the profile's intentionally disabled generic autopilot fallback.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.6.1.exe`
+- `Flight.Fabric.Setup.0.7.0.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable
@@ -41,6 +41,10 @@ publisher** warning.
 - Voice recognition remains Windows-desktop-only, push-to-talk-only, off by
   default, and limited to the exact commands advertised for the active
   aircraft. It is not an always-listening assistant.
+- FlyByWire A32NX aircraft-specific writes remain an explicitly labelled beta
+  pending live validation against current Stable and Development aircraft
+  builds. The new FCU routes use documented SimConnect custom client events;
+  unsupported native InputEvent/B-var routes remain disabled.
 - Fenix A32X FCU and virtual-throttle write routes remain marked untested. Do
   not move the same physical FCU rotary while a typed target is pending. Fenix
   FCU writes require a compatible MobiFlight Event Module connection.

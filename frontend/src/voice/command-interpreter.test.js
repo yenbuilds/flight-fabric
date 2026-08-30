@@ -155,6 +155,107 @@ const fenixCatalogue = Object.freeze({
   ]),
 });
 
+const fbwA32nxCatalogue = Object.freeze({
+  configurationId: 'fbw-a32nx',
+  commands: Object.freeze([
+    {
+      id: 'flightGuidance.speed.set', label: 'Selected speed',
+      input: { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+      speech: { patterns: ['set speed {value}', 'speed {value}'] },
+    },
+    {
+      id: 'flightGuidance.mach.set', label: 'Selected Mach',
+      input: { kind: 'number', min: 0.4, max: 0.99, step: 0.01, units: 'mach' },
+      speech: { patterns: ['set mach {value}', 'mach {value}'] },
+    },
+    {
+      id: 'flightGuidance.heading.set', label: 'Selected heading',
+      input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+      speech: { patterns: ['set heading {value}', 'heading {value}'] },
+    },
+    {
+      id: 'flightGuidance.altitude.set', label: 'Selected altitude',
+      input: { kind: 'number', min: 100, max: 49000, step: 100, units: 'feet' },
+      speech: {
+        patterns: ['set altitude {value}', 'altitude {value}', 'set flight level {value}', 'flight level {value}'],
+      },
+    },
+    {
+      id: 'flightGuidance.verticalSpeed.set', label: 'Selected vertical speed',
+      input: { kind: 'number', min: -6000, max: 6000, step: 100, units: 'feet-per-minute' },
+      speech: { patterns: ['set vertical speed {value}', 'vertical speed {value}'] },
+    },
+    {
+      id: 'flightGuidance.flightPathAngle.set', label: 'Selected flight path angle',
+      input: { kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees' },
+      speech: { patterns: ['set flight path angle {value}', 'flight path angle {value}', 'set fpa {value}', 'fpa {value}'] },
+    },
+    {
+      id: 'flightGuidance.autopilot1.set', label: 'Autopilot 1', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'autopilot one {value}', '{value} autopilot one',
+          'ap one {value}', '{value} ap one',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.autopilot2.set', label: 'Autopilot 2', input: { kind: 'boolean' },
+      speech: { patterns: ['autopilot two {value}', '{value} autopilot two', 'ap two {value}', '{value} ap two'] },
+    },
+    {
+      id: 'flightGuidance.autothrust.set', label: 'Autothrust', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'autothrust {value}', '{value} autothrust',
+          'a thrust {value}', '{value} a thrust',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.localizer.set', label: 'Localizer mode', input: { kind: 'boolean' },
+      speech: { patterns: ['localizer {value}', 'loc {value}'] },
+    },
+    {
+      id: 'flightGuidance.approach.set', label: 'Approach mode', input: { kind: 'boolean' },
+      speech: { patterns: ['approach mode {value}', 'approach {value}', 'app {value}'] },
+    },
+    ...[
+      ['speed', 'Speed guidance mode'],
+      ['heading', 'Heading guidance mode'],
+      ['altitude', 'Altitude guidance mode'],
+    ].map(([selector, label]) => ({
+      id: `flightGuidance.${selector}Mode.set`, label,
+      input: { kind: 'enum', values: ['selected', 'managed'] },
+      speech: { patterns: [`set ${selector} mode {value}`, `${selector} mode {value}`] },
+    })),
+    {
+      id: 'propulsion.throttleDetent.set', label: 'Throttle detent',
+      input: { kind: 'enum', values: ['idle', 'climb', 'flex', 'toga'] },
+      speech: { patterns: ['set throttles {value}', 'throttles {value}', 'set throttle detent {value}'] },
+    },
+    {
+      id: 'surfaces.spoilersArmed.set', label: 'Ground spoilers', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'ground spoilers {value}', '{value} ground spoilers',
+          '{value} spoilers', 'speed brake {value}', '{value} speed brake',
+        ],
+      },
+    },
+    {
+      id: 'lights.strobeMode.set', label: 'Strobe lights',
+      input: { kind: 'enum', values: ['off', 'auto', 'on'] },
+      speech: { patterns: ['strobe lights {value}', 'strobe light {value}'] },
+    },
+    {
+      id: 'lights.noseMode.set', label: 'Nose light',
+      input: { kind: 'enum', values: ['off', 'taxi', 'takeoff'] },
+      speech: { patterns: ['nose light {value}', 'nose lights {value}'] },
+    },
+  ]),
+});
+
 const pmdg777Catalogue = Object.freeze({
   configurationId: 'pmdg-777',
   commands: Object.freeze([
@@ -466,6 +567,29 @@ test('interpreter resolves Fenix FCU, managed-mode, throttle, and selector-aware
     'unmatched',
     'Fenix altitude voice must name the live hundred/thousand selector mode',
   );
+});
+
+test('interpreter resolves FlyByWire A32NX FCU targets and flight-deck phrases', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('engage ap one', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('disengage ap one', fbwA32nxCatalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('engage ap two', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('a thrust on', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('loc on', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('app off', fbwA32nxCatalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('throttles clb', fbwA32nxCatalogue).input, { value: 'climb' });
+  assert.deepEqual(interpretAircraftVoiceCommand('set throttles flex mct', fbwA32nxCatalogue).input, { value: 'flex' });
+  assert.deepEqual(interpretAircraftVoiceCommand('arm spoilers', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('strobe lights auto', fbwA32nxCatalogue).input, { value: 'auto' });
+  assert.deepEqual(interpretAircraftVoiceCommand('nose lights take off', fbwA32nxCatalogue).input, { value: 'takeoff' });
+  assert.deepEqual(interpretAircraftVoiceCommand('set speed two five zero', fbwA32nxCatalogue).input, { value: 250 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set mach point seven eight', fbwA32nxCatalogue).input, { value: 0.78 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set heading two seven zero', fbwA32nxCatalogue).input, { value: 270 });
+  assert.deepEqual(interpretAircraftVoiceCommand('flight level two five zero', fbwA32nxCatalogue).input, { value: 25000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('vertical speed minus one thousand', fbwA32nxCatalogue).input, { value: -1000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('fpa minus two point five', fbwA32nxCatalogue).input, { value: -2.5 });
+  assert.deepEqual(interpretAircraftVoiceCommand('heading mode managed', fbwA32nxCatalogue).input, { value: 'managed' });
+  assert.equal(interpretAircraftVoiceCommand('disconnect parking brake', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('beacon lights disconnect', catalogue).reason, 'unmatched');
 });
 
 test('interpreter resolves PMDG 777 MCP, AFDS, selector, and configuration phrases', () => {

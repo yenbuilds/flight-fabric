@@ -241,7 +241,19 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       group: 'flightGuidance',
       input: BOOLEAN_INPUT,
       speech: {
-        patterns: [`${phrase} {value}`, `{value} ${phrase}`],
+        patterns: [
+          `${phrase} {value}`,
+          `{value} ${phrase}`,
+          ...(id === 'flightGuidance.autopilot1.set'
+            ? ['ap one {value}', '{value} ap one']
+            : []),
+          ...(id === 'flightGuidance.autopilot2.set'
+            ? ['ap two {value}', '{value} ap two']
+            : []),
+          ...(id === 'flightGuidance.autothrust.set'
+            ? ['a thrust {value}', '{value} a thrust']
+            : []),
+        ],
         hints: [hint],
       },
     })),
@@ -364,12 +376,15 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'flightGuidance.localizer.set', label: 'Localizer mode', group: 'flightGuidance',
       input: BOOLEAN_INPUT,
-      speech: { patterns: ['localizer {value}'], hints: ['LOCALIZER'] },
+      speech: { patterns: ['localizer {value}', 'loc {value}'], hints: ['LOCALIZER', 'LOC'] },
     },
     {
       id: 'flightGuidance.approach.set', label: 'Approach mode', group: 'flightGuidance',
       input: BOOLEAN_INPUT,
-      speech: { patterns: ['approach mode {value}'], hints: ['APPROACH'] },
+      speech: {
+        patterns: ['approach mode {value}', 'approach {value}', 'app {value}'],
+        hints: ['APPROACH', 'APP'],
+      },
     },
     {
       id: 'surfaces.gear.set', label: 'Landing gear', group: 'surfaces',
@@ -773,6 +788,140 @@ export const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
   ]),
 });
 
+export const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'fbw-a32nx',
+  bindings: Object.freeze([
+    input(
+      'flightGuidance.speed.set',
+      aircraftAction('flightGuidance.speed.set'),
+      'value',
+      { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+    ),
+    input(
+      'flightGuidance.mach.set',
+      aircraftAction('flightGuidance.mach.set'),
+      'value',
+      { kind: 'number', min: 0.4, max: 0.99, step: 0.01, units: 'mach' },
+    ),
+    input(
+      'flightGuidance.heading.set',
+      aircraftAction('flightGuidance.heading.set'),
+      'value',
+      { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+    ),
+    input(
+      'flightGuidance.altitude.set',
+      aircraftAction('flightGuidance.altitude.set'),
+      'value',
+      { kind: 'number', min: 100, max: 49_000, step: 100, units: 'feet' },
+    ),
+    input(
+      'flightGuidance.verticalSpeed.set',
+      aircraftAction('flightGuidance.verticalSpeed.set'),
+      'value',
+      { kind: 'number', min: -6_000, max: 6_000, step: 100, units: 'feet-per-minute' },
+    ),
+    input(
+      'flightGuidance.flightPathAngle.set',
+      aircraftAction('flightGuidance.flightPathAngle.set'),
+      'value',
+      { kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees' },
+    ),
+    choice('flightGuidance.autopilot1.set', {
+      false: aircraftAction('flightGuidance.ap1.off'),
+      true: aircraftAction('flightGuidance.ap1.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.autopilot2.set', {
+      false: aircraftAction('flightGuidance.ap2.off'),
+      true: aircraftAction('flightGuidance.ap2.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.flightDirectorCaptain.set', {
+      false: aircraftAction('flightGuidance.flightDirectorCaptain.off'),
+      true: aircraftAction('flightGuidance.flightDirectorCaptain.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.autothrust.set', {
+      false: aircraftAction('flightGuidance.autothrust.off'),
+      true: aircraftAction('flightGuidance.autothrust.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.localizer.set', {
+      false: aircraftAction('flightGuidance.localizer.off'),
+      true: aircraftAction('flightGuidance.localizer.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.approach.set', {
+      false: aircraftAction('flightGuidance.approach.off'),
+      true: aircraftAction('flightGuidance.approach.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.expedite.set', {
+      false: aircraftAction('flightGuidance.expedite.off'),
+      true: aircraftAction('flightGuidance.expedite.on'),
+    }, BOOLEAN_INPUT),
+    choice('flightGuidance.speedMode.set', {
+      selected: aircraftAction('flightGuidance.speedManaged.off'),
+      managed: aircraftAction('flightGuidance.speedManaged.on'),
+    }),
+    choice('flightGuidance.headingMode.set', {
+      selected: aircraftAction('flightGuidance.headingManaged.off'),
+      managed: aircraftAction('flightGuidance.headingManaged.on'),
+    }),
+    choice('flightGuidance.altitudeMode.set', {
+      selected: aircraftAction('flightGuidance.altitudeManaged.off'),
+      managed: aircraftAction('flightGuidance.altitudeManaged.on'),
+    }),
+    choice('propulsion.throttleDetent.set', {
+      idle: aircraftAction('propulsion.throttle.idle'),
+      climb: aircraftAction('propulsion.throttle.climb'),
+      flex: aircraftAction('propulsion.throttle.flexMct'),
+      toga: aircraftAction('propulsion.throttle.toga'),
+    }),
+    choice('surfaces.gear.set', {
+      up: { control: 'gear', operation: 'up' },
+      down: { control: 'gear', operation: 'down' },
+    }),
+    choice('surfaces.flaps.adjust', {
+      increase: { control: 'flaps', operation: 'increment' },
+      decrease: { control: 'flaps', operation: 'decrement' },
+    }),
+    choice('surfaces.parkingBrake.set', {
+      false: aircraftAction('systems.parkingBrake.released'),
+      true: aircraftAction('systems.parkingBrake.set'),
+    }, BOOLEAN_INPUT),
+    choice('surfaces.spoilersArmed.set', {
+      false: aircraftAction('controls.spoilersArmed.off'),
+      true: aircraftAction('controls.spoilersArmed.on'),
+    }, BOOLEAN_INPUT),
+    choice('lights.beacon.set', {
+      false: aircraftAction('lights.beacon.off'),
+      true: aircraftAction('lights.beacon.on'),
+    }, BOOLEAN_INPUT),
+    choice('lights.strobeMode.set', {
+      off: aircraftAction('lights.strobe.off'),
+      auto: aircraftAction('lights.strobe.auto'),
+      on: aircraftAction('lights.strobe.on'),
+    }),
+    choice('lights.nav.set', {
+      false: aircraftAction('lights.nav.off'),
+      true: aircraftAction('lights.nav.on'),
+    }, BOOLEAN_INPUT),
+    choice('lights.noseMode.set', {
+      off: aircraftAction('lights.nose.off'),
+      taxi: aircraftAction('lights.nose.taxi'),
+      takeoff: aircraftAction('lights.nose.takeoff'),
+    }),
+    sequence(
+      'configuration.lights.takeoff',
+      'Landing L/R ON - runway turnoff ON - nose TAKEOFF - strobe ON - nav ON',
+      [
+        { label: 'Landing light left ON', request: aircraftAction('lights.landingLeft.on') },
+        { label: 'Landing light right ON', request: aircraftAction('lights.landingRight.on') },
+        { label: 'Runway turnoff lights ON', request: aircraftAction('lights.runwayTurnoff.on') },
+        { label: 'Nose light TAKEOFF', request: aircraftAction('lights.nose.takeoff') },
+        { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
+        { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
+      ],
+    ),
+  ]),
+});
+
 export const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'fenix-a32x',
   bindings: Object.freeze([
@@ -990,6 +1139,7 @@ export const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
 });
 
 const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>([
+  ['fbw-a32nx', FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION],
   ['fenix-a32x', FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-737', PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-777', PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION],
@@ -1250,6 +1400,7 @@ export function getAircraftCommandDefinition(commandId: unknown): AircraftComman
 
 module.exports = {
   AIRCRAFT_COMMAND_DEFINITIONS,
+  FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION,
   FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION,
   GENERIC_AIRCRAFT_COMMAND_CONFIGURATION,
   PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION,

@@ -1093,6 +1093,56 @@ function stubFbwA32nxStrobeFields(provider) {
       source: { type: 'lvar', key: 'fbw_engine_bleed_1' },
       decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
     },
+    'flightGuidance.speedValue': {
+      id: 'flightGuidance.speedValue',
+      source: { type: 'lvar', key: 'fbw_fcu_speed' },
+      decode: { type: 'number', precision: 2 },
+    },
+    'flightGuidance.machMode': {
+      id: 'flightGuidance.machMode',
+      source: { type: 'lvar', key: 'fbw_fcu_mach_mode' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.headingDeg': {
+      id: 'flightGuidance.headingDeg',
+      source: { type: 'lvar', key: 'fbw_fcu_heading' },
+      decode: { type: 'number', precision: 0 },
+    },
+    'flightGuidance.altitudeFt': {
+      id: 'flightGuidance.altitudeFt',
+      source: { type: 'lvar', key: 'fbw_fcu_altitude' },
+      decode: { type: 'number', precision: 0 },
+    },
+    'flightGuidance.verticalValue': {
+      id: 'flightGuidance.verticalValue',
+      source: { type: 'lvar', key: 'fbw_fcu_vertical' },
+      decode: { type: 'number', precision: 1 },
+    },
+    'flightGuidance.trkFpaMode': {
+      id: 'flightGuidance.trkFpaMode',
+      source: { type: 'lvar', key: 'fbw_fcu_trk_fpa_mode' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.speedManaged': {
+      id: 'flightGuidance.speedManaged',
+      source: { type: 'lvar', key: 'fbw_fcu_speed_managed' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.headingManaged': {
+      id: 'flightGuidance.headingManaged',
+      source: { type: 'lvar', key: 'fbw_fcu_heading_managed' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.altitudeManaged': {
+      id: 'flightGuidance.altitudeManaged',
+      source: { type: 'lvar', key: 'fbw_fcu_altitude_managed' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.ap2': {
+      id: 'flightGuidance.ap2',
+      source: { type: 'lvar', key: 'fbw_fcu_ap2' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
     'propulsion.throttleLever1Angle': {
       id: 'propulsion.throttleLever1Angle',
       source: { type: 'lvar', key: 'fbw_throttle_1' },
@@ -2302,6 +2352,136 @@ test('FBW strobe uses a native coordinated sequence and confirms actual light ou
   assertEqual(operations[0].name, 'L:LIGHTING_STROBE_0', 'selector position is first');
   assertEqual(operations[1].name, 'L:STROBE_0_AUTO', 'AUTO mode flag is second');
   assertEqual(operations[2].name, 'STROBES_SET', 'actual light event is last');
+});
+
+test('FBW FCU custom events preserve mode semantics and require newer logical readback', async () => {
+  const buildProvider = (machMode, trkFpaMode = false) => {
+    const provider = new SimConnectTelemetryProvider();
+    const snapshot: any = {
+      source: 'mock-sidecar',
+      profileId: FBW_A32NX_PROFILE_KEY,
+      values: {
+        fbw_fcu_speed: machMode ? 0.7 : 200,
+        fbw_fcu_mach_mode: machMode ? 1 : 0,
+        fbw_fcu_vertical: trkFpaMode ? 0 : 500,
+        fbw_fcu_trk_fpa_mode: trkFpaMode ? 1 : 0,
+      },
+      snapshotSequence: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    const events = [];
+    const bridge = {
+      _started: true,
+      getSnapshot: () => snapshot,
+      async setNamedVar() {
+        return { ok: true };
+      },
+      async sendEvent(name, value) {
+        events.push({ name, value });
+        if (name === 'A32NX.FCU_SPD_SET') {
+          snapshot.values.fbw_fcu_speed = machMode ? Number(value) / 100 : Number(value);
+        }
+        if (name === 'A32NX.FCU_VS_SET') {
+          snapshot.values.fbw_fcu_vertical = trkFpaMode ? Number(value) / 10 : Number(value);
+        }
+        snapshot.snapshotSequence += 1;
+        snapshot.updatedAt = new Date().toISOString();
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubFbwA32nxStrobeFields(provider);
+    return { provider, events };
+  };
+  const execute = (selected, actionId, value) => selected.provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: FBW_A32NX_ADAPTER_ID,
+    verification: 'untested',
+  }, {
+    profileKey: FBW_A32NX_PROFILE_KEY,
+    profileRevision: FBW_A32NX_PROFILE_REVISION,
+    request: { actionId, value },
+  });
+
+  const selected = buildProvider(false);
+  const speed = await execute(selected, 'flightGuidance.speed.set', 250);
+  assertEqual(speed.ok, true, 'selected IAS should confirm from a newer FCU readback');
+  assertEqual(speed.transportMode, 'simconnect-sequence', 'FBW custom events use the native client-event bridge');
+  assertDeepEqual(selected.events, [{ name: 'A32NX.FCU_SPD_SET', value: 250 }], 'selected speed dispatches one exact custom event');
+
+  const mismatched = buildProvider(true);
+  const rejected = await execute(mismatched, 'flightGuidance.speed.set', 250);
+  assertEqual(rejected.ok, false, 'an IAS value must not be sent while the FCU is in Mach mode');
+  assertEqual(rejected.code, 'aircraft_integration_precondition_failed', 'mode mismatch fails before dispatch');
+  assertEqual(mismatched.events.length, 0, 'mode mismatch never reaches SimConnect');
+
+  const machSelected = buildProvider(true);
+  const mach = await execute(machSelected, 'flightGuidance.mach.set', 0.78);
+  assertEqual(mach.ok, true, 'Mach target should confirm from logical 0.78 readback');
+  assertDeepEqual(machSelected.events, [{ name: 'A32NX.FCU_SPD_SET', value: 78 }], 'Mach is scaled only at the custom-event boundary');
+
+  const verticalSelected = buildProvider(false);
+  const verticalSpeed = await execute(verticalSelected, 'flightGuidance.verticalSpeed.set', -1_200);
+  assertEqual(verticalSpeed.ok, true, 'negative vertical speed should survive the signed custom-event path');
+  assertDeepEqual(verticalSelected.events, [{ name: 'A32NX.FCU_VS_SET', value: -1_200 }], 'V/S keeps its documented feet-per-minute payload');
+
+  const fpaSelected = buildProvider(false, true);
+  const fpa = await execute(fpaSelected, 'flightGuidance.flightPathAngle.set', -2.5);
+  assertEqual(fpa.ok, true, 'negative FPA should confirm in TRK/FPA mode');
+  assertDeepEqual(fpaSelected.events, [{ name: 'A32NX.FCU_VS_SET', value: -25 }], 'FPA uses FlyByWire documented times-ten payload');
+});
+
+test('FBW AP2 custom event is idempotent and dispatches only for a changed target', async () => {
+  const buildProvider = (initialValue) => {
+    const provider = new SimConnectTelemetryProvider();
+    const snapshot: any = {
+      source: 'mock-sidecar',
+      profileId: FBW_A32NX_PROFILE_KEY,
+      values: { fbw_fcu_ap2: initialValue ? 1 : 0 },
+      snapshotSequence: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    const events = [];
+    const bridge = {
+      _started: true,
+      getSnapshot: () => snapshot,
+      async setNamedVar() {
+        return { ok: true };
+      },
+      async sendEvent(name, value) {
+        events.push({ name, value });
+        snapshot.values.fbw_fcu_ap2 = snapshot.values.fbw_fcu_ap2 ? 0 : 1;
+        snapshot.snapshotSequence += 1;
+        snapshot.updatedAt = new Date().toISOString();
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubFbwA32nxStrobeFields(provider);
+    return { provider, events };
+  };
+  const executeOn = (selected) => selected.provider.executeAircraftControlAction({
+    type: 'aircraft-integration',
+    name: FBW_A32NX_ADAPTER_ID,
+    verification: 'untested',
+  }, {
+    profileKey: FBW_A32NX_PROFILE_KEY,
+    profileRevision: FBW_A32NX_PROFILE_REVISION,
+    request: { actionId: 'flightGuidance.ap2.on' },
+  });
+
+  const changed = buildProvider(false);
+  const engaged = await executeOn(changed);
+  assertEqual(engaged.ok, true, 'AP2 ON should dispatch and confirm when AP2 is off');
+  assertDeepEqual(changed.events, [{ name: 'A32NX.FCU_AP_2_PUSH', value: 0 }], 'AP2 uses FlyByWire exact custom event once');
+
+  const satisfied = buildProvider(true);
+  const noOp = await executeOn(satisfied);
+  assertEqual(noOp.ok, true, 'AP2 ON should succeed when already engaged');
+  assertEqual(noOp.noOp, true, 'already-engaged AP2 is an idempotent no-op');
+  assertEqual(satisfied.events.length, 0, 'same-state AP2 must never fire its toggle event');
 });
 
 test('coordinated aircraft sequence supports bounded SimVar writes and delays', async () => {

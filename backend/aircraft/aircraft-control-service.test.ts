@@ -69,6 +69,17 @@ function buildFenixA32xProfile(variant: 'a319' | 'a320' | 'a321' = 'a320') {
   });
 }
 
+function buildFbwA32nxProfile() {
+  return buildProfile({
+    id: 'fbw-a32nx',
+    _profileKey: 'bundled/msfs/fbw-a32nx',
+    integration: {
+      aircraftSpecific: { adapter: 'fbw-a32nx' },
+      controls: { genericFallback: false, standardSurfaceFallback: true },
+    },
+  });
+}
+
 function buildPmdg777Profile(
   variant: 'pmdg-777' | 'pmdg-777-200er' | 'pmdg-777-200lr' | 'pmdg-777f' = 'pmdg-777',
 ) {
@@ -164,6 +175,150 @@ test('PMDG 737 command configuration maps a canonical heading command to the tru
     name: 'pmdg-737',
     verification: 'untested',
   });
+});
+
+test('FlyByWire A32NX catalogue exposes guarded FCU custom-event commands with native sequence support', () => {
+  const capabilities = buildAircraftControlCapabilities(buildFbwA32nxProfile(), {
+    profileRevision: 15,
+    capabilities: {
+      actionTypes: ['aircraft-integration', 'key-event'],
+      integrationTransports: ['lvar', 'mobiflight-calculator', 'simconnect-sequence'],
+    },
+  });
+  const commandIds = capabilities.aircraftCommands.commands.map((command) => command.id);
+  assert.deepEqual(commandIds.slice(0, 17), [
+    'flightGuidance.speed.set',
+    'flightGuidance.mach.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.flightPathAngle.set',
+    'flightGuidance.autopilot1.set',
+    'flightGuidance.autopilot2.set',
+    'flightGuidance.flightDirectorCaptain.set',
+    'flightGuidance.autothrust.set',
+    'flightGuidance.localizer.set',
+    'flightGuidance.approach.set',
+    'flightGuidance.expedite.set',
+    'flightGuidance.speedMode.set',
+    'flightGuidance.headingMode.set',
+    'flightGuidance.altitudeMode.set',
+    'propulsion.throttleDetent.set',
+  ]);
+  assert.equal(commandIds.length, 26);
+
+  const options = {
+    profile: buildFbwA32nxProfile(),
+    profileRevision: 15,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration', 'key-event'],
+      integrationTransports: ['lvar', 'mobiflight-calculator', 'simconnect-sequence'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.speed.set', 250, 'flightGuidance.speed.set'],
+    ['flightGuidance.mach.set', 0.78, 'flightGuidance.mach.set'],
+    ['flightGuidance.heading.set', 271, 'flightGuidance.heading.set'],
+    ['flightGuidance.altitude.set', 12_000, 'flightGuidance.altitude.set'],
+    ['flightGuidance.verticalSpeed.set', -1_200, 'flightGuidance.verticalSpeed.set'],
+    ['flightGuidance.flightPathAngle.set', -2.5, 'flightGuidance.flightPathAngle.set'],
+    ['flightGuidance.autopilot2.set', true, 'flightGuidance.ap2.on'],
+    ['flightGuidance.speedMode.set', 'managed', 'flightGuidance.speedManaged.on'],
+    ['flightGuidance.headingMode.set', 'selected', 'flightGuidance.headingManaged.off'],
+    ['flightGuidance.altitudeMode.set', 'managed', 'flightGuidance.altitudeManaged.on'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/fbw-a32nx',
+      profileRevision: 15,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve with the native event bridge ready`);
+    assert.equal(result.controlRequest.actionId, actionId);
+    if (typeof value === 'number') assert.equal(result.controlRequest.value, value);
+  }
+});
+
+test('FlyByWire A32NX voice intents map to guarded adapter and narrow surface routes', () => {
+  const options = {
+    profile: buildFbwA32nxProfile(),
+    profileRevision: 15,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration', 'key-event'],
+      integrationTransports: ['lvar', 'mobiflight-calculator', 'simconnect-sequence'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.autopilot1.set', true, 'flightGuidance.ap1.on'],
+    ['flightGuidance.flightDirectorCaptain.set', false, 'flightGuidance.flightDirectorCaptain.off'],
+    ['flightGuidance.autothrust.set', true, 'flightGuidance.autothrust.on'],
+    ['flightGuidance.localizer.set', false, 'flightGuidance.localizer.off'],
+    ['flightGuidance.approach.set', true, 'flightGuidance.approach.on'],
+    ['flightGuidance.expedite.set', false, 'flightGuidance.expedite.off'],
+    ['propulsion.throttleDetent.set', 'flex', 'propulsion.throttle.flexMct'],
+    ['surfaces.parkingBrake.set', true, 'systems.parkingBrake.set'],
+    ['surfaces.spoilersArmed.set', false, 'controls.spoilersArmed.off'],
+    ['lights.beacon.set', true, 'lights.beacon.on'],
+    ['lights.strobeMode.set', 'auto', 'lights.strobe.auto'],
+    ['lights.nav.set', false, 'lights.nav.off'],
+    ['lights.noseMode.set', 'taxi', 'lights.nose.taxi'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/fbw-a32nx',
+      profileRevision: 15,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve`);
+    assert.equal(result.configurationId, 'fbw-a32nx');
+    assert.equal(result.controlRequests.length, 1);
+    assert.equal(result.controlRequest.actionId, actionId);
+  }
+
+  for (const [commandId, value, eventName] of [
+    ['surfaces.gear.set', 'down', 'GEAR_DOWN'],
+    ['surfaces.flaps.adjust', 'increase', 'FLAPS_INCR'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/fbw-a32nx',
+      profileRevision: 15,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve`);
+    assert.equal(result.configurationId, 'fbw-a32nx');
+    assert.equal(result.resolvedBy, 'generic');
+    assert.equal(result.action.name, eventName);
+  }
+});
+
+test('FlyByWire A32NX takeoff-light voice preset remains an ordered guarded recipe', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+    profileKey: 'bundled/msfs/fbw-a32nx',
+    profileRevision: 15,
+  }, {
+    profile: buildFbwA32nxProfile(),
+    profileRevision: 15,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence'],
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.stepCount, 6);
+  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
+    'lights.landingLeft.on',
+    'lights.landingRight.on',
+    'lights.runwayTurnoff.on',
+    'lights.nose.takeoff',
+    'lights.strobe.on',
+    'lights.nav.on',
+  ]);
 });
 
 test('Fenix A32X catalogue exposes one reviewed UI and voice command slice across all three variants', () => {

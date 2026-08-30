@@ -58,9 +58,16 @@ not read, process, save, or send audio. Windows SAPI can read command results
 aloud without a browser or network text-to-speech service, and a new
 push-to-talk session stops the current readback.
 
-Aircraft-specific voice catalogues cover PMDG 737, PMDG 777-300ER/200ER/200LR/F,
-and Fenix A319/A320/A321 families. Other profiles expose only standard commands
-confirmed by their active guarded catalogue.
+Aircraft-specific voice catalogues cover FlyByWire A32NX, PMDG 737,
+PMDG 777-300ER/200ER/200LR/F, and Fenix A319/A320/A321 families. The A32NX
+catalogue is a guarded beta slice for FCU speed/Mach, heading, altitude,
+vertical speed/FPA and managed/selected modes, AP1/AP2, captain flight director,
+autothrust, LOC/APPR/EXPED, forward throttle detents, standard gear and flap
+steps, parking brake, spoiler arming, selected exterior lights, and takeoff lights.
+FCU targets use only FlyByWire's documented fixed custom client events through
+SimConnect, with mode guards and newer logical readback required after dispatch.
+Other profiles expose only standard commands confirmed by their active guarded
+catalogue.
 
 ## Premium aircraft support
 

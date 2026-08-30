@@ -2,6 +2,8 @@
 
 import type {
   AircraftIntegrationAction,
+  AircraftIntegrationActionPrecondition,
+  AircraftIntegrationNumberInput,
   AircraftIntegrationPrimitive,
   SimConnectSequenceOperation,
 } from '../types.js';
@@ -100,6 +102,64 @@ function setEventAction(params: {
       name: params.event,
       value: params.eventValue ?? 0,
     }],
+  });
+}
+
+function setCustomEventInputAction(params: {
+  actionId: string;
+  event: string;
+  fieldId: string;
+  groupId: string;
+  input: AircraftIntegrationNumberInput;
+  inputOffset?: number;
+  inputScale?: number;
+  precondition?: AircraftIntegrationActionPrecondition;
+}): AircraftIntegrationAction {
+  return {
+    id: params.actionId,
+    input: params.input,
+    guard: {
+      cooldownMs: DEFAULT_COOLDOWN_MS,
+      groupId: `fbwA32nx.${params.groupId}`,
+      retry: 'never',
+    },
+    routes: [{
+      id: `fbwA32nx.${params.actionId}.customEvent`,
+      transport: 'simconnect-sequence',
+      operations: [{
+        type: 'event',
+        name: params.event,
+        inputValue: {
+          source: 'input',
+          ...(params.inputScale === undefined ? {} : { scale: params.inputScale }),
+          ...(params.inputOffset === undefined ? {} : { offset: params.inputOffset }),
+        },
+      }],
+      ...(params.precondition ? { precondition: params.precondition } : {}),
+      readback: {
+        fieldId: params.fieldId,
+        expectedInput: true,
+        timeoutMs: DEFAULT_READBACK_TIMEOUT_MS,
+      },
+    }],
+    verification: 'untested',
+  };
+}
+
+function setCustomEventButtonAction(params: {
+  actionId: string;
+  event: string;
+  expectedValue: AircraftIntegrationPrimitive;
+  fieldId: string;
+  groupId: string;
+}): AircraftIntegrationAction {
+  return setEventAction({
+    actionId: params.actionId,
+    event: params.event,
+    eventValue: 0,
+    expectedValue: params.expectedValue,
+    fieldId: params.fieldId,
+    groupId: params.groupId,
   });
 }
 
@@ -508,6 +568,111 @@ addStandardDetents({
     ['thousand', 1, 'thousand'],
   ],
 });
+
+// FlyByWire publishes these FCU controls as global custom client events.
+// Numeric setters update the displayed selector only; managed/selected
+// engagement is a separate push/pull action, matching the real Airbus model.
+for (const params of [
+  {
+    actionId: 'flightGuidance.speed.set',
+    fieldId: 'flightGuidance.speedValue',
+    groupId: 'flightGuidance.speedSelector',
+    input: { type: 'number', min: 100, max: 399, step: 1 },
+    event: 'A32NX.FCU_SPD_SET',
+    precondition: { fieldId: 'flightGuidance.machMode', expectedValue: false },
+  },
+  {
+    actionId: 'flightGuidance.mach.set',
+    fieldId: 'flightGuidance.speedValue',
+    groupId: 'flightGuidance.speedSelector',
+    input: { type: 'number', min: 0.4, max: 0.99, step: 0.01 },
+    event: 'A32NX.FCU_SPD_SET',
+    inputScale: 100,
+    precondition: { fieldId: 'flightGuidance.machMode', expectedValue: true },
+  },
+  {
+    actionId: 'flightGuidance.heading.set',
+    fieldId: 'flightGuidance.headingDeg',
+    groupId: 'flightGuidance.headingSelector',
+    input: { type: 'number', min: 0, max: 359, step: 1 },
+    event: 'A32NX.FCU_HDG_SET',
+    precondition: { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false },
+  },
+  {
+    actionId: 'flightGuidance.altitude.set',
+    fieldId: 'flightGuidance.altitudeFt',
+    groupId: 'flightGuidance.altitudeSelector',
+    input: { type: 'number', min: 100, max: 49_000, step: 100 },
+    event: 'A32NX.FCU_ALT_SET',
+  },
+  {
+    actionId: 'flightGuidance.verticalSpeed.set',
+    fieldId: 'flightGuidance.verticalValue',
+    groupId: 'flightGuidance.verticalSelector',
+    input: { type: 'number', min: -6_000, max: 6_000, step: 100 },
+    event: 'A32NX.FCU_VS_SET',
+    precondition: { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false },
+  },
+  {
+    actionId: 'flightGuidance.flightPathAngle.set',
+    fieldId: 'flightGuidance.verticalValue',
+    groupId: 'flightGuidance.verticalSelector',
+    input: { type: 'number', min: -9.9, max: 9.9, step: 0.1 },
+    event: 'A32NX.FCU_VS_SET',
+    inputScale: 10,
+    precondition: { fieldId: 'flightGuidance.trkFpaMode', expectedValue: true },
+  },
+] satisfies readonly Parameters<typeof setCustomEventInputAction>[0][]) {
+  actions[params.actionId] = setCustomEventInputAction(params);
+}
+
+for (const [prefix, fieldId, pushEvent, pullEvent] of [
+  [
+    'flightGuidance.speedManaged',
+    'flightGuidance.speedManaged',
+    'A32NX.FCU_SPD_PUSH',
+    'A32NX.FCU_SPD_PULL',
+  ],
+  [
+    'flightGuidance.headingManaged',
+    'flightGuidance.headingManaged',
+    'A32NX.FCU_HDG_PUSH',
+    'A32NX.FCU_HDG_PULL',
+  ],
+  [
+    'flightGuidance.altitudeManaged',
+    'flightGuidance.altitudeManaged',
+    'A32NX.FCU_ALT_PUSH',
+    'A32NX.FCU_ALT_PULL',
+  ],
+] as const) {
+  actions[`${prefix}.on`] = setCustomEventButtonAction({
+    actionId: `${prefix}.on`,
+    event: pushEvent,
+    expectedValue: true,
+    fieldId,
+    groupId: prefix,
+  });
+  actions[`${prefix}.off`] = setCustomEventButtonAction({
+    actionId: `${prefix}.off`,
+    event: pullEvent,
+    expectedValue: false,
+    fieldId,
+    groupId: prefix,
+  });
+}
+
+for (const [suffix, expectedValue] of [['off', false], ['on', true]] as const) {
+  const actionId = `flightGuidance.ap2.${suffix}`;
+  actions[actionId] = setCustomEventButtonAction({
+    actionId,
+    event: 'A32NX.FCU_AP_2_PUSH',
+    expectedValue,
+    fieldId: 'flightGuidance.ap2',
+    groupId: 'flightGuidance.ap2',
+  });
+}
+
 for (const [prefix, fieldId, lvar] of [
   ['flightGuidance.baroUnitCaptain', 'flightGuidance.baroUnitCaptain', 'A32NX_FCU_EFIS_L_BARO_IS_INHG'],
   ['flightGuidance.baroUnitFirstOfficer', 'flightGuidance.baroUnitFirstOfficer', 'A32NX_FCU_EFIS_R_BARO_IS_INHG'],

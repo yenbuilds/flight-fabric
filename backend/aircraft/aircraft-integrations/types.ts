@@ -183,6 +183,7 @@ export type SimConnectSequenceOperation = Readonly<
 type SimConnectSequenceActionRouteBase = Readonly<{
   id: string;
   operations: readonly SimConnectSequenceOperation[];
+  precondition?: AircraftIntegrationActionPrecondition;
   transport: 'simconnect-sequence';
 }>;
 

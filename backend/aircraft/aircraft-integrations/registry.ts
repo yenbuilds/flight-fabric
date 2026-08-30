@@ -331,8 +331,23 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid SDK route.`);
       }
       if (route.transport === 'simconnect-sequence') {
+        const sequencePrecondition = route.precondition as Record<string, unknown> | undefined;
+        const validSequencePrecondition = sequencePrecondition === undefined || (
+          sequencePrecondition !== null
+          && typeof sequencePrecondition === 'object'
+          && SAFE_LOGICAL_ID_RE.test(normalizeString(sequencePrecondition.fieldId))
+          && Object.prototype.hasOwnProperty.call(
+            definition.fields,
+            normalizeString(sequencePrecondition.fieldId),
+          )
+          && isPrimitive(sequencePrecondition.expectedValue)
+          && Object.keys(sequencePrecondition).every(
+            (key) => key === 'fieldId' || key === 'expectedValue',
+          )
+        );
         if (
-          (route.confirmation !== undefined
+          !validSequencePrecondition
+          || (route.confirmation !== undefined
             && route.confirmation !== 'transport-acknowledged')
           || (route.confirmation === 'transport-acknowledged'
             && (route.readback !== undefined || routeRecord.readbacks !== undefined))

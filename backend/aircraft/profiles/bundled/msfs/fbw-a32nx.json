@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-05-02T00:00:00Z",
-  "updatedAt": "2026-08-15T00:00:00Z",
+  "updatedAt": "2026-08-29T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/airbus-base",
   "abstract": false,
@@ -147,9 +147,9 @@
       "msfs2024"
     ],
     "contributor": "YenBuilds",
-    "updated": "2026-08-15",
+    "updated": "2026-08-29",
     "status": "partial",
-    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 126 documentation-backed logical read fields and 245 fixed semantic actions spanning FCU mode buttons, paired calibrated forward-throttle detents, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. The IDLE, CLB, FLX/MCT, and TOGA controls use each lever's saved calibration-window midpoint and require independent newer TLA confirmation. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Reverse thrust, arbitrary axis targets, irreversible fire/IDG/oxygen actions, presets, pushback motion and unsupported custom FCU set events remain excluded."
+    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 126 documentation-backed logical read fields and 259 semantic actions spanning FCU targets and managed/selected controls, FCU mode buttons, paired calibrated forward-throttle detents, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. FCU targets use only FlyByWire's fixed documented global custom client events through the native SimConnect event bridge. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. The IDLE, CLB, FLX/MCT, and TOGA controls use each lever's saved calibration-window midpoint and require independent newer TLA confirmation. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Reverse thrust, arbitrary axis targets, irreversible fire/IDG/oxygen actions, presets and pushback motion remain excluded."
   },
   "provenance": {
     "sources": [
@@ -200,8 +200,18 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A32NX a320-events.md",
         "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a32nx/docs/a320-events.md",
-        "retrievedAt": "2026-07-27",
-        "notes": "Cross-check for the current A32NX custom-event namespace and the reason custom FCU set/push/pull events remain outside the native route surface."
+        "retrievedAt": "2026-08-29",
+        "notes": "Documents the current A32NX custom-event namespace and payload semantics used by the guarded FCU routes: A32NX.FCU_SPD_SET, A32NX.FCU_HDG_SET, A32NX.FCU_ALT_SET, A32NX.FCU_VS_SET, A32NX.FCU_SPD_PUSH, A32NX.FCU_SPD_PULL, A32NX.FCU_HDG_PUSH, A32NX.FCU_HDG_PULL, A32NX.FCU_ALT_PUSH, A32NX.FCU_ALT_PULL, and A32NX.FCU_AP_2_PUSH. Flight Fabric maps only these fixed adapter-owned names and never accepts an event name from the client."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A32NX SPAD.neXt custom client events",
+        "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a32nx/docs/SPAD.neXt/flybywire-aircraft-a320-neo.xml",
+        "retrievedAt": "2026-08-29",
+        "notes": "Official vendor integration definition classifying the A32NX.FCU_* interface as global CustomClientEvent entries for external event mapping."
       },
       {
         "type": "official-docs",
@@ -213,14 +223,14 @@
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-08-15",
+      "lastVerified": "2026-08-29",
       "knownIssues": [
         "Most expanded routes are documentation-backed but have not been live-validated across every stable and development A32NX release. A selector-only or otherwise cosmetic write fails with a confirmation timeout when the configured logical field does not reach the requested value; a matching selector readback still does not prove every downstream aircraft-system effect.",
         "FlyByWire states that its Flight Deck API table can lag current development. The adapter therefore uses only fixed bounded values, requires a fresh decodable preflight, serializes each physical control group, applies a 750 ms cooldown, never retries, and requires a newer confirming readback after dispatch.",
         "Strobe coordinates LIGHTING_STROBE_0, STROBE_0_AUTO and STROBES_SET, then confirms actual LIGHT STROBE output for OFF/ON or the AUTO flag for AUTO. It still needs combined selector, AUTO and exterior-output validation on current aircraft builds.",
         "Landing, nose and runway-turnoff controls follow FlyByWire's documented selector, retraction and circuit contract. Landing-light ON waits 9 seconds before circuit energization; every delayed step revalidates the active profile generation and aborts if the aircraft changes. An interrupted sidecar or simulator connection can still leave a selector or retraction command partially applied, and these routes need live validation on current Stable and Development builds.",
         "Toggle-only standard events are presented as explicit targets only because the provider first requires a fresh matching readback and skips dispatch when the requested target is already satisfied. A changed target is dispatched once and must confirm.",
-        "FlyByWire custom FCU set/push/pull events are not exposed because the current native runtime does not advertise custom InputEvent execution. Only the documented standard SimConnect FCU mode events with direct light readback are enabled.",
+        "FCU speed/Mach, heading, altitude, vertical-speed/FPA, AP2 and managed/selected routes use FlyByWire's documented global custom client events through SimConnect. Event names and payload transforms are adapter-owned, mode-dependent setters require fresh mode readback before dispatch, toggle targets skip same-state writes, and every changed target dispatches once and requires newer logical readback. These routes still need live Stable and Development validation.",
         "The four forward-throttle detents use the midpoint of each lever's saved FlyPad calibration window through one MobiFlight calculator expression, then require newer exact A32NX_AUTOTHRUST_TLA:1 and :2 confirmation. Missing or malformed calibration bounds prevent every axis write. Reverse thrust and arbitrary raw-axis targets remain excluded.",
         "Fire, oxygen, irreversible IDG disconnect, flight-control-computer, preset loading/saving, pushback motion, arbitrary flight axes and momentary controls without durable readback remain excluded.",
         "Wipers remain excluded because the published interface requires indexed electrical-circuit power events and the current trusted integration transport does not provide an independently confirmed, position-safe indexed circuit route."

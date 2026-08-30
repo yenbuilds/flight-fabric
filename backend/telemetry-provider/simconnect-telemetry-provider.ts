@@ -2858,6 +2858,29 @@ class SimConnectTelemetryProvider {
       adapterId,
       profileRevision: options.profileRevision,
     };
+    if (route.transport === 'simconnect-sequence' && route.precondition) {
+      const precondition = this._captureAircraftIntegrationReadback(
+        bridge,
+        route.precondition,
+        readbackContext,
+      );
+      if (!precondition.fresh || precondition.observed == null) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_precondition_unavailable',
+          error: `A fresh ${route.precondition.fieldId} readback is required before this custom event can be written.`,
+          backendSource,
+        };
+      }
+      if (!Object.is(precondition.observed, route.precondition.expectedValue)) {
+        return {
+          ok: false,
+          code: 'aircraft_integration_precondition_failed',
+          error: `This custom event requires ${route.precondition.fieldId} to be ${formatAircraftControlReadbackValue(route.precondition.expectedValue)}, but the aircraft reported ${formatAircraftControlReadbackValue(precondition.observed)}.`,
+          backendSource,
+        };
+      }
+    }
     const baselineReadbacks = resolvedReadbacks.map((readback) => (
       this._captureAircraftIntegrationReadback(
         bridge,

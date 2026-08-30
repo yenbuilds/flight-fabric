@@ -1970,8 +1970,8 @@ test(
     fbwA32nxLvars.aircraftSpecific.fields.some(field => field.id === 'systems.adirsAlignmentSeconds')
 );
 test(
-  'FlyByWire A32NX write confirmations cover broad fixed commands while strobe proves output or AUTO mode',
-  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 97 &&
+  'FlyByWire A32NX write confirmations cover broad commands, FCU InputEvents, and strobe output or AUTO mode',
+  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 105 &&
     ['propulsion.throttleLever1Angle', 'propulsion.throttleLever2Angle'].every(fieldId => (
       fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === fieldId)
     )) &&
@@ -1986,7 +1986,21 @@ test(
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'systems.autobrakeMode') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'navigation.ndCaptainMode') &&
     fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'surveillance.tcasMode') &&
-    fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'controls.spoilersHandle')
+    fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === 'controls.spoilersHandle') &&
+    [
+      'flightGuidance.speedValue',
+      'flightGuidance.machMode',
+      'flightGuidance.headingDeg',
+      'flightGuidance.altitudeFt',
+      'flightGuidance.verticalValue',
+      'flightGuidance.trkFpaMode',
+      'flightGuidance.speedManaged',
+      'flightGuidance.headingManaged',
+      'flightGuidance.altitudeManaged',
+      'flightGuidance.ap2',
+    ].every(fieldId => (
+      fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === fieldId)
+    ))
 );
 test(
   'FlyByWire A32NX keeps broad executable routes adapter-owned and generic AP writes disabled',

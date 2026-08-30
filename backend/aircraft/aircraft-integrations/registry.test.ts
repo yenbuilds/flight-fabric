@@ -1001,7 +1001,49 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   assert.equal(integration.id, FBW_A32NX_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'fbw-a32nx');
   assert.equal(Object.keys(integration.fields).length, 126);
-  assert.equal(Object.keys(integration.actions).length, 245);
+  assert.equal(Object.keys(integration.actions).length, 259);
+  for (const [actionId, event, fieldId, input, precondition, inputScale] of [
+    ['flightGuidance.speed.set', 'A32NX.FCU_SPD_SET', 'flightGuidance.speedValue', { type: 'number', min: 100, max: 399, step: 1 }, { fieldId: 'flightGuidance.machMode', expectedValue: false }, undefined],
+    ['flightGuidance.mach.set', 'A32NX.FCU_SPD_SET', 'flightGuidance.speedValue', { type: 'number', min: 0.4, max: 0.99, step: 0.01 }, { fieldId: 'flightGuidance.machMode', expectedValue: true }, 100],
+    ['flightGuidance.heading.set', 'A32NX.FCU_HDG_SET', 'flightGuidance.headingDeg', { type: 'number', min: 0, max: 359, step: 1 }, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false }, undefined],
+    ['flightGuidance.altitude.set', 'A32NX.FCU_ALT_SET', 'flightGuidance.altitudeFt', { type: 'number', min: 100, max: 49_000, step: 100 }, undefined, undefined],
+    ['flightGuidance.verticalSpeed.set', 'A32NX.FCU_VS_SET', 'flightGuidance.verticalValue', { type: 'number', min: -6_000, max: 6_000, step: 100 }, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false }, undefined],
+    ['flightGuidance.flightPathAngle.set', 'A32NX.FCU_VS_SET', 'flightGuidance.verticalValue', { type: 'number', min: -9.9, max: 9.9, step: 0.1 }, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: true }, 10],
+  ] as const) {
+    const action = integration.actions[actionId];
+    const route = action.routes[0];
+    assert.deepEqual(action.input, input);
+    assert.equal(route.transport, 'simconnect-sequence');
+    assert.deepEqual(route.operations, [{
+      type: 'event',
+      name: event,
+      inputValue: {
+        source: 'input',
+        ...(inputScale === undefined ? {} : { scale: inputScale }),
+      },
+    }]);
+    assert.deepEqual(route.precondition, precondition);
+    assert.deepEqual(route.readback, {
+      fieldId,
+      expectedInput: true,
+      timeoutMs: 3000,
+    });
+  }
+  for (const [actionId, event, fieldId, expectedValue] of [
+    ['flightGuidance.speedManaged.on', 'A32NX.FCU_SPD_PUSH', 'flightGuidance.speedManaged', true],
+    ['flightGuidance.speedManaged.off', 'A32NX.FCU_SPD_PULL', 'flightGuidance.speedManaged', false],
+    ['flightGuidance.headingManaged.on', 'A32NX.FCU_HDG_PUSH', 'flightGuidance.headingManaged', true],
+    ['flightGuidance.headingManaged.off', 'A32NX.FCU_HDG_PULL', 'flightGuidance.headingManaged', false],
+    ['flightGuidance.altitudeManaged.on', 'A32NX.FCU_ALT_PUSH', 'flightGuidance.altitudeManaged', true],
+    ['flightGuidance.altitudeManaged.off', 'A32NX.FCU_ALT_PULL', 'flightGuidance.altitudeManaged', false],
+    ['flightGuidance.ap2.on', 'A32NX.FCU_AP_2_PUSH', 'flightGuidance.ap2', true],
+    ['flightGuidance.ap2.off', 'A32NX.FCU_AP_2_PUSH', 'flightGuidance.ap2', false],
+  ] as const) {
+    const route = integration.actions[actionId].routes[0];
+    assert.equal(route.transport, 'simconnect-sequence');
+    assert.deepEqual(route.operations, [{ type: 'event', name: event, value: 0 }]);
+    assert.deepEqual(route.readback, { fieldId, expectedValue, timeoutMs: 3000 });
+  }
   assert.deepEqual(integration.fields['propulsion.throttleLever1Angle'].sources[0], {
     route: { type: 'lvar', name: 'L:A32NX_AUTOTHRUST_TLA:1', unit: 'Number' },
     decode: { type: 'number', precision: 2 },
@@ -1849,6 +1891,32 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     () => createAircraftIntegrationRegistry([lvarInputSequence]),
     'a trusted LVAR sequence may derive a bounded numeric write from typed input',
   );
+
+  const preconditionedSequence = structuredClone(lvarInputSequence);
+  preconditionedSequence.id = 'preconditioned-sequence';
+  preconditionedSequence.trustedProfileKeys = ['bundled/msfs/preconditioned-sequence'];
+  preconditionedSequence.actions['test.set'].routes[0].precondition = {
+    fieldId: 'test.value',
+    expectedValue: 0,
+  };
+  assert.doesNotThrow(
+    () => createAircraftIntegrationRegistry([preconditionedSequence]),
+    'a trusted SimConnect sequence may require a fixed logical precondition',
+  );
+  for (const [id, mutate] of [
+    ['missing-precondition-field', (precondition: any) => { precondition.fieldId = 'test.missing'; }],
+    ['extra-precondition-key', (precondition: any) => { precondition.event = 'unsafe'; }],
+  ] as const) {
+    const invalid = structuredClone(preconditionedSequence);
+    invalid.id = id;
+    invalid.trustedProfileKeys = [`bundled/msfs/${id}`];
+    mutate(invalid.actions['test.set'].routes[0].precondition);
+    assert.throws(
+      () => createAircraftIntegrationRegistry([invalid]),
+      /invalid SimConnect sequence route/,
+      id,
+    );
+  }
 
   for (const [id, mutate] of [
     ['lvar-input-with-fixed-value', (operation: any) => { operation.value = 1; }],
