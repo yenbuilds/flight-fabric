@@ -126,6 +126,7 @@ type AircraftSpecificReadOptions = {
   csvIdentity?: CsvRecordingIdentity;
   maxRetainedBytes?: number;
   retainRows?: number;
+  onCommittedRow?: (_row: AnyRecord) => void;
 };
 
 function validateAircraftSpecificRow(
@@ -432,6 +433,17 @@ async function readAircraftSpecificRowsForCsv(
           fail(`Aircraft-specific sidecar integrity error at line ${metadata.recordNumber}: ${integrityError}.`);
         }
         firstCommittedRow = firstCommittedRow || parsed;
+
+        // Timeline can project bounded aircraft-specific events while this
+        // already-validated stream is in memory. The raw sidecar remains
+        // unretained, preserving the reader's existing memory boundary.
+        if (typeof options.onCommittedRow === 'function') {
+          try {
+            options.onCommittedRow(parsed);
+          } catch {
+            fail('Aircraft-specific sidecar projection failed safely.');
+          }
+        }
 
         if (rows.length < retainRows) {
           const rowBytes = Buffer.byteLength(line, 'utf8');

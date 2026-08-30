@@ -8,7 +8,13 @@ const { after, test } = require('node:test') as typeof import('node:test');
 const {
   readAircraftSpecificRowsForCsv,
 } = require('./aircraft-specific-jsonl-reader') as {
-  readAircraftSpecificRowsForCsv: (_csvPath: string) => Promise<Record<string, any>>;
+  readAircraftSpecificRowsForCsv: (
+    _csvPath: string,
+    _options?: {
+      retainRows?: number;
+      onCommittedRow?: (_row: Record<string, any>) => void;
+    },
+  ) => Promise<Record<string, any>>;
 };
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-aircraft-jsonl-reader-'));
@@ -283,6 +289,52 @@ test('accepts compact v2 rows and validates sequential config references', async
   assert.equal(result.rows[1].configId, 1);
   assert.equal(result.rows[1].configHash, undefined);
   assert.equal(result.rows[3].flightId, undefined);
+});
+
+test('projects every committed row while retaining only the requested bounded prefix', async () => {
+  const csvPath = createCsv('stream-project-v2');
+  const rows = [
+    row({ schemaVersion: 2, bundleStatusRequired: true }),
+    {
+      schemaVersion: 2,
+      seq: 2,
+      type: 'aircraft_specific_config',
+      flightElapsedMs: 0,
+      configId: 1,
+      profileKey: 'bundled/msfs/pmdg-777',
+      profileRevision: 1,
+      integrationId: 'pmdg-777',
+      templateId: 'pmdg-777',
+      fieldTypes: { 'flightGuidance.localizer': 'boolean' },
+    },
+    {
+      schemaVersion: 2,
+      seq: 3,
+      type: 'aircraft_specific_checkpoint',
+      flightElapsedMs: 0,
+      configId: 1,
+      values: { 'flightGuidance.localizer': false },
+      unavailable: [],
+      sourceStatus: { overall: 'connected', sources: { sdk: 'connected' } },
+    },
+  ];
+  writeRows(csvPath, rows);
+
+  const projected: string[] = [];
+  const result = await readAircraftSpecificRowsForCsv(csvPath, {
+    retainRows: 1,
+    onCommittedRow(projectedRow) {
+      projected.push(projectedRow.type);
+    },
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.rows.length, 1);
+  assert.deepEqual(projected, [
+    'aircraft_specific_manifest',
+    'aircraft_specific_config',
+    'aircraft_specific_checkpoint',
+  ]);
 });
 
 test('rejects compact v2 config gaps, uncommitted deltas, and mixed schemas', async () => {

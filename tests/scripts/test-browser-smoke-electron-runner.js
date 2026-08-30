@@ -305,28 +305,13 @@ async function assertCompactFlightLayout(windowRef) {
 }
 
 async function assertMapLibreWorkerRuntime(windowRef) {
-  const result = await evaluate(windowRef, `new Promise((resolve) => {
-    let settled = false;
-    let worker = null;
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      try { worker?.terminate(); } catch {}
-      resolve(value);
-    };
+  const result = await evaluate(windowRef, `(() => ({
+    leaflet: typeof window.L?.map,
+    maplibreLeafletAdapter: typeof window.L?.maplibreGL,
+  }))()`);
 
-    try {
-      worker = new Worker('/maplibre-gl-worker.mjs', { type: 'module' });
-      worker.addEventListener('error', (event) => {
-        finish({ ok: false, message: event.message || 'MapLibre module worker failed to load' });
-      }, { once: true });
-      setTimeout(() => finish({ ok: true, message: '' }), 750);
-    } catch (error) {
-      finish({ ok: false, message: error?.message || String(error) });
-    }
-  })`);
-
-  assert.equal(result?.ok, true, `MapLibre module worker should load in Electron: ${result?.message || 'unknown error'}`);
+  assert.equal(result?.leaflet, 'function', 'Leaflet should load in Electron');
+  assert.equal(result?.maplibreLeafletAdapter, 'function', 'The bundled MapLibre Leaflet adapter should load in Electron');
 }
 
 async function assertMobileShellLayout(windowRef) {
@@ -611,6 +596,30 @@ async function assertRemoteSecondScreenGuideLayout(windowRef) {
     'phone second-screen guidance on the remote route',
   );
 
+  const phoneResult = await evaluate(windowRef, `(() => {
+    const guide = document.getElementById('second-screen-guide');
+    const guideRect = guide?.getBoundingClientRect();
+    return {
+      display: guide ? getComputedStyle(guide).display : 'missing',
+      width: guideRect?.width || 0,
+      height: guideRect?.height || 0,
+      pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
+      viewportWidth: window.innerWidth,
+    };
+  })();`);
+
+  assert.equal(phoneResult.display, 'none', 'phone should hide the long second-screen guide');
+  assert.equal(phoneResult.width, 0, 'hidden phone guidance should not reserve horizontal space');
+  assert.equal(phoneResult.height, 0, 'hidden phone guidance should not reserve vertical space');
+  assert.ok(phoneResult.pageWidth <= phoneResult.viewportWidth + 2, 'hidden phone guidance should not introduce horizontal overflow');
+
+  await setContentSizeAndWait(windowRef, 700, 900, 'remote compact tablet');
+  await waitFor(
+    windowRef,
+    "document.getElementById('second-screen-guide')?.getClientRects().length > 0",
+    'compact-tablet second-screen guidance on the remote route',
+  );
+
   const result = await evaluate(windowRef, `(() => {
     const guide = document.getElementById('second-screen-guide');
     const dismiss = document.getElementById('second-screen-guide-dismiss');
@@ -628,8 +637,8 @@ async function assertRemoteSecondScreenGuideLayout(windowRef) {
     };
   })();`);
 
-  assert.ok(result.guideHeight >= 100, 'second-screen guide should remain visibly sized on a phone');
-  assert.ok(result.guideLeft >= 0 && result.guideRight <= result.viewportWidth, 'second-screen guide should fit the phone viewport');
+  assert.ok(result.guideHeight >= 100, 'second-screen guide should remain visibly sized on a compact tablet');
+  assert.ok(result.guideLeft >= 0 && result.guideRight <= result.viewportWidth, 'second-screen guide should fit the compact-tablet viewport');
   assert.ok(result.pageWidth <= result.viewportWidth + 2, 'second-screen guide should not introduce horizontal overflow');
   assert.ok(result.dismissWidth >= 44 && result.dismissHeight >= 44, 'second-screen guide dismissal should keep a 44px touch target');
   assert.ok(result.text.includes('New flights appear automatically'), 'phone guidance should explain that a new flight needs no scan');

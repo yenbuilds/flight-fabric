@@ -57,7 +57,9 @@ const timelineGenerator = require('../events/timeline-generator') as {
   getFlightLogsStorageInfo: (_options?: { allowedCsvPaths?: string[] }) => AnyRecord;
   listCSVFlights: (_options?: { allowedCsvPaths?: string[]; skipDeleteRecovery?: boolean }) => AnyRecord[];
   buildListedCsvFlightFromPath: (_filePath: string) => AnyRecord | null;
+  mergeRecordedAircraftTimelineProjections: (_savedTimeline: AnyRecord, _recordedTimeline: AnyRecord) => AnyRecord;
   recoverInterruptedBundleDeletes: (_dir: string) => void;
+  timelineNeedsAircraftProjectionRefresh: (_timeline: AnyRecord) => boolean;
 };
 const {
   getLandingsFromCSVs,
@@ -180,6 +182,7 @@ type TimelineListOptions = {
   routeFilter?: unknown;
   sort?: unknown;
 };
+
 type IndexedTimelineListResult =
   | {
       success: true;
@@ -883,10 +886,23 @@ function createFlightCsvStore(options: StoreOptions = {}) {
         flightLogsDir: timelineGenerator.getFlightLogsDir(),
       });
       if (saved?.valid === true && saved?.document?.timeline) {
+        let savedTimeline = saved.document.timeline;
+        // Rescore snapshots own landing-analysis results, not aircraft-specific
+        // interpretation. Refresh any registered derived aircraft lanes from
+        // the canonical recording when their projection contracts advance.
+        if (timelineGenerator.timelineNeedsAircraftProjectionRefresh(savedTimeline)) {
+          const recorded = await timelineGenerator.generateFromCSV(csvPath, { scoringMode: 'recorded' });
+          if (recorded.success && recorded.timeline) {
+            savedTimeline = timelineGenerator.mergeRecordedAircraftTimelineProjections(
+              savedTimeline,
+              recorded.timeline,
+            );
+          }
+        }
         return {
           success: true,
           timeline: {
-            ...saved.document.timeline,
+            ...savedTimeline,
             filePath: csvPath,
             analysisRescore: {
               applied: true,

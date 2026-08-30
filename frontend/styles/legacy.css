@@ -1315,6 +1315,8 @@ textarea {
 .timeline-event[data-type="score"]::before { background: #f59e0b; }
 /* Automation events: teal dot */
 .timeline-event[data-type="automation"]::before { background: #14b8a6; }
+/* Flight guidance events: violet dot */
+.timeline-event[data-type="flight-guidance"]::before { background: #a78bfa; }
 /* Marker events: blue dot */
 .timeline-event[data-type="marker"]::before { background: #3b82f6; }
 /* Score impact badge */

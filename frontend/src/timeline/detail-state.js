@@ -78,11 +78,15 @@ export function buildTimelineEventDetailState(event, {
     };
   }
 
-  if (event.type === 'automation_event') {
+  if (event.type === 'automation_event' || event.type === 'flight_guidance_event') {
     return {
       visible: true,
       type: typeLabels[event.type] || event.type,
-      title: event.label || String(event.eventType || 'Automation event').replace(/_/g, ' '),
+      title: event.label || String(
+        event.eventType || (event.type === 'flight_guidance_event'
+          ? 'Flight guidance changed'
+          : 'Automation event'),
+      ).replace(/_/g, ' '),
       metricSections: buildTimelineMetricSections(event, ruleDescriptions),
       approachProfileHtml: '',
       topdownProfileHtml: '',

@@ -221,6 +221,86 @@ test('generated timeline preserves the earliest non-empty recorded aircraft prof
   );
 });
 
+test('PMDG flight-guidance projection uses its own lane and replaces overlapping generic automation', () => {
+  const startTs = Date.parse('2026-07-22T00:00:00.000Z');
+  const rows = [0, 1000, 2000].map((offsetMs) => ({
+    flight_id: 'pmdg-guidance-replay',
+    record_type: 'SAMPLE',
+    timestamp_utc: new Date(startTs + offsetMs).toISOString(),
+    ts: startTs + offsetMs,
+    flight_elapsed_ms: offsetMs,
+    aircraft: 'PMDG 777-300ER',
+    aircraft_profile_id: 'pmdg-777',
+    lat_deg: -33.9461 + (offsetMs / 10_000_000),
+    lon_deg: 151.1772,
+    ra_ft: 2000 - (offsetMs / 2),
+    phase: 'APPROACH',
+    on_ground: false,
+    ias_kts: 145,
+    vs_fpm: -700,
+    gs_kts: 145,
+    hdg_true_deg: 160,
+    alt_msl_ft: 2500 - (offsetMs / 2),
+  }));
+  const result = generateTimelineFromRows('pmdg-guidance-replay.csv', rows, {
+    automationRows: [{
+      schemaVersion: 1,
+      seq: 1,
+      type: 'automation_event',
+      timeMs: startTs + 600,
+      timestampIso: new Date(startTs + 600).toISOString(),
+      flightElapsedMs: 600,
+      flightId: 'pmdg-guidance-replay',
+      flightStartIso: new Date(startTs).toISOString(),
+      eventType: 'loc_captured',
+      field: 'localizerCaptured',
+      previous: false,
+      current: true,
+      confidence: 'profile-confirmed',
+      source: 'sdk',
+      dataSource: 'msfs',
+    }],
+    aircraftTimelineProjections: [{
+      projectionId: 'pmdg-777.flight-guidance',
+      projection: {
+        applicable: true,
+        active: true,
+        summary: { integrationId: 'pmdg-777' },
+        eventCount: 1,
+        truncatedCount: 0,
+        coverage: [{ startElapsedMs: 0, endElapsedMs: 2000 }],
+        events: [{
+          type: 'flight_guidance_event',
+          eventType: 'guidance_mode_selected',
+          flightElapsedMs: 600,
+          confirmedAtElapsedMs: 1100,
+          fieldId: 'flightGuidance.localizer',
+          previous: false,
+          current: true,
+          label: 'LOC selected',
+          summary: '',
+          mode: 'LOC',
+          confidence: 'profile-confirmed',
+          source: 'sdk',
+          integrationId: 'pmdg-777',
+          aircraftProfileId: 'bundled/msfs/pmdg-777',
+        }],
+      },
+    }],
+  });
+
+  assert(result.success === true, `expected timeline success, got ${result.error}`);
+  const guidanceEvents = result.timeline.events.filter((event) => event.type === 'flight_guidance_event');
+  assert(guidanceEvents.length === 1, `expected one guidance event, got ${guidanceEvents.length}`);
+  assert(guidanceEvents[0].label === 'LOC selected', `unexpected guidance label ${guidanceEvents[0].label}`);
+  assert(guidanceEvents[0].lane === 'flight-guidance', 'expected dedicated flight-guidance lane');
+  assert(guidanceEvents[0].aircraftProjectionId === 'pmdg-777.flight-guidance', 'expected registered projection identity');
+  assert(guidanceEvents[0].context.ra_ft === 1500, `expected nearest RA context, got ${guidanceEvents[0].context.ra_ft}`);
+  assert(!result.timeline.events.some((event) => event.eventType === 'loc_captured'), 'overlapping generic LOC event should be suppressed');
+  assert(result.timeline.automationSummary.suppressedByAircraftProjection === 1, 'suppression should be disclosed');
+  assert(result.timeline.aircraftTimelineProjections['pmdg-777.flight-guidance'].eventCount === 1, 'projection metadata should count the event');
+});
+
 console.log('\ncsvRowToStabilityFrame: basic fields');
 
 // In production, rows have already been processed by parseValue():
@@ -1267,6 +1347,7 @@ function createCanonicalBundleFixture(rootDir, bundleName) {
     bundleDir,
     csvPath: path.join(bundleDir, 'telemetry.csv'),
     automationPath: path.join(bundleDir, 'automation.jsonl'),
+    aircraftSpecificPath: path.join(bundleDir, 'aircraft-specific.jsonl'),
     timelinePath: path.join(bundleDir, 'timeline.json'),
   };
 }
@@ -1529,6 +1610,87 @@ async function runAsyncTests() {
       assert(result.timeline.automationSummary.eventCount === 1, 'expected automation summary event count');
       assert(!result.timeline.events.some((item) => item.eventType === 'selected_altitude_changed'), 'selector dial changes should stay out of timeline events');
       assert(!result.timeline.events.some((item) => item.eventType === 'lateral_mode_changed'), 'unknown mode drops should stay out of timeline events');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  await testAsync('legacy PMDG aircraft-specific replay projects stable flight guidance end to end', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(tmpRoot, 'pmdg-guidance-sidecar-'));
+    const fixture = createCanonicalBundleFixture(tmpDir, 'pmdg-guidance-sidecar');
+    const baseTs = 1700000450000;
+    const flightId = 'pmdg-guidance-sidecar';
+    const flightStartIso = new Date(baseTs).toISOString();
+    const headers = [
+      'flight_id',
+      'flight_start_iso',
+      'timestamp_utc',
+      'ts',
+      'flight_elapsed_ms',
+      'record_type',
+      'phase',
+      'lat_deg',
+      'lon_deg',
+      'ra_ft',
+      'on_ground',
+      'ias_kts',
+      'vs_fpm',
+      'gs_kts',
+      'hdg_true_deg',
+      'alt_msl_ft',
+      'aircraft',
+      'aircraft_profile_id',
+    ];
+    const rows = [
+      [flightId, flightStartIso, flightStartIso, baseTs, 0, 'SAMPLE', 'APPROACH', -33.94, 151.17, 2200, 'false', 145, -700, 145, 160, 2800, 'PMDG 777-300ER', 'pmdg-777'],
+      [flightId, flightStartIso, new Date(baseTs + 1000).toISOString(), baseTs + 1000, 1000, 'SAMPLE', 'APPROACH', -33.93, 151.17, 1700, 'false', 145, -700, 145, 160, 2300, 'PMDG 777-300ER', 'pmdg-777'],
+      [flightId, flightStartIso, new Date(baseTs + 2000).toISOString(), baseTs + 2000, 2000, 'SAMPLE', 'APPROACH', -33.92, 151.17, 1200, 'false', 145, -700, 145, 160, 1800, 'PMDG 777-300ER', 'pmdg-777'],
+    ];
+    fs.writeFileSync(fixture.csvPath, [headers.join(','), ...rows.map((row) => row.join(','))].join('\n'), 'utf8');
+    const sidecarRow = (seq, type, elapsedMs, extra = {}) => ({
+      schemaVersion: 1,
+      seq,
+      type,
+      timeMs: baseTs + elapsedMs,
+      timestampIso: new Date(baseTs + elapsedMs).toISOString(),
+      flightElapsedMs: elapsedMs,
+      flightId,
+      flightStartIso,
+      bundleStatusRequired: false,
+      configId: 1,
+      ...extra,
+    });
+    fs.writeFileSync(fixture.aircraftSpecificPath, [
+      sidecarRow(1, 'aircraft_specific_config', 0, {
+        profileKey: 'bundled/msfs/pmdg-777',
+        integrationId: 'pmdg-777',
+        templateId: 'pmdg-777',
+      }),
+      sidecarRow(2, 'aircraft_specific_checkpoint', 0, {
+        values: { 'flightGuidance.localizer': false },
+        unavailable: [],
+        sourceStatus: { overall: 'connected', sources: { sdk: 'connected' } },
+      }),
+      sidecarRow(3, 'aircraft_specific_delta', 600, {
+        valuesSet: { 'flightGuidance.localizer': true },
+      }),
+      sidecarRow(4, 'aircraft_specific_checkpoint', 1200, {
+        values: { 'flightGuidance.localizer': true },
+        unavailable: [],
+        sourceStatus: { overall: 'connected', sources: { sdk: 'connected' } },
+      }),
+    ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
+
+    try {
+      const result = await require(timelineGeneratorPath).generateFromCSV(fixture.csvPath);
+      assert(result.success === true, `expected success, got ${result.error}`);
+      const event = result.timeline.events.find((item) => item.type === 'flight_guidance_event');
+      assert(event?.label === 'LOC selected', `expected conservative LOC event, got ${event?.label}`);
+      assert(event.context.ra_ft === 1700, `expected nearest approach context, got ${event.context.ra_ft}`);
+      assert(
+        result.timeline.aircraftTimelineProjections['pmdg-777.flight-guidance'].integrationId === 'pmdg-777',
+        'expected registered PMDG projection metadata',
+      );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

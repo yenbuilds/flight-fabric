@@ -260,6 +260,7 @@ const { readAircraftSpecificRowsForCsv } = require('../flight-recording/aircraft
     };
     maxRetainedBytes?: number;
     retainRows?: number;
+    onCommittedRow?: (_row: AnyRecord) => void;
   }) => Promise<{
     filePath: string;
     exists: boolean;
@@ -271,6 +272,24 @@ const { readAircraftSpecificRowsForCsv } = require('../flight-recording/aircraft
     recoveredTail?: boolean;
     error?: string;
   }>;
+};
+const {
+  defaultAircraftTimelineProjectionRegistry,
+} = require('../aircraft/aircraft-timeline-projections.js') as {
+  defaultAircraftTimelineProjectionRegistry: {
+    automationEventIsDuplicated: (_automationEvent: AnyRecord, _projections: AnyRecord[]) => boolean;
+    createSession: () => {
+      consume: (_row: AnyRecord) => void;
+      finish: () => AnyRecord[];
+    };
+    getDefinition: (_projectionId: unknown) => AnyRecord | null;
+    mergeRecordedProjections: (
+      _savedTimeline: AnyRecord,
+      _recordedTimeline: AnyRecord,
+      _options?: { maxEvents?: number },
+    ) => AnyRecord;
+    timelineNeedsProjectionRefresh: (_timeline: AnyRecord) => boolean;
+  };
 };
 const {
   inspectCsvBundleForCatalogSync,
@@ -453,6 +472,7 @@ type GeneratedTimeline = {
   flightType?: string;
   flightClassification?: AnyRecord;
   automationSummary?: AnyRecord;
+  aircraftTimelineProjections?: Record<string, AnyRecord>;
   analysisRescore?: {
     mode: 'recorded' | 'current-preview';
     scope: 'full-landing-analysis';
@@ -1942,6 +1962,27 @@ function automationValueKey(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
+function shouldSuppressOverlappingAircraftProjectionEvent(
+  row: AnyRecord,
+  projections: AnyRecord[],
+  startTimestampMs: number,
+): boolean {
+  const eventType = toNonEmptyString(row?.eventType);
+  if (!eventType) return false;
+  const timestampMs = getAutomationEventTimestampMs(row, startTimestampMs);
+  const explicitElapsed = toFiniteNumber(row?.flightElapsedMs);
+  const elapsedMs = explicitElapsed !== null
+    ? explicitElapsed
+    : Number.isFinite(timestampMs) && Number.isFinite(startTimestampMs)
+      ? Math.max(0, timestampMs - startTimestampMs)
+      : null;
+  if (elapsedMs === null || !Array.isArray(projections) || projections.length === 0) return false;
+  return defaultAircraftTimelineProjectionRegistry.automationEventIsDuplicated(
+    { ...row, flightElapsedMs: elapsedMs },
+    projections,
+  );
+}
+
 function mergeAutomationTimelineEvents(
   generatedTimeline: GeneratedTimeline,
   rows: CsvRow[],
@@ -1956,6 +1997,9 @@ function mergeAutomationTimelineEvents(
     : Array.isArray(sidecar?.rows)
       ? sidecar.rows
       : [];
+  const aircraftTimelineProjections = Array.isArray(options.aircraftTimelineProjections)
+    ? options.aircraftTimelineProjections
+    : [];
 
   if (!automationRows.length) {
     if (sidecar?.error || sidecar?.parseErrorCount) {
@@ -1972,7 +2016,12 @@ function mergeAutomationTimelineEvents(
   const timelineAutomationRows = buildAutomationTimelineRows(automationRows);
   const lastVisibleStateByField = new Map<string, string>();
   let eventCount = 0;
+  let suppressedByAircraftProjection = 0;
   for (const row of timelineAutomationRows) {
+    if (shouldSuppressOverlappingAircraftProjectionEvent(row, aircraftTimelineProjections, startTimestampMs)) {
+      suppressedByAircraftProjection += 1;
+      continue;
+    }
     const event = buildAutomationTimelineEvent(row, samples, startTimestampMs, automationRows);
     if (!event) continue;
     const field = toNonEmptyString(event.field) || '';
@@ -1992,8 +2041,137 @@ function mergeAutomationTimelineEvents(
     rowCount: automationRows.length,
     parseErrorCount: sidecar?.parseErrorCount || 0,
     readError: sidecar?.error || null,
+    suppressedByAircraftProjection,
   };
   return null;
+}
+
+function buildAircraftTimelineProjectionEvent(
+  row: AnyRecord,
+  definition: AnyRecord,
+  samples: AnyRecord[],
+  startTimestampMs: number,
+): AnyRecord | null {
+  if (!row || row.type !== definition?.eventType) return null;
+  const elapsedMs = toFiniteNumber(row.flightElapsedMs);
+  if (elapsedMs === null || elapsedMs < 0 || !Number.isFinite(startTimestampMs)) return null;
+  const timestampMs = startTimestampMs + elapsedMs;
+  const nearestSample = findNearestAutomationSample(samples, timestampMs);
+  const confirmedAtElapsedMs = Math.max(
+    elapsedMs,
+    toFiniteNumber(row.confirmedAtElapsedMs) ?? elapsedMs,
+  );
+  const context: AnyRecord = {
+    ...(row.context && typeof row.context === 'object' && !Array.isArray(row.context)
+      ? row.context
+      : {}),
+    aircraft_projection_id: definition.id,
+    aircraft_projection_version: definition.version,
+    confirmed_at_ms: startTimestampMs + confirmedAtElapsedMs,
+    stable_for_ms: confirmedAtElapsedMs - elapsedMs,
+  };
+  addKnown(context, 'phase', nearestSample?.phase);
+  addKnown(context, 'ra_ft', nearestSample?.raFt !== null && nearestSample?.raFt !== undefined
+    ? Math.round(nearestSample.raFt)
+    : null);
+  addKnown(context, 'nearest_sample_delta_ms', nearestSample?.nearestSampleDeltaMs !== undefined
+    ? Math.round(nearestSample.nearestSampleDeltaMs)
+    : null);
+
+  const {
+    context: _rowContext,
+    flightElapsedMs: _flightElapsedMs,
+    confirmedAtElapsedMs: _confirmedAtElapsedMs,
+    type: _rowType,
+    lane: _rowLane,
+    timestampMs: _rowTimestampMs,
+    elapsedMs: _rowElapsedMs,
+    lat: _rowLat,
+    lon: _rowLon,
+    raFt: _rowRaFt,
+    phase: _rowPhase,
+    ...payload
+  } = row;
+  return {
+    ...payload,
+    type: definition.eventType,
+    lane: definition.lane,
+    aircraftProjectionId: definition.id,
+    aircraftProjectionVersion: definition.version,
+    timestampMs,
+    elapsedMs,
+    lat: nearestSample?.lat ?? null,
+    lon: nearestSample?.lon ?? null,
+    raFt: nearestSample?.raFt ?? null,
+    phase: nearestSample?.phase ?? null,
+    context,
+  };
+}
+
+function mergeAircraftTimelineProjectionEvents(
+  generatedTimeline: GeneratedTimeline,
+  rows: CsvRow[],
+  options: AnyRecord,
+  startTimestampMs: number,
+): void {
+  const projectionReferences = Array.isArray(options.aircraftTimelineProjections)
+    ? options.aircraftTimelineProjections
+    : [];
+  if (projectionReferences.length === 0) return;
+
+  const samples = buildAutomationSampleIndex(rows, startTimestampMs);
+  const projectionMetadata: Record<string, AnyRecord> = {};
+  for (const reference of projectionReferences) {
+    const definition = defaultAircraftTimelineProjectionRegistry.getDefinition(reference?.projectionId);
+    const projection = reference?.projection;
+    if (!definition || !projection || typeof projection !== 'object' || projection.applicable !== true) continue;
+
+    const projectedRows = Array.isArray(projection.events) ? projection.events : [];
+    let addedCount = 0;
+    let timelineTruncatedCount = 0;
+    for (const row of projectedRows) {
+      const event = buildAircraftTimelineProjectionEvent(row, definition, samples, startTimestampMs);
+      if (!event) continue;
+      if (generatedTimeline.events.length >= MAX_GENERATED_TIMELINE_EVENTS) {
+        timelineTruncatedCount += 1;
+        continue;
+      }
+      generatedTimeline.events.push(event);
+      addedCount += 1;
+    }
+
+    const coverage = Array.isArray(projection.coverage)
+      ? projection.coverage.map((interval: AnyRecord) => ({
+          startElapsedMs: toFiniteNumber(interval?.startElapsedMs),
+          endElapsedMs: toFiniteNumber(interval?.endElapsedMs),
+          startTimestampMs: toFiniteNumber(interval?.startTimestampMs)
+            ?? (toFiniteNumber(interval?.startElapsedMs) !== null
+              ? startTimestampMs + Number(interval.startElapsedMs)
+              : null),
+          endTimestampMs: toFiniteNumber(interval?.endTimestampMs)
+            ?? (toFiniteNumber(interval?.endElapsedMs) !== null
+              ? startTimestampMs + Number(interval.endElapsedMs)
+              : null),
+        }))
+      : [];
+    projectionMetadata[definition.id] = {
+      version: definition.version,
+      eventType: definition.eventType,
+      lane: definition.lane,
+      active: projection.active === true,
+      ...(projection.summary && typeof projection.summary === 'object' && !Array.isArray(projection.summary)
+        ? projection.summary
+        : {}),
+      eventCount: addedCount,
+      projectedEventCount: projectedRows.length,
+      truncatedCount: Math.max(0, toFiniteNumber(projection.truncatedCount) ?? 0) + timelineTruncatedCount,
+      coverageTruncatedCount: Math.max(0, toFiniteNumber(projection.coverageTruncatedCount) ?? 0),
+      coverage,
+    };
+  }
+  if (Object.keys(projectionMetadata).length > 0) {
+    generatedTimeline.aircraftTimelineProjections = projectionMetadata;
+  }
 }
 
 function toNonEmptyString(value: unknown): string | null {
@@ -2698,6 +2876,7 @@ async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {
     strictBundle,
   };
   let automationSidecar = options.automationSidecar;
+  let aircraftTimelineProjections: AnyRecord[] = [];
 
   if (strictBundle) {
     // Read sequentially so the largest retained sidecar cannot overlap with
@@ -2709,11 +2888,13 @@ async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {
     if (diskAutomationSidecar.exists !== true || diskAutomationSidecar.rows.length === 0) {
       return { success: false, error: 'Recording bundle is missing its committed automation identity manifest.' };
     }
-    // Timeline only consumes the aircraft-specific manifest. The reader still
-    // streams, validates, and hashes every committed row.
+    // Run registered aircraft-owned Timeline projections while the validated
+    // stream is in memory, while retaining only the manifest for bundle checks.
+    const aircraftTimelineProjectionSession = defaultAircraftTimelineProjectionRegistry.createSession();
     const aircraftSpecificSidecar = await readAircraftSpecificRowsForCsv(csvPath, {
       csvIdentity,
       retainRows: 1,
+      onCommittedRow: aircraftTimelineProjectionSession.consume,
     });
     if (aircraftSpecificSidecar.error) {
       return { success: false, error: aircraftSpecificSidecar.error };
@@ -2793,6 +2974,7 @@ async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {
       }
     }
     automationSidecar = diskAutomationSidecar;
+    aircraftTimelineProjections = aircraftTimelineProjectionSession.finish();
   } else if (
     options.includeAutomation !== false
     && !Array.isArray(options.automationRows)
@@ -2801,8 +2983,29 @@ async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {
     automationSidecar = await readAutomationRowsForCsv(csvPath, { csvIdentity });
   }
 
+  if (!strictBundle) {
+    // Aircraft-specific data is optional for legacy recordings. A missing or
+    // invalid sidecar must not make an otherwise readable legacy flight fail.
+    const aircraftTimelineProjectionSession = defaultAircraftTimelineProjectionRegistry.createSession();
+    const aircraftSpecificSidecar = await readAircraftSpecificRowsForCsv(csvPath, {
+      csvIdentity,
+      retainRows: 1,
+      onCommittedRow: aircraftTimelineProjectionSession.consume,
+    });
+    if (!aircraftSpecificSidecar.error && aircraftSpecificSidecar.exists) {
+      try {
+        aircraftTimelineProjections = aircraftTimelineProjectionSession.finish();
+      } catch {
+        aircraftTimelineProjections = [];
+      }
+    }
+  }
+
   if (options.includeAutomation !== false && !Array.isArray(options.automationRows)) {
     options.automationSidecar = automationSidecar;
+  }
+  if (aircraftTimelineProjections.length > 0) {
+    options.aircraftTimelineProjections = aircraftTimelineProjections;
   }
 
   const timelineRows = rows.filter((row) => (
@@ -4073,6 +4276,12 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
     startTimestampMs,
   );
   if (automationMergeError) return { success: false, error: automationMergeError };
+  mergeAircraftTimelineProjectionEvents(
+    generatedTimeline,
+    rows,
+    _options,
+    startTimestampMs,
+  );
 
   // Sort events by timestamp (violations may have been inserted out of order)
   generatedTimeline.events.sort((a, b) => a.timestampMs - b.timestampMs);
@@ -5683,6 +5892,14 @@ function deleteFlightCsv(
 
 module.exports = {
   CURRENT_ANALYSIS_RESCORE_CONTRACT,
+  mergeRecordedAircraftTimelineProjections: (
+    savedTimeline: AnyRecord,
+    recordedTimeline: AnyRecord,
+  ) => defaultAircraftTimelineProjectionRegistry.mergeRecordedProjections(
+    savedTimeline,
+    recordedTimeline,
+    { maxEvents: MAX_GENERATED_TIMELINE_EVENTS },
+  ),
   parseCSV,
   generateFromCSV,
   generateAndSave,
@@ -5690,6 +5907,8 @@ module.exports = {
   listCSVFlights,
   buildListedCsvFlightFromPath,
   recoverInterruptedBundleDeletes,
+  timelineNeedsAircraftProjectionRefresh:
+    defaultAircraftTimelineProjectionRegistry.timelineNeedsProjectionRefresh,
   getFlightLogsDir,
   getFlightLogsStorageInfo,
   deleteFlightCsv,

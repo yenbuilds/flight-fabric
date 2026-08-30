@@ -292,7 +292,8 @@ async function run() {
     assertNotIncludes(lanPolicy, "'unsafe-eval'", 'CSP should reject eval-style script execution');
     assertIncludes(lanPolicy, 'ws://192.168.50.49:*', 'trusted LAN CSP should allow the selected host on the WebSocket port');
     assertIncludes(lanPolicy, 'https://tiles.openfreemap.org', 'CSP should allow the configured OpenFreeMap vector basemap');
-    assertNotIncludes(lanPolicy, 'basemaps.cartocdn.com', 'CSP should not retain the retired CARTO tile host');
+    assertIncludes(lanPolicy, 'img-src \'self\' data: blob: https://tiles.openfreemap.org', 'CSP should allow the OpenFreeMap raster fallback');
+    assertNotIncludes(lanPolicy, 'basemaps.cartocdn.com', 'CSP should not add a credential-dependent CARTO fallback');
     assertNotIncludes(lanPolicy, 'tile.openstreetmap.org', 'CSP should not request the community OpenStreetMap tile service');
     const reboundPolicy = httpServer.buildContentSecurityPolicy(
       { headers: { host: 'evil.example:8100' } },

@@ -1930,6 +1930,11 @@ body.sim-in-menu .menu-overlay {
   box-shadow: 0 0 0 3px rgb(var(--background) / 0.92), 0 0 14px rgb(87 196 255 / 0.42);
 }
 
+.timeline-event[data-type="flight-guidance"] .timeline-event-dot {
+  background: rgb(167 139 250);
+  box-shadow: 0 0 0 3px rgb(var(--background) / 0.92), 0 0 14px rgb(167 139 250 / 0.42);
+}
+
 .timeline-event[data-type="marker"] .timeline-event-dot {
   background: rgb(96 165 250);
   box-shadow: 0 0 0 3px rgb(var(--background) / 0.92), 0 0 14px rgb(96 165 250 / 0.42);

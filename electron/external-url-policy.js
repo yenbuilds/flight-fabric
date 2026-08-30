@@ -11,6 +11,7 @@ const FIXED_EXTERNAL_URLS = new Set([
   'https://openfreemap.org/',
   'https://openmaptiles.org/',
   'https://www.openstreetmap.org/copyright',
+  'https://www.naturalearthdata.com/',
 ]);
 
 function isReleasePath(pathname) {

@@ -310,6 +310,55 @@ function fileIdentity(filePath) {
   };
 }
 
+test('saved landing rescores receive current registered aircraft projections without retaining ambiguous automation', () => {
+  const {
+    mergeRecordedAircraftTimelineProjections,
+    timelineNeedsAircraftProjectionRefresh,
+  } = require(resolveBackendPath('events', 'timeline-generator.js'));
+  const savedTimeline = {
+    aircraftProfileId: 'pmdg-777',
+    events: [
+      { type: 'landing', timestampMs: 3000, landingGrade: 'EXCELLENT' },
+      { type: 'automation_event', eventType: 'loc_captured', timestampMs: 1500, elapsedMs: 1500 },
+      { type: 'automation_event', eventType: 'ap_engaged', timestampMs: 1600, elapsedMs: 1600 },
+      { type: 'automation_event', eventType: 'gear_changed', timestampMs: 1700, elapsedMs: 1700 },
+    ],
+    eventCount: 4,
+  };
+  const recordedTimeline = {
+    events: [{
+      type: 'flight_guidance_event',
+      eventType: 'guidance_mode_selected',
+      label: 'LOC selected',
+      mode: 'LOC',
+      aircraftProjectionId: 'pmdg-777.flight-guidance',
+      aircraftProjectionVersion: 1,
+      timestampMs: 1500,
+      elapsedMs: 1500,
+    }],
+    aircraftTimelineProjections: {
+      'pmdg-777.flight-guidance': {
+        version: 1,
+        integrationId: 'pmdg-777',
+        eventCount: 1,
+        coverage: [{ startElapsedMs: 1000, endElapsedMs: 2000 }],
+      },
+    },
+    automationSummary: { eventCount: 1, suppressedByAircraftProjection: 1 },
+  };
+
+  assert.equal(timelineNeedsAircraftProjectionRefresh(savedTimeline), true);
+  const merged = mergeRecordedAircraftTimelineProjections(savedTimeline, recordedTimeline);
+  assert.equal(merged.events.some((event) => event.eventType === 'loc_captured'), false);
+  assert.equal(merged.events.some((event) => event.eventType === 'ap_engaged'), true);
+  assert.equal(merged.events.some((event) => event.eventType === 'gear_changed'), true);
+  assert.equal(merged.events.some((event) => event.label === 'LOC selected'), true);
+  assert.equal(merged.events.find((event) => event.type === 'landing').landingGrade, 'EXCELLENT');
+  assert.equal(merged.eventCount, 4);
+  assert.equal(merged.aircraftTimelineProjections['pmdg-777.flight-guidance'].integrationId, 'pmdg-777');
+  assert.equal(timelineNeedsAircraftProjectionRefresh(merged), false);
+});
+
 test('resolveCsvInsideFlightLogs accepts only canonical bundle telemetry', async () => {
   await withTempAppData(async () => {
     const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));

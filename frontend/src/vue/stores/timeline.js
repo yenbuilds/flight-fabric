@@ -15,11 +15,12 @@ import {
 import { formatBytes, getFiniteFuelBurnGal } from '../../utils/formatting.js';
 import { DEFAULT_ALTITUDE_PROFILE_STATE } from '../../timeline/altitude-profile.js';
 
-const MAP_FILTER_KEYS = ['violations', 'landing', 'automation', 'markers', 'phases', 'scores'];
+const MAP_FILTER_KEYS = ['violations', 'landing', 'automation', 'flightGuidance', 'markers', 'phases', 'scores'];
 const MAP_FILTER_DEFAULTS = Object.freeze({
   violations: true,
   landing: false,
   automation: false,
+  flightGuidance: false,
   markers: false,
   phases: false,
   scores: false,

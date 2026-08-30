@@ -11,6 +11,7 @@ export const TYPE_LABELS = Object.freeze({
   score_change: 'Score',
   score_final: 'Final Score',
   automation_event: 'Automation',
+  flight_guidance_event: 'Flight Guidance',
   configuration_event: 'Configuration',
   marker: 'Marker',
   worst_moment: 'Worst Moment',

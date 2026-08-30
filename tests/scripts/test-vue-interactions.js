@@ -4256,7 +4256,12 @@ async function main() {
     let livePlaneIconConfig = null;
     const basemapStyles = [];
     const basemapAttributions = [];
+    const basemapHandlers = {};
+    const fallbackTiles = [];
     const renderedTracks = [];
+    let maplibreLayer = null;
+    let queuedMaplibreFrame = null;
+    let unsafeMaplibreCallbackCalls = 0;
     const cursorElement = {
       querySelector(selector) {
         return selector === '.live-plane-glyph' ? glyphEl : null;
@@ -4271,7 +4276,12 @@ async function main() {
       getZoom() { return 11; },
       getCenter() { return { lat: -33.9, lng: 151.2 }; },
       invalidateSize() {},
-      removeLayer() {},
+      removeLayer(layer) {
+        if (layer === maplibreLayer) {
+          layer._map = null;
+          layer._glMap = null;
+        }
+      },
       getSize() { return { x: 0, y: 0 }; },
     };
 
@@ -4282,11 +4292,35 @@ async function main() {
       maplibreGL(options) {
         basemapStyles.push(options.style);
         basemapAttributions.push(options.attributionControl?.customAttribution || '');
-        return {
+        maplibreLayer = {
+          _map: mapInstance,
+          _glMap: {},
+          _zoomEnd() { unsafeMaplibreCallbackCalls += 1; },
+          _transitionEnd() { unsafeMaplibreCallbackCalls += 1; },
           addTo() { return this; },
           getMaplibreMap() {
-            return { once() {} };
+            return {
+              once(eventName, handler) {
+                basemapHandlers[eventName] = handler;
+              },
+            };
           },
+        };
+        return maplibreLayer;
+      },
+      Util: {
+        requestAnimFrame(callback, context) {
+          queuedMaplibreFrame = () => callback.call(context);
+        },
+      },
+      DomUtil: {
+        setTransform() {},
+      },
+      tileLayer(url, options) {
+        fallbackTiles.push({ url, options });
+        return {
+          on() { return this; },
+          addTo() { return this; },
         };
       },
       marker(_latlng, options = {}) {
@@ -4347,6 +4381,16 @@ async function main() {
     assert.match(liveMapStore.metaText, /Lat -33\.94610 - Lon 151\.17720 - HDG 087 deg/, 'live positions should keep updating the live-map meta text');
     assert.equal(basemapStyles[0], 'https://tiles.openfreemap.org/styles/dark', 'live map should use the unambiguous OpenFreeMap dark vector style');
     assert.match(basemapAttributions[0], /OpenFreeMap.*OpenMapTiles.*OpenStreetMap/, 'live map should display the provider and data attribution');
+    basemapHandlers.error?.({ error: new Error('fixture vector-map failure') });
+    assert.equal(fallbackTiles.length, 1, 'live map should switch to one raster fallback when the vector basemap fails');
+    assert.equal(fallbackTiles[0].url, 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png', 'live map fallback should use OpenFreeMap raster tiles');
+    assert.equal(fallbackTiles[0].options.maxNativeZoom, 6, 'live map fallback should not request unavailable high-detail raster tiles');
+    assert.match(fallbackTiles[0].options.attribution, /OpenFreeMap.*Natural Earth/, 'live map fallback should retain provider attribution');
+    assert.equal(liveMapStore.metaText, 'Using simplified OpenFreeMap basemap', 'live map should disclose the active fallback');
+    maplibreLayer._zoomEnd();
+    maplibreLayer._transitionEnd();
+    queuedMaplibreFrame?.();
+    assert.equal(unsafeMaplibreCallbackCalls, 0, 'removed vector layers should ignore queued zoom and resize callbacks');
     assert.match(livePlaneIconConfig?.html || '', /<svg\b/, 'live plane marker should use SVG instead of a text glyph');
     assert.equal(glyphEl.style.transform, 'rotate(87deg)', 'live plane marker should point at the reported heading');
 
@@ -5884,6 +5928,8 @@ async function main() {
     const clearLayerCalls = [];
     const basemapStyles = [];
     const basemapAttributions = [];
+    const basemapHandlers = {};
+    const fallbackTiles = [];
     let cursorLayer = null;
     let mapSize = { x: 640, y: 360 };
     let fitBoundsCalls = 0;
@@ -5911,8 +5957,19 @@ async function main() {
         return {
           addTo() { return this; },
           getMaplibreMap() {
-            return { once() {} };
+            return {
+              once(eventName, handler) {
+                basemapHandlers[eventName] = handler;
+              },
+            };
           },
+        };
+      },
+      tileLayer(url, options) {
+        fallbackTiles.push({ url, options });
+        return {
+          on() { return this; },
+          addTo() { return this; },
         };
       },
       DomEvent: {
@@ -5976,11 +6033,25 @@ async function main() {
     controller.render(baseTimeline);
     assert.equal(basemapStyles[0], 'https://tiles.openfreemap.org/styles/dark', 'timeline replay map should use the unambiguous OpenFreeMap dark vector style');
     assert.match(basemapAttributions[0], /OpenFreeMap.*OpenMapTiles.*OpenStreetMap/, 'timeline replay map should display the provider and data attribution');
+    basemapHandlers.error?.({ error: new Error('fixture vector-map failure') });
+    assert.equal(fallbackTiles.length, 1, 'timeline replay should switch to one raster fallback when the vector basemap fails');
+    assert.equal(fallbackTiles[0].url, 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png', 'timeline replay fallback should use OpenFreeMap raster tiles');
+    assert.equal(fallbackTiles[0].options.maxNativeZoom, 6, 'timeline replay fallback should not request unavailable high-detail raster tiles');
+    assert.match(fallbackTiles[0].options.attribution, /OpenFreeMap.*Natural Earth/, 'timeline replay fallback should retain provider attribution');
     const initialFitBoundsCalls = fitBoundsCalls;
     mapEl.clientWidth = 900;
     mapEl.clientHeight = 520;
     controller.render(baseTimeline);
     assert.equal(fitBoundsCalls, initialFitBoundsCalls + 1, 'unchanged timeline data should refit bounds after the map viewport changes');
+    const fitBoundsCallsBeforeObservedResize = fitBoundsCalls;
+    mapEl.clientWidth = 720;
+    mapEl.clientHeight = 400;
+    controller.invalidateSizeStaggered();
+    assert.equal(
+      fitBoundsCalls,
+      fitBoundsCallsBeforeObservedResize + 1,
+      'timeline replay should refit retained bounds when its modal viewport resizes without new flight data',
+    );
     controller.focusEvent(baseTimeline.events[0]);
     assert.ok(cursorLayer, 'focusEvent should create the replay cursor marker');
 

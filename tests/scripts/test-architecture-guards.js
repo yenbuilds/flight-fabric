@@ -5,6 +5,10 @@ const path = require('path');
 const { ROOT, listRepoSourceFiles } = require('./backend-source-paths');
 
 const CORE_DIR = path.join(ROOT, 'backend', 'core');
+const AIRCRAFT_AGNOSTIC_TIMELINE_FILES = [
+  path.join(ROOT, 'backend', 'events', 'timeline-generator.ts'),
+  path.join(ROOT, 'backend', 'flight-recording', 'flight-csv-store.ts'),
+];
 const VIOLATION_RULES_PATH = path.join(ROOT, 'shared', 'violation-rules.js');
 const VIOLATION_RULE_TYPES_PATH = path.join(ROOT, 'shared', 'violation-rules.d.ts');
 const { VIOLATION_RULE } = require(VIOLATION_RULES_PATH);
@@ -328,6 +332,36 @@ function main() {
   ];
   const failures = [];
   checkSharedRegistryParity(failures);
+
+  for (const file of AIRCRAFT_AGNOSTIC_TIMELINE_FILES) {
+    const rel = normalizeRel(file);
+    const directIntegrationImports = findViolations(
+      file,
+      /aircraft[\\/]aircraft-integrations[\\/]/,
+    );
+    for (const hit of directIntegrationImports) {
+      failures.push({
+        rule: 'aircraft-timeline-projection-boundary',
+        file: rel,
+        line: hit.line,
+        code: hit.code,
+        message: 'General Timeline and recording services must use the aircraft Timeline projection registry, not a concrete aircraft integration.',
+      });
+    }
+    const concreteAircraftNames = findViolations(
+      file,
+      /\b(?:pmdg|fenix|flybywire|fbw|inibuilds|ifly|tfdi)\b/i,
+    );
+    for (const hit of concreteAircraftNames) {
+      failures.push({
+        rule: 'aircraft-timeline-vendor-boundary',
+        file: rel,
+        line: hit.line,
+        code: hit.code,
+        message: 'Concrete aircraft matching and policy belong behind the aircraft Timeline projection registry.',
+      });
+    }
+  }
 
   for (const file of files) {
     const rel = normalizeRel(file);

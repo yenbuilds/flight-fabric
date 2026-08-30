@@ -117,6 +117,11 @@ async function main() {
   const { buildLandingWindPresentation } = await import(toFrontendUrl('src', 'landing', 'wind.js'));
   const { buildTimelineEventRows, buildTimelineEventRowState } = await import(toFrontendUrl('src', 'timeline', 'events.js'));
   const { buildTimelineEventDetailState } = await import(toFrontendUrl('src', 'timeline', 'detail-state.js'));
+  const {
+    eventCategory,
+    eventPassesMapFilter,
+    getTimelineEventMarkerVisual,
+  } = await import(toFrontendUrl('src', 'timeline', 'map.js'));
   const { buildLandingDetailSections } = await import(toFrontendUrl('src', 'timeline', 'landing-detail.js'));
   const {
     buildTimelineSummaryState,
@@ -963,6 +968,41 @@ async function main() {
     assert.equal(detail.type, 'Automation', 'automation detail should use the Automation type label');
     assert.equal(detail.title, 'AP disconnected', 'automation detail should use the supplied label');
     assert.equal(Object.prototype.hasOwnProperty.call(detail, 'scoreVisible'), false, 'timeline detail state should not carry unused score-impact display flags');
+  });
+
+  await test('PMDG flight-guidance rows use their own lane, provenance, context, and map layer', () => {
+    const event = {
+      type: 'flight_guidance_event',
+      timestampMs: 2500,
+      eventType: 'guidance_mode_selected',
+      label: 'LOC selected',
+      summary: '',
+      confidence: 'profile-confirmed',
+      raFt: 1800,
+      phase: 'APPROACH',
+      context: {
+        field_id: 'flightGuidance.localizer',
+        previous: false,
+        current: true,
+        confidence: 'profile-confirmed',
+        ra_ft: 1800,
+        phase: 'APPROACH',
+      },
+    };
+    const row = buildTimelineEventRowState(event, 0, 1000);
+
+    assert.equal(row.type, 'flight-guidance');
+    assert.equal(row.title, 'LOC selected');
+    assert.ok(row.badges.some((badge) => badge.text === 'Profile data'));
+    assert.ok(row.badges.some((badge) => badge.text === '1800ft RA'));
+    assert.ok(row.badges.some((badge) => badge.text === 'APPROACH'));
+
+    const detail = buildTimelineEventDetailState(event);
+    assert.equal(detail.type, 'Flight Guidance');
+    assert.equal(detail.title, 'LOC selected');
+    assert.equal(eventCategory(event), 'flightGuidance');
+    assert.equal(eventPassesMapFilter(event, { flightGuidance: true }), true);
+    assert.equal(getTimelineEventMarkerVisual(event).glyph, 'FG');
   });
 
   await test('timeline flap rows show direction, detents, and profile provenance', () => {
@@ -4123,6 +4163,7 @@ async function main() {
     });
     assert.equal(store.mapFilters.landing, true, 'stored map filters should hydrate into the store');
     assert.equal(store.mapFilters.markers, true, 'stored map filters should preserve explicit values');
+    assert.equal(store.mapFilters.flightGuidance, false, 'new flight-guidance map layer should default off');
     assert.equal(store.pfdCollapsed, true, 'stored PFD collapse state should hydrate into the store');
     assert.equal(store.requestListActionBound, true, 'runtime-bound timeline list requests should report as bound');
     assert.equal(store.requestTimelineActionBound, true, 'runtime-bound timeline detail requests should report as bound');
@@ -4457,8 +4498,10 @@ async function main() {
     assert.match(store.detailTopdownProfileHtml, /<circle/, 'setDetail should preserve generated top-down profile markup');
 
     store.setMapFilter('scores', true);
+    store.setMapFilter('flightGuidance', true);
     const persistedFilters = JSON.parse(storage.getItem('flightFabric.timelineMapFilters.v1'));
     assert.equal(persistedFilters.scores, true, 'setMapFilter should persist the new filter state');
+    assert.equal(persistedFilters.flightGuidance, true, 'flight-guidance map filter should persist independently');
 
     store.togglePfdCollapsed();
     assert.equal(storage.getItem('ff-pfd-overlay-collapsed'), '0', 'togglePfdCollapsed should persist the collapsed state');

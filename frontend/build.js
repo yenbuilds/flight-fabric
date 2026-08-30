@@ -10,7 +10,10 @@ const VITE_BIN = path.join(FRONTEND_DIR, 'node_modules', 'vite', 'bin', 'vite.js
 const TAILWIND_CONFIG = path.join(ROOT, 'tailwind.config.js');
 const TAILWIND_INPUT = path.join(FRONTEND_DIR, 'tailwind-input.css');
 const TAILWIND_OUTPUT = path.join(OUT_DIR, 'tailwind.css');
+const MAPLIBRE_PACKAGE_PATH = path.join(FRONTEND_DIR, 'node_modules', 'maplibre-gl', 'package.json');
 const MAPLIBRE_DIST_DIR = path.join(FRONTEND_DIR, 'node_modules', 'maplibre-gl', 'dist');
+const MAPLIBRE_VERSION = JSON.parse(fs.readFileSync(MAPLIBRE_PACKAGE_PATH, 'utf8')).version;
+const MAPLIBRE_MAJOR = Number.parseInt(MAPLIBRE_VERSION.split('.')[0], 10);
 const MAPLIBRE_RUNTIME_FILES = [
   'maplibre-gl-worker.mjs',
   'maplibre-gl-shared.mjs',
@@ -70,6 +73,8 @@ function copyDirTo(sourceRelativePath, destinationRelativePath) {
 }
 
 function copyMapLibreRuntimeFiles() {
+  if (MAPLIBRE_MAJOR < 6) return;
+
   for (const fileName of MAPLIBRE_RUNTIME_FILES) {
     const srcPath = path.join(MAPLIBRE_DIST_DIR, fileName);
     const destPath = path.join(OUT_DIR, fileName);
@@ -133,6 +138,18 @@ function assertBundledVoiceWorklet() {
 
 function assertBundledMapLibreRuntime() {
   const mainPath = path.join(OUT_DIR, 'main.js');
+  if (!fs.existsSync(mainPath)) {
+    throw new Error(`Missing built MapLibre runtime entry: ${mainPath}`);
+  }
+
+  const main = fs.readFileSync(mainPath, 'utf8');
+  if (MAPLIBRE_MAJOR < 6) {
+    if (!main.includes('createObjectURL') || !main.includes('Worker(')) {
+      throw new Error(`Built frontend does not contain the MapLibre ${MAPLIBRE_VERSION} embedded worker runtime.`);
+    }
+    return;
+  }
+
   const workerPath = path.join(OUT_DIR, 'maplibre-gl-worker.mjs');
   const sharedPath = path.join(OUT_DIR, 'maplibre-gl-shared.mjs');
 
@@ -142,7 +159,6 @@ function assertBundledMapLibreRuntime() {
     }
   }
 
-  const main = fs.readFileSync(mainPath, 'utf8');
   if (!main.includes('maplibre-gl-worker.mjs')) {
     throw new Error('Built frontend entry does not reference the MapLibre module worker.');
   }

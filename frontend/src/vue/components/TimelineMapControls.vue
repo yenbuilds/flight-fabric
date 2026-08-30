@@ -11,6 +11,7 @@ const FILTER_OPTIONS = [
   { key: 'violations', label: 'Violations' },
   { key: 'landing', label: 'Landing' },
   { key: 'automation', label: 'Automation' },
+  { key: 'flightGuidance', label: 'Flight Guidance' },
   { key: 'markers', label: 'Markers' },
   { key: 'phases', label: 'Phases' },
   { key: 'scores', label: 'Scores' },

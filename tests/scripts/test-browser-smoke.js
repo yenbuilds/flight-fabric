@@ -867,16 +867,6 @@ async function main() {
   log(`serving browser smoke frontend from ${appUrl}`);
 
   try {
-    for (const fileName of ['maplibre-gl-worker.mjs', 'maplibre-gl-shared.mjs']) {
-      const response = await fetch(`http://127.0.0.1:${frontendAddress.port}/${fileName}`);
-      assert.equal(response.status, 200, `${fileName} should be available to the packaged map runtime`);
-      assert.match(
-        response.headers.get('content-type') || '',
-        /javascript/i,
-        `${fileName} should be served with a JavaScript MIME type`,
-      );
-    }
-
     await spawnElectronRunner({
       electronBinary,
       url: appUrl,

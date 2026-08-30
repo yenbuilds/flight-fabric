@@ -1,30 +1,44 @@
-# Flight Fabric 0.7.0
+# Flight Fabric 0.8.0
 
-Flight Fabric 0.7.0 adds a dedicated aircraft-specific command and offline
-voice catalogue for the free FlyByWire A32NX. Its reviewed beta surface uses
-FlyByWire's documented fixed custom client events and the same profile-aware,
-fail-closed command pipeline as visible aircraft controls.
+Flight Fabric 0.8.0 adds a read-only PMDG 777 Flight Guidance lane to saved
+flight Timelines and repairs the Live and Replay map basemaps affected in
+0.7.0. The new Timeline interpretation uses recorded, fresh PMDG SDK fields
+and does not add any aircraft-control writes.
 
 ## Added
 
-- The FlyByWire A32NX profile exposes a dedicated 26-command catalogue for
-  speed/Mach, heading, altitude, vertical speed/FPA, managed and selected FCU
-  modes, AP1/AP2, captain flight director, autothrust, LOC, APPR, EXPED,
-  forward throttle detents, standard gear and flap steps, parking brake,
-  spoiler arming, selected exterior lights, and the takeoff-light preset.
-- FCU targets use only fixed adapter-owned `A32NX.FCU_*` custom client events.
-  Speed/Mach and vertical-speed/FPA commands require a fresh matching selector
-  mode before dispatch, and changed targets require newer logical readback.
-- Local push-to-talk voice recognition understands A32NX terminology including
-  AP one/two, autothrust, managed and selected modes, FPA, LOC, APPR, EXPED,
-  throttle detents, spoilers, and selected exterior-light positions.
-- Existing executable A32NX gear and relative-flap commands remain available;
-  the dedicated catalogue adds reviewed aircraft-specific routes without
-  enabling the profile's intentionally disabled generic autopilot fallback.
+- Saved PMDG 777 flights can show stable AP and A/T arm changes; LNAV, VNAV,
+  FLCH, HDG/TRK HOLD, V/S/FPA, ALT HOLD, LOC, and APP selections; heading and
+  vertical-reference changes; and selected MCP speed, Mach, heading, altitude,
+  vertical-speed, and flight-path-angle target changes with before/after
+  values.
+- Flight-guidance changes appear in their own violet Timeline lane and optional
+  map layer, with nearby phase and radio-altitude context when recorded flight
+  telemetry provides it.
+- Mode wording remains deliberately conservative. For example, the Timeline
+  reports `LOC selected` or `APP selected`; it does not claim capture from an
+  SDK selector field.
+- Existing recorded PMDG 777 flights are interpreted from their canonical
+  aircraft-specific sidecar when the required trusted SDK fields were saved.
+  The generic Timeline and CSV services use an aircraft projection registry;
+  PMDG-specific interpretation remains inside the PMDG 777 integration.
+
+## Fixed
+
+- Live View and Replay View again render their OpenFreeMap basemaps. The
+  bundled MapLibre runtime is pinned to the Leaflet bridge's compatible major
+  version instead of the incompatible runtime shipped in 0.7.0.
+- Both independent Leaflet maps now switch once to a simplified OpenFreeMap
+  Natural Earth raster fallback if the vector basemap cannot start or load.
+  Removal and teardown guard queued bridge callbacks from touching a disposed
+  map.
+- Replay View refits the retained flight path after its map viewport changes,
+  preventing a valid route from being left outside the visible map after the
+  Timeline layout settles.
 
 ## Download
 
-- `Flight.Fabric.Setup.0.7.0.exe`
+- `Flight.Fabric.Setup.0.8.0.exe`
 - `SHA256SUMS.txt`
 
 Only the installer and `SHA256SUMS.txt` are release downloads. The portable
@@ -38,19 +52,22 @@ publisher** warning.
 
 ## Known limitations
 
+- The Flight Guidance lane is currently limited to the PMDG 777-300ER,
+  777-200ER, 777-200LR, and 777F profiles. It appears only when the recording
+  contains fresh, connected PMDG SDK data; unavailable fields are omitted
+  rather than inferred.
 - Voice recognition remains Windows-desktop-only, push-to-talk-only, off by
   default, and limited to the exact commands advertised for the active
   aircraft. It is not an always-listening assistant.
-- FlyByWire A32NX aircraft-specific writes remain an explicitly labelled beta
-  pending live validation against current Stable and Development aircraft
-  builds. The new FCU routes use documented SimConnect custom client events;
-  unsupported native InputEvent/B-var routes remain disabled.
 - Fenix A32X FCU and virtual-throttle write routes remain marked untested. Do
   not move the same physical FCU rotary while a typed target is pending. Fenix
   FCU writes require a compatible MobiFlight Event Module connection.
-- PMDG 737 and 777 controls remain guarded but require live validation for the
-  installed aircraft version. PMDG data broadcast and the reviewed SDK
+- PMDG 737 and 777 controls remain guarded but require the matching installed
+  aircraft and reviewed SDK availability. PMDG data broadcast and the SDK
   integration must be available; excluded controls remain unavailable.
+- Online maps depend on OpenFreeMap availability. The raster fallback is a
+  simplified world basemap and intentionally provides less local detail than
+  the primary vector style. Online map traffic can be disabled in Settings.
 - Microsoft Flight Simulator 2024 is the supported simulator. MSFS 2020 and
   X-Plane are not currently supported.
 

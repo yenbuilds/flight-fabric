@@ -11,6 +11,7 @@ function resolveEventType(event) {
   if (type.includes('phase')) return 'phase';
   if (type.includes('violation')) return 'violation';
   if (type === 'automation_event') return 'automation';
+  if (type === 'flight_guidance_event') return 'flight-guidance';
   if (type === 'configuration_event') return 'marker';
   if (type.includes('score')) return 'score';
   return 'marker';
@@ -108,6 +109,18 @@ export function buildTimelineEventRowState(event, index, startMs, {
     if (event.eventType === 'ap_disengaged' && Number.isFinite(raFt)) {
       badges.push(createBadge(`${Math.round(raFt)}ft RA`));
     }
+  } else if (event.type === 'flight_guidance_event') {
+    title = event.label || humanizeAutomationToken(event.eventType) || 'Flight guidance changed';
+    subtitle = event.summary || event.context?.summary || '';
+
+    const confidenceBadge = formatConfidenceBadge(event.confidence || event.context?.confidence);
+    if (confidenceBadge) badges.push(confidenceBadge);
+
+    const raFt = Number(event.raFt ?? event.context?.ra_ft);
+    if (Number.isFinite(raFt)) badges.push(createBadge(`${Math.round(raFt)}ft RA`));
+
+    const phase = String(event.phase || event.context?.phase || '').trim();
+    if (phase) badges.push(createBadge(humanizeAutomationToken(phase)));
   } else if (event.type === 'configuration_event') {
     title = event.label || humanizeAutomationToken(event.eventType) || 'Configuration changed';
     subtitle = event.summary || event.context?.summary || '';

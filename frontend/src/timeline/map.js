@@ -2,6 +2,7 @@ export function eventCategory(event) {
   const type = String(event?.type || '').toLowerCase();
   if (type.startsWith('violation')) return 'violations';
   if (type === 'automation_event') return 'automation';
+  if (type === 'flight_guidance_event') return 'flightGuidance';
   if (type === 'configuration_event') return 'markers';
   if (type === 'landing' || type === 'worst_moment') return 'landing';
   if (type === 'marker') return 'markers';
@@ -49,6 +50,7 @@ export function getTimelineEventMarkerVisual(event) {
   if (type === 'violation_start' || type === 'violation_end') return { glyph: '!', bg: '#7f1d1d', border: '#f87171', fg: '#fee2e2', size: 14, shape: 'round' };
   if (type === 'score_change' || type === 'score_final') return { glyph: 'S', bg: '#78350f', border: '#fbbf24', fg: '#fef3c7', size: 11, shape: 'round' };
   if (type === 'automation_event') return { glyph: 'AP', bg: '#134e4a', border: '#2dd4bf', fg: '#ccfbf1', size: 9, shape: 'pill' };
+  if (type === 'flight_guidance_event') return { glyph: 'FG', bg: '#4c1d95', border: '#a78bfa', fg: '#ede9fe', size: 9, shape: 'pill' };
   if (type === 'configuration_event') {
     if (String(event?.eventType || '').toLowerCase() === 'spoilers_changed') {
       return { glyph: 'SP', bg: '#1e3a8a', border: '#60a5fa', fg: '#dbeafe', size: 8, shape: 'pill' };

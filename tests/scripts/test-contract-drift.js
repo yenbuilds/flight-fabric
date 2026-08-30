@@ -390,11 +390,11 @@ test('frontend build and Electron launch paths use the bundled frontend output',
 
   assert(rootPkg.devDependencies?.tailwindcss, 'root package should install Tailwind for browser frontend builds');
   assert(frontendPkg.scripts?.build === 'node build.js', 'frontend build should run the build wrapper');
+  assert(frontendPkg.dependencies?.['maplibre-gl'] === '5.14.0', 'Leaflet integration should pin the last compatible MapLibre major');
   assert(frontendBuild.includes('flight-phases.js'), 'frontend build wrapper should copy flight-phases.js');
   assert(frontendBuild.includes("'vendor'"), 'frontend build wrapper should copy vendor assets');
   assert(frontendBuild.includes("'themes'"), 'frontend build wrapper should copy bundled themes');
-  assert(frontendBuild.includes("'maplibre-gl-worker.mjs'"), 'frontend build wrapper should package the MapLibre module worker');
-  assert(frontendBuild.includes("'maplibre-gl-shared.mjs'"), 'frontend build wrapper should package the MapLibre worker shared module');
+  assert(frontendBuild.includes('MAPLIBRE_MAJOR < 6'), 'frontend build wrapper should support the pinned embedded MapLibre worker');
   assert(frontendBuild.includes('assertBundledMapLibreRuntime()'), 'frontend build wrapper should verify the MapLibre runtime assets');
   assert(frontendBuild.includes('buildTailwindCss()'), 'frontend build wrapper should compile Tailwind CSS');
   assert(frontendBuild.includes("'-o', TAILWIND_OUTPUT"), 'frontend build wrapper should write Tailwind to frontend-dist');

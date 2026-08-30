@@ -2,7 +2,10 @@ import { getEventAttitudeDeg, normalizeTimelineTrackPoints } from './track-point
 import { getTimelineEventMarkerVisual } from './map.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from '../live-map/plane-icon.js';
 import { unwrapLatLngPath, unwrapLongitudeNear } from '../live-map/geo.js';
-import { createOpenFreeMapDarkLayer } from '../maps/openfreemap.js';
+import {
+  createOpenFreeMapDarkLayer,
+  createOpenFreeMapRasterFallbackLayer,
+} from '../maps/openfreemap.js';
 
 const MAP_TRACK_RENDER_POINT_LIMIT = 700;
 const MAP_TRACK_RENDER_DETAIL_POINT_LIMIT = 1500;
@@ -182,6 +185,7 @@ function timelineMapEventMarkerPriority(event) {
   if (type === 'landing' || type === 'worst_moment') return 0;
   if (type === 'violation_start' || type === 'violation_end') return 1;
   if (type === 'automation_event') return 2;
+  if (type === 'flight_guidance_event') return 2;
   if (type === 'configuration_event') return 2;
   if (type === 'marker') return 2;
   return 3;
@@ -379,6 +383,7 @@ export function createTimelineMapController({
 } = {}) {
   let timelineMap = null;
   let timelineBaseLayer = null;
+  let timelineBaseLayerFallbackActive = false;
   let timelineBaseLayerInitialLoadSynced = false;
   let timelineMapResizeObserver = null;
   let timelineMapResizeRaf = null;
@@ -396,6 +401,8 @@ export function createTimelineMapController({
   let timelineTrackRenderLimit = null;
   let lastLayerRenderKey = '';
   let lastFitBoundsKey = '';
+  let currentFitBoundsDataKey = '';
+  let currentFitPositioned = [];
   let timelineMapInitErrorMessage = '';
   let timelineLongitudeReference = null;
 
@@ -416,6 +423,7 @@ export function createTimelineMapController({
       timelineMapResizeRaf = null;
       if (!timelineMap) return;
       timelineMap.invalidateSize({ pan: false, animate: false });
+      refitTimelineMapForCurrentViewport();
     });
 
     if (timelineMapResizeTimer != null) windowRef.clearTimeout(timelineMapResizeTimer);
@@ -423,7 +431,22 @@ export function createTimelineMapController({
       timelineMapResizeTimer = null;
       if (!timelineMap) return;
       timelineMap.invalidateSize({ pan: false, animate: false });
+      refitTimelineMapForCurrentViewport();
     }, 140);
+  }
+
+  function buildViewportFitBoundsKey(dataKey) {
+    if (!dataKey || !mapEl) return dataKey;
+    return `${dataKey}|viewport:${Math.round(mapEl.clientWidth || 0)}x${Math.round(mapEl.clientHeight || 0)}`;
+  }
+
+  function refitTimelineMapForCurrentViewport() {
+    if (!currentFitBoundsDataKey) return;
+    fitTimelineMapBounds(
+      timelineTrackPoints,
+      currentFitPositioned,
+      buildViewportFitBoundsKey(currentFitBoundsDataKey),
+    );
   }
 
   function ensureTimelineMapViewportSync() {
@@ -514,17 +537,38 @@ export function createTimelineMapController({
       setMapEmptyState({ message: 'Online map tiles disabled' });
       syncMapSizeAfterInitialTileLoad();
     } else {
+      const activateRasterFallback = (reason) => {
+        if (!timelineMap || timelineBaseLayerFallbackActive) return;
+        timelineBaseLayerFallbackActive = true;
+        timelineBaseLayerInitialLoadSynced = false;
+        try {
+          if (timelineBaseLayer) timelineMap.removeLayer(timelineBaseLayer);
+        } catch {}
+
+        try {
+          timelineBaseLayer = createOpenFreeMapRasterFallbackLayer(windowRef.L);
+          timelineBaseLayer.on?.('load', syncMapSizeAfterInitialTileLoad);
+          timelineBaseLayer.on?.('tileerror', (event) => {
+            consoleRef.warn('[TimelineMap] OpenFreeMap raster fallback unavailable', event?.error || event);
+          });
+          timelineBaseLayer.addTo(timelineMap);
+          consoleRef.warn('[TimelineMap] OpenFreeMap vector map unavailable; switched to raster fallback', reason);
+        } catch (fallbackError) {
+          timelineBaseLayer = null;
+          syncMapSizeAfterInitialTileLoad();
+          consoleRef.warn('[TimelineMap] OpenFreeMap raster fallback could not start', fallbackError);
+        }
+      };
+
       try {
         timelineBaseLayer = createOpenFreeMapDarkLayer(windowRef.L).addTo(timelineMap);
         const vectorMap = timelineBaseLayer.getMaplibreMap?.();
         vectorMap?.once?.('load', syncMapSizeAfterInitialTileLoad);
         vectorMap?.once?.('error', (event) => {
-          consoleRef.warn('[TimelineMap] OpenFreeMap dark basemap unavailable', event?.error || event);
+          activateRasterFallback(event?.error || event);
         });
       } catch (error) {
-        timelineBaseLayer = null;
-        syncMapSizeAfterInitialTileLoad();
-        consoleRef.warn('[TimelineMap] OpenFreeMap dark basemap could not start', error);
+        activateRasterFallback(error);
       }
     }
 
@@ -740,7 +784,9 @@ export function createTimelineMapController({
     }
 
     const renderKey = buildTimelineLayerRenderKey(timeline, timelineTrackPoints, positioned);
-    const fitBoundsKey = buildTimelineFitBoundsKey(timeline, timelineTrackPoints, positioned);
+    currentFitBoundsDataKey = buildTimelineFitBoundsKey(timeline, timelineTrackPoints, positioned);
+    currentFitPositioned = positioned;
+    const fitBoundsKey = buildViewportFitBoundsKey(currentFitBoundsDataKey);
     const trackRenderCacheKey = [
       timeline?.flightId || timeline?.filePath || '',
       timelineTrackPoints.length,
@@ -822,6 +868,8 @@ export function createTimelineMapController({
     timelineTrackRenderLimit = null;
     timelineLongitudeReference = null;
     lastFitBoundsKey = '';
+    currentFitBoundsDataKey = '';
+    currentFitPositioned = [];
     resetTimelineMapDataLayers();
     resetTimelineCursor();
     updateOrientationWidget(null, null, null);
@@ -846,6 +894,7 @@ export function createTimelineMapController({
     }
     timelineMap = null;
     timelineBaseLayer = null;
+    timelineBaseLayerFallbackActive = false;
     timelineBaseLayerInitialLoadSynced = false;
     timelineMapInitErrorMessage = '';
     timelineEventLayer = null;

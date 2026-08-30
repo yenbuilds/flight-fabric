@@ -508,7 +508,7 @@ export function buildContentSecurityPolicy(
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://tiles.openfreemap.org",
     "media-src 'self' data: blob:",
     `connect-src ${[...connectSources].join(' ')}`,
     "worker-src 'self' blob:",

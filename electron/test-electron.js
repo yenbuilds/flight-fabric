@@ -217,6 +217,7 @@ for (const [label, url] of [
   ['OpenStreetMap copyright', 'https://www.openstreetmap.org/copyright'],
   ['OpenFreeMap attribution', 'https://openfreemap.org/'],
   ['OpenMapTiles attribution', 'https://openmaptiles.org/'],
+  ['Natural Earth attribution', 'https://www.naturalearthdata.com/'],
   ['Leaflet attribution', 'https://leafletjs.com/'],
 ]) {
   test(`external URL policy allows ${label}`, resolveAllowedExternalUrl(url) === url);
