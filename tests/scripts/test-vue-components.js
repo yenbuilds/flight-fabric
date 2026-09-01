@@ -1799,6 +1799,29 @@ async function main() {
     assert.match(html, /Live target 12,000 FT/, 'focused tuner should distinguish the aircraft readback from the draft');
   });
 
+  await test('AutopilotControlsTab discards its open target editor across aircraft control lifecycle changes', () => {
+    const source = fs.readFileSync(path.join(
+      frontendRoot,
+      'src', 'vue', 'components', 'AutopilotControlsTab.vue',
+    ), 'utf8');
+
+    assert.match(
+      source,
+      /const aircraftControlContextKey = computed\([\s\S]*catalogue\.configurationId[\s\S]*catalogue\.profileKey[\s\S]*catalogue\.profileRevision/,
+      'the generic tuner lifecycle should follow the exact control configuration, profile, and revision',
+    );
+    assert.match(
+      source,
+      /watch\(aircraftControlContextKey, \(\) => \{\s*closeSelectorTargetEditor\(\);\s*\}\);/,
+      'an aircraft control context change should close the tuner and discard its local draft',
+    );
+    assert.match(
+      source,
+      /watch\(\(\) => aircraftControls\.availability\.enabled, \(\) => \{\s*closeSelectorTargetEditor\(\);\s*\}\);/,
+      'a control availability transition should close the tuner before a disconnected draft can become actionable',
+    );
+  });
+
   await test('AutopilotControlsTab renders the controller-owned control targets', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AutopilotControlsTab.vue'),
@@ -3099,6 +3122,55 @@ async function main() {
     assert.match(ribbonSource, /focus:\s*false,\s*remember:\s*false/, 'shared ribbon restoration must not steal focus or recursively persist');
     assert.match(searchSource, /details:not\(\[open\]\)/, 'Aircraft search should index controls hidden only by a closed details group');
     assert.match(searchSource, /details\.open = true/, 'selecting a result should reveal its closed 777 system group');
+  });
+
+  await test('PMDG target drafts reset across profile and source lifecycle changes', () => {
+    const sectionSource = fs.readFileSync(path.join(
+      frontendRoot,
+      'src', 'vue', 'components', 'aircraft-specific', 'AircraftSpecificSection.vue',
+    ), 'utf8');
+    assert.match(
+      sectionSource,
+      /const templateInstanceKey = computed\([\s\S]*aircraftSpecific\.templateId[\s\S]*aircraftSpecific\.activeProfileKey[\s\S]*aircraftSpecific\.activeProfileRevision/,
+      'aircraft template instances should be isolated by trusted template, exact profile, and profile revision',
+    );
+    assert.match(
+      sectionSource,
+      /<component[\s\S]*:is="templateComponent"[\s\S]*:key="templateInstanceKey"/,
+      'the dynamic aircraft panel should remount when its trusted profile identity changes',
+    );
+
+    for (const fixture of [
+      {
+        file: 'Pmdg737AircraftPanel.vue',
+        resets: [
+          /mcpDrafts\.value = \{\}/,
+          /bothCourseDraft\.value = ''/,
+          /bothNavFrequencyDraft\.value = ''/,
+          /cockpitLightingDraft\.value = '50'/,
+        ],
+      },
+      {
+        file: 'Pmdg777AircraftPanel.vue',
+        resets: [
+          /mcpDrafts\.value = \{\}/,
+          /directDrafts\.value = \{\}/,
+        ],
+      },
+    ]) {
+      const source = fs.readFileSync(path.join(
+        frontendRoot,
+        'src', 'vue', 'components', 'aircraft-specific', 'templates', fixture.file,
+      ), 'utf8');
+      assert.match(
+        source,
+        /watch\(\s*\(\) => \[props\.profileKey, props\.sourceStatus, sdkSourceStatus\.value\],\s*resetControlDrafts/,
+        `${fixture.file} should discard typed targets whenever its profile or provider state changes`,
+      );
+      for (const resetPattern of fixture.resets) {
+        assert.match(source, resetPattern, `${fixture.file} should reset every locally retained target draft`);
+      }
+    }
   });
 
   await test('PMDG 777 uses its active command catalogue as the authoritative shared UI route', async () => {

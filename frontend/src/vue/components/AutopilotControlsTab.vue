@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AutopilotTargetEditor from './AutopilotTargetEditor.vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
@@ -12,6 +12,22 @@ const flight = useFlightStore();
 const modeButtonClass = 'controls-command-card ap-mode-btn w-full h-full p-4 text-center transition-all hover:border-accent/50';
 const adjustButtonClass = 'controls-adjust-button ap-adj-btn w-11 h-11 text-lg font-bold';
 const activeSelectorMode = ref('');
+const aircraftControlContextKey = computed(() => {
+  const catalogue = aircraftControls.aircraftCommandCatalogue;
+  return [
+    catalogue.configurationId || '',
+    catalogue.profileKey || '',
+    catalogue.profileRevision ?? '',
+  ].join(':');
+});
+
+watch(aircraftControlContextKey, () => {
+  closeSelectorTargetEditor();
+});
+
+watch(() => aircraftControls.availability.enabled, () => {
+  closeSelectorTargetEditor();
+});
 
 const surfaceCommands = computed(() => {
   const telemetry = flight.telemetry;

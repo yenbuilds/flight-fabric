@@ -5,6 +5,7 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  watch,
 } from 'vue';
 import AircraftHotGroupModal from '../AircraftHotGroupModal.vue';
 import { useAircraftSectionMemory } from '../aircraft-section-memory.js';
@@ -52,6 +53,18 @@ const sdkSourceStatus = computed(() => (
     ? props.sourceStatuses.sdk
     : props.sourceStatus
 ));
+
+function resetControlDrafts() {
+  mcpDrafts.value = {};
+  bothCourseDraft.value = '';
+  bothNavFrequencyDraft.value = '';
+  cockpitLightingDraft.value = '50';
+}
+
+watch(
+  () => [props.profileKey, props.sourceStatus, sdkSourceStatus.value],
+  resetControlDrafts,
+);
 
 const mobileSections = Object.freeze([
   Object.freeze({ id: 'mcp', label: 'MCP', title: 'Mode Control Panel', detail: 'Targets, flight directors and AFDS modes.' }),

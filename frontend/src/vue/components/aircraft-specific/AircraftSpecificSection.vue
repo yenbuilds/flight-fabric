@@ -7,6 +7,11 @@ import { useAircraftSpecificStore } from '../../stores/aircraft-specific.js';
 const aircraftControls = useAircraftControlsStore();
 const aircraftSpecific = useAircraftSpecificStore();
 const templateComponent = computed(() => resolveAircraftSpecificTemplate(aircraftSpecific.templateId));
+const templateInstanceKey = computed(() => [
+  aircraftSpecific.templateId || '',
+  aircraftSpecific.activeProfileKey || '',
+  aircraftSpecific.activeProfileRevision ?? '',
+].join(':'));
 const hasPartialData = computed(() => (
   aircraftSpecific.available && aircraftSpecific.unavailable.length > 0
 ));
@@ -200,6 +205,7 @@ function isActionPending(groupId) {
     <Suspense>
       <component
         :is="templateComponent"
+        :key="templateInstanceKey"
         v-bind="controlDependencyProps"
         :values="aircraftSpecific.values"
         :unavailable="aircraftSpecific.unavailable"

@@ -1,5 +1,10 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import {
+  computed,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
 import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 import { buildPmdg777CommandInput } from '../pmdg777-command-routing.js';
@@ -34,6 +39,16 @@ const sdkSourceStatus = computed(() => (
     ? props.sourceStatuses.sdk
     : props.sourceStatus
 ));
+
+function resetControlDrafts() {
+  mcpDrafts.value = {};
+  directDrafts.value = {};
+}
+
+watch(
+  () => [props.profileKey, props.sourceStatus, sdkSourceStatus.value],
+  resetControlDrafts,
+);
 
 const mobileSections = Object.freeze([
   Object.freeze({ id: 'mcp', label: 'MCP', title: 'Mode Control Panel', detail: 'Targets, flight directors and AFDS modes.' }),

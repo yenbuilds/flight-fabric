@@ -42,8 +42,7 @@ with a replayable flight timeline.
 
 1. Download the latest **Windows Setup** installer from
    [GitHub Releases](https://github.com/yenbuilds/flight-fabric/releases/latest).
-2. Check the installer SHA-256 value against the checksum published in that
-   release's notes.
+2. Check the installer SHA-256 value shown by GitHub beside the release asset.
 3. Install Flight Fabric, start MSFS 2024, and open the app.
 
 Voice control is off by default. Open **Aircraft** > **Voice control**, enable
@@ -87,7 +86,7 @@ guidance targets and requires fresh logical readback after dispatch.
 
 Windows builds are currently unsigned, so SmartScreen or antivirus may show an
 **Unknown publisher** warning. Download only from the official release page and
-do not run a file with a mismatched checksum or an unknown source.
+do not run a file with an unexpected SHA-256 digest or an unknown source.
 
 The supported Windows and SimConnect target is **Microsoft Flight Simulator
 2024**. MSFS 2020 is untested and unsupported; any compatibility is incidental.
