@@ -1,0 +1,87 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "tests/scripts/test*.js",
+        "tests/backend/**/*.test.ts",
+        "tests/support/**/*.ts",
+        "scripts/dev/pmdg-737-preview-client.js",
+        "scripts/migrate-flat-flight-logs.js",
+        "scripts/prepare-start-runtime.js"
+      ],
+      "project": [
+        "*.js",
+        "scripts/**/*.js",
+        "shared/**/*.{js,ts}",
+        "tests/**/*.{js,ts}"
+      ],
+      "ignoreDependencies": [
+        "app-builder-lib",
+        "electron",
+        "tailwindcss"
+      ]
+    },
+    "backend": {
+      "entry": [
+        "core/simbridge.ts",
+        "core/types.ts",
+        "**/*.test.ts",
+        "aircraft/aircraft-profile-registry.ts",
+        "events/timeline-generation-worker.ts",
+        "flight-recording/csv-line-writer-worker.ts"
+      ],
+      "project": [
+        "**/*.ts",
+        "!types/generated/**"
+      ]
+    },
+    "electron": {
+      "entry": [
+        "preload.js",
+        "**/*.test.js",
+        "voice-speech-worker.js",
+        "launcher/electron-integration.js",
+        "launcher/launcher-events.js",
+        "launcher/style.css",
+        "launcher/vendor/qrcode.js"
+      ],
+      "project": [
+        "**/*.{css,js}"
+      ],
+      "ignoreDependencies": [
+        "@electron/asar",
+        "@electron/rebuild",
+        "sherpa-onnx-win-x64",
+        "tailwindcss"
+      ]
+    },
+    "frontend": {
+      "entry": [
+        "src/landing/mock-runtime.js",
+        "**/*.test.js",
+        "flight-phases.js",
+        "telemetry-ui.js",
+        "widgets-compact/widget-theme-bootstrap.js"
+      ],
+      "project": [
+        "**/*.{js,vue}"
+      ]
+    },
+    "packages/telemetry-client": {
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ]
+    },
+    "packages/telemetry-types": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "scripts/browser-smoke-app": {
+      "project": [
+        "*.js"
+      ]
+    }
+  }
+}

@@ -427,7 +427,6 @@ export function computeSimStateMenuFlag({
   lifecycleInMenu,
   simSystemInMenu,
   dialogInMenu,
-  simconnectGateOk,
   isGlobeView,
 }: {
   simconnectConnected: boolean;
@@ -435,7 +434,6 @@ export function computeSimStateMenuFlag({
   lifecycleInMenu?: unknown;
   simSystemInMenu?: unknown;
   dialogInMenu?: unknown;
-  simconnectGateOk?: unknown;
   isGlobeView?: unknown;
 }): boolean {
   if (simconnectConnected !== true) return false;

@@ -449,8 +449,6 @@ function createVreEvaluator(options: VreOptions = {}): VreEvaluator {
     const flapsNotch = stateTokenOrNull(frame.flapsNotch);
     const spoilerState = stateTokenOrNull(frame.spoilerState);
     const wow = firstBooleanOrNull(frame.wow, frame.onGround) ?? false;
-    const _pitch = finiteNumberOrDefault(frame.pitch, 0);
-    const _bank = finiteNumberOrDefault(frame.bank, 0);
     const groundSpeed = firstFiniteNumberOrDefault(0, frame.gs, frame.groundSpeed);
     
     // Limit 0: configuration can disable ULTRA_FIDELITY entirely.

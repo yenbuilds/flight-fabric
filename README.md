@@ -156,6 +156,16 @@ directly with `start-simbridge.bat` or running the complete test suite:
 npm run data:sync:required
 ```
 
+Run the dead-code audit after changing entry points, imports, exports, or
+dependencies:
+
+```powershell
+npm run dead-code
+```
+
+Knip's runtime-loaded entry points are documented in `knip.json`. Review its
+findings before removing code; the audit does not delete files automatically.
+
 </details>
 
 <details>

@@ -1,43 +1,28 @@
-# Flight Fabric 0.9.0
+# Flight Fabric 0.9.1
 
-Flight Fabric 0.9.0 adds dedicated iniBuilds A350 controls and improves offline
-voice recognition and push-to-talk reliability across supported aircraft.
-
-## Added
-
-The iniBuilds A350-900 and A350-1000 now have a dedicated aircraft page and a
-shared guarded adapter. The integration covers bounded speed, heading,
-altitude, and vertical-speed targets; selected persistent cockpit systems;
-conservative surface controls; exterior lights; and an ordered takeoff-light
-preset. Its 15 canonical voice commands use the same backend routes as the UI.
-
-All A350 write actions remain marked untested until they are validated live
-against current installed A350-900 and A350-1000 builds. Unsupported or stale
-routes fail closed.
+Flight Fabric 0.9.1 hardens aircraft-profile selection and the native
+push-to-talk helper lifecycle, removes unused code and dependencies, and
+refreshes project documentation.
 
 ## Fixed
 
-Voice commands now handle common aviation number phrasing more reliably while
-keeping corrections scoped to commands where they are safe. Examples include
-`set heading two eight zero`, altitude shorthand such as `set altitude one five
-zero`, and explicit `engage autopilot one` or `engage autopilot two` channel
-selection. Explicit feet values and normal cardinal numbers remain literal.
+A manually selected bundled aircraft profile now remains active across
+simulator aircraft-change events. Automatic matching also treats a generic
+MSFS Community-folder root and arbitrary livery folder names as non-identity
+evidence, so an ambiguous aircraft falls back safely instead of activating an
+incorrect product-specific integration.
 
-PMDG 777 altitude targets are available to voice, incomplete autopilot commands
-ask for a channel, and `set takeoff lights` is accepted alongside `set lights
-for takeoff` on every aircraft whose active catalogue supports that preset.
+The native Windows push-to-talk helper is tied more tightly to the desktop app
+lifecycle. It exits if its parent output pipe becomes blocked or disconnected,
+and a registration still starting during shutdown cannot reactivate the global
+keyboard hook.
 
-Releasing push to talk now keeps recording for a fixed 250 ms tail, flushes the
-audio worklet, and queues every captured frame before final decoder processing.
-The press and release cues are also louder and use a more audible waveform.
-
-Landing-distance analysis now treats outside-air temperature without an
-explicit precipitation observation as insufficient runway-weather evidence and
-fails safe to a wet surface.
+Unused code and dependencies were removed, a Knip dead-code audit was added,
+and mobile, release, X-Plane, and documentation-index guidance was refreshed.
 
 ## Download
 
-Download `Flight.Fabric.Setup.0.9.0.exe` from GitHub Releases. GitHub displays
+Download `Flight.Fabric.Setup.0.9.1.exe` from GitHub Releases. GitHub displays
 the installer's immutable SHA-256 digest beside the asset. The portable
 executable remains a local verification artifact and is not published.
 

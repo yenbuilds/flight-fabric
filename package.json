@@ -1,13 +1,13 @@
 {
   "name": "flight-fabric",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
-  "main": "index.js",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
     "test": "node tests/run-test-suite.js",
+    "dead-code": "knip",
     "test:core": "node tests/scripts/test-core-modules.js",
     "test:contract-drift": "node tests/scripts/test-contract-drift.js",
     "test:analysis-parity": "node tests/scripts/test-analysis-parity.js",
@@ -124,14 +124,13 @@
     "@typescript-eslint/parser": "^8.59.1",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "archiver": "^7.0.1",
     "dotenv": "^17.4.2",
     "eslint": "^8.57.0",
     "eslint-plugin-import": "^2.32.0",
     "husky": "^9.1.7",
+    "knip": "^6.34.0",
     "tailwindcss": "^3.4.19",
-    "typescript": "^6.0.3",
-    "unimported": "^1.31.1"
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "minimatch": "10.2.6"

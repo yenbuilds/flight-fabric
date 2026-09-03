@@ -280,15 +280,15 @@ source as third-party code.
 ## Development and Build Tooling Packages
 
 - Packages: `@types/node`, `@types/react`, `@typescript-eslint/parser`, `ajv`,
-  `ajv-formats`, `archiver`, `dotenv`, `eslint`, `eslint-plugin-import`,
-  `husky`, `react`, `rimraf`, `tailwindcss`, `tsup`, `typescript`, `unimported`,
+  `ajv-formats`, `dotenv`, `eslint`, `eslint-plugin-import`,
+  `husky`, `knip`, `react`, `rimraf`, `tailwindcss`, `tsup`, `typescript`,
   and `ws`.
 - Declared in: root `package.json`, `packages/telemetry-client/package.json`, and `packages/telemetry-types/package.json`
-- Licences: `typescript` is Apache-2.0, `rimraf` is ISC, `dotenv` is
+- Licences: `typescript` is Apache-2.0, `knip` and `rimraf` are ISC, `dotenv` is
   BSD-2-Clause, and the other listed external packages are MIT. In particular,
   the currently resolved `@typescript-eslint/parser` 8.59.2 is MIT, not
   BSD-2-Clause.
-- Used for: TypeScript typechecking/builds, linting, package builds, release/archive generation, repository hygiene checks, and Git hook integration. These packages are development/build dependencies and are not Flight Fabric application data.
+- Used for: TypeScript typechecking/builds, linting and dead-code analysis, package builds, release tooling, repository hygiene checks, and Git hook integration. These packages are development/build dependencies and are not Flight Fabric application data.
 
 ## Tailwind CSS
 

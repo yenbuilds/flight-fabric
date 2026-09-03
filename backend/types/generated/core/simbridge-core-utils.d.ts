@@ -199,13 +199,12 @@ export declare function buildSignalReliabilityPayload(profile: ProfileLike): {
     profileId: string;
     source: 'profile';
 };
-export declare function computeSimStateMenuFlag({ simconnectConnected, providerInMenu, lifecycleInMenu, simSystemInMenu, dialogInMenu, simconnectGateOk, isGlobeView, }: {
+export declare function computeSimStateMenuFlag({ simconnectConnected, providerInMenu, lifecycleInMenu, simSystemInMenu, dialogInMenu, isGlobeView, }: {
     simconnectConnected: boolean;
     providerInMenu?: unknown;
     lifecycleInMenu?: unknown;
     simSystemInMenu?: unknown;
     dialogInMenu?: unknown;
-    simconnectGateOk?: unknown;
     isGlobeView?: unknown;
 }): boolean;
 export declare function shouldCollectCurrentApproachSample({ phase, raFt, vsFpm, onGround, rolloutActive, collectionCeilingFt, warmup, }: {

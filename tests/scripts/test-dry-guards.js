@@ -601,7 +601,10 @@ test('frontend settings page consumes the shared settings module', () => {
   assert(settingsShellSource.includes('tabsStore: tabs'), 'SettingsTabShell should pass the tabs store into the settings runtime');
   assert(settingsShellSource.includes('getAppSettings'));
   assert(settingsShellSource.includes('settingsRuntime?.cleanup?.();'), 'SettingsTabShell should clean up the settings runtime');
-  assert(runtimeSource.includes('normalizeAppSettings('));
+  assert(
+    runtimeSource.includes("typeof appSettingsShared.normalizeAppSettings !== 'function'"),
+    'settings runtime should validate the shared settings module at its boundary',
+  );
   assert(sharedGlobalsSource.includes('export function getFlightPhases('), 'shared globals helper should centralize phase lookup');
   assert(sharedGlobalsSource.includes('export function getPublishedFlightPhases('), 'shared globals helper should centralize published phase lookup');
   assert(sharedRuntimeSource.includes('export function getFlightFabricAppSettings()'), 'settings shared-runtime helper should centralize app-settings global access');

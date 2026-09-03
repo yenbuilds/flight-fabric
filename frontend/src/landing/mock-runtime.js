@@ -14,7 +14,6 @@
 
 // ── helpers ──────────────────────────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function jitter(base, range) { return base + (Math.random() - 0.5) * range; }
 
 // ── approach profile builder ─────────────────────────────────────────────

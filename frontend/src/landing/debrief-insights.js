@@ -156,9 +156,3 @@ export function buildDebriefConfidence(data, ultimateStability, lastUltimateStab
     confidenceToneClass: 'text-green-400',
   };
 }
-
-export const DEBRIEF_COLORS = Object.freeze({
-  good: GOOD_COLOR,
-  warning: WARNING_COLOR,
-  danger: DANGER_COLOR,
-});

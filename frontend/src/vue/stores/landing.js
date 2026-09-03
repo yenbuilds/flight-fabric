@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import '../../../../shared/violation-rules.js';
 import { buildDebriefConfidence, buildDebriefReasons } from '../../landing/debrief-insights.js';
-import { buildLandingPresentation, normalizeBooleanLike } from '../../landing/scoring.js';
+import { buildLandingPresentation } from '../../landing/scoring.js';
 import { getStabilityContextSummary } from '../../landing/stability-context.js';
 import { buildLandingWindPresentation } from '../../landing/wind.js';
 
@@ -631,7 +631,6 @@ export const useLandingStore = defineStore('landing', {
         landingCard.touchdown.achievedTone = verdict.flags.touchdownTargetAchieved ? 'text-gray-100' : 'text-amber-400';
       }
 
-      const stabilityScore = summaryPresentation.stabilityScore;
       if (summaryPresentation.approachText) {
         const stabilityVerdict = summaryPresentation.stabilityVerdict;
         const contextSummary = getStabilityContextSummary(

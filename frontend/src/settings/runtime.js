@@ -33,11 +33,6 @@ export function initSettingsRuntime({
     throw new Error('Settings runtime requires DOM and websocket helpers');
   }
 
-  const {
-    APP_SETTINGS_DEFAULTS,
-    normalizeAppSettings,
-  } = appSettingsShared;
-
   const form = $('settings-form');
   if (!form) {
     return null;
@@ -71,12 +66,6 @@ export function initSettingsRuntime({
     network: 'Network ports / remote access',
     recording: 'Automatic recording',
   };
-
-  function normalizeSettings(settings) {
-    return normalizeAppSettings(settings, {
-      defaults: APP_SETTINGS_DEFAULTS,
-    });
-  }
 
   function updateRestartActionState(state = {}) {
     settingsUiStore?.setRestartActionState?.(state);
@@ -218,7 +207,7 @@ export function initSettingsRuntime({
     return hasLocalEdits && JSON.stringify(readFormSettings()) !== lastSavedJson;
   }
 
-  function applySettingsToForm(settings, options = {}) {
+  function applySettingsToForm(settings) {
     applyingFormState = true;
     try {
       settingsEditorStore.applySettings(settings);
@@ -311,7 +300,7 @@ export function initSettingsRuntime({
         updateDirtyState();
         return;
       }
-      applySettingsToForm(detail.settings, { storage: detail.storage });
+      applySettingsToForm(detail.settings);
     }));
   }
 
@@ -327,7 +316,7 @@ export function initSettingsRuntime({
       }
 
       if (detail.settings) {
-        applySettingsToForm(detail.settings, { storage: detail.storage });
+        applySettingsToForm(detail.settings);
       }
 
       const restartRequired = detail.restartRequired === true;

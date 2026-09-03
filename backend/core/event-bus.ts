@@ -1,21 +1,10 @@
 // Central event bus for decoupling emission from transport.
 
-const Debug = require('./debug.js') as typeof import('./debug');
-
 export type EventHandler = (payload: unknown) => void;
 
 const listeners = new Map<string, Set<EventHandler>>();
-let debugEnabled = false;
-
-export function setDebug(enabled: boolean): void {
-  debugEnabled = !!enabled;
-}
 
 export function emit(event: string, payload: unknown): void {
-  if (debugEnabled) {
-    Debug.log('event-bus', `emit: ${event}`, payload);
-  }
-
   const handlers = listeners.get(event);
   if (!handlers || handlers.size === 0) return;
 

@@ -340,6 +340,29 @@ Each active control action in bundled profiles must include `verification`:
 
 ## Matching
 
+Selection precedence is intentionally fail-closed:
+
+1. A configured manual override remains authoritative across simulator aircraft
+   changes.
+2. Auto-detection evaluates exact or vendor/product-specific simulator identity.
+3. Known conflicting product, traffic, and passive-aircraft evidence vetoes a
+   candidate.
+4. An ambiguous result uses the simulator's bundled generic profile.
+
+For MSFS, `TITLE` is the implementation-specific aircraft identity Flight
+Fabric reads on every normal SimConnect connection. `AircraftLoaded` is
+documented as an `.AIR` flight-dynamics path, so treat a path received from it
+as a supplemental hint, not a universal `aircraft.cfg` or base-aircraft key.
+Structured `aircraft.cfg` matching applies only when the loader is given the
+exact readable file.
+
+MSFS 2024 modular liveries have a separate `LIVERY NAME` and do not define a
+unique livery title. An `aircraft.cfg`-based livery can define its own title and
+`[LIVERY] base_container`; when the correct configuration file is unavailable,
+an unrecognizable custom title must fall back to generic or be handled by the
+manual selector. Do not add broad ICAO-only or folder-name guesses to hide that
+safe fallback.
+
 MSFS profiles use:
 
 - `integration.matching.titleContains`
@@ -353,10 +376,14 @@ MSFS profiles use:
   as `icao_type_designator`, `title`, and `ui_createdby`. Require evidence for
   both the aircraft type and its vendor.
 
-Exclusions take precedence over every positive rule, including structured
-`aircraft.cfg` evidence. Use them when related products reuse titles, model
-folders, or compatibility assets. A child profile inherits its
-parent's exclusions unless it explicitly replaces the arrays.
+Title exclusions and identity-bearing path exclusions take precedence over
+every positive rule, including structured `aircraft.cfg` evidence. Use them
+when related products reuse titles, model folders, or compatibility assets. A
+literal MSFS `Community` path segment is the exception: for profiles that list
+that generic root as an exclusion, it is neutral and contributes no path or
+configuration evidence, while every more specific exclusion still applies. A
+child profile inherits its parent's exclusions unless it explicitly replaces
+the arrays.
 
 X-Plane profiles use:
 

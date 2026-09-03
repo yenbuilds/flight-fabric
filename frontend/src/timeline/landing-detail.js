@@ -183,7 +183,6 @@ export function buildLandingDetailSections(event) {
 
     const runwayLengthFt = finiteNumber(event.runway?.length_ft);
     if (distanceFt != null && runwayLengthFt != null && runwayLengthFt > 0) {
-      const roundedDistance = Math.round(distanceFt);
       const remaining = Math.round(runwayLengthFt - distanceFt);
       const pctUsed = ((distanceFt / runwayLengthFt) * 100).toFixed(1);
       pushMetricRow(touchdownRows, 'remaining', 'Remaining', `${remaining}ft (${pctUsed}% down runway)`);

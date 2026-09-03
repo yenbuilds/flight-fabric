@@ -198,7 +198,6 @@ test('does not report menu state when simulator is disconnected', () => {
     lifecycleInMenu: true,
     simSystemInMenu: true,
     dialogInMenu: true,
-    simconnectGateOk: false,
     isGlobeView: true,
   });
 
@@ -212,7 +211,6 @@ test('does not treat parked/no-flight context as menu by itself', () => {
     lifecycleInMenu: false,
     simSystemInMenu: false,
     dialogInMenu: false,
-    simconnectGateOk: false,
     isGlobeView: false,
   });
 
@@ -235,7 +233,6 @@ test('reports menu state for connected explicit menu blockers', () => {
       lifecycleInMenu: false,
       simSystemInMenu: false,
       dialogInMenu: false,
-      simconnectGateOk: true,
       isGlobeView: false,
       ...blocker,
     });

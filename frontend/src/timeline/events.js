@@ -1,11 +1,6 @@
 import { buildLandingPresentation, gradeSeverity } from '../landing/scoring.js';
 import { RULE_END_LABELS, RULE_LABELS, VIOLATION_RULE } from './constants.js';
 
-export function describeViolation(violation, descriptions = {}) {
-  if (!violation) return null;
-  return violation.context?.note || violation.metrics?.note || descriptions[violation.ruleId] || null;
-}
-
 function resolveEventType(event) {
   const type = String(event?.type || '');
   if (type.includes('phase')) return 'phase';

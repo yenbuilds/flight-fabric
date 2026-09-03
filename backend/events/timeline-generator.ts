@@ -106,10 +106,8 @@ const {
   roundedHeadingDifferenceDegrees,
 } = require('../utils/aviation-frames') as AviationFramesModule;
 const {
-  coalesceKnown,
   createFuelUsageRowSelector,
   hasFuelUsageAnchor,
-  mapCsvRow,
   mergeTouchdownDistance,
   parseCSV,
   parseJsonObject,
@@ -118,13 +116,11 @@ const {
   toBooleanOrNull,
   toFiniteNumber,
 } = require('./timeline-csv-helpers.js') as {
-  coalesceKnown: (primary: unknown, fallback: unknown) => unknown;
   createFuelUsageRowSelector: () => {
     push: (row: AnyRecord | null | undefined) => void;
     result: () => { firstFuelRow: AnyRecord | null; lastFuelRow: AnyRecord | null };
   };
   hasFuelUsageAnchor: (row: AnyRecord | null | undefined) => boolean;
-  mapCsvRow: (headers: string[], values: unknown[]) => CsvRow;
   mergeTouchdownDistance: (existing: AnyRecord | null | undefined, incoming: AnyRecord | null | undefined) => AnyRecord | null;
   parseCSV: (filePath: string, options?: { sparseRows?: boolean }) => Promise<ParseCsvResult>;
   parseJsonObject: (value: unknown) => AnyRecord | null;
@@ -2386,24 +2382,12 @@ function findFuelRows(rows: CsvRow[]) {
   return selectFuelUsageRows(rows);
 }
 
-function isCsvFile(fileName: string): boolean {
-  return fileName.toLowerCase().endsWith('.csv');
-}
-
 function isRecordingManifestRow(row: CsvRow | null | undefined): boolean {
   return String(row?.record_type || '').trim().toUpperCase() === 'RECORDING_MANIFEST';
 }
 
 function stripCsvExtension(fileName: string): string {
   return fileName.replace(/\.csv$/i, '');
-}
-
-function isTimelineFile(fileName: string): boolean {
-  return fileName.toLowerCase().endsWith('.timeline.json');
-}
-
-function stripTimelineExtension(fileName: string): string {
-  return fileName.replace(/\.timeline\.json$/i, '');
 }
 
 function createInitialTimeline(csvPath: string, rows: CsvRow[]): GeneratedTimeline {

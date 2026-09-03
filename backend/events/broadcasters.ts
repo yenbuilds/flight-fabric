@@ -107,7 +107,6 @@ type ReliabilityResult = {
 type ReliabilityContext = {
   profile?: ProfileLike | null;
   lvarSidecarConnected?: boolean;
-  lvarHasAutomationData?: boolean;
   lvarHasModeSelectorData?: boolean;
   lvarHasAutopilotData?: boolean;
   lvarHasAutothrottleData?: boolean;
@@ -343,9 +342,6 @@ function sendBasicStreams(broadcast: BroadcastFn, payload: BasicStreamsPayload):
     vsFeetPerMin,
     iasKnots,
     gsKnots,
-    alt_msl_ft,
-    raFeet,
-    pressureAltFt,
     xwind,
     lights,
     hdgMag,
@@ -415,7 +411,6 @@ function isAutopilotSimVarReliable(profile: ProfileLike | null): boolean {
 function assessAutopilotReliability(context: ReliabilityContext | null | undefined): ReliabilityResult {
   const profile = context?.profile || null;
   const lvarSidecarConnected = Boolean(context?.lvarSidecarConnected);
-  const lvarHasAutomationData = Boolean(context?.lvarHasAutomationData);
   const lvarHasModeSelectorData = Boolean(context?.lvarHasModeSelectorData);
   const lvarHasAutopilotData = Boolean(context?.lvarHasAutopilotData);
   const lvarHasAutothrottleData = Boolean(context?.lvarHasAutothrottleData);

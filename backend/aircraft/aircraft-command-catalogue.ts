@@ -1477,11 +1477,6 @@ export function buildAircraftCommandCatalogue(
   };
 }
 
-export function getAircraftCommandDefinition(commandId: unknown): AircraftCommandDefinition | null {
-  if (typeof commandId !== 'string') return null;
-  return AIRCRAFT_COMMAND_DEFINITIONS[commandId] || null;
-}
-
 module.exports = {
   AIRCRAFT_COMMAND_DEFINITIONS,
   FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION,
@@ -1491,7 +1486,6 @@ module.exports = {
   PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION,
   PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION,
   buildAircraftCommandCatalogue,
-  getAircraftCommandDefinition,
   normalizeAircraftCommandRequest,
   resolveAircraftCommandConfiguration,
   resolveAircraftCommandRequest,

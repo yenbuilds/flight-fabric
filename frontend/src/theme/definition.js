@@ -33,10 +33,6 @@ export function normalizeThemeName(name) {
   return DEFAULT_THEME;
 }
 
-export function readSavedTheme() {
-  return DEFAULT_THEME;
-}
-
 export function persistThemeName(name, {
   storage = null,
 } = {}) {

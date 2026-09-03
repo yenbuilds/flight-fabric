@@ -13,13 +13,30 @@ function resolvePushToTalkHelperPath({ appDir, isPackaged, resourcesPath }) {
     : path.join(appDir, 'voice-native', 'ptt-hook', 'target', 'release', 'flight-fabric-ptt-hook.exe');
 }
 
-function createPushToTalkHook({ helperPath, onDown, onUp, onError = () => {} }) {
+function createPushToTalkHelperSpawnOptions() {
+  return {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    // libuv puts non-detached Windows children in Node's kill-on-close job.
+    detached: false,
+  };
+}
+
+function createPushToTalkHook({
+  helperPath,
+  onDown,
+  onUp,
+  onError = () => {},
+  spawnProcess = spawn,
+}) {
   if (!path.isAbsolute(helperPath) || typeof onDown !== 'function' || typeof onUp !== 'function') {
     throw new TypeError('Valid push-to-talk helper options are required');
   }
   let child = null;
   let accelerator = '';
   let registered = false;
+  let disposed = false;
+  const spawnedChildren = new Set();
   const intentionallyStopped = new WeakSet();
 
   function getInfo() {
@@ -48,10 +65,13 @@ function createPushToTalkHook({ helperPath, onDown, onUp, onError = () => {} }) 
         reject(error);
       };
       try {
-        candidate = spawn(helperPath, ['--shortcut', nextAccelerator], {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
-        });
+        candidate = spawnProcess(
+          helperPath,
+          ['--shortcut', nextAccelerator],
+          createPushToTalkHelperSpawnOptions(),
+        );
+        spawnedChildren.add(candidate);
+        candidate.once('close', () => spawnedChildren.delete(candidate));
       } catch (error) {
         fail(error);
         return;
@@ -102,9 +122,14 @@ function createPushToTalkHook({ helperPath, onDown, onUp, onError = () => {} }) 
   }
 
   async function setShortcut(value) {
+    if (disposed) throw new Error('Push-to-talk hook is disposed.');
     const next = normalizePushToTalkShortcut(value);
     if (registered && child && next === accelerator) return getInfo();
     const candidate = await launch(next);
+    if (disposed) {
+      stop(candidate);
+      throw new Error('Push-to-talk hook is disposed.');
+    }
     const previous = child;
     child = candidate;
     accelerator = next;
@@ -114,7 +139,8 @@ function createPushToTalkHook({ helperPath, onDown, onUp, onError = () => {} }) 
   }
 
   function dispose() {
-    stop(child);
+    disposed = true;
+    for (const spawnedChild of spawnedChildren) stop(spawnedChild);
     child = null;
     accelerator = '';
     registered = false;
@@ -123,4 +149,8 @@ function createPushToTalkHook({ helperPath, onDown, onUp, onError = () => {} }) 
   return Object.freeze({ dispose, getInfo, setShortcut });
 }
 
-module.exports = { createPushToTalkHook, resolvePushToTalkHelperPath };
+module.exports = {
+  createPushToTalkHelperSpawnOptions,
+  createPushToTalkHook,
+  resolvePushToTalkHelperPath,
+};

@@ -1829,9 +1829,6 @@ function createLandingRunner(): LandingRunner {
         });
       } catch {}
 
-      // Capture phase at TOUCHDOWN TIME (not rollout completion when it has transitioned)
-      const phaseAtTouchdown = phaseAtTouchdownForCheck;
-
       // Build early touchdown summary for event bus emission
       const earlyTouchdownSummary = {
         vs_fpm,

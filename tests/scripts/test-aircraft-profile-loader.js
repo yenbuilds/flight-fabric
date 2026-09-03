@@ -10,6 +10,7 @@ let failed = 0;
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flight-fabric-profile-loader-'));
@@ -1079,6 +1080,11 @@ const detectedMicrosoft747FromPath = loader.detectProfile('Unknown repaint', {
 });
 test('Detects the stock 747-8 from its verified MSFS 2024 SimObject path', detectedMicrosoft747FromPath?.id === 'workingtitle-747-8');
 
+const detectedMicrosoft747WithCommunityLivery = loader.detectProfile('Boeing 747-8i - Working Title Simulations', {
+  hint: 'Community/acme-b748-livery/SimObjects/Airplanes/Acme_B747_8i/aircraft.cfg',
+});
+test('Exact stock 747-8 title survives a non-conflicting Community livery path', detectedMicrosoft747WithCommunityLivery?.id === 'workingtitle-747-8');
+
 const rejected747Cases = [
   ['Boeing 747 Intercontinental', undefined],
   ['Boeing 747-8', undefined],
@@ -1110,6 +1116,11 @@ const detectedMicrosoft787FromPath = loader.detectProfile('Unknown repaint', {
   hint: 'SimObjects/Airplanes/asobo_b787/aircraft.cfg',
 });
 test('Detects the stock 787-10 from its verified MSFS 2024 SimObject path', detectedMicrosoft787FromPath?.id === 'asobo-787');
+
+const detectedMicrosoft787WithCommunityLivery = loader.detectProfile('Boeing 787-10 Dreamliner', {
+  hint: 'Community/acme-b78x-livery/SimObjects/Airplanes/Acme_B787_10/aircraft.cfg',
+});
+test('Exact stock 787-10 title survives a non-conflicting Community livery path', detectedMicrosoft787WithCommunityLivery?.id === 'asobo-787');
 
 const rejected787Cases = [
   ['Dreamliner', undefined],
@@ -1838,6 +1849,27 @@ test('setActiveProfile changes active', newActive?.id === 'fbw-a32nx');
 loader.setActiveProfileFromTitle('FlyByWire A32NX');
 const autoActive = loader.getActiveProfile();
 test('setActiveProfileFromTitle auto-detects', autoActive?.id === 'fbw-a32nx');
+
+try {
+  const runtimeLoaderPath = resolveBackendRuntimeFile('aircraft', 'aircraft-profile-loader.js');
+  execFileSync(process.execPath, ['-e', `
+    const assert = require('assert');
+    const loader = require(${JSON.stringify(runtimeLoaderPath)});
+    loader.clearCache();
+    assert.equal(loader.setActiveProfileFromTitle('FlyByWire A32NX').id, 'asobo-787');
+    assert.equal(loader.setActiveProfileFromTitle('iFly Boeing 737 MAX 8').id, 'asobo-787');
+  `], {
+    env: {
+      ...process.env,
+      AIRCRAFT_PROFILE: 'bundled/msfs/asobo-787',
+      DEBUG_ENABLE: '0',
+    },
+    stdio: 'pipe',
+  });
+  test('Configured manual profile survives subsequent aircraft identity events', true);
+} catch {
+  test('Configured manual profile survives subsequent aircraft identity events', false);
+}
 
 section('Config Accessors');
 loader.setActiveProfile('fbw-a380x');

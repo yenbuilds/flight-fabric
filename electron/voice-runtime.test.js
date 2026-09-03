@@ -12,7 +12,11 @@ const {
   DEFAULT_PUSH_TO_TALK_SHORTCUT,
   normalizePushToTalkShortcut,
 } = require('./voice-push-to-talk');
-const { resolvePushToTalkHelperPath } = require('./voice-push-to-talk-hook');
+const {
+  createPushToTalkHelperSpawnOptions,
+  createPushToTalkHook,
+  resolvePushToTalkHelperPath,
+} = require('./voice-push-to-talk-hook');
 const { AUDIO_CHANNEL, createVoiceRuntime } = require('./voice-runtime');
 const {
   createVoiceSpeechEngine,
@@ -135,6 +139,51 @@ test('packaged PTT helper resolves only from application resources', () => {
     resolvePushToTalkHelperPath({ appDir: path.resolve('C:\\app'), isPackaged: true, resourcesPath: path.resolve('C:\\resources') }),
     path.join(path.resolve('C:\\resources'), 'voice', 'ptt-hook.exe'),
   );
+});
+
+test('PTT helper stays attached to the Electron process job', () => {
+  assert.deepEqual(createPushToTalkHelperSpawnOptions(), {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    detached: false,
+  });
+});
+
+test('disposing a starting PTT hook cannot reactivate its helper', async () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ptt-dispose-'));
+  const helperPath = path.join(fixtureDir, 'ptt-hook.exe');
+  fs.writeFileSync(helperPath, 'test fixture');
+  const candidate = new EventEmitter();
+  candidate.stdout = new EventEmitter();
+  candidate.stderr = new EventEmitter();
+  candidate.killCalls = 0;
+  candidate.kill = () => {
+    candidate.killCalls += 1;
+    return true;
+  };
+  let downEvents = 0;
+  const hook = createPushToTalkHook({
+    helperPath,
+    onDown: () => { downEvents += 1; },
+    onUp: () => {},
+    spawnProcess: () => candidate,
+  });
+
+  try {
+    const registration = hook.setShortcut('Control+Alt+F12');
+    hook.dispose();
+    candidate.stdout.emit('data', Buffer.from('{"type":"ready"}\n'));
+
+    await assert.rejects(registration, /disposed/i);
+    assert.deepEqual(hook.getInfo(), { accelerator: '', registered: false });
+    assert.ok(candidate.killCalls >= 1, 'dispose must stop the exact in-flight helper object');
+    candidate.stdout.emit('data', Buffer.from('{"type":"down"}\n'));
+    assert.equal(downEvents, 0, 'a disposed helper must not emit push-to-talk events');
+    await assert.rejects(hook.setShortcut('Control+Alt+F12'), /disposed/i);
+  } finally {
+    candidate.emit('close');
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
 });
 
 test('voice runtime exposes transcription-only development mode only when unpackaged', () => {

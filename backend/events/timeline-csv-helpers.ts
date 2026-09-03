@@ -537,11 +537,6 @@ function extractFuelWeightPerGal(row: AnyRecord | null | undefined) {
   return value !== null && value > 0 && value < 25 ? value : null;
 }
 
-function extractGrossWeightLbs(row: AnyRecord | null | undefined) {
-  if (!row || typeof row !== 'object') return null;
-  return toFiniteNumber(row.gross_weight_lbs ?? row.grossWeightLbs ?? row.grossWeight ?? row.totalWeight);
-}
-
 function hasFuelUsageAnchor(row: AnyRecord | null | undefined) {
   return (
     extractFuelTotalGal(row) !== null ||

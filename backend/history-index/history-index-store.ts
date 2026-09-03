@@ -17,11 +17,9 @@ const {
 };
 const {
   createHistorySourceIdentity,
-  createHistorySourceId,
   normalizeHistorySourcePath,
 } = require('./source-identity.js') as {
   createHistorySourceIdentity: (_input: SourceIndexInput['source']) => HistorySourceIdentity;
-  createHistorySourceId: (_filePath: unknown, _recordingSessionId?: unknown) => string;
   normalizeHistorySourcePath: (_filePath: unknown) => string;
 };
 const { normalizeRetiredSpoilerStability } = require('../stability/retired-spoiler-compat.js') as {

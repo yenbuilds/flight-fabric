@@ -1,4 +1,4 @@
-import type { PhaseMap, PhaseValue } from '../../shared/flight-phases';
+import type { PhaseMap } from '../../shared/flight-phases';
 
 'use strict';
 

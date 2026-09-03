@@ -67,12 +67,3 @@ export function getTimelineEventMarkerVisual(event) {
 
   return { glyph: 'E', bg: '#334155', border: '#cbd5e1', fg: '#f8fafc', size: 10, shape: 'round' };
 }
-
-export function createTimelineMap() {
-  return {
-    eventCategory,
-    eventPassesMapFilter,
-    getEventPosition,
-    getTimelineEventMarkerVisual,
-  };
-}

@@ -84,5 +84,4 @@ export declare function buildAircraftCommandCatalogue(profile: unknown, options:
     profileRevision?: unknown;
     resolveControl: (request: unknown) => GenericRecord;
 }): GenericRecord;
-export declare function getAircraftCommandDefinition(commandId: unknown): AircraftCommandDefinition | null;
 export {};

@@ -1071,7 +1071,6 @@ async function main() {
 
     const controller = createAppSettingsController({
       $: (id) => documentRef.getElementById(id),
-      windowRef,
       getCabinAnnouncements() {
         return {
           applySettings(settings) {
@@ -3588,11 +3587,6 @@ async function main() {
     const landingStore = useLandingStore();
     const controller = createLandingController({
       $: (id) => documentRef.getElementById(id),
-      setText: (id, value) => {
-        const element = documentRef.getElementById(id);
-        if (element) element.textContent = value == null ? '' : String(value);
-      },
-      documentRef,
       windowRef,
       flightStore,
       landingStore,
@@ -3666,9 +3660,7 @@ async function main() {
     const landingStore = useLandingStore();
     const controller = createLandingController({
       $: (id) => documentRef.getElementById(id),
-      documentRef,
       windowRef,
-      setText: () => {},
       landingStore,
     });
 
@@ -3713,9 +3705,7 @@ async function main() {
     const landingStore = useLandingStore();
     const controller = createLandingController({
       $: (id) => documentRef.getElementById(id),
-      documentRef,
       windowRef,
-      setText: () => {},
       landingStore,
       flightStore: {
         updateLandingPreview(rawLanding) {
@@ -3779,9 +3769,7 @@ async function main() {
     const landingStore = useLandingStore();
     const controller = createLandingController({
       $: (id) => documentRef.getElementById(id),
-      documentRef,
       windowRef,
-      setText: () => {},
       landingStore,
       flightStore: {
         updateLandingPreview(rawLanding) {
@@ -3894,9 +3882,7 @@ async function main() {
     const landingStore = useLandingStore();
     const controller = createLandingController({
       $: (id) => documentRef.getElementById(id),
-      documentRef,
       windowRef,
-      setText: () => {},
       landingStore,
     });
 
@@ -6330,12 +6316,7 @@ async function main() {
 
     const controller = createLandingController({
       $: (id) => documentRef.getElementById(id),
-      documentRef,
       windowRef,
-      setText: (id, value) => {
-        const element = documentRef.getElementById(id);
-        if (element) element.textContent = value == null ? '' : String(value);
-      },
       landingStore,
       tabsStore,
     });
@@ -6560,9 +6541,7 @@ async function main() {
     });
 
     await nextTick();
-    runtimeApi.applySettingsToForm(runtimeApi.readFormSettings(), {
-      storage: { flightLogsDir: 'C:/Flights', flightLogsExists: true, flightLogsFileCount: 2, flightLogsTotalBytes: 4096 },
-    });
+    runtimeApi.applySettingsToForm(runtimeApi.readFormSettings());
     await nextTick();
 
     assert.equal(settingsFormStore.saveEnabled, false, 'initially clean settings should keep save disabled through the form store');

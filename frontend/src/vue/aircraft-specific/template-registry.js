@@ -28,7 +28,3 @@ export function resolveAircraftSpecificTemplate(templateId) {
   }
   return trustedAircraftSpecificTemplates[templateId];
 }
-
-export function hasAircraftSpecificTemplate(templateId) {
-  return Boolean(resolveAircraftSpecificTemplate(templateId));
-}

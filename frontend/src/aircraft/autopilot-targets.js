@@ -166,5 +166,3 @@ export function resolveAutopilotTargetStatus({
   }
   return { tone: 'live', text: `Live target ${liveDisplayValue} ${units}` };
 }
-
-export const AUTOPILOT_TARGET_MODES = Object.freeze(Object.keys(DEFINITIONS));

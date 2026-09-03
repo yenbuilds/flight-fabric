@@ -124,7 +124,6 @@ function firstFiniteNumber(...values) {
 
 export function createLandingController({
   $,
-  setText,
   windowRef = window,
   flightStore = null,
   landingStore = null,

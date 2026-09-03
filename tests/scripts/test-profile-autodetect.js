@@ -321,6 +321,7 @@ test('detects the stock Microsoft/Asobo 747-8 from documented title and supporte
     ['Boeing 747-8i & 8f', undefined],
     ['Unknown repaint', 'SimObjects/Airplanes/asobo_b747_8i/aircraft.cfg'],
     ['Unknown repaint', 'Official/StreamedPackages/fs24-asobo-aircraft-b7478i/SimObjects/Airplanes/asobo_b747_8i/aircraft.cfg'],
+    ['Boeing 747-8i - Working Title Simulations', 'Community/acme-b748-livery/SimObjects/Airplanes/Acme_B747_8i/aircraft.cfg'],
   ];
   for (const [title, hint] of cases) {
     const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
@@ -356,6 +357,7 @@ test('detects the stock Microsoft/Asobo 787-10 from exact product identity and s
     ['Microsoft / Asobo Studio Boeing 787-10 Dreamliner', undefined],
     ['Unknown repaint', 'SimObjects/Airplanes/asobo_b787/aircraft.cfg'],
     ['Unknown repaint', 'Official/StreamedPackages/fs24-asobo-aircraft-b787-10/SimObjects/Airplanes/asobo_b787/aircraft.cfg'],
+    ['Boeing 787-10 Dreamliner', 'Community/acme-b78x-livery/SimObjects/Airplanes/Acme_B787_10/aircraft.cfg'],
   ];
   for (const [title, hint] of cases) {
     const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
@@ -519,6 +521,7 @@ test('detects the included 737 MAX 8 from Microsoft/Asobo titles and narrowly su
     ['Unknown repaint', 'Official/StreamedPackages/fs24-asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
     ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX8/aircraft.cfg'],
     ['Unknown repaint', 'SimObjects\\Airplanes\\Asobo_B737_MAX8\\aircraft.cfg'],
+    ['Boeing 737 MAX 8', 'Community/acme-b38m-livery/SimObjects/Airplanes/Acme_B737_MAX8/aircraft.cfg'],
   ];
   for (const [title, hint] of cases) {
     const profile = profileLoader.detectProfile(title, hint ? { hint } : undefined);
@@ -536,7 +539,6 @@ test('Microsoft 737 MAX 8 matcher rejects ambiguous, adjacent, prefixed, and suf
     ['SomeVendor Boeing 737 MAX 8', 'Official/OneStore/asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
     ['Boeing 737 MAX 8 Traffic', undefined],
     ['Boeing 737 MAX 8 BBJ', undefined],
-    ['Boeing 737 MAX 8', 'Community/asobo-aircraft-b737max8/SimObjects/Airplanes/B737MAX8/aircraft.cfg'],
     ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX80/aircraft.cfg'],
     ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX9/aircraft.cfg'],
     ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX8_Traffic/aircraft.cfg'],

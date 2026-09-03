@@ -299,6 +299,16 @@ function isFilePathLike(value: unknown): boolean {
   return !!normalized && (normalized.includes('\\') || normalized.includes('/') || /\.cfg$/i.test(normalized));
 }
 
+function hasExactPathSegment(value: unknown, expectedSegment: string): boolean {
+  const normalizedExpected = expectedSegment.trim().toLowerCase();
+  if (!normalizedExpected) return false;
+
+  return normalizeMatchText(value)
+    .replace(/\\/g, '/')
+    .split('/')
+    .some((segment: string) => segment.trim().toLowerCase() === normalizedExpected);
+}
+
 function buildPathIdentityText(value: unknown): string {
   const normalized = normalizeMatchText(value).replace(/\\/g, '/').replace(/\/+/g, '/');
   if (!normalized) return '';
@@ -847,16 +857,35 @@ function scoreProfileMatch(
     });
   };
 
-  // Exclusions are profile-wide vetoes. A known conflicting title or package
-  // path must never be outweighed by a positive title, path, or aircraft.cfg
-  // score from a related aircraft that reuses first-party assets.
+  const configPathExcludes = Array.isArray(matching.configPathExcludes)
+    ? matching.configPathExcludes
+    : [];
+  const excludesCommunityRoot = configPathExcludes.some(
+    (candidate: unknown) => normalizeSpecificityToken(candidate) === 'community',
+  );
+  const communityPathIsNonIdentity = hintLooksPath
+    && excludesCommunityRoot
+    && hasExactPathSegment(hintText, 'community');
+  const identityBearingPathExcludes = communityPathIsNonIdentity
+    ? configPathExcludes.filter(
+      (candidate: unknown) => normalizeSpecificityToken(candidate) !== 'community',
+    )
+    : configPathExcludes;
+
+  // Known conflicting products remain profile-wide vetoes. The Community root
+  // itself only describes where MSFS content is installed, so it neither vetoes
+  // nor contributes identity evidence. This lets an exact TITLE match survive a
+  // livery path without trusting arbitrary Community package names.
   if (matchesExcludedToken(titleLower, matching.titleExcludes)) return -1;
-  if (hintLooksPath && matchesExcludedToken(hintFullLower || '', matching.configPathExcludes)) return -1;
+  if (hintLooksPath && matchesExcludedToken(hintFullLower || '', identityBearingPathExcludes)) return -1;
 
   let score = matching.priority || 0;
   let matched = false;
 
-  const aircraftCfgScore = scoreAircraftCfgMatch(profile, aircraftCfg);
+  const aircraftCfgScore = scoreAircraftCfgMatch(
+    profile,
+    communityPathIsNonIdentity ? null : aircraftCfg,
+  );
   if (aircraftCfgScore > 0) {
     matched = true;
     score += aircraftCfgScore;
@@ -869,7 +898,12 @@ function scoreProfileMatch(
       if (titleLower.includes(needleLower)) {
         matched = true;
         score += 10;
-      } else if (hintLower && hintHasSpecificEvidence && hintLower.includes(needleLower)) {
+      } else if (
+        !communityPathIsNonIdentity
+        && hintLower
+        && hintHasSpecificEvidence
+        && hintLower.includes(needleLower)
+      ) {
         matched = true;
         score += 10;
       }
@@ -882,7 +916,12 @@ function scoreProfileMatch(
       if (regex.test(normalizeMatchText(title))) {
         matched = true;
         score += 20;
-      } else if (hintLower && hintHasSpecificEvidence && regex.test(hintMatchText)) {
+      } else if (
+        !communityPathIsNonIdentity
+        && hintLower
+        && hintHasSpecificEvidence
+        && regex.test(hintMatchText)
+      ) {
         matched = true;
         score += 20;
       }
@@ -892,7 +931,7 @@ function scoreProfileMatch(
     }
   }
 
-  if (hintLooksPath && Array.isArray(matching.configPathContains)) {
+  if (hintLooksPath && !communityPathIsNonIdentity && Array.isArray(matching.configPathContains)) {
     for (const needle of matching.configPathContains) {
       const needleLower = String(needle || '').toLowerCase();
       if (!needleLower) continue;
@@ -903,7 +942,7 @@ function scoreProfileMatch(
     }
   }
 
-  if (hintLooksPath && matching.configPathRegex) {
+  if (hintLooksPath && !communityPathIsNonIdentity && matching.configPathRegex) {
     try {
       const regex = new RegExp(matching.configPathRegex, 'i');
       if (regex.test(hintText)) {
@@ -1235,25 +1274,32 @@ function getDefaultGenericProfileKey(): string {
   });
 }
 
+function getConfiguredProfileOverride(): string | null {
+  const configuredProfile = normalizeMatchText(config.aircraft?.profile);
+  return configuredProfile && configuredProfile.toLowerCase() !== 'auto'
+    ? configuredProfile
+    : null;
+}
+
 function getActiveProfile(): LoadedProfile | null {
   if (activeProfile) {
     return activeProfile;
   }
 
-  const envProfile = config.aircraft?.profile;
-  if (envProfile && envProfile !== 'auto') {
-    const profile = loadProfile(envProfile);
+  const configuredProfile = getConfiguredProfileOverride();
+  if (configuredProfile) {
+    const profile = loadProfile(configuredProfile);
     if (profile) {
       activeProfile = profile;
       activeProfileId = profile._qualifiedId || null;
       activeProfileRevision += 1;
-      Debug.log('profile-loader', `Active profile from env: ${profile.name}`);
+      Debug.log('profile-loader', `Active profile from configured override: ${profile.name}`);
       return activeProfile;
     }
   }
 
   const genericProfileKey = getDefaultGenericProfileKey();
-  Debug.log('profile-loader', `Using generic profile (AIRCRAFT_PROFILE=${envProfile || 'unset'})`, {
+  Debug.log('profile-loader', `Using generic profile (configured profile=${configuredProfile || 'auto'})`, {
     profileKey: genericProfileKey,
   });
   activeProfile = loadProfile(genericProfileKey);
@@ -1289,9 +1335,19 @@ function setActiveProfile(id: unknown): LoadedProfile | null {
 }
 
 function setActiveProfileFromTitle(title: unknown, { hint, xplane }: DetectOptions = {}): LoadedProfile {
-  const profile = detectProfile(title, { hint, xplane }) || loadProfile(getDefaultGenericProfileKey());
+  const configuredProfile = getConfiguredProfileOverride();
+  const profile = configuredProfile
+    ? (loadProfile(configuredProfile) || loadProfile(getDefaultGenericProfileKey()))
+    : (detectProfile(title, { hint, xplane }) || loadProfile(getDefaultGenericProfileKey()));
   if (!profile) {
     throw new Error('[profile-loader] Failed to resolve a fallback aircraft profile');
+  }
+  if (configuredProfile) {
+    Debug.log('profile-loader', 'Retaining configured aircraft profile override', {
+      configuredProfile,
+      resolvedProfile: profile._qualifiedId || profile.id,
+      aircraftTitle: normalizeMatchText(title) || null,
+    });
   }
   activeProfile = profile;
   activeProfileId = profile._qualifiedId || null;

@@ -1096,9 +1096,9 @@ async function runSimbridgeCore({
     const previousAircraftTitle = previousAircraftConfigPath || previousDisplayName || previousTitle;
 
     // Prefer the human-readable TITLE simvar (displayName) for profile matching.
-    // AircraftLoaded returns the config file path (e.g. "SimObjects\Airplanes\FNX_32X\..."),
-    // while the TITLE simvar returns the name from aircraft.cfg (e.g. "FNX A320 CFM").
-    // If displayName looks like a file path, ignore it and fall back to the config path.
+    // Keep AircraftLoaded as a secondary path hint: the SDK documents it as the
+    // loaded flight-dynamics path, so it is not a universal base-aircraft key.
+    // If displayName looks like a file path, ignore it and fall back to that hint.
     const matchTitle = isXplaneAircraftChange ? null : (aircraftDisplayName || aircraftConfigPath || title);
     // Pass the configPath (title) as a hint so profile matching can use it as a
     // fallback when the display name alone doesn't contain enough identity info.
@@ -1122,8 +1122,14 @@ async function runSimbridgeCore({
 
     try {
       const profile = profileLoader.setActiveProfileFromTitle(matchTitle, { hint: matchHint, xplane: xplaneIdentity });
-      console.log(`[Profile] Aircraft: configPath="${aircraftConfigPath || '(unknown)'}" displayName="${aircraftDisplayName || '(unknown)'}" matchedOn="${matchTitle}"${matchHint ? ' (hint: configPath)' : ''} → profile: "${profile?.name || 'generic'}" (id: ${profile?.id || 'generic'})`);
-      Debug.log('profile', 'Aircraft profile auto-detected', {
+      const configuredProfile = typeof config.aircraft?.profile === 'string'
+        ? config.aircraft.profile.trim()
+        : '';
+      const profileSource = configuredProfile && configuredProfile.toLowerCase() !== 'auto'
+        ? 'manual-override'
+        : 'auto-detect';
+      console.log(`[Profile] Aircraft: configPath="${aircraftConfigPath || '(unknown)'}" displayName="${aircraftDisplayName || '(unknown)'}" matchedOn="${matchTitle}"${matchHint ? ' (hint: configPath)' : ''} → profile: "${profile?.name || 'generic'}" (id: ${profile?.id || 'generic'}, source: ${profileSource})`);
+      Debug.log('profile', `Aircraft profile selected by ${profileSource}`, {
         title,
         displayName: aircraftDisplayName,
         previousTitle,
@@ -1187,7 +1193,7 @@ async function runSimbridgeCore({
         previousTitle: previousAircraftTitle,
         previousAircraftConfigPath,
         previousDisplayName,
-        source: 'auto-detect',
+        source: profileSource,
       });
       
       // Broadcast signal reliability for UI greying
@@ -3764,7 +3770,6 @@ async function runSimbridgeCore({
 
     function publishSimState({ lifecycleState, isGlobeView }) {
       try {
-        const simconnectGateOk = simconnectConnected && sc && sc.inFlightContext === true;
         const providerInMenu = frame?.inMenu === true;
         const lifecycleInMenu = lifecycleState === LifecycleState.IN_MENU;
         const simSystemInMenu = !!(sc && sc.systemStateAvailable === true && sc.systemSim === 0);
@@ -3775,7 +3780,6 @@ async function runSimbridgeCore({
           lifecycleInMenu,
           simSystemInMenu,
           dialogInMenu,
-          simconnectGateOk,
           isGlobeView,
         });
 
@@ -4158,7 +4162,6 @@ async function runSimbridgeCore({
       autopilotReliabilityForRecording = assessAutopilotReliability({
         profile: activeProfile,
         lvarSidecarConnected: sourceOverlayContext.lvarSidecarConnected,
-        lvarHasAutomationData: sourceOverlayContext.lvarHasAutomationData,
         lvarHasModeSelectorData: sourceOverlayContext.lvarHasModeSelectorData,
         lvarHasAutopilotData: sourceOverlayContext.lvarHasAutopilotData,
         lvarHasAutothrottleData: sourceOverlayContext.lvarHasAutothrottleData,
@@ -4173,7 +4176,6 @@ async function runSimbridgeCore({
       sendAutopilot(broadcast, finalOverlay, {
         profile: activeProfile,
         lvarSidecarConnected: sourceOverlayContext.lvarSidecarConnected,
-        lvarHasAutomationData: sourceOverlayContext.lvarHasAutomationData,
         lvarHasModeSelectorData: sourceOverlayContext.lvarHasModeSelectorData,
         lvarHasAutopilotData: sourceOverlayContext.lvarHasAutopilotData,
         lvarHasAutothrottleData: sourceOverlayContext.lvarHasAutothrottleData,

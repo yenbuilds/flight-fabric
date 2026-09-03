@@ -13,7 +13,7 @@ import { createLocalReadback, formatAviationReadback } from './local-readback.js
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
-export const VOICE_RELEASE_TAIL_MS = 250;
+const VOICE_RELEASE_TAIL_MS = 250;
 
 function formatCommand(match) {
   const value = Object.prototype.hasOwnProperty.call(match.input || {}, 'value')

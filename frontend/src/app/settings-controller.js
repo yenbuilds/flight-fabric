@@ -4,7 +4,6 @@ import { formatReleaseVersion } from './version-labels.js';
 
 export function createAppSettingsController({
   $,
-  windowRef = window,
   getCabinAnnouncements = () => null,
 } = {}) {
   let currentAppSettings = null;

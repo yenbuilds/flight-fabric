@@ -894,7 +894,7 @@ class SimConnectTelemetryProvider {
         case 'lvar':
           return this._executeNamedVarAction(bridge, action, backendSource);
         case 'input-event':
-          return this._executeInputEventAction(bridge, action, backendSource);
+          return this._executeInputEventAction(action, backendSource);
         case 'aircraft-integration':
           return this._executeAircraftIntegrationAction(bridge, action, backendSource, options);
         case 'html-event':
@@ -2752,7 +2752,6 @@ class SimConnectTelemetryProvider {
       const { expectedInput: _expectedInput, ...readback } = routeReadback;
       return { ...readback, expectedValue: inputResult.value };
     });
-    const resolvedReadback = resolvedReadbacks[0];
     if (resolvedReadbacks.length === 0 && !transportAcknowledged) {
       return {
         ok: false,
@@ -3252,7 +3251,7 @@ class SimConnectTelemetryProvider {
     return this._buildSidecarResult(ack, backendSource, `Failed to set variable ${varName}.`);
   }
 
-  async _executeInputEventAction(bridge, action, backendSource) {
+  async _executeInputEventAction(action, backendSource) {
     const eventName = typeof action.name === 'string' ? action.name.trim() : '';
     if (!eventName) {
       return { ok: false, code: 'invalid_action', error: 'Input-event action is missing a name.', backendSource };

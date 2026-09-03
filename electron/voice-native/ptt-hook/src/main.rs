@@ -6,8 +6,10 @@ use std::{
     mem::MaybeUninit,
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::{sync_channel, Receiver, SyncSender},
         OnceLock,
     },
+    thread,
 };
 
 const WH_KEYBOARD_LL: i32 = 13;
@@ -46,6 +48,7 @@ const VK_LCONTROL: u32 = 0xA2;
 const VK_RCONTROL: u32 = 0xA3;
 const VK_LMENU: u32 = 0xA4;
 const VK_RMENU: u32 = 0xA5;
+const OUTPUT_QUEUE_CAPACITY: usize = 64;
 
 type HookHandle = isize;
 type WindowHandle = isize;
@@ -92,13 +95,38 @@ unsafe extern "system" {
 #[derive(Clone, Copy)]
 struct HookConfig { key: u32, modifiers: u8 }
 
+#[derive(Clone, Copy)]
+enum OutputEvent { Ready, Down, Up }
+
 static CONFIG: OnceLock<HookConfig> = OnceLock::new();
+static OUTPUT_SENDER: OnceLock<SyncSender<OutputEvent>> = OnceLock::new();
 static HELD: AtomicBool = AtomicBool::new(false);
 
-fn emit(kind: &str) {
-    let mut stdout = io::stdout().lock();
-    let _ = stdout.write_all(format!("{{\"type\":\"{kind}\"}}\n").as_bytes());
-    let _ = stdout.flush();
+impl OutputEvent {
+    fn encoded(self) -> &'static [u8] {
+        match self {
+            Self::Ready => b"{\"type\":\"ready\"}\n",
+            Self::Down => b"{\"type\":\"down\"}\n",
+            Self::Up => b"{\"type\":\"up\"}\n",
+        }
+    }
+}
+
+fn write_output_events<W: Write>(mut writer: W, receiver: Receiver<OutputEvent>) -> io::Result<()> {
+    for event in receiver {
+        writer.write_all(event.encoded())?;
+        writer.flush()?;
+    }
+    Ok(())
+}
+
+fn queue_output(event: OutputEvent) {
+    let queued = OUTPUT_SENDER.get().is_some_and(|sender| sender.try_send(event).is_ok());
+    if !queued {
+        // Never let a stalled or disconnected IPC pipe make the global hook linger.
+        // This exits only the helper process; no external PID is opened or terminated.
+        std::process::exit(1);
+    }
 }
 
 fn is_pressed(key: i32) -> bool {
@@ -135,7 +163,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w_param: WParam, l_param: LPa
     if event.vk_code == config.key && is_down && (held || modifiers_are_down(config)) {
         if !held {
             HELD.store(true, Ordering::SeqCst);
-            emit("down");
+            queue_output(OutputEvent::Down);
         }
         return 1;
     }
@@ -144,7 +172,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, w_param: WParam, l_param: LPa
         && (event.vk_code == config.key || required_modifier(config, event.vk_code))
     {
         HELD.store(false, Ordering::SeqCst);
-        emit("up");
+        queue_output(OutputEvent::Up);
         if event.vk_code == config.key { return 1; }
     }
     unsafe { CallNextHookEx(0, code, w_param, l_param) }
@@ -208,12 +236,31 @@ fn main() {
         std::process::exit(2);
     });
     let _ = CONFIG.set(config);
+    let (output_sender, output_receiver) = sync_channel(OUTPUT_QUEUE_CAPACITY);
+    if OUTPUT_SENDER.set(output_sender).is_err() {
+        std::process::exit(1);
+    }
+    if thread::Builder::new()
+        .name("ptt-output".to_string())
+        .spawn(move || {
+            let stdout = io::stdout();
+            if write_output_events(stdout.lock(), output_receiver).is_err() {
+                // A broken parent pipe is fatal: leaving the global hook active would
+                // suppress the configured shortcut without delivering PTT events.
+                std::process::exit(1);
+            }
+        })
+        .is_err()
+    {
+        std::process::exit(1);
+    }
     let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), 0, 0) };
     if hook == 0 {
         eprintln!("[flight-fabric-ptt-hook] could not install the low-level keyboard hook");
         std::process::exit(1);
     }
-    emit("ready");
+    // Queue readiness before pumping hook callbacks so event order is deterministic.
+    queue_output(OutputEvent::Ready);
     loop {
         let mut message = MaybeUninit::<Message>::zeroed();
         let result = unsafe { GetMessageW(message.as_mut_ptr(), 0, 0, 0) };
@@ -229,12 +276,30 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_shortcut, MOD_ALT, MOD_CONTROL, VK_SPACE};
+    use std::sync::mpsc::sync_channel;
+
+    use super::{parse_shortcut, write_output_events, OutputEvent, MOD_ALT, MOD_CONTROL, VK_SPACE};
 
     #[test]
     fn parses_default_shortcut() {
         let shortcut = parse_shortcut("Control+Alt+Space").expect("shortcut parses");
         assert_eq!(shortcut.key, VK_SPACE);
         assert_eq!(shortcut.modifiers, MOD_CONTROL | MOD_ALT);
+    }
+
+    #[test]
+    fn serializes_output_events_in_order() {
+        let (sender, receiver) = sync_channel(3);
+        sender.send(OutputEvent::Ready).expect("ready is queued");
+        sender.send(OutputEvent::Down).expect("down is queued");
+        sender.send(OutputEvent::Up).expect("up is queued");
+        drop(sender);
+
+        let mut output = Vec::new();
+        write_output_events(&mut output, receiver).expect("events are written");
+        assert_eq!(
+            output,
+            b"{\"type\":\"ready\"}\n{\"type\":\"down\"}\n{\"type\":\"up\"}\n",
+        );
     }
 }

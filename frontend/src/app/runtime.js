@@ -287,7 +287,6 @@ export async function initAppRuntime({
   const $ = (id) => document.getElementById(id);
   const appSettingsController = createAppSettingsController({
     $,
-    windowRef: window,
     getCabinAnnouncements,
   });
   const { showToast: showAppToast } = createAppFeedback({ windowRef: window, feedbackStore });
@@ -301,13 +300,6 @@ export async function initAppRuntime({
     showToast: showAppToast,
   };
 
-  const setText = (id, val) => {
-    const el = $(id);
-    if (!el) return;
-    const next = val == null ? '' : String(val);
-    if (el.textContent === next) return;
-    el.textContent = next;
-  };
   const appPreferences = createAppPreferences({
     storage: localStorage,
     getWsSend: () => connection.send,
@@ -569,8 +561,6 @@ export async function initAppRuntime({
   // === Message Handlers ===
   const landingController = createLandingController({
     $,
-    setText,
-    documentRef: document,
     windowRef: window,
     flightStore,
     landingStore,
