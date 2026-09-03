@@ -40,8 +40,8 @@ function keepTailwindBeforeBundledCss() {
  *
  * - Production build:
  *   `npm run frontend:build` now runs Vite and then copies the remaining
- *   compatibility assets (plain-script `flight-phases.js`, `vendor/`, and
- *   `themes/`) into `frontend-dist/`. Electron and the backend HTTP server
+ *   compatibility assets (plain-script `flight-phases.js` and `themes/`)
+ *   into `frontend-dist/`. Electron and the backend HTTP server
  *   both consume that bundled output.
  *
  * Migration path (IIFE -> ES modules):
@@ -53,7 +53,7 @@ function keepTailwindBeforeBundledCss() {
  *   New sub-modules in src/ can be imported from the converted file immediately.
  * - The main app entrypoints now use thin ES module bootstraps that delegate to runtimes under
  *   src/. Remaining plain <script> holdouts are intentional compatibility assets such as
- *   flight-phases.js and vendor libraries.
+ *   flight-phases.js.
  * - flight-phases.js stays as a UMD file permanently - backend/lifecycle/phases.js
  *   require()s it. Load it as a plain <script> and access window.FlightPhases in non-module
  *   contexts; create a thin re-export in src/shared/ for ES module consumers.
@@ -67,7 +67,7 @@ export default defineConfig({
   root: __dirname,
   plugins: [vue(), keepTailwindBeforeBundledCss()],
 
-  // Static assets served by the dev server. vendor/ and themes/ are always included.
+  // Static assets served by the dev server. themes/ are always included.
   // The root itself is also the public dir so index.html and compact widget HTMLs resolve correctly.
   publicDir: false,
 

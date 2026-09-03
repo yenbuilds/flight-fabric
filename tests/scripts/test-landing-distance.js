@@ -902,17 +902,17 @@ test('inferSurfaceCondition: no precip + OAT = -1 → dry (above -2 floor)', () 
   assertEqual(r.surface, 'dry');
 });
 
-test('inferSurfaceCondition: OAT only, warm → dry, inferred, not confident (single signal)', () => {
+test('inferSurfaceCondition: OAT only, warm → wet failsafe', () => {
   const r = landingDist.inferSurfaceCondition({ oatC: 20 });
-  assertEqual(r.surface, 'dry');
-  assertEqual(r.source, 'inferred');
-  assertEqual(r.confident, false, 'Single signal = not confident');
+  assertEqual(r.surface, 'wet');
+  assertEqual(r.source, 'failsafe');
+  assertEqual(r.confident, false, 'OAT alone cannot establish runway condition');
 });
 
-test('inferSurfaceCondition: OAT only, freezing → wet, inferred, not confident', () => {
+test('inferSurfaceCondition: OAT only, freezing → wet failsafe', () => {
   const r = landingDist.inferSurfaceCondition({ oatC: -1 });
   assertEqual(r.surface, 'wet');
-  assertEqual(r.source, 'inferred');
+  assertEqual(r.source, 'failsafe');
   assertEqual(r.confident, false);
 });
 

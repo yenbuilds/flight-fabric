@@ -27,10 +27,11 @@ class FakeAudioContext {
   }
 
   createGain() {
+    const context = this;
     return {
       gain: {
-        setValueAtTime() {},
-        exponentialRampToValueAtTime() {},
+        setValueAtTime(value, time) { context.events.push(['gain-set', value, time]); },
+        exponentialRampToValueAtTime(value, time) { context.events.push(['gain-ramp', value, time]); },
       },
       connect() {},
       disconnect() {},
@@ -62,7 +63,12 @@ test('push-to-talk tones use distinct short local cues', async () => {
   );
   assert.deepEqual(
     contexts[0].events.filter(([kind]) => kind === 'stop').map(([, time]) => Math.round(time * 1000)),
-    [4045, 4050],
+    [4045, 4095],
+  );
+  assert.deepEqual(
+    contexts[0].events.filter(([kind, value]) => kind === 'gain-ramp' && value > 0.001)
+      .map(([, value]) => value),
+    [0.16, 0.16],
   );
 
   await tone.dispose();

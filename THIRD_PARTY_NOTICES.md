@@ -309,19 +309,10 @@ source as third-party code.
 
 - Source: https://leafletjs.com - by Volodymyr Agafonkin and Leaflet contributors
 - Version: 1.9.4
-- Bundled from the `leaflet` npm package into the main frontend. A legacy
-  upstream distribution is also retained under `frontend/vendor/leaflet/`.
+- Bundled from the `leaflet` npm package into the main frontend.
 - License: BSD-2-Clause (Copyright (c) 2010-2023, Volodymyr Agafonkin; Copyright (c) 2010-2011, CloudMade)
 - License text: https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE
 - Used for: interactive flight-track map in the live-map and timeline tabs.
-
-## Three.js (vendored)
-
-- Source: https://threejs.org/ and https://github.com/mrdoob/three.js
-- Version: 0.165.0
-- Vendored into: `frontend/vendor/three/three.module.js`
-- License: MIT
-- Used for: the 3D controls visualization in the browser widget controls panel.
 
 ## Splide (vendored static-site carousel)
 
@@ -428,7 +419,6 @@ notices:
   GitHub Inc.
 - Tailwind CSS: Copyright (c) Tailwind Labs, Inc.
 - QRCode for JavaScript: Copyright (c) 2009 Kazuhiko Arase
-- Three.js: Copyright (c) 2010-2024 three.js authors
 - Splide: Copyright (c) 2022 Naotoshi Fujita
 - Rust `chrono`: Copyright (c) 2014-2026 Kang Seonghoon and contributors
 - Rust `num-traits`: Copyright (c) 2014 The Rust Project Developers

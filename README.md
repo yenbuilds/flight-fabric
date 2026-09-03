@@ -1,8 +1,8 @@
 <div align="center">
   <img src="readme-assets/flight-fabric-icon.png" width="112" alt="Flight Fabric logo">
   <h1>Flight Fabric</h1>
-  <p><strong>Live flight data, selected aircraft controls, and landing debriefs.</strong></p>
-  <p>A second-screen companion and recorder for Microsoft Flight Simulator 2024.</p>
+  <p><strong>Control your airliner by voice or from another screen.</strong></p>
+  <p>Live flight data, automatic recording, and landing reviews for Microsoft Flight Simulator 2024.</p>
   <p>
     <a href="https://github.com/yenbuilds/flight-fabric/releases/latest"><strong>Download for Windows</strong></a>
     &nbsp;&middot;&nbsp;
@@ -12,11 +12,13 @@
   </p>
 </div>
 
-![Flight Fabric tour showing live telemetry, selected aircraft controls, full flight timeline replay, and a detailed landing debrief](readme-assets/flight-fabric-tour.gif)
+![Flight Fabric tour showing live flight data, aircraft controls, a full timeline replay, and a detailed landing review](readme-assets/flight-fabric-tour.gif)
 
-Flight Fabric keeps your aircraft, route, systems, and selected controls on a
-separate screen. After landing, it provides an approach and landing debrief,
-with a replayable flight timeline.
+Flight Fabric puts supported aircraft controls where you can reach them. Use
+voice control, open the same controls on a phone or tablet, or keep them beside
+the simulator on your PC. While you fly, Flight Fabric follows the aircraft and
+records the flight. After landing, it shows what happened during the approach,
+touchdown, and rollout.
 
 > [!IMPORTANT]
 > Flight Fabric is free, experimental alpha software for consumer flight
@@ -32,11 +34,11 @@ with a replayable flight timeline.
 | **Timeline replay** | **Landing debrief** |
 | ![Flight Fabric timeline inspector with events, replay map, and altitude profile](readme-assets/timeline-replay-20260815.png) | ![Flight Fabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
 
-## What Flight Fabric does
+## One app for the whole flight
 
-| Fly and control | After you land | On another screen |
+| Control the aircraft | Follow the flight | Review what happened |
 | --- | --- | --- |
-| Follow position, route progress, speed, altitude, aircraft state, and warnings. Use searchable controls and local, offline push-to-talk voice commands where supported. | Review approach and touchdown data, maps, event timelines, landing trends, and saved history. | Use the Windows app, another display, OBS widgets, or a phone or tablet on your trusted home network. |
+| Use voice or searchable controls made for each supported aircraft. Open the controls on your PC, phone, tablet, or another computer. | See position, route progress, speed, altitude, aircraft state, warnings, and your SimBrief plan as you fly. | Replay the timeline and flight path, then review approach stability, touchdown, centreline tracking, rollout, trends, and saved history. |
 
 ## Get flying
 
@@ -45,44 +47,37 @@ with a replayable flight timeline.
 2. Check the installer SHA-256 value shown by GitHub beside the release asset.
 3. Install Flight Fabric, start MSFS 2024, and open the app.
 
-Voice control is off by default. Open **Aircraft** > **Voice control**, enable
-it, then set a global shortcut in **Voice settings** or use the on-screen
-hold-to-talk button. While it is off, Flight Fabric does not start voice
-recognition, the push-to-talk helper, or microphone discovery.
+Voice control is off until you enable it. Open **Aircraft** > **Voice control**,
+then set a shortcut in **Voice settings** or use the talk button on screen.
+When voice control is off, Flight Fabric does not listen for commands or check
+for microphones.
 
-During a push-to-talk session, microphone audio is processed locally in memory.
-It is never saved, logged, or sent over the network. **Refresh microphones**
-briefly opens and closes the default input only to list device names; it does
-not read, process, save, or send audio. Windows SAPI can read command results
-aloud without a browser or network text-to-speech service, and a new
-push-to-talk session stops the current readback.
+When you hold the talk button, your microphone audio is processed in memory on
+your PC. After release, the microphone remains active briefly to preserve the
+end of your speech, then closes after buffered audio is flushed. Audio is not
+saved, logged, or sent over the network. Flight Fabric can also read command
+results aloud using a voice already installed in Windows.
 
-Aircraft-specific voice catalogues cover FlyByWire A32NX, PMDG 737,
-PMDG 777-300ER/200ER/200LR/F, and Fenix A319/A320/A321 families. The A32NX
-catalogue covers FCU speed/Mach, heading, altitude,
-vertical speed/FPA and managed/selected modes, AP1/AP2, captain flight director,
-autothrust, LOC/APPR/EXPED, forward throttle detents, standard gear and flap
-steps, parking brake, spoiler arming, selected exterior lights, and takeoff lights.
-FCU targets use only FlyByWire's documented fixed custom client events through
-SimConnect, with mode guards and newer logical readback required after dispatch.
-Other profiles expose only standard commands confirmed by their active guarded
-catalogue.
+Voice commands are available for FlyByWire A32NX, iniBuilds A350-900 and
+A350-1000, PMDG 737, PMDG 777, and Fenix A319, A320, and A321 aircraft. Depending
+on the aircraft, you can set flight guidance values and modes, operate common
+surfaces and lights, and use useful presets. Flight Fabric checks which aircraft
+is loaded and shows the commands that work with it.
 
-## Aircraft integration support
+## Aircraft support
 
-These aircraft include both the extended aircraft-specific controls page and
-aircraft-specific voice commands. Controls and commands are shown only when they
-are supported by the active aircraft profile.
+These aircraft have their own detailed controls and voice commands:
 
-| Aircraft family | Extended aircraft-specific controls | Aircraft-specific voice commands |
+| Aircraft family | Detailed controls | Voice commands |
 | --- | :---: | :---: |
 | FlyByWire Airbus A32NX | Yes | Yes |
 | Fenix Airbus A319, A320, A321 | Yes | Yes |
+| iniBuilds Airbus A350-900, A350-1000 | Yes | Yes |
 | PMDG Boeing 737-600, 737-700, 737-800, 737-900 | Yes | Yes |
 | PMDG Boeing 777-300ER, 777-200ER, 777-200LR, 777F | Yes | Yes |
 
-The A32NX integration uses FlyByWire's fixed custom client events for guarded flight
-guidance targets and requires fresh logical readback after dispatch.
+The A32NX integration uses FlyByWire's documented events for flight guidance
+values and checks the result against fresh aircraft data.
 
 Windows builds are currently unsigned, so SmartScreen or antivirus may show an
 **Unknown publisher** warning. Download only from the official release page and
@@ -100,9 +95,11 @@ network as the simulator PC.
 
 1. In Flight Fabric, open **Settings**, then **Network**.
 2. Enable **Allow trusted LAN access**.
-3. Save the setting and restart Flight Fabric.
-4. On the simulator PC, open `http://localhost:8100/setup`.
-5. Scan the QR code or use the complete URL shown there.
+3. To use aircraft controls from the other device, also enable **Allow aircraft
+   controls from trusted LAN**.
+4. Save the settings and restart Flight Fabric.
+5. On the simulator PC, open `http://localhost:8100/setup`.
+6. Scan the QR code or use the complete URL shown there.
 
 Treat the paired URL as a temporary password. Its token expires when the backend
 restarts. LAN traffic is unencrypted, so use this only on a private network.

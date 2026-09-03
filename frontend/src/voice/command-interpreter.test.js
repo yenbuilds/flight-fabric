@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseAviationNumber } from './aviation-number-parser.js';
-import { collectVoiceHints, interpretAircraftVoiceCommand } from './command-interpreter.js';
+import {
+  collectVoiceHints,
+  incompleteVoiceCommandPrompt,
+  interpretAircraftVoiceCommand,
+} from './command-interpreter.js';
 
 const catalogue = Object.freeze({
   configurationId: 'test-aircraft',
@@ -98,6 +102,7 @@ const catalogue = Object.freeze({
         patterns: [
           'set lights for takeoff', 'set lights for take off',
           'set lights for a takeoff', 'set lights for a take off',
+          'set takeoff lights', 'set take off lights',
           'takeoff lights', 'take off lights',
         ],
         hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
@@ -259,6 +264,13 @@ const fbwA32nxCatalogue = Object.freeze({
 const pmdg777Catalogue = Object.freeze({
   configurationId: 'pmdg-777',
   commands: Object.freeze([
+    {
+      id: 'flightGuidance.altitude.set', label: 'Selected altitude',
+      input: { kind: 'number', min: 0, max: 50000, step: 100, units: 'feet' },
+      speech: {
+        patterns: ['set altitude {value}', 'altitude {value}', 'set flight level {value}', 'flight level {value}'],
+      },
+    },
     {
       id: 'flightGuidance.flightPathAngle.set', label: 'Selected flight path angle',
       input: { kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees' },
@@ -458,6 +470,23 @@ test('interpreter applies only bounded command-word corrections after exact matc
     input: { value: 270 },
     label: 'Selected heading',
   });
+  assert.deepEqual(interpretAircraftVoiceCommand('SET HEADING TWO EIGHTY ZER', catalogue), {
+    ok: true,
+    transcript: 'set heading two eighty zer',
+    interpretedTranscript: 'set heading two eighty zero',
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 280 },
+    label: 'Selected heading',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SET HEADING TWO EIGHTY ZER DEGREES', catalogue), {
+    ok: true,
+    transcript: 'set heading two eighty zer degrees',
+    interpretedTranscript: 'set heading two eighty zero degrees',
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 280 },
+    label: 'Selected heading',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('set heading eighty', catalogue).input, { value: 80 });
   assert.deepEqual(interpretAircraftVoiceCommand('said course one two zero', catalogue), {
     ok: true,
     transcript: 'said course one two zero',
@@ -483,13 +512,73 @@ test('interpreter applies only bounded command-word corrections after exact matc
     label: 'Selected speed',
   });
   assert.deepEqual(interpretAircraftVoiceCommand("SET ALTITUDE TWO ONE'S NEARER", catalogue), {
-    ok: false,
-    reason: 'invalid-value',
+    ok: true,
     transcript: 'set altitude two ones nearer',
     interpretedTranscript: 'set altitude two one zero',
+    commandId: 'flightGuidance.altitude.set',
+    input: { value: 21000 },
+    label: 'Selected altitude',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SAID ALTITUDE ONE TO ZERO', catalogue), {
+    ok: true,
+    transcript: 'said altitude one to zero',
+    interpretedTranscript: 'set altitude one two zero',
+    commandId: 'flightGuidance.altitude.set',
+    input: { value: 12000 },
+    label: 'Selected altitude',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SAID ALTITUDE ONE TO ZERO FEET', catalogue), {
+    ok: false,
+    reason: 'invalid-value',
+    transcript: 'said altitude one to zero feet',
+    interpretedTranscript: 'set altitude one two zero feet',
   });
   assert.equal(interpretAircraftVoiceCommand('random set heading two seven zero', catalogue).reason, 'unmatched');
   assert.equal(interpretAircraftVoiceCommand('seth random zero point eight five', catalogue).reason, 'unmatched');
+});
+
+test('valid numeric and enum values win before any recognition alias', () => {
+  for (const [word, value] of [
+    ['ten', 10], ['twenty', 20], ['thirty', 30], ['forty', 40], ['fifty', 50],
+    ['sixty', 60], ['seventy', 70], ['eighty', 80], ['ninety', 90],
+  ]) {
+    assert.deepEqual(
+      interpretAircraftVoiceCommand(`set heading ${word}`, catalogue).input,
+      { value },
+      `${word} must retain its literal numeric meaning`,
+    );
+  }
+
+  const exactEnumCatalogue = {
+    commands: [{
+      id: 'test.mode.set',
+      label: 'Test mode',
+      input: { kind: 'enum', values: ['one', '1'] },
+      speech: { patterns: ['mode {value}'] },
+    }],
+  };
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('mode one', exactEnumCatalogue).input,
+    { value: 'one' },
+    'a valid enum value must not be replaced by its fallback alias',
+  );
+
+  const exactLiteralCatalogue = {
+    commands: [
+      {
+        id: 'test.literal-said',
+        label: 'Literal said phrase',
+        input: { kind: 'none' },
+        speech: { patterns: ['said heading two seven zero'] },
+      },
+      catalogue.commands.heading,
+    ],
+  };
+  assert.equal(
+    interpretAircraftVoiceCommand('said heading two seven zero', exactLiteralCatalogue).commandId,
+    'test.literal-said',
+    'an exact catalogue phrase must win before a literal command-word alias',
+  );
 });
 
 test('interpreter rejects incomplete or invalid corrected values without guessing digits', () => {
@@ -502,6 +591,7 @@ test('interpreter rejects incomplete or invalid corrected values without guessin
   assert.equal(interpretAircraftVoiceCommand('set altitude two nearer', catalogue).reason, 'unmatched');
   assert.equal(interpretAircraftVoiceCommand('set altitude two nearer one', catalogue).reason, 'unmatched');
   assert.equal(interpretAircraftVoiceCommand('set altitude two hundred nearer', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('set heading zer eight zero', catalogue).reason, 'unmatched');
 });
 
 test('interpreter validates typed boolean, enum, altitude, and Mach inputs', () => {
@@ -516,6 +606,16 @@ test('interpreter validates typed boolean, enum, altitude, and Mach inputs', () 
   assert.deepEqual(interpretAircraftVoiceCommand('altitude flight level two five zero', catalogue).input, { value: 25000 });
   assert.deepEqual(interpretAircraftVoiceCommand('flight level three five zero', catalogue).input, { value: 35000 });
   assert.deepEqual(interpretAircraftVoiceCommand('set flight level two fifty', catalogue).input, { value: 25000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude one two zero', catalogue).input, { value: 12000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude 150', catalogue).input, { value: 15000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude one fifty', catalogue).input, { value: 15000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude one twenty five', catalogue).input, { value: 12500 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude two eighty zero', catalogue).input, { value: 28000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude three zero zero', catalogue).input, { value: 30000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude three hundred', catalogue).input, { value: 300 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude 300 feet', catalogue).input, { value: 300 });
+  assert.equal(interpretAircraftVoiceCommand('set altitude one hundred fifty', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('set altitude 150 feet', catalogue).ok, false);
   assert.deepEqual(interpretAircraftVoiceCommand('mach point seven eight', catalogue).input, { value: 0.78 });
   assert.equal(interpretAircraftVoiceCommand('heading three six zero', catalogue).ok, false);
   assert.equal(interpretAircraftVoiceCommand('altitude one thousand fifty', catalogue).ok, false);
@@ -529,6 +629,8 @@ test('interpreter routes a no-input aircraft preset through its canonical comman
     input: {},
     label: 'Takeoff lights',
   });
+  assert.equal(interpretAircraftVoiceCommand('set takeoff lights', catalogue).commandId, 'configuration.lights.takeoff');
+  assert.equal(interpretAircraftVoiceCommand('set take off lights', catalogue).commandId, 'configuration.lights.takeoff');
   assert.equal(interpretAircraftVoiceCommand('takeoff lights', catalogue).commandId, 'configuration.lights.takeoff');
   assert.equal(
     interpretAircraftVoiceCommand('set lights for a take off', catalogue).commandId,
@@ -593,8 +695,23 @@ test('interpreter resolves FlyByWire A32NX FCU targets and flight-deck phrases',
 });
 
 test('interpreter resolves PMDG 777 MCP, AFDS, selector, and configuration phrases', () => {
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('said altitude one to zero', pmdg777Catalogue),
+    {
+      ok: true,
+      transcript: 'said altitude one to zero',
+      interpretedTranscript: 'set altitude one two zero',
+      commandId: 'flightGuidance.altitude.set',
+      input: { value: 12000 },
+      label: 'Selected altitude',
+    },
+  );
   assert.equal(
     interpretAircraftVoiceCommand('engage autopilot left', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot1.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot one', pmdg777Catalogue).commandId,
     'flightGuidance.autopilot1.engage',
   );
   assert.equal(
@@ -604,6 +721,14 @@ test('interpreter resolves PMDG 777 MCP, AFDS, selector, and configuration phras
   assert.equal(
     interpretAircraftVoiceCommand('engage right autopilot', pmdg777Catalogue).commandId,
     'flightGuidance.autopilot2.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot two', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot2.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot', pmdg777Catalogue).reason,
+    'unmatched',
   );
   assert.deepEqual(
     interpretAircraftVoiceCommand('captain flight director on', pmdg777Catalogue).input,
@@ -677,6 +802,17 @@ test('interpreter fails closed when multiple commands expose the same phrase', (
   };
   assert.equal(interpretAircraftVoiceCommand('heading two seven zero', ambiguous).reason, 'ambiguous');
   assert.equal(interpretAircraftVoiceCommand('said heading two seven zero', ambiguous).reason, 'ambiguous');
+});
+
+test('incomplete literal commands get bounded retry guidance without guessing', () => {
+  assert.equal(
+    incompleteVoiceCommandPrompt('engage autopilot', pmdg777Catalogue),
+    'Please finish with “one”, “left”, “two”, or “right”.',
+  );
+  assert.equal(incompleteVoiceCommandPrompt('engage', pmdg777Catalogue), '');
+  assert.equal(incompleteVoiceCommandPrompt('engage autopilot one', pmdg777Catalogue), '');
+  assert.equal(incompleteVoiceCommandPrompt('set heading two eight', catalogue), '');
+  assert.equal(incompleteVoiceCommandPrompt('unrelated speech', pmdg777Catalogue), '');
 });
 
 test('voice hints are deduplicated from the active catalogue', () => {

@@ -44,12 +44,6 @@ const bundleLeaseProtocol = require('./recording-bundle-lease') as {
   BUNDLE_LEASE_SUFFIX: string;
 };
 
-const BUNDLE_SUFFIXES = [
-  recordingBundleLayout.BUNDLE_FILES.csv,
-  recordingBundleLayout.BUNDLE_FILES.automation,
-  recordingBundleLayout.BUNDLE_FILES.aircraftSpecific,
-] as const;
-
 type BundleOwnership = {
   recordingSessionId: string;
   flightId: string;
@@ -425,7 +419,6 @@ function resetRecordingBundleLifecycleForTests(): void {
 }
 
 module.exports = {
-  BUNDLE_SUFFIXES,
   allocateBundleBaseName,
   assertBaseName,
   beginRecordingBundle,

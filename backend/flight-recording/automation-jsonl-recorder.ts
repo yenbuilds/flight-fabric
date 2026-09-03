@@ -1,7 +1,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const timeSource = require('../core/time-source') as TimeSourceModule;
 const { resolveFlightLogsDir } = require('../utils/flight-logs-dir') as {
   resolveFlightLogsDir: (options?: { createIfMissing?: boolean }) => string;
@@ -13,8 +12,6 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
 };
 const {
   assertSafeRecordingFilePath,
-  createSafeRecordingWriteStream,
-  safeRenameRecordingFileSync,
 } = require('./recording-path-guard') as {
   assertSafeRecordingFilePath: (_options: {
     extension: string;
@@ -23,22 +20,6 @@ const {
     requiredSuffix?: string;
     targetPath: string;
   }) => string;
-  createSafeRecordingWriteStream: (_options: {
-    extension: string;
-    flags?: string;
-    operation: string;
-    outputDir: string;
-    requiredSuffix?: string;
-    targetPath: string;
-  }) => FsWriteStream;
-  safeRenameRecordingFileSync: (_options: {
-    extension: string;
-    fromPath: string;
-    operation: string;
-    outputDir: string;
-    requiredSuffix?: string;
-    toPath: string;
-  }) => boolean;
 };
 const {
   closeWriteStreamDurably,
@@ -64,8 +45,6 @@ type AutomationRecorderOptions = {
   bundleBaseName?: string;
   bundleStatusRequired?: boolean;
   outputDir?: string;
-  departureIcao?: string | null;
-  arrivalIcao?: string | null;
   checkpointIntervalMs?: number;
   syncIntervalMs?: number;
   maxFileBytes?: number;
@@ -143,7 +122,6 @@ const AUTOMATION_SCHEMA_VERSION = 2;
 const DEFAULT_CHECKPOINT_INTERVAL_MS = 0;
 const DEFAULT_SYNC_INTERVAL_MS = 30000;
 const DEFAULT_MAX_AUTOMATION_FILE_BYTES = 200 * 1024 * 1024;
-const JSONL_RENAME_QUEUE_MAX_BYTES = 8 * 1024 * 1024;
 const JSONL_STREAM_BACKLOG_MAX_BYTES = 16 * 1024 * 1024;
 
 const AP_MODE_FIELDS = Object.freeze([
@@ -248,36 +226,6 @@ let activeRecorder: AutomationJsonlRecorder | null = null;
 
 function getDefaultFlightLogsDir(): string {
   return resolveFlightLogsDir({ createIfMissing: true });
-}
-
-function sanitizeFlightId(flightId: string | null | undefined): string {
-  if (!flightId) return 'unknown-flight';
-  return String(flightId)
-    .replace(/\.\d{3}Z$/, '')
-    .replace(/Z$/, '')
-    .replace(/:/g, '-');
-}
-
-function generateCsvBaseFilename(
-  flightId: string | null | undefined,
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-): string {
-  const base = sanitizeFlightId(flightId);
-
-  if (departureIcao && arrivalIcao) return `${base}_${departureIcao}-${arrivalIcao}.csv`;
-  if (arrivalIcao) return `${base}_to-${arrivalIcao}.csv`;
-  if (departureIcao) return `${base}_from-${departureIcao}.csv`;
-  return `${base}.csv`;
-}
-
-function generateFilename(
-  flightId: string | null | undefined,
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-): string {
-  const csvFilename = generateCsvBaseFilename(flightId, departureIcao, arrivalIcao);
-  return csvFilename.replace(/\.csv$/i, '.automation.jsonl');
 }
 
 function isRecord(value: unknown): value is AnyRecord {
@@ -625,8 +573,6 @@ class AutomationJsonlRecorder {
   recordingStartIso: string;
   bundleBaseName: string;
   outputDir: string;
-  departureIcao: string | null;
-  arrivalIcao: string | null;
   filename: string;
   filePath: string;
   stream: FsWriteStream | null;
@@ -635,10 +581,6 @@ class AutomationJsonlRecorder {
   lastError: Error | null;
   terminalError: boolean;
   closed: boolean;
-  renameInProgress: boolean;
-  renamePromise: Promise<boolean> | null;
-  renameQueuedLines: string[];
-  renameQueuedLineBytes: number;
   checkpointIntervalMs: number;
   lastCheckpointMs: number | null;
   lastSnapshot: AutomationSnapshot | null;
@@ -668,8 +610,6 @@ class AutomationJsonlRecorder {
       throw new Error('Automation recording start clock is inconsistent');
     }
     const flightLogsDir = options.outputDir || getDefaultFlightLogsDir();
-    this.departureIcao = options.departureIcao || null;
-    this.arrivalIcao = options.arrivalIcao || null;
     this.bundleBaseName = options.bundleBaseName
       || recordingBundleLayout.buildBundleName(this.recordingStartIso, this.recordingSessionId);
     const bundlePaths = recordingBundleLayout.getBundlePaths(flightLogsDir, this.bundleBaseName);
@@ -682,10 +622,6 @@ class AutomationJsonlRecorder {
     this.lastError = null;
     this.terminalError = false;
     this.closed = false;
-    this.renameInProgress = false;
-    this.renamePromise = null;
-    this.renameQueuedLines = [];
-    this.renameQueuedLineBytes = 0;
     this.checkpointIntervalMs = options.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS;
     this.lastCheckpointMs = null;
     this.lastSnapshot = null;
@@ -996,22 +932,14 @@ class AutomationJsonlRecorder {
     return accepted;
   }
 
-  appendLine(
-    line: string,
-    options: { countRow?: boolean; countAcceptedBytes?: boolean } = {},
-  ): boolean {
+  appendLine(line: string): boolean {
     if (this.closed || this.terminalError) return false;
-    const countRow = options.countRow !== false;
-    const countAcceptedBytes = options.countAcceptedBytes !== false;
     const lineBytes = jsonlLineBytesWithNewline(line);
-    if (countAcceptedBytes && this.acceptedFileBytes + lineBytes > this.maxFileBytes) {
+    if (this.acceptedFileBytes + lineBytes > this.maxFileBytes) {
       this.recordTerminalError(new Error(
         `Automation JSONL reached the ${Math.round(this.maxFileBytes / 1024 / 1024)}MiB file cap`,
       ));
       return false;
-    }
-    if (this.renameInProgress) {
-      return this.queueLineDuringRename(line, countRow, lineBytes, countAcceptedBytes);
     }
     if (!this.stream) return false;
 
@@ -1023,9 +951,9 @@ class AutomationJsonlRecorder {
 
     try {
       this.stream.write(`${line}\n`);
-      if (countAcceptedBytes) this.acceptedFileBytes += lineBytes;
+      this.acceptedFileBytes += lineBytes;
       this.syncDirty = true;
-      if (countRow) this.rowCount++;
+      this.rowCount++;
       this.scheduleSyncIfDue(this.stream);
       return true;
     } catch (error) {
@@ -1040,53 +968,12 @@ class AutomationJsonlRecorder {
     console.error(`[automation-jsonl] ${message}`);
   }
 
-  queueLineDuringRename(
-    line: string,
-    countRow: boolean,
-    lineBytes = jsonlLineBytesWithNewline(line),
-    countAcceptedBytes = true,
-  ): boolean {
-    if (this.renameQueuedLineBytes + lineBytes > JSONL_RENAME_QUEUE_MAX_BYTES) {
-      this.recordBacklogError(`Automation JSONL rename backlog exceeded ${formatMiB(JSONL_RENAME_QUEUE_MAX_BYTES)}MiB`);
-      return false;
-    }
-
-    this.renameQueuedLines.push(line);
-    this.renameQueuedLineBytes += lineBytes;
-    if (countAcceptedBytes) this.acceptedFileBytes += lineBytes;
-    this.syncDirty = true;
-    if (countRow) this.rowCount++;
-    return true;
-  }
-
-  flushRenameQueuedLines(): void {
-    const queued = this.renameQueuedLines;
-    this.renameQueuedLines = [];
-    this.renameQueuedLineBytes = 0;
-
-    for (let index = 0; index < queued.length; index += 1) {
-      if (!this.appendLine(queued[index], { countRow: false, countAcceptedBytes: false })) {
-        const remaining = queued.slice(index);
-        this.renameQueuedLines = remaining;
-        this.renameQueuedLineBytes = remaining.reduce(
-          (total, queuedLine) => total + jsonlLineBytesWithNewline(queuedLine),
-          0,
-        );
-        break;
-      }
-    }
-  }
-
   flush(): Promise<boolean> {
     if (this.closed) return Promise.resolve(false);
     const previousFlush = this.explicitFlushPromise;
     const pending = (async () => {
       try {
         if (previousFlush) await previousFlush;
-        if (this.renamePromise) {
-          const renamed = await this.renamePromise;
-          if (!renamed) return false;
-        }
         const stream = this.stream;
         if (!stream || this.terminalError) return false;
         await this.waitForPeriodicSync();
@@ -1109,7 +996,6 @@ class AutomationJsonlRecorder {
     this.clearPeriodicSyncTimer();
 
     try {
-      if (this.renamePromise) await this.renamePromise;
       if (endContext.skipFinalCheckpoint !== true) {
         this.writeFinalCheckpoint('recording_end', endContext);
       }
@@ -1181,93 +1067,6 @@ class AutomationJsonlRecorder {
     };
   }
 
-  async updateFilename(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    bundleBaseName?: string,
-  ): Promise<boolean> {
-    if (this.closed) return false;
-    if (bundleBaseName && bundleBaseName !== this.bundleBaseName) return false;
-    if (!await this.flush()) return false;
-    this.departureIcao = departureIcao || this.departureIcao;
-    this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-    return true;
-  }
-
-  async updateFilenameNow(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    newFilename: string,
-  ): Promise<boolean> {
-    const newPath = path.join(this.outputDir, newFilename);
-
-    try {
-      this.renameInProgress = true;
-      if (this.stream) {
-        const stream = this.stream;
-        this.stream = null;
-        await this.waitForPeriodicSync();
-        await closeWriteStreamDurably(stream);
-      }
-
-      safeRenameRecordingFileSync({
-        extension: '.jsonl',
-        fromPath: this.filePath,
-        operation: 'renameAutomationJsonlRecording',
-        outputDir: this.outputDir,
-        requiredSuffix: recordingBundleLayout.BUNDLE_FILES.automation,
-        toPath: newPath,
-      });
-
-      this.filename = newFilename;
-      this.bundleBaseName = path.basename(newFilename, '.automation.jsonl');
-      this.filePath = path.resolve(newPath);
-      this.departureIcao = departureIcao || this.departureIcao;
-      this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-
-      const stream = createSafeRecordingWriteStream({
-        extension: '.jsonl',
-        flags: 'a',
-        operation: 'reopenAutomationJsonlRecording',
-        outputDir: this.outputDir,
-      requiredSuffix: recordingBundleLayout.BUNDLE_FILES.automation,
-        targetPath: this.filePath,
-      });
-      this.stream = stream;
-      stream.on('error', (err: Error) => {
-        this.recordTerminalError(err);
-        console.error(`[automation-jsonl] Stream error after rename: ${err.message}`);
-      });
-      this.renameInProgress = false;
-      this.flushRenameQueuedLines();
-
-      console.log(`[automation-jsonl] File renamed: ${newFilename}`);
-      return true;
-    } catch (err) {
-      this.lastError = err as Error;
-      console.warn(`[automation-jsonl] Rename failed: ${this.lastError.message}`);
-      try {
-        const stream = createSafeRecordingWriteStream({
-          extension: '.jsonl',
-          flags: 'a',
-          operation: 'recoverAutomationJsonlRecording',
-          outputDir: this.outputDir,
-          requiredSuffix: recordingBundleLayout.BUNDLE_FILES.automation,
-          targetPath: this.filePath,
-        });
-        this.stream = stream;
-        stream.on('error', (streamError: Error) => {
-          this.recordTerminalError(streamError);
-          if (this.stream === stream) this.stream = null;
-        });
-      } catch (recoveryError) {
-        this.recordTerminalError(recoveryError);
-      }
-      this.renameInProgress = false;
-      this.flushRenameQueuedLines();
-      return false;
-    }
-  }
 }
 
 let activeFinalizationPromise: Promise<AutomationRecorderStats | null> | null = null;
@@ -1308,15 +1107,6 @@ async function endFlight(endContext: AnyRecord = {}): Promise<AutomationRecorder
   return await tracked;
 }
 
-async function updateRoute(
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-  bundleBaseName?: string,
-): Promise<boolean> {
-  if (!activeRecorder || activeRecorder.closed) return false;
-  return await activeRecorder.updateFilename(departureIcao, arrivalIcao, bundleBaseName);
-}
-
 async function flush(): Promise<boolean> {
   if (!activeRecorder || activeRecorder.closed) return false;
   return await activeRecorder.flush();
@@ -1335,30 +1125,20 @@ function getStats(): AutomationRecorderStats | null {
   return activeRecorder.getStats();
 }
 
-function getFinalizingStats(): AutomationRecorderStats | null {
-  return finalizingRecorder?.getStats() || null;
-}
-
 module.exports = {
-  AUTOMATION_SCHEMA_VERSION,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_SYNC_INTERVAL_MS,
   DEFAULT_MAX_AUTOMATION_FILE_BYTES,
   AutomationJsonlRecorder,
   buildAutomationState,
-  buildRawObservation,
   buildSnapshot,
-  diffRecords,
-  generateFilename,
   startFlight,
   recordAutopilotState,
   endFlight,
-  updateRoute,
   flush,
   isRecording,
   isFinalizing,
   getStats,
-  getFinalizingStats,
 };
 
 export {};

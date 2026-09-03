@@ -474,7 +474,6 @@ async function readAutomationRowsForCsv(
 }
 
 module.exports = {
-  getAutomationSidecarPathForCsv,
   readAutomationRowsForCsv,
 };
 

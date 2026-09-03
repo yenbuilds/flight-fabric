@@ -1,7 +1,6 @@
 'use strict';
 
 const fs = require('fs') as typeof import('fs');
-const path = require('path') as typeof import('path');
 const timeSource = require('../core/time-source') as { now: () => number };
 const { resolveFlightLogsDir } = require('../utils/flight-logs-dir') as {
   resolveFlightLogsDir: (options?: { createIfMissing?: boolean }) => string;
@@ -14,11 +13,9 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
 const {
   assertSafeRecordingFilePath,
   createSafeRecordingWriteStream,
-  safeRenameRecordingFileSync,
 } = require('./recording-path-guard') as {
   assertSafeRecordingFilePath: (_options: RecordingPathOptions) => string;
   createSafeRecordingWriteStream: (_options: RecordingStreamOptions) => FsWriteStream;
-  safeRenameRecordingFileSync: (_options: RecordingRenameOptions) => boolean;
 };
 const {
   closeWriteStreamDurably,
@@ -42,15 +39,6 @@ type RecordingPathOptions = {
 
 type RecordingStreamOptions = RecordingPathOptions & { flags?: string };
 
-type RecordingRenameOptions = {
-  extension: string;
-  fromPath: string;
-  operation: string;
-  outputDir: string;
-  requiredSuffix?: string;
-  toPath: string;
-};
-
 type AircraftSpecificRecorderOptions = {
   flightId?: string;
   recordingSessionId?: string;
@@ -59,8 +47,6 @@ type AircraftSpecificRecorderOptions = {
   bundleBaseName?: string;
   bundleStatusRequired?: boolean;
   outputDir?: string;
-  departureIcao?: string | null;
-  arrivalIcao?: string | null;
   checkpointIntervalMs?: number;
   numericIntervalMs?: number;
   syncIntervalMs?: number;
@@ -136,12 +122,10 @@ type AircraftSpecificRecorderStats = {
 };
 
 const AIRCRAFT_SPECIFIC_SCHEMA_VERSION = 2;
-const AIRCRAFT_SPECIFIC_SUFFIX = '.aircraft-specific.jsonl';
 const DEFAULT_CHECKPOINT_INTERVAL_MS = 60_000;
 const DEFAULT_NUMERIC_INTERVAL_MS = 1_000;
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_FILE_BYTES = 200 * 1024 * 1024;
-const JSONL_RENAME_QUEUE_MAX_BYTES = 8 * 1024 * 1024;
 const JSONL_STREAM_BACKLOG_MAX_BYTES = 16 * 1024 * 1024;
 
 const SAFE_FIELD_ID_RE = /^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$/;
@@ -163,35 +147,6 @@ let activeFinalizationPromise: Promise<AircraftSpecificRecorderStats | null> | n
 
 function getDefaultFlightLogsDir(): string {
   return resolveFlightLogsDir({ createIfMissing: true });
-}
-
-function sanitizeFlightId(flightId: string | null | undefined): string {
-  if (!flightId) return 'unknown-flight';
-  return String(flightId)
-    .replace(/\.\d{3}Z$/, '')
-    .replace(/Z$/, '')
-    .replace(/:/g, '-');
-}
-
-function generateCsvBaseFilename(
-  flightId: string | null | undefined,
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-): string {
-  const base = sanitizeFlightId(flightId);
-  if (departureIcao && arrivalIcao) return `${base}_${departureIcao}-${arrivalIcao}.csv`;
-  if (arrivalIcao) return `${base}_to-${arrivalIcao}.csv`;
-  if (departureIcao) return `${base}_from-${departureIcao}.csv`;
-  return `${base}.csv`;
-}
-
-function generateFilename(
-  flightId: string | null | undefined,
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-): string {
-  return generateCsvBaseFilename(flightId, departureIcao, arrivalIcao)
-    .replace(/\.csv$/i, AIRCRAFT_SPECIFIC_SUFFIX);
 }
 
 function isRecord(value: unknown): value is AnyRecord {
@@ -393,8 +348,6 @@ class AircraftSpecificJsonlRecorder {
   recordingStartIso: string;
   bundleBaseName: string;
   outputDir: string;
-  departureIcao: string | null;
-  arrivalIcao: string | null;
   filename: string;
   filePath: string;
   stream: FsWriteStream | null;
@@ -405,10 +358,6 @@ class AircraftSpecificJsonlRecorder {
   closed: boolean;
   captureDisabled: boolean;
   physicalFileCreated: boolean;
-  renameInProgress: boolean;
-  renamePromise: Promise<boolean> | null;
-  renameQueuedLines: string[];
-  renameQueuedLineBytes: number;
   checkpointIntervalMs: number;
   numericIntervalMs: number;
   maxFileBytes: number;
@@ -443,8 +392,6 @@ class AircraftSpecificJsonlRecorder {
       throw new Error('Aircraft-specific recording start clock is inconsistent');
     }
     const flightLogsDir = options.outputDir || getDefaultFlightLogsDir();
-    this.departureIcao = options.departureIcao || null;
-    this.arrivalIcao = options.arrivalIcao || null;
     this.bundleBaseName = options.bundleBaseName
       || recordingBundleLayout.buildBundleName(this.recordingStartIso, this.recordingSessionId);
     const bundlePaths = recordingBundleLayout.getBundlePaths(flightLogsDir, this.bundleBaseName);
@@ -459,10 +406,6 @@ class AircraftSpecificJsonlRecorder {
     this.closed = false;
     this.captureDisabled = false;
     this.physicalFileCreated = false;
-    this.renameInProgress = false;
-    this.renamePromise = null;
-    this.renameQueuedLines = [];
-    this.renameQueuedLineBytes = 0;
     this.checkpointIntervalMs = Number.isFinite(options.checkpointIntervalMs)
       ? Math.max(1, Number(options.checkpointIntervalMs))
       : DEFAULT_CHECKPOINT_INTERVAL_MS;
@@ -777,32 +720,21 @@ class AircraftSpecificJsonlRecorder {
       return false;
     }
 
-    if (this.renameInProgress) {
-      if (this.renameQueuedLineBytes + totalBytes > JSONL_RENAME_QUEUE_MAX_BYTES) {
-        this.recordLimitError(
-          `Aircraft-specific JSONL rename backlog exceeded ${formatMiB(JSONL_RENAME_QUEUE_MAX_BYTES)} MiB`,
-        );
-        return false;
-      }
-      this.renameQueuedLines.push(...lines);
-      this.renameQueuedLineBytes += totalBytes;
-    } else {
-      if (!this.ensureStream() || !this.stream) return false;
-      const pendingBytes = typeof this.stream.writableLength === 'number' ? this.stream.writableLength : 0;
-      if (pendingBytes + totalBytes > JSONL_STREAM_BACKLOG_MAX_BYTES) {
-        this.recordLimitError(
-          `Aircraft-specific JSONL stream backlog exceeded ${formatMiB(JSONL_STREAM_BACKLOG_MAX_BYTES)} MiB`,
-        );
-        return false;
-      }
-      try {
-        for (const line of lines) this.stream.write(`${line}\n`);
-        this.syncDirty = true;
-        this.scheduleSyncIfDue(this.stream);
-      } catch (error) {
-        this.recordError(error, true);
-        return false;
-      }
+    if (!this.ensureStream() || !this.stream) return false;
+    const pendingBytes = typeof this.stream.writableLength === 'number' ? this.stream.writableLength : 0;
+    if (pendingBytes + totalBytes > JSONL_STREAM_BACKLOG_MAX_BYTES) {
+      this.recordLimitError(
+        `Aircraft-specific JSONL stream backlog exceeded ${formatMiB(JSONL_STREAM_BACKLOG_MAX_BYTES)} MiB`,
+      );
+      return false;
+    }
+    try {
+      for (const line of lines) this.stream.write(`${line}\n`);
+      this.syncDirty = true;
+      this.scheduleSyncIfDue(this.stream);
+    } catch (error) {
+      this.recordError(error, true);
+      return false;
     }
 
     this.seq = nextSeq;
@@ -1017,36 +949,12 @@ class AircraftSpecificJsonlRecorder {
     return ok;
   }
 
-  flushQueuedLines(): boolean {
-    if (this.renameQueuedLines.length === 0) return true;
-    if (!this.stream) return false;
-    const pendingBytes = typeof this.stream.writableLength === 'number' ? this.stream.writableLength : 0;
-    if (pendingBytes + this.renameQueuedLineBytes > JSONL_STREAM_BACKLOG_MAX_BYTES) {
-      this.recordLimitError(
-        `Aircraft-specific JSONL stream backlog exceeded ${formatMiB(JSONL_STREAM_BACKLOG_MAX_BYTES)} MiB`,
-      );
-      return false;
-    }
-    try {
-      for (const line of this.renameQueuedLines) this.stream.write(`${line}\n`);
-      this.syncDirty = true;
-      this.scheduleSyncIfDue(this.stream);
-    } catch (error) {
-      this.recordError(error, true);
-      return false;
-    }
-    this.renameQueuedLines = [];
-    this.renameQueuedLineBytes = 0;
-    return true;
-  }
-
   flush(): Promise<boolean> {
     if (!this.started || this.closed || this.captureDisabled) return Promise.resolve(false);
     const previousFlush = this.explicitFlushPromise;
     const pending = (async () => {
       try {
         if (previousFlush) await previousFlush;
-        if (this.renamePromise && !(await this.renamePromise)) return false;
         const stream = this.stream;
         if (!stream) return !this.physicalFileCreated;
         await this.waitForPeriodicSync();
@@ -1067,7 +975,6 @@ class AircraftSpecificJsonlRecorder {
   async close(endContext: AnyRecord = {}): Promise<AircraftSpecificRecorderStats> {
     if (this.closed) return this.getStats();
     this.clearPeriodicSyncTimer();
-    if (this.renamePromise) await this.renamePromise;
     try {
       if (endContext.skipFinalCheckpoint !== true) {
         this.writeFinalCheckpoint(endContext);
@@ -1095,12 +1002,6 @@ class AircraftSpecificJsonlRecorder {
   closeSync(): AircraftSpecificRecorderStats {
     if (this.closed) return this.getStats();
     this.clearPeriodicSyncTimer();
-    if (this.renameInProgress) {
-      this.closed = true;
-      this.renameQueuedLines = [];
-      this.renameQueuedLineBytes = 0;
-      return this.getStats();
-    }
     try {
       this.writeFinalCheckpoint({ endReason: 'recorder_replaced' });
     } catch (error) {
@@ -1146,119 +1047,6 @@ class AircraftSpecificJsonlRecorder {
     };
   }
 
-  async updateFilename(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    bundleBaseName?: string,
-  ): Promise<boolean> {
-    if (this.closed) return false;
-    if (bundleBaseName && bundleBaseName !== this.bundleBaseName) return false;
-    if (!await this.flush()) return false;
-    this.departureIcao = departureIcao || this.departureIcao;
-    this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-    return true;
-  }
-
-  async updateFilenameNow(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    newFilename: string,
-  ): Promise<boolean> {
-    const newPath = path.join(this.outputDir, newFilename);
-    try {
-      const validatedNewPath = assertSafeRecordingFilePath({
-        extension: '.jsonl',
-        operation: 'prepareAircraftSpecificJsonlRename',
-        outputDir: this.outputDir,
-        requiredSuffix: recordingBundleLayout.BUNDLE_FILES.aircraftSpecific,
-        targetPath: newPath,
-      });
-
-      if (!this.physicalFileCreated && !this.stream) {
-        if (fs.existsSync(validatedNewPath)) {
-          throw new Error('aircraft-specific route destination already exists; refusing to replace prior history');
-        }
-        this.filename = newFilename;
-        this.bundleBaseName = path.basename(newFilename, AIRCRAFT_SPECIFIC_SUFFIX);
-        this.filePath = validatedNewPath;
-        this.departureIcao = departureIcao || this.departureIcao;
-        this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-        return true;
-      }
-
-      this.renameInProgress = true;
-      const oldPath = this.filePath;
-      const oldStream = this.stream;
-      this.stream = null;
-      if (oldStream) {
-        await this.waitForPeriodicSync();
-        await closeWriteStreamDurably(oldStream);
-      }
-      if (this.closed) {
-        this.renameInProgress = false;
-        this.renameQueuedLines = [];
-        this.renameQueuedLineBytes = 0;
-        return false;
-      }
-
-      const renamed = safeRenameRecordingFileSync({
-        extension: '.jsonl',
-        fromPath: oldPath,
-        operation: 'renameAircraftSpecificJsonlRecording',
-        outputDir: this.outputDir,
-          requiredSuffix: recordingBundleLayout.BUNDLE_FILES.aircraftSpecific,
-        toPath: validatedNewPath,
-      });
-      if (!renamed) throw new Error('aircraft-specific sidecar disappeared before route rename');
-
-      // Adopt the destination before reopening. If reopen fails, recovery must
-      // follow the renamed file so a recording can never split across basenames.
-      this.filename = newFilename;
-      this.bundleBaseName = path.basename(newFilename, AIRCRAFT_SPECIFIC_SUFFIX);
-      this.filePath = validatedNewPath;
-      this.departureIcao = departureIcao || this.departureIcao;
-      this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-
-      const stream = createSafeRecordingWriteStream({
-        extension: '.jsonl',
-        flags: 'a',
-        operation: 'reopenAircraftSpecificJsonlRecording',
-        outputDir: this.outputDir,
-        requiredSuffix: recordingBundleLayout.BUNDLE_FILES.aircraftSpecific,
-        targetPath: this.filePath,
-      });
-      this.stream = stream;
-      stream.on('error', (error: Error) => {
-        this.recordError(error, true);
-        if (this.stream === stream) this.stream = null;
-      });
-      this.renameInProgress = false;
-      this.flushQueuedLines();
-      console.log(`[aircraft-specific-jsonl] File renamed: ${newFilename}`);
-      return true;
-    } catch (error) {
-      this.recordError(error);
-      try {
-        if (!this.stream && this.physicalFileCreated) {
-          const stream = createSafeRecordingWriteStream({
-            extension: '.jsonl',
-            flags: 'a',
-            operation: 'recoverAircraftSpecificJsonlRecording',
-            outputDir: this.outputDir,
-            requiredSuffix: recordingBundleLayout.BUNDLE_FILES.aircraftSpecific,
-            targetPath: this.filePath,
-          });
-          this.stream = stream;
-          stream.on('error', (streamError: Error) => this.recordError(streamError, true));
-        }
-      } catch (recoveryError) {
-        this.recordError(recoveryError, true);
-      }
-      this.renameInProgress = false;
-      this.flushQueuedLines();
-      return false;
-    }
-  }
 }
 
 function startFlight(options: AircraftSpecificRecorderOptions = {}): AircraftSpecificJsonlRecorder | null {
@@ -1293,15 +1081,6 @@ async function endFlight(endContext: AnyRecord = {}): Promise<AircraftSpecificRe
   return await trackedFinalization;
 }
 
-async function updateRoute(
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-  bundleBaseName?: string,
-): Promise<boolean> {
-  if (!activeRecorder || activeRecorder.closed) return false;
-  return await activeRecorder.updateFilename(departureIcao, arrivalIcao, bundleBaseName);
-}
-
 async function flush(): Promise<boolean> {
   if (!activeRecorder || activeRecorder.closed) return false;
   return await activeRecorder.flush();
@@ -1320,22 +1099,14 @@ function getStats(): AircraftSpecificRecorderStats | null {
 }
 
 module.exports = {
-  AIRCRAFT_SPECIFIC_SCHEMA_VERSION,
-  AIRCRAFT_SPECIFIC_SUFFIX,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
-  DEFAULT_NUMERIC_INTERVAL_MS,
   DEFAULT_SYNC_INTERVAL_MS,
-  DEFAULT_MAX_FILE_BYTES,
-  JSONL_RENAME_QUEUE_MAX_BYTES,
   JSONL_STREAM_BACKLOG_MAX_BYTES,
   AircraftSpecificJsonlRecorder,
-  buildConfigSignature,
   buildSnapshot,
-  generateFilename,
   startFlight,
   recordAircraftSpecificState,
   endFlight,
-  updateRoute,
   flush,
   isRecording,
   isFinalizing,

@@ -7,7 +7,6 @@ const path = require('path') as typeof import('path');
 const {
   assertSafeRecordingFilePath,
   createSafeRecordingWriteStream,
-  safeRenameRecordingFileSync,
 } = require('./recording-path-guard.js') as {
   assertSafeRecordingFilePath: (_options: {
     extension: string;
@@ -24,14 +23,6 @@ const {
     requiredSuffix?: string;
     targetPath: string;
   }) => import('fs').WriteStream;
-  safeRenameRecordingFileSync: (_options: {
-    extension: string;
-    fromPath: string;
-    operation: string;
-    outputDir: string;
-    requiredSuffix?: string;
-    toPath: string;
-  }) => boolean;
 };
 
 let passed = 0;
@@ -54,8 +45,6 @@ function test(name: string, fn: () => void | Promise<void>): Promise<void> {
 async function main(): Promise<void> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-recording-path-guard-test-'));
   const outputDir = path.join(tempRoot, 'Flight Logs');
-  const outsideDir = path.join(tempRoot, 'outside');
-  fs.mkdirSync(outsideDir, { recursive: true });
 
   try {
     await test('assertSafeRecordingFilePath accepts direct CSV children', () => {
@@ -140,38 +129,6 @@ async function main(): Promise<void> {
         stream.end('record_type\n', () => resolve());
       });
       assert.equal(fs.readFileSync(target, 'utf8'), 'record_type\n');
-    });
-
-    await test('safeRenameRecordingFileSync refuses rename escapes', () => {
-      const source = path.join(outputDir, 'source.csv');
-      fs.writeFileSync(source, 'record_type\n', 'utf8');
-
-      assert.throws(() => safeRenameRecordingFileSync({
-        extension: '.csv',
-        fromPath: source,
-        operation: 'testRenameEscape',
-        outputDir,
-        toPath: path.join(outsideDir, 'escape.csv'),
-      }), /outside the allowed root/);
-      assert.equal(fs.existsSync(source), true);
-      assert.equal(fs.existsSync(path.join(outsideDir, 'escape.csv')), false);
-    });
-
-    await test('safeRenameRecordingFileSync never replaces an existing destination', () => {
-      const source = path.join(outputDir, 'collision-source.csv');
-      const destination = path.join(outputDir, 'collision-destination.csv');
-      fs.writeFileSync(source, 'source-history\n', 'utf8');
-      fs.writeFileSync(destination, 'destination-history\n', 'utf8');
-
-      assert.throws(() => safeRenameRecordingFileSync({
-        extension: '.csv',
-        fromPath: source,
-        operation: 'testRenameCollision',
-        outputDir,
-        toPath: destination,
-      }), /destination already exists/);
-      assert.equal(fs.readFileSync(source, 'utf8'), 'source-history\n');
-      assert.equal(fs.readFileSync(destination, 'utf8'), 'destination-history\n');
     });
 
     await test('assertSafeRecordingFilePath rejects symlinked recording directories', () => {

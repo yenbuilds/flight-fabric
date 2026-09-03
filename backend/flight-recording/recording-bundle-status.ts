@@ -112,7 +112,6 @@ type BundleStatusReadResult = {
   bundleSizeBytes?: number;
 };
 
-const BUNDLE_STATUS_SUFFIX = recordingBundleLayout.BUNDLE_FILES.status;
 const BUNDLE_STATUS_SCHEMA_VERSION = 2;
 const MAX_BUNDLE_STATUS_BYTES = 64 * 1024;
 const MAX_DATA_ARTIFACT_BYTES = 200 * 1024 * 1024;
@@ -1261,17 +1260,12 @@ function inspectRecordingBundleStatusSync(
 }
 
 module.exports = {
-  ARTIFACT_DEFINITIONS,
-  BUNDLE_STATUS_SUFFIX,
   getBundleStatusPath,
-  getBundleStatusPathForCsv,
   inspectRecordingBundleStatusSync,
   inspectCsvBundleForCatalogSync,
   publishRecordingBundleStatus,
   readRecordingBundleStatusSync,
   verifyRecordingBundleStatusWithCsvBuffer,
-  _extractCsvManifestIdentity: extractCsvManifestIdentity,
-  _extractJsonlManifestIdentity: extractJsonlManifestIdentity,
   _hashArtifact: hashArtifact,
 };
 

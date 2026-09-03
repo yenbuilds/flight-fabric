@@ -34,6 +34,10 @@ const {
   INIBUILDS_A330_ADAPTER_ID,
   INIBUILDS_A330_INTEGRATION,
   INIBUILDS_A330_PROFILE_KEY,
+  INIBUILDS_A350_ADAPTER_ID,
+  INIBUILDS_A350_INTEGRATION,
+  INIBUILDS_A350_900_PROFILE_KEY,
+  INIBUILDS_A350_1000_PROFILE_KEY,
   INIBUILDS_TRISTAR_ADAPTER_ID,
   INIBUILDS_TRISTAR_INTEGRATION,
   INIBUILDS_TRISTAR_PROFILE_KEY,
@@ -712,6 +716,74 @@ test('iniBuilds A330 adapter exposes its bounded standard-SimVar read/write cont
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_A330_ADAPTER_ID, {
     profileKey: 'local/msfs/inibuilds-a330',
   }), null, 'untrusted local profiles must not activate the trusted A330 adapter');
+});
+
+test('iniBuilds A350 adapter shares one guarded LVAR and surface contract across both variants', () => {
+  for (const profileKey of [
+    INIBUILDS_A350_900_PROFILE_KEY,
+    INIBUILDS_A350_1000_PROFILE_KEY,
+  ]) {
+    const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
+      INIBUILDS_A350_ADAPTER_ID,
+      { profileKey },
+    );
+    assert.equal(integration.id, INIBUILDS_A350_INTEGRATION.id);
+    assert.equal(integration.presentation.templateId, 'inibuilds-a350');
+    assert.deepEqual(integration.trustedProfileKeys, INIBUILDS_A350_INTEGRATION.trustedProfileKeys);
+  }
+
+  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.fields).length, 52);
+  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.actions).length, 71);
+  assert.deepEqual(INIBUILDS_A350_INTEGRATION.fields['lights.noseMode'].sources[0], {
+    route: { type: 'lvar', name: 'L:INI_LIGHTS_NOSE', unit: 'Number' },
+    decode: { type: 'enum', values: { 0: 'off', 1: 'taxi', 2: 'takeoff' } },
+  });
+  assert.deepEqual(INIBUILDS_A350_INTEGRATION.fields['controls.gearHandleDown'].sources[0], {
+    route: { type: 'simvar', name: 'GEAR HANDLE POSITION', unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+  });
+
+  const altitude = INIBUILDS_A350_INTEGRATION.actions['flightGuidance.altitude.set'];
+  assert.deepEqual(altitude.input, { type: 'number', min: 0, max: 49000, step: 100 });
+  assert.deepEqual(altitude.routes, [{
+    id: 'iniA350.flightGuidance.altitude.set.simconnectSequence',
+    transport: 'simconnect-sequence',
+    operations: [{
+      type: 'lvar',
+      name: 'L:INI_ALTITUDE_DIAL',
+      unit: 'Number',
+      inputValue: { source: 'input' },
+    }],
+    readback: {
+      fieldId: 'flightGuidance.altitudeFt',
+      expectedInput: true,
+      timeoutMs: 3000,
+    },
+  }]);
+
+  const noseTaxi = defaultAircraftIntegrationRegistry.resolveAction({
+    adapterId: INIBUILDS_A350_ADAPTER_ID,
+    profileKey: INIBUILDS_A350_900_PROFILE_KEY,
+    actionId: 'lights.nose.taxi',
+  });
+  assert.equal(noseTaxi.guard.groupId, 'iniA350.lights.nose');
+  assert.equal(noseTaxi.guard.retry, 'never');
+  assert.equal(noseTaxi.routes[0].transport, 'mobiflight-calculator');
+  assert.equal(noseTaxi.routes[0].code, '1 (>L:INI_LIGHTS_NOSE, Number)');
+  assert.equal(noseTaxi.routes[0].readback.fieldId, 'lights.noseMode');
+  assert.equal(noseTaxi.routes[0].readback.expectedValue, 'taxi');
+  assert.equal(noseTaxi.routes[1].transport, 'lvar');
+  assert.equal(noseTaxi.routes[1].value, 1);
+
+  assert.equal(
+    INIBUILDS_A350_INTEGRATION.actions['controls.flaps.increase'].routes[0].readback.confirmation,
+    'changed',
+  );
+  assert.equal(INIBUILDS_A350_INTEGRATION.actions['flightGuidance.ap1'], undefined);
+  assert.equal(INIBUILDS_A350_INTEGRATION.actions['flightGuidance.autothrust'], undefined);
+  assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_A350_ADAPTER_ID, {
+    profileKey: 'local/msfs/inibuilds-a350-900',
+  }), null, 'copied profiles must not activate executable A350 routes');
 });
 
 test('FlyByWire A380X adapter exposes only its compact guarded read/write contract', () => {

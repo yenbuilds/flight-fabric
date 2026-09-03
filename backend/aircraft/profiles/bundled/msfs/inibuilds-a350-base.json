@@ -1,0 +1,126 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a350-base",
+  "name": "iniBuilds A350 Base",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-04T00:00:00Z",
+  "updatedAt": "2026-09-02T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": true,
+  "aircraft": {
+    "flaps": {
+      "_comment": "iniBuilds' published A350 interfaces and aircraft documentation identify the normal CONF 0 / 1 / 1+F / 2 / 3 / FULL sequence. Placard speeds are intentionally omitted from the executable profile.",
+      "notches": [
+        { "value": 0, "label": "0" },
+        { "value": 1, "label": "1" },
+        { "value": 2, "label": "1+F" },
+        { "value": 3, "label": "2" },
+        { "value": 4, "label": "3" },
+        { "value": 5, "label": "FULL" }
+      ],
+      "landingNotches": [4, 5]
+    },
+    "engines": {
+      "count": 2,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "aircraftSpecific": {
+      "adapter": "inibuilds-a350"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lvars": {
+        "_comment": "Only stable state/readback variables from iniBuilds' public A350 LVAR list are mapped. Auto-resetting FCU button variables remain excluded. The four numeric FCU windows use the documented direct set/read variables.",
+        "mcp": {
+          "altitude": "INI_ALTITUDE_DIAL",
+          "heading": "INI_HEADING_DIAL",
+          "speed": "INI_AIRSPEED_DIAL",
+          "vs": "INI_VVI_DIAL"
+        }
+      },
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": true,
+      "_comment": "The trusted iniBuilds A350 adapter owns vendor-specific LVAR writes and requires newer logical readback. Standard SimConnect events are limited to gear, flaps, parking brake and spoilers with explicit state confirmation. Broad generic autopilot writes are disabled."
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": ["beacon", "nav", "strobe", "landing", "taxi", "logo", "wing"],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iniBuilds",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-09-02",
+    "status": "partial",
+    "notes": "Shared trusted integration for the iniBuilds A350-900 and A350-1000. The dedicated aircraft page and voice catalogue use vendor-published stable A350 LVARs for FCU, EFIS, lighting, signs, APU, air and anti-ice controls, plus guarded standard surface controls."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "iniBuilds A350 Airliner LVAR List (A350 LVARs-FEB2025.pdf)",
+        "url": "https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/",
+        "retrievedAt": "2026-09-02",
+        "notes": "iniBuilds staff publish the stable INI_* variable names, types, selector detents and direct set/read FCU variables used by this adapter, and explicitly document third-party read/write use."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK aircraft events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Key_Events.htm",
+        "retrievedAt": "2026-09-02",
+        "notes": "Source for the bounded GEAR_UP, GEAR_DOWN, FLAPS_INCR, FLAPS_DECR, PARKING_BRAKE_SET, SPOILERS_ARM_OFF, SPOILERS_ARM_ON and SPOILERS_SET routes. Each route is guarded and confirmed through a newer standard SimVar readback."
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "iniBuilds A350 Airliner for MSFS product page",
+        "url": "https://inibuilds.com/products/inibuilds-a350-airliner-msfs-2024",
+        "retrievedAt": "2026-09-02",
+        "notes": "Product and simulator-platform context for the shared A350 family profile."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-09-02",
+      "knownIssues": [
+        "All aircraft-specific writes are source-backed and readback-guarded, but remain marked untested until exercised against the current installed A350 package.",
+        "AP1, AP2, A/THR, LOC, APPR, FCU push/pull and relative selector command variables auto-reset. They remain excluded until a separate stable mode confirmation is available.",
+        "The public LVAR document's emergency-exit legend contains a duplicated value. The adapter interprets its declared 0-2 domain as OFF=0, ARM=1 and ON=2 pending live validation.",
+        "Standard surface events can still be ignored or incompletely mirrored by a custom aircraft; every surface action therefore requires newer matching logical readback and never retries."
+      ]
+    }
+  }
+}

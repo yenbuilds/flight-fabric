@@ -1,4 +1,8 @@
-import { normalizeVoiceText, parseAviationNumber } from './aviation-number-parser.js';
+import {
+  normalizeVoiceText,
+  parseAviationNumber,
+  stripMatchingUnitSuffix,
+} from './aviation-number-parser.js';
 
 const TRUE_WORDS = new Set(['on', 'engage', 'engaged', 'arm', 'armed', 'set']);
 const FALSE_WORDS = new Set(['off', 'disengage', 'disengaged', 'disarm', 'disarmed', 'release', 'released']);
@@ -25,15 +29,60 @@ const DIGIT_SEQUENCE_TOKENS = new Set([
   'zero', 'oh', 'o', 'one', 'wun', 'two', 'too', 'three', 'tree',
   'four', 'fower', 'five', 'fife', 'six', 'seven', 'eight', 'nine', 'niner',
 ]);
-const NUMERIC_SLOT_ALIASES = Object.freeze({
-  // Observed Zipformer outputs for a clearly spoken "one zero". These are
-  // accepted only inside a complete numeric command slot and only as part of
-  // a three-or-more digit sequence.
+function buildNumericSlotAliases(aliases) {
+  for (const [heard, replacement] of Object.entries(aliases)) {
+    // A correction must never override a word that is already a valid number.
+    // For example, accepting `eighty: 'eight'` would silently turn 80 into 8.
+    if (parseAviationNumber(heard) !== null) {
+      throw new Error(`Unsafe numeric voice alias: ${heard}`);
+    }
+    const replacementValue = parseAviationNumber(replacement);
+    if (!Number.isInteger(replacementValue) || replacementValue < 0 || replacementValue > 9) {
+      throw new Error(`Invalid numeric voice alias replacement: ${replacement}`);
+    }
+  }
+  return Object.freeze({ ...aliases });
+}
+
+const NUMERIC_SLOT_ALIASES = buildNumericSlotAliases({
+  // Observed Zipformer outputs for clearly spoken digits. These are accepted
+  // only inside a complete numeric command slot and only as part of a
+  // three-or-more digit sequence.
   ones: 'one',
   nearer: 'zero',
+  to: 'two',
+  zer: 'zero',
 });
+const TRAILING_ZERO_ALIASES = new Set(['nearer', 'zer']);
+const GROUPED_TENS_TOKENS = new Set([
+  'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety',
+]);
 
-function parseValue(text, input) {
+function isThreeDigitSequence(valueText) {
+  const tokens = valueText.split(' ');
+  if (/^\d{3}$/.test(valueText)) return true;
+  if (tokens.length === 3
+      && tokens.every((token) => DIGIT_SEQUENCE_TOKENS.has(token) || /^\d$/.test(token))) {
+    return true;
+  }
+  // The recognizer can group the last two digits into a cardinal, for example
+  // "one fifty" or "one twenty five". Recognize only the same bounded
+  // three-digit form already supported by parseAviationNumber. Explicit
+  // cardinals such as "one hundred fifty" and explicit units remain literal.
+  if (tokens.length < 2 || tokens.length > 3) return false;
+  const leadingDigit = parseAviationNumber(tokens[0]);
+  const groupedTail = parseAviationNumber(tokens.slice(1).join(' '));
+  const groupedValue = parseAviationNumber(valueText);
+  return Number.isInteger(leadingDigit)
+    && leadingDigit >= 1
+    && leadingDigit <= 9
+    && Number.isInteger(groupedTail)
+    && groupedTail >= 10
+    && groupedTail <= 99
+    && groupedValue === leadingDigit * 100 + groupedTail;
+}
+
+function parseValue(text, input, { allowFlightLevelShorthand = false } = {}) {
   const valueText = normalizeVoiceText(text);
   if (!input || input.kind === 'none') return valueText ? null : {};
   if (!valueText) return null;
@@ -43,17 +92,28 @@ function parseValue(text, input) {
     return null;
   }
   if (input.kind === 'enum') {
-    const normalized = ENUM_ALIASES[valueText] || valueText;
     const allowed = Array.isArray(input.values) ? input.values.map(String) : [];
+    // A literal catalogue value always wins. Aliases are fallback spellings,
+    // not permission to reinterpret an already-valid value.
+    if (allowed.includes(valueText)) return { value: valueText };
+    const normalized = ENUM_ALIASES[valueText];
     return allowed.includes(normalized) ? { value: normalized } : null;
   }
   if (input.kind === 'number') {
-    const value = parseAviationNumber(valueText, {
+    const parsedValue = parseAviationNumber(valueText, {
       // Voice headings spoken digit-by-digit should use the normal three
       // digits. This prevents a clipped trailing zero from turning 270 into 27.
       minimumDigitSequenceLength: input.units === 'degrees' ? 3 : 0,
       units: input.units,
     });
+    // In aviation phraseology a three-digit altitude target is a flight level:
+    // "altitude one two zero" or "altitude 120" means 12,000 feet. Explicit
+    // cardinal targets such as "one hundred" keep their literal values.
+    const value = Number.isFinite(parsedValue)
+      && allowFlightLevelShorthand
+      && isThreeDigitSequence(valueText)
+      ? parsedValue * 100
+      : parsedValue;
     if (!Number.isFinite(value) || value < input.min || value > input.max) return null;
     const quotient = (value - input.min) / input.step;
     if (!Number.isFinite(quotient) || Math.abs(quotient - Math.round(quotient)) > 1e-7) return null;
@@ -94,7 +154,10 @@ function matchPattern(transcript, pattern, input) {
     && (prefix === 'flight level' || prefix === 'set flight level')
     ? `flight level ${capturedValue}`
     : capturedValue;
-  return parseValue(valueText, input);
+  const allowFlightLevelShorthand = input?.kind === 'number'
+    && input.units === 'feet'
+    && /(?:^| )(?:altitude|flight level)(?: |$)/.test(prefix);
+  return parseValue(valueText, input, { allowFlightLevelShorthand });
 }
 
 function literalTokenMatches(actual, expected) {
@@ -102,20 +165,33 @@ function literalTokenMatches(actual, expected) {
 }
 
 function correctedNumericSlot(tokens, input) {
-  if (input?.kind !== 'number' || tokens.length < 3) return null;
+  if (input?.kind !== 'number') return null;
+  const numericTokens = stripMatchingUnitSuffix(tokens, input.units);
+  if (numericTokens.length < 3) return null;
+  const unitSuffix = tokens.slice(numericTokens.length);
+  const groupedTensWithTrailingZeroRepair = numericTokens.length === 3
+    && (DIGIT_SEQUENCE_TOKENS.has(numericTokens[0]) || /^\d$/.test(numericTokens[0]))
+    && GROUPED_TENS_TOKENS.has(numericTokens[1])
+    && TRAILING_ZERO_ALIASES.has(numericTokens[2]);
   let changed = false;
-  const corrected = tokens.map((token, index) => {
+  const corrected = numericTokens.map((token, index) => {
     if (Object.prototype.hasOwnProperty.call(NUMERIC_SLOT_ALIASES, token)) {
-      // "nearer" is a bounded trailing-zero repair, never a general number
-      // word. Requiring it at the end avoids inventing digits in free speech.
-      if (token === 'nearer' && index !== tokens.length - 1) return null;
+      // Clipped or badly decoded zero words are bounded trailing-zero repairs,
+      // never general number words. Requiring them at the end avoids inventing
+      // digits in free speech.
+      if (TRAILING_ZERO_ALIASES.has(token) && index !== numericTokens.length - 1) return null;
       changed = true;
       return NUMERIC_SLOT_ALIASES[token];
     }
+    // Preserve a real tens word. The aviation parser already understands
+    // "two eighty zero" as 280, so only the clipped trailing zero needs repair.
+    if (groupedTensWithTrailingZeroRepair && index === 1) return token;
     if (DIGIT_SEQUENCE_TOKENS.has(token) || /^\d$/.test(token)) return token;
     return null;
   });
-  return changed && corrected.every((token) => token !== null) ? corrected : null;
+  return changed && corrected.every((token) => token !== null)
+    ? [...corrected, ...unitSuffix]
+    : null;
 }
 
 function correctedTranscriptForPattern(transcript, pattern, input) {
@@ -153,6 +229,33 @@ function commandList(catalogue) {
   if (Array.isArray(catalogue?.commands)) return catalogue.commands;
   if (catalogue?.commands && typeof catalogue.commands === 'object') return Object.values(catalogue.commands);
   return [];
+}
+
+function formatChoices(values) {
+  const quoted = values.map((value) => `“${value}”`);
+  if (quoted.length === 1) return quoted[0];
+  if (quoted.length === 2) return `${quoted[0]} or ${quoted[1]}`;
+  return `${quoted.slice(0, -1).join(', ')}, or ${quoted.at(-1)}`;
+}
+
+// Explain an incomplete literal command without choosing the missing words.
+// This intentionally ignores value slots: numbers, modes, and other command
+// values must be repeated by the pilot, never inferred by retry guidance.
+export function incompleteVoiceCommandPrompt(rawTranscript, catalogue) {
+  const transcript = normalizeVoiceText(rawTranscript);
+  if (!transcript) return '';
+  const completions = new Set();
+  for (const command of commandList(catalogue)) {
+    for (const patternValue of Array.isArray(command?.speech?.patterns) ? command.speech.patterns : []) {
+      const parts = normalizedPatternParts(String(patternValue || ''));
+      if (!parts?.normalizedPattern || parts.markerIndex >= 0) continue;
+      if (!parts.normalizedPattern.startsWith(`${transcript} `)) continue;
+      const completion = parts.normalizedPattern.slice(transcript.length + 1);
+      if (completion && completion.split(' ').length <= 3) completions.add(completion);
+    }
+  }
+  if (completions.size === 0 || completions.size > 4) return '';
+  return `Please finish with ${formatChoices([...completions])}.`;
 }
 
 export function collectVoiceHints(catalogue) {

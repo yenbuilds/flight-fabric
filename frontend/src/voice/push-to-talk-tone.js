@@ -1,7 +1,11 @@
 const TONES = Object.freeze({
+  // Keep the press cue brief because microphone startup intentionally waits
+  // for it to finish, preventing the cue from entering recognition audio.
   press: Object.freeze({ durationSeconds: 0.045, frequencyHz: 620 }),
-  release: Object.freeze({ durationSeconds: 0.05, frequencyHz: 880 }),
+  release: Object.freeze({ durationSeconds: 0.095, frequencyHz: 880 }),
 });
+
+const PEAK_GAIN = 0.16;
 
 function audioContextConstructor(globalRef) {
   return globalRef?.AudioContext || globalRef?.webkitAudioContext || null;
@@ -26,10 +30,10 @@ export function createPushToTalkTone({ globalRef = globalThis } = {}) {
       const gain = context.createGain();
       const startAt = context.currentTime;
       const endAt = startAt + tone.durationSeconds;
-      oscillator.type = 'sine';
+      oscillator.type = 'triangle';
       oscillator.frequency.setValueAtTime(tone.frequencyHz, startAt);
       gain.gain.setValueAtTime(0.0001, startAt);
-      gain.gain.exponentialRampToValueAtTime(0.035, startAt + 0.004);
+      gain.gain.exponentialRampToValueAtTime(PEAK_GAIN, startAt + 0.006);
       gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
       oscillator.connect(gain);
       gain.connect(context.destination);

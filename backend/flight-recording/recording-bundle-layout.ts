@@ -137,7 +137,6 @@ function buildBundleName(recordingStartClock: unknown, recordingSessionId: unkno
 module.exports = {
   BUNDLE_FILES,
   BUNDLE_LAYOUT_VERSION,
-  assertBundleName,
   buildBundleName,
   getArtifactPathForCsv,
   getBundleDir,

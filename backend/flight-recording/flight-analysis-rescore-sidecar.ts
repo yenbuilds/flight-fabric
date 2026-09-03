@@ -975,11 +975,6 @@ function revertFlightAnalysisRescore(options: {
 }
 
 module.exports = {
-  FLIGHT_ANALYSIS_RESCORE_FILE,
-  FLIGHT_ANALYSIS_RESCORE_SCHEMA_VERSION,
-  FLIGHT_ANALYSIS_RESCORE_TYPE,
-  LEGACY_LANDING_GRADE_RESCORE_FILE,
-  MAX_FLIGHT_ANALYSIS_RESCORE_BYTES,
   buildFlightAnalysisPreviewFingerprint,
   getFlightAnalysisRescoreSource,
   readFlightAnalysisRescoreSidecar,

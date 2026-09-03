@@ -30,15 +30,6 @@ type RecordingStreamOptions = RecordingPathOptions & {
   flags?: string;
 };
 
-type RecordingRenameOptions = {
-  extension: string;
-  fromPath: string;
-  operation: string;
-  outputDir: string;
-  requiredSuffix?: string;
-  toPath: string;
-};
-
 function fail(operation: string, reason: string): never {
   const error = new Error(`${operation} refused: ${reason}`) as NodeJS.ErrnoException;
   error.code = 'FF_RECORDING_PATH_REFUSED';
@@ -96,54 +87,9 @@ function createSafeRecordingWriteStream(options: RecordingStreamOptions): FsWrit
   return fs.createWriteStream(resolvedTarget, { flags: options.flags || 'a' }) as FsWriteStream;
 }
 
-function safeRenameRecordingFileSync(options: RecordingRenameOptions): boolean {
-  const fromPath = assertSafeRecordingFilePath({
-    extension: options.extension,
-    operation: `${options.operation}:from`,
-    outputDir: options.outputDir,
-    requiredSuffix: options.requiredSuffix,
-    targetPath: options.fromPath,
-  });
-  const toPath = assertSafeRecordingFilePath({
-    extension: options.extension,
-    operation: `${options.operation}:to`,
-    outputDir: options.outputDir,
-    requiredSuffix: options.requiredSuffix,
-    targetPath: options.toPath,
-  });
-
-  if (!fs.existsSync(fromPath)) return false;
-  if (comparePath(fromPath) === comparePath(toPath)) return true;
-
-  // `rename(2)` replaces an existing destination on POSIX even though Windows
-  // normally refuses the same operation. Recording route updates must have the
-  // same no-replace behavior on every platform: an older flight artifact at the
-  // destination is never disposable. A hard-link followed by unlink is an
-  // atomic no-replace move for regular files on the same filesystem. `linkSync`
-  // fails with EEXIST if another writer wins the destination race.
-  try {
-    fs.linkSync(fromPath, toPath);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code === 'EEXIST') fail(options.operation, 'rename destination already exists');
-    throw error;
-  }
-
-  try {
-    fs.unlinkSync(fromPath);
-  } catch (error) {
-    // Roll back the newly-created link when possible so a failed move retains
-    // the original source identity rather than leaving two visible basenames.
-    try { fs.unlinkSync(toPath); } catch {}
-    throw error;
-  }
-  return true;
-}
-
 module.exports = {
   assertSafeRecordingFilePath,
   createSafeRecordingWriteStream,
-  safeRenameRecordingFileSync,
 };
 
 export {};

@@ -11,8 +11,8 @@
  * - Rows are schema-built and CSV-escaped here before they touch disk.
  * - LANDING, GO_AROUND, warning, and violation rows are intentionally persisted
  *   beside SAMPLE rows because replay needs the live event context.
- * - Route-based filename updates must not drop rows; inline writes are buffered
- *   while a rename is in progress, and worker writes are serialized by request.
+ * - A recording bundle path is immutable from startup through finalization;
+ *   route data belongs in rows rather than filesystem names.
  * - Disk exhaustion fails closed and emits a storage warning so the UI can tell
  *   the user that only a partial authoritative record exists.
  *
@@ -30,13 +30,8 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
   buildBundleName: (_flightId: unknown, _recordingSessionId: unknown) => string;
   getBundlePaths: (_outputDir: string, _bundleName: string) => { dir: string; csv: string };
 };
-const { splitCsvLines } = require('../utils/csv') as {
-  splitCsvLines: (content: string, options?: { trimAndDropEmpty?: boolean }) => string[];
-};
 const {
   assertSafeRecordingFilePath,
-  createSafeRecordingWriteStream,
-  safeRenameRecordingFileSync,
 } = require('./recording-path-guard') as {
   assertSafeRecordingFilePath: (_options: {
     extension: string;
@@ -44,20 +39,6 @@ const {
     outputDir: string;
     targetPath: string;
   }) => string;
-  createSafeRecordingWriteStream: (_options: {
-    extension: string;
-    flags?: string;
-    operation: string;
-    outputDir: string;
-    targetPath: string;
-  }) => FsWriteStream;
-  safeRenameRecordingFileSync: (_options: {
-    extension: string;
-    fromPath: string;
-    operation: string;
-    outputDir: string;
-    toPath: string;
-  }) => boolean;
 };
 const {
   closeWriteStreamDurably,
@@ -236,8 +217,6 @@ const WORKER_APPEND_BATCH_MAX_LINES = 512;
 const WORKER_APPEND_BATCH_MAX_BYTES = 256 * 1024;
 const WORKER_INFLIGHT_APPEND_MAX_BYTES = 64 * 1024 * 1024;
 const WORKER_APPEND_REQUEST_TIMEOUT_MS = 60000;
-const INLINE_RENAME_QUEUE_MAX_BYTES = 8 * 1024 * 1024;
-
 function removeEmptyRecordingBundleDir(outputDir: string): void {
   try { fs.rmdirSync(outputDir); } catch {}
 }
@@ -385,18 +364,6 @@ function buildRecordingManifestCsvLine(
   return rowToCSV(row, lastCompactValues);
 }
 
-function countExistingDataRowsSync(filePath: string): number {
-  try {
-    if (!fs.existsSync(filePath)) return 0;
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile() || stat.size === 0) return 0;
-    const lines = splitCsvLines(fs.readFileSync(filePath, 'utf8'), { trimAndDropEmpty: true });
-    return Math.max(0, lines.length - 1);
-  } catch {
-    return 0;
-  }
-}
-
 function normalizeCsvWriterMode(value: unknown): CsvWriterMode {
   return String(value || '').trim().toLowerCase() === 'worker' ? 'worker' : 'inline';
 }
@@ -467,10 +434,6 @@ class FlightCSVWriter {
   lastError: Error | null;
   closed: boolean;
   syncIntervalMs: number;
-  renameInProgress: boolean;
-  renamePromise: Promise<boolean> | null;
-  renameQueuedLines: string[];
-  renameQueuedLineBytes: number;
   lastCompactValues: Record<string, string>;
   onTerminalError: ((_error: Error) => void) | null;
   terminalErrorNotified: boolean;
@@ -513,10 +476,6 @@ class FlightCSVWriter {
     this.lastSyncTime = timeSource.now();
     this.lastError = null;
     this.closed = false;
-    this.renameInProgress = false;
-    this.renamePromise = null;
-    this.renameQueuedLines = [];
-    this.renameQueuedLineBytes = 0;
     this.lastCompactValues = {};
     this.onTerminalError = typeof options.onTerminalError === 'function' ? options.onTerminalError : null;
     this.terminalErrorNotified = false;
@@ -637,7 +596,7 @@ class FlightCSVWriter {
    */
   writeSample(frame: CsvFrame): boolean {
     if (this.closed || this.terminalErrorNotified || diskExhausted) return false;
-    if (!this.stream && !this.renameInProgress) return false;
+    if (!this.stream) return false;
     
     try {
       // Overlay metadata onto frame for schema-field-map extraction.
@@ -737,7 +696,7 @@ class FlightCSVWriter {
    */
   writeEvent(eventType: string, eventData: EventRowData, frame: CsvFrame = {}): boolean {
     if (this.closed || this.terminalErrorNotified || diskExhausted) return false;
-    if (!this.stream && !this.renameInProgress) return false;
+    if (!this.stream) return false;
     
     try {
       const now = timeSource.now();
@@ -938,27 +897,18 @@ class FlightCSVWriter {
     try { this.onTerminalError?.(error); } catch {}
   }
 
-  _appendCsvLine(
-    line: string,
-    options: { countRow?: boolean; allowDuringClose?: boolean; countAcceptedBytes?: boolean } = {},
-  ): boolean {
+  _appendCsvLine(line: string): boolean {
     if (
-      (this.closed && options.allowDuringClose !== true)
+      this.closed
       || this.terminalErrorNotified
       || diskExhausted
     ) return false;
 
-    const countRow = options.countRow !== false;
-    const countAcceptedBytes = options.countAcceptedBytes !== false;
     const lineBytes = csvLineBytesWithNewline(line);
-    if (countAcceptedBytes && this.acceptedFileBytes + lineBytes > this.maxFileBytes) {
+    if (this.acceptedFileBytes + lineBytes > this.maxFileBytes) {
       this._recordBacklogError(`CSV reached the ${formatMiB(this.maxFileBytes)}MiB file cap`);
       return false;
     }
-    if (this.renameInProgress) {
-      return this._queueLineDuringRename(line, countRow, lineBytes, countAcceptedBytes);
-    }
-
     const stream = this.stream;
     if (!stream) return false;
 
@@ -969,9 +919,9 @@ class FlightCSVWriter {
     }
 
     stream.write(`${line}\n`);
-    if (countAcceptedBytes) this.acceptedFileBytes += lineBytes;
+    this.acceptedFileBytes += lineBytes;
     this.syncDirty = true;
-    if (countRow) this.rowCount++;
+    this.rowCount++;
     this._scheduleSyncIfDue(stream);
     return true;
   }
@@ -980,51 +930,6 @@ class FlightCSVWriter {
     if (this.lastError?.message === message) return;
     this._recordTerminalError(new Error(message));
     console.error(`[flight-csv] ${message}`);
-  }
-
-  _queueLineDuringRename(
-    line: string,
-    countRow: boolean,
-    lineBytes = csvLineBytesWithNewline(line),
-    countAcceptedBytes = true,
-  ): boolean {
-    if (this.renameQueuedLineBytes + lineBytes > INLINE_RENAME_QUEUE_MAX_BYTES) {
-      this._recordBacklogError(`CSV rename backlog exceeded ${formatMiB(INLINE_RENAME_QUEUE_MAX_BYTES)}MiB`);
-      return false;
-    }
-
-    this.renameQueuedLines.push(line);
-    this.renameQueuedLineBytes += lineBytes;
-    if (countAcceptedBytes) this.acceptedFileBytes += lineBytes;
-    this.syncDirty = true;
-    if (countRow) this.rowCount++;
-    return true;
-  }
-
-  _flushRenameQueuedLines(): void {
-    const queuedLines = this.renameQueuedLines;
-    this.renameQueuedLines = [];
-    this.renameQueuedLineBytes = 0;
-
-    for (let index = 0; index < queuedLines.length; index += 1) {
-      const line = queuedLines[index];
-      // close() gates new public writes before it waits for an in-flight
-      // rename. Rows already accepted into the bounded rename queue must still
-      // be written before the reopened stream is durably closed.
-      if (!this._appendCsvLine(line, {
-        countRow: false,
-        allowDuringClose: this.closed,
-        countAcceptedBytes: false,
-      })) {
-        const remaining = queuedLines.slice(index);
-        this.renameQueuedLines = remaining;
-        this.renameQueuedLineBytes = remaining.reduce(
-          (total, queuedLine) => total + csvLineBytesWithNewline(queuedLine),
-          0,
-        );
-        break;
-      }
-    }
   }
 
   flush(): Promise<boolean> {
@@ -1037,10 +942,6 @@ class FlightCSVWriter {
         // a list/logbook flush that was already in progress cannot mistake a
         // normal close hand-off for a storage failure.
         if (previousFlush) await previousFlush;
-        if (this.renamePromise) {
-          const renamed = await this.renamePromise;
-          if (!renamed) return false;
-        }
         const stream = this.stream;
         if (!stream) return false;
         await this._waitForPeriodicSync();
@@ -1069,14 +970,6 @@ class FlightCSVWriter {
     return (async () => {
       this.closed = true;
       this._clearPeriodicSyncTimer();
-      if (this.renamePromise) {
-        try {
-          await this.renamePromise;
-        } catch (err) {
-          this._recordTerminalError(err as Error);
-        }
-      }
-
       await this._waitForExplicitFlush();
 
       const stream = this.stream;
@@ -1150,105 +1043,6 @@ class FlightCSVWriter {
     };
   }
   
-  /**
-   * Retain route metadata without changing the immutable bundle path.
-   */
-  async updateFilename(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    bundleBaseName?: string,
-  ): Promise<boolean> {
-    if (this.closed) return false;
-    if (bundleBaseName && bundleBaseName !== this.bundleBaseName) return false;
-    if (!await this.flush()) return false;
-    this.departureIcao = departureIcao || this.departureIcao;
-    this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-    return true;
-  }
-
-  async _updateFilenameNow(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    newFilename: string,
-  ): Promise<boolean> {
-    const newPath = path.join(this.outputDir, newFilename);
-    let adoptedDestination = false;
-    
-    try {
-      this.renameInProgress = true;
-      // Close current stream and WAIT for flush
-      if (this.stream) {
-        const stream = this.stream;
-        this.stream = null; // prevent concurrent writes during rename
-        await this._waitForPeriodicSync();
-        await closeWriteStreamDurably(stream);
-      }
-      
-      safeRenameRecordingFileSync({
-        extension: '.csv',
-        fromPath: this.filePath,
-        operation: 'renameFlightCsvRecording',
-        outputDir: this.outputDir,
-        toPath: newPath,
-      });
-      adoptedDestination = true;
-      
-      // Update state
-      this.filename = newFilename;
-      this.bundleBaseName = path.basename(newFilename, '.csv');
-      this.filePath = newPath;
-      this.departureIcao = departureIcao || this.departureIcao;
-      this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-      
-      // Reopen stream
-      const stream = createSafeRecordingWriteStream({
-        extension: '.csv',
-        flags: 'a',
-        operation: 'reopenFlightCsvRecording',
-        outputDir: this.outputDir,
-        targetPath: this.filePath,
-      });
-      this.stream = stream;
-      stream.on('error', (err: ErrorWithCode) => {
-        this._recordTerminalError(err);
-        console.error(`[flight-csv] Stream error after rename: ${err.message}`);
-      });
-      this.renameInProgress = false;
-      this._flushRenameQueuedLines();
-      
-      console.log(`[flight-csv] File renamed: ${newFilename}`);
-      return true;
-      
-    } catch (err) {
-      const error = err as ErrorWithCode;
-      console.error(`[flight-csv] Rename failed: ${error.message}`);
-      // Try to reopen original file
-      try {
-        const stream = createSafeRecordingWriteStream({
-          extension: '.csv',
-          flags: 'a',
-          operation: 'recoverFlightCsvRecording',
-          outputDir: this.outputDir,
-          targetPath: this.filePath,
-        });
-        this.stream = stream;
-        stream.on('error', (recoveryErr: ErrorWithCode) => {
-          this._recordTerminalError(recoveryErr);
-          console.error(`[flight-csv] Stream error on recovery: ${recoveryErr.message}`);
-        });
-      } catch (e) {
-        this._recordTerminalError(e as Error);
-        console.error(`[flight-csv] CRITICAL: Could not reopen file after failed rename. Recording stopped.`);
-      }
-      this.renameInProgress = false;
-      this._flushRenameQueuedLines();
-      // A committed no-replace move is authoritative even if reopening the
-      // writer failed afterward. Report the adopted path so the bundle
-      // coordinator can move both companions to the same basename instead of
-      // splitting the three artifacts.
-      return adoptedDestination;
-    }
-  }
 }
 
 class WorkerFlightCSVWriter {
@@ -2050,19 +1844,6 @@ class WorkerFlightCSVWriter {
     return this.lastElapsedMs;
   }
 
-  async updateFilename(
-    departureIcao: string | null | undefined,
-    arrivalIcao: string | null | undefined,
-    bundleBaseName?: string,
-  ): Promise<boolean> {
-    if (this.closed) return false;
-
-    if (bundleBaseName && bundleBaseName !== this.bundleBaseName) return false;
-    if (!await this.flush()) return false;
-    this.departureIcao = departureIcao || this.departureIcao;
-    this.arrivalIcao = arrivalIcao || this.arrivalIcao;
-    return true;
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2203,19 +1984,6 @@ function getFinalizingStats(): FlightRecordingStats | null {
 }
 
 /**
- * Update the filename with route info.
- * Returns a Promise that resolves when rename is complete.
- */
-async function updateRoute(
-  departureIcao: string | null | undefined,
-  arrivalIcao: string | null | undefined,
-  bundleBaseName?: string,
-): Promise<boolean> {
-  if (!activeWriter) return false;
-  return await activeWriter.updateFilename(departureIcao, arrivalIcao, bundleBaseName);
-}
-
-/**
  * Get the V1 column schema.
  */
 function getV1Columns(): string[] {
@@ -2234,7 +2002,6 @@ module.exports = {
   isFinalizing,
   getStats,
   getFinalizingStats,
-  updateRoute,
   flush,
   
   // Schema
@@ -2246,7 +2013,6 @@ module.exports = {
   getDefaultFlightLogsDir,
   generateFilename,
   sanitizeFlightId,
-  getConfiguredCsvWriterMode,
   
   // Class (for advanced usage)
   FlightCSVWriter,

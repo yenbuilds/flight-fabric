@@ -24,12 +24,6 @@ type EventBusModule = {
   emit: (event: string, payload: unknown) => void;
 };
 
-type TimelineModule = {
-  startViolation: (ruleId: string, severity: Severity, metrics: ViolationMetrics) => void;
-  endViolation: (ruleId: string, scoreImpact: number | null) => void;
-  VIOLATION_RULE: ViolationRuleMap;
-};
-
 type MessageTypesModule = {
   MSG: {
     FLIGHT_VIOLATION: string;
@@ -163,11 +157,10 @@ type PhaseModule = {
 
 const config = require('../core/config') as ConfigModule;
 const eventBus = require('../core/event-bus') as EventBusModule;
-const timeline = require('../events/timeline-events') as TimelineModule;
 const { MSG } = require('../core/message-types') as MessageTypesModule;
 const { PHASES, GROUND_PHASES } = require('../lifecycle/phases') as PhasesModule;
 const { getEffectivePhaseThresholds } = require('../lifecycle/phase') as PhaseModule;
-const { VIOLATION_RULE } = timeline;
+const { VIOLATION_RULE } = require('../../shared/violation-rules.js') as { VIOLATION_RULE: ViolationRuleMap };
 
 const SUPPRESSED_PHASES = GROUND_PHASES;
 const HYSTERESIS_DEG = config.violationThresholds.upsetHysteresisDeg;
@@ -441,7 +434,6 @@ function createFlightViolationRunner(): {
 
     broadcast(payload);
     eventBus.emit('flightViolation:start', payload);
-    timeline.startViolation(rule.id, rule.severity, metrics);
 
     if (flightCsvWriter && flightCsvWriter.isRecording()) {
       flightCsvWriter.writeEvent('FLIGHT_VIOLATION_START', {
@@ -505,7 +497,6 @@ function createFlightViolationRunner(): {
 
     broadcast(payload);
     eventBus.emit('flightViolation:end', payload);
-    timeline.endViolation(rule.id, null);
 
     if (flightCsvWriter && flightCsvWriter.isRecording()) {
       flightCsvWriter.writeEvent('FLIGHT_VIOLATION_END', {

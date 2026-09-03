@@ -27,7 +27,6 @@ function clearHandlerModules() {
     resolveBackendPath('utils', 'flight-logs-dir.js'),
     resolveBackendPath('flight-recording', 'flight-csv-store.js'),
     resolveBackendPath('flight-recording', 'csv-read-guard.js'),
-    resolveBackendPath('events', 'timeline-events.js'),
     resolveBackendPath('events', 'timeline-generator.js'),
     resolveBackendPath('history-index', 'history-index-store.js'),
     resolveBackendPath('history-index', 'source-identity.js'),

@@ -1343,7 +1343,6 @@ function csvBundleBaseName(csvPath: string): string {
 module.exports = {
   ACTIVE_CSV_NOT_READY,
   createFlightCsvStore,
-  isSafeFlightId,
   resolveCsvInsideFlightLogs,
 };
 

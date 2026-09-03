@@ -196,7 +196,6 @@ function buildLandingCsvEventData(payload: GenericRecord | null | undefined, eve
 }
 
 module.exports = {
-  CRITICAL_LANDING_CSV_MAPPINGS,
   buildLandingCsvEventData,
   getCriticalLandingCsvMappings,
 };

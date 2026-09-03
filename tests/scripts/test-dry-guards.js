@@ -135,8 +135,6 @@ test('runtime destructive filesystem operations use explicit safe-fs guards', ()
   const timelineGeneratorSource = readRepoFile('backend/events/timeline-generator.js');
   const profileLoaderSource = readRepoFile('backend/aircraft/aircraft-profile-loader.js');
   const destinationTargetSource = readRepoFile('backend/core/destination-target-store.js');
-  const managedInstallSource = readRepoFile('backend/utils/managed-install-state.js');
-  const sdkConnectorSource = readRepoFile('backend/telemetry-provider/sdk-connector-store.js');
   const userSettingsSource = readRepoFile('backend/core/user-settings.js');
   const userIdentitySource = readRepoFile('backend/utils/user-identity.js');
   const logbookSource = readRepoFile('backend/landing/flight-logbook.js');
@@ -162,8 +160,6 @@ test('runtime destructive filesystem operations use explicit safe-fs guards', ()
   assert(!profileLoaderSource.includes('overwriteLocalProfileKey'), 'release-owned profiles should expose no local overwrite path');
   assert(!profileLoaderSource.includes("operation: 'deleteUserProfile'"), 'release-owned profiles should expose no user deletion path');
   assert(destinationTargetSource.includes("operation: 'clearRouteTarget'"), 'route target clears should use guarded named deletes');
-  assert(managedInstallSource.includes('safeUnlinkSync({'), 'managed install metadata deletion should route through safeUnlinkSync');
-  assert(sdkConnectorSource.includes("operation: 'importSdkConnectorDefinition'"), 'SDK connector definition writes should use guarded app-data writes');
   assert(userSettingsSource.includes("operation: 'saveUserSettings'"), 'settings writes should use guarded app-data writes');
   assert(userIdentitySource.includes("operation: 'writeUserId'"), 'user id writes should use guarded app-data writes');
   assert(logbookSource.includes("operation: 'writeLogbook'"), 'logbook writes should use guarded app-data writes');
@@ -171,11 +167,23 @@ test('runtime destructive filesystem operations use explicit safe-fs guards', ()
   assert(recordingPathGuardSource.includes('createSafeRecordingWriteStream'), 'recording path guard should centralize recording stream creation');
   assert(flightCsvWriterSource.includes('startWorkerFlightCsvRecording'), 'worker CSV start should validate the target path before spawning the writer');
   assert(csvWorkerSource.includes('createSafeRecordingWriteStream({'), 'CSV worker stream creation should route through recording path guard');
-  assert(csvWorkerSource.includes('safeRenameRecordingFileSync({'), 'CSV worker rename should route through recording path guard');
-  assert(automationJsonlSource.includes('openAutomationJsonlRecording'), 'automation JSONL stream creation should route through recording path guard');
-  assert(automationJsonlSource.includes('renameAutomationJsonlRecording'), 'automation JSONL rename should route through recording path guard');
+  assert(automationJsonlSource.includes('prepareAutomationJsonlRecording'), 'automation JSONL startup should validate its exclusive target through the recording path guard');
   assert(aircraftSpecificJsonlSource.includes('openAircraftSpecificJsonlRecording'), 'aircraft-specific JSONL stream creation should route through recording path guard');
-  assert(aircraftSpecificJsonlSource.includes('renameAircraftSpecificJsonlRecording'), 'aircraft-specific JSONL rename should route through recording path guard');
+
+  const immutableRecorderSources = [
+    ['CSV writer', flightCsvWriterSource],
+    ['CSV worker', csvWorkerSource],
+    ['automation JSONL writer', automationJsonlSource],
+    ['aircraft-specific JSONL writer', aircraftSpecificJsonlSource],
+  ];
+  for (const [label, source] of immutableRecorderSources) {
+    assert(!source.includes('safeRenameRecordingFileSync'), `${label} must not retain a recording rename path`);
+    assert(!source.includes('updateFilename'), `${label} must not expose filename mutation`);
+    assert(!source.includes('updateRoute'), `${label} must not expose route-triggered path mutation`);
+    assert(!source.includes('renameInProgress'), `${label} must not retain unreachable rename state`);
+  }
+  assert(!recordingPathGuardSource.includes('safeRenameRecordingFileSync'), 'recording path guard must not expose a rename primitive');
+  assert(!csvWorkerSource.includes("case 'updatePath'"), 'CSV worker must not accept path mutation commands');
 });
 
 test('flight recorder session stats count only accepted CSV samples', () => {
@@ -770,9 +778,8 @@ test('Vue shell chrome shares body-sync composables for document.body side effec
   assert(debugModalSource.includes("useBodyClass(() => debug.modalOpen, 'debug-modal-open');"), 'DebugTelemetryModal should bind body state through the composable');
   assert(!debugModalSource.includes('document.body.classList.toggle('), 'DebugTelemetryModal should not mutate body classes directly');
 
-  const legacyCssSource = readRepoFile('frontend/styles/legacy.css');
-  assert(legacyCssSource.includes('body.debug-modal-open > *:not(#vue-app-root):not(#debug-modal)'), 'debug modal open isolation must not hide the Vue root that contains the migrated modal');
-  assert(!legacyCssSource.includes('body.debug-modal-open > *:not(#debug-modal) {'), 'legacy debug modal isolation must not assume #debug-modal is a body child');
+  const indexCssSource = readRepoFile('frontend/index.css');
+  assert(indexCssSource.includes('body.debug-modal-open {'), 'active app CSS should prevent page scrolling while the debug modal is open');
 
   assert(systemBannersSource.includes("from '../composables/useBodyStyle.js';"), 'SystemBanners should reuse the body-style composable');
   assert(systemBannersSource.includes("() => status.systemBannerOffsetPx"), 'SystemBanners should bind the computed banner body offset through the composable');

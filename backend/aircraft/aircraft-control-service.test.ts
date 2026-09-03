@@ -80,6 +80,17 @@ function buildFbwA32nxProfile() {
   });
 }
 
+function buildIniBuildsA350Profile(variant: '900' | '1000' = '900') {
+  return buildProfile({
+    id: `inibuilds-a350-${variant}`,
+    _profileKey: `bundled/msfs/inibuilds-a350-${variant}`,
+    integration: {
+      aircraftSpecific: { adapter: 'inibuilds-a350' },
+      controls: { genericFallback: false, standardSurfaceFallback: true },
+    },
+  });
+}
+
 function buildPmdg777Profile(
   variant: 'pmdg-777' | 'pmdg-777-200er' | 'pmdg-777-200lr' | 'pmdg-777f' = 'pmdg-777',
 ) {
@@ -142,6 +153,7 @@ test('aircraft command catalogue treats generic fallback as a first-class config
       patterns: [
         'set lights for takeoff', 'set lights for take off',
         'set lights for a takeoff', 'set lights for a take off',
+        'set takeoff lights', 'set take off lights',
         'takeoff lights', 'take off lights',
       ],
       hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
@@ -470,6 +482,123 @@ test('Fenix A32X takeoff-light voice preset remains an ordered guarded recipe', 
     'lights.nose.takeoff',
     'lights.strobe.on',
     'lights.navLogo.nav',
+  ]);
+});
+
+test('iniBuilds A350 catalogue exposes the shared page controls to voice across both variants', () => {
+  const expectedCommandIds = [
+    'flightGuidance.speed.set',
+    'flightGuidance.heading.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    'surfaces.gear.set',
+    'surfaces.flaps.adjust',
+    'surfaces.parkingBrake.set',
+    'surfaces.spoilersArmed.set',
+    'surfaces.spoilers.set',
+    'lights.strobeMode.set',
+    'lights.nav.set',
+    'lights.beacon.set',
+    'lights.landing.set',
+    'lights.noseMode.set',
+    'configuration.lights.takeoff',
+  ];
+
+  for (const variant of ['900', '1000'] as const) {
+    const capabilities = buildAircraftControlCapabilities(buildIniBuildsA350Profile(variant), {
+      profileRevision: 16,
+      capabilities: {
+        actionTypes: ['aircraft-integration'],
+        integrationTransports: ['simconnect-sequence', 'lvar'],
+      },
+    });
+    assert.equal(capabilities.aircraftCommands.configurationId, 'inibuilds-a350');
+    assert.equal(capabilities.aircraftCommands.profileKey, `bundled/msfs/inibuilds-a350-${variant}`);
+    assert.deepEqual(
+      capabilities.aircraftCommands.commands.map((command) => command.id),
+      expectedCommandIds,
+    );
+    assert.equal(
+      capabilities.aircraftCommands.commands.every((command) => command.speech?.patterns?.length > 0),
+      true,
+      'every A350 command in the active catalogue must be reachable by voice',
+    );
+    assert.equal(capabilities.aircraftIntegration.vendor, 'iniBuilds');
+    assert.equal(capabilities.aircraftIntegration.family, 'A350');
+  }
+});
+
+test('iniBuilds A350 commands map canonical voice intent only to guarded adapter actions', () => {
+  const options = {
+    profile: buildIniBuildsA350Profile(),
+    profileRevision: 16,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence', 'lvar'],
+    },
+  };
+  for (const [commandId, value, actionId] of [
+    ['flightGuidance.speed.set', 245, 'flightGuidance.speed.set'],
+    ['flightGuidance.heading.set', 273, 'flightGuidance.heading.set'],
+    ['flightGuidance.altitude.set', 35000, 'flightGuidance.altitude.set'],
+    ['flightGuidance.verticalSpeed.set', -1200, 'flightGuidance.verticalSpeed.set'],
+    ['surfaces.gear.set', 'down', 'controls.gear.down'],
+    ['surfaces.flaps.adjust', 'increase', 'controls.flaps.increase'],
+    ['surfaces.parkingBrake.set', true, 'controls.parkingBrake.on'],
+    ['surfaces.spoilersArmed.set', false, 'controls.spoilersArmed.off'],
+    ['surfaces.spoilers.set', 'full', 'controls.speedbrake.set'],
+    ['lights.strobeMode.set', 'auto', 'lights.strobe.auto'],
+    ['lights.nav.set', true, 'lights.nav.nav1'],
+    ['lights.beacon.set', false, 'lights.beacon.off'],
+    ['lights.landing.set', true, 'lights.landing.on'],
+    ['lights.noseMode.set', 'taxi', 'lights.nose.taxi'],
+  ] as const) {
+    const result = resolveAircraftCommand({
+      commandId,
+      input: { value },
+      profileKey: 'bundled/msfs/inibuilds-a350-900',
+      profileRevision: 16,
+    }, options);
+    assert.equal(result.ok, true, `${commandId} should resolve`);
+    assert.equal(result.configurationId, 'inibuilds-a350');
+    assert.equal(result.controlRequest.actionId, actionId);
+    if (commandId === 'surfaces.spoilers.set') assert.equal(result.controlRequest.value, 100);
+  }
+
+  for (const [commandId, value] of [
+    ['flightGuidance.speed.set', 99],
+    ['flightGuidance.heading.set', 360],
+    ['flightGuidance.altitude.set', 35050],
+    ['flightGuidance.verticalSpeed.set', 6100],
+  ] as const) {
+    const result = resolveAircraftCommand({ commandId, input: { value } }, options);
+    assert.equal(result.ok, false, `${commandId}=${value} must fail closed`);
+    assert.equal(result.code, 'invalid_command_input');
+  }
+});
+
+test('iniBuilds A350 takeoff-light voice preset remains an ordered guarded recipe', () => {
+  const result = resolveAircraftCommand({
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+    profileKey: 'bundled/msfs/inibuilds-a350-1000',
+    profileRevision: 16,
+  }, {
+    profile: buildIniBuildsA350Profile('1000'),
+    profileRevision: 16,
+    requireProfileToken: true,
+    capabilities: {
+      actionTypes: ['aircraft-integration'],
+      integrationTransports: ['simconnect-sequence', 'lvar'],
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
+    'lights.landing.on',
+    'lights.nose.takeoff',
+    'lights.strobe.on',
+    'lights.nav.nav1',
   ]);
 });
 

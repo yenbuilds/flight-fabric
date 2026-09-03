@@ -4,11 +4,16 @@ import {
   discoverAudioInputDevices,
   enumerateAudioInputDevices,
 } from './pcm-capture.js';
-import { collectVoiceHints, interpretAircraftVoiceCommand } from './command-interpreter.js';
+import {
+  collectVoiceHints,
+  incompleteVoiceCommandPrompt,
+  interpretAircraftVoiceCommand,
+} from './command-interpreter.js';
 import { createLocalReadback, formatAviationReadback } from './local-readback.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
+export const VOICE_RELEASE_TAIL_MS = 250;
 
 function formatCommand(match) {
   const value = Object.prototype.hasOwnProperty.call(match.input || {}, 'value')
@@ -26,7 +31,11 @@ export function createVoiceControlController({
   createCapture = createPcmCapture,
   readback = null,
   pushToTalkTone = null,
+  releaseTailMs = VOICE_RELEASE_TAIL_MS,
 } = {}) {
+  if (!Number.isFinite(releaseTailMs) || releaseTailMs < 0 || releaseTailMs > 500) {
+    throw new RangeError('Voice release tail must be between 0 and 500 milliseconds.');
+  }
   let active = null;
   let pendingCommand = null;
   let resultHeld = false;
@@ -140,7 +149,7 @@ export function createVoiceControlController({
     if (voiceStore.runtime.shortcutRegistered === true) {
       return transcriptionOnly
         ? 'Ready.'
-        : `Hold ${voiceStore.runtime.shortcut} or the button, then speak.`;
+        : `Hold ${voiceStore.runtime.shortcut} or the button, speak the complete command, then release.`;
     }
     const shortcutError = typeof voiceStore.runtime.shortcutError === 'string'
       ? voiceStore.runtime.shortcutError.trim().replace(/[.\s]+$/u, '')
@@ -345,8 +354,8 @@ export function createVoiceControlController({
       void refreshInputDevices();
       if (session.releaseRequested) return finish();
       voiceStore.setState('listening', session.transcriptionOnly
-        ? 'Listening… release to transcribe. Nothing will be sent.'
-        : 'Listening… release to execute.');
+        ? 'Listening… speak the complete phrase, then release to transcribe. Nothing will be sent.'
+        : 'Listening… speak the complete command, then release to execute.');
       return true;
     } catch (error) {
       if (active !== session) return false;
@@ -391,6 +400,13 @@ export function createVoiceControlController({
         ? 'Transcribing…'
         : 'Recognizing command…');
       try {
+        // Keep the microphone open very briefly after key-up so samples already
+        // moving through the OS and AudioWorklet are not cut off. This is a
+        // fixed privacy-bounded tail, not silence synthesis or inferred speech.
+        if (releaseTailMs > 0) {
+          await new Promise((resolve) => globalThis.setTimeout(resolve, releaseTailMs));
+          if (active !== session) return false;
+        }
         // stop() flushes the worklet. onChunk intentionally continues accepting
         // those final samples until the capture has completely stopped.
         await session.capture.stop();
@@ -478,11 +494,16 @@ export function createVoiceControlController({
     }
     const match = interpretAircraftVoiceCommand(transcript, catalogue);
     if (!match.ok) {
+      const retryPrompt = match.reason === 'unmatched'
+        ? incompleteVoiceCommandPrompt(transcript, catalogue)
+        : '';
       const message = match.reason === 'ambiguous'
         ? 'Command matched more than one action and was not executed.'
         : match.reason === 'invalid-value'
           ? `Interpreted as “${match.interpretedTranscript}”, but that target is invalid. Nothing was executed.`
-          : 'Command not recognized. Nothing was executed.';
+          : retryPrompt
+            ? `Command incomplete. ${retryPrompt} Nothing was executed.`
+            : 'Command not recognized. Nothing was executed.';
       if (match.interpretedTranscript) {
         voiceStore.setLastCommand(`Interpreted as “${match.interpretedTranscript}” · Invalid target`);
       }

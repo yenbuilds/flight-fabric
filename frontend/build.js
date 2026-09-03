@@ -32,7 +32,6 @@ const STATIC_DIRS = [
   'assets',
   'audio',
   'themes',
-  'vendor',
 ];
 
 process.chdir(ROOT);

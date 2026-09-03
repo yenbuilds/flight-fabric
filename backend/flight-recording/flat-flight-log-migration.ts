@@ -461,10 +461,8 @@ async function migrateFlatFlightLogs(rootDir: string): Promise<MigrationResult> 
 }
 
 module.exports = {
-  LEGACY_SUFFIXES,
   inspectFlatFlightLogs,
   migrateFlatFlightLogs,
-  readLegacyCsvIdentity,
 };
 
 export {};

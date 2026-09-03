@@ -35,7 +35,9 @@ function digitValue(token) {
   return /^\d$/.test(token) ? Number(token) : null;
 }
 
-function stripMatchingUnitSuffix(tokens, units) {
+// Kept shared with the command interpreter so bounded recognition repairs can
+// validate only the numeric words while preserving an explicitly spoken unit.
+export function stripMatchingUnitSuffix(tokens, units) {
   const suffixes = UNIT_SUFFIXES[units] || [];
   for (const suffix of suffixes) {
     if (tokens.length < suffix.length) continue;

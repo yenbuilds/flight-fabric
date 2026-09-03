@@ -428,75 +428,6 @@ async function run(): Promise<void> {
     });
   });
 
-  await test('records pre-state route metadata without renaming the bundle', async () => {
-    await withRecorder('manifest-route', {}, async (recorder) => {
-      const originalPath = recorder.filePath;
-      assert(await recorder.updateFilename('YSCB', 'YSSY'), 'manifest route update should succeed');
-      assert(recorder.filePath === originalPath, 'route metadata must not rename the immutable bundle');
-      assert(recorder.filename === 'aircraft-specific.jsonl', 'sidecar filename should remain canonical');
-      assert(recorder.recordAircraftSpecificState(baseInput()), 'state should remain writable');
-      const stats = await recorder.close({ timeMs: 500, endReason: 'test_end' });
-      assert(fs.existsSync(stats.filePath), 'canonical sidecar should exist');
-      assert(stats.filePath === originalPath, 'finalization should retain the original path');
-    });
-  });
-
-  await test('updates route metadata on an open sidecar without splitting row history', async () => {
-    await withRecorder('open-route', {}, async (recorder) => {
-      assert(recorder.recordAircraftSpecificState(baseInput()), 'first snapshot should write');
-      const originalPath = recorder.filePath;
-      assert(await recorder.updateFilename(null, 'YSSY'), 'open route update should succeed');
-      assert(recorder.filePath === originalPath && fs.existsSync(originalPath), 'open route update must keep the canonical path');
-      assert(recorder.recordAircraftSpecificState(baseInput({
-        timeMs: 100,
-        values: {
-          'controls.speedSelected': 210,
-          'systems.autothrottleArmed': true,
-          'systems.flightMode': 'LNAV',
-        },
-      })), 'post-rename state should write');
-      const stats = await recorder.close({ timeMs: 200, endReason: 'test_end' });
-      const rows = readRows(stats.filePath);
-      assert(rows.map((row) => row.seq).join(',') === '1,2,3,4,5', 'renamed file should contain contiguous full history');
-    });
-  });
-
-  await test('refuses a pre-state request to switch bundle identity', async () => {
-    await withRecorder('manifest-route-collision', {}, async (recorder) => {
-      const originalPath = recorder.filePath;
-      assert(await recorder.updateFilename('YSCB', 'YSSY', 'different-bundle') === false,
-        'pre-state bundle identity switch should be refused');
-      assert(recorder.filePath === originalPath, 'recorder should retain its original planned path');
-      assert(recorder.recordAircraftSpecificState(baseInput()), 'recording should continue at the original path');
-      const stats = await recorder.close({ timeMs: 100, endReason: 'test_end' });
-      assert(stats.filePath === originalPath && fs.existsSync(originalPath),
-        'continued recording should finalize at the original path');
-    });
-  });
-
-  await test('refuses an open bundle identity switch and continues contiguous history', async () => {
-    await withRecorder('open-route-collision', {}, async (recorder) => {
-      assert(recorder.recordAircraftSpecificState(baseInput()), 'first snapshot should write');
-      assert(await recorder.flush(), 'source should flush before the collision');
-      const originalPath = recorder.filePath;
-      assert(await recorder.updateFilename(null, 'YSSY', 'different-bundle') === false,
-        'open bundle identity switch should be refused');
-      assert(recorder.recordAircraftSpecificState(baseInput({
-        timeMs: 100,
-        values: {
-          'controls.speedSelected': 210,
-          'systems.autothrottleArmed': true,
-          'systems.flightMode': 'LNAV',
-        },
-      })), 'source recording should continue after refused rename');
-      const stats = await recorder.close({ timeMs: 200, endReason: 'test_end' });
-      assert(stats.filePath === originalPath, 'failed rename should keep the source basename');
-      const rows = readRows(originalPath);
-      assert(rows.map((row) => row.seq).join(',') === '1,2,3,4,5',
-        'source history should remain contiguous through final checkpoint');
-    });
-  });
-
   await test('fails startup atomically when the identity manifest exceeds the file cap', async () => {
     const outputDir = makeOutputDir('manifest-cap');
     const recorder = new recorderModule.AircraftSpecificJsonlRecorder({
@@ -583,18 +514,16 @@ async function run(): Promise<void> {
     }
   });
 
-  await test('closeSync after a route update cannot reopen or leak a closed recorder stream', async () => {
-    await withRecorder('close-during-rename', {}, async (recorder) => {
+  await test('closeSync finalizes the recorder at its immutable path', async () => {
+    await withRecorder('close-sync', {}, async (recorder) => {
       assert(recorder.recordAircraftSpecificState(baseInput()), 'first snapshot should write');
       await recorder.flush();
       const originalPath = recorder.filePath;
-      const routeUpdate = recorder.updateFilename(null, 'YSSY');
-      assert(await routeUpdate === true, 'route metadata update should flush and complete');
       recorder.closeSync();
       await new Promise<void>((resolve) => setImmediate(resolve));
-      assert(recorder.closed && recorder.stream === null, 'closed recorder must not retain a reopened stream');
+      assert(recorder.closed && recorder.stream === null, 'closed recorder must not retain a stream');
       assert(fs.existsSync(originalPath), 'already-written history should remain at the original path');
-      assert(recorder.filePath === originalPath, 'route metadata must not create a split destination history');
+      assert(recorder.filePath === originalPath, 'closeSync must retain the original recording path');
     });
   });
 

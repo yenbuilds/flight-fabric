@@ -521,7 +521,6 @@ async function readAircraftSpecificRowsForCsv(
 }
 
 module.exports = {
-  getAircraftSpecificSidecarPathForCsv,
   readAircraftSpecificRowsForCsv,
 };
 

@@ -49,7 +49,6 @@ function clearBackendModule(relativePath) {
 function clearTimelineModules() {
   [
     path.join('events', 'timeline-generator.js'),
-    path.join('events', 'timeline-events.js'),
     path.join('utils', 'flight-logs-dir.js'),
     path.join('utils', 'storage-paths.js'),
   ].forEach(clearBackendModule);

@@ -147,8 +147,7 @@ For a release, update and review the checksum pins; do not use `--skip-verify`.
 #### Expected local warnings
 
 Local builds are unsigned unless signing variables are set. The frontend may
-warn about legacy scripts and Leaflet images; the build copies those assets for
-compatibility.
+warn about legacy scripts; the build copies those compatibility assets.
 
 ## Packaged structure
 

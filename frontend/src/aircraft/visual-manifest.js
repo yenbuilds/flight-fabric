@@ -61,6 +61,8 @@ export const AIRCRAFT_PROFILE_VISUALS = Object.freeze({
   'bundled/msfs/inibuilds-a320neo-v2': { assetKey: 'airbus-a320neo', fidelity: 'exact' },
   'bundled/msfs/inibuilds-a321lr': { assetKey: 'airbus-a321lr', fidelity: 'exact' },
   'bundled/msfs/inibuilds-a330': { assetKey: 'airbus-a330-family', fidelity: 'family' },
+  'bundled/msfs/inibuilds-a350-900': { assetKey: 'widebody', fidelity: 'class' },
+  'bundled/msfs/inibuilds-a350-1000': { assetKey: 'widebody', fidelity: 'class' },
   'bundled/msfs/inibuilds-a400m': { assetKey: 'airbus-a400m', fidelity: 'exact' },
   'bundled/msfs/inibuilds-tristar': { assetKey: 'lockheed-l1011-500', fidelity: 'exact' },
   'bundled/msfs/justflight-146': { assetKey: 'bae-146-family', fidelity: 'family' },

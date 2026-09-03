@@ -64,7 +64,6 @@ for (const forbidden of [
   'function flushActiveCsvBeforeRead',
   'function flushActiveCsvBeforeList',
   "require('../events/timeline-generator')",
-  "require('../events/timeline-events')",
   'getLandingsFromCSVs',
   'computeStatsFromEntries',
   'generateFromCSV',

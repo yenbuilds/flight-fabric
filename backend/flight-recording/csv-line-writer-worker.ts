@@ -6,7 +6,6 @@ const { parentPort, workerData } = require('worker_threads') as typeof import('w
 const {
   assertSafeRecordingFilePath,
   createSafeRecordingWriteStream,
-  safeRenameRecordingFileSync,
 } = require('./recording-path-guard') as {
   assertSafeRecordingFilePath: (_options: {
     extension: string;
@@ -21,13 +20,6 @@ const {
     outputDir: string;
     targetPath: string;
   }) => FsWriteStream;
-  safeRenameRecordingFileSync: (_options: {
-    extension: string;
-    fromPath: string;
-    operation: string;
-    outputDir: string;
-    toPath: string;
-  }) => boolean;
 };
 
 type FsWriteStream = import('fs').WriteStream & {
@@ -57,7 +49,6 @@ type WorkerCommand = {
   requestId?: number;
   line?: string;
   lines?: string[];
-  newPath?: string;
   controlBuffer?: SharedArrayBuffer;
 };
 
@@ -406,70 +397,6 @@ function closeStreamSync(controlBuffer?: SharedArrayBuffer): void {
   }
 }
 
-async function updateFilePath(newPath: string): Promise<boolean> {
-  if (closed || !filePath || !newPath || newPath === filePath) return false;
-
-  const previousStream = stream;
-  stream = null;
-  let adoptedDestination = false;
-
-  try {
-    if (previousStream) {
-      await flushStream(previousStream);
-      await new Promise<void>((resolve) => {
-        if (previousStream.closed) return resolve();
-        previousStream.once('close', resolve);
-        previousStream.end();
-      });
-    }
-    const resolvedNewPath = assertSafeRecordingFilePath({
-      extension: '.csv',
-      operation: 'renameCsvWorkerRecording',
-      outputDir,
-      targetPath: newPath,
-    });
-    safeRenameRecordingFileSync({
-      extension: '.csv',
-      fromPath: filePath,
-      operation: 'renameCsvWorkerRecording',
-      outputDir,
-      toPath: resolvedNewPath,
-    });
-    // Once the no-replace move commits, recovery and the parent-visible result
-    // must follow the adopted path even if reopening the stream fails.
-    filePath = resolvedNewPath;
-    adoptedDestination = true;
-    const nextStream = createSafeRecordingWriteStream({
-      extension: '.csv',
-      flags: 'a',
-      operation: 'reopenCsvWorkerRecording',
-      outputDir,
-      targetPath: resolvedNewPath,
-    });
-    nextStream.on('error', (err) => {
-      postError(err);
-    });
-    stream = nextStream;
-    return true;
-  } catch (err) {
-    postError(err);
-    try {
-      const recovered = createSafeRecordingWriteStream({
-        extension: '.csv',
-        flags: 'a',
-        operation: 'recoverCsvWorkerRecording',
-        outputDir,
-        targetPath: filePath,
-      });
-      recovered.on('error', (recoveryErr) => {
-        postError(recoveryErr);
-      });
-      stream = recovered;
-    } catch {}
-    return adoptedDestination;
-  }
-}
-
 async function handleCommand(command: WorkerCommand): Promise<void> {
   try {
     switch (command.type) {
@@ -489,13 +416,6 @@ async function handleCommand(command: WorkerCommand): Promise<void> {
           }
         }
         return;
-      case 'updatePath': {
-        const ok = typeof command.newPath === 'string'
-          ? await updateFilePath(command.newPath)
-          : false;
-        post({ type: 'response', requestId: command.requestId, ok });
-        return;
-      }
       case 'close': {
         const stats = await closeStream();
         post({ type: 'response', requestId: command.requestId, ok: true, stats });

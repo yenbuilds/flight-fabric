@@ -10,12 +10,6 @@ type EventBusModule = {
   emit: (event: string, payload: unknown) => void;
 };
 
-type TimelineModule = {
-  startViolation: (ruleId: string, severity: Severity, metrics: RiskMetrics) => void;
-  endViolation: (ruleId: string, scoreImpact: number | null) => void;
-  VIOLATION_RULE: ViolationRuleMap;
-};
-
 type PhasesModule = {
   GROUND_PHASES: Set<string>;
 };
@@ -146,7 +140,6 @@ type FeatureSummary = {
 type RiskMetrics = Record<string, string | number | boolean | null>;
 
 const eventBus = require('../core/event-bus') as EventBusModule;
-const timeline = require('../events/timeline-events') as TimelineModule;
 const { GROUND_PHASES } = require('../lifecycle/phases') as PhasesModule;
 const {
   sanitizePrecipRateMm,
@@ -155,7 +148,7 @@ const {
   sanitizePrecipRateMm: (value: unknown) => number | null;
   sanitizePrecipState: (value: unknown) => number | null;
 };
-const { VIOLATION_RULE } = timeline;
+const { VIOLATION_RULE } = require('../../shared/violation-rules.js') as { VIOLATION_RULE: ViolationRuleMap };
 
 const CONVECTIVE_RULE = Object.freeze({
   EXPOSURE: VIOLATION_RULE.CONVECTIVE_EXPOSURE as ViolationRuleId,

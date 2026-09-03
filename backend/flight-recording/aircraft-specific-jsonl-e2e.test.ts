@@ -74,7 +74,7 @@ function replayRows(rows: AnyRecord[]): { state: AnyRecord | null; boundaries: A
   return { state, boundaries };
 }
 
-test('canonical projector state records, updates route metadata, finalizes, and replays end to end', async () => {
+test('canonical projector state records, finalizes at one immutable path, and replays end to end', async () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-aircraft-jsonl-e2e-'));
   const recordingStartMs = Date.parse('2026-07-20T01:00:00.000Z');
   const flightId = '2026-07-20T01:00:00.000Z';
@@ -179,9 +179,7 @@ test('canonical projector state records, updates route metadata, finalizes, and 
       timestampIso: new Date(recordingStartMs + 250).toISOString(),
     });
 
-    const beforeRoutePath = recorder.getStats().filePath;
-    assert.equal(await recorder.updateRoute('YSCB', 'YSSY'), true, 'sidecar should accept route metadata');
-    assert.equal(recorder.getStats().filePath, beforeRoutePath, 'route metadata must not rename the immutable bundle');
+    const originalPath = recorder.getStats().filePath;
     const stats = await recorder.endFlight({
       timeMs: recordingStartMs + 500,
       timestampIso: new Date(recordingStartMs + 500).toISOString(),
@@ -194,6 +192,7 @@ test('canonical projector state records, updates route metadata, finalizes, and 
 
     assert(stats?.hasFile, 'supported aircraft recording should produce a physical sidecar');
     assert.equal(stats.filename, 'aircraft-specific.jsonl');
+    assert.equal(stats.filePath, originalPath, 'the sidecar path must remain unchanged through finalization');
     const rows = readRows(stats.filePath);
     assert.equal(rows.at(-1)?.reason, 'recording_end');
     assert.equal(rows.at(-1)?.endReason, 'test_end_to_end');

@@ -32,6 +32,7 @@ const MOBILE_RIBBON_TEMPLATES = Object.freeze([
   'fbw-a32nx',
   'fbw-a380x',
   'fenix-a32x',
+  'inibuilds-a350',
   'pmdg-737',
   'pmdg-777',
 ]);

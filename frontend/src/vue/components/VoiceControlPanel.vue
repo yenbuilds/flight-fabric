@@ -45,6 +45,16 @@ function speechExample(command = {}) {
   return phrase ? `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}` : '';
 }
 
+function prioritizeAltitudeTarget(commands = []) {
+  const altitudeIndex = commands.findIndex((command) => (
+    command?.input?.kind === 'number'
+    && command.input.units === 'feet'
+    && String(command.id || '').toLowerCase().includes('altitude')
+  ));
+  if (altitudeIndex <= 0) return commands;
+  return [commands[altitudeIndex], ...commands.filter((_, index) => index !== altitudeIndex)];
+}
+
 function compactMicrophoneLabel(value = '') {
   return String(value || '')
     .replace(/^Default\s*-\s*/i, '')
@@ -52,7 +62,9 @@ function compactMicrophoneLabel(value = '') {
     .trim();
 }
 
-const examples = computed(() => Object.values(aircraftControls.aircraftCommandCatalogue.commands || {})
+const examples = computed(() => prioritizeAltitudeTarget(
+  Object.values(aircraftControls.aircraftCommandCatalogue.commands || {}),
+)
   .map(speechExample)
   .filter(Boolean)
   .slice(0, 3));
@@ -376,6 +388,9 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             {{ shortcutError }}
           </p>
         </form>
+        <p class="text-[11px] text-muted-fg lg:col-span-2">
+          After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. Audio remains local and is not saved.
+        </p>
       </div>
     </details>
 

@@ -135,6 +135,9 @@ function createHarness(options = {}) {
   const controller = createVoiceControlController({
     api, aircraftControl, aircraftControlsStore, voiceStore, createCapture,
     globalRef: options.globalRef || {}, readback, pushToTalkTone,
+    // Most controller tests do not need to spend real time in the production
+    // release tail. The dedicated regression below exercises the real delay.
+    releaseTailMs: options.releaseTailMs ?? 0,
   });
   return {
     aircraftControlsStore, audio, cancellations, captureCancellations, captureStops, captures, controller,
@@ -392,7 +395,7 @@ test('development transcription can preview a known command but never dispatches
   assert.equal(harness.sentCommands.length, 0);
 });
 
-test('development transcription shows a bounded correction even when the target is invalid', async () => {
+test('development transcription recovers a bounded altitude digit homophone', async () => {
   const altitude = {
     id: 'flightGuidance.altitude.set',
     label: 'Selected altitude',
@@ -412,12 +415,12 @@ test('development transcription shows a bounded correction even when the target 
   await harness.controller.begin();
   await harness.controller.finish();
   await harness.emitRecognition({
-    type: 'final', sessionId: 'session_12345678', text: "SET ALTITUDE TWO ONE'S NEARER",
+    type: 'final', sessionId: 'session_12345678', text: 'SAID ALTITUDE ONE TO ZERO',
   });
 
   assert.equal(harness.voiceStore.status, 'transcribed');
-  assert.match(harness.voiceStore.lastCommand, /Interpreted as.*set altitude two one zero/i);
-  assert.match(harness.voiceStore.lastCommand, /Invalid target/i);
+  assert.match(harness.voiceStore.lastCommand, /Interpreted as.*set altitude one two zero/i);
+  assert.match(harness.voiceStore.lastCommand, /Would send Selected altitude: 12000/i);
   assert.equal(harness.sentCommands.length, 0);
 });
 
@@ -492,6 +495,49 @@ test('a bounded recognition correction is visible and dispatches the validated c
   assert.equal(harness.sentCommands[0].commandId, 'flightGuidance.heading.set');
   assert.deepEqual(harness.sentCommands[0].input, { value: 270 });
   assert.match(harness.voiceStore.lastCommand, /Interpreted as.*set heading two seven zero/i);
+});
+
+test('a decoded tens word and clipped trailing zero recover to the spoken heading', async () => {
+  const harness = createHarness();
+  await harness.controller.initialize();
+  await harness.controller.begin();
+  await harness.controller.finish();
+  await harness.emitRecognition({
+    type: 'final', sessionId: 'session_12345678', text: 'SET HEADING TWO EIGHTY ZER',
+  });
+
+  assert.equal(harness.sentCommands.length, 1);
+  assert.equal(harness.sentCommands[0].commandId, 'flightGuidance.heading.set');
+  assert.deepEqual(harness.sentCommands[0].input, { value: 280 });
+  assert.match(harness.voiceStore.lastCommand, /Interpreted as.*set heading two eighty zero/i);
+});
+
+test('an incomplete multi-channel command asks for the missing discriminator and stays fail-closed', async () => {
+  const autopilotOne = {
+    id: 'flightGuidance.autopilot1.engage', label: 'Autopilot 1', input: { kind: 'none' },
+    speech: { patterns: ['engage autopilot one', 'engage autopilot left'] },
+  };
+  const autopilotTwo = {
+    id: 'flightGuidance.autopilot2.engage', label: 'Autopilot 2', input: { kind: 'none' },
+    speech: { patterns: ['engage autopilot two', 'engage autopilot right'] },
+  };
+  const harness = createHarness({
+    catalogue: {
+      configurationId: 'pmdg-777', profileKey: 'test/pmdg-777', profileRevision: 1,
+      commands: { [autopilotOne.id]: autopilotOne, [autopilotTwo.id]: autopilotTwo },
+    },
+  });
+  await harness.controller.initialize();
+  await harness.controller.begin();
+  await harness.controller.finish();
+  await harness.emitRecognition({
+    type: 'final', sessionId: 'session_12345678', text: 'engage autopilot',
+  });
+
+  assert.equal(harness.sentCommands.length, 0);
+  assert.equal(harness.voiceStore.status, 'unmatched');
+  assert.match(harness.voiceStore.statusText, /finish with.*one.*left.*two.*right/i);
+  assert.match(harness.voiceStore.statusText, /nothing was executed/i);
 });
 
 test('voice feedback waits for and preserves the correlated backend success result', async () => {
@@ -923,6 +969,25 @@ test('push-to-talk release sends the final flushed PCM chunk before recognition 
   assert.equal(await harness.controller.finish(), true);
   assert.equal(harness.captureStops.length, 1);
   assert.equal(harness.audio.length, 1);
+  assert.equal(harness.audio[0].sequence, 0);
+});
+
+test('push-to-talk release keeps accepting audio during a bounded tail before flush', async () => {
+  const harness = createHarness({ releaseTailMs: 25 });
+  await harness.controller.initialize();
+  await harness.controller.begin();
+
+  const finishing = harness.controller.finish();
+  assert.equal(harness.captureStops.length, 0, 'capture must remain open during the release tail');
+  harness.captures[0].callbacks.onChunk({
+    sampleRate: 48000,
+    samples: new Float32Array([0.4, -0.4]),
+    sequence: 0,
+  });
+  assert.equal(await finishing, true);
+
+  assert.equal(harness.captureStops.length, 1);
+  assert.equal(harness.audio.length, 1, 'tail audio must reach recognition before capture is flushed');
   assert.equal(harness.audio[0].sequence, 0);
 });
 

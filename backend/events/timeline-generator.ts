@@ -67,12 +67,21 @@ const { TextDecoder } = require('node:util') as typeof import('node:util');
 const flightTypeClassifier = require('../lifecycle/flight-type-classifier');
 const airportSearch = require('../landing/airport-search');
 const landingDistance = require('../landing/landing-distance');
-const { MARKER_TYPE, VIOLATION_RULE } = require('./timeline-events');
+const { VIOLATION_RULE } = require('../../shared/violation-rules.js') as typeof import('../../shared/violation-rules.js');
 const { parseCsvLine, splitCsvLines } = require('../utils/csv');
 const { computeCrosswind } = require('../utils/helpers') as {
   computeCrosswind: (windSpeed: unknown, windDirectionDeg: unknown, headingDeg: unknown) => number | null;
 };
 const { getFlightLogsStorageInfo: getFlightLogsStorageSummary, resolveFlightLogsDir } = require('../utils/flight-logs-dir');
+
+const MARKER_TYPE = Object.freeze({
+  ALTITUDE_1000: 'altitude_1000',
+  ALTITUDE_500: 'altitude_500',
+  ALTITUDE_100: 'altitude_100',
+  ALTITUDE_50: 'altitude_50',
+  GO_AROUND: 'go_around',
+});
+
 const recordingBundleLayout = require('../flight-recording/recording-bundle-layout') as {
   BUNDLE_FILES: {
     csv: string;

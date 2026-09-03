@@ -485,6 +485,7 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
         patterns: [
           'set lights for takeoff', 'set lights for take off',
           'set lights for a takeoff', 'set lights for a take off',
+          'set takeoff lights', 'set take off lights',
           'takeoff lights', 'take off lights',
         ],
         hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
@@ -783,6 +784,88 @@ export const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
         { label: 'Runway turnoff light right ON', request: aircraftAction('lights.turnoffRight.on') },
         { label: 'Taxi light ON', request: aircraftAction('lights.taxi.on') },
         { label: 'Position lights STROBE + STEADY', request: aircraftAction('lights.position.strobeSteady') },
+      ],
+    ),
+  ]),
+});
+
+export const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'inibuilds-a350',
+  bindings: Object.freeze([
+    input(
+      'flightGuidance.speed.set',
+      aircraftAction('flightGuidance.speed.set'),
+      'value',
+      { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+    ),
+    input(
+      'flightGuidance.heading.set',
+      aircraftAction('flightGuidance.heading.set'),
+      'value',
+      { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+    ),
+    input(
+      'flightGuidance.altitude.set',
+      aircraftAction('flightGuidance.altitude.set'),
+      'value',
+      { kind: 'number', min: 0, max: 49_000, step: 100, units: 'feet' },
+    ),
+    input(
+      'flightGuidance.verticalSpeed.set',
+      aircraftAction('flightGuidance.verticalSpeed.set'),
+      'value',
+      { kind: 'number', min: -6_000, max: 6_000, step: 100, units: 'feet-per-minute' },
+    ),
+    choice('surfaces.gear.set', {
+      up: aircraftAction('controls.gear.up'),
+      down: aircraftAction('controls.gear.down'),
+    }),
+    choice('surfaces.flaps.adjust', {
+      increase: aircraftAction('controls.flaps.increase'),
+      decrease: aircraftAction('controls.flaps.decrease'),
+    }),
+    choice('surfaces.parkingBrake.set', {
+      false: aircraftAction('controls.parkingBrake.off'),
+      true: aircraftAction('controls.parkingBrake.on'),
+    }, BOOLEAN_INPUT),
+    choice('surfaces.spoilersArmed.set', {
+      false: aircraftAction('controls.spoilersArmed.off'),
+      true: aircraftAction('controls.spoilersArmed.on'),
+    }, BOOLEAN_INPUT),
+    choice('surfaces.spoilers.set', {
+      retracted: { ...aircraftAction('controls.speedbrake.set'), value: 0 },
+      full: { ...aircraftAction('controls.speedbrake.set'), value: 100 },
+    }),
+    choice('lights.strobeMode.set', {
+      off: aircraftAction('lights.strobe.off'),
+      auto: aircraftAction('lights.strobe.auto'),
+      on: aircraftAction('lights.strobe.on'),
+    }),
+    choice('lights.nav.set', {
+      false: aircraftAction('lights.nav.off'),
+      true: aircraftAction('lights.nav.nav1'),
+    }, BOOLEAN_INPUT),
+    choice('lights.beacon.set', {
+      false: aircraftAction('lights.beacon.off'),
+      true: aircraftAction('lights.beacon.on'),
+    }, BOOLEAN_INPUT),
+    choice('lights.landing.set', {
+      false: aircraftAction('lights.landing.off'),
+      true: aircraftAction('lights.landing.on'),
+    }, BOOLEAN_INPUT),
+    choice('lights.noseMode.set', {
+      off: aircraftAction('lights.nose.off'),
+      taxi: aircraftAction('lights.nose.taxi'),
+      takeoff: aircraftAction('lights.nose.takeoff'),
+    }),
+    sequence(
+      'configuration.lights.takeoff',
+      'Landing ON · nose TAKEOFF · strobe ON · navigation NAV 1',
+      [
+        { label: 'Landing lights ON', request: aircraftAction('lights.landing.on') },
+        { label: 'Nose light TAKEOFF', request: aircraftAction('lights.nose.takeoff') },
+        { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
+        { label: 'Navigation lights NAV 1', request: aircraftAction('lights.nav.nav1') },
       ],
     ),
   ]),
@@ -1141,6 +1224,7 @@ export const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
 const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>([
   ['fbw-a32nx', FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION],
   ['fenix-a32x', FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION],
+  ['inibuilds-a350', INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-737', PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-777', PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION],
 ]);
@@ -1403,6 +1487,7 @@ module.exports = {
   FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION,
   FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION,
   GENERIC_AIRCRAFT_COMMAND_CONFIGURATION,
+  INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION,
   PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION,
   PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION,
   buildAircraftCommandCatalogue,

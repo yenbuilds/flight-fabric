@@ -323,7 +323,7 @@ test('Electron package includes local CommonJS require targets', () => {
 });
 
 test('frontend only uses wsPort + 1 as the explicit last-resort HTTP fallback', () => {
-  const files = sourceFilesUnder('frontend').filter((filePath) => !rel(filePath).includes('/vendor/'));
+  const files = sourceFilesUnder('frontend');
   const offenders = [];
   const allowed = new Set(['frontend/src/ws/connection.js']);
   for (const filePath of files) {
@@ -393,7 +393,7 @@ test('frontend build and Electron launch paths use the bundled frontend output',
   assert(frontendPkg.dependencies?.leaflet === '^1.9.4', 'map views should use the bundled Leaflet runtime');
   assert(!frontendPkg.dependencies?.['maplibre-gl'], 'standard raster maps should not ship the failed MapLibre runtime');
   assert(frontendBuild.includes('flight-phases.js'), 'frontend build wrapper should copy flight-phases.js');
-  assert(frontendBuild.includes("'vendor'"), 'frontend build wrapper should copy vendor assets');
+  assert(!frontendBuild.includes("\n  'vendor',"), 'frontend build wrapper should not copy retired vendor assets');
   assert(frontendBuild.includes("'themes'"), 'frontend build wrapper should copy bundled themes');
   assert(!frontendBuild.includes('MapLibre'), 'frontend build wrapper should not retain unused MapLibre worker handling');
   assert(frontendBuild.includes('buildTailwindCss()'), 'frontend build wrapper should compile Tailwind CSS');
@@ -574,7 +574,7 @@ test('aircraft-specific JSONL follows the canonical projector and CSV recording 
     coreSource.includes('let activeFlightFinalizationPromise: Promise<unknown> | null = null;')
       && coreSource.includes("return 'Previous flight recording is still finalizing';")
       && coreSource.includes('aircraftSpecificJsonlRecorder.isFinalizing?.() === true'),
-    'a new recording must not replace companions while the prior route/finalization is still pending',
+    'a new recording must not replace companions while prior finalization is still pending',
   );
   const startFlightIndex = coreSource.indexOf('function startFlight(nowEpochMs, timestampIso');
   const preflightBlockerIndex = coreSource.indexOf(
@@ -721,33 +721,7 @@ test('simbridge-core only uses VRE result fields returned by the evaluator', () 
   assert(missing.length === 0, `simbridge-core reads missing vreResult keys: ${missing.join(', ')}`);
 });
 
-test('timeline generator altitude markers are defined in timeline-events MARKER_TYPE', () => {
-  const timelineEventsSource = stripCommentsPreserveLines(read('backend/events/timeline-events.js'));
-  const markerBlock = /const\s+MARKER_TYPE\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/.exec(timelineEventsSource);
-  assert(markerBlock, 'could not find MARKER_TYPE in timeline-events.js');
-
-  const markerValues = new Set();
-  for (const match of markerBlock[1].matchAll(/:\s*'([^']+)'/g)) {
-    markerValues.add(match[1]);
-  }
-
-  const generatorSource = stripCommentsPreserveLines(read('backend/events/timeline-generator.js'));
-  const altitudeBlock = /const\s+ALTITUDE_MARKERS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\)/.exec(generatorSource);
-  assert(altitudeBlock, 'could not find ALTITUDE_MARKERS in timeline-generator.js');
-
-  const referenced = new Set();
-  for (const match of altitudeBlock[1].matchAll(/MARKER_TYPE\.(\w+)/g)) {
-    const key = match[1];
-    const valueMatch = new RegExp(`${key}\\s*:\\s*'([^']+)'`).exec(markerBlock[1]);
-    assert(valueMatch, `timeline-events MARKER_TYPE missing ${key}`);
-    referenced.add(valueMatch[1]);
-  }
-
-  const missing = [...referenced].filter((value) => !markerValues.has(value));
-  assert(missing.length === 0, `timeline generator references unknown marker types: ${missing.join(', ')}`);
-});
-
-test('timeline UI labels cover generator event types and shared marker types', () => {
+test('timeline UI labels cover generator event and marker types', () => {
   const timelineUiSource = stripCommentsPreserveLines(read('frontend/src/timeline/constants.js'));
 
   const typeLabelsBlock = /TYPE_LABELS\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/.exec(timelineUiSource);
@@ -772,9 +746,8 @@ test('timeline UI labels cover generator event types and shared marker types', (
     labeledMarkers.add(match[1]);
   }
 
-  const timelineEventsSource = stripCommentsPreserveLines(read('backend/events/timeline-events.js'));
-  const markerBlock = /const\s+MARKER_TYPE\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/.exec(timelineEventsSource);
-  assert(markerBlock, 'could not find MARKER_TYPE in timeline-events.js');
+  const markerBlock = /const\s+MARKER_TYPE\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/.exec(generatorSource);
+  assert(markerBlock, 'could not find MARKER_TYPE in timeline-generator.js');
   const markerValues = new Set();
   for (const match of markerBlock[1].matchAll(/:\s*'([^']+)'/g)) {
     markerValues.add(match[1]);
@@ -820,8 +793,7 @@ test('frontend live telemetry message allowlist is registered and handled', () =
 test('frontend outbound WebSocket command literals are handled by the backend', () => {
   const accepted = getBackendAcceptedClientMessageTypes();
   const files = sourceFilesUnder('frontend')
-    .filter((filePath) => !rel(filePath).includes('/node_modules/'))
-    .filter((filePath) => !rel(filePath).includes('/vendor/'));
+    .filter((filePath) => !rel(filePath).includes('/node_modules/'));
   const missing = [];
 
   for (const filePath of files) {

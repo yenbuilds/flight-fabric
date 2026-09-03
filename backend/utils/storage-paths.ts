@@ -18,7 +18,6 @@ const SETTINGS_FILE_NAME = 'settings.json';
 const SDK_CONNECTORS_DIR_NAME = 'SDK Connectors';
 const LOCAL_SDK_CONNECTORS_DIR_NAME = 'Local';
 const COMMUNITY_SDK_CONNECTORS_DIR_NAME = 'Community';
-const COMMUNITY_SDK_CONNECTOR_INSTALL_META_DIR_NAME = '.remote-meta';
 const AUDIO_DIR_NAME = 'Audio';
 const CABIN_ANNOUNCEMENTS_DIR_NAME = 'Cabin';
 const THEMES_DIR_NAME = 'Themes';
@@ -118,10 +117,6 @@ function getLocalSdkConnectorsDir(env: EnvLike = process.env): string {
 
 function getCommunitySdkConnectorsDir(env: EnvLike = process.env): string {
   return path.join(getSdkConnectorsRootDir(env), COMMUNITY_SDK_CONNECTORS_DIR_NAME);
-}
-
-function getCommunitySdkConnectorsRemoteMetaDir(env: EnvLike = process.env): string {
-  return path.join(getCommunitySdkConnectorsDir(env), COMMUNITY_SDK_CONNECTOR_INSTALL_META_DIR_NAME);
 }
 
 function getAudioAssetsRootDir(env: EnvLike = process.env): string {
@@ -258,7 +253,6 @@ const storagePathsApi = {
   APP_NAME,
   AUDIO_DIR_NAME,
   CABIN_ANNOUNCEMENTS_DIR_NAME,
-  COMMUNITY_SDK_CONNECTOR_INSTALL_META_DIR_NAME,
   COMMUNITY_SDK_CONNECTORS_DIR_NAME,
   DESTINATION_TARGET_FILE_NAME,
   DOCUMENTS_APP_DIR_NAME,
@@ -279,7 +273,6 @@ const storagePathsApi = {
   getAudioAssetsRootDir,
   getCabinAnnouncementAudioDir,
   getCommunitySdkConnectorsDir,
-  getCommunitySdkConnectorsRemoteMetaDir,
   getDestinationTargetFilePath,
   getDocumentsDirCandidates,
   getHomeDir,

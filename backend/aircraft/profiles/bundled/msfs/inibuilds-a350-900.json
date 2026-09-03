@@ -1,0 +1,96 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a350-900",
+  "name": "iniBuilds Airbus A350-900",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-05-04T00:00:00Z",
+  "updatedAt": "2026-09-02T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/inibuilds-a350-base",
+  "abstract": false,
+  "aircraft": {
+    "category": "D"
+  },
+  "integration": {
+    "matching": {
+      "priority": 90,
+      "titleContains": [
+        "iniBuilds Airbus A350-900",
+        "iniBuilds A350-900"
+      ],
+      "titleRegex": "inibuilds.*(a350[- ]?900|a359)|(a350[- ]?900|a359).*inibuilds",
+      "configPathContains": [
+        "inibuilds-a350-900",
+        "inibuilds_a350_900",
+        "inibuilds-aircraft-a350-900"
+      ],
+      "configPathRegex": "inibuilds.*(a350[-_ ]?900|a359)|(a350[-_ ]?900|a359).*inibuilds"
+    },
+    "telemetry": { "lights": {} },
+    "presentation": {}
+  },
+  "meta": {
+    "developer": "iniBuilds",
+    "platforms": ["msfs2020", "msfs2024"],
+    "contributor": "YenBuilds",
+    "updated": "2026-09-02",
+    "status": "partial",
+    "variant": "A350-900",
+    "notes": "iniBuilds Airbus A350-900 (ICAO A359). Extends the shared trusted A350 adapter and activates the dedicated page and voice command catalogue."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "iniBuilds A350 Airliner LVAR List (A350 LVARs-FEB2025.pdf)",
+        "url": "https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/",
+        "retrievedAt": "2026-09-02",
+        "notes": "Covers the published INI_* state variables, selector detents and direct FCU set/read variables used by the shared A350 adapter. iniBuilds explicitly documents third-party read/write use."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator 2024 SDK aircraft events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Key_Events.htm",
+        "retrievedAt": "2026-09-02",
+        "notes": "Covers the adapter's GEAR_UP, GEAR_DOWN, FLAPS_INCR, FLAPS_DECR, PARKING_BRAKE_SET, SPOILERS_ARM_OFF, SPOILERS_ARM_ON and SPOILERS_SET standard surface routes."
+      },
+      {
+        "type": "official-docs",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "iniBuilds A350 Airliner for MSFS product page",
+        "url": "https://inibuilds.com/products/inibuilds-a350-airliner-msfs-2024",
+        "retrievedAt": "2026-09-02",
+        "notes": "Product and platform identity for the A350-900 package variant. Active mappings are inherited from the source-backed family profile."
+      },
+      {
+        "type": "official-docs",
+        "authority": "regulator",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "UK CAA TCDS UK.TC.A.00157 - Airbus A350",
+        "url": "https://www.caa.co.uk/Documents/Download/3934/ca692457-336e-4190-840e-cd26cf498935/3888",
+        "retrievedAt": "2026-06-03",
+        "notes": "Documents A350-900 variant identity and certified weight context."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-09-02",
+      "knownIssues": [
+        "Exact A350-900 simulator title and package path strings still require confirmation across current MSFS 2020 and MSFS 2024 builds."
+      ]
+    }
+  }
+}

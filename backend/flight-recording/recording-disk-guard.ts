@@ -311,7 +311,6 @@ module.exports = {
   createLowDiskError,
   createRecordingDiskGuard,
   isDiskCapacityError,
-  probeDiskSpace,
   probeDiskSpaceSync,
 };
 

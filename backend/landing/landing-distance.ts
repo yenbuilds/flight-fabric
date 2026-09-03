@@ -901,15 +901,9 @@ function inferSurfaceCondition(inputs: SurfaceConditionInputs = {}): ResolvedSur
     if (oatC <= -2) return { surface: 'wet', source: 'inferred', confident: false }; // residual contamination plausible
     return { surface: 'dry', source: 'inferred', confident: false };
   }
-  if (oatKnown) {
-    // Precip unknown but OAT known: a single signal is enough to differentiate
-    // freezing-contamination risk from a warm-and-clear scenario. Mark as
-    // low-confidence so callers can flag it in the UI if they want.
-    if (oatC <= 0) return { surface: 'wet', source: 'inferred', confident: false };
-    return { surface: 'dry', source: 'inferred', confident: false };
-  }
-
-  // Insufficient data → fail safe to 'wet'
+  // OAT alone cannot establish whether precipitation or residual runway
+  // contamination is present. Without an explicit precipitation observation,
+  // treat the available weather data as insufficient and fail safe to wet.
   return { surface: 'wet', source: 'failsafe', confident: false };
 }
 

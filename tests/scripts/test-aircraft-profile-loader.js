@@ -123,6 +123,8 @@ const VENDOR_SPECIFIC_MATCH_TOKENS = new Map([
   ['inibuilds-a310', ['inibuilds']],
   ['inibuilds-a321lr', ['inibuilds', 'microsoft']],
   ['inibuilds-a330', ['inibuilds', 'microsoft']],
+  ['inibuilds-a350-900', ['inibuilds']],
+  ['inibuilds-a350-1000', ['inibuilds']],
   ['inibuilds-a400m', ['inibuilds', 'microsoft']],
   ['inibuilds-tristar', ['inibuilds']],
   ['justflight-146', ['justflight', 'just', 'jf', 'jfa']],
@@ -430,6 +432,21 @@ const inibuildsA330 = loader.loadProfile('inibuilds-a330');
 test('Can load inibuilds-a330 profile', inibuildsA330 !== null);
 test('iniBuilds A330 does not inherit broad Airbus flap detents', inibuildsA330?.flaps == null && inibuildsA330?.aircraft?.flaps == null);
 test('iniBuilds A330 activates its dedicated trusted adapter', inibuildsA330?.integration?.aircraftSpecific?.adapter === 'inibuilds-a330');
+
+const inibuildsA350Base = loader.loadProfile('inibuilds-a350-base');
+test('Can load inibuilds-a350-base profile', inibuildsA350Base !== null);
+test('iniBuilds A350 base is abstract', inibuildsA350Base?.abstract === true);
+for (const variant of ['900', '1000']) {
+  const profile = loader.loadProfile(`inibuilds-a350-${variant}`);
+  test(`Can load inibuilds-a350-${variant} profile`, profile !== null);
+  test(`iniBuilds A350-${variant} activates the shared trusted adapter`, profile?.integration?.aircraftSpecific?.adapter === 'inibuilds-a350');
+  test(`iniBuilds A350-${variant} uses category D`, profile?.aircraftCategory === 'D');
+  test(
+    `iniBuilds A350-${variant} uses guarded writes and narrow surface fallback`,
+    profile?.integration?.controls?.genericFallback === false
+      && profile?.integration?.controls?.standardSurfaceFallback === true,
+  );
+}
 
 const a300 = loader.loadProfile('inibuilds-a300');
 test('Can load inibuilds-a300 profile', a300 !== null);
@@ -878,6 +895,19 @@ test(
   fbwA380xCollisionCases.every(([title, hint]) => (
     loader.detectProfile(title, hint ? { hint } : undefined)?.id !== 'fbw-a380x'
   ))
+);
+
+const detectedIniBuildsA350900 = loader.detectProfile('iniBuilds Airbus A350-900');
+const detectedIniBuildsA3501000 = loader.detectProfile('iniBuilds Airbus A350-1000');
+test('Detects iniBuilds A350-900 specifically', detectedIniBuildsA350900?.id === 'inibuilds-a350-900');
+test('Detects iniBuilds A350-1000 specifically', detectedIniBuildsA3501000?.id === 'inibuilds-a350-1000');
+test(
+  'iniBuilds A350 variants do not cross-match each other or an unqualified Airbus title',
+  detectedIniBuildsA350900?.id !== 'inibuilds-a350-1000'
+    && detectedIniBuildsA3501000?.id !== 'inibuilds-a350-900'
+    && !['inibuilds-a350-900', 'inibuilds-a350-1000'].includes(
+      loader.detectProfile('Airbus A350-900')?.id,
+    ),
 );
 
 const detectedMicrosoftIniBuildsA320neoV2 = loader.detectProfile('Airbus A320neo (v2) - Microsoft / iniBuilds');
@@ -2280,6 +2310,59 @@ test(
   defaultAircraftIntegrationRegistry.resolveIntegration('inibuilds-a330', {
     profileKey: 'local/msfs/inibuilds-a330',
   }) === null
+);
+
+loader.setActiveProfile('inibuilds-a350-900');
+const iniA350Config = loader.getLvarConfig();
+const iniA350Integration = defaultAircraftIntegrationRegistry.resolveIntegration('inibuilds-a350', {
+  profileKey: 'bundled/msfs/inibuilds-a350-900',
+});
+test(
+  'iniBuilds A350-900 activates the shared trusted family page and mixed read contract',
+  iniA350Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
+    && iniA350Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
+    && iniA350Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-900'
+    && iniA350Config?.aircraftSpecific?.fields?.length === 52
+    && iniA350Config.aircraftSpecific.fields.some(field => (
+      field.id === 'flightGuidance.altitudeFt'
+        && field.source?.type === 'lvar'
+        && field.source?.key === 'selected_altitude'
+    ))
+    && iniA350Config.aircraftSpecific.fields.some(field => (
+      field.id === 'controls.parkingBrake'
+        && field.source?.type === 'simvar'
+    ))
+    && iniA350Config.subscriptions.length === 43
+);
+test(
+  'iniBuilds A350 exposes guarded numeric FCU, published selector and standard surface actions',
+  Object.keys(iniA350Integration?.actions || {}).length === 71
+    && iniA350Config.aircraftSpecific.confirmationFields.length === 33
+    && iniA350Integration?.actions?.['flightGuidance.heading.set']?.input?.max === 359
+    && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.input?.step === 100
+    && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.routes?.[0]?.operations?.[0]?.name === 'L:INI_ALTITUDE_DIAL'
+    && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.routes?.[0]?.readback?.expectedInput === true
+    && iniA350Integration?.actions?.['lights.nose.takeoff']?.routes?.[0]?.readback?.expectedValue === 'takeoff'
+    && iniA350Integration?.actions?.['controls.flaps.increase']?.routes?.[0]?.readback?.confirmation === 'changed'
+    && iniA350Integration?.actions?.['flightGuidance.ap1.on'] === undefined
+    && loader.getActiveProfile()?.integration?.controls?.genericFallback === false
+    && loader.getActiveProfile()?.integration?.controls?.standardSurfaceFallback === true
+);
+test(
+  'untrusted local iniBuilds A350 profiles cannot activate its executable adapter',
+  defaultAircraftIntegrationRegistry.resolveIntegration('inibuilds-a350', {
+    profileKey: 'local/msfs/inibuilds-a350-900',
+  }) === null
+);
+
+loader.setActiveProfile('inibuilds-a350-1000');
+const iniA3501000Config = loader.getLvarConfig();
+test(
+  'iniBuilds A350-1000 reuses the exact trusted family adapter',
+  iniA3501000Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
+    && iniA3501000Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
+    && iniA3501000Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-1000'
+    && iniA3501000Config?.aircraftSpecific?.fields?.length === 52
 );
 
 loader.setActiveProfile('microsoft-737-max-8');

@@ -2532,6 +2532,65 @@ async function main() {
     assert.match((await renderPanelState('unmatched')).html, /bg-amber-400/, 'unmatched speech should use the same attention tone as the launcher');
   });
 
+  await test('VoiceControlPanel keeps an available altitude target in the three visible examples', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().applyControlCapabilities({
+          aircraftCommands: {
+            configurationId: 'pmdg-777',
+            profileKey: 'bundled/msfs/pmdg-777',
+            profileRevision: 14,
+            commands: [
+              {
+                id: 'flightGuidance.speed.set', label: 'Selected speed',
+                input: { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+                speech: { patterns: ['set speed {value}'] },
+              },
+              {
+                id: 'flightGuidance.mach.set', label: 'Selected Mach',
+                input: { kind: 'number', min: 0.4, max: 0.99, step: 0.01, units: 'mach' },
+                speech: { patterns: ['set mach {value}'] },
+              },
+              {
+                id: 'flightGuidance.heading.set', label: 'Selected heading',
+                input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+                speech: { patterns: ['set heading {value}'] },
+              },
+              {
+                id: 'flightGuidance.altitude.set', label: 'Selected altitude',
+                input: { kind: 'number', min: 0, max: 50000, step: 100, units: 'feet' },
+                speech: { patterns: ['set altitude {value}'] },
+              },
+            ],
+          },
+        });
+      },
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match(html, /Try saying[\s\S]*Set altitude 10,000/, 'the 777 examples should advertise its altitude command');
+    assert.match(html, /Set speed 250/, 'the compact panel should retain a speed example');
+    assert.match(html, /Set mach 0\.78/, 'the compact panel should retain a Mach example');
+    assert.doesNotMatch(html, /Set heading 270/, 'the fourth catalogue command should remain outside the three-example limit');
+    assert.ok(
+      html.indexOf('Set altitude 10,000') < html.indexOf('Set speed 250'),
+      'the altitude target should be prioritized ahead of catalogue-order examples',
+    );
+  });
+
+  await test('VoiceControlPanel discloses the release tail without overstating microphone-close timing', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      () => {},
+      { props: { presentation: 'modal' } },
+    );
+    assert.match(html, /microphone remains active briefly/i);
+    assert.match(html, /closes after buffered audio is flushed/i);
+    assert.doesNotMatch(html, /up to 0\.25 seconds/i);
+    assert.match(html, /Audio remains local and is not saved/i);
+  });
+
   await test('VoiceControlPanel records push-to-talk shortcuts instead of accepting accelerator text', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
@@ -3257,7 +3316,7 @@ async function main() {
     );
   });
 
-  await test('Fenix and FlyByWire pages share compact desktop search and mobile section navigation', async () => {
+  await test('Fenix, FlyByWire, and iniBuilds A350 pages share compact desktop search and mobile section navigation', async () => {
     const cases = [
       {
         profileKey: 'bundled/msfs/fenix-a320',
@@ -3287,6 +3346,13 @@ async function main() {
         aircraftLabel: 'FlyByWire A380X',
         sectionPrefix: 'fbw-a380x-section-',
         sectionIds: ['throttle', 'fcu-autopilot', 'exterior-lights', 'flight-configuration', 'systems'],
+      },
+      {
+        profileKey: 'bundled/msfs/inibuilds-a350-900',
+        templateId: 'inibuilds-a350',
+        aircraftLabel: 'iniBuilds Airbus A350',
+        sectionPrefix: 'a350-',
+        sectionIds: ['fcu', 'exterior', 'cabin', 'air', 'surfaces', 'systems'],
       },
     ];
 
@@ -3657,7 +3723,7 @@ async function main() {
     assert.ok(resolveAircraftSpecificTemplate('ifly-737-max-8'), 'registered iFly 737 MAX 8 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('inibuilds-a310'), 'registered Microsoft / iniBuilds A310-300 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('inibuilds-a330'), 'registered iniBuilds A330 family template should resolve');
-    assert.equal(resolveAircraftSpecificTemplate('inibuilds-a350'), null, 'deferred iniBuilds A350 integration must not resolve');
+    assert.ok(resolveAircraftSpecificTemplate('inibuilds-a350'), 'registered iniBuilds A350 family template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('inibuilds-tristar'), 'registered iniBuilds TriStar template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('microsoft-737-max-8'), 'registered Microsoft 737 MAX 8 template should resolve');
     assert.ok(resolveAircraftSpecificTemplate('microsoft-atr-72-600'), 'registered Microsoft ATR 72-600 template should resolve');
@@ -5106,6 +5172,173 @@ async function main() {
         `${actionId} should fail closed when this browser is read-only`,
       );
     }
+  });
+
+  await test('iniBuilds A350 template renders variant FCU, systems, surfaces, and voice-backed controls', async () => {
+    const directActionIds = [
+      ...[
+        'flightGuidance.flightDirector',
+        'flightGuidance.lsCaptain',
+        'flightGuidance.lsFirstOfficer',
+        'flightGuidance.verticalViewCaptain',
+        'flightGuidance.verticalViewFirstOfficer',
+        'flightGuidance.metricAltitude',
+      ].flatMap((prefix) => [`${prefix}.off`, `${prefix}.on`]),
+      'lights.nav.nav2',
+      'lights.logo.off',
+      'lights.logo.auto',
+      'lights.logo.on',
+      'lights.wing.off',
+      'lights.wing.on',
+      ...['seatBelts', 'noSmoking', 'noMobile'].flatMap((name) => [
+        `cabin.${name}.off`, `cabin.${name}.auto`, `cabin.${name}.on`,
+      ]),
+      'cabin.emergencyExit.off',
+      'cabin.emergencyExit.arm',
+      'cabin.emergencyExit.on',
+      'systems.apuMaster.off',
+      'systems.apuMaster.on',
+      'systems.apuStart.start',
+      'systems.airFlow.manual',
+      'systems.airFlow.low',
+      'systems.airFlow.normal',
+      'systems.airFlow.high',
+      'systems.crossBleed.closed',
+      'systems.crossBleed.auto',
+      'systems.crossBleed.open',
+      'systems.ramAir.off',
+      'systems.ramAir.on',
+      'systems.wingAntiIce.off',
+      'systems.wingAntiIce.on',
+      'systems.probeWindowHeat.auto',
+      'systems.probeWindowHeat.on',
+      'controls.speedbrake.set',
+    ];
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'IniBuildsA350AircraftPanel.vue'),
+      () => {},
+      {
+        props: {
+          profileKey: 'bundled/msfs/inibuilds-a350-1000',
+          sourceStatus: 'connected',
+          values: {
+            'flightGuidance.speedValue': 250,
+            'flightGuidance.headingDeg': 87,
+            'flightGuidance.altitudeFt': 12000,
+            'flightGuidance.verticalSpeedFpm': -500,
+            'flightGuidance.flightDirector': true,
+            'lights.strobeMode': 'auto',
+            'lights.beacon': false,
+            'lights.navMode': 'nav1',
+            'lights.logoMode': 'auto',
+            'lights.wing': false,
+            'lights.landing': true,
+            'lights.noseMode': 'taxi',
+            'cabin.seatBeltsMode': 'on',
+            'cabin.noSmokingMode': 'auto',
+            'cabin.noMobileMode': 'auto',
+            'cabin.emergencyExitMode': 'arm',
+            'systems.apuMaster': true,
+            'systems.apuStart': false,
+            'systems.airFlowMode': 'normal',
+            'systems.crossBleedMode': 'auto',
+            'systems.ramAir': false,
+            'systems.wingAntiIce': false,
+            'systems.probeWindowHeatMode': 'auto',
+            'systems.ignitionMode': 'normal',
+            'systems.gravityGearCover': false,
+            'systems.gravityGearHandleMode': 'reset',
+            'systems.cabinPressureAltitudeMode': 'auto',
+            'systems.cabinPressureVerticalSpeedMode': 'auto',
+            'systems.ditching': false,
+            'systems.evacuationCommand': false,
+            'controls.flapsIndex': 2,
+            'controls.flapAngleDeg': 10.5,
+            'controls.speedbrakePercent': 0,
+            'controls.spoilersArmed': true,
+            'controls.gearHandleDown': true,
+            'controls.gearNosePct': 100,
+            'controls.gearLeftPct': 100,
+            'controls.gearRightPct': 100,
+            'controls.parkingBrake': false,
+          },
+          actionCapabilities: Object.fromEntries(directActionIds.map((actionId) => [actionId, true])),
+          isCommandSupported: () => true,
+        },
+      },
+    );
+
+    assert.match(html, /data-aircraft-template="inibuilds-a350"/, 'template should identify its trusted family key');
+    assert.match(html, /data-inibuilds-a350-variant="A350-1000"/, 'profile identity should select A350-1000 presentation');
+    assert.match(html, /iniBuilds Airbus A350-1000/, 'template should render the concrete variant heading');
+    assert.match(html, /12,000 ft/, 'published FCU altitude readback should be formatted');
+    for (const commandId of [
+      'flightGuidance.speed.set',
+      'flightGuidance.heading.set',
+      'flightGuidance.altitude.set',
+      'flightGuidance.verticalSpeed.set',
+      'configuration.lights.takeoff',
+      'surfaces.gear.set',
+      'surfaces.flaps.adjust',
+    ]) {
+      assert.match(html, new RegExp(`data-aircraft-command="${commandId.replaceAll('.', '\\.')}"`), `${commandId} should use the shared UI and voice command`);
+    }
+    assert.match(html, /data-aircraft-action="lights\.nose\.taxi"[^>]*aria-pressed="true"/, 'nose-light readback should select TAXI');
+    assert.match(html, /data-aircraft-action="cabin\.emergencyExit\.arm"[^>]*aria-pressed="true"/, 'emergency-exit readback should select ARM');
+    assert.match(html, /data-aircraft-action="systems\.airFlow\.normal"[^>]*aria-pressed="true"/, 'airflow readback should select NORM');
+    assert.match(html, /AP1\/AP2, A\/THR, LOC, APPR/, 'auto-reset flight-guidance write boundary should be explicit');
+    assert.match(html, /monitoring-only/, 'flight-critical system write boundary should be explicit');
+    assert.doesNotMatch(html, /INI_|MobiFlight|MF\.SimVars/, 'raw vendor routes must remain encapsulated outside the Vue contract');
+  });
+
+  await test('iniBuilds A350 controls fail closed without live readback or command support', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'IniBuildsA350AircraftPanel.vue'),
+      () => {},
+      {
+        props: {
+          profileKey: 'bundled/msfs/inibuilds-a350-900',
+          sourceStatus: 'connected',
+          values: {},
+          actionCapabilities: { 'lights.nose.takeoff': true },
+          isCommandSupported: (commandId) => commandId === 'configuration.lights.takeoff',
+        },
+      },
+    );
+
+    assert.match(html, /iniBuilds Airbus A350-900/);
+    assert.match(html, /data-aircraft-action="lights\.nose\.takeoff"[^>]*disabled/, 'capability alone must not bypass missing live readback');
+    assert.match(html, /data-aircraft-action="systems\.apuMaster\.on"[^>]*disabled/, 'missing capability and readback should disable unrelated controls');
+    assert.match(html, /Live readback unavailable; control disabled\./, 'the fail-closed state should be explained');
+    assert.match(html, /aria-label="SPD target"[^>]*disabled/, 'FCU targets must fail closed without a live value and catalogue route');
+    assert.match(
+      html,
+      /data-aircraft-command="configuration\.lights\.takeoff"[^>]*disabled/,
+      'takeoff-light preset must fail closed when any required light readback is unavailable',
+    );
+
+    const { html: disconnectedHtml } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'IniBuildsA350AircraftPanel.vue'),
+      () => {},
+      {
+        props: {
+          profileKey: 'bundled/msfs/inibuilds-a350-900',
+          sourceStatus: 'disconnected',
+          values: {
+            'lights.landing': false,
+            'lights.noseMode': 'off',
+            'lights.strobeMode': 'off',
+            'lights.navMode': 'off',
+          },
+          isCommandSupported: (commandId) => commandId === 'configuration.lights.takeoff',
+        },
+      },
+    );
+    assert.match(
+      disconnectedHtml,
+      /data-aircraft-command="configuration\.lights\.takeoff"[^>]*disabled/,
+      'takeoff-light preset must remain disabled while the live aircraft source is disconnected',
+    );
   });
 
   await test('iniBuilds L-1011-500 template renders monitoring, documented selector steps, and momentary AFCS keys', async () => {

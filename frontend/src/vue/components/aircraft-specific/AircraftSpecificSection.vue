@@ -124,7 +124,7 @@ function isActionPending(groupId) {
     v-if="aircraftSpecific.hasTemplate && templateComponent"
     id="aircraft-specific-section"
     class="flight-section-block ff-panel bg-surface-100 border border-surface-200 overflow-hidden"
-    :class="{ 'aircraft-specific-section--mobile-ribbon': ['fbw-a32nx', 'fbw-a380x', 'fenix-a32x', 'pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId) }"
+    :class="{ 'aircraft-specific-section--mobile-ribbon': ['fbw-a32nx', 'fbw-a380x', 'fenix-a32x', 'inibuilds-a350', 'pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId) }"
   >
     <div class="p-3 sm:p-4 border-b border-surface-200 flex flex-wrap items-center justify-between gap-3">
       <div>

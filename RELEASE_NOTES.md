@@ -1,21 +1,43 @@
-# Flight Fabric 0.8.2
+# Flight Fabric 0.9.0
 
-Flight Fabric 0.8.2 fixes stale control input on the Generic Aircraft, PMDG 737,
-and PMDG 777 pages.
+Flight Fabric 0.9.0 adds dedicated iniBuilds A350 controls and improves offline
+voice recognition and push-to-talk reliability across supported aircraft.
+
+## Added
+
+The iniBuilds A350-900 and A350-1000 now have a dedicated aircraft page and a
+shared guarded adapter. The integration covers bounded speed, heading,
+altitude, and vertical-speed targets; selected persistent cockpit systems;
+conservative surface controls; exterior lights; and an ordered takeoff-light
+preset. Its 15 canonical voice commands use the same backend routes as the UI.
+
+All A350 write actions remain marked untested until they are validated live
+against current installed A350-900 and A350-1000 builds. Unsupported or stale
+routes fail closed.
 
 ## Fixed
 
-On the Generic Aircraft page, the autopilot target editor now closes when the
-aircraft changes or controls disconnect. A target entered before a disconnect
-cannot become active after reconnecting.
+Voice commands now handle common aviation number phrasing more reliably while
+keeping corrections scoped to commands where they are safe. Examples include
+`set heading two eight zero`, altitude shorthand such as `set altitude one five
+zero`, and explicit `engage autopilot one` or `engage autopilot two` channel
+selection. Explicit feet values and normal cardinal numbers remain literal.
 
-The PMDG 737 and 777 pages now clear typed MCP, radio, direct entry, and
-lighting values when the aircraft profile or data source changes. Their panels
-also start fresh when a different aircraft profile revision loads.
+PMDG 777 altitude targets are available to voice, incomplete autopilot commands
+ask for a channel, and `set takeoff lights` is accepted alongside `set lights
+for takeoff` on every aircraft whose active catalogue supports that preset.
+
+Releasing push to talk now keeps recording for a fixed 250 ms tail, flushes the
+audio worklet, and queues every captured frame before final decoder processing.
+The press and release cues are also louder and use a more audible waveform.
+
+Landing-distance analysis now treats outside-air temperature without an
+explicit precipitation observation as insufficient runway-weather evidence and
+fails safe to a wet surface.
 
 ## Download
 
-Download `Flight.Fabric.Setup.0.8.2.exe` from GitHub Releases. GitHub displays
+Download `Flight.Fabric.Setup.0.9.0.exe` from GitHub Releases. GitHub displays
 the installer's immutable SHA-256 digest beside the asset. The portable
 executable remains a local verification artifact and is not published.
 
@@ -38,6 +60,11 @@ Fenix A32X FCU and virtual throttle write routes have not completed live
 testing. Do not move the same physical FCU rotary while a typed target is
 pending. Fenix FCU writes require a compatible MobiFlight Event Module
 connection.
+
+iniBuilds A350-900 and A350-1000 controls have not completed live testing.
+Auto-resetting AP1/AP2, A/THR, LOC, APPR, and FCU push/pull variables remain
+unavailable because the published interface does not provide stable independent
+confirmation for those commands.
 
 PMDG 737 and 777 controls require the matching installed aircraft and working
 SDK data. Controls without verified support remain unavailable.

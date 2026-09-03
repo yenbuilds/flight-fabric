@@ -99,7 +99,7 @@ function baseInput(overrides: any = {}) {
 async function runTests() {
   console.log('\nAutomation JSONL Recorder Tests\n');
 
-  await testAsync('writes checkpoints, deltas, events, and immutable route metadata', async () => {
+  await testAsync('writes checkpoints, deltas, and events to one immutable path', async () => {
     const outputDir = path.join(os.tmpdir(), `automation-jsonl-test-${Date.now()}`);
     const recorder = new recorderModule.AutomationJsonlRecorder({
       flightId: '2026-06-18T00:00:00.000Z',
@@ -108,6 +108,7 @@ async function runTests() {
     });
 
     assert(recorder.start(), 'recorder should start');
+    const originalPath = recorder.filePath;
 
     assert(recorder.recordAutopilotState(baseInput()), 'first snapshot should be recorded');
     assert(recorder.recordAutopilotState(baseInput({
@@ -133,18 +134,14 @@ async function runTests() {
       },
     })), 'heartbeat checkpoint should be recorded');
 
-    const originalPath = recorder.filePath;
-    assert(await recorder.updateFilename(null, 'YSSY'), 'route metadata update should succeed');
-    const statsAfterRoute = recorder.getStats();
-    assert(statsAfterRoute.filename === 'automation.jsonl', 'sidecar filename should remain canonical');
-    assert(statsAfterRoute.filePath === originalPath, 'route metadata must not rename the immutable bundle');
-
     const stats = await recorder.close({
       timeMs: 80000,
       timestampIso: '2026-06-18T00:01:20.000Z',
       flightElapsedMs: 80000,
       endReason: 'test_end',
     });
+
+    assert(stats.filePath === originalPath, 'the recording path must remain unchanged through finalization');
 
     assert(fs.existsSync(stats.filePath), 'sidecar file should exist after close');
     const rows = readJsonl(stats.filePath);
@@ -580,37 +577,6 @@ async function runTests() {
     assert(snapshot.raw.sdkRaw.fd_r === 1, 'expected raw right FD SDK value to be preserved');
     assert(snapshot.raw.sdkRaw.at_armed === 1, 'expected raw A/T armed SDK value to be preserved');
     assert(snapshot.raw.sdkRaw.at_arm_r === 1, 'expected raw right A/T arm SDK value to be preserved');
-  });
-
-  test('automation JSONL rename queue is bounded while route rename is blocked', () => {
-    const outputDir = path.join(os.tmpdir(), `automation-jsonl-rename-backlog-test-${Date.now()}`);
-    const recorder = new recorderModule.AutomationJsonlRecorder({
-      flightId: '2026-06-18T00:00:00.000Z',
-      outputDir,
-    });
-    const largeLine = 'x'.repeat(1024 * 1024);
-    const originalConsoleError = console.error;
-    let rejected = false;
-
-    recorder.renameInProgress = true;
-    console.error = () => {};
-    try {
-      for (let index = 0; index < 20; index += 1) {
-        if (!recorder.appendLine(largeLine)) {
-          rejected = true;
-          break;
-        }
-      }
-    } finally {
-      console.error = originalConsoleError;
-    }
-
-    assert(rejected === true, 'automation JSONL rename queue should reject writes once capped');
-    assert(recorder.renameQueuedLineBytes <= 8 * 1024 * 1024, 'automation JSONL rename queue should stay within byte cap');
-    assert(
-      recorder.lastError && recorder.lastError.message.includes('rename backlog exceeded'),
-      `Expected rename backlog error, got ${recorder.lastError && recorder.lastError.message}`
-    );
   });
 
   test('automation JSONL stream writes are rejected when stream backlog is already capped', () => {

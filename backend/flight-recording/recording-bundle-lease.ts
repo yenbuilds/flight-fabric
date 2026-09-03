@@ -810,14 +810,6 @@ function acquireBundleDirectoryReadLeases(options: LeaseOptions): LeaseGroupResu
   }
 }
 
-function isBundleLeasePresent(outputDir: string, baseName: string): boolean {
-  try {
-    return fs.existsSync(getBundleLeasePath(outputDir, baseName));
-  } catch {
-    return true;
-  }
-}
-
 function resetRecordingBundleLeasesForTests(): void {
   for (const runtime of [...runtimeLeases.values()]) {
     runtime.refs = 0;
@@ -828,12 +820,6 @@ function resetRecordingBundleLeasesForTests(): void {
 
 module.exports = {
   BUNDLE_LEASE_SUFFIX,
-  CATALOG_LEASE_FILE,
-  DEFAULT_HEARTBEAT_INTERVAL_MS,
-  DEFAULT_STALE_RECOVERY_GRACE_MS,
-  LEASE_KIND,
-  LEASE_SCHEMA_VERSION,
-  PROCESS_START_EPOCH_MS,
   acquireBundleDirectoryReadLeases,
   acquireBundleCatalogSnapshotLease,
   acquireBundleMutationLease,
@@ -842,7 +828,6 @@ module.exports = {
   acquireRecordingBundleLease,
   getBundleLeasePath,
   getCatalogLeasePath,
-  isBundleLeasePresent,
   resetRecordingBundleLeasesForTests,
 };
 

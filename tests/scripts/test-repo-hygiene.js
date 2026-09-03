@@ -216,6 +216,52 @@ function assertRetiredLiveSharingDeploymentIsAbsent() {
   console.log(`  PASS ${workflowFiles.length} active workflows omit retired live-sharing deployment`);
 }
 
+function assertGeneratedTelemetryDeclarationsHaveSources() {
+  const generatedRoot = path.join(ROOT, 'backend', 'types', 'generated', 'telemetry-provider');
+  if (!fs.existsSync(generatedRoot)) {
+    console.log('  SKIP generated telemetry declaration hygiene (generated output absent)');
+    return;
+  }
+
+  const pending = [generatedRoot];
+  const errors = [];
+  let declarationCount = 0;
+
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(absolute);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.d.ts')) continue;
+
+      declarationCount += 1;
+      const relativeDeclaration = path.relative(generatedRoot, absolute);
+      const relativeSource = path.join(
+        'backend',
+        'telemetry-provider',
+        relativeDeclaration.replace(/\.d\.ts$/u, '.ts'),
+      );
+      if (!fs.existsSync(path.join(ROOT, relativeSource))) {
+        errors.push(
+          `${path.relative(ROOT, absolute).replaceAll(path.sep, '/')} has no source `
+            + `${relativeSource.replaceAll(path.sep, '/')}`,
+        );
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error('Generated telemetry declaration hygiene failed:');
+    for (const error of errors) console.error(`  - ${error}`);
+    process.exit(1);
+  }
+
+  console.log(`  PASS ${declarationCount} generated telemetry declarations have source files`);
+}
+
 function parseIsoDateToUtc(dateText) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
   if (!match) return null;
@@ -304,3 +350,4 @@ assertChangelogDatesAreSane();
 assertTrackedMarkdownLinksResolve();
 assertDocumentedNpmScriptsExist();
 assertRetiredLiveSharingDeploymentIsAbsent();
+assertGeneratedTelemetryDeclarationsHaveSources();
