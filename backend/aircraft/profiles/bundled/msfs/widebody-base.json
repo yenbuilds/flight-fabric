@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2025-01-15T00:00:00Z",
-  "updatedAt": "2025-01-15T00:00:00Z",
+  "updatedAt": "2026-09-05T16:07:23Z",
   "visibility": "public",
   "extends": null,
   "abstract": false,
@@ -66,6 +66,11 @@
         "scale": "percent"
       },
       "lights": {}
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": true,
+      "_comment": "The broad wide-body profile uses the same fixed standard SimConnect controls as Generic Aircraft, including NAV 1/2, autopilot, lights and surfaces. Aircraft-specific profiles retain their explicit opt-outs. Add-ons may ignore standard commands; dispatch does not confirm cockpit response."
     },
     "presentation": {
       "visualSupport": "basic"

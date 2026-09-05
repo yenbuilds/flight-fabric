@@ -612,6 +612,16 @@ test('SimConnect provider preserves missing G-force and wind telemetry as unknow
   assertEqual(frame.gearConfigurationAvailable, false, 'missing gear channels must stay unavailable');
   assertEqual(frame.gearDownLocked, null, 'missing gear channels must not be invented as retracted');
   assertEqual(frame.flapsConfigurationAvailable, false, 'missing flap channels must stay unavailable');
+  assertEqual(frame.lights.available, false, 'missing light mask must not be shown as confirmed OFF');
+});
+
+test('a real zero light mask remains available as OFF', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  provider._rustSimvarBridge = { getSnapshot: () => ({ status: 'running' }) };
+  provider._handleRustSimvarSnapshot({ values: { lightStates: 0 }, updatedAt: new Date().toISOString() });
+  const frame = await provider.nextFrame();
+  assertEqual(frame.lights.available, true, 'zero is valid light telemetry');
+  assertEqual(frame.lights.beacon, false, 'known zero means beacon OFF');
 });
 
 test('SimConnect frame preserves the independent spoilers-armed readback', async () => {
@@ -1430,114 +1440,24 @@ function stubMicrosoft737Max8IntegrationFields(provider, fields) {
   );
 }
 
-test('iniBuilds A330 typed FCU target forwards the managed index and requires exact newer readback', async () => {
-  const provider = new SimConnectTelemetryProvider();
-  const rustSnapshot: any = {
-    status: 'running',
-    updatedAt: new Date().toISOString(),
-  };
-  const events = [];
-  provider._data = { apHdgTargetDeg: 180 };
-  provider._rustSimvarSnapshotSequence = 4;
-  provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
-  const bridge = {
-    _started: true,
-    getSnapshot: () => ({ source: 'mock-sidecar' }),
-    async setNamedVar() {
-      return { ok: true };
-    },
-    async sendEvent(name, value, parameters) {
-      events.push({ name, value, parameters });
-      provider._data.apHdgTargetDeg = value;
-      provider._rustSimvarSnapshotSequence += 1;
-      rustSnapshot.updatedAt = new Date().toISOString();
-      return { ok: true };
-    },
-  };
-  provider._lvarBridge = bridge;
-  provider._ensureControlWriteBridge = async () => bridge;
-  stubIniBuildsA330IntegrationFields(provider, {
-    'flightGuidance.headingDeg': {
-      id: 'flightGuidance.headingDeg',
-      source: {
-        type: 'simvar',
-        name: 'AUTOPILOT HEADING LOCK DIR',
-        path: 'fdm.apHdgTargetDeg',
-      },
-      decode: { type: 'number', precision: 0 },
-    },
-  });
-
-  const action = {
-    type: 'aircraft-integration',
-    name: INIBUILDS_A330_ADAPTER_ID,
-    verification: 'untested',
-  };
-  const result = await provider.executeAircraftControlAction(
-    action,
-    inibuildsA330IntegrationOptions('flightGuidance.heading.set', 273),
-  );
-  assertEqual(result.ok, true, 'typed A330 heading target should confirm');
-  assertEqual(result.confirmedValue, 273, 'confirmation uses the exact requested heading');
-  assertDeepEqual(events, [{
-    name: 'HEADING_BUG_SET',
-    value: 273,
-    parameters: [0],
-  }], 'the validated heading and fixed managed index dispatch once');
-
-  const invalid = await provider.executeAircraftControlAction(
-    action,
-    inibuildsA330IntegrationOptions('flightGuidance.heading.set', 360),
-  );
-  assertEqual(invalid.ok, false, 'out-of-domain A330 heading should fail closed');
-  assertEqual(invalid.code, 'invalid_value', 'invalid typed target retains its validation code');
-  assertEqual(events.length, 1, 'invalid input never reaches SimConnect');
-});
-
-test('iniBuilds A330 light targets always dispatch despite a satisfied output readback', async () => {
+test('iniBuilds A330 rejects former FCU and light writes at the provider boundary', async () => {
   const provider = new SimConnectTelemetryProvider();
   const events = [];
   const bridge = {
-    _started: true,
     getSnapshot: () => ({ source: 'mock-sidecar' }),
-    async setNamedVar() {
-      return { ok: true };
-    },
-    async sendEvent(name, value, parameters) {
-      events.push({ name, value, parameters });
-      return { ok: true };
-    },
+    async sendEvent(...args) { events.push(args); return { ok: true }; },
+    async setNamedVar(...args) { events.push(args); return { ok: true }; },
   };
-  provider._lvarBridge = bridge;
   provider._ensureControlWriteBridge = async () => bridge;
   stubIniBuildsA330IntegrationFields(provider, {});
-  provider._captureAircraftIntegrationReadback = () => ({
-    observed: false,
-    sequence: 7,
-    fresh: true,
-    sourceId: 'simvar:lightStates',
-  });
-  provider._waitForAircraftIntegrationReadback = async () => ({
-    confirmed: true,
-    observed: false,
-    sequence: 8,
-    fresh: true,
-    sequenceAdvanced: true,
-  });
-
-  const result = await provider.executeAircraftControlAction({
-    type: 'aircraft-integration',
-    name: INIBUILDS_A330_ADAPTER_ID,
-    verification: 'untested',
-  }, inibuildsA330IntegrationOptions('lights.beacon.off'));
-
-  assertEqual(result.ok, true, 'newer output readback should confirm the requested light state');
-  assertEqual(result.noOp, undefined, 'output state alone must not suppress selector reconciliation');
-  assertDeepEqual(events, [{
-    name: 'BEACON_LIGHTS_SET',
-    value: 0,
-    parameters: [0],
-  }], 'the deterministic light event dispatches exactly once');
+  for (const [actionId, value] of [['flightGuidance.heading.set', 273], ['lights.beacon.off', undefined]]) {
+    const result = await provider.executeAircraftControlAction({
+      type: 'aircraft-integration', name: INIBUILDS_A330_ADAPTER_ID,
+    }, inibuildsA330IntegrationOptions(actionId, value));
+    assertEqual(result.ok, false, `${actionId} remains readback-only`);
+    assertEqual(result.code, 'untrusted_aircraft_integration', 'removed actions are rejected');
+  }
+  assertDeepEqual(events, [], 'no former A330 write reaches any native transport');
 });
 
 test('FBW A380X altitude target writes and confirms the documented slot-three value only', async () => {

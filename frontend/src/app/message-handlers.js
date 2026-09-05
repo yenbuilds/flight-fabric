@@ -258,6 +258,9 @@ export function createAppMessageHandler({
       case 'autopilot':
         autopilotPanel.update(message);
         break;
+      case 'navRadios':
+        aircraftControl.applyNavRadios?.(message.data);
+        break;
       case 'aircraftControlResult':
         aircraftControl.handleResult(message);
         break;

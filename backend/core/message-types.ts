@@ -37,6 +37,7 @@ const MSG = Object.freeze({
 
   // Structured data
   LIGHTS: 'lights',
+  NAV_RADIOS: 'navRadios',
   GEAR: 'gear',
   FLAPS: 'flaps',
   SPOILERS: 'spoilers',

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { copyNavRadioReadback } from '../../aircraft/nav-radio.js';
 import { toFiniteNumber } from '../../utils/number.js';
 import {
   getAircraftControlCanonicalCommandId,
@@ -409,6 +410,8 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
     aircraftIntegration: cloneDefaults(DEFAULT_AIRCRAFT_INTEGRATION),
     autopilot: cloneDefaults(DEFAULT_AUTOPILOT),
     autopilotReadback: cloneDefaults(DEFAULT_AUTOPILOT_READBACK),
+    navRadios: copyNavRadioReadback(null),
+    navRadiosReceivedAt: null,
     pendingCommands: {},
     _onControlCommand: null,
     commandActionBound: false,
@@ -447,17 +450,22 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
         autopilot: mergeBooleanCapabilities(defaults.autopilot, incomingAutopilot),
         autopilotPulse: mergeBooleanCapabilities(defaults.autopilotPulse, incomingAutopilotPulse),
       };
-      this.aircraftCommandCatalogue = copyAircraftCommandCatalogue(capabilities?.aircraftCommands);
+      const catalogue = copyAircraftCommandCatalogue(capabilities?.aircraftCommands);
+      if (catalogue.profileKey !== this.aircraftCommandCatalogue.profileKey
+        || catalogue.profileRevision !== this.aircraftCommandCatalogue.profileRevision) this.resetNavRadios();
+      this.aircraftCommandCatalogue = catalogue;
       this.aircraftIntegration = copyAircraftIntegration(capabilities?.aircraftIntegration);
     },
 
     resetControlCapabilities() {
+      this.resetNavRadios();
       this.controlCapabilities = getDefaultControlCapabilities();
       this.aircraftCommandCatalogue = cloneDefaults(DEFAULT_AIRCRAFT_COMMAND_CATALOGUE);
       this.aircraftIntegration = cloneDefaults(DEFAULT_AIRCRAFT_INTEGRATION);
     },
 
     prepareForAircraftChange(reason = 'Aircraft changed. Waiting for profile capabilities.') {
+      this.resetNavRadios();
       this.resetFeedback();
       this.resetPendingCommands();
       this.controlCapabilities = getDisabledControlCapabilities();
@@ -576,8 +584,23 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
     },
 
     resetAutopilot() {
+      this.resetNavRadios();
       this.autopilot = cloneDefaults(DEFAULT_AUTOPILOT);
       this.autopilotReadback = cloneDefaults(DEFAULT_AUTOPILOT_READBACK);
+    },
+
+    applyNavRadios(data = {}, receivedAt = Date.now()) {
+      const catalogue = this.aircraftCommandCatalogue;
+      if (!data || !catalogue.profileKey || data.profileKey !== catalogue.profileKey
+        || data.profileRevision !== catalogue.profileRevision) return false;
+      this.navRadios = copyNavRadioReadback(data.radios);
+      this.navRadiosReceivedAt = receivedAt;
+      return true;
+    },
+
+    resetNavRadios() {
+      this.navRadios = copyNavRadioReadback(null);
+      this.navRadiosReceivedAt = null;
     },
   },
 });

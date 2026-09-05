@@ -1,5 +1,7 @@
 'use strict';
 
+import { encodeFrequencyBcd16Mhz, normalizeNavFrequencyMhz } from '../utils/radio-frequency';
+
 const profileLoader = require('./aircraft-profile-loader.js') as {
   getActiveProfile: () => Record<string, any> | null;
   getActiveProfileRevision?: () => number;
@@ -117,11 +119,21 @@ const GENERIC_MSFS_ACTIONS: Record<string, any> = Object.freeze({
     set: { type: 'key-event', name: 'SPOILERS_SET' },
   }),
   lights: Object.freeze({
-    nav: { type: 'key-event', name: 'NAV_LIGHTS_SET' },
-    beacon: { type: 'key-event', name: 'BEACON_LIGHTS_SET' },
-    strobe: { type: 'key-event', name: 'STROBES_SET' },
-    landing: { type: 'key-event', name: 'LANDING_LIGHTS_SET' },
-    taxi: { type: 'key-event', name: 'TAXI_LIGHTS_SET' },
+    nav: { type: 'key-event', name: 'NAV_LIGHTS_SET', parameters: [0] },
+    beacon: { type: 'key-event', name: 'BEACON_LIGHTS_SET', parameters: [0] },
+    strobe: { type: 'key-event', name: 'STROBES_SET', parameters: [0] },
+    landing: { type: 'key-event', name: 'LANDING_LIGHTS_SET', parameters: [0] },
+    taxi: { type: 'key-event', name: 'TAXI_LIGHTS_SET', parameters: [0] },
+  }),
+  radios: Object.freeze({
+    nav1: Object.freeze({
+      setStandby: { type: 'key-event', name: 'NAV1_STBY_SET' },
+      swap: { type: 'key-event', name: 'NAV1_RADIO_SWAP' },
+    }),
+    nav2: Object.freeze({
+      setStandby: { type: 'key-event', name: 'NAV2_STBY_SET' },
+      swap: { type: 'key-event', name: 'NAV2_RADIO_SWAP' },
+    }),
   }),
   autobrake: Object.freeze({
     increment: { type: 'key-event', name: 'INCREASE_AUTOBRAKE_CONTROL' },
@@ -888,6 +900,13 @@ function isGenericMsfsFallbackAllowed(profile: unknown, request: NormalizedContr
 }
 
 function resolveGenericMsfsActions(request: NormalizedControlRequest): GenericRecord[] {
+  if (request.control === 'radios') {
+    if (!['nav1', 'nav2'].includes(request.target) || !['setStandby', 'swap'].includes(request.operation)) return [];
+    const action = GENERIC_MSFS_ACTIONS.radios[request.target][request.operation];
+    return request.operation === 'setStandby'
+      ? applyActionValueCandidates(action, encodeFrequencyBcd16Mhz(request.value))
+      : cloneActionCandidates(action);
+  }
   if (request.control === 'gear') {
     return cloneActionCandidates(GENERIC_MSFS_ACTIONS.gear[request.operation]);
   }
@@ -998,6 +1017,11 @@ function validateResolvedAction(
     };
   }
   action.name = actionName;
+
+  if (request.control === 'radios' && request.operation === 'setStandby'
+    && normalizeNavFrequencyMhz(request.value) == null) {
+    return { code: 'invalid_value', error: 'Enter a NAV frequency from 108.00 to 117.95 MHz in 0.05 MHz steps.' };
+  }
 
   if (Object.prototype.hasOwnProperty.call(action, 'unit')) {
     const unit = typeof action.unit === 'string' ? action.unit.trim() : '';
@@ -1733,6 +1757,7 @@ async function executeAircraftCommand(
       request: result.request || step.resolved.request,
       action: result.action || step.resolved.action,
       resolvedBy: result.resolvedBy || step.resolved.resolvedBy,
+      ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
     };
     if (!result.ok) {
       return {
@@ -1761,10 +1786,12 @@ async function executeAircraftCommand(
   }
 
   const result = lastExecutionResult || completedSteps[completedSteps.length - 1];
+  const unconfirmedStepCount = completedSteps.filter((step) => step.code === 'sent_unconfirmed').length;
   return {
     ...result,
     ok: true,
-    code: result.code || 'executed',
+    code: unconfirmedStepCount > 0 ? 'sent_unconfirmed' : (result.code || 'executed'),
+    ...(unconfirmedStepCount > 0 ? { unconfirmedStepCount } : {}),
     error: '',
     command: translated.command,
     commandId: translated.command.commandId,

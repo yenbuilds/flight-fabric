@@ -96,6 +96,13 @@ const sdkRegistry = require('./sdk-registry.js') as {
 };
 const { makeSpoilersObj } = require('../aircraft/spoilers');
 const { decodeLights } = require('../utils/helpers');
+const { encodeFrequencyBcd16Mhz } = require('../utils/radio-frequency');
+const { NAV_RADIO_FIELDS, captureNavRadios } = require('./nav-radio-state');
+const {
+  captureLightMaskSample,
+  captureGenericLightReadback,
+  describeGenericLightReadback,
+} = require('./generic-control-diagnostics');
 const {
   FT_TO_M,
   FPS_TO_FPM,
@@ -137,6 +144,7 @@ const MAX_CONTROL_UNIT_LENGTH = 48;
 const MAX_CONTROL_NUMERIC_ABS = 1_000_000;
 const MAX_KEY_EVENT_VALUE_ABS = 1_000_000;
 const MAX_SDK_EVENT_VALUE = 0xffffffff;
+const GENERIC_CONTROL_OBSERVATION_MS = 1500;
 const AIRCRAFT_INTEGRATION_READBACK_POLL_MS = 50;
 const AIRCRAFT_INTEGRATION_READBACK_FRESH_MS = 2000;
 const AIRCRAFT_INTEGRATION_SEQUENCE_DELAY_POLL_MS = 250;
@@ -228,21 +236,6 @@ function withAircraftControlExecutionStarted(result: unknown): AnyRecord {
     ? result as AnyRecord
     : { ok: false };
   return { ...fields, executionStarted: true };
-}
-
-function encodeFrequencyBcd16Mhz(value: unknown): number | null {
-  const frequencyMhz = Number(value);
-  const hundredths = Math.round(frequencyMhz * 100);
-  if (
-    !Number.isFinite(frequencyMhz)
-    || Math.abs(frequencyMhz * 100 - hundredths) > 1e-7
-    || hundredths < 10_000
-    || hundredths > 19_999
-  ) return null;
-  const digits = String(hundredths % 10_000).padStart(4, '0');
-  let encoded = 0;
-  for (const digit of digits) encoded = (encoded << 4) | Number(digit);
-  return encoded;
 }
 
 const SAFE_SDK_PATH_SEGMENT_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
@@ -413,6 +406,11 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   // Compact environment display and cabin-altitude warning source. Keep this
   // before the optional/restored probe block so reduced SimVar caps do not trim it.
   { name: 'cabinAltFt', simvar: 'PRESSURIZATION CABIN ALTITUDE', unit: 'feet' },
+
+  // SDK: installed receiver, independent of reception/power. Keep optional
+  // availability probes after priority telemetry and isolate their definitions.
+  { name: 'nav1Available', simvar: 'NAV AVAILABLE:1', unit: 'bool', isolated: true },
+  { name: 'nav2Available', simvar: 'NAV AVAILABLE:2', unit: 'bool', isolated: true },
 
   // Additional altitude/barometer channels. These deliberately follow all
   // core FDM essentials and the compact cabin display set so expanding this
@@ -710,6 +708,10 @@ class SimConnectTelemetryProvider {
     // Telemetry data storage
     this._data = {};
     this._rustSimvarSnapshotSequence = 0;
+    this._rustLightStatesUpdatedAt = null;
+    this._rustLightStatesSequence = 0;
+    this._rustNavRadioSamples = {};
+    this._rustControlReadbackNotBeforeMs = 0;
     
     // Overspeed/stall warning state
     this._overspeedActive = false;
@@ -1202,6 +1204,30 @@ class SimConnectTelemetryProvider {
     for (const varDef of SIMCONNECT_VARS) {
       if (!Object.prototype.hasOwnProperty.call(values, varDef.name)) continue;
       const value = this._coerceRustSimvarValue(varDef, values[varDef.name]);
+      if (NAV_RADIO_FIELDS.has(varDef.name)) {
+        const fieldUpdatedAt = snapshot?.valueUpdatedAt?.[varDef.name];
+        this._rustNavRadioSamples[varDef.name] = { value,
+          updatedAt: typeof fieldUpdatedAt === 'string' && Date.parse(fieldUpdatedAt) >= this._rustControlReadbackNotBeforeMs
+            ? fieldUpdatedAt : null };
+        if (value == null) {
+          delete this._data[varDef.name];
+          delete this._rustSimvarData[varDef.name];
+        }
+      }
+      if (varDef.name === 'lightStates') {
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
+          delete this._data.lightStates;
+          delete this._rustSimvarData.lightStates;
+          this._rustLightStatesUpdatedAt = null;
+          continue;
+        }
+        const sampleUpdatedAt = snapshot?.valueUpdatedAt
+          ? snapshot.valueUpdatedAt.lightStates || null : snapshot?.updatedAt || null;
+        const lightUpdatedAt = typeof sampleUpdatedAt === 'string' && Date.parse(sampleUpdatedAt) >= this._rustControlReadbackNotBeforeMs
+          ? sampleUpdatedAt : null;
+        if (lightUpdatedAt !== this._rustLightStatesUpdatedAt) this._rustLightStatesSequence += 1;
+        this._rustLightStatesUpdatedAt = lightUpdatedAt;
+      }
       if (value == null) continue;
       updates[varDef.name] = value;
     }
@@ -1352,10 +1378,14 @@ class SimConnectTelemetryProvider {
   }
 
   _resetTelemetryForAircraftChange(reason) {
+    this._rustControlReadbackNotBeforeMs = Date.now();
     this._data = {};
     this._rustSimvarData = {};
     this._rustSimvarUpdatedAt = null;
     this._rustSimvarSnapshotSequence = 0;
+    this._rustLightStatesUpdatedAt = null;
+    this._rustLightStatesSequence = 0;
+    this._rustNavRadioSamples = {};
     this._sampleCount = 0;
     this._debuggedNullVars = null;
     this._overspeedActive = false;
@@ -3139,6 +3169,103 @@ class SimConnectTelemetryProvider {
     }
   }
 
+  _captureGenericControlReadback(bridge, eventName, options) {
+    return captureGenericLightReadback({
+      eventName,
+      profileKey: options.profileKey,
+      nativeMask: this._data?.lightStates,
+      nativeSnapshot: {
+        ...this._rustSimvarBridge?.getSnapshot?.(),
+        updatedAt: this._rustLightStatesUpdatedAt,
+      },
+      nativeSequence: this._rustLightStatesSequence,
+      gaugeSnapshot: bridge?.getSnapshot?.() || {},
+      notBeforeMs: this._rustControlReadbackNotBeforeMs,
+      nowMs: Date.now(),
+    });
+  }
+
+  _captureNavRadioState() {
+    return captureNavRadios(this._rustNavRadioSamples, this._rustSimvarBridge?.getSnapshot?.()?.status);
+  }
+
+  async _executeGenericKeyEvent(bridge, eventName, eventValue, eventParameters, backendSource, options) {
+    const before = this._captureGenericControlReadback(bridge, eventName, options);
+    const dispatchedAtMs = Date.now();
+    const diagnostics: AnyRecord = {
+      version: 1,
+      requestId: options.request?.requestId || null,
+      profileKey: options.profileKey,
+      profileRevision: options.profileRevision,
+      eventName,
+      value: eventValue,
+      parameters: eventParameters,
+      dispatchedAt: new Date(dispatchedAtMs).toISOString(),
+      native: null,
+      sendIds: [],
+      acknowledged: false,
+      ...(options.request?.control === 'radios' ? { navRadiosBefore: this._captureNavRadioState() } : {}),
+    };
+    let ack;
+    let failure: AnyRecord | null = null;
+    try {
+      ack = await bridge.sendEvent(eventName, eventValue, eventParameters);
+      diagnostics.native = ack?.transport || null;
+      diagnostics.sendIds = [...new Set([...(Array.isArray(ack?.sendIds) ? ack.sendIds : []), ack?.sendId]
+        .filter((id) => Number.isSafeInteger(id) && id >= 0))];
+      diagnostics.acknowledged = ack?.ok === true;
+      if (ack?.ok !== true) {
+        failure = this._buildSidecarResult(ack, backendSource, `Failed to send key event ${eventName}.`);
+      } else {
+        // Observe for a fixed, bounded window even when a light already matches.
+        // A native acknowledgement or matching output is not cockpit confirmation.
+        // Never retry the command or dispatch a different route from this loop.
+        const deadline = Date.now() + GENERIC_CONTROL_OBSERVATION_MS;
+        while (true) {
+          const exception = bridge.findRecentSimConnectException?.(diagnostics.sendIds, dispatchedAtMs);
+          if (exception) {
+            diagnostics.exception = exception;
+            failure = {
+              ok: false, code: 'simconnect_exception',
+              error: `SimConnect rejected ${eventName} after dispatch (exception ${exception.exception}, packet ${exception.sendId}).`,
+            };
+            break;
+          }
+          failure = this._validateAircraftControlProfileGeneration(options);
+          if (failure) {
+            failure.error = 'Aircraft profile changed after dispatch; aircraft state is unconfirmed.';
+            break;
+          }
+          if (this._stopping || ['stopped', 'disconnected', 'error'].includes(bridge.getSnapshot?.().status)) {
+            failure = { ok: false, code: 'observation_interrupted', error: 'The simulator connection ended after dispatch; aircraft state is unconfirmed.' };
+            break;
+          }
+          const remainingMs = deadline - Date.now();
+          if (remainingMs <= 0) break;
+          await new Promise((resolve) => setTimeout(resolve, Math.min(50, remainingMs)));
+        }
+      }
+    } catch (error) {
+      failure = { ok: false, code: 'action_failed', error: error?.message || 'The sidecar command failed.' };
+    }
+    diagnostics.readback = describeGenericLightReadback(before,
+      this._captureGenericControlReadback(bridge, eventName, options), eventValue, dispatchedAtMs);
+    diagnostics.elapsedMs = Date.now() - dispatchedAtMs;
+    if (options.request?.control === 'radios') diagnostics.navRadiosAfter = this._captureNavRadioState();
+    diagnostics.outcome = failure?.code || 'sent_unconfirmed';
+    if (failure) diagnostics.error = failure.error;
+    // One bounded record per command is available in backend logs even when
+    // optional debug broadcasting is disabled in the packaged application.
+    console.info(`[AircraftControl] ${JSON.stringify(diagnostics)}`);
+    Debug.log('aircraft-control', 'generic_command_diagnostics', diagnostics);
+    return {
+      ...(failure || { ok: true, code: 'sent_unconfirmed' }),
+      backendSource,
+      executionStarted: true,
+      diagnostics,
+    };
+  }
+
   async _executeKeyEventAction(bridge, action, backendSource, options: AnyRecord = {}) {
     const eventName = typeof action.name === 'string' ? action.name.trim() : '';
     if (!eventName) {
@@ -3170,6 +3297,19 @@ class SimConnectTelemetryProvider {
     }
 
     const profileKey = typeof options?.profileKey === 'string' ? options.profileKey.trim() : '';
+    if (options.resolvedBy === 'generic') {
+      if (options.request?.control === 'radios') {
+        const radio = this._captureNavRadioState()[options.request.target];
+        if (radio?.installed !== true || radio.standbyMhz == null
+          || (options.request.operation === 'swap' && radio.activeMhz == null)) {
+          return {
+            ok: false, code: 'radio_unavailable', backendSource,
+            error: radio?.installed === false ? 'This NAV radio is not installed.' : 'Fresh NAV radio readback is required before tuning or swapping.',
+          };
+        }
+      }
+      return this._executeGenericKeyEvent(bridge, eventName, eventValue, eventParameters, backendSource, options);
+    }
     const pulseGroup = profileKey === INIBUILDS_TRISTAR_PROFILE_KEY
       ? INIBUILDS_TRISTAR_AFCS_PULSE_GROUPS[eventName]
       : null;
@@ -3679,8 +3819,12 @@ class SimConnectTelemetryProvider {
     };
     
     // Build lights object from LIGHT STATES bitmask (standard SimConnect format)
-    const lightStates = d.lightStates ?? 0;
-    const lights = decodeLights(lightStates);
+    const nativeLightSample = captureLightMaskSample({
+      source: 'simvar:lightStates', raw: d.lightStates,
+      snapshot: { ...this._rustSimvarBridge?.getSnapshot?.(), updatedAt: this._rustLightStatesUpdatedAt },
+      sequence: this._rustLightStatesSequence, nowMs: Date.now(),
+    });
+    const lights = { ...decodeLights(nativeLightSample.mask ?? 0), available: nativeLightSample.fresh };
     
     // WOW (weight on wheels)
     const wow = d.wow ?? false;
@@ -3753,6 +3897,10 @@ class SimConnectTelemetryProvider {
       
       // Config
       lights,
+      navRadios: {
+        ...this._getActiveAircraftControlProfileGeneration(),
+        radios: this._captureNavRadioState(),
+      },
       flaps: d.flaps ?? 0,          // SimConnect FLAPS HANDLE PERCENT: 0-100 (primary source)
       flapsIndex: d.flapsIndex ?? null,    // SimConnect FLAPS HANDLE INDEX: 0-N
       flapsAngleDeg: d.flapsAngleDeg ?? null,  // TRAILING EDGE FLAPS LEFT ANGLE: actual degrees
@@ -3858,13 +4006,24 @@ class SimConnectTelemetryProvider {
       lvars: (() => {
         const lvarConfig = this._lvarConfig || profileLoader.getLvarConfig();
         const bridgeSnapshot = this._lvarBridge?.getSnapshot?.() || null;
+        const values = { ...(bridgeSnapshot?.values || {}) };
+        if (Object.prototype.hasOwnProperty.call(values, 'standard_light_states')) {
+          const sample = captureLightMaskSample({
+            source: 'lvar:standard_light_states', raw: values.standard_light_states,
+            snapshot: bridgeSnapshot, sequence: bridgeSnapshot.snapshotSequence,
+            profileMatches: bridgeSnapshot.profileId === lvarConfig.profileId,
+            fieldKey: 'standard_light_states', notBeforeMs: this._rustControlReadbackNotBeforeMs,
+            nowMs: Date.now(),
+          });
+          if (!sample.fresh) delete values.standard_light_states;
+        }
         return {
           enabled: lvarConfig.enabled,
           profileId: lvarConfig.profileId,
           source: bridgeSnapshot?.source || 'profile-config',
           status: bridgeSnapshot?.status || (config.lvarSidecar?.enable ? 'starting' : 'disabled'),
           subscriptions: lvarConfig.subscriptions,
-          values: bridgeSnapshot?.values || {},
+          values,
           updatedAt: bridgeSnapshot?.updatedAt || null,
           error: bridgeSnapshot?.error || null,
         };

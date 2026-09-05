@@ -8,6 +8,7 @@ export const LIVE_TELEMETRY_MESSAGE_TYPES = new Set([
   'fuel',
   'environment',
   'autopilot',
+  'navRadios',
   'gear',
   'lights',
   'flaps',

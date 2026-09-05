@@ -461,6 +461,23 @@ test('enums.ts MSG and message-types.js MSG wire string values are identical for
 
 console.log('\n--- Interface field parity ---');
 
+test('NAV radio message and receiver fields match their production payloads', () => {
+  const { captureNavRadios } = require(resolveBackendRuntimeFile('telemetry-provider', 'nav-radio-state.js'));
+  const radios = captureNavRadios({}, 'running');
+  const messages = [];
+  broadcastersRuntime.sendBasicStreams((message) => messages.push(message), {
+    navRadios: { profileKey: 'bundled/msfs/generic', profileRevision: 1, radios },
+  });
+  const message = messages.find((entry) => entry.type === 'navRadios');
+  for (const [name, value] of [
+    ['NavRadiosMessage', message], ['NavRadiosData', message.data], ['NavRadioReceiver', radios.nav1],
+  ]) {
+    const actual = [...getRuntimePayloadFields(value)].sort().join(',');
+    const declared = [...getInterfaceFields(MESSAGES_TS, name)].sort().join(',');
+    assert(actual === declared, `${name}: emitted ${actual}; declared ${declared}`);
+  }
+});
+
 test('AutopilotMessage fields match sendAutopilot broadcast object (bidirectional)', () => {
   const ifaceFields = getInterfaceFields(MESSAGES_TS, 'AutopilotMessage');
   const bcFields = getRuntimePayloadFields(

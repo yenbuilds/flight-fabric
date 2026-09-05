@@ -47,6 +47,29 @@ function buildTriStarProfile() {
   });
 }
 
+test('generic NAV channels validate all 200 channels and map each receiver independently', () => {
+  for (const index of [1, 2]) {
+    for (let channel = 2160; channel <= 2359; channel++) {
+      const mhz = channel / 20;
+      const result = resolveAircraftControl({
+        control: 'radios', target: `nav${index}`, operation: 'setStandby', value: mhz,
+      }, { profile: buildBroadGenericControlProfile() });
+      assert.equal(result.ok, true, `${index}: ${mhz}`);
+      assert.equal(result.action.name, `NAV${index}_STBY_SET`);
+      assert.equal(result.action.value, parseInt(String(Math.round(mhz * 100) % 10000), 16));
+    }
+  }
+  for (const value of [null, undefined, '', 0, 107.95, 118, 110.31, 110.325, NaN, Infinity]) {
+    assert.equal(resolveAircraftControl({
+      control: 'radios', target: 'nav1', operation: 'setStandby', value,
+    }, { profile: buildBroadGenericControlProfile() }).ok, false, String(value));
+  }
+  for (const profile of [buildProfile(), buildPmdg737Profile(), buildFbwA32nxProfile(),
+    buildBroadGenericControlProfile({ simulator: 'xplane' })]) {
+    assert.equal(resolveAircraftControl({ control: 'radios', target: 'nav1', operation: 'swap' }, { profile }).ok, false);
+  }
+});
+
 function buildPmdg737Profile() {
   return buildProfile({
     id: 'pmdg-737',
@@ -1166,6 +1189,22 @@ test('executeAircraftCommand applies a takeoff-light preset in order through the
   assert.deepEqual(calls.map((call) => call.request.value), [true, true, true]);
 });
 
+test('a preset preserves an earlier unconfirmed result when its last step succeeds', async () => {
+  const provider = {
+    aircraftControlCapabilities: { actionTypes: ['key-event'] },
+    async executeAircraftControlAction(action) {
+      return { ok: true, code: action.name === 'LANDING_LIGHTS_SET' ? 'sent_unconfirmed' : 'executed' };
+    },
+  };
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'configuration.lights.takeoff', input: {},
+  }, { profile: buildBroadGenericControlProfile() });
+  assert.equal(result.ok, true);
+  assert.equal(result.completedStepCount, 3);
+  assert.equal(result.code, 'sent_unconfirmed');
+  assert.equal(result.unconfirmedStepCount, 1);
+});
+
 test('takeoff-light preset stops after the first failed action and reports partial completion', async () => {
   const calls = [];
   const provider = {
@@ -1348,7 +1387,7 @@ test('bundled unmatched MSFS profile opts into only fixed generic simulator mapp
     },
     {
       request: { control: 'lights', target: 'landing', operation: 'set', value: false },
-      action: { type: 'key-event', name: 'LANDING_LIGHTS_SET', value: false },
+      action: { type: 'key-event', name: 'LANDING_LIGHTS_SET', parameters: [0], value: false },
     },
     {
       request: { control: 'spoilers', operation: 'set', value: 16383 },
@@ -1366,6 +1405,35 @@ test('bundled unmatched MSFS profile opts into only fixed generic simulator mapp
     assert.equal(result.ok, true, JSON.stringify(request));
     assert.equal(result.resolvedBy, 'generic', JSON.stringify(request));
     assert.deepEqual(result.action, action, JSON.stringify(request));
+  }
+});
+
+test('bundled generic fallback resolves every aircraft-page exterior light command', () => {
+  const profile = buildProfile({
+    ...genericProfileDocument,
+    _profileKey: 'bundled/msfs/generic',
+  });
+  const expectedEvents = {
+    nav: 'NAV_LIGHTS_SET',
+    beacon: 'BEACON_LIGHTS_SET',
+    strobe: 'STROBES_SET',
+    landing: 'LANDING_LIGHTS_SET',
+    taxi: 'TAXI_LIGHTS_SET',
+  };
+
+  for (const [target, eventName] of Object.entries(expectedEvents)) {
+    const result = resolveAircraftControl(
+      { control: 'lights', target, operation: 'set', value: true },
+      { profile },
+    );
+    assert.equal(result.ok, true, target);
+    assert.equal(result.resolvedBy, 'generic', target);
+    assert.deepEqual(result.action, {
+      type: 'key-event',
+      name: eventName,
+      parameters: [0],
+      value: true,
+    }, target);
   }
 });
 

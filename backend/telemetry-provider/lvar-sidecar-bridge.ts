@@ -125,6 +125,7 @@ type SnapshotState = {
   profileId: string;
   subscriptions: Subscription[];
   values: Record<string, unknown>;
+  valueUpdatedAt: Record<string, unknown> | null;
   snapshotSequence: number;
   updatedAt: string | null;
   error: string | null;
@@ -194,6 +195,7 @@ type SnapshotMessage = {
   source?: string;
   librarySpec?: string;
   values?: Record<string, unknown>;
+  valueUpdatedAt?: Record<string, unknown>;
   timestampIso?: string | null;
   subscriptionGeneration?: number;
 };
@@ -354,6 +356,7 @@ class LvarSidecarBridge {
       profileId: 'generic',
       subscriptions: [],
       values: {},
+      valueUpdatedAt: null,
       snapshotSequence: 0,
       updatedAt: null,
       error: null,
@@ -693,6 +696,7 @@ class LvarSidecarBridge {
       && priorError.length > 0;
     this._awaitingSubscriptionRefresh = this._subscriptions.length > 0;
     this._snapshot.values = {};
+    this._snapshot.valueUpdatedAt = null;
     this._snapshot.updatedAt = null;
     this._consecutiveAllNullSnapshots = 0;
     this._setStatus(
@@ -722,6 +726,7 @@ class LvarSidecarBridge {
     this._started = false;
     this._awaitingSubscriptionRefresh = this._subscriptions.length > 0;
     this._snapshot.values = {};
+    this._snapshot.valueUpdatedAt = null;
     this._snapshot.updatedAt = null;
     this._consecutiveAllNullSnapshots = 0;
     this._snapshot.mobiflight = {
@@ -1004,6 +1009,7 @@ class LvarSidecarBridge {
     // so keep reads unavailable until the sidecar confirms that it has applied
     // the new subscription set.
     this._snapshot.values = {};
+    this._snapshot.valueUpdatedAt = null;
     this._snapshot.updatedAt = null;
     this._consecutiveAllNullSnapshots = 0;
     this._awaitingSubscriptionRefresh = true;
@@ -1179,6 +1185,7 @@ class LvarSidecarBridge {
     return {
       ...this._snapshot,
       values: { ...this._snapshot.values },
+      valueUpdatedAt: this._snapshot.valueUpdatedAt ? { ...this._snapshot.valueUpdatedAt } : null,
       subscriptions: [...this._snapshot.subscriptions],
       mobiflight: { ...this._snapshot.mobiflight },
     };
@@ -1278,6 +1285,7 @@ class LvarSidecarBridge {
         ) {
           this._awaitingSubscriptionRefresh = true;
           this._snapshot.values = {};
+          this._snapshot.valueUpdatedAt = null;
           this._snapshot.updatedAt = null;
           this._consecutiveAllNullSnapshots = 0;
         }
@@ -1324,6 +1332,9 @@ class LvarSidecarBridge {
         this._snapshot.values = msg.values && typeof msg.values === 'object'
           ? (msg.values as Record<string, unknown>)
           : {};
+        this._snapshot.valueUpdatedAt = msg.valueUpdatedAt && typeof msg.valueUpdatedAt === 'object'
+          && !Array.isArray(msg.valueUpdatedAt)
+          ? { ...msg.valueUpdatedAt as Record<string, unknown> } : null;
         this._snapshot.snapshotSequence += 1;
         const values = this._snapshot.values;
         const hasAnyValue = Object.values(values).some((value) => value != null);

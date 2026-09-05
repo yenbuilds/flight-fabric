@@ -22,6 +22,8 @@ if (userDataDir) {
 }
 
 app.disableHardwareAcceleration();
+// Keep CSS viewport sizes deterministic on Windows with fractional display scaling.
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-gpu-compositing');
 app.commandLine.appendSwitch('disable-gpu-sandbox');
@@ -64,11 +66,16 @@ async function waitFor(windowRef, expression, description, localTimeoutMs = time
 
 async function setContentSizeAndWait(windowRef, width, height, description) {
   windowRef.setContentSize(width, height);
-  await waitFor(
-    windowRef,
-    `Math.abs(window.innerWidth - ${width}) <= 2 && Math.abs(window.innerHeight - ${height}) <= 2`,
-    `${description} viewport resize`,
-  );
+  try {
+    await waitFor(
+      windowRef,
+      `Math.abs(window.innerWidth - ${width}) <= 2 && Math.abs(window.innerHeight - ${height}) <= 2`,
+      `${description} viewport resize`,
+    );
+  } catch (error) {
+    const viewport = await evaluate(windowRef, '({ width: innerWidth, height: innerHeight, ratio: devicePixelRatio })');
+    throw new Error(`${error.message}; requested=${width}x${height}, actual=${JSON.stringify(viewport)}, content=${JSON.stringify(windowRef.getContentBounds())}`);
+  }
   await wait(50);
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -27,6 +27,7 @@
     "test:vue-stores": "node tests/scripts/test-vue-stores.js",
     "test:vue-components": "node tests/scripts/test-vue-components.js",
     "test:vue-interactions": "node tests/scripts/test-vue-interactions.js",
+    "test:nav-radios-browser": "node tests/scripts/test-nav-radios-browser.js",
     "test:approach-profile-renderer": "node tests/scripts/test-approach-profile-renderer.js",
     "test:browser-smoke": "npm run frontend:build && node tests/scripts/test-browser-smoke.js",
     "test:pmdg-737-preview": "node tests/scripts/test-pmdg-737-preview.js",
@@ -36,7 +37,7 @@
     "test:http-server-simbrief": "npm run build:backend:runtime && node --test dist/backend/core/http-server.test.js",
     "test:user-identity": "node tests/scripts/test-user-identity.js",
     "test:electron": "node electron/test-electron.js",
-    "test:voice": "node --test frontend/src/voice/command-interpreter.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/voice-controller.test.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/windows-local-tts.test.js",
+    "test:voice": "node --test frontend/src/voice/command-interpreter.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/voice-controller.test.js tests/scripts/test-generic-nav-voice.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/windows-local-tts.test.js",
     "test:electron:output-guard": "node --test tests/scripts/test-electron-release-output-failure-guard.js",
     "test:electron:ipc-runtime": "node tests/scripts/test-electron-ipc-runtime.js",
     "test:electron:sqlite": "node tests/scripts/test-electron-sqlite-runtime.js",

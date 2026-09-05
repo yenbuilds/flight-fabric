@@ -2,6 +2,20 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+
+test('NAV radio readback is broadcast with aircraft generation for remote clients', () => {
+  const { sendBasicStreams } = require('./broadcasters');
+  const { projectServerMessageForClient } = require('../core/server-message-projection');
+  const navRadios = { profileKey: 'bundled/msfs/generic', profileRevision: 3, radios: {
+    nav1: { installed: true, activeMhz: 108, standbyMhz: 110.30 },
+    nav2: { installed: false, activeMhz: null, standbyMhz: null },
+  } };
+  const messages = [];
+  sendBasicStreams((message) => messages.push(message), { navRadios });
+  const message = messages.find((entry) => entry.type === 'navRadios');
+  assert.deepEqual(message, { type: 'navRadios', data: navRadios });
+  assert.deepEqual(projectServerMessageForClient({}, message), message);
+});
 const {
   assessAutopilotReliability,
   buildAltitudeBroadcastPayload,

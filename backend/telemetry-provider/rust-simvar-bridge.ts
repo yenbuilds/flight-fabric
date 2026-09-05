@@ -119,6 +119,7 @@ type SnapshotMessage = {
   source?: string;
   librarySpec?: string;
   values?: Record<string, unknown>;
+  valueUpdatedAt?: Record<string, string>;
   timestampIso?: string | null;
 };
 
@@ -198,6 +199,7 @@ type RustSimvarSnapshot = {
   status: BridgeStatus;
   subscriptions: SimvarSubscription[];
   values: Record<string, unknown>;
+  valueUpdatedAt: Record<string, string>;
   updatedAt: string | null;
   error: string | null;
 };
@@ -382,6 +384,7 @@ class RustSimvarBridge {
       status: this._enabled ? 'starting' : 'disabled',
       subscriptions: [],
       values: {},
+      valueUpdatedAt: {},
       updatedAt: null,
       error: null,
     };
@@ -764,6 +767,7 @@ class RustSimvarBridge {
       ...this._snapshot,
       subscriptions: [...this._snapshot.subscriptions],
       values: { ...this._snapshot.values },
+      valueUpdatedAt: { ...this._snapshot.valueUpdatedAt },
     };
   }
 
@@ -937,6 +941,8 @@ class RustSimvarBridge {
         this._snapshot.updatedAt = typeof msg.timestampIso === 'string' && msg.timestampIso.trim()
           ? msg.timestampIso
           : null;
+        this._snapshot.valueUpdatedAt = msg.valueUpdatedAt && typeof msg.valueUpdatedAt === 'object'
+          ? { ...msg.valueUpdatedAt } : {};
         if (Object.values(this._snapshot.values).some((value) => value != null)) {
           this._setStatus('running');
         }

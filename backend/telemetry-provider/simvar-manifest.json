@@ -882,6 +882,13 @@
       "conversion": "none"
     },
     {
+      "name": "NAV AVAILABLE",
+      "sdkNativeUnit": "bool",
+      "ourRequestedUnit": "bool",
+      "conversion": "none",
+      "notes": "Receiver installation, independent of signal reception. NAV 1/2 checked against the official MSFS 2024 radio SimVars documentation on 2026-09-05."
+    },
+    {
       "name": "NAV ACTIVE FREQUENCY",
       "sdkNativeUnit": "MHz",
       "ourRequestedUnit": "MHz",

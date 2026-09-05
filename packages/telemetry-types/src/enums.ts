@@ -41,6 +41,7 @@ export const MSG = {
 
   // Structured data
   LIGHTS: 'lights',
+  NAV_RADIOS: 'navRadios',
   GEAR: 'gear',
   FLAPS: 'flaps',
   SPOILERS: 'spoilers',

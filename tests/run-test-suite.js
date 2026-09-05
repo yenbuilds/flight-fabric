@@ -115,6 +115,7 @@ const TEST_STEPS = [
   ['node', ['dist/backend/telemetry-provider/lvar-sidecar-bridge.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/source-overlays.test.js']],
   ['node', ['dist/backend/telemetry-provider/simconnect-telemetry-provider.test.js']],
+  ['node', ['--test', 'dist/backend/telemetry-provider/generic-control-diagnostics.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/pmdg-737-sdk-integration.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/pmdg-777-sdk-integration.test.js']],
   ['npm', ['run', 'test:rust-sidecar']],

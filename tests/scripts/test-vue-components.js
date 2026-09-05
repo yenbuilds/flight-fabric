@@ -5007,7 +5007,7 @@ async function main() {
     }
   });
 
-  await test('iniBuilds A330 template renders its guarded standard-event controls and typed targets', async () => {
+  await test('iniBuilds A330 template renders readback with unverified write controls disabled', async () => {
     const modePrefixes = [
       'flightGuidance.apMaster',
       'flightGuidance.flightDirector',
@@ -5090,7 +5090,7 @@ async function main() {
             'systems.outsideAirTemperatureC': -54.2,
             'systems.mach': 0.82,
           },
-          actionCapabilities: Object.fromEntries(actionIds.map((actionId) => [actionId, true])),
+          actionCapabilities: {},
         },
       },
     );
@@ -5100,19 +5100,23 @@ async function main() {
     assert.match(html, /A330-200, A330-300 and A330-300P2F/, 'included variants should be explicit');
     assert.match(html, /37,000/, 'standard selected-altitude candidate should be formatted');
     assert.match(html, /204\.1/, 'gross weight should be converted from pounds to tonnes');
-    assert.match(html, /Standard controls/, 'standard-event write boundary should be prominent');
+    assert.match(html, /Readback only/, 'unverified A330 writes should be clearly unavailable');
     assert.match(html, /Experimental/, 'live-validation status should be prominent');
-    assert.equal((html.match(/data-aircraft-action=/g) || []).length, 47, 'the exact 47-action adapter surface should render once');
+    assert.equal((html.match(/data-aircraft-action=/g) || []).length, 47, 'the readback page should retain its disabled control layout');
     for (const selectorId of ['speed', 'heading', 'altitude', 'vertical-speed', 'speedbrake']) {
       assert.match(html, new RegExp(`data-a330-selector="${selectorId}"`), `${selectorId} should render as a typed target form`);
     }
     assert.equal((html.match(/type="text"/g) || []).length, 5, 'all numeric targets should be text-entry fields');
     assert.doesNotMatch(html, /data-a330-selector=[^>]*>[\s\S]*?aria-label="(?:Decrease|Increase)/, 'numeric target cards must not use decrement/increment buttons');
-    assert.match(html, /data-aircraft-action="flightGuidance\.altitude\.set"/, 'typed altitude should dispatch one exact target action');
-    assert.match(html, /data-aircraft-action="controls\.gear\.down"/, 'gear commands should no longer disappear on the dedicated page');
-    assert.match(html, /data-aircraft-action="controls\.flaps\.increase"/, 'flap commands should no longer disappear on the dedicated page');
+    for (const actionId of ['flightGuidance.altitude.set', 'controls.gear.down', 'controls.flaps.increase', 'lights.beacon.on']) {
+      assert.match(
+        html,
+        new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")(?=[^>]*\\sdisabled(?:=| |>))[^>]*>`),
+        `${actionId} should remain disabled without a verified A330 write route`,
+      );
+    }
     assert.match(html, /data-a330-light="runway-turnoff-readonly"[\s\S]*Read only/, 'turnoff should remain honestly read-only without a distinct route');
-    assert.match(html, /AP1\/AP2, managed push\/pull and EXPED/, 'unsupported Airbus-specific semantics should remain explicit');
+    assert.match(html, /control writes are unavailable/, 'the unavailable A330 write boundary should remain explicit');
     assert.doesNotMatch(html, /Behavior Debug|InputEvents|real-system readback/, 'development details should not appear in end-user copy');
     assert.doesNotMatch(html, /AUTOPILOT |LIGHT |PRESSURIZATION |INI_|MobiFlight|MF\.SimVars/, 'raw routes must remain encapsulated outside Vue');
 
@@ -7969,6 +7973,39 @@ async function main() {
     assert.match(html, /Events<\/dt>[\s\S]*text-sm[^>]*>63<\/dd>/, 'timeline summary values should use the larger readable text treatment');
     assert.match(html, /Fuel burn<\/dt>[\s\S]*365 kg<\/dd>/, 'fuel burn should remain available inline');
     assert.doesNotMatch(html, /Score Impact|scoreImpactText|scoreImpactClass/, 'score impact should be removed from the summary UI');
+  });
+
+  await test('generic NAV panel handles zero, one, two, unknown and stale receivers', async () => {
+    for (const scenario of ['none', 'one', 'two', 'unknown', 'stale', 'missing-frequency', 'read-only', 'unsupported']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'GenericNavRadios.vue'), ({ useAircraftControlsStore }) => {
+        const controls = useAircraftControlsStore();
+        controls.applyControlCapabilities({ aircraftCommands: {
+          profileKey: 'bundled/msfs/generic', profileRevision: 1,
+          commands: scenario === 'unsupported' ? [] : ['nav1', 'nav2'].flatMap((id) => ['setStandby', 'swap'].map((op) => ({ id: `radios.${id}.${op}` }))),
+        } });
+        controls.setAvailability({ enabled: scenario !== 'read-only', reason: 'Read-only connection.' });
+        if (scenario !== 'unknown') controls.applyNavRadios({
+          profileKey: 'bundled/msfs/generic', profileRevision: 1, radios: {
+            nav1: { installed: scenario !== 'none', activeMhz: 108, standbyMhz: scenario === 'missing-frequency' ? null : 110.30 },
+            nav2: { installed: scenario === 'two', activeMhz: 117.95, standbyMhz: 110.50 },
+          },
+        }, Date.now() - (scenario === 'stale' ? 3000 : 0));
+      });
+      const count = (html.match(/data-nav-radio=/g) || []).length;
+      assert.equal(count, scenario === 'two' ? 2 : ['one', 'missing-frequency', 'read-only'].includes(scenario) ? 1 : 0, scenario);
+      if (scenario === 'none') assert.match(html, /No NAV radios reported/);
+      if (['unknown', 'stale'].includes(scenario)) assert.match(html, /Waiting for NAV radio data/);
+      if (['missing-frequency', 'read-only'].includes(scenario)) {
+        assert.match(html, /<input[^>]*disabled/);
+        assert.equal((html.match(/<button[^>]*disabled/g) || []).length, 2);
+      }
+      if (scenario === 'one') {
+        assert.match(html, /inputmode="decimal"/);
+        assert.match(html, /NAV 1 active frequency[^>]*>108\.00/);
+        assert.match(html, /NAV 1 standby frequency[^>]*>110\.30/);
+      }
+      if (scenario === 'unsupported') assert.doesNotMatch(html, /Navigation radios/);
+    }
   });
 
   console.log(`\n${'-'.repeat(50)}`);

@@ -568,6 +568,31 @@ test('voice feedback waits for and preserves the correlated backend success resu
   await harness.controller.cancel('user');
 });
 
+test('unconfirmed backend results keep voice feedback honest for commands and presets', async () => {
+  for (const stepCount of [1, 3]) {
+    const harness = createHarness();
+    await harness.controller.initialize();
+    await harness.controller.begin();
+    await harness.controller.finish();
+    await harness.emitRecognition({
+      type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero',
+    });
+
+    harness.completeLastCommand({
+      ok: true, code: 'sent_unconfirmed', requestId: 'ctrl-1',
+      stepCount, completedStepCount: stepCount, unconfirmedStepCount: 1,
+    });
+    assert.equal(harness.voiceStore.status, 'sent');
+    assert.match(harness.voiceStore.statusText, /response unconfirmed.*check the simulator/i);
+    assert.deepEqual(harness.spokenReadbacks, ['Command sent. Aircraft response unconfirmed. Check the simulator.']);
+    harness.controller.refreshReadyState();
+    assert.match(harness.voiceStore.statusText, /response unconfirmed/i);
+    assert.equal(harness.sentCommands.length, 1, 'feedback must not retry the command');
+    await harness.controller.begin();
+    await harness.controller.cancel('user');
+  }
+});
+
 test('disabled spoken feedback remains silent', async () => {
   const harness = createHarness();
   await harness.controller.initialize();

@@ -350,6 +350,14 @@ export function createAircraftControlController({
       : '';
 
     if (msg?.ok) {
+      const unconfirmed = msg.code === 'sent_unconfirmed';
+      const observationText = unconfirmed
+        ? (stepCount > 1
+            ? 'One or more aircraft responses are unconfirmed; check the simulator.'
+            : msg.diagnostics?.readback?.status === 'changed_to_requested'
+              ? 'Light readback changed; verify the cockpit control.'
+              : 'Aircraft response unconfirmed; check the simulator.')
+        : '';
       const transportLabel = msg.transportMode === 'direct-lvar'
         ? 'Direct LVAR fallback'
         : '';
@@ -359,6 +367,7 @@ export function createAircraftControlController({
         describeAircraftControlAction(msg.action),
         transportLabel,
         msg.backendSource || '',
+        observationText,
       ].filter(Boolean);
 
       const routeText = routeParts.join(' \u00b7 ');
@@ -369,7 +378,8 @@ export function createAircraftControlController({
         status: 'sent',
         commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request),
       });
-      emitToast('success', 'Aircraft control sent', `${description} \u00b7 ${routeText}`, { durationMs: 3600 });
+      emitToast(unconfirmed ? 'warning' : 'success', 'Aircraft control sent',
+        `${description} \u00b7 ${routeText}`, { durationMs: unconfirmed ? 6000 : 3600 });
       notifyResult(pending, msg);
       return;
     }
@@ -417,6 +427,7 @@ export function createAircraftControlController({
   }
 
   return {
+    applyNavRadios: (data) => controlsStore.applyNavRadios?.(data),
     applyControlCapabilities,
     applySimState,
     clearProfileToken,

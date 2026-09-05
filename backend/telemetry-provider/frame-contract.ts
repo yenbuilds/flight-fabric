@@ -36,6 +36,13 @@ type FieldSpec = {
 
 type FrameLike = {
   display?: Record<string, unknown> | null;
+  // Optional MSFS NAV telemetry. null installed means unknown/stale; false
+  // means the simulator reports no receiver. Frequencies are MHz or null.
+  navRadios?: {
+    profileKey: string;
+    profileRevision: number | null;
+    radios: Record<string, { installed: boolean | null; activeMhz: number | null; standbyMhz: number | null }>;
+  };
   [key: string]: unknown;
 };
 

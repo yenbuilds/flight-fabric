@@ -219,6 +219,26 @@ export interface LightsMessage extends BaseMessage {
   data: LightsData;
 }
 
+export interface NavRadioReceiver {
+  /** Installed receiver, independent of reception; null means unknown/stale. */
+  installed: boolean | null;
+  /** MHz on a valid 50 kHz NAV channel; null means unavailable/stale. */
+  activeMhz: number | null;
+  standbyMhz: number | null;
+}
+
+export interface NavRadiosData {
+  profileKey: string;
+  profileRevision: number | null;
+  radios: { nav1: NavRadioReceiver; nav2: NavRadioReceiver };
+}
+
+/** Live-only readback. Consumers must discard data from a previous profile generation. */
+export interface NavRadiosMessage extends BaseMessage {
+  type: 'navRadios';
+  data: NavRadiosData;
+}
+
 export interface GearData {
   /** Left gear position normalized 0.0–1.0 (0=up, 1=down, fractional during transit) */
   left: number;
@@ -828,6 +848,7 @@ export type TelemetryMessage =
   | UltimateStabilityScoreMessage
   | VreSamplingMessage
   | LightsMessage
+  | NavRadiosMessage
   | GearMessage
   | FlapsMessage
   | SpoilersMessage

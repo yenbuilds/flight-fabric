@@ -443,6 +443,33 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
         hints: ['GROUND SPOILERS', 'SPOILERS', 'SPEED BRAKE'],
       },
     },
+    ...[1, 2].flatMap((index): AircraftCommandDefinition[] => {
+      const spokenIndex = index === 1 ? 'one' : 'two';
+      const receivers = [`nav ${spokenIndex}`, `nav ${index}`, `nav radio ${spokenIndex}`, `nav radio ${index}`];
+      return [
+        {
+          id: `radios.nav${index}.setStandby`, label: `NAV ${index} standby frequency`, group: 'radios',
+          input: { kind: 'number', min: 108, max: 117.95, step: 0.05, units: 'megahertz' },
+          speech: {
+            patterns: receivers.flatMap((receiver) => [
+              `set ${receiver} standby {value}`,
+              `set ${receiver} standby to {value}`,
+              `tune ${receiver} standby {value}`,
+              `${receiver} standby {value}`,
+            ]),
+            hints: [`NAV ${spokenIndex.toUpperCase()} STANDBY`],
+          },
+        },
+        {
+          id: `radios.nav${index}.swap`, label: `NAV ${index} active / standby swap`, group: 'radios',
+          input: NONE_INPUT,
+          speech: {
+            patterns: receivers.flatMap((receiver) => [`swap ${receiver}`, `${receiver} swap`]),
+            hints: [`SWAP NAV ${spokenIndex.toUpperCase()}`],
+          },
+        },
+      ];
+    }),
     {
       id: 'radios.nav.setBothActive',
       label: 'NAV 1 + NAV 2 active frequency',
@@ -623,6 +650,10 @@ const genericBoolean = (control: string, target?: string): LegacyRequest => ({
 export const GENERIC_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'generic',
   bindings: Object.freeze([
+    ...['nav1', 'nav2'].flatMap((target) => [
+      input(`radios.${target}.setStandby`, { control: 'radios', target, operation: 'setStandby' }),
+      fixed(`radios.${target}.swap`, { control: 'radios', target, operation: 'swap' }),
+    ]),
     input('flightGuidance.heading.set', { control: 'autopilot', target: 'heading', operation: 'set' }),
     input('flightGuidance.altitude.set', { control: 'autopilot', target: 'altitude', operation: 'set' }),
     input('flightGuidance.speed.set', { control: 'autopilot', target: 'speed', operation: 'set' }),

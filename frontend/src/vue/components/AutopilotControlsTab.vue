@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AutopilotTargetEditor from './AutopilotTargetEditor.vue';
+import GenericNavRadios from './GenericNavRadios.vue';
+import AircraftSectionRibbon from './aircraft-specific/AircraftSectionRibbon.vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useFlightStore } from '../stores/flight.js';
 import { getAircraftControlCommandPendingKey } from '../../aircraft/control-ui.js';
@@ -20,6 +22,27 @@ const aircraftControlContextKey = computed(() => {
     catalogue.profileRevision ?? '',
   ].join(':');
 });
+const hasNavRadios = computed(() => ['nav1', 'nav2'].some((id) => (
+  aircraftControls.isAircraftCommandSupported(`radios.${id}.setStandby`)
+)));
+const sections = computed(() => [
+  { id: 'surfaces', label: 'Surfaces', title: 'Surfaces', detail: 'Gear, flaps, brakes and spoilers' },
+  { id: 'lights', label: 'Lights', title: 'Exterior lights', detail: 'Navigation, beacon, strobe, landing and taxi' },
+  { id: 'autopilot', label: 'Autopilot', title: 'Autopilot', detail: 'Targets and flight guidance modes' },
+  ...(hasNavRadios.value ? [{ id: 'radios', label: 'Radios', title: 'Navigation radios', detail: 'NAV 1 and NAV 2 standby tuning' }] : []),
+]);
+const feedbackSummary = computed(() => ({
+  sending: 'Sending command…',
+  sent: 'Command sent. Check the aircraft response.',
+  failed: 'Command could not be completed. Check aircraft state and details.',
+}[aircraftControls.feedback.status] || ''));
+const diagnostics = ref(null);
+function openDiagnostics() {
+  if (!diagnostics.value) return;
+  diagnostics.value.open = true;
+  diagnostics.value.scrollIntoView({ block: 'start', behavior: 'auto' });
+  diagnostics.value.querySelector('summary')?.focus({ preventScroll: true });
+}
 
 watch(aircraftControlContextKey, () => {
   closeSelectorTargetEditor();
@@ -257,7 +280,7 @@ function isSelectorTargetBusy(mode) {
 function getSelectorTargetDisabledReason(mode) {
   const command = getSelectorSetCommand(mode);
   if (aircraftControls.isCommandSupported(command) !== true) {
-    return 'No mapped target action is available for this aircraft profile.';
+    return 'Target adjustment is unavailable for this aircraft profile.';
   }
   if (aircraftControls.availability.enabled !== true) return aircraftControls.availability.reason;
   if (isSelectorTargetBusy(mode)) return 'A target command is already in progress.';
@@ -266,6 +289,13 @@ function getSelectorTargetDisabledReason(mode) {
 
 function getSelectorTargetTitle(mode) {
   return getSelectorTargetDisabledReason(mode) || 'Open the large one-thumb target editor';
+}
+
+function getAdjustmentLabel(selector, action) {
+  const amount = Number(action.action.replace(/^(inc|dec)/, '')) || 1;
+  const direction = action.action.startsWith('dec') ? 'Decrease' : 'Increase';
+  const name = { spd: 'speed', hdg: 'heading', alt: 'altitude', vs: 'vertical speed' }[selector.mode];
+  return `${direction} selected ${name} by ${amount} ${selector.units}`;
 }
 
 function selectorLiveValue(mode) {
@@ -331,11 +361,28 @@ function requestLightSet(light, value) {
 
 <template>
   <div class="controls-shell page-stack">
-    <section class="controls-section">
+    <AircraftSectionRibbon
+      :key="`${aircraftControlContextKey}:${hasNavRadios}`"
+      :sections="sections"
+      section-id-prefix="generic-aircraft-section-"
+      aircraft-label="Aircraft"
+      :memory-key="aircraftControls.aircraftCommandCatalogue.profileKey ? `generic:${aircraftControls.aircraftCommandCatalogue.profileKey}` : ''"
+    />
+    <p v-if="!aircraftControls.availability.enabled" class="generic-availability" role="status">
+      {{ aircraftControls.availability.reason }}
+    </p>
+    <div v-if="feedbackSummary" class="generic-feedback" :data-status="aircraftControls.feedback.status">
+      <div role="status" aria-live="polite" aria-atomic="true">
+        <strong>{{ aircraftControls.feedback.actionText }}</strong>
+        <p>{{ feedbackSummary }}</p>
+      </div>
+      <button type="button" class="ff-touch-target" @click="openDiagnostics">Details</button>
+    </div>
+    <section id="generic-aircraft-section-surfaces" class="controls-section" tabindex="-1" aria-label="Surfaces">
       <div class="controls-section-header">
         <div>
           <div class="controls-kicker">Surfaces</div>
-          <div class="text-xs text-gray-500 mt-1">Live readbacks with fixed, capability-gated standard simulator commands.</div>
+          <div class="text-xs text-gray-500 mt-1">Gear, flaps, brakes and spoilers.</div>
         </div>
       </div>
       <div class="controls-section-body grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -345,6 +392,7 @@ function requestLightSet(light, value) {
           :id="command.id"
           :class="[modeButtonClass, isCommandDisabled(command.command) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(command.command) ? 'border-accent/50 bg-accent/10' : '']"
           :disabled="isCommandDisabled(command.command)"
+          :aria-label="`${command.label} ${command.value}`"
           :aria-busy="isCommandBusy(command.command) ? 'true' : 'false'"
           @click="requestControlCommand(command.command)"
         >
@@ -358,11 +406,11 @@ function requestLightSet(light, value) {
       </div>
     </section>
 
-    <section class="controls-section">
+    <section id="generic-aircraft-section-lights" class="controls-section" tabindex="-1" aria-label="Exterior lights">
       <div class="controls-section-header">
         <div>
           <div class="controls-kicker">Exterior Lights</div>
-          <div class="text-xs text-gray-500 mt-1">Explicit OFF and ON commands remain usable even when an add-on does not publish a reliable switch position.</div>
+          <div class="text-xs text-gray-500 mt-1">Send OFF or ON even when the light state is unknown.</div>
         </div>
       </div>
       <div class="controls-section-body grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
@@ -391,6 +439,7 @@ function requestLightSet(light, value) {
               :disabled="isCommandDisabled(getLightCommand(light.key, false))"
               :aria-busy="isCommandBusy(getLightCommand(light.key, false)) ? 'true' : 'false'"
               :aria-pressed="getLightState(light.key) === false ? 'true' : 'false'"
+              :aria-label="`${light.label} light off`"
               @click="requestLightSet(light.key, false)"
             >
               OFF
@@ -402,6 +451,7 @@ function requestLightSet(light, value) {
               :disabled="isCommandDisabled(getLightCommand(light.key, true))"
               :aria-busy="isCommandBusy(getLightCommand(light.key, true)) ? 'true' : 'false'"
               :aria-pressed="getLightState(light.key) === true ? 'true' : 'false'"
+              :aria-label="`${light.label} light on`"
               @click="requestLightSet(light.key, true)"
             >
               ON
@@ -411,7 +461,7 @@ function requestLightSet(light, value) {
       </div>
     </section>
 
-    <section class="controls-section">
+    <section id="generic-aircraft-section-autopilot" class="controls-section" tabindex="-1" aria-label="Autopilot">
       <div class="controls-section-header">
         <div>
           <div class="controls-kicker">Autopilot</div>
@@ -475,6 +525,7 @@ function requestLightSet(light, value) {
                 :class="[selectorStates[selector.mode].engaged ? 'border border-accent/50 bg-accent/10' : '', isCommandDisabled(getSelectorHoldCommand(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorHoldCommand(selector.mode)) ? 'ring-1 ring-accent/40' : '']"
                 :data-mode="selector.mode"
                 data-action="engage"
+                :aria-label="`Toggle ${selector.label} hold, currently ${selectorStates[selector.mode].label}`"
                 :disabled="isCommandDisabled(getSelectorHoldCommand(selector.mode))"
                 :aria-busy="isCommandBusy(getSelectorHoldCommand(selector.mode)) ? 'true' : 'false'"
                 @click="requestSelectorHold(selector.mode)"
@@ -492,7 +543,7 @@ function requestLightSet(light, value) {
             <template v-for="(action, index) in selector.actions" :key="`${selector.mode}-${action.action}`">
               <AppTooltip
                 v-if="index < 2"
-                :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action))"
+                :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action)) || getAdjustmentLabel(selector, action)"
                 anchor-class="autopilot-inline-adjustment"
                 placement="top"
               >
@@ -500,6 +551,7 @@ function requestLightSet(light, value) {
                   :class="[adjustButtonClass, (isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
                   :data-mode="selector.mode"
                   :data-action="action.action"
+                  :aria-label="getAdjustmentLabel(selector, action)"
                   :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)"
                   :aria-busy="isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'true' : 'false'"
                   @click="requestSelectorAdjustment(selector.mode, action.action)"
@@ -527,7 +579,7 @@ function requestLightSet(light, value) {
             <template v-for="(action, index) in selector.actions" :key="`${selector.mode}-${action.action}-right`">
               <AppTooltip
                 v-if="index >= 2"
-                :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action))"
+                :content="getCommandTitle(getSelectorAdjustCommand(selector.mode, action.action)) || getAdjustmentLabel(selector, action)"
                 anchor-class="autopilot-inline-adjustment"
                 placement="top"
               >
@@ -535,6 +587,7 @@ function requestLightSet(light, value) {
                   :class="[adjustButtonClass, (isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)) ? 'opacity-50 cursor-not-allowed' : '', isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'ring-1 ring-accent/40' : '']"
                   :data-mode="selector.mode"
                   :data-action="action.action"
+                  :aria-label="getAdjustmentLabel(selector, action)"
                   :disabled="isCommandDisabled(getSelectorAdjustCommand(selector.mode, action.action)) || isSelectorTargetBusy(selector.mode)"
                   :aria-busy="isCommandBusy(getSelectorAdjustCommand(selector.mode, action.action)) ? 'true' : 'false'"
                   @click="requestSelectorAdjustment(selector.mode, action.action)"
@@ -589,7 +642,9 @@ function requestLightSet(light, value) {
       </div>
     </section>
 
-    <details id="controls-diagnostics" class="controls-status-panel">
+    <GenericNavRadios id="generic-aircraft-section-radios" tabindex="-1" />
+
+    <details id="controls-diagnostics" ref="diagnostics" class="controls-status-panel">
       <summary id="controls-diagnostics-toggle" class="controls-status-header">
         <span class="controls-kicker">Control diagnostics</span>
         <span class="controls-status-summary">
@@ -638,6 +693,27 @@ function requestLightSet(light, value) {
   max-width: none;
   margin-inline: auto;
 }
+
+[id^='generic-aircraft-section-'], .controls-status-panel {
+  scroll-margin-top: 4.25rem;
+}
+
+.generic-availability, .generic-feedback {
+  padding: 0.75rem 1rem;
+  border: 1px solid rgb(var(--border));
+  border-radius: var(--ff-radius-card);
+  background: rgb(var(--panel-subtle));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.generic-availability { color: rgb(var(--muted-foreground)); }
+.generic-feedback { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.generic-feedback strong { display: block; font-weight: 600; }
+.generic-feedback p { margin-top: 0.2rem; color: rgb(var(--muted-foreground)); }
+.generic-feedback[data-status='failed'] { border-color: rgb(var(--danger) / 0.6); }
+.generic-feedback button { flex-shrink: 0; min-height: 44px; padding: 0.5rem; text-decoration: underline; }
 
 .controls-status-panel,
 .controls-section,

@@ -458,14 +458,7 @@ function pairedGearClass(leftId, rightId) {
 const pageStatus = computed(() => {
   const globalReason = globalControlReason();
   if (globalReason) return globalReason;
-  if ([...modeControls, ...lightControls, ...surfaceControls, flapControl]
-    .some((control) => groupPending(control.groupId))) {
-    return 'Command in progress.';
-  }
-  if (allNumericControls.some((control) => groupPending(control.groupId))) {
-    return 'Target command in progress.';
-  }
-  return 'Controls ready.';
+  return 'Readback only.';
 });
 </script>
 
@@ -480,18 +473,18 @@ const pageStatus = computed(() => {
       <div class="min-w-0">
         <h3 class="text-base font-semibold text-gray-100">iniBuilds Airbus A330 Family</h3>
         <p class="mt-0.5 text-xs leading-relaxed text-gray-500">
-          MSFS 2024 A330-200, A330-300 and A330-300P2F controls and readback.
+          MSFS 2024 A330-200, A330-300 and A330-300P2F readback.
         </p>
       </div>
       <div class="flex flex-wrap justify-end gap-1.5">
         <span class="rounded border border-surface-300 px-2 py-1 text-[9px] uppercase tracking-widest text-gray-400">{{ sourceStatus }}</span>
-        <span class="rounded border border-cyan-500/35 bg-cyan-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-cyan-300">Standard controls</span>
+        <span class="rounded border border-surface-300 px-2 py-1 text-[9px] uppercase tracking-widest text-gray-400">Readback only</span>
         <span class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300">Experimental</span>
       </div>
     </header>
 
     <p class="rounded-md border border-surface-200 bg-surface-50 px-3 py-2 text-[10px] leading-relaxed text-gray-400" aria-live="polite">
-      {{ pageStatus }} AP1/AP2, managed push/pull and EXPED need verified A330-specific inputs and are not exposed yet.
+      {{ pageStatus }} A330 control writes are unavailable until iniBuilds publishes a verified external control contract and it is confirmed in-simulator.
     </p>
 
     <section data-a330-section="fcu-targets">

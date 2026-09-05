@@ -530,7 +530,7 @@ test('iFly 737 MAX 8 adapter exposes only its exact monitoring-only contract', (
   }), null, 'the separate Microsoft MAX profile must not activate the iFly adapter');
 });
 
-test('iniBuilds A330 adapter exposes its bounded standard-SimVar read/write contract only for the exact profile', () => {
+test('iniBuilds A330 adapter is exact-profile trusted and monitoring-only', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     INIBUILDS_A330_ADAPTER_ID,
     { profileKey: INIBUILDS_A330_PROFILE_KEY },
@@ -540,7 +540,7 @@ test('iniBuilds A330 adapter exposes its bounded standard-SimVar read/write cont
   assert.equal(integration.presentation.templateId, 'inibuilds-a330');
   assert.deepEqual(integration.trustedProfileKeys, [INIBUILDS_A330_PROFILE_KEY]);
   assert.equal(Object.keys(integration.fields).length, 45);
-  assert.equal(Object.keys(integration.actions).length, 47);
+  assert.deepEqual(integration.actions, {});
   assert.deepEqual(integration.fields['flightGuidance.altitudeFt'].sources[0], {
     route: { type: 'simvar', name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet' },
     decode: { type: 'number', precision: 0 },
@@ -553,166 +553,11 @@ test('iniBuilds A330 adapter exposes its bounded standard-SimVar read/write cont
     route: { type: 'simvar', name: 'SPOILERS ARMED', unit: 'Bool' },
     decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
   });
-
-  const guidancePairs = [
-    ['apMaster', 'flightGuidance.apMaster', 'AUTOPILOT_OFF', 'AUTOPILOT_ON'],
-    ['flightDirector', 'flightGuidance.flightDirector', 'TOGGLE_FLIGHT_DIRECTOR', 'TOGGLE_FLIGHT_DIRECTOR'],
-    ['autothrottleArmed', 'flightGuidance.autothrottleArmed', 'AUTO_THROTTLE_ARM', 'AUTO_THROTTLE_ARM'],
-    ['speedHold', 'flightGuidance.speedHold', 'AP_AIRSPEED_OFF', 'AP_AIRSPEED_ON'],
-    ['headingHold', 'flightGuidance.headingHold', 'AP_HDG_HOLD_OFF', 'AP_HDG_HOLD_ON'],
-    ['altitudeHold', 'flightGuidance.altitudeHold', 'AP_ALT_HOLD_OFF', 'AP_ALT_HOLD_ON'],
-    ['verticalSpeedHold', 'flightGuidance.verticalSpeedHold', 'AP_VS_OFF', 'AP_VS_ON'],
-    ['navHold', 'flightGuidance.navHold', 'AP_NAV1_HOLD_OFF', 'AP_NAV1_HOLD_ON'],
-    ['approachHold', 'flightGuidance.approachHold', 'AP_APR_HOLD_OFF', 'AP_APR_HOLD_ON'],
-    ['flightLevelChange', 'flightGuidance.flightLevelChange', 'FLIGHT_LEVEL_CHANGE_OFF', 'FLIGHT_LEVEL_CHANGE_ON'],
-  ] as const;
-  for (const [name, fieldId, offEvent, onEvent] of guidancePairs) {
-    for (const [suffix, expectedValue, event] of [
-      ['off', false, offEvent],
-      ['on', true, onEvent],
-    ] as const) {
-      const actionId = `flightGuidance.${name}.${suffix}`;
-      const action = integration.actions[actionId];
-      assert.equal(action?.verification, 'untested');
-      assert.deepEqual(action?.guard, {
-        cooldownMs: 750,
-        groupId: `inibuildsA330.flightGuidance.${name}`,
-        retry: 'never',
-      });
-      assert.deepEqual(action?.routes, [{
-        id: `inibuildsA330.${actionId}.simconnectSequence`,
-        transport: 'simconnect-sequence',
-        operations: [{ type: 'event', name: event, value: 0 }],
-        readback: { fieldId, expectedValue, timeoutMs: 3000 },
-      }]);
-    }
-  }
-
-  for (const [name, fieldId, event, min, max, step] of [
-    ['speed', 'flightGuidance.speedValue', 'AP_SPD_VAR_SET', 100, 399, 1],
-    ['heading', 'flightGuidance.headingDeg', 'HEADING_BUG_SET', 0, 359, 1],
-    ['altitude', 'flightGuidance.altitudeFt', 'AP_ALT_VAR_SET_ENGLISH', 0, 49000, 100],
-    ['verticalSpeed', 'flightGuidance.verticalSpeedFpm', 'AP_VS_VAR_SET_ENGLISH', -6000, 6000, 100],
-  ] as const) {
-    const actionId = `flightGuidance.${name}.set`;
-    const action = integration.actions[actionId];
-    assert.deepEqual(action?.input, { type: 'number', min, max, step });
-    assert.deepEqual(action?.guard, {
-      cooldownMs: 300,
-      groupId: `inibuildsA330.flightGuidance.${name}`,
-      retry: 'never',
-    });
-    assert.deepEqual(action?.routes, [{
-      id: `inibuildsA330.${actionId}.simconnectSequence`,
-      transport: 'simconnect-sequence',
-      operations: [{
-        type: 'event',
-        name: event,
-        inputValue: { source: 'input' },
-        parameters: [0],
-      }],
-      readback: { fieldId, expectedInput: true, timeoutMs: 3000 },
-    }]);
-  }
-
-  for (const [lightId, event] of [
-    ['strobe', 'STROBES_SET'],
-    ['beacon', 'BEACON_LIGHTS_SET'],
-    ['nav', 'NAV_LIGHTS_SET'],
-    ['logo', 'LOGO_LIGHTS_SET'],
-    ['wing', 'WING_LIGHTS_SET'],
-    ['landing', 'LANDING_LIGHTS_SET'],
-    ['taxi', 'TAXI_LIGHTS_SET'],
-  ] as const) {
-    for (const [suffix, expectedValue, value] of [
-      ['off', false, 0],
-      ['on', true, 1],
-    ] as const) {
-      const actionId = `lights.${lightId}.${suffix}`;
-      const action = integration.actions[actionId];
-      assert.deepEqual(action?.guard, {
-        cooldownMs: 750,
-        groupId: `inibuildsA330.lights.${lightId}`,
-        retry: 'never',
-        skipIfSatisfied: false,
-      });
-      assert.deepEqual(action?.routes, [{
-        id: `inibuildsA330.${actionId}.simconnectSequence`,
-        transport: 'simconnect-sequence',
-        operations: [{ type: 'event', name: event, value, parameters: [0] }],
-        readback: { fieldId: `lights.${lightId}`, expectedValue, timeoutMs: 3000 },
-      }]);
-    }
-  }
-
-  for (const [suffix, expectedValue, event] of [
-    ['off', false, 'SPOILERS_ARM_OFF'],
-    ['on', true, 'SPOILERS_ARM_ON'],
-  ] as const) {
-    const actionId = `controls.spoilersArmed.${suffix}`;
-    assert.deepEqual(integration.actions[actionId], {
-      id: actionId,
-      guard: {
-        cooldownMs: 750,
-        groupId: 'inibuildsA330.controls.spoilersArmed',
-        retry: 'never',
-      },
-      routes: [{
-        id: `inibuildsA330.${actionId}.simconnectSequence`,
-        transport: 'simconnect-sequence',
-        operations: [{ type: 'event', name: event, value: 0 }],
-        readback: {
-          fieldId: 'controls.spoilersArmed',
-          expectedValue,
-          timeoutMs: 3000,
-        },
-      }],
-      verification: 'untested',
-    });
-  }
-
-  assert.deepEqual(integration.actions['controls.flaps.increase'], {
-    id: 'controls.flaps.increase',
-    guard: {
-      cooldownMs: 300,
-      groupId: 'inibuildsA330.controls.flaps',
-      retry: 'never',
-      skipIfSatisfied: false,
-    },
-    routes: [{
-      id: 'inibuildsA330.controls.flaps.increase.simconnectSequence',
-      transport: 'simconnect-sequence',
-      operations: [{ type: 'event', name: 'FLAPS_INCR', value: 0 }],
-      readback: { fieldId: 'controls.flapsIndex', confirmation: 'changed', timeoutMs: 3000 },
-    }],
-    verification: 'untested',
-  });
-  assert.deepEqual(integration.actions['controls.speedbrake.set'], {
-    id: 'controls.speedbrake.set',
-    input: { type: 'number', min: 0, max: 100, step: 1 },
-    guard: {
-      cooldownMs: 300,
-      groupId: 'inibuildsA330.controls.speedbrake',
-      retry: 'never',
-    },
-    routes: [{
-      id: 'inibuildsA330.controls.speedbrake.set.simconnectSequence',
-      transport: 'simconnect-sequence',
-      operations: [{
-        type: 'event',
-        name: 'SPOILERS_SET',
-        inputValue: { source: 'input', scale: 163.83, round: 'nearest' },
-      }],
-      readback: { fieldId: 'controls.speedbrakePercent', expectedInput: true, timeoutMs: 3000 },
-    }],
-    verification: 'untested',
-  });
-
   assert.equal(defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: INIBUILDS_A330_ADAPTER_ID,
     profileKey: INIBUILDS_A330_PROFILE_KEY,
-    actionId: 'flightGuidance.localizer.on',
-  }), null, 'LOC must remain unavailable without an independent readback');
+    actionId: 'lights.beacon.on',
+  }), null, 'unverified A330 light events must not be exposed as writes');
   assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(INIBUILDS_A330_ADAPTER_ID, {
     profileKey: 'local/msfs/inibuilds-a330',
   }), null, 'untrusted local profiles must not activate the trusted A330 adapter');

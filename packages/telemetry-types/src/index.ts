@@ -36,6 +36,9 @@ export type {
   // Structured data
   LightsData,
   LightsMessage,
+  NavRadioReceiver,
+  NavRadiosData,
+  NavRadiosMessage,
   GearData,
   GearMessage,
   FlapsData,

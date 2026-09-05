@@ -34,6 +34,8 @@ mod controls;
 #[cfg(windows)]
 mod dll_loader;
 #[cfg(windows)]
+mod event_transmit;
+#[cfg(windows)]
 mod facilities;
 #[cfg(windows)]
 mod mobiflight;
@@ -121,6 +123,7 @@ mod sidecar {
     struct DispatchContext {
         definitions: HashMap<Dword, Vec<DefinitionItem>>,
         values: HashMap<String, Value>,
+        value_updated_at: HashMap<String, String>,
         telemetry_sequence: u64,
         telemetry_updated_at: Option<String>,
         telemetry_updated_instant: Option<Instant>,
@@ -144,6 +147,7 @@ mod sidecar {
         }
 
         fn reset_telemetry_stream(&mut self) {
+            self.value_updated_at.clear();
             self.telemetry_updated_at = None;
             self.telemetry_updated_instant = None;
         }
@@ -311,6 +315,8 @@ mod sidecar {
                         return;
                     }
                     let mut data_ptr = ptr::addr_of!(obj.dw_data) as *const u8;
+                    let received_at =
+                        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
                     for item in items {
                         let value = match item.data_type {
                             SIMCONNECT_DATATYPE_INT32 => {
@@ -338,6 +344,8 @@ mod sidecar {
                             }
                         };
                         ctx.values.insert(item.key.clone(), value);
+                        ctx.value_updated_at
+                            .insert(item.key.clone(), received_at.clone());
                     }
                     ctx.mark_telemetry_update();
                 }
@@ -766,6 +774,7 @@ mod sidecar {
             DispatchContext {
                 definitions: HashMap::new(),
                 values: HashMap::new(),
+                value_updated_at: HashMap::new(),
                 telemetry_sequence: 0,
                 telemetry_updated_at: None,
                 telemetry_updated_instant: None,
@@ -1058,9 +1067,18 @@ mod sidecar {
             assert_eq!(context.values["float32"], json!(1.25));
             assert_eq!(context.values["text"], json!("hello"));
             assert_eq!(context.values["float64"], json!(42.5));
-            assert_eq!(context.telemetry_sequence, 1);
+            assert_eq!(context.value_updated_at.len(), 4);
+            let received_at = context.value_updated_at["float64"].clone();
+            context.mark_telemetry_update();
+            assert_eq!(
+                context.value_updated_at["float64"], received_at,
+                "unrelated telemetry must not refresh a cached field"
+            );
+            assert_eq!(context.telemetry_sequence, 2);
             assert!(context.telemetry_updated_at.is_some());
             assert!(context.telemetry_updated_instant.is_some());
+            context.reset_telemetry_stream();
+            assert!(context.value_updated_at.is_empty());
         }
 
         #[test]
@@ -1687,6 +1705,7 @@ mod sidecar {
                     library_spec,
                     definitions: HashMap::new(),
                     values: HashMap::new(),
+                    value_updated_at: HashMap::new(),
                     telemetry_sequence: 0,
                     telemetry_updated_at: None,
                     telemetry_updated_instant: None,
@@ -1695,9 +1714,8 @@ mod sidecar {
                     sdk_aircraft: None,
                     sdk_adapter: None,
                     sdk_subscribed: false,
-                    mobiflight: enable_mobiflight.then(|| {
-                        mobiflight::ClientState::new(unique_mobiflight_client_name())
-                    }),
+                    mobiflight: enable_mobiflight
+                        .then(|| mobiflight::ClientState::new(unique_mobiflight_client_name())),
                     facility_airport_requests: HashMap::new(),
                     pending_messages: Vec::new(),
                 },
@@ -2657,9 +2675,9 @@ mod sidecar {
             Ok(())
         }
 
-        fn map_event(&mut self, name: &str) -> Option<Dword> {
+        fn map_event(&mut self, name: &str) -> Option<(Dword, Option<Dword>)> {
             if let Some(id) = self.mapped_events.get(name) {
-                return Some(*id);
+                return Some((*id, None));
             }
             if !can_map_event(&self.mapped_events) {
                 return None;
@@ -2676,7 +2694,17 @@ mod sidecar {
                 return None;
             }
             self.mapped_events.insert(name.to_string(), event_id);
-            Some(event_id)
+            Some((event_id, self.last_sent_packet_id()))
+        }
+
+        fn last_sent_packet_id(&self) -> Option<Dword> {
+            let mut send_id = 0;
+            let hr = unsafe { (self.api.get_last_sent_packet_id)(self.handle, &mut send_id) };
+            if hresult_ok(hr) {
+                Some(send_id)
+            } else {
+                None
+            }
         }
 
         fn send_event(
@@ -2685,73 +2713,20 @@ mod sidecar {
             view_event: bool,
             data: [u32; 5],
             parameter_count: usize,
-        ) -> Result<(bool, Option<Dword>), String> {
-            let Some(event_id) = self.map_event(name) else {
-                return Ok((false, None));
+        ) -> Result<(bool, Option<Dword>, Vec<Dword>, Value), String> {
+            let Some((event_id, mapping_send_id)) = self.map_event(name) else {
+                return Err(format!("Could not map SimConnect event {name}"));
             };
-            let (object_id, flags) = if view_event {
-                (SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_EVENT_FLAG_DEFAULT)
-            } else {
-                (
-                    SIMCONNECT_OBJECT_ID_USER_AIRCRAFT,
-                    SIMCONNECT_EVENT_FLAG_GROUPID_IS_PRIORITY,
-                )
+            let transmitter = crate::event_transmit::EventTransmitter {
+                handle: self.handle,
+                transmit_client_event: self.api.transmit_client_event,
+                transmit_client_event_ex1: self.api.transmit_client_event_ex1,
             };
-            let hr = if parameter_count > 1 {
-                if let Some(transmit_client_event_ex1) = self.api.transmit_client_event_ex1 {
-                    unsafe {
-                        transmit_client_event_ex1(
-                            self.handle,
-                            object_id,
-                            event_id,
-                            SIMCONNECT_GROUP_PRIORITY_HIGHEST,
-                            flags,
-                            data[0],
-                            data[1],
-                            data[2],
-                            data[3],
-                            data[4],
-                        )
-                    }
-                } else if data[1..parameter_count].iter().all(|value| *value == 0) {
-                    // Older compatible DLLs may not export EX1. A zero-only
-                    // trailing parameter has the same implicit default on the
-                    // legacy single-parameter call.
-                    unsafe {
-                        (self.api.transmit_client_event)(
-                            self.handle,
-                            object_id,
-                            event_id,
-                            data[0],
-                            SIMCONNECT_GROUP_PRIORITY_HIGHEST,
-                            flags,
-                        )
-                    }
-                } else {
-                    return Err("SimConnect_TransmitClientEvent_EX1 is unavailable".to_string());
-                }
-            } else {
-                unsafe {
-                    (self.api.transmit_client_event)(
-                        self.handle,
-                        object_id,
-                        event_id,
-                        data[0],
-                        SIMCONNECT_GROUP_PRIORITY_HIGHEST,
-                        flags,
-                    )
-                }
-            };
-            let mut send_id = 0;
-            let packet_hr = unsafe {
-                (self.api.get_last_sent_packet_id)(self.handle, &mut send_id)
-            };
-            let packet_id = if hresult_ok(packet_hr) {
-                Some(send_id)
-            } else {
-                None
-            };
-            Ok((hresult_ok(hr), packet_id))
+            let (ok, transport) =
+                transmitter.transmit(event_id, view_event, data, parameter_count)?;
+            let send_id = self.last_sent_packet_id();
+            let send_ids = mapping_send_id.into_iter().chain(send_id).collect();
+            Ok((ok, send_id, send_ids, transport))
         }
 
         fn set_named_var(
@@ -3030,6 +3005,7 @@ mod sidecar {
         let mut payload = json!({
             "type": "snapshot",
             "values": values,
+            "valueUpdatedAt": session.context.value_updated_at,
             "timestampIso": timestamp_iso,
             "source": "rust-sidecar",
             "backend": "rust",
@@ -3380,8 +3356,8 @@ mod sidecar {
                         command.parameters.len() + 1,
                     );
                     match result {
-                        Ok((ok, send_id)) => emit_value(
-                            json!({ "type": ack_type, "name": name, "ok": ok, "requestId": command.request_id, "sendId": send_id }),
+                        Ok((ok, send_id, send_ids, transport)) => emit_value(
+                            json!({ "type": ack_type, "name": name, "ok": ok, "requestId": command.request_id, "sendId": send_id, "sendIds": send_ids, "transport": transport }),
                         ),
                         Err(err) => emit_value(
                             json!({ "type": ack_type, "name": name, "ok": false, "error": err, "requestId": command.request_id }),
@@ -3536,6 +3512,7 @@ mod sidecar {
                     "source": "rust-sidecar",
                     "backend": "rust",
                     "ownerLifelineVersion": OWNER_LIFELINE_VERSION,
+                    "controlDiagnosticsVersion": 1,
                     "librarySpec": api.library_spec,
                 }));
                 0
@@ -3547,6 +3524,7 @@ mod sidecar {
                     "source": "rust-sidecar",
                     "backend": "rust",
                     "ownerLifelineVersion": OWNER_LIFELINE_VERSION,
+                    "controlDiagnosticsVersion": 1,
                     "error": err,
                 }));
                 2
@@ -3905,6 +3883,7 @@ mod sidecar {
             "source": "rust-sidecar",
             "backend": "rust",
             "ownerLifelineVersion": OWNER_LIFELINE_VERSION,
+            "controlDiagnosticsVersion": 1,
             "error": "rust SimConnect sidecar is only supported on Windows",
         }));
         2

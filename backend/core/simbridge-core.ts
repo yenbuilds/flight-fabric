@@ -4126,6 +4126,7 @@ async function runSimbridgeCore({
       kohlsmanStd: typeof frame.fdm?.kohlsmanStd === 'boolean' ? frame.fdm.kohlsmanStd : null,
       xwind,
       lights: lightsForBroadcast,
+      navRadios: frame.navRadios,
       hdgMag: hdgMagDegStream,
       hdgTrue: hdgTrueDegStream,
     });

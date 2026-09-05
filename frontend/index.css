@@ -3404,6 +3404,10 @@ body.sim-in-menu .menu-overlay {
   border-color: rgb(var(--success) / 0.38);
 }
 
+.app-feedback-toast--warning {
+  border-color: rgb(var(--warning) / 0.45);
+}
+
 .app-feedback-toast--error,
 .app-feedback-toast--danger {
   border-color: rgb(var(--danger) / 0.45);

@@ -2648,6 +2648,36 @@ async function main() {
     });
     assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /verify aircraft state/i, 'a direct pre-provider rejection must not imply uncertain execution');
 
+    controller.handleResult({
+      ok: true,
+      code: 'sent_unconfirmed',
+      request: { control: 'lights', target: 'beacon', operation: 'set', value: true },
+      resolvedBy: 'generic',
+      diagnostics: { readback: { status: 'already_matched' } },
+    });
+    assert.equal(toasts.at(-1).kind, 'warning', 'an ACK alone must not show a success toast');
+    assert.match(toasts.at(-1).message, /response unconfirmed/i);
+    assert.doesNotMatch(toasts.at(-1).message, /readback changed/i);
+    controller.handleResult({
+      ok: true,
+      code: 'sent_unconfirmed',
+      request: { control: 'lights', target: 'beacon', operation: 'set', value: true },
+      resolvedBy: 'generic',
+      diagnostics: { readback: { status: 'changed_to_requested' } },
+    });
+    assert.equal(toasts.at(-1).kind, 'warning', 'standard output readback does not confirm the cockpit control');
+    assert.match(toasts.at(-1).message, /readback changed; verify the cockpit/i);
+    assert.match(aircraftControlsStore.feedback.routeText, /verify the cockpit/i);
+
+    controller.handleResult({
+      ok: true, code: 'sent_unconfirmed', stepCount: 3, completedStepCount: 3, unconfirmedStepCount: 1,
+      request: { commandId: 'configuration.lights.takeoff', input: {} },
+      resolvedBy: 'profile', diagnostics: { readback: { status: 'changed_to_requested' } },
+    });
+    assert.equal(toasts.at(-1).kind, 'warning', 'a successful final step cannot hide earlier unconfirmed steps');
+    assert.match(toasts.at(-1).message, /one or more aircraft responses are unconfirmed/i);
+    assert.doesNotMatch(toasts.at(-1).message, /light readback changed/i);
+
     const sentBeforeInvalidExactTarget = sent.length;
     assert.equal(
       await aircraftControlsStore.requestControlCommand({ type: 'selector-set', mode: 'alt', value: 12345 }),
@@ -7239,6 +7269,35 @@ async function main() {
   });
 
   console.log(`\n${'-'.repeat(50)}`);
+  await test('NAV telemetry follows the live message path and rejects obsolete aircraft generations', async () => {
+    const { parseNavRadioFrequency } = await import(toFrontendUrl('src', 'aircraft', 'nav-radio.js'));
+    for (const value of ['108', '110.3', '110,30', '117.95']) assert.equal(parseNavRadioFrequency(value), Number(value.replace(',', '.')));
+    for (const value of ['', '107.95', '118', '110.31', '110.325', '1.1e2', '110MHz', null]) assert.equal(parseNavRadioFrequency(value), null);
+    const controls = useAircraftControlsStore();
+    const aircraftCommands = { profileKey: 'bundled/msfs/generic', profileRevision: 2, commands: [] };
+    controls.applyControlCapabilities({ aircraftCommands });
+    let connected = true;
+    const handler = createAppMessageHandler({
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(['navRadios']), getSimconnectTelemetryConnected: () => connected,
+      alertRef() {},
+      markFlightTelemetryActive() {}, aircraftControl: { applyNavRadios: (data) => controls.applyNavRadios(data) },
+    });
+    const data = { ...aircraftCommands, radios: { nav1: { installed: true, activeMhz: 108, standbyMhz: 110.30 }, nav2: { installed: false } } };
+    handler({ type: 'navRadios', data });
+    assert.equal(controls.navRadios.nav1.standbyMhz, 110.30);
+    assert.equal(controls.navRadios.nav2.installed, false);
+    controls.applyControlCapabilities({ aircraftCommands: { ...aircraftCommands, profileRevision: 3 } });
+    assert.equal(controls.navRadios.nav1.installed, null);
+    handler({ type: 'navRadios', data });
+    assert.equal(controls.navRadiosReceivedAt, null, 'delayed previous-aircraft data stays discarded');
+    handler({ type: 'navRadios', data: { ...data, profileRevision: 3 } });
+    assert.equal(controls.navRadios.nav1.installed, true);
+    controls.resetAutopilot();
+    connected = false;
+    handler({ type: 'navRadios', data: { ...data, profileRevision: 3 } });
+    assert.equal(controls.navRadiosReceivedAt, null, 'disconnected telemetry cannot restore controls');
+  });
+
   console.log(`Results: ${passed} passed, ${failed} failed`);
 
   if (failed > 0) {

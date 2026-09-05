@@ -22,6 +22,7 @@ type BasicStreamsPayload = {
   kohlsmanStd: boolean | null;
   xwind: number | null;
   lights: unknown;
+  navRadios?: unknown;
   hdgMag: number;
   hdgTrue: number;
 };
@@ -152,6 +153,7 @@ type ControlsPayload = {
 type MessageTypesModule = {
   MSG: {
     LIGHTS: string;
+    NAV_RADIOS: string;
     VS: string;
     IAS: string;
     GS: string;
@@ -349,6 +351,9 @@ function sendBasicStreams(broadcast: BroadcastFn, payload: BasicStreamsPayload):
   } = payload;
 
   try { broadcast({ type: MSG.LIGHTS, data: lights }); } catch {}
+  if (payload.navRadios) {
+    try { broadcast({ type: MSG.NAV_RADIOS, data: payload.navRadios }); } catch {}
+  }
   try { broadcast({ type: MSG.VS, value: Math.round(vsFeetPerMin) }); } catch {}
   try { broadcast({ type: MSG.IAS, value: Math.round(iasKnots) }); } catch {}
   try { broadcast({ type: MSG.GS, value: Math.round(gsKnots || 0) }); } catch {}

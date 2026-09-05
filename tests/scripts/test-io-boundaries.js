@@ -60,13 +60,14 @@ const EXPECTED_FS_BOUNDARIES = [
 ];
 
 const EXPECTED_NATIVE_WRITES = {
+  'backend/telemetry-provider/rust-simconnect-sidecar/src/event_transmit.rs': {
+    transmit_client_event: 1,
+    transmit_client_event_ex1: 1,
+  },
   'backend/telemetry-provider/rust-simconnect-sidecar/src/main.rs': {
     camera_set_relative_6dof: 1,
     set_client_data: 1,
     set_data_on_sim_object: 4,
-    // The normal single-parameter path and the reviewed EX1-unavailable
-    // fallback are separate native call sites.
-    transmit_client_event: 2,
   },
 };
 
@@ -307,6 +308,11 @@ function collectNativeWriteInventory() {
     const source = fs.readFileSync(file, 'utf8');
     const calls = {};
     for (const match of source.matchAll(/\b(?:self\.)?api\.((?:set|transmit|camera_set)_[A-Za-z0-9_]+)\s*\)?\s*\(/g)) {
+      increment(calls, match[1]);
+    }
+    // The reviewed EventTransmitter owns two typed FFI pointers. Keep their
+    // native names visible and count the optional EX1 unwrap call as well.
+    for (const match of source.matchAll(/\bself\.(transmit_client_event(?:_ex1)?)(?:\.unwrap\(\))?\s*\)?\s*\(/g)) {
       increment(calls, match[1]);
     }
     if (Object.keys(calls).length > 0) inventory[repoPath(file)] = calls;

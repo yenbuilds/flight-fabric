@@ -37,8 +37,8 @@ const MOBILE_RIBBON_TEMPLATES = Object.freeze([
   'pmdg-777',
 ]);
 const usesAircraftMobileRibbon = computed(() => (
-  hasResolvedAircraftTemplate.value
-  && MOBILE_RIBBON_TEMPLATES.includes(aircraftSpecific.templateId)
+  !hasResolvedAircraftTemplate.value
+  || MOBILE_RIBBON_TEMPLATES.includes(aircraftSpecific.templateId)
 ));
 const VOICE_ATTENTION_STATUSES = Object.freeze(new Set([
   'error',
@@ -149,7 +149,7 @@ function openVoiceCommandGuide() {
           <AircraftPageSearch
             :target="searchableContent"
             :content-key="`${hasResolvedAircraftTemplate ? 'specific' : 'generic'}:${aircraftSpecific.activeProfileKey || aircraftSpecific.templateId || ''}`"
-            :hide-on-mobile="usesAircraftMobileRibbon"
+            :hide-on-mobile="hasResolvedAircraftTemplate && usesAircraftMobileRibbon"
             @expanded-change="searchExpanded = $event"
           />
         </div>
@@ -325,8 +325,7 @@ function openVoiceCommandGuide() {
     padding-inline: 0.9rem;
   }
 
-  .aircraft-tab-shell[data-mobile-aircraft-navigation='search']
-    .aircraft-page-tool-actions--search-expanded
+  .aircraft-page-tool-actions--search-expanded
     .aircraft-integration-guide-button {
     display: none;
   }

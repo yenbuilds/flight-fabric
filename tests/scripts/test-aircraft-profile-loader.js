@@ -383,6 +383,43 @@ test(
     generic?.integration?.controls?.genericFallback === true,
 );
 
+const widebodyFallback = loader.loadProfile('bundled/msfs/widebody-base');
+const widebodyCapabilities = controlService.buildAircraftControlCapabilities(widebodyFallback, { profileRevision: 7 });
+const genericCapabilities = controlService.buildAircraftControlCapabilities(generic, { profileRevision: 7 });
+test('Wide-Body base exposes the complete Generic Aircraft command catalogue',
+  widebodyCapabilities.aircraftCommands.configurationId === 'generic' &&
+  widebodyCapabilities.aircraftCommands.profileKey === 'bundled/msfs/widebody-base' &&
+  JSON.stringify(widebodyCapabilities.aircraftCommands.commands) === JSON.stringify(genericCapabilities.aircraftCommands.commands),
+);
+for (const index of [1, 2]) {
+  for (const operation of ['setStandby', 'swap']) {
+    const commandId = `radios.nav${index}.${operation}`;
+    const result = controlService.resolveAircraftCommand({
+      commandId,
+      input: operation === 'setStandby' ? { value: 110.30 } : {},
+      profileKey: 'bundled/msfs/widebody-base',
+      profileRevision: 7,
+    }, { profile: widebodyFallback, profileRevision: 7, requireProfileToken: true });
+    test(`Wide-Body base exposes and resolves ${commandId} through the fixed standard event`,
+      widebodyCapabilities.aircraftCommands.commands.some(command => command.id === commandId) &&
+      result.ok === true && result.resolvedBy === 'generic' &&
+      result.action?.type === 'key-event' &&
+      result.action?.name === (operation === 'setStandby' ? `NAV${index}_STBY_SET` : `NAV${index}_RADIO_SWAP`) &&
+      (operation !== 'setStandby' || result.action?.value === 0x1030),
+    );
+  }
+}
+for (const id of ['workingtitle-747-8', 'inibuilds-tristar', 'miltech-c17', 'tfdi-md-11']) {
+  const profile = loader.loadProfile(`bundled/msfs/${id}`);
+  const capabilities = controlService.buildAircraftControlCapabilities(profile);
+  test(`${id} keeps its explicit control restrictions after inheriting Wide-Body base`,
+    profile?.integration?.controls?.genericFallback === false &&
+    profile?.integration?.controls?.standardSurfaceFallback === true &&
+    !capabilities.aircraftCommands.commands.some(command => command.group === 'radios') &&
+    controlService.resolveAircraftControl({ control: 'radios', target: 'nav1', operation: 'swap' }, { profile }).ok === false,
+  );
+}
+
 const builtinGenericPath = path.join(loader.BUILTIN_BUNDLED_DIR, 'msfs', 'generic.json');
 const legacyBundledGenericDir = path.join(retiredBundledProfilesDir, 'msfs');
 const legacyBundledGenericPath = path.join(legacyBundledGenericDir, 'generic.json');
@@ -2273,7 +2310,7 @@ test(
 loader.setActiveProfile('inibuilds-a330');
 const iniA330Config = loader.getLvarConfig();
 test(
-  'iniBuilds A330 activates its exact standard-SimVar and standard-event contract',
+  'iniBuilds A330 activates its exact standard-SimVar readback contract',
   iniA330Config?.aircraftSpecific?.templateId === 'inibuilds-a330' &&
     iniA330Config?.aircraftSpecific?.integrationId === 'inibuilds-a330' &&
     iniA330Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a330' &&
@@ -2298,40 +2335,28 @@ const iniA330Integration = defaultAircraftIntegrationRegistry.resolveIntegration
   profileKey: 'bundled/msfs/inibuilds-a330',
 });
 test(
-  'iniBuilds A330 exposes 47 guarded standard-event actions with 26 unique confirmations and no custom subscriptions',
+  'iniBuilds A330 exposes readback-only monitoring with no custom subscriptions',
   iniA330Config.enabled === false &&
     iniA330Config.subscriptions.length === 0 &&
-    iniA330Config.aircraftSpecific.confirmationFields.length === 26 &&
-    new Set(iniA330Config.aircraftSpecific.confirmationFields.map(field => field.id)).size === 26 &&
-    Object.keys(iniA330Integration?.actions || {}).length === 47 &&
-    Object.values(iniA330Integration?.actions || {}).every(action => (
-      action.verification === 'untested' &&
-      action.guard?.retry === 'never' &&
-      action.routes?.every(route => route.transport === 'simconnect-sequence')
-    )) &&
+    iniA330Config.aircraftSpecific.confirmationFields.length === 0 &&
+    Object.keys(iniA330Integration?.actions || {}).length === 0 &&
     loader.getActiveProfile()?.integration?.controls?.genericFallback === false &&
-    loader.getActiveProfile()?.integration?.controls?.standardSurfaceFallback === true &&
+    loader.getActiveProfile()?.integration?.controls?.standardSurfaceFallback === false &&
     loader.getActiveProfile()?.integration?.telemetry?.aircraftSpecific === undefined &&
     defaultAircraftIntegrationRegistry.resolveAction({
       adapterId: 'inibuilds-a330',
       profileKey: 'bundled/msfs/inibuilds-a330',
       actionId: 'lights.beacon.on',
-    })?.routes?.[0]?.operations?.[0]?.name === 'BEACON_LIGHTS_SET'
+    }) === null
 );
 test(
-  'iniBuilds A330 bounds typed selectors and excludes Airbus-private FCU semantics',
-  iniA330Integration?.actions?.['flightGuidance.speed.set']?.input?.min === 100 &&
-    iniA330Integration?.actions?.['flightGuidance.speed.set']?.input?.max === 399 &&
-    iniA330Integration?.actions?.['flightGuidance.heading.set']?.input?.min === 0 &&
-    iniA330Integration?.actions?.['flightGuidance.heading.set']?.input?.max === 359 &&
-    iniA330Integration?.actions?.['flightGuidance.altitude.set']?.input?.max === 49000 &&
-    iniA330Integration?.actions?.['flightGuidance.altitude.set']?.input?.step === 100 &&
-    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set']?.input?.min === -6000 &&
-    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set']?.input?.max === 6000 &&
-    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set']?.input?.step === 100 &&
-    iniA330Integration?.actions?.['controls.speedbrake.set']?.input?.min === 0 &&
-    iniA330Integration?.actions?.['controls.speedbrake.set']?.input?.max === 100 &&
-    iniA330Integration?.actions?.['controls.speedbrake.set']?.routes?.[0]?.operations?.[0]?.inputValue?.scale === 163.83 &&
+  'iniBuilds A330 exposes no unverified standard-event or Airbus-private writes',
+  iniA330Integration?.actions?.['flightGuidance.speed.set'] === undefined &&
+    iniA330Integration?.actions?.['flightGuidance.heading.set'] === undefined &&
+    iniA330Integration?.actions?.['flightGuidance.altitude.set'] === undefined &&
+    iniA330Integration?.actions?.['flightGuidance.verticalSpeed.set'] === undefined &&
+    iniA330Integration?.actions?.['lights.beacon.on'] === undefined &&
+    iniA330Integration?.actions?.['controls.gear.down'] === undefined &&
     iniA330Integration?.actions?.['flightGuidance.ap1.on'] === undefined &&
     iniA330Integration?.actions?.['flightGuidance.ap2.on'] === undefined &&
     iniA330Integration?.actions?.['flightGuidance.speed.managed'] === undefined &&

@@ -210,6 +210,11 @@ export function createVoiceControlController({
     pendingCommand = null;
     resultHeld = true;
     if (result.ok === true) {
+      if (result.code === 'sent_unconfirmed') {
+        voiceStore.setState('sent', `Sent ${command.description}. Aircraft response unconfirmed; check the simulator.`);
+        speakReadback('Command sent. Aircraft response unconfirmed. Check the simulator.');
+        return;
+      }
       voiceStore.setState('sent', `Sent ${command.description}.`);
       speakReadback(command.spokenResult);
       return;

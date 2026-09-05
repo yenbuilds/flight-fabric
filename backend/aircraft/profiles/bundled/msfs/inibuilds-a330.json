@@ -64,8 +64,8 @@
     "controls": {
       "backend": "simconnect",
       "genericFallback": false,
-      "standardSurfaceFallback": true,
-      "_comment": "The exact-profile trusted adapter exposes 47 bounded actions using only Microsoft-documented MSFS 2024 key events. Fixed OFF/ON targets and four numeric selectors require fresh standard-SimVar preflight, one guarded dispatch, no retry, and a newer matching logical readback. Generic fallback remains disabled; the narrow standard gear/flap fallback stays enabled. AP1/AP2 channel selection, Airbus managed/selected push-pull, EXPED, vendor-private Input Events/LVARs, raw axes, macros, and deep systems remain excluded pending exact live interaction evidence."
+      "standardSurfaceFallback": false,
+      "_comment": "The exact-profile adapter is readback-only. Live testing showed that the unverified standard key-event candidates do not control the iniBuilds A330 cockpit selectors, and iniBuilds has not published a verified external Input Event or LVAR write contract. All writes remain unavailable pending documented, variant-specific in-simulator verification."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -100,7 +100,7 @@
     ],
     "updated": "2026-08-12",
     "status": "experimental",
-    "notes": "Dedicated exact-profile aircraft page for the included MSFS 2024 Airbus A330-200, A330-300, and A330-300P2F family. The trusted adapter exposes 45 standard-SimVar logical fields, 47 fixed or bounded standard-event actions, and 26 distinct confirmation fields. It has zero custom LVAR subscriptions and remains intentionally separate from the Headwind A330-900neo. Every action is untested pending live variant validation."
+    "notes": "Dedicated exact-profile aircraft page for the included MSFS 2024 Airbus A330-200, A330-300, and A330-300P2F family. The trusted adapter exposes 45 standard-SimVar logical fields and no active write actions. It has zero custom LVAR subscriptions and remains intentionally separate from the Headwind A330-900neo. A330 write controls remain unavailable pending documented, variant-specific in-simulator verification."
   },
   "provenance": {
     "sources": [
@@ -178,11 +178,10 @@
       "lastVerified": "2026-08-12",
       "knownIssues": [
         "Exact MSFS 2024 aircraft title strings for each A330 variant remain unverified in-sim.",
-        "The 45 standard-SimVar fields and all 47 standard-event actions remain untested against the six supported A330 variants; a documented simulator event can still be ignored or incompletely mirrored by a custom aircraft.",
-        "Standard AUTOPILOT_ON/OFF controls only the simulator's generic autopilot master and cannot select or independently confirm Airbus AP1 versus AP2. AP1/AP2 remain excluded.",
-        "Airbus managed/selected FCU push-pull, EXPED, and exact A330 light-selector positions remain excluded because the official SDK events and boolean output readbacks do not express those aircraft-specific semantics.",
+        "The 45 standard-SimVar fields remain monitoring-only. Live testing showed that the unverified standard-event candidates do not control the custom A330 cockpit selectors.",
+        "AP1/AP2, Airbus managed/selected FCU push-pull, EXPED, exact A330 light-selector positions, and all other write controls remain unavailable without a vendor-documented and in-simulator-verified Input Event or LVAR contract.",
         "The cited public sources do not define a complete A330-specific LVAR, B-var, or InputEvent integration map. The adapter subscribes to zero custom variables and does not activate candidate INI_* names from package snapshots or community presets.",
-        "Standard light readback confirms lamp output, not every multi-position cockpit selector state. OFF/ON actions therefore make no claim about AUTO or combined selector positions.",
+        "Standard light readback is retained for monitoring but does not authorize write controls or identify every multi-position cockpit selector state.",
         "Flap detents are intentionally absent; do not inherit or reintroduce broad Airbus base detents without A330-specific evidence.",
         "This profile intentionally does not cover the Headwind A330-900neo, which has its own profile."
       ]
