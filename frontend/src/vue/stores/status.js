@@ -464,18 +464,6 @@ export const useStatusStore = defineStore('status', {
       if (state.simInMenu) return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
       return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35';
     },
-    simTopClass() {
-      return [
-        'px-3 py-1 rounded-sm text-xs font-bold tracking-widest uppercase border',
-        this.simToneClass,
-      ].join(' ');
-    },
-    simFooterClass() {
-      return [
-        'px-2 py-0.5 rounded text-[10px] font-mono uppercase border',
-        this.simToneClass,
-      ].join(' ');
-    },
   },
 
   actions: {

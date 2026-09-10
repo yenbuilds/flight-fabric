@@ -119,10 +119,31 @@
     "contributor": "YenBuilds",
     "updated": "2026-08-24",
     "status": "partial",
-    "notes": "PMDG 737-800 family profile using the official NG3 SDK and guarded backend-owned event routes. SDK data and writes remain disabled until the user accepts the PMDG SDK EULA."
+    "notes": "PMDG 737-800 family profile using the official NG3 SDK and guarded backend-owned event routes. SDK data requires EnableDataBroadcast=1; writes require matching live ClientData and the SDK event writer."
   },
   "provenance": {
     "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS radio events and transponder state",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm",
+        "retrievedAt": "2026-09-07",
+        "notes": "Defines XPNDR_SET BCO16 encoding and TRANSPONDER CODE:1 / TRANSPONDER STATE:1 state. Aircraft compatibility is reviewed separately against the original integrations cited in docs/ATC-EFIS-AIRCRAFT-COVERAGE.md. Squawk writes require fresh powered state and a newer selected-code readback. IDENT uses the aircraft button, not a generic IDENT event."
+      },
+      {
+        "type": "community",
+        "authority": "community",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "PMDG 737 original squawk integration report",
+        "url": "https://forum.pmdg.com/forum/main-forum/cockpit-builders/385351-pmdg_ng3_sdk-h-%E2%80%93-no-event-for-setting-transponder-code",
+        "retrievedAt": "2026-09-07",
+        "notes": "The original developer reports using XPNDR_SET on the PMDG 737-800. This is a first-hand integration report, not a PMDG staff endorsement. Family compatibility remains untested locally."
+      },
+
       {
         "type": "official-sdk",
         "authority": "aircraft-vendor",
@@ -130,8 +151,8 @@
         "supportsActiveMappings": true,
         "name": "PMDG 737 MSFS SDK and installed aircraft behavior definitions",
         "url": "https://manuals.pmdg.com/737/PMDG_737_MSFS_Introduction.pdf",
-        "retrievedAt": "2026-08-20",
-        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the 916-byte NG3 ClientData contract, direct-position control events, data-broadcast requirement, model variants, and mandatory SDK EULA opt-in. The installed header publishes battery, standby-power, transfer-bus, IRS, window-heat, APU, ground-power, bus-powered, gear-handle, autobrake, parking-brake, pack, bleed, anti-ice, yaw-damper, and stabilizer-trim readbacks. The installed behavior defines direct targets for all nine normal flap-handle detents; Flight Fabric confirms them against the standard FLAPS HANDLE INDEX because ClientData publishes flap needles rather than the handle. It also defines 0..300 LVar positions for 16 continuously dimmable controls: OH_CB_PANEL_LIGHT_CONTROL, OH_PANEL_LIGHT_CONTROL, CA_MAIN_PANEL_LIGHT_CONTROL, FO_MAIN_PANEL_LIGHT_CONTROL, CA_BACKGROUND_BRT_CONTROL, CA_AFDS_FLOOD_LIGHT_CONTROL, PED_FLOOD_LIGHT_CONTROL, PED_PANEL_LIGHT_CONTROL, CA_OUTBD_DU_BRIGHT_CONTROL, CA_INBD_DU_BRIGHT_CONTROL, CA_INBD_DU_RDR_BRIGHT_CONTROL, CA_UPPER_DU_BRIGHT_CONTROL, CA_LOWER_DU_BRIGHT_CONTROL, FO_OUTBD_DU_BRIGHT_CONTROL, FO_INBD_DU_BRIGHT_CONTROL, and FO_INBD_DU_RDR_BRIGHT_CONTROL. The cockpit-lighting preset writes those exact positions in four guarded groups and confirms every LVar as a whole percentage. Discrete dome/spot lights, chart/map mechanisms, EFB buttons, CDU internals, and the explicitly inoperative lower-DU inner knob are excluded. Spring-loaded ground-power and APU-generator controls use reviewed ROTOR_BRAKE direction/release sequences. Stable selectors use matching direct SDK event IDs and exact logical readback. Existing NAV1 controls 729/732/733, NAV2 controls 845/848/849, and position-light control 123 retain their reviewed ROTOR_BRAKE compatibility encodings. The installed PMDG SDK assigns direct course-set events #84132 to the captain window and #84133 to the first-officer window. Flight Fabric maps that contract through the clientdata-manifest adapter and checked-in pmdg-737-ng3-clientdata connector. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+        "retrievedAt": "2026-09-06",
+        "notes": "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml define the 916-byte NG3 ClientData contract, direct-position control events, data-broadcast requirement and model variants. The installed header publishes battery, standby-power, transfer-bus, IRS, window-heat, APU, ground-power, bus-powered, gear-handle, autobrake, parking-brake, pack, bleed, anti-ice, yaw-damper, and stabilizer-trim readbacks. The installed behavior defines direct targets for all nine normal flap-handle detents; Flight Fabric confirms them against the standard FLAPS HANDLE INDEX because ClientData publishes flap needles rather than the handle. It also defines 0..300 LVar positions for 16 continuously dimmable controls: OH_CB_PANEL_LIGHT_CONTROL, OH_PANEL_LIGHT_CONTROL, CA_MAIN_PANEL_LIGHT_CONTROL, FO_MAIN_PANEL_LIGHT_CONTROL, CA_BACKGROUND_BRT_CONTROL, CA_AFDS_FLOOD_LIGHT_CONTROL, PED_FLOOD_LIGHT_CONTROL, PED_PANEL_LIGHT_CONTROL, CA_OUTBD_DU_BRIGHT_CONTROL, CA_INBD_DU_BRIGHT_CONTROL, CA_INBD_DU_RDR_BRIGHT_CONTROL, CA_UPPER_DU_BRIGHT_CONTROL, CA_LOWER_DU_BRIGHT_CONTROL, FO_OUTBD_DU_BRIGHT_CONTROL, FO_INBD_DU_BRIGHT_CONTROL, and FO_INBD_DU_RDR_BRIGHT_CONTROL. The cockpit-lighting preset writes those exact positions in four guarded groups and confirms every LVar as a whole percentage. Discrete dome/spot lights, chart/map mechanisms, EFB buttons, CDU internals, and the explicitly inoperative lower-DU inner knob are excluded. Spring-loaded ground-power and APU-generator controls use reviewed ROTOR_BRAKE direction/release sequences. Stable selectors use matching direct SDK event IDs and exact logical readback. Existing NAV1 controls 729/732/733, NAV2 controls 845/848/849, and position-light control 123 retain their reviewed ROTOR_BRAKE compatibility encodings. The installed PMDG SDK assigns direct course-set events #84132 to the captain window and #84133 to the first-officer window. Flight Fabric maps that contract through the clientdata-manifest adapter and checked-in pmdg-737-ng3-clientdata connector. The public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files. APU START correction reviewed 2026-09-10 after a reported voice-start failure, installed PMDG 737-800 4.0.63: 73X_Cockpit_Behavior.xml component ngx_switch_118_a defines control 118 with downward press action 2 and release action 4. START sends ROTOR_BRAKE 11802, 11802, 11804 to move through ON into START and release once. This replaces the ineffective direct SDK event 69750 payload 2; the NG3 SDK OFF=0, ON=1, START=2 values describe selector readback. The sequence retains matching SDK connectivity, exact-profile routing, cooldown and no retry, and acknowledges only after all three interactions are accepted. Selector ON, EGT and low-oil indication are not treated as proof of running. No spool-up delay is added; live retesting is pending. See docs/APU-START-VALIDATION.md. ATC/EFIS review 2026-09-07: installed SDK/header and cockpit XML define EFIS_RangeSel, EFIS_MinsSelBARO and the IDENT mouse interaction through ROTOR_BRAKE (press switch*100+1, release switch*100+4). 737 switch 806, SDK range offsets 414/415 and minimums reference 404/405 in the 916-byte native layout. Approach-control review 2026-09-07 against installed PMDG_NG3_SDK.h (4.0.63): DOWN/50PCT/UP speedbrake targets use events 76423/76425/76427, each one left press/release. Independently sampled SPOILERS HANDLE POSITION Percent must confirm 0/50/100; agreement requires live verification. Existing autobrake detents now share canonical UI/voice. See docs/APPROACH-CONTROLS-AIRCRAFT-COVERAGE.md."
       },
       {
         "type": "official-sdk",
@@ -149,14 +170,15 @@
       "lastVerified": "2026-07-31",
       "knownIssues": [
         "The 737-800 is the first live-validation target; the 600, 700, and 900 family profiles require in-aircraft testing.",
-        "SDK readback requires EnableDataBroadcast=1 and the user to accept the PMDG EULA.",
+        "SDK readback requires EnableDataBroadcast=1.",
         "The direct NAV and position-light routes are guarded and remain unverified until simulator confirmation.",
         "The paired NAV 1 + NAV 2 active-frequency command uses documented standard simulator events but remains unverified in a live PMDG 737 cockpit.",
         "The paired captain + first-officer MCP course command uses the installed SDK direct-set events but remains unverified in a live PMDG 737 cockpit.",
         "The 16-dimmer cockpit-lighting percentage preset follows the installed 737-800 behavior definitions but remains unverified end to end in the simulator and requires family-variant confirmation.",
         "Initial-power, flap-handle, speedbrake, gear, brake, pack, bleed, anti-ice, and stabilizer-trim writes remain unverified until end-to-end simulator passes are completed.",
         "MCP mode and selector actions remain untested until IAS/Mach, VS, and button behavior are confirmed in the aircraft.",
-        "The official SDK exposes speedbrake annunciators but not a continuous handle position; spoiler state stays on standard SimConnect percent telemetry."
+        "The official SDK exposes speedbrake annunciators but not a continuous handle position; spoiler state stays on standard SimConnect percent telemetry.",
+        "Start APU UI and voice preset is source-backed and covered by automated transport tests; live start, electrical prerequisites, selector release and aircraft variant/build coverage remain untested. See docs/APU-START-VALIDATION.md."
       ]
     }
   }

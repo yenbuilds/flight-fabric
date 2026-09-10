@@ -3,13 +3,11 @@
 const assert = require('node:assert/strict');
 
 const {
-  buildSimbridgeRuntimeSnapshot,
   createSimbridgeRuntimeState,
   getReplayMessages,
   rememberReplayMessage,
   resetSimbridgeBroadcastState,
 } = require('./simbridge-runtime-state.js') as {
-  buildSimbridgeRuntimeSnapshot: (runtimeState: Record<string, any>, input: Record<string, any>) => Record<string, any>;
   createSimbridgeRuntimeState: (params?: Record<string, any>) => Record<string, any>;
   getReplayMessages: (runtimeState: Record<string, any>) => Record<string, any>[];
   rememberReplayMessage: (runtimeState: Record<string, any>, message: Record<string, any>) => void;
@@ -36,32 +34,6 @@ test('createSimbridgeRuntimeState groups sim, target, and broadcast state', () =
   assert.deepEqual(runtimeState.targets.origin, { icao: 'KLAX' });
   assert.equal(runtimeState.broadcast.pendingSpoilersStateTicks, 0);
   assert.deepEqual(runtimeState.replay.latestMessages, {});
-});
-
-test('buildSimbridgeRuntimeSnapshot returns one coherent runtime view', () => {
-  const runtimeState = createSimbridgeRuntimeState();
-  runtimeState.sim.lastState = { type: 'sim_state', state: 'connected' };
-  runtimeState.sim.latestTickFrame = { ias: 145 };
-
-  const snapshot = buildSimbridgeRuntimeSnapshot(runtimeState, {
-    phase: 'APPROACH',
-    flightActive: true,
-    flightId: 'flight-123',
-    flightStartIso: '2026-05-28T00:00:00.000Z',
-    aircraftTitle: 'Example Airliner',
-    timestampMs: 1_700_000_000_000,
-  });
-
-  assert.deepEqual(snapshot, {
-    tickFrame: { ias: 145 },
-    phase: 'APPROACH',
-    simState: { type: 'sim_state', state: 'connected' },
-    flightActive: true,
-    flightId: 'flight-123',
-    flightStartIso: '2026-05-28T00:00:00.000Z',
-    aircraftTitle: 'Example Airliner',
-    timestampMs: 1_700_000_000_000,
-  });
 });
 
 test('resetSimbridgeBroadcastState clears all change-detection sentinels together', () => {

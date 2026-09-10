@@ -12,6 +12,11 @@ import type {
   ResolveAircraftIntegrationRouteContext,
 } from './types.js';
 import { isSafeMobiFlightCalculatorCode } from '../../utils/mobiflight-protocol.js';
+import { COM_RADIO_INPUT, COM_RADIO_PROPERTIES, comRadioOperations } from './com-radio.js';
+import { baroActions } from './fbw-a32nx/baro.js';
+import { a380BaroActions } from './fbw-a380x/baro.js';
+import { fenixBaroActions } from './fenix-a32x/baro.js';
+import { MINIMUMS_INPUTS } from './fbw-a32nx/minimums.js';
 
 const SAFE_ADAPTER_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const SAFE_LOGICAL_ID_RE = /^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/;
@@ -32,8 +37,9 @@ const ACTION_ROUTE_TRANSPORTS = new Set([
   'mobiflight-calculator',
   'sdk',
   'simconnect-sequence',
+  'simbridge-mcdu',
 ]);
-const DECODER_TYPES = new Set(['boolean', 'enum', 'number']);
+const DECODER_TYPES = new Set(['boolean', 'enum', 'number', 'squawk-bco16']);
 const VERIFICATION_VALUES = new Set(['partial', 'untested', 'verified']);
 const MAX_INPUT_ABS = 1_000_000;
 
@@ -210,6 +216,18 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action input.`);
       }
     }
+    if (action.guard.skipWhen !== undefined && (
+      !Array.isArray(action.guard.skipWhen)
+      || action.guard.skipWhen.length < 1
+      || action.guard.skipWhen.length > 4
+      || action.guard.skipWhen.some((condition) => (
+        !condition || !Object.prototype.hasOwnProperty.call(definition.fields, condition.fieldId)
+        || !isPrimitive(condition.expectedValue)
+        || Object.keys(condition).some((key) => key !== 'fieldId' && key !== 'expectedValue')
+      ))
+    )) {
+      throw new TypeError(`Aircraft integration "${adapterId}" has an invalid dispatch guard.`);
+    }
     const routeIds = new Set<string>();
     for (const route of action.routes) {
       const routeRecord = route as unknown as Record<string, unknown>;
@@ -217,7 +235,48 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         ? routeRecord.readbacks as Array<Record<string, unknown>>
         : [];
       const supportsCalculatorReadbacks = route.transport === 'mobiflight-calculator'
-        && (routeRecord.mode === undefined || routeRecord.mode === 'single');
+        && (routeRecord.mode === undefined || ['single', 'pulse', 'fenix-baro'].includes(String(routeRecord.mode)));
+      if (routeRecord.baro !== undefined) {
+        const expected = adapterId === 'fbw-a32nx' ? baroActions()[action.id]
+          : adapterId === 'fbw-a380x' ? a380BaroActions()[action.id]
+          : adapterId === 'fenix-a32x' ? fenixBaroActions()[action.id] : null;
+        if (!expected || JSON.stringify(action) !== JSON.stringify(expected)
+          || !expected.routes.flatMap((r) => 'readbacks' in r ? r.readbacks || [] : []).every((r) => definition.fields[r.fieldId])) {
+          throw new TypeError(`Aircraft integration "${adapterId}" has an invalid barometer contract.`);
+        }
+      }
+      if (routeRecord.comRadio !== undefined) {
+        const radio = routeRecord.comRadio as { index: 1 | 2; operation: string };
+        const readback = route.readback as Record<string, unknown> | undefined;
+        const inputMatches = Object.keys(COM_RADIO_INPUT).every((key) => action.input?.[key] === COM_RADIO_INPUT[key]);
+        if (route.transport !== 'simconnect-sequence' || !radio || ![1, 2].includes(radio.index)
+          || !['setStandby', 'swap', 'switchTo'].includes(radio.operation)
+          || Object.keys(radio).some((key) => !['index', 'operation'].includes(key))
+          || !COM_RADIO_PROPERTIES.every((property) => definition.fields[`radios.com${radio.index}.${property}`])
+          || (radio.operation === 'swap' ? action.input !== undefined : !inputMatches)
+          || JSON.stringify(route.operations) !== JSON.stringify(comRadioOperations(radio.index, radio.operation))
+          || route.confirmation !== undefined || route.precondition !== undefined || routeRecord.readbacks !== undefined
+          || readback?.fieldId !== `radios.com${radio.index}.${radio.operation === 'setStandby' ? 'standbyMhz' : 'activeMhz'}`
+          || readback?.timeoutMs !== 2500
+          || (radio.operation === 'swap' ? readback?.confirmation !== 'changed' : readback?.expectedInput !== true)
+          || action.guard.retry !== 'never' || !action.guard.groupId.endsWith(`.radios.com${radio.index}`)) {
+          throw new TypeError(`Aircraft integration "${adapterId}" has an invalid COM radio contract.`);
+        }
+      }
+      const acknowledgesRequest = routeRecord.confirmation === 'transport-acknowledged';
+      if (routeRecord.confirmation !== undefined && (
+        !acknowledgesRequest
+        || !(
+          route.transport === 'simconnect-sequence'
+          || route.transport === 'sdk'
+          || (route.transport === 'mobiflight-calculator' && routeRecord.mode === 'pulse')
+        )
+        || action.input !== undefined
+        || route.readback !== undefined
+        || routeRecord.readbacks !== undefined
+      )) {
+        throw new TypeError(`Aircraft integration "${adapterId}" has an invalid acknowledgement contract.`);
+      }
       if (
         !SAFE_ROUTE_ID_RE.test(route?.id)
         || routeIds.has(route.id)
@@ -226,14 +285,14 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           !supportsCalculatorReadbacks
           || !Array.isArray(routeRecord.readbacks)
           || routeReadbacks.length < 2
-          || routeReadbacks.length > 4
+          || routeReadbacks.length > (routeRecord.mode === 'fenix-baro' ? 7 : 4)
           || route.readback !== undefined
           || new Set(routeReadbacks.map((readback) => readback?.fieldId)).size !== routeReadbacks.length
         ))
       ) {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action route.`);
       }
-      if (route.transport === 'mobiflight-calculator') {
+      if (route.transport === 'mobiflight-calculator' && routeRecord.mode !== 'fenix-baro') {
         const calculatorRoute = route as unknown as Record<string, unknown>;
         const calculatorReadback = route.readback && typeof route.readback === 'object'
           ? route.readback
@@ -249,21 +308,6 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && calculatorRoute.maxSteps === undefined
           && calculatorRoute.circular === undefined
           && calculatorRoute.precondition === undefined;
-        const hasPulseOnlyShape = mode === 'pulse'
-          && !action.input
-          && calculatorReadback !== null
-          && Object.prototype.hasOwnProperty.call(calculatorReadback, 'expectedValue')
-          && calculatorRoute.code === undefined
-          && isSafeMobiFlightCalculatorCode(calculatorRoute.pressCode)
-          && isSafeMobiFlightCalculatorCode(calculatorRoute.releaseCode)
-          && Number.isSafeInteger(calculatorRoute.delayMs)
-          && Number(calculatorRoute.delayMs) >= 1
-          && Number(calculatorRoute.delayMs) <= MAX_CALCULATOR_PULSE_DELAY_MS
-          && calculatorRoute.decreaseCode === undefined
-          && calculatorRoute.increaseCode === undefined
-          && calculatorRoute.maxSteps === undefined
-          && calculatorRoute.circular === undefined
-          && calculatorRoute.precondition === undefined;
         const precondition = calculatorRoute.precondition as Record<string, unknown> | undefined;
         const validPrecondition = precondition === undefined || (
           precondition !== null
@@ -271,8 +315,39 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && SAFE_LOGICAL_ID_RE.test(normalizeString(precondition.fieldId))
           && Object.prototype.hasOwnProperty.call(definition.fields, normalizeString(precondition.fieldId))
           && isPrimitive(precondition.expectedValue)
-          && Object.keys(precondition).every((key) => key === 'fieldId' || key === 'expectedValue')
+          && (precondition.freshness === undefined || precondition.freshness === 'field')
+          && Object.keys(precondition).every((key) => key === 'fieldId' || key === 'expectedValue' || key === 'freshness')
         );
+        const pulses = calculatorRoute.pulses as Array<Record<string, any>> | undefined;
+        const pulseReadbacks = calculatorReadback ? [calculatorReadback] : routeReadbacks;
+        const validPulseCodes = pulses === undefined
+          ? isSafeMobiFlightCalculatorCode(calculatorRoute.pressCode)
+            && isSafeMobiFlightCalculatorCode(calculatorRoute.releaseCode)
+          : !acknowledgesRequest && calculatorRoute.pressCode === undefined && calculatorRoute.releaseCode === undefined
+            && Array.isArray(pulses) && pulses.length > 0 && pulses.length <= 8
+            && pulses.every((pulse) => pulse && typeof pulse === 'object'
+              && Object.keys(pulse).every((key) => ['when', 'pressCode', 'releaseCode'].includes(key))
+              && isSafeMobiFlightCalculatorCode(pulse.pressCode) && isSafeMobiFlightCalculatorCode(pulse.releaseCode)
+              && Array.isArray(pulse.when) && pulse.when.length > 0 && pulse.when.length <= 8
+              && new Set(pulse.when.map((condition) => condition?.fieldId)).size === pulse.when.length
+              && pulse.when.every((condition) => condition && typeof condition === 'object'
+                && condition.freshness === 'field' && isPrimitive(condition.expectedValue)
+                && pulseReadbacks.some((readback) => readback.fieldId === condition.fieldId && readback.freshness === 'field')
+                && Object.keys(condition).every((key) => ['fieldId', 'expectedValue', 'freshness'].includes(key))));
+        const hasPulseOnlyShape = mode === 'pulse'
+          && !action.input
+          && (acknowledgesRequest || (pulseReadbacks.length > 0
+            && pulseReadbacks.every((readback) => Object.prototype.hasOwnProperty.call(readback, 'expectedValue'))))
+          && calculatorRoute.code === undefined
+          && validPulseCodes
+          && Number.isSafeInteger(calculatorRoute.delayMs)
+          && Number(calculatorRoute.delayMs) >= 1
+          && Number(calculatorRoute.delayMs) <= MAX_CALCULATOR_PULSE_DELAY_MS
+          && calculatorRoute.decreaseCode === undefined
+          && calculatorRoute.increaseCode === undefined
+          && calculatorRoute.maxSteps === undefined
+          && calculatorRoute.circular === undefined
+          && validPrecondition;
         const hasSteppedOnlyShape = mode === 'step-to-target'
           && Boolean(action.input)
           && calculatorReadback?.expectedInput === true
@@ -281,15 +356,23 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && calculatorRoute.releaseCode === undefined
           && calculatorRoute.delayMs === undefined
           && isSafeMobiFlightCalculatorCode(calculatorRoute.decreaseCode)
+          && (calculatorRoute.prepareCode === undefined || (
+            isSafeMobiFlightCalculatorCode(calculatorRoute.prepareCode) && calculatorRoute.precondition
+          ))
           && isSafeMobiFlightCalculatorCode(calculatorRoute.increaseCode)
           && Number.isSafeInteger(calculatorRoute.maxSteps)
           && Number(calculatorRoute.maxSteps) >= 1
           && Number(calculatorRoute.maxSteps) <= MAX_CALCULATOR_TARGET_STEPS
           && (calculatorRoute.circular === undefined || calculatorRoute.circular === true)
           && validPrecondition;
-        if (!hasSingleOnlyShape && !hasPulseOnlyShape && !hasSteppedOnlyShape) {
+        if ((!hasSingleOnlyShape && !hasPulseOnlyShape && !hasSteppedOnlyShape)
+          || (mode !== 'pulse' && pulses !== undefined)
+          || (mode !== 'step-to-target' && calculatorRoute.prepareCode !== undefined)) {
           throw new TypeError(`Aircraft integration "${adapterId}" has an invalid calculator route.`);
         }
+      }
+      if (routeRecord.mode === 'fenix-baro' && (route.transport !== 'mobiflight-calculator' || routeRecord.baro === undefined)) {
+        throw new TypeError('Invalid Fenix barometer contract.');
       }
       if (
         route.transport === 'lvar'
@@ -341,12 +424,15 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
             normalizeString(sequencePrecondition.fieldId),
           )
           && isPrimitive(sequencePrecondition.expectedValue)
+          && (sequencePrecondition.freshness === undefined || sequencePrecondition.freshness === 'field')
           && Object.keys(sequencePrecondition).every(
-            (key) => key === 'fieldId' || key === 'expectedValue',
+            (key) => key === 'fieldId' || key === 'expectedValue' || key === 'freshness',
           )
         );
         if (
           !validSequencePrecondition
+          || (route.requiredSdkAdapter !== undefined
+            && !SAFE_ADAPTER_ID_RE.test(normalizeString(route.requiredSdkAdapter)))
           || (route.confirmation !== undefined
             && route.confirmation !== 'transport-acknowledged')
           || (route.confirmation === 'transport-acknowledged'
@@ -354,7 +440,7 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           || (routeRecord.readbacks !== undefined && (
             !Array.isArray(routeRecord.readbacks)
             || routeReadbacks.length < 2
-            || routeReadbacks.length > 4
+            || routeReadbacks.length > (route.baro ? 9 : 4)
             || route.readback !== undefined
             || new Set(routeReadbacks.map((readback) => readback?.fieldId)).size !== routeReadbacks.length
           ))
@@ -375,11 +461,14 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
                 || (operation.parameters !== undefined && (
                   !Array.isArray(operation.parameters)
                   || operation.parameters.length > 4
-                  || operation.parameters.some((parameter) => (
-                    typeof parameter !== 'number'
-                    || !Number.isFinite(parameter)
-                    || Math.abs(parameter) > 1_000_000
-                  ))
+                  || operation.parameters.some((parameter) => typeof parameter === 'number'
+                    ? !Number.isFinite(parameter) || Math.abs(parameter) > 1_000_000
+                    : !parameter || typeof parameter !== 'object' || !action.input
+                      || parameter.source !== 'input' || parameter.encoding !== undefined
+                      || Object.keys(parameter).some((key) => !['source', 'scale', 'offset', 'round'].includes(key))
+                      || (parameter.scale !== undefined && !Number.isFinite(parameter.scale))
+                      || (parameter.offset !== undefined && !Number.isFinite(parameter.offset))
+                      || (parameter.round !== undefined && parameter.round !== 'nearest'))
                 ))
                 || (hasFixedValue && (
                   typeof operation.value !== 'number'
@@ -390,7 +479,7 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
                   !action.input
                   || operation.inputValue?.source !== 'input'
                   || (operation.inputValue.encoding !== undefined
-                    && operation.inputValue.encoding !== 'frequency-bcd16')
+                    && !['frequency-bcd16', 'squawk-bco16'].includes(operation.inputValue.encoding))
                   || (operation.inputValue.encoding !== undefined && (
                     operation.inputValue.scale !== undefined
                     || operation.inputValue.offset !== undefined
@@ -449,6 +538,15 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           throw new TypeError(`Aircraft integration "${adapterId}" has an invalid SimConnect sequence route.`);
         }
       }
+      if (route.transport === 'simbridge-mcdu') {
+        const targetInput = MINIMUMS_INPUTS[route.target];
+        if (adapterId !== 'fbw-a32nx' || !targetInput || action.id !== `approach.minimums.${route.target}`
+          || action.guard.groupId !== 'fbwA32nx.approach.minimums'
+          || Object.keys(route).some((key) => !['id', 'transport', 'target'].includes(key))
+          || !Object.keys(targetInput).every((key) => action.input?.[key] === targetInput[key])) {
+          throw new TypeError('Invalid A32NX MCDU minimums contract.');
+        }
+      }
       const readbacks = routeReadbacks.length > 0
         ? routeReadbacks
         : (route.readback ? [route.readback] : []);
@@ -468,11 +566,12 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           || !Number.isFinite(readback.timeoutMs)
           || readback.timeoutMs < 0
           || readback.timeoutMs > 30_000
+          || (readback.freshness !== undefined && readback.freshness !== 'field')
         ) {
           throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action readback.`);
         }
       }
-      if (readbacks.length === 0 && (
+      if (readbacks.length === 0 && !acknowledgesRequest && (
         route.transport === 'mobiflight-calculator'
         || route.transport === 'lvar'
         || route.transport === 'sdk'
@@ -594,7 +693,9 @@ function createAircraftIntegrationRegistry(
         .map(normalizeString)
         .filter(Boolean),
     );
-    const route = action.routes.find((candidate) => supportedTransports.has(candidate.transport));
+    const route = action.routes.find((candidate) => supportedTransports.has(candidate.transport)
+      && (candidate.transport !== 'simconnect-sequence'
+        || !candidate.requiredSdkAdapter || supportedTransports.has('sdk')));
     if (!route) return null;
     return Object.freeze({
       adapterId: definition.id,

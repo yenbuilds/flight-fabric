@@ -4,6 +4,8 @@ import {
   describeAircraftControlRequest,
   getAircraftControlRequestPendingKey,
 } from './control-ui.js';
+import { comRadioResultText } from './com-radio.js';
+import { baroResultText } from './baro.js';
 
 export function createAircraftControlController({
   WebSocketRef = WebSocket,
@@ -179,9 +181,7 @@ export function createAircraftControlController({
     const hadPending = pendingRequests.size > 0 || pendingClearTimers.size > 0;
     const abandonedRequests = [...pendingRequests.values()];
     for (const pending of abandonedRequests) {
-      if (pending?.pendingKey) {
-        controlsStore?.clearCommandPending?.(pending.pendingKey);
-      }
+      for (const key of pending.pendingKeys) controlsStore?.clearCommandPending?.(key);
     }
     pendingRequests.clear();
     for (const [pendingKey, timerEntry] of pendingClearTimers) {
@@ -242,8 +242,19 @@ export function createAircraftControlController({
       && typeof controlsStore?.setCommandPending === 'function'
       && typeof controlsStore?.clearCommandPending === 'function'
     );
+    // A page can supply its physical-control key, but that must not replace
+    // ownership of the canonical command shared with voice and other panels.
+    const pendingKeys = [];
     if (canStorePending) {
-      if (controlsStore.setCommandPending(resolvedPendingKey) === false) return false;
+      const keys = new Set([resolvedPendingKey, ...(messageType === 'executeAircraftCommand'
+        ? [`aircraft-command:${request.commandId}`] : [])]);
+      for (const key of keys) {
+        if (controlsStore.setCommandPending(key) === false) {
+          for (const acquired of pendingKeys) controlsStore.clearCommandPending(acquired);
+          return false;
+        }
+        pendingKeys.push(key);
+      }
     }
     const startedAtMs = Number(now());
     const boundedMinimumPendingMs = Number.isFinite(minimumPendingMs)
@@ -251,6 +262,7 @@ export function createAircraftControlController({
       : 0;
     pendingRequests.set(requestId, {
       pendingKey: canStorePending ? resolvedPendingKey : '',
+      pendingKeys,
       description,
       minimumPendingMs: boundedMinimumPendingMs,
       onResult: typeof onResult === 'function' ? onResult : null,
@@ -263,13 +275,26 @@ export function createAircraftControlController({
       status: 'sending',
       commandKey: resolvedPendingKey,
     });
-    wsSend({
-      ...request,
-      type: messageType,
-      requestId,
-      profileKey: activeProfileToken.profileKey,
-      profileRevision: activeProfileToken.profileRevision,
-    });
+    let sent = false;
+    try {
+      sent = wsSend({
+        ...request,
+        type: messageType,
+        requestId,
+        profileKey: activeProfileToken.profileKey,
+        profileRevision: activeProfileToken.profileRevision,
+      }) !== false;
+    } catch {
+      // A failed transport cannot produce the result that normally clears busy state.
+    }
+    if (!sent) {
+      pendingRequests.delete(requestId);
+      for (const key of pendingKeys) controlsStore.clearCommandPending(key);
+      const error = 'Control request could not be sent. Check the backend connection.';
+      setFeedback({ actionText: description, routeText: error, status: 'failed', commandKey: resolvedPendingKey });
+      emitToast('error', 'Aircraft control failed', error, { durationMs: 4800 });
+      return false;
+    }
     return true;
   }
 
@@ -314,21 +339,21 @@ export function createAircraftControlController({
     if (requestId && !pendingRequests.has(requestId)) return;
     const pending = requestId ? pendingRequests.get(requestId) : null;
     if (requestId) pendingRequests.delete(requestId);
-    if (pending?.pendingKey) {
+    for (const pendingKey of pending?.pendingKeys || []) {
       const elapsedMs = Number(now()) - pending.startedAtMs;
       const remainingMs = Number.isFinite(elapsedMs)
         ? Math.max(0, pending.minimumPendingMs - elapsedMs)
         : 0;
       if (remainingMs > 0) {
         const timerEntry = { timerId: null };
-        pendingClearTimers.set(pending.pendingKey, timerEntry);
+        pendingClearTimers.set(pendingKey, timerEntry);
         timerEntry.timerId = setTimeoutRef(() => {
-          if (pendingClearTimers.get(pending.pendingKey) !== timerEntry) return;
-          pendingClearTimers.delete(pending.pendingKey);
-          controlsStore?.clearCommandPending?.(pending.pendingKey);
+          if (pendingClearTimers.get(pendingKey) !== timerEntry) return;
+          pendingClearTimers.delete(pendingKey);
+          controlsStore?.clearCommandPending?.(pendingKey);
         }, remainingMs);
       } else {
-        controlsStore?.clearCommandPending?.(pending.pendingKey);
+        controlsStore?.clearCommandPending?.(pendingKey);
       }
     }
 
@@ -349,7 +374,37 @@ export function createAircraftControlController({
       ? `${completedStepCount} of ${stepCount} steps`
       : '';
 
+    if (/^baro\.(captain|firstOfficer|both)\./.test(msg.commandId || '')) {
+      const result = baroResultText(msg);
+      const routeText = result.confirmed ? 'Aircraft altimeter readbacks confirmed.' : 'Check the aircraft altimeters.';
+      setFeedback({ actionText: result.text, routeText, profileText: profileKey, status: result.confirmed ? 'sent' : 'failed', commandKey: pending?.pendingKey });
+      emitToast(result.confirmed ? 'success' : 'warning', result.text, routeText, { durationMs: 6000 });
+      notifyResult(pending, msg);
+      return;
+    }
     if (msg?.ok) {
+      if (/^radios\.com[12]\./.test(msg.commandId || '')) {
+        const actionText = comRadioResultText(msg) || `${description} sent; radio response unconfirmed`;
+        const confirmed = Boolean(comRadioResultText(msg));
+        const routeText = confirmed ? 'Aircraft radio readback confirmed.' : 'Check the aircraft radio.';
+        setFeedback({ actionText, routeText, profileText: profileKey, status: 'sent', commandKey: pending?.pendingKey });
+        emitToast(confirmed ? 'success' : 'warning', actionText, routeText, { durationMs: 4200 });
+        notifyResult(pending, msg);
+        return;
+      }
+      const apuStart = msg.commandId === 'configuration.apu.start';
+      if ((msg.transportAcknowledged === true && msg.code !== 'sent_unconfirmed') || (apuStart && msg.code === 'already_satisfied')) {
+        const alreadyActive = apuStart && msg.code === 'already_satisfied';
+        const actionText = alreadyActive ? 'APU already starting or running'
+          : (apuStart ? 'APU start requested' : `${description} requested`);
+        const routeText = alreadyActive ? 'No additional START was sent.'
+          : 'Control request accepted. Aircraft outcome is not yet confirmed.';
+        setFeedback({ actionText, routeText, profileText: profileKey, status: 'sent',
+          commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request) });
+        emitToast('success', actionText, routeText, { durationMs: 3600 });
+        notifyResult(pending, msg);
+        return;
+      }
       const unconfirmed = msg.code === 'sent_unconfirmed';
       const observationText = unconfirmed
         ? (stepCount > 1
@@ -393,14 +448,16 @@ export function createAircraftControlController({
       && (completedStepCount > 0 || executionStarted);
     const partialStepSummary = hasIncompleteStepProgress
       ? (completedStepCount > 0
-          ? `${completedStepCount} of ${stepCount} steps completed before failure`
+          ? `${completedStepCount} of ${stepCount} steps ${Array.isArray(msg.acceptedStepLabels) ? 'accepted' : 'completed'} before failure`
           : `0 of ${stepCount} ${stepCount === 1 ? 'step' : 'steps'} confirmed before failure`)
       : '';
     const partialFailureAdvice = partialStepSummary || executionStarted
       ? 'Verify aircraft state.'
       : '';
     const failureMessage = [
-      partialStepSummary,
+      Array.isArray(msg.acceptedStepLabels) && msg.acceptedStepLabels.length
+        ? `Accepted: ${msg.acceptedStepLabels.join(', ')}` : partialStepSummary,
+      msg.failedStepLabel ? `Failed step: ${msg.failedStepLabel}` : '',
       msg?.error || 'Request failed.',
       partialFailureAdvice,
     ].filter(Boolean).join(' \u00b7 ');

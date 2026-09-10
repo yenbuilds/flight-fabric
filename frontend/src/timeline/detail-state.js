@@ -1,5 +1,6 @@
 import { buildLandingDetailState } from './landing-detail.js';
 import { MARKER_LABELS, RULE_DESCRIPTIONS, RULE_LABELS, TYPE_LABELS } from './constants.js';
+import { alertTone, approachEpisodeDetails } from './alert-presentation.js';
 
 function humanizeMetricKey(key) {
   return String(key || '')
@@ -18,7 +19,10 @@ function getRuleTitle(ruleId) {
   return String(ruleId || '').replace(/_/g, ' ');
 }
 
-export function buildTimelineMetricSections(event, ruleDescriptions = RULE_DESCRIPTIONS) {
+function buildTimelineMetricSections(event, ruleDescriptions = RULE_DESCRIPTIONS) {
+  const approachRows = approachEpisodeDetails(event);
+  if (approachRows) return [{ key: 'approach-episode', title: 'Approach episode', rows: approachRows,
+    noteText: ruleDescriptions[event.ruleId] || '', emptyText: '' }];
   const ctx = { ...(event.context || event.metrics || {}) };
   const noteFromContext = typeof ctx.note === 'string' ? ctx.note : null;
   delete ctx.note;
@@ -109,7 +113,8 @@ export function buildTimelineEventDetailState(event, {
 
   return {
     visible: true,
-    type: typeLabels[event.type] || event.type,
+    type: event.type === 'violation_start' ? (alertTone(event) === 'caution' ? 'Caution' : 'Violation')
+      : event.type === 'violation_end' ? 'Episode ended' : typeLabels[event.type] || event.type,
     title,
     metricSections: buildTimelineMetricSections(event, ruleDescriptions),
     approachProfileHtml: '',

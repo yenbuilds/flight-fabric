@@ -102,9 +102,6 @@ const userIdentityApi = {
   __private: {
     generateUUID,
     isUuidV4,
-    resetCache(): void {
-      cachedUserIds.clear();
-    },
     resolveUserIdPersistencePath,
   },
   getSessionId,

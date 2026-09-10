@@ -346,10 +346,10 @@ async function main() {
     assert.equal(store.remoteBrowserUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token', 'mobile URL should prefer a 192.168 LAN IP and carry the custom WebSocket port plus scoped pairing token');
     assert.equal(store.remoteViewerUrl, 'http://192.168.1.42:8100/remote?wsPort=9199', 'desktop host should expose a stable viewer URL without a control token');
     assert.equal(store.remoteControlPairingUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token', 'desktop host should expose the current backend-session pairing URL');
-    assert.equal(store.remoteAircraftControlPaired, true, 'mobile URL should report its session pairing state');
+    assert.equal(store.shareAircraftControlPaired, true, 'mobile URL should report its session pairing state');
     assert.equal(store.alternateIpsLabel, '10.0.0.5', 'alternate LAN IPs should be summarized');
     assert.equal(store.settingsFile, 'C:\\Users\\Pilot\\settings.json', 'settings path should populate from IPC');
-    assert.equal(store.startupHealthLabel, 'Healthy', 'startup health should summarize IPC health');
+    assert.equal(store.startupHealth.ok, true, 'startup health should retain the IPC health result');
 
     await store.startBackend();
     await store.stopBackend();
@@ -429,6 +429,29 @@ async function main() {
     });
     assert.equal(explicitPresentation.approachText, 'MARGINAL');
     assert.equal(explicitPresentation.verdict.stability.color, '#f59e0b');
+  });
+
+  await test('landing verdicts preserve unavailable scores and use recorded grades as fallback', () => {
+    const verdict = buildLandingVerdict({
+      touchdownDistance: {
+        distanceFt: null,
+        score: null,
+        lateralOffsetScore: null,
+        bounceCount: 0,
+        bounceGrade: 'Clean',
+        bounceScore: null,
+      },
+    });
+    assert.equal(verdict.touchdown.color, '#888888', 'a bounce-only logbook entry must not show an unavailable TDZ result in red');
+    assert.equal(verdict.lateral.color, '#888888', 'an unavailable lateral result must remain neutral');
+    assert.equal(verdict.bounce.color, '#00e070', 'a recorded Clean bounce must not become a zero score when its score is missing');
+
+    const zeroScores = buildLandingVerdict({
+      touchdownDistance: { score: 0, lateralOffsetScore: 0, bounceScore: 0 },
+    });
+    for (const axis of ['touchdown', 'lateral', 'bounce']) {
+      assert.equal(zeroScores[axis].color, '#ef4444', `${axis} must retain a real zero score`);
+    }
   });
 
   await test('landing debrief helpers avoid mutually exclusive praise and warning chips', () => {
@@ -919,7 +942,7 @@ async function main() {
       timestampMs: 1000,
     });
 
-    assert.equal(startRow.title, 'PATH RATE TOO STEEP');
+    assert.equal(startRow.title, 'Path rate too steep');
     assert.equal(endRow.title, 'Path rate recovered');
     assert.equal(detail.title, 'Path rate too steep');
   });
@@ -1125,7 +1148,7 @@ async function main() {
     assert.match(marginalSnapshot?.rows.find((row) => row.key === 'approach-verdict')?.valueClass || '', /text-amber-400/);
     assert.match(stabilitySection?.rows.find((row) => row.key === 'thrust_ok')?.valueClass || '', /text-amber-400/, '60-79% metrics should be amber');
     assert.match(stabilitySection?.rows.find((row) => row.key === 'speed_ok')?.valueClass || '', /text-green-400/, '80% and higher metrics should pass visually');
-    assert.match(stabilitySection?.noteText || '', /after the 1,200 ft gate[\s\S]*Marginal means only soft\/proxy checks/, 'Timeline detail should explain the recorded threshold and gate');
+    assert.match(stabilitySection?.noteText || '', /soft\/proxy checks missed the strict 80% threshold after the 1,200 ft gate/, 'Timeline detail should explain the recorded threshold and gate');
 
     const substantialSections = buildLandingDetailSections({
       type: 'landing',
@@ -1214,7 +1237,7 @@ async function main() {
     const tabs = useTabsStore();
     assert.equal(tabs.activeTabId, 'flight', 'Overview should be the safe first-render tab');
 
-    tabs.openMoreSheet();
+    tabs.toggleMoreSheet();
     assert.equal(tabs.moreSheetOpen, true, 'more sheet should open');
 
     const unregister = tabs.registerBeforeChangeGuard((from, to) => {
@@ -3091,6 +3114,73 @@ async function main() {
     assert.equal(landing.landingCard.vsColor, 'inherit', 'non-descending touchdown rate must not retain a success color');
   });
 
+  await test('landing store uses recorded bounce and lateral grades when legacy scores are null', () => {
+    resetStoreTestContext();
+    const landing = useLandingStore();
+    landing.applyLandingCardMessage({
+      touchdownDistance: {
+        lateralOffsetFt: 5,
+        lateralOffsetGrade: 'Perfect',
+        lateralOffsetScore: null,
+        bounceCount: 0,
+        bounceGrade: 'Clean',
+        bounceScore: null,
+      },
+    });
+    assert.equal(landing.landingCard.touchdown.lateralGradeTone, 'text-green-400');
+    assert.equal(landing.landingCard.touchdown.bounceGradeTone, 'text-green-400');
+
+    landing.applyLandingCardMessage({
+      touchdownDistance: { bounceCount: 1, bounceGrade: 'Single Bounce', bounceScore: null },
+    });
+    assert.equal(landing.landingCard.touchdown.bounceGradeTone, 'text-amber-500');
+  });
+
+  await test('landing store preserves unavailable rollout measurements instead of displaying zero', () => {
+    resetStoreTestContext();
+    const landing = useLandingStore();
+    // analyzeRollout emits these nulls for two level, on-ground samples when
+    // runway geometry and a sustained bank-rate measurement are unavailable.
+    const rolloutAnalysis = {
+      assessment: 'normal',
+      maxBankDeg: 0,
+      maxBankRateDegS: null,
+      maxHeadingDeviationDeg: null,
+      maxHeadingDeviationSide: null,
+      maxLateralOffsetFt: null,
+      maxLateralOffsetSide: null,
+      minRunwayEdgeMarginFt: null,
+      conservativeRunwayEdgeMarginFt: null,
+      lateralDataQuality: 'unavailable',
+      flags: [],
+    };
+    landing.applyLandingCardMessage({ rolloutAnalysis });
+    const metricValues = () => Object.fromEntries(landing.landingCard.rollout.metrics.map(({ key, value }) => [key, value]));
+    assert.deepEqual(metricValues(), {
+      bank: '0.0 deg',
+      'bank-rate': '--',
+      heading: '--',
+      lateral: '--',
+      'edge-margin': '--',
+    });
+    landing.applyLandingCardMessage({
+      rolloutAnalysis: {
+        ...rolloutAnalysis,
+        maxBankRateDegS: 0,
+        maxHeadingDeviationDeg: 0,
+        maxLateralOffsetFt: 0,
+        minRunwayEdgeMarginFt: 0,
+      },
+    });
+    assert.deepEqual(metricValues(), {
+      bank: '0.0 deg',
+      'bank-rate': '0.0 deg/s',
+      heading: '0.0 deg',
+      lateral: '0 ft',
+      'edge-margin': '0 ft',
+    });
+  });
+
   await test('landing store formats landing-card summary, metrics, and in-flight rows', async () => {
     resetStoreTestContext();
     const landing = useLandingStore();
@@ -4027,25 +4117,19 @@ async function main() {
     assert.equal(preferences.showBranding, false, 'preferences store should hydrate the persisted branding preference');
 
     let cycleCalls = 0;
-    const brandingCalls = [];
     preferences.registerRuntimeActions({
       cycleFuelUnit() {
         cycleCalls += 1;
-      },
-      applyShowBranding(show) {
-        brandingCalls.push(show);
       },
     });
 
     assert.equal(preferences.requestFuelUnitCycle(), true, 'store should report when a runtime-backed fuel unit action exists');
     assert.equal(cycleCalls, 1, 'store should delegate fuel unit changes to the registered runtime action');
-    assert.equal(preferences.requestShowBranding(true), true, 'store should report when a runtime-backed branding action exists');
-    assert.deepEqual(brandingCalls, [true], 'store should delegate branding changes to the registered runtime action');
 
     preferences.registerRuntimeActions({});
     assert.equal(preferences.requestFuelUnitCycle(), false, 'store should return false when no runtime-backed fuel unit action is available');
-    assert.equal(preferences.requestShowBranding(true), false, 'store should fall back when no runtime-backed branding action is available');
-    assert.equal(preferences.showBranding, true, 'branding fallback should still update local store state');
+    preferences.hydrate({ showBranding: true });
+    assert.equal(preferences.showBranding, true, 'branding updates should change local store state');
   });
 
   console.log('\n--- theme store ---\n');
@@ -4143,10 +4227,10 @@ async function main() {
       'live-map runtime actions should preserve the requested route operations',
     );
 
-    store.hideMapEmptyState();
+    store.setMapEmptyState({ visible: false });
     store.hideDestinationProgress();
     store.hideOverlay();
-    assert.equal(store.mapEmptyVisible, false, 'hideMapEmptyState should collapse the live-map empty state');
+    assert.equal(store.mapEmptyVisible, false, 'setMapEmptyState should collapse the live-map empty state');
     assert.equal(store.destinationProgressVisible, false, 'hideDestinationProgress should collapse the bar');
     assert.equal(store.overlayVisible, false, 'hideOverlay should collapse the overlay');
 
@@ -4546,6 +4630,75 @@ async function main() {
     assert.equal(store.inspectorEmptyVisible, true, 'clearInspector should restore the empty inspector state');
     assert.equal(store.inspectorEmptyMessage, 'No timeline loaded', 'clearInspector should restore the default empty copy');
     assert.equal(store.selectLatestLandingRow(), false, 'landing shortcut should be unavailable without a landing row');
+  });
+
+  await test('timeline event filters default on, persist and paginate the visible rows without changing the recording or scores', () => {
+    const { storage } = installBrowserGlobals();
+    setActivePinia(createPinia());
+    const store = useTimelineStore();
+    const configurationRows = Array.from({ length: 300 }, (_, index) => ({
+      rowKey: `flap-${index}`, event: { type: 'configuration_event', eventType: 'flaps_changed' },
+    }));
+    const importantRows = Array.from({ length: 300 }, (_, index) => ({
+      rowKey: `alert-${index}`, event: { type: 'violation_start' },
+    }));
+    const rows = [...configurationRows, ...importantRows,
+      { rowKey: 'automation', event: { type: 'automation_event' } },
+      { rowKey: 'guidance', event: { type: 'flight_guidance_event' } },
+      { rowKey: 'landing', event: { type: 'landing' } },
+    ];
+    assert.ok(Object.values(store.inspectorFilters).every(value => value === true));
+    store.setInspectorState({ rows, emptyVisible: false });
+    store.setSummary({ eventCountText: '603', violationCountText: '300' });
+    const originalSummary = [store.eventCountText, store.violationCountText];
+    store.selectEventRow('flap-0');
+    store.setDetail({ visible: true, title: 'Flaps extended' });
+    store.setInspectorFilter('configuration_event', false);
+    assert.equal(store.inspectorHiddenRowCount, 300);
+    assert.equal(store.inspectorRows[0].rowKey, 'alert-0');
+    assert.equal(store.inspectorRows.length, 250, 'filter before pagination');
+    assert.equal(store.inspectorSelectedRowKey, '');
+    assert.equal(store.detailVisible, false, 'close a selected event that was hidden');
+    store.showMoreInspectorRows();
+    assert.equal(store.inspectorRows.length, 303);
+    assert.equal(store.hasMoreInspectorRows, false);
+    store.setInspectorFilter('automation_event', false);
+    store.setInspectorFilter('flight_guidance_event', false);
+    assert.equal(store.inspectorHiddenRowCount, 302);
+    assert.equal(store.selectLatestLandingRow(), true);
+    assert.equal(store.inspectorRows.at(-1).rowKey, 'landing', 'landing selection expands the filtered page');
+    assert.equal(store.ensureInspectorRowVisible('flap-0'), false, 'map/replay selection must not silently enable hidden event types');
+    assert.deepEqual(store.inspectorAllRows, rows);
+    assert.deepEqual([store.eventCountText, store.violationCountText], originalSummary);
+    assert.equal(storage.getItem('flightFabric.timelineMapFilters.v1'), null);
+    store.setInspectorFilter('violation_start', false);
+    assert.equal(store.inspectorTotalRowCount, 301, 'the routine-event filter cannot hide violations');
+    setActivePinia(createPinia());
+    const reopened = useTimelineStore();
+    assert.equal(reopened.inspectorFilters.configuration_event, false);
+    reopened.setInspectorState({ rows: configurationRows });
+    assert.equal(reopened.inspectorRows.length, 0);
+    assert.equal(reopened.inspectorHiddenRowCount, 300);
+    reopened.setInspectorFilter('configuration_event', true);
+    assert.equal(reopened.inspectorRows.length, 250);
+    reopened.showMoreInspectorRows();
+    assert.deepEqual(reopened.inspectorRows, configurationRows);
+    reopened.clearInspector();
+    assert.equal(reopened.inspectorFilters.automation_event, false, 'changing flights retains the preference');
+  });
+
+  await test('timeline event filters tolerate invalid or unavailable browser storage', () => {
+    for (const saved of ['{invalid', 'null', '[]', '{"configuration_event":"false"}']) {
+      installBrowserGlobals({ storage: createStorage({ 'flightFabric.timelineEventFilters.v1': saved }) });
+      setActivePinia(createPinia());
+      assert.ok(Object.values(useTimelineStore().inspectorFilters).every(Boolean));
+    }
+    installBrowserGlobals({ storage: { getItem() { throw new Error('Storage unavailable'); }, setItem() { throw new Error('Storage full'); } } });
+    setActivePinia(createPinia());
+    const store = useTimelineStore();
+    assert.ok(Object.values(store.inspectorFilters).every(Boolean));
+    assert.doesNotThrow(() => store.setInspectorFilter('configuration_event', false));
+    assert.equal(store.inspectorFilters.configuration_event, false, 'filtering still works when preferences cannot be saved');
   });
 
   await test('timeline store shares one monotonic request sequence across replay entry points', () => {

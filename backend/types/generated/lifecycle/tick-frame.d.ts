@@ -21,7 +21,6 @@ export type TickFrameFactory = {
     getTickCount: () => number;
     reset: () => void;
 };
-export declare function defaultFreeze<T>(obj: T): T;
 export declare function createTickFrame(rawFrame: Record<string, unknown>, options?: {
     tickNumber?: number;
     nowEpochMs?: number;

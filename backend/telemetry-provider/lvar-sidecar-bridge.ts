@@ -5,6 +5,7 @@ const fs = require('fs') as typeof import('fs');
 const os = require('os') as typeof import('os');
 const { spawn, spawnSync } = require('child_process') as typeof import('child_process');
 const config = require('../core/config') as ConfigModule;
+const { normalizeComFrequencyMhz } = require('../utils/radio-frequency.js') as typeof import('../utils/radio-frequency.js');
 const { isSafeMobiFlightCalculatorCode } = require('../utils/mobiflight-protocol.js') as typeof import('../utils/mobiflight-protocol.js');
 const {
   selectNewestManagedRustSidecar,
@@ -319,7 +320,6 @@ class LvarSidecarBridge {
   _pidFilePath: string;
   _ownerIdentity: BackendOwnerIdentity;
   _snapshot: SnapshotState;
-  _onReadyCallback: (() => void) | null;
   _recentSimConnectExceptions: SimConnectExceptionRecord[];
   _consecutiveAllNullSnapshots: number;
   _awaitingSubscriptionRefresh: boolean;
@@ -343,7 +343,6 @@ class LvarSidecarBridge {
       path.join(os.tmpdir(), 'flight-fabric-lvar-sidecar.pid'),
       this._ownerIdentity,
     );
-    this._onReadyCallback = null;
     this._recentSimConnectExceptions = [];
     this._consecutiveAllNullSnapshots = 0;
     this._awaitingSubscriptionRefresh = false;
@@ -1034,7 +1033,12 @@ class LvarSidecarBridge {
    */
   sendEvent(eventName: string, value = 0, parameters: unknown[] = []): Promise<PendingAckMessage> {
     const name = typeof eventName === 'string' ? eventName.trim() : '';
-    const numericValue = normalizeFiniteSidecarNumber(value, MAX_SIDECAR_EVENT_DATA_ABS);
+    // COM setters take Hz, above the general event ceiling. Only these two
+    // exact names accept whole-Hz channel designators, with no extra parameters.
+    const comHzEvent = name === 'COM_STBY_RADIO_SET_HZ' || name === 'COM2_STBY_RADIO_SET_HZ';
+    const numericValue = comHzEvent
+      ? (typeof value === 'number' && Number.isSafeInteger(value) && normalizeComFrequencyMhz(value / 1_000_000) != null ? value : null)
+      : normalizeFiniteSidecarNumber(value, MAX_SIDECAR_EVENT_DATA_ABS);
     const numericParameters = Array.isArray(parameters) && parameters.length <= 4
       ? parameters.map((parameter) => normalizeFiniteSidecarNumber(parameter, MAX_SIDECAR_EVENT_DATA_ABS))
       : null;
@@ -1042,6 +1046,7 @@ class LvarSidecarBridge {
       !isSafeSidecarToken(name, MAX_SIDECAR_NAME_LENGTH, SIDECAR_NAME_RE)
       || numericValue == null
       || numericParameters == null
+      || (comHzEvent && numericParameters.length !== 0)
       || numericParameters.some((parameter) => parameter == null)
     ) {
       return Promise.resolve(buildRejectedAck('sendEventAck', 'invalid_payload'));
@@ -1075,11 +1080,6 @@ class LvarSidecarBridge {
    * Send a view/camera event using object ID 0 (not USER_AIRCRAFT).
    * Required for EYEPOINT_*, PAN_*, VIEW_* events.
    */
-  /** Register a one-shot callback to fire when the sidecar emits 'ready'. */
-  setOnReady(fn: (() => void) | null): void {
-    this._onReadyCallback = fn;
-  }
-
   sendViewEvent(eventName: string, value = 0): Promise<PendingAckMessage> {
     const name = typeof eventName === 'string' ? eventName.trim() : '';
     const numericValue = normalizeFiniteSidecarNumber(value, MAX_SIDECAR_EVENT_DATA_ABS);
@@ -1261,10 +1261,6 @@ class LvarSidecarBridge {
           this._snapshot.librarySpec = msg.librarySpec.trim();
         }
         this._setStatus('ready');
-        if (typeof this._onReadyCallback === 'function') {
-          try { this._onReadyCallback(); } catch {}
-          this._onReadyCallback = null;
-        }
       } else if (msg.type === 'status') {
         if (typeof msg.source === 'string' && msg.source.trim()) {
           this._snapshot.source = msg.source.trim();

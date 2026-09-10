@@ -209,15 +209,9 @@ export const useSystemHostStore = defineStore('systemHost', () => {
   // a token it received and therefore falls back to the read-only viewer URL.
   const remoteBrowserUrl = computed(() => remoteControlPairingUrl.value || remoteViewerUrl.value);
   const shareAircraftControlPaired = computed(() => Boolean(shareAircraftControlToken.value));
-  const remoteAircraftControlPaired = shareAircraftControlPaired;
   const alternateIpsLabel = computed(() => {
     const ips = phoneHosts.value.slice(1);
     return ips.length ? ips.join(', ') : '';
-  });
-  const startupHealthLabel = computed(() => {
-    if (!startupHealth.value) return 'Not checked';
-    if (startupHealth.value.ok === false) return 'Attention needed';
-    return 'Healthy';
   });
 
   function applyBackendStatus(result) {
@@ -427,14 +421,12 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     remoteBrowserUrl,
     remoteControlPairingUrl,
     remoteViewerUrl,
-    remoteAircraftControlPaired,
     shareAircraftControlPaired,
     restartBackend,
     revealSettingsFile,
     settingsFile,
     startBackend,
     startupHealth,
-    startupHealthLabel,
     stopBackend,
   };
 });

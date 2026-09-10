@@ -1,5 +1,4 @@
 import { emitAppSettings } from './runtime-signals.js';
-export { RELEASE_LABEL, RELEASE_WARNING, formatReleaseVersion, BETA_LABEL, BETA_WARNING, formatBetaVersion } from './version-labels.js';
 import { formatReleaseVersion } from './version-labels.js';
 
 export function createAppSettingsController({
@@ -41,6 +40,5 @@ export function createAppSettingsController({
   return {
     apply,
     getSettings: () => currentAppSettings,
-    getStorage: () => currentAppStorage,
   };
 }

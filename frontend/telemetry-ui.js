@@ -345,6 +345,25 @@ function landingPresentation(data) {
   };
 }
 
+function stabilityBreakdownPresentation(stability) {
+  const breakdown = stability?.breakdown;
+  if (!breakdown) return { text: '--', title: '' };
+  const hasGlideslope = typeof breakdown.glideslope_ok === 'number';
+  const metrics = [
+    ['SPD', 'Speed', breakdown.speed_ok],
+    ['STR', 'Speed trend', breakdown.speed_trend_ok],
+    ['VS', 'Vertical speed', breakdown.vs_ok],
+    hasGlideslope ? ['GS', 'Glideslope', breakdown.glideslope_ok] : ['PATH', 'Path rate', breakdown.glidepath_ok],
+    ...(typeof breakdown.localizer_ok === 'number' ? [['LOC', 'Localizer', breakdown.localizer_ok]] : []),
+    ['THR MOV', 'Throttle movement', breakdown.thrust_ok ?? breakdown.thrust_stable_ok],
+  ];
+  const format = value => typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}%` : '--';
+  return {
+    text: metrics.map(([short, , value]) => `${short} ${format(value)}`).join(' · '),
+    title: metrics.map(([, label, value]) => `${label} ${format(value)}`).join(', '),
+  };
+}
+
 // ===== Public API =====
 const TelemetryUI = {
   /**
@@ -403,6 +422,7 @@ const TelemetryUI = {
 
     /** Build the compact widgets' shared landing verdict presentation. */
     landingPresentation: landingPresentation,
+    stabilityBreakdownPresentation: stabilityBreakdownPresentation,
 
     /**
      * Decompose milliseconds into hours / minutes / seconds.

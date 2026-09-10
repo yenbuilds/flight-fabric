@@ -338,6 +338,10 @@ const PMDG_737_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'flightControls.leadingEdgeExtended': booleanField('flightControls.leadingEdgeExtended', 'flaps.leadingEdgeExtended'),
   'flightControls.leadingEdgeTransit': booleanField('flightControls.leadingEdgeTransit', 'flaps.leadingEdgeTransit'),
   'flightControls.speedbrakeArmed': booleanField('flightControls.speedbrakeArmed', 'spoilers.armed'),
+  'flightControls.speedbrakePercent': { id: 'flightControls.speedbrakePercent', sources: [{
+    route: { type: 'lvar', name: 'A:SPOILERS HANDLE POSITION', unit: 'Percent' },
+    decode: { type: 'number', precision: 0 },
+  }] },
   'flightControls.speedbrakeDoNotArm': booleanField('flightControls.speedbrakeDoNotArm', 'spoilers.doNotArm'),
   'flightControls.speedbrakeExtended': booleanField('flightControls.speedbrakeExtended', 'spoilers.extended'),
   'flightControls.yawDamper': booleanField('flightControls.yawDamper', 'flightControls.yawDamper'),

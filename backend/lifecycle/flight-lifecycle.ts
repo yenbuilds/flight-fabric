@@ -1,7 +1,7 @@
 // Centralized flight lifecycle logic for simbridge-core.
 //
 // This module is the single source of truth for lifecycle states,
-// in-flight context, flight-start eligibility, and supporting motion helpers.
+// flight-start eligibility and supporting motion helpers.
 
 const Debug = require('../core/debug.js') as {
   log: (scope: string, message: string, extra?: Record<string, unknown>) => void;
@@ -18,19 +18,6 @@ export const LifecycleState = Object.freeze({
 } as const);
 
 export type LifecycleStateValue = (typeof LifecycleState)[keyof typeof LifecycleState];
-
-export type InFlightContextResult = {
-  inFlightContext: boolean;
-  reason: string;
-};
-
-export type ComputeInFlightContextParams = {
-  simconnectConnected: boolean;
-  simRunning?: boolean | null;
-  userInputEnabled?: boolean | null;
-  aircraftLoadedName?: string | null;
-  paused?: boolean;
-};
 
 export type EligibilityResult = {
   eligible: boolean;
@@ -216,31 +203,6 @@ function createInactiveManualAutoStartSuppression(): ManualAutoStartSuppressionS
 function normalizeAircraftTitle(value: unknown): string | null {
   const title = typeof value === 'string' ? value.trim() : '';
   return title || null;
-}
-
-export function computeInFlightContext({
-  simconnectConnected,
-  simRunning,
-  userInputEnabled,
-  aircraftLoadedName,
-  paused = false,
-}: ComputeInFlightContextParams): InFlightContextResult {
-  if (!simconnectConnected) {
-    return { inFlightContext: false, reason: 'simconnect_disconnected' };
-  }
-  if (simRunning === false) {
-    return { inFlightContext: false, reason: 'sim_not_running' };
-  }
-  if (!aircraftLoadedName) {
-    return { inFlightContext: false, reason: 'no_aircraft_loaded' };
-  }
-  if (userInputEnabled === false) {
-    return { inFlightContext: false, reason: 'user_input_disabled' };
-  }
-  if (paused) {
-    return { inFlightContext: false, reason: 'sim_paused' };
-  }
-  return { inFlightContext: true, reason: 'ok' };
 }
 
 export function updateActiveFlightEndGuard({

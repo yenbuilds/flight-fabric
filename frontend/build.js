@@ -57,12 +57,6 @@ function copyDir(relativePath) {
   fs.cpSync(srcPath, destPath, { recursive: true });
 }
 
-function copyDirTo(sourceRelativePath, destinationRelativePath) {
-  const srcPath = path.join(FRONTEND_DIR, sourceRelativePath);
-  const destPath = path.join(OUT_DIR, destinationRelativePath);
-  fs.cpSync(srcPath, destPath, { recursive: true });
-}
-
 function assertBundledIndexHtml() {
   const indexPath = path.join(OUT_DIR, 'index.html');
   if (!fs.existsSync(indexPath)) {

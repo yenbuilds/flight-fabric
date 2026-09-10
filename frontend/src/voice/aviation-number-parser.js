@@ -17,6 +17,8 @@ const SMALL = Object.freeze({
 });
 
 const UNIT_SUFFIXES = Object.freeze({
+  hpa: Object.freeze([['hpa'], ['h', 'p', 'a'], ['hectopascal'], ['hectopascals']]),
+  inhg: Object.freeze([['inhg'], ['in', 'hg'], ['inches'], ['inches', 'of', 'mercury'], ['inches', 'mercury']]),
   degrees: Object.freeze([['degree'], ['degrees']]),
   feet: Object.freeze([['foot'], ['feet']]),
   'feet-per-minute': Object.freeze([
@@ -27,6 +29,7 @@ const UNIT_SUFFIXES = Object.freeze({
   knots: Object.freeze([['knot'], ['knots']]),
   mach: Object.freeze([]),
   megahertz: Object.freeze([['megahertz'], ['mhz']]),
+  'com-megahertz': Object.freeze([['megahertz'], ['mhz']]),
   percent: Object.freeze([['percent'], ['per', 'cent']]),
 });
 
@@ -52,6 +55,9 @@ export function stripMatchingUnitSuffix(tokens, units) {
 export function normalizeVoiceText(value) {
   return String(value ?? '')
     .toLowerCase()
+    // Recognizers can render "minus" as a numeric sign. Preserve it before
+    // stripping punctuation so a descent target cannot become a climb target.
+    .replace(/[-\u2212](?=\s*\d)/g, ' minus ')
     // Keep recognizer possessives as one token so a bounded numeric-slot
     // correction can distinguish "one's" -> "ones" from an arbitrary "s".
     .replace(/([a-z0-9])['’]s\b/g, '$1s')
@@ -138,6 +144,8 @@ export function parseAviationNumber(value, { minimumDigitSequenceLength = 0, uni
 
   let flightLevel = false;
   if (tokens[0] === 'flight' && tokens[1] === 'level') {
+    // Pressure commands must never apply the altitude-specific ×100 shorthand.
+    if (units === 'hpa' || units === 'inhg') return null;
     flightLevel = true;
     tokens = tokens.slice(2);
   }

@@ -22,8 +22,11 @@ const analysisActionText = computed(() => (
             <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-gray-200">{{ timeline.eventCountText }}</dd>
           </div>
           <div class="min-w-0 rounded-md border border-surface-200/70 bg-surface-100/50 px-2.5 py-2">
-            <dt class="text-[11px] uppercase tracking-wider text-gray-500">Violations</dt>
-            <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-amber-400">{{ timeline.violationCountText }}</dd>
+            <dt class="text-[11px] uppercase tracking-wider text-gray-500">Alerts</dt>
+            <dd class="mt-0.5 break-words text-xs font-semibold leading-5">
+              <div class="text-amber-400">Cautions: {{ timeline.cautionCountText }}</div>
+              <div :class="timeline.violationCountText === '0' ? 'text-gray-400' : 'text-red-400'">Violations: {{ timeline.violationCountText }}</div>
+            </dd>
           </div>
           <div class="min-w-0 rounded-md border border-surface-200/70 bg-surface-100/50 px-2.5 py-2">
             <dt class="text-[11px] uppercase tracking-wider text-gray-500">Duration</dt>

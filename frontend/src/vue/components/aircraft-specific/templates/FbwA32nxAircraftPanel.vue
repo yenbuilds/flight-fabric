@@ -31,7 +31,7 @@ const mobileSections = Object.freeze([
   Object.freeze({ id: 'electrical-apu', label: 'Electrical', title: 'Electrical & APU' }),
   Object.freeze({ id: 'air-ice', label: 'Air / Ice', title: 'Pneumatic, Air Conditioning & Anti-Ice' }),
   Object.freeze({ id: 'adirs-navigation', label: 'ADIRS', title: 'ADIRS & Navigation' }),
-  Object.freeze({ id: 'ground-engines', label: 'Engines', title: 'Ground & Engine Controls' }),
+  Object.freeze({ id: 'ground-engines', label: 'Config', title: 'Configuration & Engine Controls' }),
   Object.freeze({ id: 'surveillance', label: 'Radio', title: 'Radio & Surveillance' }),
   Object.freeze({ id: 'switching-displays', label: 'Displays', title: 'Switching & Displays' }),
   Object.freeze({ id: 'light-readback', label: 'Readback', title: 'Exterior Light Readback' }),
@@ -92,6 +92,8 @@ const controlSections = [
       toggleControl('AUTOPILOT 1', 'flightGuidance.ap1', 'flightGuidance.ap1', ['DISCONNECT', 'ENGAGE']),
       toggleControl('AUTOTHRUST', 'flightGuidance.autothrust', 'flightGuidance.autothrust', ['DISCONNECT', 'ARM']),
       toggleControl('FD CAPT', 'flightGuidance.flightDirectorCaptain', 'flightGuidance.flightDirectorCaptain'),
+      toggleControl('LS CAPT', 'navigation.lsCaptain', 'navigation.lsCaptain'),
+      toggleControl('LS F/O', 'navigation.lsFirstOfficer', 'navigation.lsFirstOfficer'),
       toggleControl('LOCALIZER', 'flightGuidance.localizer', 'flightGuidance.localizer'),
       toggleControl('APPROACH', 'flightGuidance.approach', 'flightGuidance.approach'),
       toggleControl('EXPEDITE', 'flightGuidance.expedite', 'flightGuidance.expedite'),
@@ -255,8 +257,15 @@ const controlSections = [
   },
   {
     id: 'ground-engines',
-    title: 'Brakes, Spoilers, Engines & Door',
+    title: 'Flaps, Brakes, Spoilers & Engines',
     controls: [
+      detentControl('FLAPS', 'controls.flapsHandle', 'controls.flaps', [
+        ['up', 'UP', 'up'],
+        ['one', '1', '1'],
+        ['two', '2', '2'],
+        ['three', '3', '3'],
+        ['full', 'FULL', 'full'],
+      ]),
       toggleControl('PARKING BRAKE', 'systems.parkingBrake', 'systems.parkingBrake', ['RELEASE', 'SET'], ['released', 'set']),
       detentControl('AUTOBRAKE', 'systems.autobrakeMode', 'systems.autobrake', [
         ['disarm', 'DISARM', 'disarmed'],
@@ -499,6 +508,7 @@ function groupPending(groupId) {
 
 function actionDisabled(control, actionId) {
   return !controlSessionReady.value
+    || (control.fieldId.startsWith('navigation.ls') && value('baro.healthy') !== true)
     || controlValue(control) === null
     || !actionSupported(actionId)
     || groupPending(control.groupId);
@@ -510,6 +520,7 @@ function controlStatusId(control) {
 
 function actionDisabledReason(control, actionId) {
   if (!actionDisabled(control, actionId)) return '';
+  if (control.fieldId.startsWith('navigation.ls') && value('baro.healthy') !== true) return 'Waiting for a powered FCU.';
   if (groupPending(control.groupId)) return 'Command pending.';
   if (props.sourceStatus !== 'connected') return 'Waiting for live aircraft data.';
   if (aircraftControls.availability.enabled !== true) {
@@ -548,6 +559,9 @@ function controlStatus(control) {
         : 'Waiting for the live AUTO-mode flag.';
     }
     return `Selector and actual strobe output are tracked independently; output is ${value('lights.strobeActive') === true ? 'ON' : 'OFF'}.`;
+  }
+  if (control.fieldId === 'controls.flapsHandle') {
+    return 'Lever selection; flap surfaces may still be moving.';
   }
   return 'Ready.';
 }

@@ -32,6 +32,7 @@ type CompileContext = {
 };
 
 type BindingResolution = {
+  valueUpdatedAt?: string;
   rawValue?: unknown;
   sourceId: string;
   status: AircraftSpecificSourceStatus;
@@ -57,6 +58,10 @@ const SOURCE_STATUSES = new Set<AircraftSpecificSourceStatus>([
   'awaiting-values',
 ]);
 const SIMVAR_FRAME_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  ...Object.fromEntries([1, 2].flatMap((index) => [
+    ['COM AVAILABLE', 'installed'], ['COM STATUS', 'status'], ['COM SPACING MODE', 'spacingMode'],
+    ['COM ACTIVE FREQUENCY', 'activeMhz'], ['COM STANDBY FREQUENCY', 'standbyMhz'],
+  ].map(([name, property]) => [`${name}:${index}`, `comRadios.com${index}.${property}`]))),
   'AIRSPEED MACH': 'fdm.mach',
   'AMBIENT TEMPERATURE': 'fdm.oatC',
   'AUTOPILOT AIRSPEED HOLD': 'fdm.apSpeedHold',
@@ -211,6 +216,9 @@ const lvarBindingResolver: BindingResolver = Object.freeze({
       sourceId,
       status: 'connected',
       rawValue: key ? lvars.values[key] : undefined,
+      ...(lvars.profileId === context.config?.profileKey && lvars.status === 'running'
+        && typeof lvars.valueUpdatedAt?.[key] === 'string'
+        ? { valueUpdatedAt: lvars.valueUpdatedAt[key] } : {}),
     };
   },
 });
@@ -237,10 +245,14 @@ const simvarBindingResolver: BindingResolver = Object.freeze({
 
     const path = typeof binding.path === 'string' ? binding.path : '';
     const rawValue = readOwnPath(context.frame, path);
+    const radioPath = /^comRadios\.(com[12])\.(installed|status|spacingMode|activeMhz|standbyMhz)$/.exec(path);
+    const radioTime = radioPath ? context.frame?.comRadios?.[radioPath[1]]?.updatedAt?.[radioPath[2]] : null;
     return {
       sourceId,
       status: rawValue === undefined ? 'awaiting-values' : 'connected',
       rawValue,
+      ...(typeof radioTime === 'number' && Number.isFinite(radioTime) && radioTime > 0 && radioTime < 8.64e15
+        ? { valueUpdatedAt: new Date(radioTime).toISOString() } : {}),
     };
   },
 });
@@ -302,6 +314,11 @@ const sdkBindingResolver: BindingResolver = Object.freeze({
       sourceId,
       status: 'connected',
       rawValue: readOwnPath(sdk.normalized, binding.path),
+      // This is an observation of a live CHANGED subscription, not its last
+      // change time. Reconnect/target changes retire the generation above.
+      valueUpdatedAt: hasCurrentGenerationSnapshot
+        ? new Date(context.nowEpochMs).toISOString()
+        : sdk.updatedAt,
     };
   },
 });
@@ -359,6 +376,7 @@ function createAircraftSpecificBindingResolverRegistry(additionalResolvers: Bind
         sourceId,
         status,
         rawValue: result?.rawValue,
+        ...(typeof result?.valueUpdatedAt === 'string' ? { valueUpdatedAt: result.valueUpdatedAt } : {}),
       };
     } catch {
       return { sourceId: type, status: 'error' };

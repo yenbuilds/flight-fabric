@@ -957,19 +957,9 @@
     function updateStabilityBreakdownMini(ultimateStability) {
       const el = $('stability-breakdown-mini');
       if (!el) return;
-      const breakdown = ultimateStability?.breakdown;
-      if (!breakdown) {
-        el.textContent = '--';
-        el.title = '';
-        return;
-      }
-      const fmt = (v) => v == null ? '--' : `${Math.round(v)}%`;
-      el.textContent = [
-        `SPD ${fmt(breakdown.speed_ok)}`, `STR ${fmt(breakdown.speed_trend_ok)}`,
-        `VS ${fmt(breakdown.vs_ok)}`, `GP ${fmt(breakdown.glidepath_ok)}`,
-        `THR ${fmt(breakdown.thrust_not_idle_ok)}`, `THR MOV ${fmt(breakdown.thrust_stable_ok)}`
-      ].join(' · ');
-      el.title = `Speed ${fmt(breakdown.speed_ok)}, Speed Trend ${fmt(breakdown.speed_trend_ok)}, V/S ${fmt(breakdown.vs_ok)}, Glidepath ${fmt(breakdown.glidepath_ok)}, Thrust ${fmt(breakdown.thrust_not_idle_ok)}, Throttle Movement ${fmt(breakdown.thrust_stable_ok)}`;
+      const presentation = TelemetryUI.utils.stabilityBreakdownPresentation(ultimateStability);
+      el.textContent = presentation.text;
+      el.title = presentation.title;
     }
 
     function handleMessage(msg) {

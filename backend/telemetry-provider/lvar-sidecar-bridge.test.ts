@@ -698,6 +698,34 @@ test('LvarSidecarBridge gives SDK DWORD payloads a narrow event-only path', asyn
   }]);
 });
 
+test('LvarSidecarBridge accepts only exact COM standby Hz channels above the general ceiling', async () => {
+  const calls = [];
+  let results = [];
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    bridge._sendWithAck = async (message, ackType) => {
+      calls.push({ message, ackType });
+      return { ok: true };
+    };
+    results = [
+      bridge.sendEvent('COM_STBY_RADIO_SET_HZ', 118005000),
+      bridge.sendEvent('COM2_STBY_RADIO_SET_HZ', 136990000),
+      ...[0, 117995000, 137000000, 123020000, 123005001, 123005000.5, Infinity, '123005000']
+        .map((value) => bridge.sendEvent('COM_STBY_RADIO_SET_HZ', value)),
+      bridge.sendEvent('COM2_STBY_RADIO_SET_HZ', 123005000, [0]),
+      ...['COM_RADIO_SET_HZ', 'AP_ALT_VAR_SET_ENGLISH', 'COM1_RADIO_SWAP']
+        .map((name) => bridge.sendEvent(name, 123005000)),
+    ];
+  });
+  const acks = await Promise.all(results);
+  assert.ok(acks.slice(0, 2).every((ack) => ack.ok === true));
+  assert.ok(acks.slice(2).every((ack) => ack.ok === false && ack.error === 'invalid_payload'));
+  assert.deepEqual(calls, [
+    { message: { type: 'sendEvent', name: 'COM_STBY_RADIO_SET_HZ', value: 118005000 }, ackType: 'sendEventAck' },
+    { message: { type: 'sendEvent', name: 'COM2_STBY_RADIO_SET_HZ', value: 136990000 }, ackType: 'sendEventAck' },
+  ]);
+});
+
 test('LvarSidecarBridge sends bounded multi-parameter generic events only', async () => {
   const calls = [];
   let results = [];

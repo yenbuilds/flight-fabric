@@ -30,6 +30,8 @@ const GROUP_LABELS = Object.freeze({
   mcp: 'Mode control panel',
   afds: 'Autoflight and flight directors',
   radios: 'Radios',
+  surveillance: 'Transponder and surveillance',
+  approach: 'Approach setup',
   surfaces: 'Flight controls',
   flightControls: 'Flight controls',
   gear: 'Landing gear and brakes',
@@ -108,11 +110,11 @@ const ACRONYMS = Object.freeze({
 });
 
 const FILTERS = Object.freeze([
-  { id: 'all', label: 'All' },
-  { id: 'voice', label: 'Voice' },
-  { id: 'preset', label: 'Presets' },
-  { id: 'control', label: 'Controls' },
-  { id: 'readback', label: 'Readbacks' },
+  { id: 'all', label: 'All', countKey: 'total' },
+  { id: 'voice', label: 'Voice', countKey: 'voice' },
+  { id: 'preset', label: 'Presets', countKey: 'presets' },
+  { id: 'control', label: 'Controls', countKey: 'controls' },
+  { id: 'readback', label: 'Readbacks', countKey: 'readbacks' },
 ]);
 
 function requestedInitialFilter() {
@@ -151,6 +153,7 @@ function speechPatterns(item) {
 }
 
 function inputLabel(input, id = '') {
+  if (input?.units === 'squawk') return 'Four digits, each 0–7 (for example 0042)';
   if (!input || input.kind === 'none' || (!input.kind && !input.type)) return 'One action';
   if (input.kind === 'boolean') {
     if (id === 'surfaces.parkingBrake.set') return 'Set / release';
@@ -388,15 +391,14 @@ onMounted(() => { mounted.value = true; });
         aria-labelledby="aircraft-integration-cheatsheet-title"
         aria-describedby="aircraft-integration-cheatsheet-description"
       >
-        <header class="shrink-0 border-b border-white/10 bg-gradient-to-r from-emerald-500/[0.08] via-transparent to-sky-500/[0.06] px-4 py-4 sm:px-6 sm:py-5">
-          <div class="flex items-start justify-between gap-4">
+        <header class="shrink-0 border-b border-white/10 bg-gradient-to-r from-emerald-500/[0.08] via-transparent to-sky-500/[0.06] px-4 py-2 sm:px-5">
+          <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Aircraft integration</div>
-              <h2 id="aircraft-integration-cheatsheet-title" class="mt-1 truncate text-xl font-semibold text-white sm:text-2xl">
+              <h2 id="aircraft-integration-cheatsheet-title" class="truncate text-lg font-semibold text-white sm:text-xl" :title="`${aircraftLabel} cheatsheet`">
                 {{ aircraftLabel }} cheatsheet
               </h2>
-              <p id="aircraft-integration-cheatsheet-description" class="mt-1 max-w-3xl text-xs leading-5 text-muted-fg sm:text-sm">
-                Every mapped control, preset and readback for the active aircraft. Voice support is derived from the same command catalogue used by speech control.
+              <p id="aircraft-integration-cheatsheet-description" class="sr-only">
+                Every mapped control, preset and readback for the active aircraft, with supported voice phrases.
               </p>
             </div>
             <button
@@ -412,32 +414,10 @@ onMounted(() => { mounted.value = true; });
             </button>
           </div>
 
-          <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <div class="rounded-lg border border-white/10 bg-black/15 px-3 py-2">
-              <div class="text-lg font-semibold text-white">{{ summary.total }}</div>
-              <div class="text-[10px] uppercase tracking-wider text-muted-fg">Total</div>
-            </div>
-            <div class="rounded-lg border border-white/10 bg-black/15 px-3 py-2">
-              <div class="text-lg font-semibold text-white">{{ summary.controls }}</div>
-              <div class="text-[10px] uppercase tracking-wider text-muted-fg">Controls</div>
-            </div>
-            <div class="rounded-lg border border-white/10 bg-black/15 px-3 py-2">
-              <div class="text-lg font-semibold text-white">{{ summary.presets }}</div>
-              <div class="text-[10px] uppercase tracking-wider text-muted-fg">Presets</div>
-            </div>
-            <div class="rounded-lg border border-white/10 bg-black/15 px-3 py-2">
-              <div class="text-lg font-semibold text-white">{{ summary.readbacks }}</div>
-              <div class="text-[10px] uppercase tracking-wider text-muted-fg">Readbacks</div>
-            </div>
-            <div class="col-span-2 rounded-lg border border-accent/20 bg-accent/[0.06] px-3 py-2 sm:col-span-1">
-              <div class="text-lg font-semibold text-accent">{{ summary.voice }}</div>
-              <div class="text-[10px] uppercase tracking-wider text-accent/80">Voice enabled</div>
-            </div>
-          </div>
         </header>
 
-        <div class="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
-          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="shrink-0 border-b border-white/10 px-4 py-2 sm:px-5">
+          <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <label class="relative block min-w-0 flex-1 lg:max-w-md">
               <span class="sr-only">Search aircraft integration</span>
               <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -451,12 +431,12 @@ onMounted(() => { mounted.value = true; });
                 placeholder="Find a control, system, or voice phrase…"
               >
             </label>
-            <div class="flex gap-1 overflow-x-auto pb-1 lg:pb-0" aria-label="Filter integration settings">
+            <div class="flex flex-wrap gap-1" aria-label="Filter integration settings">
               <button
                 v-for="filter in FILTERS"
                 :key="filter.id"
                 type="button"
-                class="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition"
+                class="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition"
                 :class="activeFilter === filter.id
                   ? 'border-accent/40 bg-accent/10 text-accent'
                   : 'border-white/10 bg-white/[0.02] text-gray-400 hover:border-white/20 hover:text-white'"
@@ -464,12 +444,13 @@ onMounted(() => { mounted.value = true; });
                 @click="activeFilter = filter.id"
               >
                 {{ filter.label }}
+                <span class="tabular-nums opacity-70">{{ summary[filter.countKey] }}</span>
               </button>
             </div>
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
           <div v-if="groups.length" class="space-y-7">
             <section
               v-for="group in groups"

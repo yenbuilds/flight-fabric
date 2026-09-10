@@ -5,7 +5,7 @@ export function formatTimeOffset(ms) {
   return `${min}:${String(sec).padStart(2, '0')}`;
 }
 
-export function interpolateHeadingDeg(startDeg, endDeg, ratio) {
+function interpolateHeadingDeg(startDeg, endDeg, ratio) {
   if (!Number.isFinite(startDeg) && !Number.isFinite(endDeg)) return null;
   if (!Number.isFinite(startDeg)) return endDeg;
   if (!Number.isFinite(endDeg)) return startDeg;
@@ -13,14 +13,14 @@ export function interpolateHeadingDeg(startDeg, endDeg, ratio) {
   return (startDeg + shortestDelta * ratio + 360) % 360;
 }
 
-export function interpolateLinear(start, end, ratio) {
+function interpolateLinear(start, end, ratio) {
   if (!Number.isFinite(start) && !Number.isFinite(end)) return null;
   if (!Number.isFinite(start)) return end;
   if (!Number.isFinite(end)) return start;
   return start + (end - start) * ratio;
 }
 
-export function getInterpolatedTrackPointAtMs(points, targetMs) {
+function getInterpolatedTrackPointAtMs(points, targetMs) {
   if (!Number.isFinite(targetMs) || !Array.isArray(points) || points.length === 0) return null;
   const first = points[0];
   const last = points[points.length - 1];
@@ -242,6 +242,5 @@ export function createScrubber({
     setVisible,
     getStartMs: () => startMs,
     getEndMs: () => endMs,
-    getPoints: () => points,
   };
 }

@@ -81,10 +81,8 @@ function resetRepoScratchDirectory(name) {
 }
 
 module.exports = {
-  DEFAULT_SCRATCH_DIR,
   ROOT,
   getRepoScratchAppData,
   getRepoScratchPath,
-  getRepoScratchRoot,
   resetRepoScratchDirectory,
 };

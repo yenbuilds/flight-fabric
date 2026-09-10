@@ -3316,6 +3316,8 @@ mod sidecar {
                 let value = command.value.unwrap_or(0.0);
                 let primary_data = if command.command_type == "sendSdkEvent" {
                     bounded_sdk_event_data(value)
+                } else if command.command_type == "sendEvent" {
+                    bounded_named_event_data(name, value, command.parameters.len())
                 } else {
                     bounded_event_data(value)
                 };

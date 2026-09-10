@@ -5,6 +5,7 @@ import {
   getFiniteDistanceNm,
   getFiniteFuelBurnGal,
 } from '../utils/formatting.js';
+import { alertTone } from './alert-presentation.js';
 
 export { formatDuration };
 
@@ -28,7 +29,7 @@ function getFuelUnit() {
   }
 }
 
-export function getTimelineFuelSummary(timeline) {
+function getTimelineFuelSummary(timeline) {
   const fuelBurnGal = getFiniteFuelBurnGal(timeline?.fuelBurnGal);
   const fuelBurnWeightLbs = Number(timeline?.fuelBurnWeightLbs);
   const unit = getFuelUnit();
@@ -81,7 +82,7 @@ function calculateTrackDistanceNm(track) {
   return getFiniteDistanceNm(totalDistanceNm);
 }
 
-export function getTimelineDistanceText(timeline) {
+function getTimelineDistanceText(timeline) {
   const distanceNm = getFiniteDistanceNm(timeline?.distanceNm) ?? calculateTrackDistanceNm(timeline?.track);
   return distanceNm !== null ? formatDistanceNm(distanceNm) : '--';
 }
@@ -211,10 +212,13 @@ export function normalizeTimelineForUI(timeline) {
 export function buildTimelineSummaryState(timeline, displayEvents) {
   const rawCount = timeline.eventCount ?? timeline.events.length;
   const shownCount = displayEvents.length;
-  const violations = timeline.events.filter((event) => event.type === 'violation_start');
-  const shownViolations = displayEvents.filter((event) => event.type === 'violation_start');
-  const violationMoments = countViolationMoments(timeline.events);
-  const shownViolationMoments = countViolationMoments(displayEvents);
+  const countByTone = (tone) => {
+    const events = timeline.events.filter(event => event.type === 'violation_end' || (event.type === 'violation_start' && alertTone(event) === tone));
+    const starts = events.filter(event => event.type === 'violation_start');
+    const shown = displayEvents.filter(event => event.type === 'violation_start' && alertTone(event) === tone);
+    const label = formatViolationMomentCount(countViolationMoments(events), starts.length);
+    return shown.length === starts.length ? label : `${label}; ${shown.length} shown`;
+  };
 
   let durationText = '--';
   const timelineDurationMs = Number(timeline.durationMs);
@@ -238,9 +242,8 @@ export function buildTimelineSummaryState(timeline, displayEvents) {
   return {
     visible: true,
     eventCountText: shownCount === rawCount ? String(rawCount) : `${rawCount} (${shownCount} shown)`,
-    violationCountText: shownViolations.length === violations.length
-      ? formatViolationMomentCount(violationMoments, violations.length)
-      : `${formatViolationMomentCount(violationMoments, violations.length)}; ${shownViolationMoments} shown`,
+    violationCountText: countByTone('violation'),
+    cautionCountText: countByTone('caution'),
     durationText,
     distanceText: getTimelineDistanceText(timeline),
     fuelBurnText: fuelSummary.text,

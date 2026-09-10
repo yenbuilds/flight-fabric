@@ -1,5 +1,7 @@
 'use strict';
 
+import { a350NdRangeFields, a350NdRangeActions } from './nd-range.js';
+
 import type { AircraftIntegrationDefinition } from '../types.js';
 
 const { defineAircraftIntegration } = require('../registry') as {
@@ -31,8 +33,8 @@ const INIBUILDS_A350_INTEGRATION = defineAircraftIntegration({
   presentation: {
     templateId: 'inibuilds-a350',
   },
-  fields: INIBUILDS_A350_FIELDS,
-  actions: INIBUILDS_A350_ACTIONS,
+  fields: { ...INIBUILDS_A350_FIELDS, ...a350NdRangeFields() },
+  actions: { ...INIBUILDS_A350_ACTIONS, ...a350NdRangeActions() },
 });
 
 module.exports = {

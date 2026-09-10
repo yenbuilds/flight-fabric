@@ -1,5 +1,8 @@
 'use strict';
 
+import { fbwApuMasterOn, lvarApuStartRequest } from '../apu-start.js';
+import { a380BaroActions } from './baro.js';
+
 import type {
   AircraftIntegrationAction,
   AircraftIntegrationNumberInput,
@@ -11,7 +14,7 @@ const DEFAULT_COOLDOWN_MS = 750;
 const SELECTOR_COOLDOWN_MS = 300;
 const READBACK_TIMEOUT_MS = 3000;
 
-const actions: Record<string, AircraftIntegrationAction> = {};
+const actions: Record<string, AircraftIntegrationAction> = { ...a380BaroActions() };
 const { addFbwCalibratedThrottleDetentActions } = require('../fbw-throttle-detents') as {
   addFbwCalibratedThrottleDetentActions: (params: {
     actions: Record<string, AircraftIntegrationAction>;
@@ -65,6 +68,7 @@ function numericEventAction(params: {
   fieldId: string;
   groupId: string;
   input: AircraftIntegrationNumberInput;
+  precondition?: Readonly<{ fieldId: string; expectedValue: boolean }>;
   inputValue?: Readonly<{
     round?: 'nearest';
     scale?: number;
@@ -89,6 +93,7 @@ function numericEventAction(params: {
       id: `fbwA380x.${params.actionId}.simconnectSequence`,
       transport: 'simconnect-sequence',
       operations: [operation],
+      ...(params.precondition ? { precondition: params.precondition } : {}),
       readback: {
         fieldId: params.fieldId,
         expectedInput: true,
@@ -152,35 +157,52 @@ for (const [prefix, fieldId, offEvent, onEvent] of [
   }
 }
 
-for (const [actionId, fieldId, event, eventParameters, input] of [
+for (const [actionId, fieldId, event, input, modeField, modeValue, scale] of [
   [
     'flightGuidance.speed.set',
     'flightGuidance.speedValue',
-    'AP_SPD_VAR_SET',
-    [0],
+    'A32NX.FCU_SPD_SET',
     { type: 'number', min: 100, max: 399, step: 1 },
+    'flightGuidance.machMode', false, 1,
+  ],
+  [
+    'flightGuidance.mach.set', 'flightGuidance.speedValue', 'A32NX.FCU_SPD_SET',
+    { type: 'number', min: 0.4, max: 0.99, step: 0.01 },
+    'flightGuidance.machMode', true, 100,
   ],
   [
     'flightGuidance.heading.set',
     'flightGuidance.headingDeg',
-    'HEADING_BUG_SET',
-    [0],
+    'A32NX.FCU_HDG_SET',
     { type: 'number', min: 0, max: 359, step: 1 },
+    'flightGuidance.trkFpaMode', false, 1,
   ],
   [
     'flightGuidance.altitude.set',
     'flightGuidance.altitudeFt',
-    'AP_ALT_VAR_SET_ENGLISH',
-    [3],
-    { type: 'number', min: 0, max: 49000, step: 100 },
+    'A32NX.FCU_ALT_SET',
+    { type: 'number', min: 100, max: 49000, step: 100 },
+    '', false, 1,
+  ],
+  [
+    'flightGuidance.verticalSpeed.set', 'flightGuidance.verticalValue', 'A32NX.FCU_VS_SET',
+    { type: 'number', min: -6000, max: 6000, step: 100 },
+    'flightGuidance.trkFpaMode', false, 1,
+  ],
+  [
+    'flightGuidance.flightPathAngle.set', 'flightGuidance.verticalValue', 'A32NX.FCU_VS_SET',
+    { type: 'number', min: -9.9, max: 9.9, step: 0.1 },
+    'flightGuidance.trkFpaMode', true, 10,
   ],
 ] as const) {
   actions[actionId] = numericEventAction({
     actionId,
     event,
-    eventParameters,
+    inputValue: { source: 'input', scale, round: 'nearest' },
+    ...(modeField ? { precondition: { fieldId: modeField, expectedValue: modeValue } } : {}),
     fieldId,
-    groupId: actionId.replace(/\.set$/, ''),
+    groupId: actionId.replace(/\.set$/, '')
+      .replace('.mach', '.speed').replace('.flightPathAngle', '.verticalSpeed'),
     input,
   });
 }
@@ -284,6 +306,17 @@ for (const [actionId, event, expectedValue] of [
     groupId: 'controls.gear',
   });
 }
+
+// A380X Flight Deck API, reviewed against installed Stable 2026-09-06.
+actions['systems.apuMaster.on'] = fbwApuMasterOn('fbwA380x');
+actions['systems.apuStart.start'] = lvarApuStartRequest({
+  prefix: 'fbwA380x',
+  lvar: 'A32NX_OVHD_APU_START_PB_IS_ON',
+  skipWhen: [
+    { fieldId: 'systems.apuAvailable', expectedValue: true },
+    { fieldId: 'systems.apuStart', expectedValue: true },
+  ],
+});
 
 const FBW_A380X_ACTIONS: Readonly<Record<string, AircraftIntegrationAction>> = Object.freeze(actions);
 

@@ -204,6 +204,9 @@ export function createConnection({
     socketToClose.onerror = null;
     socketToClose.onmessage = null;
     try { socketToClose.close(); } catch (_) {}
+    // Intentional reconnects detach the native close handler, but pending
+    // requests still belong to the old socket and need the normal cleanup.
+    onClose();
   }
 
   async function resolveWsAuthToken(isCurrentAttempt = () => true) {
@@ -346,7 +349,6 @@ export function createConnection({
     connect,
     getBackendHttpBase,
     getAuthorizationScope,
-    getResolvedHttpPort: () => resolvedHttpPort,
     getWs: () => ws,
     getWsUrl,
     initialize,

@@ -32,13 +32,6 @@ function createBackendPortSnapshot(wsPort, httpPort) {
   });
 }
 
-function selectBackendRuntimePorts(configuredPorts, activeLaunch, managedProcess) {
-  if (activeLaunch?.process && activeLaunch.process === managedProcess && activeLaunch.ports) {
-    return activeLaunch.ports;
-  }
-  return configuredPorts;
-}
-
 function shouldOfferWindowsPortFallback(portStates) {
   if (!Array.isArray(portStates)) return false;
   const unavailable = portStates.filter((state) => state?.probe?.available !== true);
@@ -141,6 +134,5 @@ module.exports = {
   createStartupReadinessGate,
   isExactReadinessLine,
   parseConfiguredTcpPort,
-  selectBackendRuntimePorts,
   shouldOfferWindowsPortFallback,
 };

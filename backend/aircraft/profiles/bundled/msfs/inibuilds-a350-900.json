@@ -45,6 +45,16 @@
   "provenance": {
     "sources": [
       {
+        "type": "community",
+        "authority": "community",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "Original HubHop A350 ND range mappings",
+        "url": "https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc",
+        "retrievedAt": "2026-09-07",
+        "notes": "HubHop presets map INI_MAP_RANGE_CAPT_SWITCH and INI_MAP_RANGE_FO_SWITCH positions 5..11 to the normal 10..640 NM range detents. This differs from INI_MAP_MODE_RANGE_* in the official LVar PDF. The adapter uses the original integration spelling with same-field confirmation, never writes both names, and leaves airport zoom selection unavailable. A350 is not installed locally; live validation of names and ND mode-dependent displayed scale is required. See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md."
+      },
+      {
         "type": "official-sdk",
         "authority": "aircraft-vendor",
         "access": "public",

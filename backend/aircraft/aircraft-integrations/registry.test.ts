@@ -577,8 +577,8 @@ test('iniBuilds A350 adapter shares one guarded LVAR and surface contract across
     assert.deepEqual(integration.trustedProfileKeys, INIBUILDS_A350_INTEGRATION.trustedProfileKeys);
   }
 
-  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.fields).length, 52);
-  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.actions).length, 71);
+  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.fields).length, 54);
+  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.actions).length, 85);
   assert.deepEqual(INIBUILDS_A350_INTEGRATION.fields['lights.noseMode'].sources[0], {
     route: { type: 'lvar', name: 'L:INI_LIGHTS_NOSE', unit: 'Number' },
     decode: { type: 'enum', values: { 0: 'off', 1: 'taxi', 2: 'takeoff' } },
@@ -640,14 +640,19 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
   assert.equal(integration.id, FBW_A380X_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'fbw-a380x');
   assert.deepEqual(integration.trustedProfileKeys, [FBW_A380X_PROFILE_KEY]);
-  assert.equal(Object.keys(integration.fields).length, 46);
-  assert.equal(Object.keys(integration.actions).length, 38);
+  assert.equal(Object.keys(integration.fields).length, 78);
+  assert.equal(Object.keys(integration.actions).length, 57);
   assert.deepEqual(integration.fields['flightGuidance.altitudeFt'].sources[0], {
-    route: { type: 'lvar', name: 'A:AUTOPILOT ALTITUDE LOCK VAR:3', unit: 'Feet' },
+    route: { type: 'lvar', name: 'L:A32NX_FCU_AFS_DISPLAY_ALT_VALUE', unit: 'Number' },
     decode: { type: 'number', precision: 0 },
   });
 
   const expectedActionIds = [
+    ...['landing', 'taxi', 'runwayTurnoff'].flatMap(light => ['off', 'on'].map(state => `lights.individual.${light}.${state}`)),
+    ...['panels', 'flood', 'captainDisplays', 'firstOfficerDisplays', 'engineDisplays'].map(group => `lighting.preset.${group}.set`),
+    ...['captain', 'firstOfficer', 'both'].map((target) => `baro.${target}.std`),
+    'systems.apuMaster.on',
+    'systems.apuStart.start',
     ...['ap1', 'autothrust', 'localizer', 'approach'].flatMap((name) => [
       `flightGuidance.${name}.off`,
       `flightGuidance.${name}.on`,
@@ -655,6 +660,9 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
     'flightGuidance.speed.set',
     'flightGuidance.heading.set',
     'flightGuidance.altitude.set',
+    'flightGuidance.mach.set',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.flightPathAngle.set',
     'propulsion.throttle.idle',
     'propulsion.throttle.climb',
     'propulsion.throttle.flexMct',
@@ -677,11 +685,27 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
   for (const action of Object.values(integration.actions) as any[]) {
     assert.equal(action.verification, 'untested');
     assert.equal(action.guard.retry, 'never');
-    assert.match(action.guard.groupId, /^fbwA380x\./);
+    assert.match(action.guard.groupId, /^(?:fbwA380x\.|lighting\.cockpit$)/);
     assert.equal(action.routes.length, 1);
-    if (action.id.startsWith('propulsion.throttle.')) {
+    if (action.id === 'systems.apuStart.start') {
+      assert.equal(action.routes[0].confirmation, 'transport-acknowledged');
+      assert.equal(action.routes[0].readback, undefined);
+    } else if (action.id.startsWith('propulsion.throttle.')) {
       assert.equal(action.routes[0].transport, 'mobiflight-calculator');
       assert.equal(action.routes[0].readbacks.length, 4, `${action.id} must confirm every A380X lever`);
+    } else if (action.id.startsWith('lighting.preset.')) {
+      assert.equal(action.routes[0].transport, 'simconnect-sequence');
+      assert.equal(action.routes[0].readbacks.length, action.routes[0].operations.length);
+    } else if (action.id.startsWith('lights.individual.')) {
+      const readbacks = action.routes[0].readbacks || [action.routes[0].readback];
+      assert.equal(readbacks.length, action.routes[0].operations.length);
+      assert.ok(readbacks.every(r => r.freshness === 'field'));
+    } else if (action.id.startsWith('baro.')) {
+      assert.equal(action.routes[0].transport, 'simconnect-sequence');
+      const sides = action.id === 'baro.both.std' ? ['captain', 'firstOfficer'] : [action.id.split('.')[1]];
+      assert.deepEqual(action.routes[0].readbacks, sides.flatMap(side => ['active', 'std'].map(property => ({
+        fieldId: `baro.${side}.${property}`, expectedValue: true, timeoutMs: 2500, freshness: 'field',
+      }))));
     } else {
       assert.equal(action.routes[0].transport, 'simconnect-sequence');
       assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
@@ -704,7 +728,7 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
 
   assert.deepEqual(integration.actions['flightGuidance.altitude.set'], {
     id: 'flightGuidance.altitude.set',
-    input: { type: 'number', min: 0, max: 49000, step: 100 },
+    input: { type: 'number', min: 100, max: 49000, step: 100 },
     guard: {
       cooldownMs: 300,
       groupId: 'fbwA380x.flightGuidance.altitude',
@@ -715,9 +739,8 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
       transport: 'simconnect-sequence',
       operations: [{
         type: 'event',
-        name: 'AP_ALT_VAR_SET_ENGLISH',
-        inputValue: { source: 'input' },
-        parameters: [3],
+        name: 'A32NX.FCU_ALT_SET',
+        inputValue: { source: 'input', scale: 1, round: 'nearest' },
       }],
       readback: { fieldId: 'flightGuidance.altitudeFt', expectedInput: true, timeoutMs: 3000 },
     }],
@@ -749,12 +772,11 @@ test('FlyByWire A380X adapter exposes only its compact guarded read/write contra
 
   for (const excludedAction of [
     'flightGuidance.ap2.on',
-    'flightGuidance.verticalSpeed.set',
     'flightGuidance.speed.managed',
     'flightGuidance.altitude.selected',
     'lights.strobe.auto',
     'lights.runwayTurnoff.on',
-    'systems.apuMaster.on',
+    'systems.apuMaster.off',
     'systems.engine1Master.on',
     'propulsion.throttle.reverse',
     'propulsion.throttle.set',
@@ -917,8 +939,8 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
   assert.equal(integration, defaultAircraftIntegrationRegistry.resolveForProfile(FBW_A32NX_PROFILE_KEY));
   assert.equal(integration.id, FBW_A32NX_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'fbw-a32nx');
-  assert.equal(Object.keys(integration.fields).length, 126);
-  assert.equal(Object.keys(integration.actions).length, 259);
+  assert.equal(Object.keys(integration.fields).length, 166);
+  assert.equal(Object.keys(integration.actions).length, 292);
   for (const [actionId, event, fieldId, input, precondition, inputScale] of [
     ['flightGuidance.speed.set', 'A32NX.FCU_SPD_SET', 'flightGuidance.speedValue', { type: 'number', min: 100, max: 399, step: 1 }, { fieldId: 'flightGuidance.machMode', expectedValue: false }, undefined],
     ['flightGuidance.mach.set', 'A32NX.FCU_SPD_SET', 'flightGuidance.speedValue', { type: 'number', min: 0.4, max: 0.99, step: 0.01 }, { fieldId: 'flightGuidance.machMode', expectedValue: true }, 100],
@@ -1051,13 +1073,14 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
 
   const apuStart = integration.actions['systems.apuStart.start'];
   assert.equal(apuStart.guard.groupId, 'fbwA32nx.systems.apuStart');
-  assert.equal(apuStart.guard.cooldownMs, 750);
+  assert.equal(apuStart.guard.cooldownMs, 3000);
   assert.equal(apuStart.guard.retry, 'never');
-  assert.equal(apuStart.routes[0].transport, 'lvar');
-  assert.equal(apuStart.routes[0].lvar, 'L:A32NX_OVHD_APU_START_PB_IS_ON');
-  assert.equal(apuStart.routes[0].value, 1);
-  assert.equal(apuStart.routes[0].readback.fieldId, 'systems.apuStart');
-  assert.equal(apuStart.routes[0].readback.expectedValue, true);
+  assert.equal(apuStart.routes[0].transport, 'simconnect-sequence');
+  assert.deepEqual(apuStart.routes[0].operations, [
+    { type: 'lvar', name: 'L:A32NX_OVHD_APU_START_PB_IS_ON', unit: 'Number', value: 1 },
+  ]);
+  assert.equal(apuStart.routes[0].confirmation, 'transport-acknowledged');
+  assert.equal(apuStart.routes[0].readback, undefined);
 
   const autobrakeMedium = integration.actions['systems.autobrake.medium'];
   assert.equal(autobrakeMedium.routes[0].transport, 'lvar');
@@ -1126,14 +1149,15 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     assert.equal(integration.presentation.templateId, 'fenix-a32x');
   }
 
-  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 120);
-  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.actions).length, 277);
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 157);
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.actions).length, 327);
   for (const [fieldId, field] of Object.entries(
     FENIX_A32X_INTEGRATION.fields,
   ) as Array<[string, any]>) {
     assert.equal(field.sources.length, 1, `${fieldId} must expose only its minimum reviewed source`);
     assert.equal(field.sources[0].route.type, 'lvar');
-    assert.match(field.sources[0].route.name, /^L:[A-Z0-9_]+$/);
+    if (fieldId === 'surveillance.transmitting') assert.equal(field.sources[0].route.name, 'A:TRANSPONDER STATE:1');
+    else assert.match(field.sources[0].route.name, /^L:[A-Z0-9_]+$/);
     assert.equal(field.sources[0].route.unit, 'Number');
     assert.deepEqual(
       Object.keys(field.sources[0].route).sort(),
@@ -1141,6 +1165,18 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
       `${fieldId} must not carry aircraft-shipped behavior metadata`,
     );
   }
+  const fenixAtcEfisActionIds = new Set([
+    'surveillance.squawk.set', 'surveillance.ident.activate',
+    ...['captain', 'firstOfficer'].flatMap((side) => [
+      ...['10', '20', '40', '80', '160', '320'].map((nm) => `navigation.${side}.range.nm${nm}`),
+      `navigation.${side}.ls.on`, `navigation.${side}.ls.off`,
+    ]),
+  ]);
+  const fenixApproachIds = new Set([
+    ...['up', 'one', 'two', 'three', 'full'].map((id) => `controls.flaps.${id}`),
+    ...['armed', 'retracted', 'half', 'full'].map((id) => `controls.speedbrake.${id}`),
+    ...['off', 'low', 'medium', 'max'].map((id) => `controls.autobrake.${id}`),
+  ]);
   const fenixFcuActionIds = new Set([
     'flightGuidance.ap1.off',
     'flightGuidance.ap1.on',
@@ -1162,6 +1198,10 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     'flightGuidance.altitudeManaged.on',
     'flightGuidance.speed.set',
     'flightGuidance.heading.set',
+    'flightGuidance.mach.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.flightPathAngle.set',
     'flightGuidance.altitudeHundred.set',
     'flightGuidance.altitudeThousand.set',
   ]);
@@ -1177,6 +1217,55 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     FENIX_A32X_INTEGRATION.actions,
   ) as Array<[string, any]>) {
     assert.equal(action.guard.retry, 'never', `${actionId} must never retry`);
+    if (actionId === 'systems.apuStart.start') {
+      assert.equal(action.guard.cooldownMs, 3000);
+      assert.equal(action.routes[0].mode, 'pulse');
+      assert.equal(action.routes[0].confirmation, 'transport-acknowledged');
+      assert.equal(action.routes[0].pressCode, action.routes[0].releaseCode);
+      assert.match(action.routes[0].pressCode, /S_OH_ELEC_APU_START.*\+\+/);
+      assert.equal(action.routes[0].readback, undefined);
+      continue;
+    }
+    if (actionId.startsWith('baro.')) {
+      assert.equal(action.routes[0].mode, 'fenix-baro');
+      assert.equal(action.guard.groupId, 'fenixA32x.baro');
+      assert.ok(action.routes[0].readbacks.every(r => r.freshness === 'field' && FENIX_A32X_INTEGRATION.fields[r.fieldId]));
+      continue;
+    }
+    if (actionId.startsWith('lighting.preset.')) {
+      assert.equal(action.routes[0].transport, 'simconnect-sequence');
+      assert.equal(action.routes[0].readbacks.length, action.routes[0].operations.length);
+      continue;
+    }
+    if (fenixApproachIds.has(actionId)) {
+      const route = action.routes[0];
+      assert.equal(action.routes.length, 1);
+      assert.equal(action.guard.cooldownMs, 750);
+      for (const readback of route.readbacks || [route.readback]) {
+        assert.equal(readback.freshness, 'field');
+        assert.ok(FENIX_A32X_INTEGRATION.fields[readback.fieldId]);
+      }
+      if (actionId.startsWith('controls.autobrake.')) {
+        assert.equal(route.mode, 'pulse'); assert.equal(route.pulses.length, 3);
+        assert.equal(route.readbacks.length, 4);
+        assert.deepEqual(route.precondition, { fieldId: 'baro.healthy', expectedValue: true, freshness: 'field' });
+        assert.ok(route.readbacks.some(readback => readback.fieldId === 'baro.healthy' && readback.expectedValue === true));
+      }
+      continue;
+    }
+    if (fenixAtcEfisActionIds.has(actionId)) {
+      assert.equal(action.routes.length, 1);
+      const route = action.routes[0];
+      assert.ok(['simconnect-sequence', 'mobiflight-calculator'].includes(route.transport));
+      if (actionId === 'surveillance.ident.activate') {
+        assert.equal(route.confirmation, 'transport-acknowledged');
+        assert.equal(route.precondition.freshness, 'field');
+      } else {
+        assert.equal(route.readback.freshness, 'field');
+        assert.ok(FENIX_A32X_INTEGRATION.fields[route.readback.fieldId]);
+      }
+      continue;
+    }
     assert.equal(action.guard.cooldownMs, 750, `${actionId} must use the family cooldown`);
     assert.match(action.guard.groupId, /^fenixA32x\./, `${actionId} must use a family-owned guard group`);
     for (const route of action.routes) {
@@ -1224,9 +1313,9 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     assert.deepEqual(mobiflightRoute.readback, directLvarRoute.readback);
   }
   assert.equal(fenixLegacyActionCount, 251);
-  assert.equal(fenixFcuActionIds.size, 22);
+  assert.equal(fenixFcuActionIds.size, 26);
   assert.equal(fenixThrottleActionTargets.size, 4);
-  assert.equal(fenixConfirmationFields.size, 119);
+  assert.equal(fenixConfirmationFields.size, 120);
   for (const [fieldId, lvar] of [
     ['propulsion.throttleLever1Position', 'A_FC_THROTTLE_LEFT_INPUT'],
     ['propulsion.throttleLever2Position', 'A_FC_THROTTLE_RIGHT_INPUT'],
@@ -1337,8 +1426,8 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
   }
 
   for (const [actionId, fieldId, lvar, min, max, step, circular, precondition] of [
-    ['flightGuidance.speed.set', 'flightGuidance.speedValue', 'E_FCU_SPEED', 100, 399, 1, false, undefined],
-    ['flightGuidance.heading.set', 'flightGuidance.headingDeg', 'E_FCU_HEADING', 0, 359, 1, true, undefined],
+    ['flightGuidance.speed.set', 'flightGuidance.speedValue', 'E_FCU_SPEED', 100, 399, 1, false, { fieldId: 'flightGuidance.machMode', expectedValue: false }],
+    ['flightGuidance.heading.set', 'flightGuidance.headingDeg', 'E_FCU_HEADING', 0, 359, 1, true, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false }],
     ['flightGuidance.altitudeHundred.set', 'flightGuidance.altitudeFt', 'E_FCU_ALTITUDE', 0, 49000, 100, false, {
       fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'hundred',
     }],
@@ -1359,7 +1448,7 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
   }
   assert.equal(FENIX_A32X_INTEGRATION.actions['flightGuidance.vertical.set'], undefined);
   assert.equal(FENIX_A32X_INTEGRATION.actions['flightGuidance.verticalManaged.on'], undefined);
-  assert.equal(fenixConfirmationFields.has('flightGuidance.verticalValue'), false);
+  assert.equal(fenixConfirmationFields.has('flightGuidance.verticalValue'), true);
 
   const noseTaxi = defaultAircraftIntegrationRegistry.resolveAction({
     adapterId: FENIX_A32X_ADAPTER_ID,
@@ -1725,7 +1814,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   }];
   assert.throws(
     () => createAircraftIntegrationRegistry([unsafeSequence]),
-    /invalid SimConnect sequence route/,
+    /invalid SimConnect sequence route|invalid acknowledgement contract/,
   );
 
   const parameterizedSequence = structuredClone(validBase);
@@ -1742,6 +1831,11 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     'fixed secondary SimConnect parameters are part of the trusted route',
   );
 
+  for (const requiredSdkAdapter of ['', 'bad;adapter', 42, null]) {
+    const invalid = structuredClone(parameterizedSequence);
+    invalid.actions['test.set'].routes[0].requiredSdkAdapter = requiredSdkAdapter;
+    assert.throws(() => createAircraftIntegrationRegistry([invalid]), /invalid SimConnect sequence route/);
+  }
   const sdkNamedSequence = structuredClone(parameterizedSequence);
   sdkNamedSequence.id = 'sdk-named-sequence';
   sdkNamedSequence.trustedProfileKeys = ['bundled/msfs/sdk-named-sequence'];
@@ -1761,7 +1855,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     invalid.actions['test.set'].routes[0].operations[0].name = name;
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }
@@ -1830,7 +1924,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     mutate(invalid.actions['test.set'].routes[0].precondition);
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }
@@ -1845,7 +1939,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     mutate(invalid.actions['test.set'].routes[0].operations[0]);
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }
@@ -1860,7 +1954,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     mutate(invalid.actions['test.set'].routes[0].operations[0].inputValue);
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }
@@ -1902,7 +1996,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     mutate(invalid.actions['test.set'].routes[0]);
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }
@@ -1918,7 +2012,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     invalid.actions['test.set'].routes[0].operations[0].parameters = parameters;
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }
@@ -1934,7 +2028,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   }];
   assert.throws(
     () => createAircraftIntegrationRegistry([overlongSequenceDelay]),
-    /invalid SimConnect sequence route/,
+    /invalid SimConnect sequence route|invalid acknowledgement contract/,
   );
 
   const unsafeSequenceSimvar = structuredClone(validBase);
@@ -1948,7 +2042,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
   }];
   assert.throws(
     () => createAircraftIntegrationRegistry([unsafeSequenceSimvar]),
-    /invalid SimConnect sequence route/,
+    /invalid SimConnect sequence route|invalid acknowledgement contract/,
   );
 
   const acknowledgedSequence = structuredClone(validBase);
@@ -1977,7 +2071,7 @@ test('registry rejects malformed future adapter sources, guards, and readbacks',
     mutate(invalid.actions['test.set'].routes[0]);
     assert.throws(
       () => createAircraftIntegrationRegistry([invalid]),
-      /invalid SimConnect sequence route/,
+      /invalid SimConnect sequence route|invalid acknowledgement contract/,
       id,
     );
   }

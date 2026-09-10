@@ -334,7 +334,7 @@ test('executeAircraftControl WebSocket message resolves an aircraft-specific act
         return {
           simulator: 'msfs',
           actionTypes: ['aircraft-integration'],
-          integrationTransports: ['lvar'],
+          integrationTransports: ['simconnect-sequence'],
         };
       },
       async executeAircraftControlAction(action, context) {

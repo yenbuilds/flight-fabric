@@ -4,19 +4,10 @@ import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
   getStabilityMetricShortCriterion,
+  stabilityFailureLabel,
 } from '../landing/stability-context.js';
 
-const STABILITY_FAILURE_LABELS = {
-  glidepath_proxy_unstable_after_gate: 'vertical path-rate unstable after the gate',
-  glidepath_too_low_after_gate: 'descent rate steeper than target after the gate',
-};
 const RETIRED_STABILITY_FAILURES = new Set(['spoilers_moved_after_gate']);
-
-function stabilityFailureLabel(value) {
-  const key = String(value || '').trim();
-  return STABILITY_FAILURE_LABELS[key]
-    || key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
 
 function pushMetricRow(rows, key, label, value, valueClass = '') {
   if (value === null || value === undefined || value === '') return;
@@ -315,7 +306,7 @@ export function buildLandingDetailSections(event) {
         pushMetricRow(
           stabilityRows,
           'gate-failures',
-          'Strict Check Findings',
+          stability.scoringContext?.assessment?.version === 4 ? 'Approach Findings' : 'Strict Check Findings',
           visibleGateFailures.map(stabilityFailureLabel).join(', '),
         );
       }
@@ -335,6 +326,8 @@ export function buildLandingDetailSections(event) {
         ['speed_trend_ok', 'Speed Trend'],
         ['vs_ok', 'V/S'],
         ['glidepath_ok', 'Path Rate'],
+        ['glideslope_ok', 'Glideslope'],
+        ['localizer_ok', 'Localizer'],
         ['glidepath_below_ok', 'Path Rate (Steep)'],
         ['glidepath_above_ok', 'Path Rate (Shallow)'],
         ['thrust_ok', 'Throttle Movement'],
@@ -363,7 +356,7 @@ export function buildLandingDetailSections(event) {
       rows: stabilityRows,
       noteText: [
         contextSummary.detail,
-        `Stable requires every applicable strict check to meet its recorded ${presentation.stabilityPassPct}% threshold after the ${presentation.stabilityGateLabel} gate. Marginal means only soft/proxy checks missed that strict threshold.`,
+        presentation.approachExplanation,
       ].filter(Boolean).join(' '),
       emptyText: '',
     });
@@ -401,7 +394,7 @@ export function buildLandingApproachProfileHtml(event, approachProfileApi) {
   return approachProfileApi.buildSvg(event.approachProfile, landingForSvg, { idSuffix: '-tl' });
 }
 
-export function buildLandingTopdownProfileHtml(event, approachProfileApi) {
+function buildLandingTopdownProfileHtml(event, approachProfileApi) {
   if (!approachProfileApi || typeof approachProfileApi.buildTopDownSvg !== 'function' || !Array.isArray(event?.approachProfile) || event.approachProfile.length < approachProfileApi.MIN_PROFILE_POINTS) {
     return '';
   }

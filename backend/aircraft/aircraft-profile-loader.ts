@@ -1663,7 +1663,15 @@ function getLvarConfig(): {
   if (aircraftIntegration?.actions && typeof aircraftIntegration.actions === 'object') {
     for (const action of Object.values(aircraftIntegration.actions)) {
       if (!action || typeof action !== 'object' || !Array.isArray((action as GenericRecord).routes)) continue;
+      for (const condition of (action as GenericRecord).guard?.skipWhen || []) {
+        confirmationFieldIds.add(condition.fieldId);
+      }
       for (const route of (action as GenericRecord).routes) {
+        if (route.comRadio) {
+          for (const property of ['installed', 'status', 'spacingMode', 'activeMhz', 'standbyMhz']) {
+            confirmationFieldIds.add(`radios.com${route.comRadio.index}.${property}`);
+          }
+        }
         const readbacks = Array.isArray(route?.readbacks)
           ? route.readbacks
           : (route?.readback ? [route.readback] : []);

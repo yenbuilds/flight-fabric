@@ -120,7 +120,8 @@ certification model.
 Current policy:
 
 - Generic aircraft and aircraft outside category A use the common
-  `transport-v3` criteria.
+  `transport-v4` criteria. See [the current assessment policy](../../../docs/APPROACH-ASSESSMENT-V4.md)
+  for height windows, elapsed-time grading, grouped weights and alert severity.
 - Category A aircraft use the lighter `ga-profile-v3` path, where mapped
   `aircraft.stability` values can override matching common fields.
 - Profiles continue to define telemetry decoding, signal reliability, and the

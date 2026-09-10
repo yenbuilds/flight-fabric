@@ -64,7 +64,8 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Only standard gear/flaps surface fallback is allowed. Engine master, propeller, spoiler-arm, FMGES, and other A400M-specific writes remain unavailable until verified."
+      "_comment": "Only standard gear/flaps surface fallback is allowed. Engine master, propeller, spoiler-arm, FMGES, and other A400M-specific writes remain unavailable until verified.",
+      "standardLightFallback": false
     },
     "presentation": {
       "visualSupport": "basic",

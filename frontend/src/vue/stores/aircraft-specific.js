@@ -94,6 +94,8 @@ export const useAircraftSpecificStore = defineStore('aircraftSpecific', {
     sourceStatus: 'awaiting-values',
     sourceStatuses: {},
     values: {},
+    valueUpdatedAt: {},
+    receivedAt: null,
     unavailable: [],
     actionCapabilities: {},
     dependencies: {},
@@ -132,6 +134,8 @@ export const useAircraftSpecificStore = defineStore('aircraftSpecific', {
       this.sourceStatus = sourceStatus;
       this.sourceStatuses = {};
       this.values = {};
+      this.valueUpdatedAt = {};
+      this.receivedAt = null;
       this.unavailable = [];
       this.actionCapabilities = {};
       if (sourceStatus === 'disconnected' && this.dependencies.mobiflightEventModule) {
@@ -218,6 +222,9 @@ export const useAircraftSpecificStore = defineStore('aircraftSpecific', {
         this.applyDependencies(message.dependencies);
       }
       this.updatedAt = typeof message.updatedAt === 'string' ? message.updatedAt : null;
+      this.valueUpdatedAt = Object.fromEntries(Object.entries(message.valueUpdatedAt || {})
+        .filter(([id, timestamp]) => isSafeActionId(id) && typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))));
+      this.receivedAt = Date.now();
       return true;
     },
 

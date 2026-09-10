@@ -1,4 +1,6 @@
 'use strict';
+import { cockpitLightingIntegration } from '../cockpit-lighting.js';
+import { indexedExteriorLights } from '../indexed-exterior-lights.js';
 
 import type { AircraftIntegrationDefinition } from '../types.js';
 
@@ -27,8 +29,8 @@ const FBW_A380X_INTEGRATION = defineAircraftIntegration({
   presentation: {
     templateId: 'fbw-a380x',
   },
-  fields: FBW_A380X_FIELDS,
-  actions: FBW_A380X_ACTIONS,
+  fields: { ...FBW_A380X_FIELDS, ...cockpitLightingIntegration('fbw-a380x').fields, ...indexedExteriorLights('fbw-a380x').fields },
+  actions: { ...FBW_A380X_ACTIONS, ...cockpitLightingIntegration('fbw-a380x').actions, ...indexedExteriorLights('fbw-a380x').actions },
 });
 
 module.exports = {

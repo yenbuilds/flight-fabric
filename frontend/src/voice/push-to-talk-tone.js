@@ -5,7 +5,7 @@ const TONES = Object.freeze({
   release: Object.freeze({ durationSeconds: 0.095, frequencyHz: 880 }),
 });
 
-const PEAK_GAIN = 0.16;
+const PEAK_GAIN = 0.4;
 
 function audioContextConstructor(globalRef) {
   return globalRef?.AudioContext || globalRef?.webkitAudioContext || null;

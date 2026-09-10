@@ -68,7 +68,7 @@ test('push-to-talk tones use distinct short local cues', async () => {
   assert.deepEqual(
     contexts[0].events.filter(([kind, value]) => kind === 'gain-ramp' && value > 0.001)
       .map(([, value]) => value),
-    [0.16, 0.16],
+    [0.4, 0.4],
   );
 
   await tone.dispose();

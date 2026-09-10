@@ -7,7 +7,7 @@ function toFiniteNumber(value) {
   return Number.isFinite(numericValue) ? numericValue : null;
 }
 
-export function formatLvarValue(value) {
+function formatLvarValue(value) {
   if (value == null) return '--';
   if (typeof value === 'number') return String(Math.round(value * 1000) / 1000);
   if (typeof value === 'boolean') return value ? '1' : '0';

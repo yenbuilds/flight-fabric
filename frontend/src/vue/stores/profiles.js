@@ -33,9 +33,6 @@ export const useProfilesStore = defineStore('profiles', () => {
   )));
   const aircraftProfileOverride = computed(() => normalizeProfileOverride(appSettings.settings?.aircraft?.profile || 'auto'));
   const aircraftProfileOverrideActive = computed(() => aircraftProfileOverride.value !== 'auto');
-  const aircraftProfileOverrideLabel = computed(() => (
-    aircraftProfileOverrideActive.value ? aircraftProfileOverride.value : 'auto-detect'
-  ));
   const profileSelectionAvailable = computed(() => authorizationScope.value === 'full-control');
 
   function bindRuntime({ sendMessage = null, showToast = null } = {}) {
@@ -153,7 +150,6 @@ export const useProfilesStore = defineStore('profiles', () => {
   return {
     aircraftProfileOverride,
     aircraftProfileOverrideActive,
-    aircraftProfileOverrideLabel,
     aircraftControlPairingStatus,
     authorizationScope,
     bindRuntime,

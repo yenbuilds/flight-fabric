@@ -11,7 +11,39 @@ export const HIDDEN_STABILITY_METRICS = new Set([
   'thrust_stable_ok',
 ]);
 
+const STABILITY_FAILURE_LABELS = {
+  insufficient_data: 'insufficient stability data',
+  no_gate_sample: 'no sample at the stability gate',
+  gear_not_down_at_gate: 'gear not down at the gate',
+  gear_changed_after_gate: 'gear changed after the gate',
+  flaps_not_set_at_gate: 'flaps not set at the gate',
+  flaps_changed_after_gate: 'flaps changed after the gate',
+  speed_proxy_unstable_after_gate: 'speed unstable after the gate',
+  speed_trend_unstable_after_gate: 'speed trend unstable after the gate',
+  vs_unstable_after_gate: 'vertical speed unstable after the gate',
+  glidepath_proxy_unstable_after_gate: 'path rate unstable after the gate',
+  glidepath_too_low_after_gate: 'descent rate steeper than target after the gate',
+  thrust_unstable_after_gate: 'throttle movement unstable after the gate',
+  pitch_unstable_after_gate: 'pitch unstable after the gate',
+  bank_unstable_after_gate: 'bank unstable after the gate',
+  lateral_offset_unstable_at_touchdown: 'lateral offset unstable at touchdown',
+  incomplete_gate_coverage: 'recording started too far below the approach gate',
+  path_rate_steep_after_gate: 'descent rate steeper than target after the gate',
+  path_rate_shallow_after_gate: 'descent rate shallower than target after the gate',
+  glideslope_unstable_after_gate: 'glideslope deviation after the gate',
+  localizer_unstable_after_gate: 'localizer deviation after the gate',
+  approach_warning: 'severe or sustained approach violation',
+  approach_caution: 'approach caution recorded',
+};
+
+export function stabilityFailureLabel(value) {
+  const key = String(value || '').trim();
+  return STABILITY_FAILURE_LABELS[key]
+    || key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
 function finite(value) {
+  if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -36,7 +68,7 @@ function profileIdFromFallback(value) {
   return segments[segments.length - 1] || text;
 }
 
-export function normalizeStabilityScoringContext(value, fallbackProfileId = null) {
+function normalizeStabilityScoringContext(value, fallbackProfileId = null) {
   const raw = value && typeof value === 'object' ? value : null;
   const profile = raw?.profile && typeof raw.profile === 'object' ? raw.profile : null;
   const criteria = raw?.criteria && typeof raw.criteria === 'object' ? raw.criteria : null;
@@ -55,6 +87,8 @@ export function normalizeStabilityScoringContext(value, fallbackProfileId = null
     reference,
     policy,
     coverage,
+    assessment: raw?.assessment?.version === 4 && raw.assessment.rules && typeof raw.assessment.rules === 'object'
+      ? raw.assessment : null,
     profile: { id, name, reliability },
   };
 }
@@ -82,14 +116,21 @@ export function getStabilityContextSummary(value, fallbackProfileId = null) {
   const scoredMetrics = finite(context.coverage?.scoredMetrics);
   const totalMetrics = finite(context.coverage?.totalMetrics);
   const coverageDetail = scoredMetrics != null && totalMetrics != null
-    ? ` ${scoredMetrics} of ${totalMetrics} available checks contributed; unavailable signals were excluded.`
+    ? ` ${scoredMetrics} of ${totalMetrics} ${context.assessment ? 'scoring groups' : 'available checks'} contributed; unavailable signals were excluded.`
+    : '';
+  const groupNames = { configuration: 'Configuration', speed: 'Speed', vertical: 'Vertical profile', attitude: 'Attitude', thrust: 'Throttle movement', alignment: 'Alignment' };
+  const contributions = Object.entries(context.assessment?.groups || {})
+    .filter(([, group]) => typeof group.pointsLost === 'number' && group.pointsLost > 0)
+    .map(([key, group]) => `${groupNames[key] || key} −${group.pointsLost.toFixed(1)}`);
+  const assessmentDetail = context.assessment
+    ? ` Quality reflects deviation size and elapsed time, with extra weight below ${context.assessment.rules.lowHeightFt} ft. Related checks share a contribution.${contributions.length ? ` Points lost: ${contributions.join('; ')}.` : ''} Cautions affect the approach verdict; severe violations prevent a stable verdict.`
     : '';
   return {
     label: `${name || id} - ${reliabilityLabel}${policyLabel ? ` · ${policyLabel}` : ''}`,
     detail: context.available
       ? (reconstructed
-          ? `Criteria were reconstructed with the current policy because this older flight did not record a snapshot.${coverageDetail}`
-          : `Explanations below use the exact game rules recorded with this approach score.${coverageDetail}`)
+          ? `Criteria were reconstructed with the current policy because this older flight did not record a snapshot.${coverageDetail}${assessmentDetail}`
+          : `Explanations below use the exact game rules recorded with this approach score.${coverageDetail}${assessmentDetail}`)
       : 'Exact criteria were not saved with this older result; the profile name is shown for context only.',
     isGeneric: id === 'generic' || reliability === 'generic',
     isLegacy: !context.available || reconstructed,
@@ -179,6 +220,29 @@ export function getStabilityMetricPresentation(key, value, fallback = {}) {
   };
 
   const presentation = presentations[key];
+  if (context.assessment?.version === 4) {
+    const rules = context.assessment.rules;
+    const graded = {
+      speed_ok: [`IAS is compared with recorded gate IAS, which is an estimate rather than a verified VAPP.`, `Ideal IAS ${speedBand}; deductions increase gradually outside this band, reaching full severity a further ${rules.speedWarningMarginKts} kt outside it.`],
+      speed_trend_ok: ['Speed changes are assessed over one second and share the speed contribution with IAS deviation.', `Ideal trend ≤${speedTrend} kt/s; greater changes have a gradual effect.`],
+      vs_ok: ['Sink rate and path guidance share one vertical contribution; overlapping deviations use the greater penalty.', `Ideal V/S ${signed(vsMin)} to ${signed(vsMax)} fpm, adjusted for supported steep approaches. Full severity a further ${rules.sinkWarningMarginFpm} fpm outside the band.`],
+      glidepath_ok: ['Groundspeed and smoothed vertical speed estimate the path rate. A valid glideslope signal takes precedence in the vertical contribution.', `Ideal rate within ${pathDelta} fpm of the ${pathAngle}° target; caution beyond ${pathDelta + rules.pathCautionMarginFpm} fpm. Quality decreases gradually beyond the ideal band.`],
+      glidepath_below_ok: ['Directional path-rate detail; no separate scoring contribution and no claim about position below a glideslope.', `Ideal rate no more than ${pathDelta} fpm steeper than the target; deviations are graded gradually.`],
+      glidepath_above_ok: ['Directional path-rate detail; no separate scoring contribution and no claim about position above a glideslope.', `Ideal rate no more than ${pathDelta} fpm shallower than the target; deviations are graded gradually.`],
+      thrust_ok: ['Throttle/engine-percent movement is measured over one second. This is not an idle-thrust check.', `Ideal movement ≤${thrustTrend} percentage points/s; greater movement has a gradual effect.`],
+      pitch_ok: ['Pitch and bank share the attitude contribution; overlapping deviations use the greater penalty.', `Ideal pitch ${signed(pitchMin)}° to ${signed(pitchMax)}°; full severity a further ${rules.pitchWarningMarginDeg}° outside the band.`],
+      bank_ok: ['Pitch and bank share the attitude contribution; overlapping deviations use the greater penalty.', `Ideal bank within ${bankMax}°; full severity a further ${rules.bankWarningMarginDeg}° outside the band.`],
+      glideslope_ok: ['Scored only with a valid glideslope receiver signal. Replaces the path-rate estimate in the vertical contribution.', `Ideal within ${rules.navigationCautionDots} dot; full severity at ${rules.navigationWarningDots} dots.`],
+      localizer_ok: ['Scored only with a valid localizer signal. Shares alignment with trusted touchdown lateral offset; the lower quality applies.', `Ideal within ${rules.navigationCautionDots} dot; full severity at ${rules.navigationWarningDots} dots.`],
+    }[key];
+    if (graded) {
+      const continuesToTouchdown = ['vs_ok', 'pitch_ok', 'bank_ok'].includes(key);
+      const heightSource = context.reference?.altitudeSource === 'radio' ? 'radio height (AAL unavailable)' : 'AAL';
+      const window = `From ${gate} ft ${heightSource} to ${continuesToTouchdown ? 'touchdown' : `${rules.flareHeightFt} ft`}.`;
+      return { ...fallback, descriptionText: `${graded[0]} Quality is weighted by elapsed time, ×${rules.lowHeightWeight} below ${rules.lowHeightFt} ft. ${window}`,
+        criteriaText: graded[1], tooltip: graded[1] };
+    }
+  }
   if (!presentation) return fallback;
   return {
     ...fallback,

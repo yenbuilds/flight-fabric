@@ -1251,32 +1251,9 @@
     function updateStabilityBreakdownMini(ultimateStability) {
       const el = $('stability-breakdown-mini');
       if (!el) return;
-
-      const breakdown = ultimateStability?.breakdown;
-      if (!breakdown) {
-        el.textContent = '--';
-        el.title = '';
-        return;
-      }
-
-      const formatPct = (value) => value == null ? '--' : `${Math.round(value)}%`;
-      const speedProxy = breakdown.speed_ok;
-      const speedTrend = breakdown.speed_trend_ok;
-      const vs = breakdown.vs_ok;
-      const glidepath = breakdown.glidepath_ok;
-      const thrust = breakdown.thrust_not_idle_ok;
-      const thrustStable = breakdown.thrust_stable_ok;
-
-      el.textContent = [
-        `SPD ${formatPct(speedProxy)}`,
-        `STR ${formatPct(speedTrend)}`,
-        `VS ${formatPct(vs)}`,
-        `GP ${formatPct(glidepath)}`,
-        `THR ${formatPct(thrust)}`,
-        `THR MOV ${formatPct(thrustStable)}`
-      ].join(' · ');
-
-      el.title = `Speed ${formatPct(speedProxy)}, Speed Trend ${formatPct(speedTrend)}, V/S ${formatPct(vs)}, Glidepath ${formatPct(glidepath)}, Thrust ${formatPct(thrust)}, Throttle Movement ${formatPct(thrustStable)}`;
+      const presentation = TelemetryUI.utils.stabilityBreakdownPresentation(ultimateStability);
+      el.textContent = presentation.text;
+      el.title = presentation.title;
     }
     
     // ===== Tab Navigation =====

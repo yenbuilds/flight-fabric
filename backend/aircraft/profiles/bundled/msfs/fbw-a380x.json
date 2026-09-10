@@ -139,7 +139,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "The exact-profile trusted adapter exposes a compact set of 38 guarded actions: four calibrated forward-throttle detents, three bounded FCU targets, a direct AP1 toggle plus guarded A/THR/LOC/APPR intents, seven exterior-light output targets, gear, relative flaps, parking brake, spoiler arm, and a bounded spoiler handle target. Every action requires fresh logical readback, at most one dispatch, no retry, and a newer matching or changed readback. Each throttle action coordinates all four saved calibration-window midpoints and confirms all four TLA readbacks. AP2 remains read-only. V/S-FPA writes, managed/selected push-pull, light AUTO/detents, engines/APU, presets, reverse thrust, arbitrary axes, and deep systems remain excluded."
+      "_comment": "The exact-profile trusted adapter exposes 46 guarded actions, including six FCU numeric targets, four calibrated forward-throttle detents, exterior lights, gear, flaps, spoilers, parking brake, APU and three side-targeted STD commands. Each STD command selects the real A380 STD mode and confirms each selected active EFIS panel independently. QNH entry, managed/selected push-pull, reverse thrust, arbitrary axes and deep systems remain excluded."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -199,8 +199,8 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A380X Flight Deck API",
         "url": "https://docs.flybywiresim.com/aircraft/a380x/a380x-api/a380x-flight-deck-api/",
-        "retrievedAt": "2026-08-15",
-        "notes": "Documents the active A380X readback contract: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED, A32NX_AUTOPILOT_HEADING_SELECTED, A32NX_AUTOPILOT_VS_SELECTED, A32NX_FCU_LOC_MODE_ACTIVE, A32NX_FCU_APPR_MODE_ACTIVE, and A:AUTOPILOT ALTITUDE LOCK VAR:3. It also documents A32NX.FCU_AP_1_PUSH, THROTTLE1_AXIS_SET_EX1, THROTTLE2_AXIS_SET_EX1, THROTTLE3_AXIS_SET_EX1, and THROTTLE4_AXIS_SET_EX1 with the accepted axis range. Exact throttle mapping and TLA LVAR names are instead grounded in the official source entries below. Generic standard-event provenance is supplied by the Microsoft SDK sources below."
+        "retrievedAt": "2026-09-10",
+        "notes": "Documents the active A380X readback contract: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED, A32NX_AUTOPILOT_HEADING_SELECTED, A32NX_AUTOPILOT_VS_SELECTED, A32NX_FCU_LOC_MODE_ACTIVE, A32NX_FCU_APPR_MODE_ACTIVE, and A:AUTOPILOT ALTITUDE LOCK VAR:3. It also documents A32NX.FCU_AP_1_PUSH, THROTTLE1_AXIS_SET_EX1, THROTTLE2_AXIS_SET_EX1, THROTTLE3_AXIS_SET_EX1, and THROTTLE4_AXIS_SET_EX1 with the accepted axis range. Exact throttle mapping and TLA LVAR names are instead grounded in the official source entries below. Generic standard-event provenance is supplied by the Microsoft SDK sources below. APU START review 2026-09-06: the A380X Flight Deck API defines A32NX_OVHD_APU_MASTER_SW_PB_IS_ON and A32NX_OVHD_APU_START_PB_IS_ON as writable 0/1 controls, A32NX_OVHD_APU_START_PB_IS_AVAILABLE as availability, and A32NX_OVHD_APU_MASTER_SW_PB_HAS_FAULT as fault. The preset confirms master ON then acknowledges START dispatch; ON is distinct from AVAIL. Existing generic catalogue bindings and exact-profile restrictions are preserved. Installed Stable 2024.1.0-161051add8a6959e3325289dbebe097c0793056f aircraft_preset_procedures.xml also confirms these assignments and specifies 3000 ms after master ON. The preset retains that bounded settling interval for a newly enabled master; it skips the write and delay when master is already confirmed ON. FCU review 2026-09-10: current Flight Deck API documents A32NX_FCU_AFS_DISPLAY_SPD_MACH_VALUE, A32NX_FCU_AFS_DISPLAY_HDG_TRK_VALUE, A32NX_FCU_AFS_DISPLAY_ALT_VALUE, A32NX_FCU_AFS_DISPLAY_VS_FPA_VALUE, A32NX_FCU_AFS_DISPLAY_MACH_MODE and A32NX_FCU_AFS_DISPLAY_TRK_FPA_MODE. A32NX.FCU_SPD_SET, A32NX.FCU_HDG_SET, A32NX.FCU_ALT_SET and A32NX.FCU_VS_SET replace generic numeric setters. Mach uses hundredths and FPA tenths; independent mode readbacks guard the selected units. The shared catalogue includes all five main targets plus FPA. See docs/AUTOPILOT-TARGET-VALIDATION.md; live aircraft validation remains pending. STD review 2026-09-10: the A380X Flight Deck API documents A32NX_FCU_EFIS_L_CP_ACTIVE, A32NX_FCU_EFIS_R_CP_ACTIVE, A32NX_FCU_EFIS_L_DISPLAY_BARO_IS_STD and A32NX_FCU_EFIS_R_DISPLAY_BARO_IS_STD. Vendor FlyByWireInterface.cpp updateEfisSync explicitly sends A32NX.FCU_EFIS_L_BARO_PUSH and A32NX.FCU_EFIS_R_BARO_PUSH to select STD, with PULL for QNH. Three exact-profile STD commands require independent fresh active-panel and mode observations, skip an already-STD side and never infer STD from numeric pressure. This is the current published API; the older installed stable package is not evidence of these new outputs. Live version validation remains pending. See docs/BARO-CONTROLS.md. Cockpit lighting review 2026-09-10: LIGHT_POTENTIOMETER_SET uses fixed index then 0..100 brightness. Panel indices 84,87,85,86; flood/table 83,76,10,11; PFD/ND/weather/engine 88,89,94,90,91,95,92,93; MFD 98,99. Each knob is independently confirmed through LIGHT POTENTIOMETER:index Percent. Display presets exclude panel and flood controls. See docs/COCKPIT-LIGHTING-VALIDATION.md."
       },
       {
         "type": "official-docs",
@@ -318,6 +318,26 @@
         "url": "https://github.com/flybywiresim/aircraft/commit/884541d6e9efb2be4a7718d3dd4e1d06337c58b1",
         "retrievedAt": "2026-05-15",
         "notes": "VFE: Conf1=263, Conf1+F=222 (auto), Conf2=220, Conf3=196, Full=182 kt"
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator SDK - indexed cockpit light potentiometers",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-09-10",
+        "notes": "LIGHT_POTENTIOMETER_SET takes potentiometer index in parameter 0, brightness percentage in parameter 1. Aircraft-specific indices are grounded separately in vendor evidence. The caller supplies only a bounded whole percentage."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "Installed aircraft exterior lighting selectors and light indices",
+        "url": "https://github.com/flybywiresim/aircraft",
+        "retrievedAt": "2026-09-10",
+        "notes": "A380_COCKPIT.xml and systems.cfg: landing lamps share LIGHT LANDING:2. Both aircraft use LIGHT TAXI:1 for nose taxi lighting, LIGHT TAXI:2 and LIGHT TAXI:3 for runway turnoff lamps. Bounded LANDING_LIGHTS_SET and TAXI_LIGHTS_SET events use state first, fixed light index second, matching the shipped switch templates. All changed indexed outputs require independent newer readback. Existing takeoff preset actions are retained. See docs/EXTERIOR-LIGHTS-VALIDATION.md."
       }
     ],
     "verification": {
@@ -328,11 +348,12 @@
         "Gear limits are estimated pending a reviewable vendor or manufacturer source.",
         "Flap handle value mapping (0-4 lever indices) not confirmed in MSFS",
         "The profile relies on the FLAPS HANDLE INDEX path; its five detent positions still need in-sim verification.",
-        "All 38 write actions remain untested in the live aircraft. A documented standard simulator event can still be ignored or incompletely mirrored by a complex aircraft.",
+        "All 46 write actions remain untested in the live aircraft. A documented standard simulator event can still be ignored or incompletely mirrored by a complex aircraft.",
         "The four forward-throttle actions use every lever's saved FlyPad calibration-window midpoint through one MobiFlight calculator expression, then require newer exact A32NX_AUTOTHRUST_TLA:1 through :4 confirmation. Missing or malformed bounds prevent all four axis writes. Reverse thrust and arbitrary raw-axis targets remain excluded.",
         "A32NX.FCU_AP_1_PUSH is a direct AP1 toggle. OFF/ON intents require fresh A32NX_AUTOPILOT_1_ACTIVE readback before dispatch and a newer matching result afterward; AP2 remains read-only.",
         "Exterior-light readback confirms lamp output, not Airbus AUTO or selector-detent position. Only explicit OFF and ON output targets are exposed.",
-        "V/S-FPA writes, managed/selected push-pull, runway-turnoff writes, engines, APU, presets, guarded/emergency controls, and deep systems remain excluded."
+        "Managed/selected push-pull, runway-turnoff writes, engines, QNH entry, guarded/emergency controls and deep systems remain excluded.",
+        "Start APU UI and voice preset is source-backed and covered by automated transport tests; live start, electrical prerequisites, selector release and aircraft variant/build coverage remain untested. See docs/APU-START-VALIDATION.md."
       ]
     },
     "dataQuality": {

@@ -183,7 +183,8 @@ const INIBUILDS_A350_FIELDS: Readonly<Record<string, AircraftIntegrationField>> 
 
   'controls.flapsIndex': numberSimvar('controls.flapsIndex', 'FLAPS HANDLE INDEX', 'Number'),
   'controls.flapAngleDeg': numberSimvar('controls.flapAngleDeg', 'TRAILING EDGE FLAPS LEFT ANGLE', 'Degrees', 1),
-  'controls.speedbrakePercent': numberSimvar('controls.speedbrakePercent', 'SPOILERS HANDLE POSITION', 'Percent'),
+  'controls.speedbrakePercent': field('controls.speedbrakePercent',
+    { type: 'lvar', name: 'A:SPOILERS HANDLE POSITION', unit: 'Percent' }, { type: 'number', precision: 0 }),
   'controls.spoilersArmed': booleanSimvar('controls.spoilersArmed', 'SPOILERS ARMED'),
   'controls.gearHandleDown': booleanSimvar('controls.gearHandleDown', 'GEAR HANDLE POSITION'),
   'controls.gearNosePct': numberSimvar('controls.gearNosePct', 'GEAR CENTER POSITION', 'Percent'),

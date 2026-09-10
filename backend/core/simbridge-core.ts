@@ -2106,7 +2106,7 @@ async function runSimbridgeCore({
   // CSV-replay SimpleStabilityScorer so the landing popup can render immediately;
   // the CSV-replay path remains authoritative for historical/timeline views.
   const CURRENT_APPROACH_GATE_ALTITUDE_FT = 1000;
-  const CURRENT_APPROACH_COLLECTION_CEILING_FT = 1500;
+  const CURRENT_APPROACH_COLLECTION_CEILING_FT = 10000;
   let currentApproachScorer = null;
   // Captured together with the scorer. Post-touchdown profile/title changes
   // must never reconfigure the approach that the scorer already collected.
@@ -3409,6 +3409,10 @@ async function runSimbridgeCore({
       const display = frame.display && typeof frame.display === 'object' ? frame.display : {};
       const raFt = display.raFt ?? frame.ra ?? null;
       const vsFpm = display.vsFpm ?? null;
+      const pausedOrMenu = frame.paused === true || frame.inMenu === true;
+      if (pausedOrMenu && !landingRunner.isRolloutActive() && currentApproachScorer?.hasScored !== true) {
+        currentApproachScorer?.notePause(nowEpochMs);
+      }
       const sampleEligible = shouldCollectCurrentApproachSample({
         phase,
         raFt,
@@ -3416,7 +3420,8 @@ async function runSimbridgeCore({
         onGround: frame.wow,
         rolloutActive: landingRunner.isRolloutActive(),
         collectionCeilingFt: getCurrentApproachCollectionCeilingFt(),
-        warmup: telemetryWarmup,
+        approachActive: currentApproachScorer != null && currentApproachScorer.hasScored !== true,
+        warmup: telemetryWarmup || pausedOrMenu,
       });
       const eligible = sampleEligible;
       // A level/climbing frame may join an approach that is already being
@@ -3462,6 +3467,7 @@ async function runSimbridgeCore({
           const scoringThrottlePct = resolveApproachScoringThrottlePct(frame, fallbackEngineLevels);
           const augFrame = {
             ...frame,
+            timestampMs: nowEpochMs,
             dtMs: Number.isFinite(sampleDtMs) && sampleDtMs > 0 ? sampleDtMs : frame.dtMs,
             flaps: flapsForScoring || frame.flaps,
             pitchDeg: typeof pitchRad === 'number' ? rad2deg(pitchRad) : undefined,

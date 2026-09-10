@@ -1,68 +1,30 @@
 export const $ = (id) => document.getElementById(id);
 
-const APP_SERVICE_KEYS = [
-  'getWs',
-  'getWsUrl',
-  'getWsSend',
-  'getAuthorizationScope',
-  'sendWs',
-  'getBackendHttpBase',
-  'ui',
-  'getAppSettings',
-  'isValidCoord',
-  'handleMessage',
-  'showTimelineLanding',
-  'cabinAnnouncements',
-  'reconnect',
-];
-
-const appServices = Object.fromEntries(APP_SERVICE_KEYS.map((key) => [key, null]));
-const compatibilityShared = {};
-
-function getCompatibilityShared() {
-  return compatibilityShared;
-}
-
-function syncCompatibilityShared() {
-  const appShared = getCompatibilityShared();
-  for (const key of APP_SERVICE_KEYS) {
-    const value = appServices[key];
-    if (value != null) {
-      appShared[key] = value;
-    } else {
-      delete appShared[key];
-    }
-  }
-  return appShared;
-}
+const appServices = {};
 
 function resolveService(key) {
-  const directValue = appServices[key];
-  if (directValue != null) return directValue;
-  const appShared = getCompatibilityShared();
-  return appShared[key] ?? null;
+  return appServices[key] ?? null;
 }
 
 export function setAppService(key, value) {
-  appServices[key] = value ?? null;
-  syncCompatibilityShared();
+  if (value == null) {
+    delete appServices[key];
+  } else {
+    appServices[key] = value;
+  }
   return value;
 }
 
 export function setAppServices(services = {}) {
   if (!services || typeof services !== 'object') {
-    return syncCompatibilityShared();
+    return appServices;
   }
 
   for (const [key, value] of Object.entries(services)) {
-    appServices[key] = value ?? null;
+    setAppService(key, value);
   }
 
-  return syncCompatibilityShared();
-}
-
-export function getAppShared() {
-  return syncCompatibilityShared();
+  return appServices;
 }
 
 export function getWs() {
@@ -70,12 +32,7 @@ export function getWs() {
   return typeof getWsRef === 'function' ? getWsRef() : null;
 }
 
-export function getWsUrl() {
-  const getWsUrlRef = resolveService('getWsUrl');
-  return typeof getWsUrlRef === 'function' ? getWsUrlRef() : '';
-}
-
-export function getWsSend() {
+function getWsSend() {
   const getWsSendRef = resolveService('getWsSend');
   if (typeof getWsSendRef === 'function') {
     return getWsSendRef();
@@ -103,11 +60,6 @@ export function sendWs(message) {
   return true;
 }
 
-export function getBackendHttpBase() {
-  const getBackendHttpBaseRef = resolveService('getBackendHttpBase');
-  return typeof getBackendHttpBaseRef === 'function' ? getBackendHttpBaseRef() : '';
-}
-
 export function getAuthorizationScope() {
   const getAuthorizationScopeRef = resolveService('getAuthorizationScope');
   return typeof getAuthorizationScopeRef === 'function'
@@ -128,25 +80,6 @@ export function getAppSettings() {
 export function getCoordValidator() {
   const isValidCoord = resolveService('isValidCoord');
   return typeof isValidCoord === 'function' ? isValidCoord : null;
-}
-
-export function getHandleMessage() {
-  const handleMessage = resolveService('handleMessage');
-  return typeof handleMessage === 'function' ? handleMessage : null;
-}
-
-export function getTimelineLandingHandler() {
-  const handler = resolveService('showTimelineLanding');
-  return typeof handler === 'function' ? handler : null;
-}
-
-export function showTimelineLanding(event) {
-  const handler = getTimelineLandingHandler();
-  if (typeof handler !== 'function') {
-    return false;
-  }
-  handler(event);
-  return true;
 }
 
 export function getCabinAnnouncements() {

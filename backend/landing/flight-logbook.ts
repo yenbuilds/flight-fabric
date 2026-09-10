@@ -122,7 +122,7 @@ type LandingEntry = {
   runwayCondition: string | null;
   runwayConditionConfident: boolean | null;
   runwayConditionSource: string | null;
-  runwayExcursion: boolean;
+  runwayExcursion: boolean | null;
   rolloutAnalysis: GenericRecord | null;
   runwayDisplacedThresholdFt: number | null;
   runwayGeometrySource: string | null;
@@ -137,7 +137,7 @@ type LandingEntry = {
   runwayThresholdLat: number | null;
   runwayThresholdLon: number | null;
   runwayWidthFt: number | null;
-  shortLanding: boolean;
+  shortLanding: boolean | null;
   stabilityBreakdown: GenericRecord | null;
   stabilityContext: GenericRecord | null;
   stabilityScore: number | null;
@@ -1333,8 +1333,10 @@ function materializeFlightAnalysisLandings(
       stabilityBreakdown: parseBreakdownObject(stability.breakdown),
       stabilityContext: parseBreakdownObject(stability.scoringContext),
       gateStable: toBool(stability.gateStable),
-      runwayExcursion: toBool(event.runwayExcursion) ?? false,
-      shortLanding: toBool(touchdownDistance.shortLanding ?? event.shortLanding) ?? false,
+      runwayExcursion: toBool(event.runwayExcursion),
+      // Preserve unknown geometry just as Timeline does. Replacing null with
+      // false makes the two saved projections disagree and blocks rescore.
+      shortLanding: toBool(event.shortLanding ?? touchdownDistance.shortLanding),
       rolloutAnalysis: parseBreakdownObject(event.rolloutAnalysis),
       analysisRescore: {
         applied: true,

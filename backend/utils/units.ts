@@ -30,9 +30,6 @@ export const MS_TO_FPM = M_TO_FT * 60;
 /** Feet per minute to meters per second */
 export const FPM_TO_MS = 1 / MS_TO_FPM;
 
-/** Meters per second to knots (for GS decode) */
-export const MS_TO_KTS = 1.94384;
-
 // ---------------------------------------------------------------------------
 // Conversion Functions (for clarity and type safety)
 // ---------------------------------------------------------------------------
@@ -64,13 +61,3 @@ export function msToFpm(ms: number): number {
 export function fpmToMs(fpm: number): number {
   return Number.isFinite(fpm) ? fpm * FPM_TO_MS : 0;
 }
-
-// ---------------------------------------------------------------------------
-// Sanity Bounds (in source units for contract-check validation)
-// ---------------------------------------------------------------------------
-
-/** Maximum sane VS in m/s (~10,000 fpm extreme dive) */
-export const VS_MAX_MS = 50;
-
-/** Maximum sane RA in meters (~49,000 ft, above practical RA range) */
-export const RA_MAX_M = 15000;

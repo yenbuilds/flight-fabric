@@ -7,6 +7,9 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const identityFixture = path.join(__dirname, '../fixtures/runtime-owner-test-identity.js');
+process.env.FF_RUNTIME_LOCK_TEST_USERNAME = `ff-runtime-lock-test-${require('node:crypto').randomUUID()}`;
+require(identityFixture);
 const {
   acquireRuntimeOwnerLock,
   normalizeLockPort,
@@ -374,6 +377,7 @@ async function main() {
   while (httpPort === wsPort) httpPort = await findFreePort();
   const env = {
     ...process.env,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(identityFixture)}`].filter(Boolean).join(' '),
     APPDATA: path.join(tempRoot, 'AppData', 'Roaming'),
     LOCALAPPDATA: path.join(tempRoot, 'AppData', 'Local'),
     USERPROFILE: tempRoot,

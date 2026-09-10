@@ -929,35 +929,6 @@ QRCode.prototype = {
 		return pattern;
 	},
 	
-	createMovieClip : function(target_mc, instance_name, depth) {
-	
-		var qr_mc = target_mc.createEmptyMovieClip(instance_name, depth);
-		var cs = 1;
-	
-		this.make();
-
-		for (var row = 0; row < this.modules.length; row++) {
-			
-			var y = row * cs;
-			
-			for (var col = 0; col < this.modules[row].length; col++) {
-	
-				var x = col * cs;
-				var dark = this.modules[row][col];
-			
-				if (dark) {
-					qr_mc.beginFill(0, 100);
-					qr_mc.moveTo(x, y);
-					qr_mc.lineTo(x + cs, y);
-					qr_mc.lineTo(x + cs, y + cs);
-					qr_mc.lineTo(x, y + cs);
-					qr_mc.endFill();
-				}
-			}
-		}
-		
-		return qr_mc;
-	},
 
 	setupTimingPattern : function() {
 		
@@ -1238,8 +1209,6 @@ QRCode.createBytes = function(buffer, rsBlocks) {
 
 };
 
-
-export { QRCode, QRErrorCorrectLevel };
 
 export function createQrSvgData(text, options = {}) {
   const value = String(text || '');

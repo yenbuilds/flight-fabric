@@ -117,18 +117,6 @@ type HeadingData = {
   magvarDeg: number | null;
 };
 
-type RunwayContext = {
-  icao: string | null;
-  runway: string | null;
-  approachType: string | null;
-};
-
-type GeometryLookupContext = {
-  simulator?: string | null;
-  dataSource?: string | null;
-  offline?: boolean | null;
-} | null | undefined;
-
 type AircraftSpecificConfigLike = {
   templateId?: unknown;
 } | null | undefined;
@@ -142,23 +130,6 @@ type AircraftSpecificProfileLike = {
     } | null;
   } | null;
 } | null | undefined;
-
-type RunwayContextDetectorParams = {
-  approachPhases: Set<string>;
-  groundPhases: Set<string>;
-  landingPhase: string;
-  findRunwayByPosition: (
-    _lat: number,
-    _lon: number,
-    _radiusNm: number,
-    _headingDeg?: number | null,
-    _context?: GeometryLookupContext,
-  ) => UnknownRecord | null;
-  findNearbyAirport: (_lat: number, _lon: number, _radiusNm: number, _context?: GeometryLookupContext) => UnknownRecord | null;
-  lookupThresholdDeg?: number;
-  approachDistanceNm?: number;
-  airportLookupDistanceNm?: number;
-};
 
 type BuildVreEnrichedFrameParams = {
   frame: FrameLike;
@@ -290,89 +261,6 @@ const ATHR_RECORDING_FIELDS = Object.freeze([
   'athrArmed',
 ]);
 
-const EMPTY_RUNWAY_CONTEXT: RunwayContext = Object.freeze({
-  icao: null,
-  runway: null,
-  approachType: null,
-});
-
-function getGeometryLookupContextKey(context: GeometryLookupContext): string {
-  if (!context || typeof context !== 'object') return '';
-  const simulator = typeof context.simulator === 'string' ? context.simulator.trim().toLowerCase() : '';
-  const dataSource = typeof context.dataSource === 'string' ? context.dataSource.trim().toLowerCase() : '';
-  const offline = context.offline === true ? 'offline' : 'live';
-  return `${simulator}|${dataSource}|${offline}`;
-}
-
-export function createRunwayContextDetector({
-  approachPhases,
-  groundPhases,
-  landingPhase,
-  findRunwayByPosition,
-  findNearbyAirport,
-  lookupThresholdDeg = 0.005,
-  approachDistanceNm = 5,
-  airportLookupDistanceNm = 10,
-}: RunwayContextDetectorParams) {
-  let cachedRunwayInfo: RunwayContext | null = null;
-  let lastRunwayLookupLat: number | null = null;
-  let lastRunwayLookupLon: number | null = null;
-  let lastRunwayLookupContextKey: string | null = null;
-
-  return function detectAirportRunway(
-    lat: number | null,
-    lon: number | null,
-    hdgDeg: number | null,
-    phase: string,
-    context?: GeometryLookupContext,
-  ): RunwayContext {
-    if (!approachPhases.has(phase)) {
-      const cachedResult = cachedRunwayInfo || EMPTY_RUNWAY_CONTEXT;
-      if (groundPhases.has(phase) && phase !== landingPhase) {
-        cachedRunwayInfo = null;
-        lastRunwayLookupLat = null;
-        lastRunwayLookupLon = null;
-        lastRunwayLookupContextKey = null;
-      }
-      return cachedResult;
-    }
-
-    if (!isFiniteNumber(lat) || !isFiniteNumber(lon)) {
-      return EMPTY_RUNWAY_CONTEXT;
-    }
-
-    const contextKey = getGeometryLookupContextKey(context);
-    const needsLookup = !cachedRunwayInfo ||
-      cachedRunwayInfo.runway == null ||
-      lastRunwayLookupLat == null ||
-      lastRunwayLookupLon == null ||
-      lastRunwayLookupContextKey !== contextKey ||
-      Math.abs(lat - lastRunwayLookupLat) > lookupThresholdDeg ||
-      Math.abs(lon - lastRunwayLookupLon) > lookupThresholdDeg;
-
-    if (needsLookup) {
-      const runwayMatch = findRunwayByPosition(lat, lon, approachDistanceNm, hdgDeg, context);
-      if (runwayMatch) {
-        cachedRunwayInfo = {
-          icao: typeof runwayMatch.icao === 'string' ? runwayMatch.icao : null,
-          runway: typeof runwayMatch.runway === 'string' ? runwayMatch.runway : null,
-          approachType: null,
-        };
-      } else {
-        const airportMatch = findNearbyAirport(lat, lon, airportLookupDistanceNm, context);
-        cachedRunwayInfo = airportMatch
-          ? { icao: typeof airportMatch.icao === 'string' ? airportMatch.icao : null, runway: null, approachType: null }
-          : EMPTY_RUNWAY_CONTEXT;
-      }
-      lastRunwayLookupLat = lat;
-      lastRunwayLookupLon = lon;
-      lastRunwayLookupContextKey = contextKey;
-    }
-
-    return cachedRunwayInfo || EMPTY_RUNWAY_CONTEXT;
-  };
-}
-
 function buildRecordingFdmSnapshot(fdm: FdmLike | null | undefined, autopilotReliability: AutopilotReliability): FdmLike {
   const snapshot: FdmLike = (fdm && typeof fdm === 'object') ? { ...fdm } : {};
 
@@ -457,6 +345,7 @@ export function shouldCollectCurrentApproachSample({
   rolloutActive,
   collectionCeilingFt,
   warmup,
+  approachActive,
 }: {
   phase?: string | null;
   raFt?: number | null;
@@ -465,13 +354,14 @@ export function shouldCollectCurrentApproachSample({
   rolloutActive?: boolean | null;
   collectionCeilingFt?: number | null;
   warmup?: boolean | null;
+  approachActive?: boolean;
 }): boolean {
   if (warmup === true) return false;
   if (rolloutActive === true) return false;
   const ceilingFt = isFiniteNumber(collectionCeilingFt) && collectionCeilingFt > 0
     ? collectionCeilingFt
     : CURRENT_APPROACH_SCORING_CEILING_FT;
-  return CURRENT_APPROACH_SCORING_PHASES.has(String(phase))
+  return (approachActive === true || CURRENT_APPROACH_SCORING_PHASES.has(String(phase)))
     && isFiniteNumber(raFt)
     && raFt > 0
     && raFt <= ceilingFt

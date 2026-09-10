@@ -1068,26 +1068,6 @@ function createHistoryIndexStore(db: AnyRecord) {
     };
   }
 
-  function queryLandings(options: QueryLandingsOptions = {}): AnyRecord {
-    const limit = normalizeLimit(options.limit, 500, 1000);
-    const offset = normalizeOffset(options.offset);
-    const totalRow = db.prepare('SELECT COUNT(*) AS total FROM history_landings').get();
-    const rows = limit === 0
-      ? []
-      : db.prepare(`
-        SELECT *
-        FROM history_landings
-        ORDER BY timestamp_ms DESC
-        LIMIT ? OFFSET ?
-      `).all(limit, offset);
-    return {
-      landings: rows.map(readLandingRow),
-      totalMatching: Number(totalRow?.total) || 0,
-      limit,
-      offset,
-    };
-  }
-
   function queryLatestLandingForSource(sourceId: unknown): AnyRecord | null {
     const normalizedSourceId = nullableString(sourceId);
     if (!normalizedSourceId) return null;
@@ -1319,7 +1299,6 @@ function createHistoryIndexStore(db: AnyRecord) {
     pruneMissingSources,
     queryFlights,
     queryLatestLandingForSource,
-    queryLandings,
     queryLogbookEntries,
     queryLogbookSnapshot,
     queryLogbookStats,

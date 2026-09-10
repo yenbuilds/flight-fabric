@@ -1,5 +1,7 @@
 'use strict';
 
+import { fbwApuMasterOn, lvarApuStartRequest } from '../apu-start.js';
+
 import type {
   AircraftIntegrationAction,
   AircraftIntegrationActionPrecondition,
@@ -29,6 +31,9 @@ function readback(
     fieldId,
     expectedValue,
     timeoutMs,
+    ...(['controls.flapsHandle', 'systems.autobrakeMode', 'controls.spoilersHandle',
+      'navigation.ndCaptainRange', 'navigation.ndFirstOfficerRange'].includes(fieldId)
+      ? { freshness: 'field' as const } : {}),
   };
 }
 
@@ -684,6 +689,11 @@ for (const [prefix, fieldId, lvar] of [
     prefix,
     trueSuffix: 'inhg',
   });
+  // Unit selectors and all pressure/STD commands operate the same EFIS controls.
+  for (const suffix of ['hpa', 'inhg']) {
+    const action = actions[`${prefix}.${suffix}`];
+    actions[action.id] = { ...action, guard: { ...action.guard, groupId: 'fbwA32nx.baro' } };
+  }
 }
 
 for (const [prefix, fieldId, lvar] of [
@@ -973,6 +983,33 @@ for (const [suffix, eventValue, expectedValue] of [
     expectedValue,
     fieldId: 'controls.spoilersHandle',
     groupId: 'controls.spoilers',
+  });
+}
+
+// Flight Deck API START is a request; its ON light is not APU availability.
+actions['systems.apuMaster.on'] = fbwApuMasterOn('fbwA32nx');
+actions['systems.apuStart.start'] = lvarApuStartRequest({
+  prefix: 'fbwA32nx',
+  lvar: 'A32NX_OVHD_APU_START_PB_IS_ON',
+  skipWhen: [
+    { fieldId: 'systems.apuAvailable', expectedValue: true },
+    { fieldId: 'systems.apuStart', expectedValue: true },
+  ],
+});
+
+// The A32NX custom handle has five positions. The standard aerodynamic flap
+// index is a different scale and must not be used to confirm lever selection.
+for (const [suffix, event, expectedValue] of [
+  ['up', 'FLAPS_UP', 'up'],
+  ['one', 'FLAPS_1', '1'],
+  ['two', 'FLAPS_2', '2'],
+  ['three', 'FLAPS_3', '3'],
+  ['full', 'FLAPS_DOWN', 'full'],
+]) {
+  const actionId = `controls.flaps.${suffix}`;
+  actions[actionId] = setEventAction({
+    actionId, event, expectedValue,
+    fieldId: 'controls.flapsHandle', groupId: 'controls.flaps',
   });
 }
 

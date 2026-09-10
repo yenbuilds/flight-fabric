@@ -400,7 +400,7 @@ async function main() {
       subscribeWsError,
       subscribeWsOpen,
     },
-    { getCabinAnnouncements, setAppService },
+    { getCabinAnnouncements, getReconnect, setAppService, setAppServices },
     { initTabsRuntime, LAST_ACTIVE_TAB_STORAGE_KEY, resolveInitialTabId },
     { initDebugRuntime },
     { initProfilesRuntime },
@@ -409,7 +409,6 @@ async function main() {
     { createTelemetryDisplay },
     { createTelemetryWarnings },
     {
-      AIRCRAFT_CONTROL_BUTTON_SELECTOR,
       getAircraftControlCanonicalCommandId,
       getAircraftControlCommandPendingKey,
     },
@@ -442,7 +441,7 @@ async function main() {
       selectTimelineMapEventMarkers,
     },
     { createScrubber },
-    { buildTimelineAltitudeProfileState },
+    { buildTimelineAltitudeProfileModel, updateTimelineAltitudeProfileCursor },
     { createPFD },
     { attachTimelinePfdOverlayFitter },
     { buildLandingDetailState },
@@ -1052,9 +1051,9 @@ async function main() {
     assert.equal(flightStore.telemetry.fuel, '2,720', 'pound display should use simulator-provided fuel mass');
     assert.deepEqual(sent[0], { type: 'fuelUnit', unit: 'lbs' }, 'fuel-unit delegation should continue to notify the backend');
 
-    assert.equal(preferencesStore.requestShowBranding(false), true, 'branding actions should delegate through the Vue preferences store');
-    assert.equal(preferencesStore.showBranding, false, 'branding delegation should update the Vue preferences store');
-    assert.equal(storage.getItem('ff-show-branding'), 'false', 'branding delegation should persist the stored frontend preference');
+    appPreferences.applyShowBranding(false);
+    assert.equal(preferencesStore.showBranding, false, 'branding updates should reach the Vue preferences store');
+    assert.equal(storage.getItem('ff-show-branding'), 'false', 'branding updates should persist the stored frontend preference');
   });
 
   await test('app settings controller delegates cabin-announcement settings through injected runtime dependencies', () => {
@@ -1105,7 +1104,7 @@ async function main() {
       'settings controller should forward cabin-announcement settings through the injected runtime service',
     );
     assert.equal(controller.getSettings().cabinAnnouncements.style, 'concise', 'settings controller should retain the applied settings snapshot');
-    assert.equal(controller.getStorage().flightLogsDir, 'C:/Flights', 'settings controller should retain the applied storage snapshot');
+    assert.equal(emitted[0].storage.flightLogsDir, 'C:/Flights', 'settings controller should publish the applied storage snapshot');
     assert.equal(emitted.length, 1, 'settings controller should emit one app-settings runtime signal');
     assert.equal(emitted[0].backendVersion, 'v0.1.3 Alpha', 'app-settings runtime signal should include the formatted backend version');
     assert.equal(emitted[0].settingsFile, 'C:/Flight Fabric/settings.json', 'app-settings runtime signal should include the settings file path');
@@ -1444,16 +1443,28 @@ async function main() {
     assert.equal(timelineStore.emptyStateMessage, 'Privileged session required for this action.', 'timeline list error copy should render instead of an empty-list message');
   });
 
-  await test('app service cleanup clears cabin-announcement compatibility lookups', () => {
+  await test('app services preserve unrelated registrations and release cleared services', () => {
     const cabinService = {
       enqueue() {},
     };
+    const replacementService = { enqueue() {} };
+    const reconnect = () => true;
 
-    setAppService('cabinAnnouncements', cabinService);
-    assert.equal(getCabinAnnouncements(), cabinService, 'registered cabin service should resolve through the shared getter');
+    try {
+      setAppServices({ cabinAnnouncements: cabinService, reconnect });
+      setAppServices(null);
+      assert.equal(getCabinAnnouncements(), cabinService, 'empty registration should retain active services');
+      setAppServices({ cabinAnnouncements: replacementService });
+      assert.equal(getCabinAnnouncements(), replacementService, 'consumers should receive the replacement service');
+      assert.equal(getReconnect(), reconnect, 'partial registration should preserve unrelated services');
 
-    setAppService('cabinAnnouncements', null);
-    assert.equal(getCabinAnnouncements(), null, 'clearing cabin service should remove stale compatibility references');
+      setAppService('cabinAnnouncements', null);
+      assert.equal(getCabinAnnouncements(), null, 'clearing a service should release the old reference');
+      setAppServices({ reconnect: null });
+      assert.equal(getReconnect(), null, 'bulk registration should support service cleanup');
+    } finally {
+      setAppServices({ cabinAnnouncements: null, reconnect: null });
+    }
   });
 
   await test('app message handler rehydrates the aircraft title after an aircraft change', () => {
@@ -2095,9 +2106,6 @@ async function main() {
     setActivePinia(createPinia());
 
     const aircraftControlsStore = useAircraftControlsStore();
-    const commandButton = new FakeElement('ctrl-gear-up-btn', { tagName: 'BUTTON' });
-    const modeButton = new FakeElement('ap-master-btn', { tagName: 'BUTTON' });
-    documentRef.setQuerySelectorAll(AIRCRAFT_CONTROL_BUTTON_SELECTOR, [commandButton, modeButton]);
 
     const sent = [];
     const toasts = [];
@@ -2244,7 +2252,6 @@ async function main() {
     authorizationScope = 'aircraft-control';
     controller.updateAvailability();
     assert.equal(aircraftControlsStore.availability.enabled, true, 'availability should flow into the Vue store');
-    assert.equal(commandButton.disabled, false, 'available control buttons should remain enabled');
     assert.equal(aircraftControlsStore.commandActionBound, true, 'autopilot runtime should bind the Vue-owned control action bridge');
 
     controller.applySimState({
@@ -2951,6 +2958,113 @@ async function main() {
     autopilotPanel.resetState();
     assert.equal(aircraftControlsStore.autopilot.master, null, 'autopilot reset should clear the store-backed AP state to unknown');
     assert.equal(aircraftControlsStore.autopilot.spdDisplay, '---', 'autopilot reset should restore default selector values');
+  });
+
+  await test('failed aircraft sends release their pending keys so the command can be retried', () => {
+    for (const failure of ['false', 'throw']) {
+      const documentRef = new FakeDocument();
+      resetGlobals(new FakeWindow(documentRef), documentRef, createStorage());
+      setActivePinia(createPinia());
+      const store = useAircraftControlsStore();
+      const sent = [];
+      let failSend = true;
+      const controller = createAircraftControlController({
+        WebSocketRef: { OPEN: 1 },
+        getWs: () => ({ readyState: 1 }),
+        getWsSend: () => (message) => {
+          if (failSend) {
+            if (failure === 'throw') throw new Error('Socket send failed');
+            return false;
+          }
+          sent.push(message);
+          return true;
+        },
+        getAuthorizationScope: () => 'aircraft-control',
+        getSimconnectConnected: () => true,
+        aircraftControlsStore: store,
+      });
+      controller.setActiveProfileToken({ _profileKey: 'bundled/msfs/pmdg-737', profileRevision: 1 });
+      controller.applyControlCapabilities({ aircraftCommands: {
+        profileKey: 'bundled/msfs/pmdg-737', profileRevision: 1, configurationId: 'pmdg-737',
+        commands: [{ id: 'configuration.lights.takeoff', kind: 'preset', input: { kind: 'none' } }],
+      } });
+      const key = 'pmdg:takeoff-lights';
+      const options = { pendingKey: key, minimumPendingMs: 5000 };
+      store.setCommandPending('unrelated-control');
+      assert.equal(controller.sendCommand('configuration.lights.takeoff', {}, options), false, `${failure}: failed send is reported to the caller`);
+      assert.equal(store.isCommandPending(key), false, 'failed send releases the panel key immediately');
+      assert.equal(store.isCommandPending('aircraft-command:configuration.lights.takeoff'), false, 'failed send releases the shared voice key immediately');
+      assert.equal(store.isCommandPending('unrelated-control'), true, 'other controls keep their pending ownership');
+      assert.equal(store.feedback.status, 'failed');
+      assert.match(store.feedback.routeText, /could not be sent/i);
+      failSend = false;
+      assert.equal(controller.sendCommand('configuration.lights.takeoff', {}, options), true, 'retry can acquire both keys');
+      assert.equal(sent.length, 1);
+      controller.clearPendingRequests();
+    }
+  });
+
+  await test('forced websocket reconnect cancels old aircraft requests before the replacement socket opens', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    setActivePinia(createPinia());
+    const store = useAircraftControlsStore();
+    const sockets = [];
+    const results = [];
+    let closed = 0;
+    windowRef.fetch = async () => ({ ok: true, json: async () => ({}) });
+    class Socket {
+      static OPEN = 1;
+      constructor() { this.readyState = 0; this.sent = []; sockets.push(this); }
+      send(message) { this.sent.push(JSON.parse(message)); }
+      close() { this.readyState = 3; }
+    }
+    const connection = createConnection({
+      windowRef, WebSocketRef: Socket,
+      onClose: () => {
+        closed += 1;
+        controller.clearProfileToken();
+        controller.clearPendingRequests('Connection lost before control request completed.');
+        controller.updateAvailability();
+      },
+    });
+    const controller = createAircraftControlController({
+      WebSocketRef: Socket,
+      getWs: connection.getWs,
+      getWsSend: () => connection.send,
+      getAuthorizationScope: connection.getAuthorizationScope,
+      getSimconnectConnected: () => true,
+      aircraftControlsStore: store,
+    });
+    const makeReady = () => {
+      sockets.at(-1).readyState = Socket.OPEN;
+      sockets.at(-1).onmessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'aircraft-control' }) });
+      controller.setActiveProfileToken({ _profileKey: 'bundled/msfs/pmdg-737', profileRevision: 1 });
+      controller.updateAvailability();
+    };
+    await connection.initialize();
+    makeReady();
+    const request = { control: 'lights', target: 'landing', operation: 'set', value: true };
+    const options = { pendingKey: 'test-landing', onResult: (result) => results.push(result) };
+    assert.equal(controller.send(request, options), true);
+    const staleRequestId = sockets[0].sent[0].requestId;
+    connection.reconnect();
+    assert.equal(closed, 1, 'intentional socket replacement must notify the same cleanup as a connection loss');
+    assert.equal(store.isCommandPending(options.pendingKey), false);
+    assert.equal(store.availability.enabled, false);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].cancelled, true);
+    for (let i = 0; i < 10 && sockets.length < 2; i++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sockets.length, 2);
+    makeReady();
+    assert.equal(controller.send(request, options), true, 'the replacement socket can send the same control again');
+    controller.handleResult({ requestId: staleRequestId, ok: true });
+    assert.equal(store.isCommandPending(options.pendingKey), true, 'a late old result cannot clear the retry');
+    assert.equal(results.length, 1);
+    controller.handleResult({ requestId: sockets[1].sent[0].requestId, ok: true });
+    assert.equal(store.isCommandPending(options.pendingKey), false);
+    assert.equal(results.length, 2);
   });
 
   await test('aircraft control results require live request ownership across reset and replay', () => {
@@ -5751,15 +5865,15 @@ async function main() {
   });
 
   await test('timeline altitude profile builds a scrubber-synced side profile state', () => {
-    const profile = buildTimelineAltitudeProfileState([
+    const model = buildTimelineAltitudeProfileModel([
       { timestampMs: 1000, altFt: 1200 },
       { timestampMs: 16000, altFt: 900 },
       { timestampMs: 31000, altFt: 600 },
     ], {
       startMs: 1000,
       endMs: 31000,
-      offsetMs: 15000,
     });
+    const profile = updateTimelineAltitudeProfileCursor(model, 15000);
 
     assert.equal(profile.visible, true, 'profile should be visible when at least two altitude samples are available');
     assert.match(profile.pathD, /^M 22 /, 'profile path should start at the plot origin padding');
@@ -5770,14 +5884,14 @@ async function main() {
     assert.equal(profile.maxText, '1,200 ft', 'profile should expose the maximum altitude label');
     assert.equal(Number(profile.cursorX) > 300 && Number(profile.cursorX) < 350, true, 'profile cursor x should track the scrubber offset');
 
-    const emptyProfile = buildTimelineAltitudeProfileState([
+    const emptyModel = buildTimelineAltitudeProfileModel([
       { timestampMs: 1000, altFt: null },
       { timestampMs: 31000, altFt: null },
     ], {
       startMs: 1000,
       endMs: 31000,
-      offsetMs: 15000,
     });
+    const emptyProfile = updateTimelineAltitudeProfileCursor(emptyModel, 15000);
     assert.equal(emptyProfile.visible, false, 'profile should hide when the timeline has no altitude samples');
     assert.equal(emptyProfile.pathD, '', 'empty profile should not expose stale SVG path data');
   });
@@ -6312,6 +6426,21 @@ async function main() {
     assert.equal(timelineStore.inspectorSelectedRowKey, 'row-0', 'original-index selection should still select the matching row');
     assert.equal(timelineStore.detailTitle, 'Phase: APPROACH', 'original-index selection should still publish detail state');
     assert.equal(focusedEvents.length, focusCountBeforeSkip, 'original-index selection should be able to skip redundant map focus');
+
+    page.loadTimeline({ flightId: 'filtered-flight', events: [
+      { type: 'configuration_event', timestampMs: 1000, eventType: 'flaps_changed' },
+      { type: 'phase_start', timestampMs: 2000, newPhase: 'APPROACH' },
+      { type: 'landing', timestampMs: 3000, runway: { airport_icao: 'YSSY', runway_id: '34L' } },
+    ] });
+    timelineStore.setInspectorFilter('configuration_event', false);
+    assert.deepEqual(timelineStore.inspectorRows.map(row => row.rowKey), ['row-1', 'row-2']);
+    page.selectTimelineRowByOriginalIndex(2);
+    assert.equal(timelineStore.detailLandingActionVisible, true, 'map selection must retain original indexes after filtering');
+    assert.equal(timelineStore.inspectorSelectedRowKey, 'row-2');
+    page.selectTimelineRowByOriginalIndex(0);
+    assert.equal(timelineStore.detailType, 'configuration_event', 'a hidden map event can still open its details');
+    assert.equal(timelineStore.inspectorFilters.configuration_event, false, 'map selection must not change list filters');
+    assert.deepEqual(timelineStore.inspectorRows.map(row => row.rowKey), ['row-1', 'row-2']);
 
     page.showEmpty();
     assert.equal(timelineStore.inspectorRows.length, 0, 'showEmpty should clear inspector rows through the store');

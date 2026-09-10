@@ -1282,6 +1282,119 @@ test('normal historic timeline path survives preview, durable rescore, and rever
   });
 });
 
+test('v4 scoring survives real CSV preview, save, reload, Logbook projection and restore', async () => {
+  await withTempAppData(async () => {
+    const generator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const { getLandingsFromCsvFile } = require(resolveBackendPath('landing', 'flight-logbook.js'));
+    const { publishRecordingBundleStatus } = require(resolveBackendPath('flight-recording', 'recording-bundle-status.js'));
+    const logsDir = generator.getFlightLogsDir();
+    const name = '2026-05-25_00-00-00Z--v4-rescore';
+    const bundle = writeManifestBundle(logsDir, name, true);
+    const [headerLine, manifestLine] = fs.readFileSync(bundle.csvPath, 'utf8').split('\n');
+    const originalHeaders = headerLine.split(',');
+    const manifest = Object.fromEntries(originalHeaders.map((key, index) => [key, manifestLine.split(',')[index]]));
+    const rows: Record<string, any>[] = [manifest];
+    for (let second = 0; second <= 114; second++) {
+      const timestampMs = bundle.identity.recordingStartEpochMs + second * 1000;
+      const sample = { ...manifest, record_type: 'SAMPLE', sample_index: second + 1,
+        timestamp_utc: new Date(timestampMs).toISOString(), ts: timestampMs,
+        flight_elapsed_ms: second * 1000, timestamp_monotonic: second * 1000,
+        aircraft: 'PMDG 737-800', aircraft_profile_id: 'pmdg-737',
+        ra_ft: Math.max(0, 1100 - second * 10), on_ground: second >= 110 ? 1 : 0,
+        phase: second >= 110 ? 'ROLLOUT' : 'APPROACH',
+        ias_kts: 140, gs_kts: 140, vs_fpm: second >= 30 && second < 37 ? -1200 : -743.4,
+        gear_down_locked: 1, flaps_pct: 40, pitch_deg: 3, bank_deg: 0, thr1_pct: 40, thr2_pct: 40,
+        nav1_has_glideslope: 1, nav1_has_localizer: 1, nav1_signal: 100,
+        gs_deviation_dots: 0.2, loc_deviation_dots: 0.1,
+      };
+      rows.push(sample);
+      if (second === 110) rows.push({ ...sample, record_type: 'LANDING', sample_index: 1000,
+        grade: 'GOOD', vs_fpm: -180, icao: 'YSCB', runway: '35', bounce_count: 0, bounce_grade: 'Clean', bounce_score: 100,
+        ultimate_stability_score: 88, ultimate_stability_verdict: 'marginal',
+        ultimate_stability_samples: 110, ultimate_stability_gate_stable: 0,
+        ultimate_stability_gate_failures: 'speed_proxy_unstable_after_gate',
+        ultimate_stability_breakdown: JSON.stringify({ speed_ok: 78, config_ok: 100 }),
+        ultimate_stability_context: JSON.stringify({ schemaVersion: 3, policy: { id: 'transport-v3', version: 3 } }),
+      });
+    }
+    rows.forEach((row, index) => { row.sample_index = index; });
+    const headers = [...new Set(rows.flatMap(row => Object.keys(row)))];
+    const csvField = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    fs.writeFileSync(bundle.csvPath, [headers.join(','), ...rows.map(row => headers.map(key => csvField(row[key])).join(','))].join('\n') + '\n');
+    await publishRecordingBundleStatus({ ...bundle.identity, outputDir: logsDir, bundleBaseName: name,
+      status: 'complete', finalizedAtEpochMs: bundle.identity.recordingStartEpochMs + 115000,
+      finalizedAtIso: new Date(bundle.identity.recordingStartEpochMs + 115000).toISOString(), endReason: 'test_end' });
+    const immutablePaths = [bundle.csvPath, bundle.automationPath, bundle.aircraftSpecificPath];
+    const originalBytes = immutablePaths.map(file => fs.readFileSync(file));
+    const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const store = createFlightCsvStore();
+    const landingOf = result => result.timeline.events.find(event => event.type === 'landing');
+    await store.getLogbook();
+    await waitForHistoryIndex(store);
+    const originalIndex = await store.getLogbook();
+    assert.equal(originalIndex.entries[0].stabilityScore, 88);
+    const recorded = await store.generateTimelineFromFile(bundle.csvPath);
+    assert.equal(recorded.success, true, recorded.error);
+    assert.equal(landingOf(recorded).ultimateStability.score, 88);
+    const preview = await store.generateTimelineFromFile(bundle.csvPath, { scoringMode: 'current-preview' });
+    assert.equal(preview.success, true, preview.error);
+    const state = preview.timeline.analysisRescorePreview;
+    assert.equal(state.available, true, JSON.stringify(state));
+    const current = landingOf(preview).ultimateStability;
+    assert.equal(current.scoringContext.assessment.version, 4);
+    assert.equal(current.verdict, 'marginal');
+    assert.ok(current.score > 95);
+    assert.equal(current.breakdown.glideslope_ok, 100);
+    assert.equal(current.breakdown.localizer_ok, 100);
+    assert.equal(current.breakdown.glidepath_ok, null);
+    assert.equal(current.scoringContext.assessment.episodes.length, 1);
+    assert.equal(current.scoringContext.assessment.episodes[0].severity, 'caution');
+    assert.equal(landingOf(await store.generateTimelineFromFile(bundle.csvPath)).ultimateStability.score, 88, 'preview must not apply itself');
+    const applied = await store.applyFlightAnalysisRescore({ filePath: bundle.csvPath, flightId: bundle.identity.flightId,
+      expectedRevision: state.baseRevision, expectedSourceFingerprint: state.sourceFingerprint,
+      expectedPreviewFingerprint: state.previewFingerprint, expectedAnalysisContractFingerprint: state.analysisContractFingerprint });
+    assert.equal(applied.success, true, applied.error);
+    // A new store simulates reopening the UI without relying on preview memory.
+    const reopened = createFlightCsvStore();
+    const saved = await reopened.generateTimelineFromFile(bundle.csvPath);
+    assert.equal(saved.success, true, saved.error);
+    assert.deepEqual(landingOf(saved).ultimateStability, current);
+    const savedEpisodes = saved.timeline.events.filter(event => event.context?.assessment_version === 4);
+    assert.equal(savedEpisodes.length, 2, 'one caution plus its neutral ending');
+    const logbook = await getLandingsFromCsvFile(bundle.csvPath, { bypassCache: true });
+    assert.equal(logbook.length, 1);
+    assert.equal(logbook[0].stabilityScore, current.score);
+    assert.equal(logbook[0].stabilityVerdict, current.verdict);
+    assert.deepEqual(logbook[0].stabilityContext, current.scoringContext);
+    assert.deepEqual(logbook[0].stabilityBreakdown, current.breakdown);
+    assert.equal(logbook[0].shortLanding, null, 'missing geometry must remain unknown in both saved projections');
+    await reopened.getLogbook();
+    await waitForHistoryIndex(reopened);
+    const indexed = await reopened.getLogbook();
+    assert.equal(indexed.success, true, indexed.error);
+    assert.equal(indexed.entries[0].stabilityScore, current.score, 'normal UI index must replace its cached old score');
+    assert.equal(indexed.stats.trends.aircraft[0].avgStabilityScore, current.score, 'Logbook averages must use the saved rescore');
+    assert.deepEqual(indexed.entries[0].stabilityContext, current.scoringContext);
+    const reverted = reopened.revertFlightAnalysisRescore({ filePath: bundle.csvPath, flightId: bundle.identity.flightId,
+      expectedRevision: saved.timeline.analysisRescore.revision,
+      expectedSnapshotFingerprint: saved.timeline.analysisRescore.snapshotFingerprint });
+    assert.equal(reverted.success, true, reverted.error);
+    const restored = await reopened.generateTimelineFromFile(bundle.csvPath);
+    assert.equal(landingOf(restored).ultimateStability.score, 88);
+    assert.equal(landingOf(restored).ultimateStability.scoringContext.policy.version, 3);
+    assert.equal(restored.timeline.events.filter(event => event.context?.assessment_version === 4).length, 0);
+    const restoredLogbook = await getLandingsFromCsvFile(bundle.csvPath, { bypassCache: true });
+    assert.equal(restoredLogbook[0].stabilityScore, 88);
+    assert.equal(restoredLogbook[0].stabilityContext.policy.version, 3);
+    await reopened.getLogbook();
+    await waitForHistoryIndex(reopened);
+    const restoredIndex = await reopened.getLogbook();
+    assert.equal(restoredIndex.entries[0].stabilityScore, 88, 'restore must also refresh the cached UI score');
+    assert.equal(restoredIndex.stats.trends.aircraft[0].avgStabilityScore, 88, 'restore must refresh Logbook averages');
+    immutablePaths.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), originalBytes[index]));
+  });
+});
+
 test('listFlights flushes directory reads and fails closed on flush failure', async () => {
   await withTempAppData(async () => {
     const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));

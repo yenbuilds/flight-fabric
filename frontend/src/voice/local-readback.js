@@ -1,3 +1,6 @@
+import { comRadioResultText } from '../aircraft/com-radio.js';
+import { baroResultText } from '../aircraft/baro.js';
+
 const MAX_READBACK_CHARS = 240;
 const DIGIT_WORDS = Object.freeze([
   'zero', 'one', 'two', 'three', 'four',
@@ -36,6 +39,10 @@ export function formatAviationReadback(match = {}) {
   const label = boundedText(match.label) || 'Command';
   const hasValue = Object.prototype.hasOwnProperty.call(match.input || {}, 'value');
   const value = match.input?.value;
+  if (/^approach\.minimums\.(baro|radio)$/.test(commandId)) return `${commandId.endsWith('.radio') ? 'Radio' : 'Barometric'} minimums ${value} feet set.`;
+  if (commandId === 'surveillance.squawk.set') return `Squawk ${spokenDigits(value, 4)} set.`;
+  if (commandId === 'surveillance.ident.activate') return 'IDENT active.';
+  if (/^navigation\.(captain|firstOfficer)\.range$/.test(commandId)) return `${label} ${value} nautical miles set.`;
 
   if (commandId === 'flightGuidance.heading.set') {
     return `Heading ${spokenDigits(value, 3)} set.`;
@@ -82,7 +89,10 @@ export function formatAviationReadback(match = {}) {
     return `Flaps ${value === 'increase' ? 'increased' : 'decreased'} one detent.`;
   }
   if (commandId === 'surfaces.flaps.set') {
-    return `Flaps ${String(value)} set.`;
+    return `Flaps ${String(value)} selected.`;
+  }
+  if (commandId === 'surfaces.spoilers.set') {
+    return `Speedbrake ${String(value)} selected.`;
   }
   if (commandId === 'surfaces.autobrake.set') {
     return `Autobrake ${value === 'rto' ? 'R T O' : String(value)} set.`;
@@ -90,13 +100,37 @@ export function formatAviationReadback(match = {}) {
   if (commandId === 'configuration.lighting.cockpit') {
     return `Cockpit lighting ${String(value)} percent set.`;
   }
+  if (commandId === 'configuration.lighting.displays') {
+    return `Flight displays ${String(value)} percent set.`;
+  }
   if (commandId === 'configuration.lights.takeoff') {
     return 'Takeoff lights set.';
+  }
+  if (commandId === 'configuration.apu.start') {
+    return 'A P U start requested.';
   }
   if (typeof value === 'boolean') return `${label} ${value ? 'on' : 'off'}.`;
   if (hasValue) return `${label} ${String(value)}.`;
   if (commandId.endsWith('.engage')) return `${label} engaged.`;
   return `${label} command complete.`;
+}
+
+export function formatComRadioReadback(result) {
+  if (!comRadioResultText(result)) return 'Radio response unconfirmed. Check the aircraft radio.';
+  const { index, bank, frequencyMhz } = result.radio;
+  const [whole, decimals] = frequencyMhz.toFixed(3).split('.');
+  return `Com ${index === 1 ? 'one' : 'two'} ${bank} ${spokenDigits(whole)} decimal ${spokenDigits(decimals, 3)} confirmed.`;
+}
+
+export function spokenBaroPressure(value, unit) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  const [whole, decimals] = (unit === 'inHg' ? value.toFixed(2) : String(value)).split('.');
+  return `${spokenDigits(whole)}${decimals ? ` decimal ${spokenDigits(decimals, 2)}` : ''}`;
+}
+
+export function formatBaroReadback(result) {
+  return baroResultText(result, spokenBaroPressure(result?.baro?.value, result?.baro?.unit)).text
+    .replace(/QNH/g, 'Q N H').replace(/hPa/g, 'hectopascals').replace(/inHg/g, 'inches of mercury');
 }
 
 export function createLocalReadback({ globalRef = globalThis } = {}) {

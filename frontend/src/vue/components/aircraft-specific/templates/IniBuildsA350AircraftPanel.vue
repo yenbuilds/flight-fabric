@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
+import { useAircraftPageSections } from '../aircraft-page-sections.js';
 
 const props = defineProps({
   profileKey: { type: String, default: '' },
@@ -28,7 +29,7 @@ watch(
   () => { numericDrafts.value = {}; },
 );
 
-const sectionLinks = Object.freeze([
+const sectionLinks = useAircraftPageSections([
   { id: 'a350-fcu', label: 'FCU' },
   { id: 'a350-exterior', label: 'Exterior' },
   { id: 'a350-cabin', label: 'Cabin' },
@@ -420,7 +421,10 @@ function indicatorClass(indicator) {
 }
 
 function scrollToSection(sectionId) {
-  document.getElementById(sectionId)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  const target = document.getElementById(sectionId);
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+  target?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+  target?.focus?.({ preventScroll: true });
 }
 </script>
 
@@ -447,9 +451,10 @@ function scrollToSection(sectionId) {
       <button
         v-for="section in sectionLinks"
         :key="section.id"
+        :aria-label="section.title || section.label"
         type="button"
         class="min-h-9 shrink-0 rounded-md border border-surface-300 bg-surface-50 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-300 hover:border-cyan-500/50 hover:text-cyan-200"
-        @click="scrollToSection(section.id)"
+        @click="scrollToSection(section.targetId || section.id)"
       >
         {{ section.label }}
       </button>

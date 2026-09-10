@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Flight Fabric - airline flying telemetry and debrief app",
   "main": "main.js",
   "author": "Flight Fabric",
@@ -47,9 +47,8 @@
     },
     "files": [
       "main.js",
+      "main-window-bounds.js",
       "preload.js",
-      "pmdg-737-sdk-eula.js",
-      "pmdg-777-sdk-eula.js",
       "backend-cleanup-policy.js",
       "backend-lifecycle.js",
       "backend-process-identity.js",

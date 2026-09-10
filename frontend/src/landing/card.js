@@ -57,7 +57,7 @@ function normalizeUltimateStability(value, { preserveEmpty = false } = {}) {
   };
 }
 
-export function mergeLandingMessageUltimateStability(msg, fallbackUltimateStability) {
+function mergeLandingMessageUltimateStability(msg, fallbackUltimateStability) {
   if (!msg || typeof msg !== 'object') return msg;
 
   const hasCurrentValue = Object.prototype.hasOwnProperty.call(msg, 'ultimateStability');

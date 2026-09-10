@@ -38,7 +38,7 @@ test('voice manifest pins the compact Zipformer runtime subset', () => {
     Object.values(ZIPFORMER_MODEL.components).filter((filename) => !pinnedFiles.has(filename)),
     [],
   );
-  assert.equal(VOICE_HOTWORDS.bytes, 2_487);
+  assert.ok(VOICE_HOTWORDS.bytes > 0);
   assert.match(VOICE_HOTWORDS.sha256, /^[A-F0-9]{64}$/);
 });
 
@@ -58,10 +58,14 @@ test('voice model paths remain beneath the configured resource directory', () =>
 
 test('tracked aviation hotwords pass integrity verification', async () => {
   const filename = path.resolve(__dirname, 'resources', 'voice', 'hotwords.txt');
-  assert.deepEqual(await verifyVoiceHotwords(filename), { bytes: 2_487, verified: true });
+  assert.deepEqual(await verifyVoiceHotwords(filename), { bytes: VOICE_HOTWORDS.bytes, verified: true });
   const hotwords = fs.readFileSync(filename, 'utf8');
   for (const digit of ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE']) {
     assert.match(hotwords, new RegExp(`^${digit} :`, 'm'));
+  }
+  for (const phrase of ['START A P U', 'START THE A P U', 'A P U START', 'START A P YOU',
+    'Q N H', 'H P A', 'L S', 'N D', 'V H F', 'S T D', 'CAPTAIN L S', 'CAPTAIN Q N H']) {
+    assert.ok(hotwords.split('\n').some(line => line.startsWith(`${phrase} :`)), phrase);
   }
 });
 

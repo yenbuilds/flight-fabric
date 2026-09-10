@@ -12,6 +12,7 @@ import { buildLandingPresentation, gradeHex, gradeSeverity } from '../../landing
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
+  stabilityFailureLabel,
 } from '../../landing/stability-context.js';
 import { initLogbookRuntime } from '../../logbook/runtime.js';
 import { useLogbookStore } from '../stores/logbook.js';
@@ -92,23 +93,6 @@ const gradeKeys = [
   'OTHER',
 ];
 
-const STABILITY_GATE_FAILURE_LABELS = {
-  insufficient_data: 'insufficient stability data',
-  no_gate_sample: 'no sample at the stability gate',
-  gear_not_down_at_gate: 'gear not down at the gate',
-  gear_changed_after_gate: 'gear changed after the gate',
-  flaps_not_set_at_gate: 'flaps not set at the gate',
-  flaps_changed_after_gate: 'flaps changed after the gate',
-  speed_proxy_unstable_after_gate: 'speed unstable after the gate',
-  speed_trend_unstable_after_gate: 'speed trend unstable after the gate',
-  vs_unstable_after_gate: 'vertical speed unstable after the gate',
-  glidepath_proxy_unstable_after_gate: 'path rate unstable after the gate',
-  glidepath_too_low_after_gate: 'descent rate steeper than target after the gate',
-  thrust_unstable_after_gate: 'throttle movement unstable after the gate',
-  pitch_unstable_after_gate: 'pitch unstable after the gate',
-  bank_unstable_after_gate: 'bank unstable after the gate',
-  lateral_offset_unstable_at_touchdown: 'lateral offset unstable at touchdown',
-};
 
 const STABILITY_BREAKDOWN_LABELS = {
   gear_ok: 'Gear',
@@ -118,6 +102,8 @@ const STABILITY_BREAKDOWN_LABELS = {
   speed_trend_ok: 'Speed trend',
   vs_ok: 'V/S',
   glidepath_ok: 'Path rate',
+  glideslope_ok: 'Glideslope',
+  localizer_ok: 'Localizer',
   glidepath_below_ok: 'Path rate steep',
   glidepath_above_ok: 'Path rate shallow',
   thrust_ok: 'Throttle movement',
@@ -615,10 +601,7 @@ function stableDesktopStyle(entry) {
 }
 
 function humanizeGateFailure(failure) {
-  const key = String(failure || '').trim();
-  if (!key) return '';
-  return STABILITY_GATE_FAILURE_LABELS[key]
-    || key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return stabilityFailureLabel(failure);
 }
 
 function stabilityBreakdownReasons(entry) {
@@ -665,9 +648,7 @@ function stableTooltip(entry) {
   const reasons = [...new Set([...failureLabels, ...breakdownLabels])];
   return [
     reasons.length ? `${badge.tooltipLead}: ${reasons.join(', ')}` : badge.tooltipLead,
-    badge.tone === 'marginal'
-      ? `Strict check missed, without a hard or substantial deviation (recorded threshold ${landingPresentation(entry).stabilityPassPct}%)`
-      : '',
+    landingPresentation(entry).approachExplanation,
     scoreText,
     profileText,
   ].filter(Boolean).join(' · ');
@@ -884,7 +865,7 @@ function trendStabilityText(row) {
       id="logbook-stability-verdict-explanation"
       class="border-b border-surface-200 px-3 py-2 text-[10px] leading-snug text-gray-500 sm:px-4"
     >
-      Stable requires every applicable strict check to meet its recorded threshold (normally 80%). Marginal means a strict check was missed, but the approach had no hard or substantial deviation. Unstable identifies a hard configuration failure, a score below 80%, or a severe direct-metric miss.
+      Verdicts use each flight's recorded rules. With current scoring, amber cautions or quality checks below target make an approach Marginal. Red violations, configuration failures or substantial quality losses make it Unstable. The percentage describes average approach quality; a high score can still accompany an Unstable verdict. Older flights retain their original checks until rescored.
     </div>
 
     <div v-if="hasEntries && !isDesktopLayout" class="logbook-mobile-list">

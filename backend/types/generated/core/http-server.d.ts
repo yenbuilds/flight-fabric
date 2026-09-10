@@ -34,7 +34,6 @@ export declare function resolvePackagedFrontendDir(moduleDir: string, packaged: 
 export declare function getLocalIPsFromInterfaces(nets: ReturnType<typeof os.networkInterfaces>): string[];
 export declare function isTrustedHttpRequest(req: RequestLike, remoteAccessEnable: boolean): boolean;
 export declare function buildContentSecurityPolicy(req: RequestLike, nonce: string, remoteAccessEnable: boolean): string;
-export declare function injectCspNonce(html: string, nonce: string): string;
 export declare function buildBootstrapPayload(req: RequestLike, wsAuthToken: string, aircraftControlToken: string, networkInfo?: {
     ips: string[];
     httpPort: number | null;

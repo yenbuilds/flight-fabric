@@ -515,7 +515,7 @@ export function buildContentSecurityPolicy(
   ].join('; ');
 }
 
-export function injectCspNonce(html: string, nonce: string): string {
+function injectCspNonce(html: string, nonce: string): string {
   if (!nonce) return html;
   return html.replace(
     /<script\b(?![^>]*\bsrc\s*=)(?![^>]*\bnonce\s*=)([^>]*)>/gi,

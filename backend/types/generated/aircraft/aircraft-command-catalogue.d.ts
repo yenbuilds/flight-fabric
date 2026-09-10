@@ -21,6 +21,9 @@ export type AircraftCommandDefinition = Readonly<{
     kind?: 'action' | 'preset';
     label: string;
     speech?: Readonly<{
+        fixedInputs?: Readonly<Record<string, Readonly<{
+            value: boolean;
+        }>>>;
         hints?: readonly string[];
         patterns: readonly string[];
     }>;
@@ -32,9 +35,16 @@ type LegacyRequest = Readonly<{
     target?: string;
     value?: unknown;
 }>;
-type AircraftCommandBinding = Readonly<{
+export type AircraftCommandBinding = Readonly<{
     commandId: string;
     input?: AircraftCommandInput;
+    brightnessFields?: readonly string[];
+    observations?: readonly Readonly<{
+        fieldId: string;
+        expectedValue: boolean | string;
+        label: string;
+        inhibitsRequest?: boolean;
+    }>[];
 } & ({
     kind: 'fixed';
     request: LegacyRequest;
@@ -45,6 +55,13 @@ type AircraftCommandBinding = Readonly<{
 } | {
     kind: 'choice';
     choices: Readonly<Record<string, LegacyRequest>>;
+} | {
+    kind: 'choice-sequence';
+    description: string;
+    choices: Readonly<Record<string, readonly Readonly<{
+        label: string;
+        request: LegacyRequest;
+    }>[]>>;
 } | {
     kind: 'sequence';
     description: string;
@@ -72,13 +89,7 @@ export type NormalizedAircraftCommandRequest = Readonly<{
     profileRevision: number | null;
     requestId: string | null;
 }>;
-export declare const GENERIC_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration;
-export declare const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration;
-export declare const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration;
-export declare const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration;
-export declare const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration;
 export declare function resolveAircraftCommandConfiguration(profile: unknown): AircraftCommandConfiguration;
-export declare function normalizeAircraftCommandRequest(rawRequest: unknown): NormalizedAircraftCommandRequest | null;
 export declare function resolveAircraftCommandRequest(rawRequest: unknown, profile: unknown): GenericRecord;
 export declare function buildAircraftCommandCatalogue(profile: unknown, options: {
     profileRevision?: unknown;

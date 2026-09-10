@@ -60,5 +60,4 @@ function getLocalIPv4AddressesFromInterfaces(nets) {
 
 module.exports = {
   getLocalIPv4AddressesFromInterfaces,
-  scoreLocalIPv4Address,
-};
+  };

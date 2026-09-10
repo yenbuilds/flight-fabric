@@ -306,6 +306,40 @@ test('flare exclusion does not hide configuration changes below 50 ft', () => {
   assert(result.gateFailures.includes('flaps_changed_after_gate'));
 });
 
+test('post-gate height rebound retains flap changes below the configured gate', () => {
+  const result = scoreFrames([
+    makeFrame({ ra: 1200, flaps: { percent: 15 } }),
+    makeFrame({ ra: 950, flaps: { percent: 35 } }),
+    makeFrame({ ra: 975, flaps: { percent: 15 } }),
+    makeFrame({ ra: 975, flaps: { percent: 15 } }),
+    makeFrame({ ra: 900, flaps: { percent: 35 } }),
+    makeFrame({ ra: 500, flaps: { percent: 35 } }),
+    makeFrame({ ra: 200, flaps: { percent: 35 } }),
+  ]);
+
+  assert.strictEqual(result.reference.gateHeightFt, 950);
+  assert.strictEqual(result.breakdown.flaps_ok, 0, 'A rebound above the first sampled gate height must not erase a later flap change');
+  assert(result.gateFailures.includes('flaps_changed_after_gate'));
+  assert.strictEqual(result.score, 70);
+  assert.strictEqual(result.verdict, 'unstable');
+});
+
+test('configuration changes before the gate stay outside approach scoring', () => {
+  const result = scoreFrames([
+    makeFrame({ ra: 1300, flaps: { percent: 0 }, gearDownLocked: 0 }),
+    makeFrame({ ra: 1200, flaps: { percent: 15 }, gearDownLocked: 0 }),
+    makeFrame({ ra: 950 }),
+    makeFrame({ ra: 975 }),
+    makeFrame({ ra: 900 }),
+    makeFrame({ ra: 500 }),
+    makeFrame({ ra: 200 }),
+  ]);
+
+  assert.strictEqual(result.score, 100);
+  assert.strictEqual(result.breakdown.config_ok, 100);
+  assert.deepStrictEqual(result.gateFailures, []);
+});
+
 test('one-second speed trend rejects sustained changes but ignores 10 Hz IAS jitter', () => {
   const jitterFrames = [makeFrame({ ra: 1200 })];
   for (let index = 0; index < 20; index++) {
@@ -459,6 +493,93 @@ test('throttle movement uses a cadence-invariant one-second rate window', () => 
   assert(stepChange.breakdown.thrust_stable_ok < 80, 'sustained step must remain visible');
   assert(stepChange.gateFailures.includes('thrust_unstable_after_gate'));
   assert.strictEqual(stepChange.verdict, 'marginal', 'throttle-only finding remains soft');
+});
+
+test('missing throttle readings preserve elapsed time without hiding sustained movement', () => {
+  const rampFrames = (ratePctPerSec, intermittent) => Array.from({ length: 51 }, (_, index) => makeFrame({
+    ra: 1000 - index * 10,
+    thrust: intermittent && index % 2 === 1 ? null : 30 + index * 0.1 * ratePctPerSec,
+    engineLevels: [],
+    dtMs: 100,
+  }));
+
+  const complete = scoreFrames(rampFrames(6, false));
+  const intermittent = scoreFrames(rampFrames(6, true));
+  assert.strictEqual(complete.breakdown.thrust_stable_ok, 100);
+  assert.strictEqual(intermittent.breakdown.thrust_stable_ok, 100, 'Missing readings must not turn a 6 pct/sec ramp into a 12 pct/sec ramp');
+  assert.strictEqual(intermittent.score, complete.score);
+  assert(!intermittent.gateFailures.includes('thrust_unstable_after_gate'));
+  assert(intermittent.coverage.metrics.thrust_ok.eligibleCount < complete.coverage.metrics.thrust_ok.eligibleCount);
+
+  const rapid = scoreFrames(rampFrames(12, true));
+  assert.strictEqual(rapid.breakdown.thrust_stable_ok, 0, 'A real 12 pct/sec ramp must still fail with missing readings');
+  assert(rapid.gateFailures.includes('thrust_unstable_after_gate'));
+});
+
+test('sparse throttle cadence and offset cannot disable movement scoring', () => {
+  for (const ratePctPerSec of [6, 12]) {
+    const frames = Array.from({ length: 61 }, (_, index) => makeFrame({
+      ra: 1000 - index * 10,
+      thrust: 20 + index * 0.1 * ratePctPerSec,
+      engineLevels: [],
+      dtMs: 100,
+    }));
+    const complete = scoreFrames(frames);
+    for (const every of [2, 3, 4, 7, 11]) {
+      for (let offset = 0; offset < every; offset++) {
+        const sparse = scoreFrames(frames.map((frame, index) => ({
+          ...frame,
+          thrust: index % every === offset ? frame.thrust : null,
+        })));
+        const context = `${ratePctPerSec} pct/sec, every ${every} frames, offset ${offset}`;
+        assert.strictEqual(sparse.breakdown.thrust_stable_ok, ratePctPerSec === 6 ? 100 : 0, context);
+        assert.strictEqual(sparse.score, complete.score, context);
+        assert.strictEqual(sparse.verdict, complete.verdict, context);
+        assert.deepStrictEqual(sparse.gateFailures, complete.gateFailures, context);
+        assert(sparse.coverage.metrics.thrust_ok.eligibleCount > 0, context);
+        assert(sparse.coverage.metrics.thrust_ok.eligibleCount < complete.coverage.metrics.thrust_ok.eligibleCount, context);
+      }
+    }
+  }
+});
+
+test('sparse throttle movement uses actual irregular frame intervals', () => {
+  const intervalsMs = [80, 170, 120, 230, 90, 210, 140];
+  for (const ratePctPerSec of [6, 12]) {
+    let elapsedMs = 0;
+    const frames = Array.from({ length: 36 }, (_, index) => {
+      const dtMs = intervalsMs[index % intervalsMs.length];
+      if (index > 0) elapsedMs += dtMs;
+      return makeFrame({
+        ra: 1000 - elapsedMs * 0.1,
+        thrust: index % 3 === 1 ? 20 + elapsedMs / 1000 * ratePctPerSec : null,
+        engineLevels: [],
+        dtMs,
+      });
+    });
+    const result = scoreFrames(frames);
+    assert.strictEqual(result.breakdown.thrust_stable_ok, ratePctPerSec === 6 ? 100 : 0);
+    assert(result.coverage.metrics.thrust_ok.eligibleCount > 0);
+  }
+});
+
+test('missing throttle endpoints stay unavailable while observed zero remains valid', () => {
+  const framesWithReadings = (readings) => Array.from({ length: 41 }, (_, index) => makeFrame({
+    ra: 1000 - index * 10,
+    thrust: readings.get(index) ?? null,
+    engineLevels: [],
+    dtMs: 100,
+  }));
+  for (const readings of [new Map(), new Map([[20, 0]]), new Map([[17, 0], [23, 0]])]) {
+    const result = scoreFrames(framesWithReadings(readings));
+    assert.strictEqual(result.breakdown.thrust_stable_ok, null, 'Two observed endpoints at least one second apart are required');
+    assert.strictEqual(result.coverage.metrics.thrust_ok.available, false);
+    assert.strictEqual(result.coverage.metrics.thrust_ok.eligibleCount, 0);
+    assert(!result.gateFailures.includes('thrust_unstable_after_gate'));
+  }
+  const zeros = scoreFrames(framesWithReadings(new Map([[11, 0], [23, 0], [35, 0]])));
+  assert.strictEqual(zeros.breakdown.thrust_stable_ok, 100);
+  assert.strictEqual(zeros.coverage.metrics.thrust_ok.eligibleCount, 2, 'Missing frames must not manufacture extra comparisons');
 });
 
 test('does not score with fewer than 5 samples', () => {

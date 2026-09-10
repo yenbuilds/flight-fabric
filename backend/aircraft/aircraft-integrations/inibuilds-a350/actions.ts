@@ -1,5 +1,7 @@
 'use strict';
 
+import { lvarApuStartRequest } from '../apu-start.js';
+
 import type {
   AircraftIntegrationAction,
   AircraftIntegrationNumberInput,
@@ -171,6 +173,7 @@ function numericEventAction(params: {
         fieldId: params.fieldId,
         expectedInput: true,
         timeoutMs: DEFAULT_READBACK_TIMEOUT_MS,
+        freshness: 'field',
       },
     }],
     verification: 'untested',
@@ -349,13 +352,9 @@ addBooleanActions({
   lvar: 'INI_APU_MASTER_SWITCH',
   prefix: 'systems.apuMaster',
 });
-actions['systems.apuStart.start'] = setLvarAction({
-  actionId: 'systems.apuStart.start',
-  expectedValue: true,
-  fieldId: 'systems.apuStart',
-  groupId: 'iniA350.systems.apuStart',
+actions['systems.apuStart.start'] = lvarApuStartRequest({
+  prefix: 'iniA350',
   lvar: 'INI_APU_START_BUTTON',
-  rawValue: 1,
 });
 addDetentActions({
   fieldId: 'systems.airFlowMode',

@@ -1131,6 +1131,54 @@ mod tests {
     }
 
     #[test]
+    fn pmdg_efis_manifests_decode_native_aligned_payloads() {
+        // Independent payload positions from the installed SDK headers, including
+        // native alignment padding. No vendor header or binary is redistributed.
+        let manifests = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sdk-connectors");
+        let adapter = parse_connector(
+            &fs::read_to_string(manifests.join("pmdg-737-ng3-clientdata.json")).unwrap(),
+        ).unwrap();
+        let mut raw = vec![0_u8; 916];
+        raw[404] = 1;
+        raw[405] = 0;
+        raw[414] = 0;
+        raw[415] = 7;
+        raw[430..432].copy_from_slice(&12300_u16.to_le_bytes());
+        let state = adapter.normalize(&adapter.decode(&raw).unwrap()).unwrap();
+        assert_eq!(state["efis"]["captain"]["minimumsMode"], json!("baro"));
+        assert_eq!(state["efis"]["firstOfficer"]["minimumsMode"], json!("radio"));
+        assert_eq!(state["efis"]["captain"]["rangeNm"], json!("5"));
+        assert_eq!(state["efis"]["firstOfficer"]["rangeNm"], json!("640"));
+        assert_eq!(state["automation"]["ap"]["selected"]["altitudeFt"], json!(12300));
+
+        let adapter = parse_connector(
+            &fs::read_to_string(manifests.join("pmdg-777x-clientdata.json")).unwrap(),
+        ).unwrap();
+        let mut raw = vec![0_u8; 684];
+        raw[268] = 1;
+        raw[269] = 0;
+        raw[278] = 0;
+        raw[279] = 6;
+        raw[513] = 1;
+        raw[514] = 0;
+        raw[516..520].copy_from_slice(&(-200_i32).to_le_bytes());
+        raw[520..524].copy_from_slice(&420_i32.to_le_bytes());
+        raw[524] = 0;
+        raw[525] = 1;
+        raw[528..532].copy_from_slice(&300_i32.to_le_bytes());
+        raw[532..536].copy_from_slice(&210_i32.to_le_bytes());
+        let state = adapter.normalize(&adapter.decode(&raw).unwrap()).unwrap();
+        assert_eq!(state["efis"]["captain"]["rangeNm"], json!("10"));
+        assert_eq!(state["efis"]["firstOfficer"]["rangeNm"], json!("640"));
+        assert_eq!(state["efis"]["captain"]["minimumsMode"], json!("baro"));
+        assert_eq!(state["efis"]["captain"]["baroMinimumsSet"], json!(true));
+        assert_eq!(state["efis"]["captain"]["baroMinimumsFt"], json!(-200));
+        assert_eq!(state["efis"]["firstOfficer"]["baroMinimumsSet"], json!(false));
+        assert_eq!(state["efis"]["firstOfficer"]["radioMinimumsSet"], json!(true));
+        assert_eq!(state["efis"]["firstOfficer"]["radioMinimumsFt"], json!(210));
+    }
+
+    #[test]
     fn has_no_builtin_clientdata_targets() {
         assert!(resolve_clientdata_adapter("test-aircraft").is_none());
         assert!(resolve_clientdata_adapter("not-real").is_none());

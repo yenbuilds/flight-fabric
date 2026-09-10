@@ -1,8 +1,23 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
+import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
+import { presetObservation } from '../../aircraft/preset-observation.js';
 
 const aircraftControls = useAircraftControlsStore();
+const aircraftSpecific = useAircraftSpecificStore();
+const nowMs = ref(Date.now());
+let freshnessTimer;
+onMounted(() => { freshnessTimer = setInterval(() => { nowMs.value = Date.now(); }, 1000); });
+onUnmounted(() => clearInterval(freshnessTimer));
+
+function observation(command) {
+  return presetObservation(command, aircraftSpecific, Math.max(nowMs.value, Date.now()));
+}
+
+function isApuStart(command) {
+  return command.id === 'configuration.apu.start';
+}
 
 const presets = computed(() => Object.values(aircraftControls.aircraftCommandCatalogue.commands || {})
   .filter((command) => command?.kind === 'preset' && command?.input?.kind === 'none'));
@@ -19,8 +34,19 @@ function isPending(command) {
   return aircraftControls.isCommandPending(controlCommand(command));
 }
 
+function sourceUnavailableReason(command) {
+  if (!['pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId)
+    || !['configuration.lights.takeoff', 'configuration.apu.start'].includes(command.id)) return '';
+  const sdkStatus = aircraftSpecific.sourceStatuses.sdk || aircraftSpecific.sourceStatus;
+  return aircraftSpecific.sourceStatus !== 'connected' || sdkStatus !== 'connected'
+    ? 'Waiting for live PMDG SDK data.'
+    : '';
+}
+
 function isDisabled(command) {
-  return aircraftControls.isCommandDisabled(controlCommand(command));
+  return aircraftControls.isCommandDisabled(controlCommand(command))
+    || Boolean(sourceUnavailableReason(command))
+    || observation(command)?.inhibitsRequest === true;
 }
 
 function disabledReason(command) {
@@ -29,6 +55,8 @@ function disabledReason(command) {
     return 'This preset is not available for the active aircraft.';
   }
   if (isPending(command)) return 'This preset is already being applied.';
+  if (sourceUnavailableReason(command)) return sourceUnavailableReason(command);
+  if (observation(command)?.inhibitsRequest === true) return observation(command).label;
   return '';
 }
 
@@ -38,16 +66,19 @@ function voicePhrase(command) {
 }
 
 function applyPreset(command) {
+  if (isDisabled(command)) return false;
   return aircraftControls.requestControlCommand(controlCommand(command));
 }
 
 function actionLabel(command) {
-  if (isPending(command)) return 'Applying…';
+  if (isPending(command)) return isApuStart(command) ? 'Requesting…' : 'Applying…';
+  if (observation(command)?.inhibitsRequest === true) return 'Already active';
   if (isDisabled(command)) return 'Unavailable';
-  return 'Apply';
+  return isApuStart(command) ? 'Start' : 'Apply';
 }
 
 function actionAriaLabel(command) {
+  if (isApuStart(command)) return isPending(command) ? 'Requesting APU start' : 'Start APU';
   if (isPending(command)) return `Applying ${command.label}`;
   if (isDisabled(command)) return `${command.label} unavailable`;
   return `Apply ${command.label}`;
@@ -83,6 +114,9 @@ function disabledReasonId(command) {
               </span>
             </div>
             <p class="mt-1 text-xs leading-relaxed text-muted-fg">{{ command.description }}</p>
+            <p v-if="isApuStart(command)" class="mt-1 text-xs text-muted-fg" role="status">
+              {{ observation(command)?.label || 'APU status unknown' }}
+            </p>
             <p
               v-if="isDisabled(command) && disabledReason(command)"
               :id="disabledReasonId(command)"
@@ -96,7 +130,7 @@ function disabledReasonId(command) {
               type="button"
               class="min-h-11 w-full rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-200 transition-colors hover:border-emerald-300/70 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.03] disabled:text-gray-500"
               :disabled="isDisabled(command)"
-              :title="disabledReason(command) || `Apply ${command.label}`"
+              :title="disabledReason(command) || actionAriaLabel(command)"
               :aria-label="actionAriaLabel(command)"
               :aria-describedby="isDisabled(command) && disabledReason(command) ? disabledReasonId(command) : undefined"
               @click="applyPreset(command)"

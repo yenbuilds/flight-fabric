@@ -88,10 +88,6 @@ export const useLiveMapStore = defineStore('liveMap', () => {
     }
   }
 
-  function hideMapEmptyState() {
-    setMapEmptyState({ visible: false });
-  }
-
   function resetMapEmptyState() {
     mapEmptyVisible.value = true;
     mapEmptyMessage.value = DEFAULT_MAP_EMPTY_MESSAGE;
@@ -195,7 +191,6 @@ export const useLiveMapStore = defineStore('liveMap', () => {
     followStatusClass,
     followStatusKind,
     followStatusLabel,
-    hideMapEmptyState,
     hideDestinationProgress,
     hideOverlay,
     mapEmptyMessage,

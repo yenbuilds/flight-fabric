@@ -28,8 +28,8 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     assert.equal(integration.presentation.templateId, 'pmdg-737');
   }
 
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 121);
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 161);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 130);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 186);
   assert.equal(
     PMDG_737_INTEGRATION.fields['aircraft.model'].sources[0].decode.values['737-800 BBJ BW'],
     '737-800 BBJ BW',
@@ -136,10 +136,23 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     profileKey: PMDG_737_800_PROFILE_KEY,
     actionId: 'systems.apu.start',
   });
-  assert.equal(apuStart.routes[0].command, '#69750');
-  assert.equal(apuStart.routes[0].value, 2);
-  assert.equal(apuStart.routes[0].readback.fieldId, 'systems.apuMode');
-  assert.equal(apuStart.routes[0].readback.confirmation, 'changed');
+  assert.equal(apuStart.routes.length, 1, 'do not fall back to the ineffective direct START value');
+  assert.equal(apuStart.routes[0].transport, 'simconnect-sequence');
+  assert.equal(apuStart.routes[0].requiredSdkAdapter, 'clientdata-manifest');
+  assert.deepEqual(apuStart.routes[0].operations, [
+    { type: 'event', name: 'ROTOR_BRAKE', value: 11802 },
+    { type: 'event', name: 'ROTOR_BRAKE', value: 11802 },
+    { type: 'event', name: 'ROTOR_BRAKE', value: 11804 },
+  ]);
+  assert.equal(apuStart.routes[0].confirmation, 'transport-acknowledged');
+  assert.equal(apuStart.routes[0].readback, undefined);
+  assert.deepEqual(apuStart.guard.skipWhen, [{ fieldId: 'systems.apuMode', expectedValue: 'start' }]);
+  const apuContext = { adapterId: PMDG_737_ADAPTER_ID,
+    profileKey: PMDG_737_800_PROFILE_KEY, actionId: 'systems.apu.start' };
+  assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['simconnect-sequence']), null);
+  assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['sdk']), null);
+  assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['sdk', 'simconnect-sequence']).transport,
+    'simconnect-sequence');
 
   for (const [actionId, command, value, fieldId, expectedValue] of [
     ['gear.handle.up', '#70087', 0, 'gear.handleMode', 'up'],

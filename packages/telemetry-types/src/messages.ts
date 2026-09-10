@@ -536,6 +536,8 @@ export interface AircraftSpecificStateMessage extends BaseMessage {
     sources: Record<string, AircraftSpecificSourceStatus>;
   };
   values: Record<string, AircraftSpecificPrimitive>;
+  /** Individually observed samples; omitted timestamps must not be treated as fresh. */
+  valueUpdatedAt?: Record<string, string>;
   unavailable: string[];
   actionCapabilities: Record<string, boolean>;
   updatedAt: string;

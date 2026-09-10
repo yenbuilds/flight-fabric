@@ -111,7 +111,7 @@ export function roundedHeadingDifferenceDegrees(
   return Math.round(diff * factor) / factor;
 }
 
-export function getMagvarDeg(input: HeadingInput): number | null {
+function getMagvarDeg(input: HeadingInput): number | null {
   return firstFiniteNumber(
     input?.magvar_deg,
     input?.magvarDeg,

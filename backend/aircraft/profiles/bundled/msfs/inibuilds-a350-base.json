@@ -82,14 +82,24 @@
   "provenance": {
     "sources": [
       {
+        "type": "community",
+        "authority": "community",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "Original HubHop A350 ND range mappings",
+        "url": "https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc",
+        "retrievedAt": "2026-09-07",
+        "notes": "HubHop presets map INI_MAP_RANGE_CAPT_SWITCH and INI_MAP_RANGE_FO_SWITCH positions 5..11 to the normal 10..640 NM range detents. This differs from INI_MAP_MODE_RANGE_* in the official LVar PDF. The adapter uses the original integration spelling with same-field confirmation, never writes both names, and leaves airport zoom selection unavailable. A350 is not installed locally; live validation of names and ND mode-dependent displayed scale is required. See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md."
+      },
+      {
         "type": "official-sdk",
         "authority": "aircraft-vendor",
         "access": "public",
         "supportsActiveMappings": true,
         "name": "iniBuilds A350 Airliner LVAR List (A350 LVARs-FEB2025.pdf)",
         "url": "https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/",
-        "retrievedAt": "2026-09-02",
-        "notes": "iniBuilds staff publish the stable INI_* variable names, types, selector detents and direct set/read FCU variables used by this adapter, and explicitly document third-party read/write use."
+        "retrievedAt": "2026-09-06",
+        "notes": "iniBuilds staff publish the stable INI_* variable names, types, selector detents and direct set/read FCU variables used by this adapter, and explicitly document third-party read/write use. APU START review 2026-09-06 reuses the vendor-published INI_APU_MASTER_SWITCH=1 and INI_APU_START_BUTTON=1 mappings. The shared preset confirms master ON then acknowledges the START write without waiting for the start-button readback or spool-up. The button state is not treated as AVAIL. No installed A350 build was available during this review."
       },
       {
         "type": "official-sdk",
@@ -119,7 +129,8 @@
         "All aircraft-specific writes are source-backed and readback-guarded, but remain marked untested until exercised against the current installed A350 package.",
         "AP1, AP2, A/THR, LOC, APPR, FCU push/pull and relative selector command variables auto-reset. They remain excluded until a separate stable mode confirmation is available.",
         "The public LVAR document's emergency-exit legend contains a duplicated value. The adapter interprets its declared 0-2 domain as OFF=0, ARM=1 and ON=2 pending live validation.",
-        "Standard surface events can still be ignored or incompletely mirrored by a custom aircraft; every surface action therefore requires newer matching logical readback and never retries."
+        "Standard surface events can still be ignored or incompletely mirrored by a custom aircraft; every surface action therefore requires newer matching logical readback and never retries.",
+        "Start APU UI and voice preset is source-backed and covered by automated transport tests; live start, electrical prerequisites, selector release and aircraft variant/build coverage remain untested. See docs/APU-START-VALIDATION.md."
       ]
     }
   }

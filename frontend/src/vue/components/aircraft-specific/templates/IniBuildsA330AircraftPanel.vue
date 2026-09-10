@@ -264,18 +264,6 @@ function decimalText(id, precision = 1, fallback = '--') {
   return current === null ? fallback : current.toFixed(precision);
 }
 
-function headingText() {
-  const current = numberValue('flightGuidance.headingDeg');
-  return current === null ? '---' : String(Math.round(current)).padStart(3, '0');
-}
-
-function verticalSpeedText() {
-  const current = numberValue('flightGuidance.verticalSpeedFpm');
-  if (current === null) return '----';
-  const rounded = Math.round(current);
-  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString('en-US')}`;
-}
-
 function booleanText(id, trueLabel = 'ON', falseLabel = 'OFF') {
   const current = booleanValue(id);
   if (current === true) return trueLabel;

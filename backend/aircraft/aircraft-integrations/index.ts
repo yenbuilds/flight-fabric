@@ -1,6 +1,8 @@
 'use strict';
 
 import type { AircraftIntegrationDefinition } from './types.js';
+import { cockpitLightingIntegration } from './cockpit-lighting.js';
+import { indexedExteriorLights } from './indexed-exterior-lights.js';
 
 const {
   createAircraftIntegrationRegistry,
@@ -185,7 +187,18 @@ const {
   PMDG_777F_PROFILE_KEY: string;
 };
 
+const headwindLighting = cockpitLightingIntegration('headwind-a330');
+const HEADWIND_A330_INTEGRATION = defineAircraftIntegration({
+  id: 'headwind-a330',
+  aircraft: { vendor: 'Headwind Simulations', family: 'Airbus A330-900neo' },
+  trustedProfileKeys: ['bundled/msfs/headwind-a330'],
+  presentation: { templateId: 'generic' },
+  fields: { ...headwindLighting.fields, ...indexedExteriorLights('headwind-a330').fields },
+  actions: { ...headwindLighting.actions, ...indexedExteriorLights('headwind-a330').actions },
+});
+
 const defaultAircraftIntegrationRegistry = createAircraftIntegrationRegistry([
+  HEADWIND_A330_INTEGRATION,
   FENIX_A32X_INTEGRATION,
   FBW_A32NX_INTEGRATION,
   FBW_A380X_INTEGRATION,

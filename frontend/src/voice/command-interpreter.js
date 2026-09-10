@@ -3,11 +3,16 @@ import {
   parseAviationNumber,
   stripMatchingUnitSuffix,
 } from './aviation-number-parser.js';
+import { parseComRadioFrequency } from '../aircraft/com-radio.js';
+import { parseSpokenSquawk } from '../aircraft/transponder.js';
+import { normalizeAviationAcronyms } from './aviation-acronyms.js';
 
 const TRUE_WORDS = new Set(['on', 'engage', 'engaged', 'arm', 'armed', 'set']);
 const FALSE_WORDS = new Set(['off', 'disengage', 'disengaged', 'disarm', 'disarmed', 'release', 'released']);
 const ENUM_ALIASES = Object.freeze({
-  one: '1', two: '2', five: '5', ten: '10', fifteen: '15', twenty: '20',
+  one: '1', two: '2', three: '3', five: '5', ten: '10', fifteen: '15', twenty: '20',
+  retract: 'retracted',
+  med: 'medium',
   'twenty five': '25', thirty: '30', forty: '40',
   clb: 'climb',
   'flex mct': 'flex',
@@ -97,9 +102,15 @@ function parseValue(text, input, { allowFlightLevelShorthand = false } = {}) {
     // not permission to reinterpret an already-valid value.
     if (allowed.includes(valueText)) return { value: valueText };
     const normalized = ENUM_ALIASES[valueText];
-    return allowed.includes(normalized) ? { value: normalized } : null;
+    if (allowed.includes(normalized)) return { value: normalized };
+    const number = parseAviationNumber(valueText);
+    return Number.isInteger(number) && allowed.includes(String(number)) ? { value: String(number) } : null;
   }
   if (input.kind === 'number') {
+    if (input.units === 'squawk') {
+      const value = parseSpokenSquawk(valueText);
+      return value === null ? null : { value };
+    }
     const parsedValue = parseAviationNumber(valueText, {
       // Voice headings spoken digit-by-digit should use the normal three
       // digits. This prevents a clipped trailing zero from turning 270 into 27.
@@ -115,6 +126,7 @@ function parseValue(text, input, { allowFlightLevelShorthand = false } = {}) {
       ? parsedValue * 100
       : parsedValue;
     if (!Number.isFinite(value) || value < input.min || value > input.max) return null;
+    if (input.units === 'com-megahertz' && parseComRadioFrequency(value) == null) return null;
     const quotient = (value - input.min) / input.step;
     if (!Number.isFinite(quotient) || Math.abs(quotient - Math.round(quotient)) > 1e-7) return null;
     return { value };
@@ -165,6 +177,7 @@ function literalTokenMatches(actual, expected) {
 }
 
 function correctedNumericSlot(tokens, input) {
+  if (input?.units === 'squawk') return null;
   if (input?.kind !== 'number') return null;
   const numericTokens = stripMatchingUnitSuffix(tokens, input.units);
   if (numericTokens.length < 3) return null;
@@ -194,8 +207,9 @@ function correctedNumericSlot(tokens, input) {
     : null;
 }
 
-function correctedTranscriptForPattern(transcript, pattern, input) {
-  const parts = normalizedPatternParts(pattern);
+function correctedTranscriptForPattern(rawTranscript, pattern, input) {
+  const transcript = normalizeAviationAcronyms(rawTranscript);
+  const parts = normalizedPatternParts(normalizeAviationAcronyms(pattern));
   if (!parts?.normalizedPattern) return null;
   const spoken = transcript.split(' ');
   const offset = spoken.length > 1 && LEADING_FILLERS.has(spoken[0]) ? 1 : 0;
@@ -205,7 +219,7 @@ function correctedTranscriptForPattern(transcript, pattern, input) {
     if (spoken.length - offset !== expected.length) return null;
     if (!expected.every((token, index) => literalTokenMatches(spoken[offset + index], token))) return null;
     const corrected = expected.join(' ');
-    return corrected === transcript ? null : corrected;
+    return corrected === rawTranscript ? null : corrected;
   }
 
   const prefix = parts.prefix ? parts.prefix.split(' ') : [];
@@ -222,7 +236,7 @@ function correctedTranscriptForPattern(transcript, pattern, input) {
   const spokenValue = spoken.slice(valueOffset, suffixOffset);
   const correctedValue = correctedNumericSlot(spokenValue, input) || spokenValue;
   const corrected = [...prefix, ...correctedValue, ...suffix].join(' ');
-  return corrected === transcript ? null : corrected;
+  return corrected === rawTranscript ? null : corrected;
 }
 
 function commandList(catalogue) {
@@ -284,7 +298,11 @@ export function interpretAircraftVoiceCommand(rawTranscript, catalogue) {
           ? correctedTranscriptForPattern(transcript, pattern, command.input)
           : transcript;
         if (!interpretedTranscript) continue;
-        const input = matchPattern(interpretedTranscript, pattern, command.input);
+        const fixedInput = command.input?.kind === 'boolean' && !pattern.includes('{value}')
+          && command.speech.fixedInputs?.[pattern];
+        const input = fixedInput && typeof fixedInput.value === 'boolean'
+          ? (interpretedTranscript === normalizeVoiceText(pattern) ? { value: fixedInput.value } : null)
+          : matchPattern(interpretedTranscript, corrected ? normalizeAviationAcronyms(pattern) : pattern, command.input);
         if (input === null) {
           if (corrected && interpretedTranscript !== transcript) {
             invalidCorrections.add(interpretedTranscript);

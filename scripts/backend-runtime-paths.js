@@ -69,21 +69,12 @@ function resolveBackendRuntimeFile(...segments) {
   throw new Error(`Unable to locate dist backend runtime file: ${distPath}`);
 }
 
-function resolveBackendRuntimeRoot() {
-  const entryPath = resolveBackendRuntimeFile('core', 'simbridge.js');
-  return path.dirname(path.dirname(entryPath));
-}
-
 function resolveBackendEntry() {
   return resolveBackendRuntimeFile('core', 'simbridge.js');
 }
 
 module.exports = {
   ROOT,
-  DIST_RUNTIME_REQUIRED_PATHS,
-  ensureBackendRuntime,
-  hasCompleteDistRuntime,
   resolveBackendEntry,
   resolveBackendRuntimeFile,
-  resolveBackendRuntimeRoot,
 };

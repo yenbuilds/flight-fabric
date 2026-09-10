@@ -861,6 +861,53 @@ test('touchdown VS prefers recent airborne sample when WOW frame is damped', () 
   assert.strictEqual(finalEvent.vs, -650, `Expected VS -650 fpm from recent airborne sample, got ${finalEvent.vs}`);
 });
 
+test('touch-and-go rearming finalizes the preceding touchdown before another contact can replace it', () => {
+  const runner = createLandingRunner();
+  const broadcasts = [];
+  const finalPayloads = [];
+  const off = eventBus.on('landing:final', (payload) => finalPayloads.push(payload));
+  const t0 = 1_700_100_500_000;
+  const ctx = makeCtx();
+  const update = (elapsedMs, wow, vsFpm, raFt, gsKts = 130) => runner.update(
+    makeFrame({ wow, gs: gsKts, display: { iasKts: 140, gsKts, vsFpm, raFt } }),
+    (payload) => broadcasts.push(payload),
+    { nowEpochMs: t0 + elapsedMs },
+    ctx,
+  );
+
+  try {
+    update(0, false, -180, 120);
+    update(100, true, -180, 0);
+    // Slowing below 80 kt makes this a touch-and-go under phase-runner's
+    // existing policy, so no go-around event resets the landing runner.
+    update(300, true, 0, 0, 70);
+    // A new attempt is armed after the existing airborne cooldown, while
+    // the first runway-occupancy wait is still open.
+    update(500, false, 300, 10);
+    update(10_000, false, -500, 100);
+
+    assert.strictEqual(finalPayloads.length, 1, 'Re-arming must preserve the first accepted touchdown');
+    assert.strictEqual(runner.isRolloutActive(), false, 'The preceding rollout must finish when a new attempt is armed');
+
+    update(10_100, true, -450, 0);
+    update(10_300, true, 0, 0);
+    update(90_000, true, 0, 0);
+  } finally {
+    off();
+  }
+
+  assert.strictEqual(finalPayloads.length, 2, 'Both accepted touchdowns must retain final recorded scores');
+  assert.deepStrictEqual(finalPayloads.map((payload) => payload.vs_fpm), [-180, -500]);
+  assert.deepStrictEqual(finalPayloads.map((payload) => payload.grade), ['GOOD', 'HARD']);
+  assert.deepStrictEqual(finalPayloads.map((payload) => payload.aircraft_profile_id), ['generic', 'generic']);
+  assert.deepStrictEqual(finalPayloads.map((payload) => payload.bounce_count), [0, 0]);
+  assert.deepStrictEqual(
+    broadcasts.filter((payload) => payload.type === 'landing').map((payload) => [payload.vs, payload.final]),
+    [[-180, false], [-180, true], [-500, false], [-500, true]],
+    'The first final broadcast must precede the next touchdown without duplicates',
+  );
+});
+
 test('non-descending conventional VS preserves touchdown but leaves rate and grade unavailable', () => {
   const runner = createLandingRunner();
   const broadcasts = [];

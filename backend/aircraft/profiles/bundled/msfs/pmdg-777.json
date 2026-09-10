@@ -113,10 +113,31 @@
     "contributor": "YenBuilds",
     "updated": "2026-07-27",
     "status": "partial",
-    "notes": "PMDG 777 family profile using the official 777 SDK and guarded backend-owned event routes. Live telemetry and writes remain disabled until the user accepts the PMDG SDK EULA."
+    "notes": "PMDG 777 family profile using the official 777 SDK and guarded backend-owned event routes. SDK data requires EnableDataBroadcast=1; writes require matching live ClientData and the SDK event writer."
   },
   "provenance": {
     "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS radio events and transponder state",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm",
+        "retrievedAt": "2026-09-07",
+        "notes": "Defines XPNDR_SET BCO16 encoding and TRANSPONDER CODE:1 / TRANSPONDER STATE:1 state. Aircraft compatibility is reviewed separately against the original integrations cited in docs/ATC-EFIS-AIRCRAFT-COVERAGE.md. Squawk writes require fresh powered state and a newer selected-code readback. IDENT uses the aircraft button, not a generic IDENT event."
+      },
+      {
+        "type": "community",
+        "authority": "community",
+        "access": "public",
+        "supportsActiveMappings": false,
+        "name": "Original PMDG 777 integration",
+        "url": "https://github.com/oasis1701/msfs-blind-assist/blob/main/docs/pmdg-777.md",
+        "retrievedAt": "2026-09-07",
+        "notes": "Documents XPNDR_SET for the PMDG 777 code. Corroborates the simulator event contract; Flight Fabric requires its own post-write code confirmation. No source code is copied."
+      },
+
       {
         "type": "official-sdk",
         "authority": "aircraft-vendor",
@@ -124,8 +145,8 @@
         "supportsActiveMappings": true,
         "name": "PMDG 777 MSFS SDK manual and installed sample",
         "url": "https://manuals.pmdg.com/777/introduction/index.html",
-        "retrievedAt": "2026-07-27",
-        "notes": "The installed PMDG 777-300ER 2.4.141 SDK manual, header, and connection sample define the 684-byte read-only ClientData contract, direct-position control events, data-broadcast requirement, and required SDK EULA opt-in. The audited header SHA-256 is 3D0ECFB39FE7524A5017B63C7CB52F4D850B97F738ED5D4D8F1637AFC1A676F7. Flight Fabric's checked-in pmdg-777x-clientdata connector is loaded through the declarative clientdata-manifest adapter; the public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files."
+        "retrievedAt": "2026-09-06",
+        "notes": "The installed PMDG 777-300ER 2.4.141 SDK manual, header, and connection sample define the 684-byte read-only ClientData contract, direct-position control events and data-broadcast requirement. The audited header SHA-256 is 3D0ECFB39FE7524A5017B63C7CB52F4D850B97F738ED5D4D8F1637AFC1A676F7. Flight Fabric's checked-in pmdg-777x-clientdata connector is loaded through the declarative clientdata-manifest adapter; the public source includes Flight Fabric's independently written SDK interoperability mappings but not PMDG headers, manuals, samples, binaries, or other vendor files. APU START interaction reviewed 2026-09-10 after the related 737 report, installed PMDG 777-300ER 2.4.146: 77W_Cockpit_Behavior.xml component switch_03_a defines control 3 with clockwise/right press action 2 and release action 4. START sends ROTOR_BRAKE 302, 302, 304 to rotate through ON into START and release once. This replaces the unverified direct SDK event 69635 payload 2; ELEC_APU_Selector OFF=0, ON=1, START=2 describes telemetry. The sequence retains matching SDK connectivity, exact-profile routing, cooldown and no retry, and acknowledges only after all three interactions are accepted. APURunning remains independent observation and suppresses a new START when fresh. No spool-up delay is added. A live 777 failure has not been confirmed; live retesting is pending. See docs/APU-START-VALIDATION.md. ATC/EFIS review 2026-09-07: installed SDK/header and cockpit XML define EFIS_RangeSel, EFIS_MinsSelBARO and the IDENT mouse interaction through ROTOR_BRAKE (press switch*100+1, release switch*100+4). 777 switch 746, EFIS_BaroMinimumsSet at 513/514, signed EFIS_BaroMinimums at 516/520, EFIS_RadioMinimumsSet at 524/525 and signed EFIS_RadioMinimums at 528/532 in the 684-byte native layout. Approach-control review 2026-09-07 against installed PMDG_777X_SDK.h (2.4.146): DOWN/UP/50PCT speedbrake targets use events 74613/74615/74616, one left press/release and existing FCTL_Speedbrake_Lever confirmation at 0/100/50. Existing arming, flap and autobrake detents are preserved. See docs/APPROACH-CONTROLS-AIRCRAFT-COVERAGE.md; live validation is pending."
       },
       {
         "type": "official-docs",
@@ -147,9 +168,10 @@
       "lastVerified": "2026-07-27",
       "knownIssues": [
         "The 777-300ER is the first live-validation target; the 200ER, 200LR, and 777F variants require in-aircraft testing.",
-        "SDK readback requires EnableDataBroadcast=1 and an accepted PMDG EULA.",
+        "SDK readback requires EnableDataBroadcast=1.",
         "The expanded control catalog is structurally checked against the installed SDK but remains unverified until each switch is confirmed in the simulator.",
-        "Guarded emergency, maintenance, door, and momentary controls remain intentionally unavailable."
+        "Guarded emergency, maintenance, door, and momentary controls remain intentionally unavailable.",
+        "Start APU UI and voice preset is source-backed and covered by automated transport tests; live start, electrical prerequisites, selector release and aircraft variant/build coverage remain untested. See docs/APU-START-VALIDATION.md."
       ]
     }
   }

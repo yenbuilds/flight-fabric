@@ -1197,7 +1197,7 @@ async function runAircraftSearchSmoke(windowRef) {
       profileKey: 'bundled/msfs/fenix-a320',
       templateId: 'fenix-a32x',
       sectionPrefix: 'fenix-section-',
-      sectionCount: 14,
+      sectionCount: 15,
     },
     {
       profileKey: 'bundled/msfs/fbw-a32nx',

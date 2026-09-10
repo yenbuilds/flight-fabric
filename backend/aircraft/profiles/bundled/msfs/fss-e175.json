@@ -111,7 +111,8 @@
     },
     "controls": {
       "backend": "simconnect",
-      "_comment": "No aircraft-specific RPN toggle or relative rotary action is active. Exact command semantics require vendor documentation and in-simulator verification."
+      "_comment": "No aircraft-specific RPN toggle or relative rotary action is active. Exact command semantics require vendor documentation and in-simulator verification.",
+      "standardLightFallback": false
     },
     "presentation": {
       "visualSupport": "basic",

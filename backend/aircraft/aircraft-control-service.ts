@@ -892,6 +892,10 @@ function isGenericMsfsFallbackAllowed(profile: unknown, request: NormalizedContr
     return true;
   }
 
+  if (controls?.standardLightFallback === true && request.control === 'lights') {
+    return true;
+  }
+
   if (controls && controls.genericFallback === false) {
     return controls.standardSurfaceFallback === true && isStandardMsfsSurfaceFallback(request);
   }
@@ -1693,7 +1697,7 @@ async function executeAircraftControl(
   return normalizeProviderExecutionResult(result, resolved);
 }
 
-async function executeAircraftCommand(
+async function executeAircraftCommandSteps(
   provider: AircraftControlProvider | null | undefined,
   rawRequest: unknown,
   options: ResolveOptions = {},
@@ -1753,6 +1757,7 @@ async function executeAircraftCommand(
       label: step.label,
       ok: result.ok === true,
       code: result.code,
+      ...(result.transportAcknowledged === true ? { transportAcknowledged: true } : {}),
       ...(result.ok === true ? {} : { error: result.error }),
       request: result.request || step.resolved.request,
       action: result.action || step.resolved.action,
@@ -1774,6 +1779,7 @@ async function executeAircraftCommand(
         controlRequests: preflightSteps.map((candidate) => candidate.resolved.request),
         actions: preflightSteps.map((candidate) => candidate.resolved.action),
         completedStepCount: completedSteps.length,
+        acceptedStepLabels: completedSteps.map((completed) => completed.label),
         failedStepIndex: index,
         failedStepLabel: step.label,
         stepCount: preflightSteps.length,
@@ -1787,11 +1793,13 @@ async function executeAircraftCommand(
 
   const result = lastExecutionResult || completedSteps[completedSteps.length - 1];
   const unconfirmedStepCount = completedSteps.filter((step) => step.code === 'sent_unconfirmed').length;
+  const transportAcknowledged = completedSteps.some((step) => step.transportAcknowledged === true);
   return {
     ...result,
     ok: true,
     code: unconfirmedStepCount > 0 ? 'sent_unconfirmed' : (result.code || 'executed'),
     ...(unconfirmedStepCount > 0 ? { unconfirmedStepCount } : {}),
+    ...(transportAcknowledged ? { transportAcknowledged: true } : {}),
     error: '',
     command: translated.command,
     commandId: translated.command.commandId,
@@ -1805,6 +1813,30 @@ async function executeAircraftCommand(
     steps: completedSteps,
     request: translated.command,
   };
+}
+
+// Global and display-only presets touch the same knobs. Hold one lock for the
+// complete recipe, including the gap between its individually guarded steps.
+const lightingPresetProviders = new WeakSet<object>();
+const exteriorLightProviders = new WeakSet<object>();
+async function executeAircraftCommand(
+  provider: AircraftControlProvider | null | undefined,
+  rawRequest: unknown,
+  options: ResolveOptions = {},
+): Promise<GenericRecord> {
+  const commandId = (rawRequest as GenericRecord | null)?.commandId;
+  const exterior = typeof commandId === 'string' && (commandId.startsWith('lights.') || commandId === 'configuration.lights.takeoff');
+  if (!provider || (!exterior && !['configuration.lighting.cockpit', 'configuration.lighting.displays'].includes(commandId))) {
+    return executeAircraftCommandSteps(provider, rawRequest, options);
+  }
+  const inFlight = exterior ? exteriorLightProviders : lightingPresetProviders;
+  if (inFlight.has(provider)) return {
+    ok: false, code: 'action_in_flight', error: exterior ? 'An exterior light command is already being applied.' : 'A cockpit lighting preset is already being applied.',
+    commandId, request: rawRequest, completedStepCount: 0,
+  };
+  inFlight.add(provider);
+  try { return await executeAircraftCommandSteps(provider, rawRequest, options); }
+  finally { inFlight.delete(provider); }
 }
 
 const aircraftControlServiceApi = {

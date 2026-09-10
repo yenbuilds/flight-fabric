@@ -1210,6 +1210,10 @@
           "type": "boolean",
           "description": "When genericFallback is omitted or false, allows only the built-in MSFS gear up/down/toggle and flaps increment/decrement fallback actions."
         },
+        "standardLightFallback": {
+          "type": "boolean",
+          "description": "Explicit light-only opt-in for the built-in MSFS navigation, beacon, strobe, landing and taxi SET events. Does not enable autopilot or other cockpit controls."
+        },
         "aircraftSpecific": {
           "$ref": "#/definitions/aircraftSpecificControlsSection"
         },

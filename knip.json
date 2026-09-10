@@ -4,6 +4,7 @@
     ".": {
       "entry": [
         "tests/scripts/test*.js",
+        "tests/fixtures/*-browser.js",
         "tests/backend/**/*.test.ts",
         "tests/support/**/*.ts",
         "scripts/dev/pmdg-737-preview-client.js",
@@ -17,9 +18,14 @@
         "tests/**/*.{js,ts}"
       ],
       "ignoreDependencies": [
+        "ajv",
+        "ajv-formats",
         "app-builder-lib",
+        "dotenv",
         "electron",
-        "tailwindcss"
+        "pinia",
+        "tailwindcss",
+        "vue"
       ]
     },
     "backend": {

@@ -33,6 +33,14 @@ test('aviation readbacks speak flight guidance values unambiguously', () => {
 });
 
 test('aviation readbacks use natural state confirmations', () => {
+  for (const [target, label] of [['landing', 'Landing lights'], ['taxi', 'Taxi lights'], ['runwayTurnoff', 'Runway turnoff lights']]) {
+    for (const value of [false, true]) assert.equal(formatAviationReadback({ commandId: `lights.${target}.set`, label, input: { value } }),
+      `${label} ${value ? 'on' : 'off'}.`);
+  }
+  for (const [target, label] of [['cockpit', 'Cockpit lighting'], ['displays', 'Flight displays']]) {
+    assert.equal(formatAviationReadback({ commandId: `configuration.lighting.${target}`, input: { value: 75 } }),
+      `${label} 75 percent set.`);
+  }
   assert.equal(formatAviationReadback({
     commandId: 'surfaces.parkingBrake.set', label: 'Parking brake', input: { value: false },
   }), 'Parking brake released.');

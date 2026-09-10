@@ -1,5 +1,7 @@
 'use strict';
 
+import { a380BaroFields } from './baro.js';
+
 import type {
   AircraftIntegrationDecoder,
   AircraftIntegrationField,
@@ -14,21 +16,6 @@ function lvarField(
     id,
     sources: [{
       route: { type: 'lvar', name: `L:${name}`, unit: 'Number' },
-      decode,
-    }],
-  };
-}
-
-function gaugeField(
-  id: string,
-  name: string,
-  unit: string,
-  decode: AircraftIntegrationDecoder,
-): AircraftIntegrationField {
-  return {
-    id,
-    sources: [{
-      route: { type: 'lvar', name: `A:${name}`, unit },
       decode,
     }],
   };
@@ -77,15 +64,6 @@ function numberField(
   return lvarField(id, name, { type: 'number', precision });
 }
 
-function numberGaugeField(
-  id: string,
-  name: string,
-  unit: string,
-  precision = 0,
-): AircraftIntegrationField {
-  return gaugeField(id, name, unit, { type: 'number', precision });
-}
-
 function numberSimvarField(
   id: string,
   name: string,
@@ -107,6 +85,11 @@ function enumField(
 // hardware/software integrations. Raw A32NX-prefixed names stay confined to
 // this adapter; the prefix is part of the documented A380X interface.
 const FBW_A380X_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
+  ...a380BaroFields(),
+  'systems.apuMaster': booleanField('systems.apuMaster', 'A32NX_OVHD_APU_MASTER_SW_PB_IS_ON'),
+  'systems.apuMasterFault': booleanField('systems.apuMasterFault', 'A32NX_OVHD_APU_MASTER_SW_PB_HAS_FAULT'),
+  'systems.apuStart': booleanField('systems.apuStart', 'A32NX_OVHD_APU_START_PB_IS_ON'),
+  'systems.apuAvailable': booleanField('systems.apuAvailable', 'A32NX_OVHD_APU_START_PB_IS_AVAILABLE'),
   'propulsion.throttleLever1Angle': numberField(
     'propulsion.throttleLever1Angle',
     'A32NX_AUTOTHRUST_TLA:1',
@@ -129,22 +112,24 @@ const FBW_A380X_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   ),
   'flightGuidance.speedValue': numberField(
     'flightGuidance.speedValue',
-    'A32NX_AUTOPILOT_SPEED_SELECTED',
+    'A32NX_FCU_AFS_DISPLAY_SPD_MACH_VALUE',
+    2,
   ),
   'flightGuidance.headingDeg': numberField(
     'flightGuidance.headingDeg',
-    'A32NX_AUTOPILOT_HEADING_SELECTED',
+    'A32NX_FCU_AFS_DISPLAY_HDG_TRK_VALUE',
   ),
-  'flightGuidance.altitudeFt': numberGaugeField(
+  'flightGuidance.altitudeFt': numberField(
     'flightGuidance.altitudeFt',
-    'AUTOPILOT ALTITUDE LOCK VAR:3',
-    'Feet',
+    'A32NX_FCU_AFS_DISPLAY_ALT_VALUE',
   ),
   'flightGuidance.verticalValue': numberField(
     'flightGuidance.verticalValue',
-    'A32NX_AUTOPILOT_VS_SELECTED',
+    'A32NX_FCU_AFS_DISPLAY_VS_FPA_VALUE',
     1,
   ),
+  'flightGuidance.machMode': booleanField('flightGuidance.machMode', 'A32NX_FCU_AFS_DISPLAY_MACH_MODE'),
+  'flightGuidance.trkFpaMode': booleanField('flightGuidance.trkFpaMode', 'A32NX_FCU_AFS_DISPLAY_TRK_FPA_MODE'),
   'flightGuidance.ap1': booleanField(
     'flightGuidance.ap1',
     'A32NX_AUTOPILOT_1_ACTIVE',

@@ -1940,12 +1940,12 @@ test(
   fenixA320Lvars?.aircraftSpecific?.templateId === 'fenix-a32x' &&
     fenixA320Lvars?.aircraftSpecific?.integrationId === 'fenix-a32x' &&
     fenixA320Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fenix-a320' &&
-    fenixA320Lvars?.aircraftSpecific?.fields?.length === 120 &&
-    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 119 &&
-    fenixA320Lvars?.subscriptions?.length === 120 &&
+    fenixA320Lvars?.aircraftSpecific?.fields?.length === 157 &&
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 157 &&
+    fenixA320Lvars?.subscriptions?.length === 154 &&
     Object.keys(defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
       profileKey: 'bundled/msfs/fenix-a320',
-    })?.actions || {}).length === 277 &&
+    })?.actions || {}).length === 327 &&
     defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
       profileKey: 'local/msfs/fenix-a320',
     }) === null,
@@ -1964,7 +1964,7 @@ const fenixIntegration = defaultAircraftIntegrationRegistry.resolveIntegration('
 const fenixAltitudeTargetRoute = fenixIntegration?.actions?.['flightGuidance.altitudeHundred.set']?.routes?.[0];
 const fenixThrottleRoute = fenixIntegration?.actions?.['propulsion.throttle.toga']?.routes?.[0];
 test(
-  'Fenix A320 compiles FCU target confirmations and generic route preconditions but keeps V/S display-only',
+  'Fenix A320 compiles FCU target confirmations, including mode-guarded V/S, and route preconditions',
   ['flightGuidance.ap1', 'flightGuidance.ap2', 'flightGuidance.autothrust',
     'flightGuidance.localizer', 'flightGuidance.approach', 'flightGuidance.expedite',
     'flightGuidance.speedManaged', 'flightGuidance.headingManaged',
@@ -1977,10 +1977,11 @@ test(
       field.id === fenixAltitudeTargetRoute.precondition.fieldId
     )) &&
     fenixA320Lvars?.aircraftSpecific?.fields?.some(field => field.id === 'flightGuidance.verticalValue') &&
-    !fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => (
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.some(field => (
       field.id === 'flightGuidance.verticalValue'
     )) &&
-    fenixIntegration?.actions?.['flightGuidance.vertical.set'] === undefined &&
+    fenixIntegration?.actions?.['flightGuidance.verticalSpeed.set']?.routes?.[0]?.readback?.fieldId === 'flightGuidance.verticalValue' &&
+    fenixIntegration?.actions?.['flightGuidance.verticalSpeed.set']?.routes?.[0]?.precondition?.fieldId === 'flightGuidance.trkFpaMode' &&
     fenixThrottleRoute?.transport === 'simconnect-sequence' &&
     fenixThrottleRoute?.readbacks?.length === 2 &&
     ['propulsion.throttleLever1Position', 'propulsion.throttleLever2Position'].every(fieldId => (
@@ -1990,12 +1991,12 @@ test(
 const fenixFamilyContractMatches = ['a319', 'a320', 'a321'].every((variant) => {
   loader.setActiveProfile(`fenix-${variant}`);
   const config = loader.getLvarConfig();
-  return config?.aircraftSpecific?.fields?.length === 120 &&
-    config?.aircraftSpecific?.confirmationFields?.length === 119 &&
-    config?.subscriptions?.length === 120;
+  return config?.aircraftSpecific?.fields?.length === 157 &&
+    config?.aircraftSpecific?.confirmationFields?.length === 157 &&
+    config?.subscriptions?.length === 154;
 });
 loader.setActiveProfile('fenix-a320');
-test('All exact Fenix family profiles compile the same 120/277/119 FCU and throttle contract', fenixFamilyContractMatches);
+test('All exact Fenix family profiles compile the same fields and confirmations', fenixFamilyContractMatches);
 
 const tristarAutothrottleToggle = controlService.resolveAircraftControl(
   { control: 'autopilot', target: 'autothrottle', operation: 'toggle' },
@@ -2038,7 +2039,7 @@ test(
   fbwA32nxLvars?.aircraftSpecific?.templateId === 'fbw-a32nx' &&
     fbwA32nxLvars?.aircraftSpecific?.integrationId === 'fbw-a32nx' &&
     fbwA32nxLvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fbw-a32nx' &&
-    fbwA32nxLvars?.aircraftSpecific?.fields?.length === 126 &&
+    fbwA32nxLvars?.aircraftSpecific?.fields?.length === 166 &&
     fbwA32nxLvars.aircraftSpecific.fields.some(field => (
       field.id === 'propulsion.throttleLever1Angle' &&
       field.source?.type === 'lvar' &&
@@ -2070,7 +2071,7 @@ test(
 );
 test(
   'FlyByWire A32NX write confirmations cover broad commands, FCU InputEvents, and strobe output or AUTO mode',
-  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 105 &&
+  fbwA32nxLvars?.aircraftSpecific?.confirmationFields?.length === 146 &&
     ['propulsion.throttleLever1Angle', 'propulsion.throttleLever2Angle'].every(fieldId => (
       fbwA32nxLvars.aircraftSpecific.confirmationFields.some(field => field.id === fieldId)
     )) &&
@@ -2379,7 +2380,7 @@ test(
   iniA350Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
     && iniA350Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
     && iniA350Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-900'
-    && iniA350Config?.aircraftSpecific?.fields?.length === 52
+    && iniA350Config?.aircraftSpecific?.fields?.length === 54
     && iniA350Config.aircraftSpecific.fields.some(field => (
       field.id === 'flightGuidance.altitudeFt'
         && field.source?.type === 'lvar'
@@ -2389,12 +2390,12 @@ test(
       field.id === 'controls.parkingBrake'
         && field.source?.type === 'simvar'
     ))
-    && iniA350Config.subscriptions.length === 43
+    && iniA350Config.subscriptions.length === 46
 );
 test(
   'iniBuilds A350 exposes guarded numeric FCU, published selector and standard surface actions',
-  Object.keys(iniA350Integration?.actions || {}).length === 71
-    && iniA350Config.aircraftSpecific.confirmationFields.length === 33
+  Object.keys(iniA350Integration?.actions || {}).length === 85
+    && iniA350Config.aircraftSpecific.confirmationFields.length === 34
     && iniA350Integration?.actions?.['flightGuidance.heading.set']?.input?.max === 359
     && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.input?.step === 100
     && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.routes?.[0]?.operations?.[0]?.name === 'L:INI_ALTITUDE_DIAL'
@@ -2419,7 +2420,7 @@ test(
   iniA3501000Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
     && iniA3501000Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
     && iniA3501000Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-1000'
-    && iniA3501000Config?.aircraftSpecific?.fields?.length === 52
+    && iniA3501000Config?.aircraftSpecific?.fields?.length === 54
 );
 
 loader.setActiveProfile('microsoft-737-max-8');
@@ -2882,12 +2883,12 @@ test(
 loader.setActiveProfile('headwind-a330');
 const headwindLvars = loader.getLvarConfig();
 test(
-  'Headwind A330 custom LVAR config stays disabled without a compatibility contract',
-  headwindLvars?.enabled === false
+  'Headwind A330 enables its reviewed cockpit and exterior lighting readbacks',
+  headwindLvars?.enabled === true && headwindLvars?.subscriptions?.length === 19
 );
 test(
   'Headwind A330 does not assume inherited A32NX_* compatibility',
-  headwindLvars?.subscriptions?.length === 0
+  headwindLvars?.subscriptions?.every(subscription => /^\(A:LIGHT (?:POTENTIOMETER|LANDING|TAXI):\d+\)$/.test(subscription.expression))
 );
 
 loader.setActiveProfile('fbw-a380x');
@@ -2898,7 +2899,7 @@ test(
   a380Lvars?.aircraftSpecific?.templateId === 'fbw-a380x' &&
     a380Lvars?.aircraftSpecific?.integrationId === 'fbw-a380x' &&
     a380Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fbw-a380x' &&
-    a380Lvars?.aircraftSpecific?.fields?.length === 46 &&
+    a380Lvars?.aircraftSpecific?.fields?.length === 78 &&
     a380Lvars.aircraftSpecific.fields.some(field => (
       field.id === 'propulsion.throttleLever4Angle' &&
       field.source?.type === 'lvar' &&
@@ -2931,7 +2932,7 @@ test(
     ))
 );
 test(
-  'A380X subscribes documented AP, A/THR, FCU, gauge-altitude, flaps, spoilers, and parking-brake readbacks without duplicates',
+  'A380X subscribes documented AP, A/THR, FCU, selected altitude, flaps, spoilers, and parking-brake readbacks without duplicates',
   a380Lvars?.subscriptions?.some(s => s.key === 'autopilot' && s.expression === '(L:A32NX_AUTOPILOT_1_ACTIVE)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'autothrottle' && s.expression === '(L:A32NX_AUTOTHRUST_STATUS)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'flaps' && s.expression === '(L:A32NX_FLAPS_HANDLE_INDEX)') === true &&
@@ -2942,8 +2943,8 @@ test(
     a380Lvars?.subscriptions?.some(s => s.key === 'mode_app' && s.expression === '(L:A32NX_FCU_APPR_MODE_ACTIVE)') === true &&
     a380Lvars?.subscriptions?.some(s => (
       s.key === 'aircraft_specific_flight_guidance_altitude_ft' &&
-      s.expression === '(A:AUTOPILOT ALTITUDE LOCK VAR:3)' &&
-      s.unit === 'Feet'
+      s.expression === '(L:A32NX_FCU_AFS_DISPLAY_ALT_VALUE)' &&
+      s.unit === 'Number'
     )) === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'spoilers_armed' && s.expression === '(L:A32NX_SPOILERS_ARMED)') === true &&
     a380Lvars?.subscriptions?.some(s => s.key === 'spoilers_handle' && s.expression === '(L:A32NX_SPOILERS_HANDLE_POSITION)') === true &&
@@ -2956,13 +2957,23 @@ const a380Integration = defaultAircraftIntegrationRegistry.resolveIntegration('f
   profileKey: 'bundled/msfs/fbw-a380x',
 });
 const expectedA380ActionIds = [
+  ...['captain', 'firstOfficer', 'both'].map(side => `baro.${side}.std`),
+  'systems.apuMaster.on',
+  'systems.apuStart.start',
   ...['ap1', 'autothrust', 'localizer', 'approach'].flatMap(name => [
     `flightGuidance.${name}.off`,
     `flightGuidance.${name}.on`,
   ]),
   'flightGuidance.speed.set',
+  'flightGuidance.mach.set',
   'flightGuidance.heading.set',
   'flightGuidance.altitude.set',
+  'flightGuidance.verticalSpeed.set',
+  'flightGuidance.flightPathAngle.set',
+  ...['panels', 'flood', 'captainDisplays', 'firstOfficerDisplays', 'engineDisplays'].map(group => `lighting.preset.${group}.set`),
+  ...['landing', 'taxi', 'runwayTurnoff'].flatMap(name => [
+    `lights.individual.${name}.off`, `lights.individual.${name}.on`,
+  ]),
   'propulsion.throttle.idle',
   'propulsion.throttle.climb',
   'propulsion.throttle.flexMct',
@@ -2982,17 +2993,21 @@ const expectedA380ActionIds = [
   'controls.gear.down',
 ].sort();
 test(
-  'A380X exposes 38 guarded actions with calibrated throttle and 23 unique confirmation fields',
+  'A380X exposes guarded FCU, baro, lighting and surface actions with unique confirmation fields',
   JSON.stringify(Object.keys(a380Integration?.actions || {}).sort()) === JSON.stringify(expectedA380ActionIds) &&
-    expectedA380ActionIds.length === 38 &&
-    a380Lvars.aircraftSpecific.confirmationFields.length === 23 &&
-    new Set(a380Lvars.aircraftSpecific.confirmationFields.map(field => field.id)).size === 23 &&
+    expectedA380ActionIds.length === 57 &&
+    a380Lvars.aircraftSpecific.confirmationFields.length === 55 &&
+    new Set(a380Lvars.aircraftSpecific.confirmationFields.map(field => field.id)).size === 55 &&
     Object.values(a380Integration?.actions || {}).every(action => (
       action.verification === 'untested' &&
       action.guard?.retry === 'never' &&
       action.routes?.length === 1 &&
       (
-        (action.routes[0]?.transport === 'simconnect-sequence' && typeof action.routes[0]?.readback?.fieldId === 'string') ||
+        (action.routes[0]?.transport === 'simconnect-sequence' && (
+          typeof action.routes[0]?.readback?.fieldId === 'string' ||
+          (action.routes[0]?.readbacks?.length > 0 && action.routes[0].readbacks.every(readback => typeof readback.fieldId === 'string'))
+        )) ||
+        (action.id === 'systems.apuStart.start' && action.routes[0]?.confirmation === 'transport-acknowledged') ||
         (action.routes[0]?.transport === 'mobiflight-calculator' && action.routes[0]?.readbacks?.length === 4)
       )
     ))
@@ -3005,20 +3020,22 @@ test(
     a380Integration.actions['flightGuidance.heading.set'].input.min === 0 &&
     a380Integration.actions['flightGuidance.heading.set'].input.max === 359 &&
     a380Integration.actions['flightGuidance.heading.set'].input.step === 1 &&
-    a380Integration.actions['flightGuidance.altitude.set'].input.min === 0 &&
+    a380Integration.actions['flightGuidance.altitude.set'].input.min === 100 &&
     a380Integration.actions['flightGuidance.altitude.set'].input.max === 49000 &&
     a380Integration.actions['flightGuidance.altitude.set'].input.step === 100 &&
+    a380Integration.actions['flightGuidance.verticalSpeed.set'].input.min === -6000 &&
+    a380Integration.actions['flightGuidance.verticalSpeed.set'].input.max === 6000 &&
+    a380Integration.actions['flightGuidance.verticalSpeed.set'].input.step === 100 &&
     a380Integration.actions['controls.spoilers.set'].input.min === 0 &&
     a380Integration.actions['controls.spoilers.set'].input.max === 1 &&
     a380Integration.actions['controls.spoilers.set'].input.step === 0.25 &&
     [
       'flightGuidance.ap2.on',
-      'flightGuidance.verticalSpeed.set',
       'flightGuidance.speed.managed',
       'flightGuidance.altitude.selected',
       'lights.strobe.auto',
       'lights.runwayTurnoff.on',
-      'systems.apuMaster.on',
+      'systems.apuMaster.off',
       'systems.engine1Master.on',
     ].every(actionId => a380Integration.actions[actionId] === undefined)
 );

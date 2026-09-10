@@ -606,7 +606,6 @@ test('frontend settings page consumes the shared settings module', () => {
     'settings runtime should validate the shared settings module at its boundary',
   );
   assert(sharedGlobalsSource.includes('export function getFlightPhases('), 'shared globals helper should centralize phase lookup');
-  assert(sharedGlobalsSource.includes('export function getPublishedFlightPhases('), 'shared globals helper should centralize published phase lookup');
   assert(sharedRuntimeSource.includes('export function getFlightFabricAppSettings()'), 'settings shared-runtime helper should centralize app-settings global access');
   assert(sharedRuntimeSource.includes("from '../app/shared-globals.js';"), 'settings shared-runtime helper should reuse the shared globals bridge');
   assert(editorStoreSource.includes("from '../../settings/shared-runtime.js';"), 'settings editor store should read shared globals through the shared-runtime helper');
@@ -808,15 +807,10 @@ test('app shell services are registered explicitly and tab runtimes watch the ta
   const mockLandingSource = readRepoFile('frontend/src/landing/mock-runtime.js');
   const landingPanelSource = readRepoFile('frontend/src/vue/components/LandingPanel.vue');
 
-  assert(sharedSource.includes('function syncCompatibilityShared()'));
-  assert(sharedSource.includes('delete appShared[key]'), 'shared service cleanup should clear compatibility mirrors');
+  assert(sharedSource.includes('delete appServices[key]'), 'shared service cleanup should release registered services');
   assert(sharedSource.includes('export function setAppServices('));
-  assert(sharedSource.includes('export function getWsUrl()'));
-  assert(sharedSource.includes('export function getBackendHttpBase()'));
   assert(sharedSource.includes('export function getAuthorizationScope()'));
   assert(sharedSource.includes('export function getCoordValidator()'));
-  assert(sharedSource.includes('export function getHandleMessage()'));
-  assert(sharedSource.includes('export function getTimelineLandingHandler()'));
   assert(sharedSource.includes('export function getCabinAnnouncements()'));
   assert(sharedSource.includes('export function getReconnect()'));
   assert(!sharedSource.includes('windowRef._wsSend'));
@@ -831,8 +825,6 @@ test('app shell services are registered explicitly and tab runtimes watch the ta
   assert(!appRuntimeSource.includes('runtime-bridge.js'), 'app runtime should receive stores from bootstrap instead of the runtime bridge');
   assert(!appRuntimeSource.includes('getVueStore'), 'app runtime should not pull stores through the Vue bridge');
   assert(!appRuntimeSource.includes('waitForVueBridge'), 'app runtime should not wait on the retired Vue bridge');
-  assert(appRuntimeSource.includes('getWsUrl: connection.getWsUrl'));
-  assert(appRuntimeSource.includes('getBackendHttpBase: connection.getBackendHttpBase'));
   assert(appRuntimeSource.includes('getAuthorizationScope: connection.getAuthorizationScope'));
   assert(!appRuntimeSource.includes('window.__flightFabricApp ='));
   assert(!appRuntimeSource.includes('window.__flightFabricApp || {}'));
@@ -1485,13 +1477,11 @@ test('landing and cabin runtime bridges use shared services instead of direct gl
   const landingPanelSource = readRepoFile('frontend/src/vue/components/LandingPanel.vue');
   const approachProfileSource = readRepoFile('frontend/src/landing/approach-profile-global.js');
 
-  assert(sharedSource.includes("showTimelineLanding(event)"));
   assert(sharedSource.includes("getCabinAnnouncements()"));
   assert(runtimeSignalsSource.includes('emitLandingReceived'), 'runtime signals should expose landing-received emissions');
   assert(appRuntimeSource.includes("requireRuntimeStore(runtimeStores, 'landing')"), 'app runtime should resolve the landing store from the injected store bundle');
   assert(appRuntimeSource.includes('landingStore,'), 'app runtime should inject the landing store into the landing controller');
   assert(appRuntimeSource.includes('tabsStore,'), 'app runtime should inject the tabs store into the landing controller');
-  assert(appRuntimeSource.includes('showTimelineLanding: landingController.showTimelineLanding'));
   assert(!landingControllerSource.includes('runtime-bridge.js'), 'landing controller should receive stores from app runtime instead of using the runtime bridge');
   assert(!landingControllerSource.includes('getVueStore'), 'landing controller should not pull Vue stores through the runtime bridge');
   assert(!landingControllerSource.includes("setAppService('showTimelineLanding'"));

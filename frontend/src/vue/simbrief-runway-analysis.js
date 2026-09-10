@@ -165,7 +165,7 @@ function buildLandingRows(section, conditions, runway) {
   return rows;
 }
 
-export function buildRunwayAnalysisSection(kind, section) {
+function buildRunwayAnalysisSection(kind, section) {
   if (!section) return null;
   const conditions = fieldsByKey(section.conditions);
   const airport = fieldValue(conditions, 'airport_icao');

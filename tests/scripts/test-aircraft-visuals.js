@@ -92,7 +92,6 @@ async function main() {
   const {
     AIRCRAFT_PROFILE_VISUALS,
     AIRCRAFT_VISUAL_ASSETS,
-    getAircraftVisualAssetKeys,
     resolveAircraftVisual,
   } = manifest;
 
@@ -151,7 +150,7 @@ async function main() {
   }
 
   let totalBytes = 0;
-  const assetKeys = getAircraftVisualAssetKeys();
+  const assetKeys = Object.keys(AIRCRAFT_VISUAL_ASSETS);
   const shippedAssetKeys = fs.readdirSync(assetRoot)
     .filter((name) => name.endsWith('.png'))
     .map((name) => path.basename(name, '.png'))

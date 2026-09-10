@@ -80,6 +80,7 @@ import { computed, nextTick, reactive, watch } from 'vue';
 import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
 import FenixThrottleControl from './FenixThrottleControl.vue';
+import FenixApproachControls from './FenixApproachControls.vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../../stores/aircraft-specific.js';
 
@@ -270,6 +271,24 @@ const selectorControls = Object.freeze([
     min: 0,
     max: 359,
     step: 1,
+  },
+  {
+    id: 'mach', label: 'MACH', fieldId: 'flightGuidance.speedValue',
+    groupId: 'flightGuidance.speed', actionId: 'flightGuidance.mach.set',
+    commandId: 'flightGuidance.mach.set', unit: 'MACH', inputmode: 'decimal',
+    min: 0.4, max: 0.99, step: 0.01,
+  },
+  {
+    id: 'verticalSpeed', label: 'V/S', fieldId: 'flightGuidance.verticalValue',
+    groupId: 'flightGuidance.vertical', actionId: 'flightGuidance.verticalSpeed.set',
+    commandId: 'flightGuidance.verticalSpeed.set', unit: 'FPM', inputmode: 'text',
+    min: -6000, max: 6000, step: 100,
+  },
+  {
+    id: 'flightPathAngle', label: 'FPA', fieldId: 'flightGuidance.verticalValue',
+    groupId: 'flightGuidance.vertical', actionId: 'flightGuidance.flightPathAngle.set',
+    commandId: 'flightGuidance.flightPathAngle.set', unit: 'DEG', inputmode: 'text',
+    min: -9.9, max: 9.9, step: 0.1,
   },
   {
     id: 'altitude',
@@ -721,6 +740,7 @@ const sharedControlCommandIds = Object.freeze({
 });
 const mobileSections = computed(() => [
   { id: 'throttle', label: 'Throttle', title: 'Virtual Throttle' },
+  { id: 'approach', label: 'Controls', title: 'Flaps, Autobrake & Speedbrake' },
   { id: 'fcu', label: 'FCU', title: 'Flight Guidance & FCU' },
   ...controlSections.value.map((section) => ({
     id: section.id,
@@ -910,6 +930,16 @@ function selectorIsMach(control) {
   return control.id === 'speed' && current !== null && current < 100;
 }
 
+function selectorModeIssue(control) {
+  const field = ['speed', 'mach'].includes(control.id) ? 'flightGuidance.machMode'
+    : ['heading', 'verticalSpeed', 'flightPathAngle'].includes(control.id) ? 'flightGuidance.trkFpaMode' : null;
+  if (!field) return '';
+  const mode = fieldValue(field);
+  if (typeof mode !== 'boolean') return 'Waiting for live FCU mode.';
+  const expected = ['mach', 'flightPathAngle'].includes(control.id);
+  return mode === expected ? '' : `Select ${control.id === 'speed' ? 'SPD' : control.id === 'mach' ? 'MACH' : expected ? 'TRK/FPA' : 'HDG/V/S'} mode in the cockpit.`;
+}
+
 function selectorBaselineIssue(control) {
   const current = numberValue(control.fieldId);
   if (current === null) return 'unavailable';
@@ -928,6 +958,7 @@ function selectorDisabled(control) {
   return !controlSessionReady.value
     || numberValue(control.fieldId) === null
     || selectorIsMach(control)
+    || Boolean(selectorModeIssue(control))
     || (control.id === 'altitude' && altitudeIncrementMode() === null)
     || selectorBaselineIssue(control) !== null
     || (config.commandId
@@ -960,6 +991,8 @@ function selectorDisabledReason(control) {
     return aircraftControls.availability.reason || 'Aircraft control is unavailable in this browser session.';
   }
   if (numberValue(control.fieldId) === null) return 'Live FCU target readback unavailable.';
+  if (props.controlSetupRequired) return 'Requires MobiFlight Event Module setup for Fenix FCU writes.';
+  if (selectorModeIssue(control)) return selectorModeIssue(control);
   if (selectorIsMach(control)) return 'Mach mode detected. Switch the FCU to SPD in the cockpit before setting knots.';
   if (control.id === 'altitude' && altitudeIncrementMode() === null) {
     return 'Live 100/1000 altitude increment state unavailable.';
@@ -998,6 +1031,7 @@ function selectorLiveText(control) {
     return `MACH RAW ${formatMachRaw(current)}`;
   }
   if (control.id === 'heading') return String(Math.round(current)).padStart(3, '0');
+  if (control.step < 1) return current.toFixed(control.step === 0.01 ? 2 : 1);
   return Math.round(current).toLocaleString('en-US');
 }
 
@@ -1127,6 +1161,10 @@ function controlGridClass(control) {
       />
     </div>
 
+    <div id="fenix-section-approach" class="aircraft-mobile-navigable-section" tabindex="-1">
+      <FenixApproachControls />
+    </div>
+
     <section
       id="fenix-section-fcu"
       class="aircraft-mobile-navigable-section rounded-xl border border-cyan-500/25 bg-cyan-500/[0.035] p-3 sm:p-4"
@@ -1252,7 +1290,7 @@ function controlGridClass(control) {
           <div class="text-[10px] font-semibold tracking-wide text-gray-200">V/S / FPA</div>
           <div class="mt-2 font-mono text-xl font-semibold tabular-nums text-gray-100">{{ verticalReadbackText() }}</div>
           <p class="mt-2 text-[10px] leading-relaxed text-gray-500">
-            Read-only live FCU value. Units are mode-dependent (V/S or FPA); change this target in the cockpit.
+            Use the V/S or FPA target above in the matching cockpit mode.
           </p>
         </article>
       </div>

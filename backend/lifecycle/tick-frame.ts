@@ -86,7 +86,7 @@ function clonePlainTelemetry<T>(obj: T): T {
   return cloneValue(obj, new Set()) as T;
 }
 
-export function defaultFreeze<T>(obj: T): T {
+function defaultFreeze<T>(obj: T): T {
   const seen = new WeakSet<object>();
 
   function freezeValue(value: unknown): void {

@@ -98,16 +98,6 @@ type HeadingData = {
     hdgMagDeg: number | null;
     magvarDeg: number | null;
 };
-type RunwayContext = {
-    icao: string | null;
-    runway: string | null;
-    approachType: string | null;
-};
-type GeometryLookupContext = {
-    simulator?: string | null;
-    dataSource?: string | null;
-    offline?: boolean | null;
-} | null | undefined;
 type AircraftSpecificConfigLike = {
     templateId?: unknown;
 } | null | undefined;
@@ -120,16 +110,6 @@ type AircraftSpecificProfileLike = {
         } | null;
     } | null;
 } | null | undefined;
-type RunwayContextDetectorParams = {
-    approachPhases: Set<string>;
-    groundPhases: Set<string>;
-    landingPhase: string;
-    findRunwayByPosition: (_lat: number, _lon: number, _radiusNm: number, _headingDeg?: number | null, _context?: GeometryLookupContext) => UnknownRecord | null;
-    findNearbyAirport: (_lat: number, _lon: number, _radiusNm: number, _context?: GeometryLookupContext) => UnknownRecord | null;
-    lookupThresholdDeg?: number;
-    approachDistanceNm?: number;
-    airportLookupDistanceNm?: number;
-};
 type BuildVreEnrichedFrameParams = {
     frame: FrameLike;
     userId?: string | null;
@@ -191,7 +171,6 @@ export declare function resolveLandingGeometryScoringInputs(payload: UnknownReco
     runwayId: string;
     airportIcao: string;
 };
-export declare function createRunwayContextDetector({ approachPhases, groundPhases, landingPhase, findRunwayByPosition, findNearbyAirport, lookupThresholdDeg, approachDistanceNm, airportLookupDistanceNm, }: RunwayContextDetectorParams): (lat: number | null, lon: number | null, hdgDeg: number | null, phase: string, context?: GeometryLookupContext) => RunwayContext;
 export declare function resolveAircraftSpecificTemplateId(aircraftSpecificConfig: AircraftSpecificConfigLike, profile?: AircraftSpecificProfileLike): string | null;
 export declare function buildSignalReliabilityPayload(profile: ProfileLike): {
     type: string;
@@ -207,7 +186,7 @@ export declare function computeSimStateMenuFlag({ simconnectConnected, providerI
     dialogInMenu?: unknown;
     isGlobeView?: unknown;
 }): boolean;
-export declare function shouldCollectCurrentApproachSample({ phase, raFt, vsFpm, onGround, rolloutActive, collectionCeilingFt, warmup, }: {
+export declare function shouldCollectCurrentApproachSample({ phase, raFt, vsFpm, onGround, rolloutActive, collectionCeilingFt, warmup, approachActive, }: {
     phase?: string | null;
     raFt?: number | null;
     vsFpm?: number | null;
@@ -215,6 +194,7 @@ export declare function shouldCollectCurrentApproachSample({ phase, raFt, vsFpm,
     rolloutActive?: boolean | null;
     collectionCeilingFt?: number | null;
     warmup?: boolean | null;
+    approachActive?: boolean;
 }): boolean;
 export declare function shouldStartCurrentApproachScorer({ flightActive, eligible, scorerPresent, hasScored, }: {
     flightActive?: boolean | null;

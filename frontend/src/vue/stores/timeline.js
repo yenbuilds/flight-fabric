@@ -14,6 +14,7 @@ import {
 } from '../../app/browser-environment.js';
 import { formatBytes, getFiniteFuelBurnGal } from '../../utils/formatting.js';
 import { DEFAULT_ALTITUDE_PROFILE_STATE } from '../../timeline/altitude-profile.js';
+import { INSPECTOR_FILTER_OPTIONS } from '../../timeline/constants.js';
 
 const MAP_FILTER_KEYS = ['violations', 'landing', 'automation', 'flightGuidance', 'markers', 'phases', 'scores'];
 const MAP_FILTER_DEFAULTS = Object.freeze({
@@ -26,6 +27,7 @@ const MAP_FILTER_DEFAULTS = Object.freeze({
   scores: false,
 });
 const MAP_FILTER_STORAGE_KEY = 'flightFabric.timelineMapFilters.v1';
+const INSPECTOR_FILTER_STORAGE_KEY = 'flightFabric.timelineEventFilters.v1';
 const PFD_COLLAPSED_KEY = 'ff-pfd-overlay-collapsed';
 const DEFAULT_INSPECTOR_EMPTY_MESSAGE = 'No timeline loaded';
 const DEFAULT_MAP_EMPTY_MESSAGE = 'No positional event data yet';
@@ -89,6 +91,11 @@ function loadMapFilters() {
 
 function saveMapFilters(mapFilters) {
   writeStorageJson(MAP_FILTER_STORAGE_KEY, mapFilters);
+}
+
+function loadInspectorFilters() {
+  const stored = readStorageJson(INSPECTOR_FILTER_STORAGE_KEY);
+  return Object.fromEntries(INSPECTOR_FILTER_OPTIONS.map(({ key }) => [key, stored?.[key] !== false]));
 }
 
 function loadPfdCollapsed() {
@@ -313,6 +320,7 @@ export const useTimelineStore = defineStore('timeline', {
     summaryVisible: false,
     eventCountText: '--',
     violationCountText: '--',
+    cautionCountText: '--',
     durationText: '--',
     distanceText: '--',
     fuelBurnText: '--',
@@ -325,6 +333,7 @@ export const useTimelineStore = defineStore('timeline', {
     inspectorEmptyVisible: true,
     inspectorEmptyMessage: DEFAULT_INSPECTOR_EMPTY_MESSAGE,
     inspectorAllRows: [],
+    inspectorFilters: loadInspectorFilters(),
     inspectorRows: [],
     inspectorRowLimit: INSPECTOR_RENDER_INITIAL_LIMIT,
     inspectorTotalRowCount: 0,
@@ -444,6 +453,14 @@ export const useTimelineStore = defineStore('timeline', {
 
     inspectorEventListVisible: (state) => state.inspectorRows.length > 0,
 
+    filteredInspectorRows: (state) => state.inspectorAllRows.filter(row => (
+      state.inspectorFilters[row?.event?.type] !== false
+    )),
+
+    inspectorHiddenRowCount() {
+      return this.inspectorAllRows.length - this.filteredInspectorRows.length;
+    },
+
     hasMoreInspectorRows(state) {
       return state.inspectorTotalRowCount > Math.max(0, state.inspectorRowLimit);
     },
@@ -463,11 +480,6 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     timelineLoading: (state) => state.timelineLoadStatus === 'loading',
-
-    analysisRescoreBusy: (state) => Boolean(
-      state.analysisRescorePreviewStatus === 'loading'
-      || ['applying', 'reverting', 'refreshing'].includes(state.analysisRescoreStatus)
-    ),
 
     canRequestAnalysisRescorePreview: (state) => Boolean(
       state.requestTimelineActionBound
@@ -991,6 +1003,7 @@ export const useTimelineStore = defineStore('timeline', {
       this.summaryVisible = summary.visible === true;
       this.eventCountText = summary.eventCountText || '--';
       this.violationCountText = summary.violationCountText || '--';
+      this.cautionCountText = summary.cautionCountText || '0';
       this.durationText = summary.durationText || '--';
       this.distanceText = summary.distanceText || '--';
       this.fuelBurnText = summary.fuelBurnText || '--';
@@ -1003,6 +1016,7 @@ export const useTimelineStore = defineStore('timeline', {
       this.summaryVisible = false;
       this.eventCountText = '--';
       this.violationCountText = '--';
+      this.cautionCountText = '--';
       this.durationText = '--';
       this.distanceText = '--';
       this.fuelBurnText = '--';
@@ -1034,9 +1048,8 @@ export const useTimelineStore = defineStore('timeline', {
       this.inspectorRouteText = state.routeText || '';
       this.inspectorRouteVisible = state.routeVisible === true;
       this.inspectorAllRows = allRows;
-      this.inspectorTotalRowCount = allRows.length;
       this.inspectorRowLimit = INSPECTOR_RENDER_INITIAL_LIMIT;
-      this.inspectorRows = allRows.slice(0, this.inspectorRowLimit);
+      this.refreshInspectorRows();
       this.inspectorSelectedRowKey = state.selectedRowKey || '';
       this.inspectorEmptyVisible = state.emptyVisible !== false && this.inspectorAllRows.length === 0;
       this.inspectorEmptyMessage = state.emptyMessage || DEFAULT_INSPECTOR_EMPTY_MESSAGE;
@@ -1076,8 +1089,20 @@ export const useTimelineStore = defineStore('timeline', {
 
     refreshInspectorRows() {
       const limit = Math.max(0, Number(this.inspectorRowLimit) || 0);
-      this.inspectorRows = this.inspectorAllRows.slice(0, limit);
-      this.inspectorTotalRowCount = this.inspectorAllRows.length;
+      this.inspectorRows = this.filteredInspectorRows.slice(0, limit);
+      this.inspectorTotalRowCount = this.filteredInspectorRows.length;
+    },
+
+    setInspectorFilter(key, enabled) {
+      if (!INSPECTOR_FILTER_OPTIONS.some(option => option.key === key) || typeof enabled !== 'boolean') return;
+      this.inspectorFilters[key] = enabled;
+      writeStorageJson(INSPECTOR_FILTER_STORAGE_KEY, this.inspectorFilters);
+      this.inspectorRowLimit = INSPECTOR_RENDER_INITIAL_LIMIT;
+      this.refreshInspectorRows();
+      if (this.inspectorSelectedRowKey && !this.ensureInspectorRowVisible(this.inspectorSelectedRowKey)) {
+        this.inspectorSelectedRowKey = '';
+        this.clearDetail();
+      }
     },
 
     showMoreInspectorRows() {
@@ -1088,7 +1113,7 @@ export const useTimelineStore = defineStore('timeline', {
     ensureInspectorRowVisible(rowKey) {
       const key = rowKey || '';
       if (!key) return false;
-      const index = this.inspectorAllRows.findIndex((item) => item?.rowKey === key);
+      const index = this.filteredInspectorRows.findIndex((item) => item?.rowKey === key);
       if (index < 0) return false;
       if (index < this.inspectorRows.length) return true;
       const nextLimit = Math.ceil((index + 1) / INSPECTOR_RENDER_INCREMENT) * INSPECTOR_RENDER_INCREMENT;

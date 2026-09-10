@@ -91,6 +91,11 @@
     },
     "presentation": {
       "visualSupport": "basic"
+    },
+    "controls": {
+      "backend": "simconnect",
+      "standardLightFallback": true,
+      "_comment": "This broad aircraft-category profile uses the fixed standard MSFS light SET events for individual lights and the takeoff-lights preset. Other cockpit writes remain subject to their existing capability gates. Add-ons may ignore standard commands; dispatch does not confirm cockpit response."
     }
   },
   "meta": {
@@ -103,5 +108,15 @@
     "updated": "2025-01-04",
     "status": "production"
   },
-  "provenance": {}
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "name": "Microsoft Flight Simulator SDK - Aircraft Electrical Events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-09-10",
+        "notes": "Standard NAV_LIGHTS_SET, BEACON_LIGHTS_SET, STROBES_SET, LANDING_LIGHTS_SET and TAXI_LIGHTS_SET baseline for this broad category profile. Does not establish compatibility with vendor-specific cockpit selectors."
+      }
+    ]
+  }
 }

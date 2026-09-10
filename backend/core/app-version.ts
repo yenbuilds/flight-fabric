@@ -1,5 +1,4 @@
 const APP_RELEASE_CHANNEL = 'Alpha';
-const APP_RELEASE_WARNING = 'Experimental release. Use with care.';
 
 type VersionedPackage = {
   version?: string;
@@ -29,10 +28,4 @@ function getDisplayAppVersion(): string | null {
   return formatDisplayVersion(getAppVersion());
 }
 
-export {
-  APP_RELEASE_CHANNEL,
-  APP_RELEASE_WARNING,
-  formatDisplayVersion,
-  getAppVersion,
-  getDisplayAppVersion,
-};
+export { getAppVersion, getDisplayAppVersion };

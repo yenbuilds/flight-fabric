@@ -10,6 +10,24 @@ const DEFAULT_READBACK_TIMEOUT_MS = 3000;
 
 const actions: Record<string, AircraftIntegrationAction> = {};
 
+// Fenix 2.4.0.4720 Cockpit_Behavior.xml APU + FNX32X momentary template:
+// increment S_OH_ELEC_APU_START on press AND release. Reuse the bounded
+// 100 ms pulse contract; this counter is not a fixed 0/1 switch or AVAIL.
+actions['systems.apuStart.start'] = {
+  id: 'systems.apuStart.start',
+  guard: { groupId: 'fenixA32x.systems.apuStart', cooldownMs: 3000, retry: 'never' },
+  routes: [{
+    id: 'fenixA32x.systems.apuStart.start.mobiflightPulse',
+    transport: 'mobiflight-calculator',
+    mode: 'pulse',
+    pressCode: '(L:S_OH_ELEC_APU_START, Number) ++ (>L:S_OH_ELEC_APU_START, Number)',
+    releaseCode: '(L:S_OH_ELEC_APU_START, Number) ++ (>L:S_OH_ELEC_APU_START, Number)',
+    delayMs: 100,
+    confirmation: 'transport-acknowledged',
+  }],
+  verification: 'untested',
+};
+
 function setLvarAction(params: {
   actionId: string;
   expectedValue: AircraftIntegrationPrimitive;
@@ -254,6 +272,7 @@ function addSteppedTargetAction(params: {
   groupId: string;
   input: Readonly<{ max: number; min: number; step: number; type: 'number' }>;
   lvar: string;
+  prepareCode?: string;
   precondition?: Readonly<{
     expectedValue: AircraftIntegrationPrimitive;
     fieldId: string;
@@ -273,6 +292,7 @@ function addSteppedTargetAction(params: {
       mode: 'step-to-target',
       decreaseCode: calculatorCode(params.lvar, '--'),
       increaseCode: calculatorCode(params.lvar, '++'),
+      ...(params.prepareCode ? { prepareCode: params.prepareCode } : {}),
       maxSteps: 500,
       ...(params.circular ? { circular: true as const } : {}),
       ...(params.precondition ? { precondition: params.precondition } : {}),
@@ -566,6 +586,7 @@ for (const [prefix, fieldId, lvar, positions] of [
     lvar,
     positions,
     prefix,
+    ...(prefix.startsWith('flightGuidance.baroUnit') ? { groupId: 'baro' } : {}),
   });
 }
 
@@ -631,7 +652,31 @@ addSteppedTargetAction({
   groupId: 'flightGuidance.speed',
   input: { type: 'number', min: 100, max: 399, step: 1 },
   lvar: 'E_FCU_SPEED',
+  precondition: { fieldId: 'flightGuidance.machMode', expectedValue: false },
 });
+
+addSteppedTargetAction({
+  actionId: 'flightGuidance.mach.set',
+  fieldId: 'flightGuidance.speedValue',
+  groupId: 'flightGuidance.speed',
+  input: { type: 'number', min: 0.4, max: 0.99, step: 0.01 },
+  lvar: 'E_FCU_SPEED',
+  precondition: { fieldId: 'flightGuidance.machMode', expectedValue: true },
+});
+
+for (const [suffix, fpa, min, max, step] of [
+  ['verticalSpeed', false, -6000, 6000, 100],
+  ['flightPathAngle', true, -9.9, 9.9, 0.1],
+] as const) {
+  addSteppedTargetAction({
+    actionId: `flightGuidance.${suffix}.set`,
+    fieldId: 'flightGuidance.verticalValue',
+    groupId: 'flightGuidance.vertical',
+    input: { type: 'number', min, max, step },
+    lvar: 'E_FCU_VS',
+    precondition: { fieldId: 'flightGuidance.trkFpaMode', expectedValue: fpa },
+  });
+}
 
 addSteppedTargetAction({
   actionId: 'flightGuidance.heading.set',
@@ -640,6 +685,19 @@ addSteppedTargetAction({
   groupId: 'flightGuidance.heading',
   input: { type: 'number', min: 0, max: 359, step: 1 },
   lvar: 'E_FCU_HEADING',
+  precondition: { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false },
+});
+
+// Ordinary altitude requests select and confirm 100-foot resolution first.
+// Explicit hundreds/thousands commands below retain their scale preconditions.
+addSteppedTargetAction({
+  actionId: 'flightGuidance.altitude.set',
+  fieldId: 'flightGuidance.altitudeFt',
+  groupId: 'flightGuidance.altitude',
+  input: { type: 'number', min: 0, max: 49000, step: 100 },
+  lvar: 'E_FCU_ALTITUDE',
+  prepareCode: '1 (>L:S_FCU_ALTITUDE_SCALE, Number) ',
+  precondition: { fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'hundred' },
 });
 
 addSteppedTargetAction({

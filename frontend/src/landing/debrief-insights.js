@@ -90,7 +90,9 @@ export function buildDebriefReasons(data, {
   if (verdict.stability.verdict === 'unstable') {
     addReason(reasons, 'Unstable approach', DANGER_COLOR, 'danger');
   } else if (verdict.stability.verdict === 'marginal') {
-    addReason(reasons, 'Marginal approach - soft/proxy miss', WARNING_COLOR, 'warning');
+    addReason(reasons, verdict.stability.data?.scoringContext?.assessment?.version === 4
+      ? 'Marginal approach - caution or quality target missed'
+      : 'Marginal approach - soft/proxy miss', WARNING_COLOR, 'warning');
   } else if (verdict.stability.verdict === 'stable') {
     addReason(reasons, 'Stabilized approach', GOOD_COLOR, 'good');
   }
@@ -115,6 +117,10 @@ export function buildDebriefConfidence(data, ultimateStability, lastUltimateStab
 
   if (!ultimateStability || ultimateStability.score == null) {
     lower(1, 'No stability data');
+  } else if (ultimateStability.scoringContext?.assessment?.version === 4) {
+    // The v4 scorer already validates elapsed-time coverage. Frame count must
+    // not make the same recorded approach less credible at a lower cadence.
+    if (ultimateStability.scoringContext.assessment.window?.coverage < 0.95) lower(1, 'Incomplete approach coverage');
   } else if (Number(lastUltimateStability?.samples ?? ultimateStability.samples) < 30) {
     lower(1, 'Limited samples');
   }

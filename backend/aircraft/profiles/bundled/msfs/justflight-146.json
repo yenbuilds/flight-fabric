@@ -91,7 +91,8 @@
       "backend": "auto",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Only narrow MSFS gear/flaps fallback is enabled. Broad autopilot, TMS, selector, spoiler, FMS, and custom LVAR writes are blocked until Just Flight 146-specific control behavior is sim-tested."
+      "_comment": "Only narrow MSFS gear/flaps fallback is enabled. Broad autopilot, TMS, selector, spoiler, FMS, and custom LVAR writes are blocked until Just Flight 146-specific control behavior is sim-tested.",
+      "standardLightFallback": false
     },
     "presentation": {
       "visualSupport": "basic",

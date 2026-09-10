@@ -1,6 +1,7 @@
 export type AircraftIntegrationPrimitive = string | number | boolean;
 
 export type AircraftIntegrationDecoder = Readonly<
+  | { type: 'squawk-bco16' }
   | {
     type: 'number';
     offset?: number;
@@ -57,6 +58,8 @@ export type AircraftIntegrationReadback = Readonly<{
   /** Stable, transport-independent field used for confirmation. */
   fieldId: string;
   timeoutMs: number;
+  /** Require an independently dated field sample, including advancement after dispatch. */
+  freshness?: 'field';
 } & (
   | {
     expectedValue: AircraftIntegrationPrimitive;
@@ -79,7 +82,7 @@ export type AircraftIntegrationNumberInput = Readonly<{
 }>;
 
 export type AircraftIntegrationInputValue = Readonly<{
-  encoding?: 'frequency-bcd16';
+  encoding?: 'frequency-bcd16' | 'squawk-bco16';
   offset?: number;
   round?: 'nearest';
   scale?: number;
@@ -93,12 +96,28 @@ type MobiFlightCalculatorActionRouteBase = Readonly<{
   transport: 'mobiflight-calculator';
 }>;
 
+type RequestAcknowledgement = Readonly<{
+  /** Accept the interaction without inferring its eventual aircraft outcome. */
+  confirmation: 'transport-acknowledged';
+  readback?: never;
+  readbacks?: never;
+}>;
+
 export type AircraftIntegrationActionPrecondition = Readonly<{
+  freshness?: 'field';
   expectedValue: AircraftIntegrationPrimitive;
   fieldId: string;
 }>;
 
 export type MobiFlightCalculatorActionRoute =
+  | (MobiFlightCalculatorActionRouteBase & Readonly<{
+    /** Exact Fenix pressure recipes, executed with per-side mode and pressure confirmation. */
+    mode: 'fenix-baro';
+    baro: Readonly<{ target: 'captain' | 'firstOfficer' | 'both'; operation: 'qnhHpa' | 'qnhInHg' | 'std' }>;
+    codes: readonly string[];
+    readback?: never;
+    readbacks: readonly AircraftIntegrationReadback[];
+  }>)
   | (MobiFlightCalculatorActionRouteBase & Readonly<{
     /** One fixed, adapter-owned calculator expression. */
     code: string;
@@ -118,11 +137,29 @@ export type MobiFlightCalculatorActionRoute =
     /** Physical-button press/release expressions executed once, in order. */
     delayMs: number;
     mode: 'pulse';
+    precondition?: AircraftIntegrationActionPrecondition;
+  }> & (Readonly<{
     pressCode: string;
+    releaseCode: string;
+    pulses?: never;
+  }> | Readonly<{
+    /** Select exactly one trusted button from fresh state, retaining its release. */
+    pulses: readonly Readonly<{
+      when: readonly AircraftIntegrationActionPrecondition[];
+      pressCode: string;
+      releaseCode: string;
+    }>[];
+    pressCode?: never;
+    releaseCode?: never;
+  }>) & (RequestAcknowledgement | Readonly<{
+    confirmation?: never;
+  }> & (Readonly<{
     readback: AircraftIntegrationReadback;
     readbacks?: never;
-    releaseCode: string;
-  }>)
+  }> | Readonly<{
+    readback?: never;
+    readbacks: readonly AircraftIntegrationReadback[];
+  }>)))
   | (MobiFlightCalculatorActionRouteBase & Readonly<{
     /** Readback-paced trusted increments/decrements toward a bounded numeric target. */
     circular?: true;
@@ -130,6 +167,8 @@ export type MobiFlightCalculatorActionRoute =
     increaseCode: string;
     maxSteps: number;
     mode: 'step-to-target';
+    /** Establish the required selector scale, then confirm it before rotating. */
+    prepareCode?: string;
     precondition?: AircraftIntegrationActionPrecondition;
     readback: AircraftIntegrationReadback;
     readbacks?: never;
@@ -156,8 +195,8 @@ export type SimConnectSequenceOperation = Readonly<
   | {
     inputValue?: AircraftIntegrationInputValue;
     name: string;
-    /** Fixed secondary SimConnect event parameters after the primary value. */
-    parameters?: readonly number[];
+    /** Adapter-owned secondary parameters, optionally filled from bounded input. */
+    parameters?: readonly (number | AircraftIntegrationInputValue)[];
     type: 'event';
     value?: number;
   }
@@ -182,6 +221,12 @@ export type SimConnectSequenceOperation = Readonly<
 
 type SimConnectSequenceActionRouteBase = Readonly<{
   id: string;
+  /** Compatibility events that still require matching SDK data connectivity. */
+  requiredSdkAdapter?: string;
+  /** Confirmed radio transaction; tuning is verified before an optional single swap. */
+  comRadio?: Readonly<{ index: 1 | 2; operation: 'setStandby' | 'swap' | 'switchTo' }>;
+  /** Reviewed FBW barometer transaction with independent confirmation per side. */
+  baro?: Readonly<{ target: 'captain' | 'firstOfficer' | 'both'; operation: 'qnhHpa' | 'qnhInHg' | 'std' }>;
   operations: readonly SimConnectSequenceOperation[];
   precondition?: AircraftIntegrationActionPrecondition;
   transport: 'simconnect-sequence';
@@ -212,14 +257,17 @@ export type SdkActionRoute = Readonly<{
   command: string;
   id: string;
   inputValue?: AircraftIntegrationSdkInputValue;
-  readback?: AircraftIntegrationReadback;
   transport: 'sdk';
   value?: AircraftIntegrationPrimitive;
   /** Same trusted SDK event sent in order, for momentary press/release controls. */
   values?: readonly AircraftIntegrationPrimitive[];
-}>;
+}> & (RequestAcknowledgement | Readonly<{
+  confirmation?: never;
+  readback: AircraftIntegrationReadback;
+}>);
 
 export type AircraftIntegrationActionRoute =
+  | Readonly<{ id: string; transport: 'simbridge-mcdu'; target: 'baro' | 'radio'; readback?: never }>
   | MobiFlightCalculatorActionRoute
   | InputEventActionRoute
   | LvarActionRoute
@@ -246,6 +294,8 @@ export type AircraftIntegrationAction = Readonly<{
      * selector state (for example, strobe output while AUTO is selected).
      */
     skipIfSatisfied?: boolean;
+    /** Any fresh matching observation suppresses dispatch; absent data is unknown. */
+    skipWhen?: readonly AircraftIntegrationActionPrecondition[];
   }>;
   id: string;
   input?: AircraftIntegrationNumberInput;

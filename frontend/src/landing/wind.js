@@ -20,7 +20,7 @@ function firstFiniteNumber(...values) {
   return null;
 }
 
-export function normalizeWindDirectionDegrees(value) {
+function normalizeWindDirectionDegrees(value) {
   const numeric = finiteNumber(value);
   if (numeric == null) return null;
   return ((numeric % 360) + 360) % 360;

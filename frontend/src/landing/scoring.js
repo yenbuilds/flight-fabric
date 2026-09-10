@@ -61,7 +61,7 @@ const LATERAL_GRADE_SEVERITY = Object.freeze({
 const TOUCHDOWN_ZONE_MAX_FT = 3000;
 const TOUCHDOWN_TARGET_MAX_FT = 1000;
 const RETIRED_STABILITY_FAILURES = new Set(['spoilers_moved_after_gate']);
-const INSUFFICIENT_STABILITY_FAILURES = new Set(['insufficient_data', 'no_gate_sample']);
+const INSUFFICIENT_STABILITY_FAILURES = new Set(['insufficient_data', 'no_gate_sample', 'incomplete_gate_coverage']);
 const HARD_STABILITY_FAILURES = new Set([
   'gear_not_down_at_gate',
   'gear_changed_after_gate',
@@ -107,21 +107,21 @@ export function gradeHex(severity) {
   return GRADE_COLOR_HEX[severity] || '#9ca3af';
 }
 
-export function verdictColorForSeverity(severity, fallback = VERDICT_COLORS.muted) {
+function verdictColorForSeverity(severity, fallback = VERDICT_COLORS.muted) {
   if (severity >= 3) return VERDICT_COLORS.danger;
   if (severity >= 1) return VERDICT_COLORS.warning;
   if (severity === 0) return VERDICT_COLORS.good;
   return fallback;
 }
 
-export function verdictToneForSeverity(severity) {
+function verdictToneForSeverity(severity) {
   if (severity >= 3) return 'danger';
   if (severity >= 1) return 'warning';
   if (severity === 0) return 'good';
   return 'neutral';
 }
 
-export function textClassForSeverity(severity, {
+function textClassForSeverity(severity, {
   good = 'text-green-400',
   warning = 'text-amber-400',
   danger = 'text-red-400',
@@ -138,7 +138,7 @@ export function textClassForSeverity(severity, {
   return suffix ? `${base} ${suffix}` : base;
 }
 
-export function normalizeBooleanLike(value) {
+function normalizeBooleanLike(value) {
   if (value === true || value === false) return value;
   if (value === 1 || value === '1') return true;
   if (value === 0 || value === '0') return false;
@@ -161,7 +161,7 @@ function normalizeStabilityGateFailures(value) {
     .filter((failure) => failure && !RETIRED_STABILITY_FAILURES.has(failure));
 }
 
-export function normalizeStabilityVerdict(value) {
+function normalizeStabilityVerdict(value) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
   return Object.prototype.hasOwnProperty.call(STABILITY_VERDICT_LABELS, normalized)
@@ -229,21 +229,37 @@ export function resolveStabilityVerdict(ultimateStability) {
   return 'no_verdict';
 }
 
-export function stabilityVerdictLabel(value) {
+function stabilityVerdictLabel(value) {
   return STABILITY_VERDICT_LABELS[normalizeStabilityVerdict(value) || 'no_verdict'];
 }
 
-export function getStabilityGateAltitudeFt(ultimateStability) {
+function getStabilityGateAltitudeFt(ultimateStability) {
   const value = finiteStabilityNumber(ultimateStability?.scoringContext?.criteria?.gateRaFt);
   return value !== null && value > 0 ? Math.round(value) : 1000;
 }
 
-export function getStabilityPassPct(ultimateStability) {
+function getStabilityPassPct(ultimateStability) {
   const value = finiteStabilityNumber(ultimateStability?.scoringContext?.criteria?.passPct);
   return value !== null && value >= 0 && value <= 100 ? Math.round(value) : 80;
 }
 
-export function inferBounceGradeFromCount(count) {
+// One explanation for the landing card, Timeline and Logbook. Historical
+// results keep their original strict-check interpretation.
+function approachVerdictExplanation(ultimateStability, verdict) {
+  const gate = `${getStabilityGateAltitudeFt(ultimateStability).toLocaleString()} ft`;
+  if (verdict === 'no_verdict') return `There was not enough usable data for an approach verdict after the ${gate} gate.`;
+  if (ultimateStability?.scoringContext?.assessment?.version === 4) {
+    if (verdict === 'unstable') return `A red violation, configuration failure or substantial loss of approach quality was recorded after the ${gate} gate. A high average score cannot hide a red violation.`;
+    if (verdict === 'marginal') return `An amber caution or a quality check below its target was recorded after the ${gate} gate; no unstable condition was recorded.`;
+    return `Approach quality met its recorded targets after the ${gate} gate, with no cautions or violations.`;
+  }
+  const passPct = getStabilityPassPct(ultimateStability);
+  if (verdict === 'unstable') return `A hard or substantial deviation was recorded after the ${gate} gate.`;
+  if (verdict === 'marginal') return `Only soft/proxy checks missed the strict ${passPct}% threshold after the ${gate} gate.`;
+  return `Every applicable strict check met its recorded ${passPct}% threshold after the ${gate} gate.`;
+}
+
+function inferBounceGradeFromCount(count) {
   if (count <= 0) return 'Clean';
   if (count === 1) return 'Single Bounce';
   if (count === 2) return 'Multiple Bounces';
@@ -251,7 +267,7 @@ export function inferBounceGradeFromCount(count) {
   return 'Porpoise';
 }
 
-export function normalizeBounceData(touchdownDistance = null) {
+function normalizeBounceData(touchdownDistance = null) {
   if (!touchdownDistance || typeof touchdownDistance !== 'object') {
     return { bounceCount: 0, bounceGrade: null };
   }
@@ -272,6 +288,7 @@ export function normalizeBounceData(touchdownDistance = null) {
 }
 
 function scoreColor(score, high = 90, medium = 70, fallback = VERDICT_COLORS.muted) {
+  if (score == null || score === '') return fallback;
   const numericScore = Number(score);
   if (!Number.isFinite(numericScore)) return fallback;
   if (numericScore >= high) return VERDICT_COLORS.good;
@@ -299,7 +316,7 @@ function stabilitySeverity(verdict) {
   return -1;
 }
 
-export function isShortLanding(data = {}, touchdownDistance = null) {
+function isShortLanding(data = {}, touchdownDistance = null) {
   const tdz = touchdownDistance || data.touchdownDistance || null;
   return normalizeBooleanLike(data.shortLanding) === true
     || normalizeBooleanLike(tdz?.shortLanding) === true
@@ -307,7 +324,7 @@ export function isShortLanding(data = {}, touchdownDistance = null) {
     || (Number.isFinite(Number(tdz?.distanceFt)) && Number(tdz.distanceFt) < 0);
 }
 
-export function isRunwayExcursion(data = {}) {
+function isRunwayExcursion(data = {}) {
   return normalizeBooleanLike(data.runwayExcursion ?? data.runway_excursion) === true;
 }
 
@@ -374,27 +391,21 @@ export function buildLandingVerdict(data = {}, {
         ? VERDICT_COLORS.danger
         : tdzAchievedEffective
         ? VERDICT_COLORS.good
-        : (Number.isFinite(Number(touchdownDistance?.score))
-          ? scoreColor(touchdownDistance.score)
-          : verdictColorForSeverity(touchdownSev)),
+        : scoreColor(touchdownDistance?.score, 90, 70, verdictColorForSeverity(touchdownSev)),
       textClass: textClassForSeverity(touchdownSev),
     },
     lateral: {
       grade: touchdownDistance?.lateralOffsetGrade || null,
       severity: lateralSev,
       tone: verdictToneForSeverity(lateralSev),
-      color: Number.isFinite(Number(touchdownDistance?.lateralOffsetScore))
-        ? scoreColor(touchdownDistance.lateralOffsetScore)
-        : verdictColorForSeverity(lateralSev),
+      color: scoreColor(touchdownDistance?.lateralOffsetScore, 90, 70, verdictColorForSeverity(lateralSev)),
       textClass: textClassForSeverity(lateralSev),
     },
     bounce: {
       ...bounce,
       severity: bounceSev,
       tone: verdictToneForSeverity(bounceSev),
-      color: Number.isFinite(Number(touchdownDistance?.bounceScore))
-        ? scoreColor(touchdownDistance.bounceScore)
-        : verdictColorForSeverity(bounceSev),
+      color: scoreColor(touchdownDistance?.bounceScore, 90, 70, verdictColorForSeverity(bounceSev)),
       textClass: textClassForSeverity(bounceSev),
     },
     stability: {
@@ -470,7 +481,16 @@ export function buildLandingPresentation(data = {}, options = {}) {
   const stabilityPassPct = getStabilityPassPct(ultimateStability);
   const stabilityGateAltitudeFt = getStabilityGateAltitudeFt(ultimateStability);
   const approachDetailParts = [];
-  if (gateFailures.length > 0) {
+  const assessment = ultimateStability?.scoringContext?.assessment;
+  if (assessment?.version === 4) {
+    const episodes = Array.isArray(assessment.episodes) ? assessment.episodes : [];
+    const cautions = episodes.filter(episode => episode.severity === 'caution').length;
+    const violations = episodes.filter(episode => episode.severity === 'warning').length;
+    if (cautions) approachDetailParts.push(`${cautions} ${cautions === 1 ? 'caution' : 'cautions'}`);
+    if (violations) approachDetailParts.push(`${violations} ${violations === 1 ? 'violation' : 'violations'}`);
+    if (stabilityVerdict === 'no_verdict') approachDetailParts.push('Insufficient approach data');
+    else if (!episodes.length && gateFailures.length) approachDetailParts.push('Approach quality below target');
+  } else if (gateFailures.length > 0) {
     if (stabilityVerdict === 'marginal') {
       approachDetailParts.push(`${gateFailures.length} strict ${gateFailures.length === 1 ? 'check' : 'checks'} below ${stabilityPassPct}%`);
     } else if (stabilityVerdict === 'unstable') {
@@ -530,6 +550,7 @@ export function buildLandingPresentation(data = {}, options = {}) {
     failedCheckCount: gateFailures.length,
     approachText,
     approachScoreText,
+    approachExplanation: approachVerdictExplanation(ultimateStability, stabilityVerdict),
     approachDetailParts,
     approachDetailText: approachDetailParts.join(' · '),
     bounceKnown,

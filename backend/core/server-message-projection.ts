@@ -819,6 +819,26 @@ function projectAircraftControlResult(
   };
   const code = safeBoundedString(message.code, 80, SAFE_CONTROL_CODE);
   if (code) projected.code = code;
+  if (ok && message.transportAcknowledged === true) projected.transportAcknowledged = true;
+  const baro = message.baro;
+  const selectedSides = baro?.target === 'both' ? ['captain', 'firstOfficer'] : [baro?.target];
+  if (['captain', 'firstOfficer', 'both'].includes(baro?.target) && ['qnh', 'std'].includes(baro?.mode)
+    && Array.isArray(baro.confirmedSides) && baro.confirmedSides.length <= selectedSides.length
+    && new Set(baro.confirmedSides).size === baro.confirmedSides.length
+    && baro.confirmedSides.every((side) => selectedSides.includes(side))
+    && (baro.mode === 'std' || (typeof baro.value === 'number' && Number.isFinite(baro.value)
+      && (baro.unit === 'hPa' ? Number.isInteger(baro.value) && baro.value >= 948 && baro.value <= 1084
+        : baro.unit === 'inHg' && baro.value >= 27.99 && baro.value <= 32.01
+          && Math.abs(baro.value * 100 - Math.round(baro.value * 100)) < 1e-7)))) {
+    projected.baro = { target: baro.target, mode: baro.mode, confirmedSides: [...baro.confirmedSides],
+      ...(baro.mode === 'qnh' ? { value: baro.value, unit: baro.unit } : {}) };
+  }
+  if (ok && code === 'executed' && [1, 2].includes(message.radio?.index)
+    && ['active', 'standby'].includes(message.radio?.bank)
+    && typeof message.radio?.frequencyMhz === 'number'
+    && message.radio.frequencyMhz >= 118 && message.radio.frequencyMhz <= 136.99) {
+    projected.radio = { index: message.radio.index, bank: message.radio.bank, frequencyMhz: message.radio.frequencyMhz };
+  }
   if (!ok) {
     projected.error = 'Aircraft control request failed.';
     if (message.executionStarted === true) projected.executionStarted = true;
@@ -878,6 +898,12 @@ function projectAircraftCommandResult(
     && message.completedStepCount <= 64
   ) {
     projected.completedStepCount = message.completedStepCount;
+  }
+  const failedStepLabel = safeBoundedString(message.failedStepLabel, 160, SAFE_ACTION_TEXT);
+  if (failedStepLabel) projected.failedStepLabel = failedStepLabel;
+  if (Array.isArray(message.acceptedStepLabels)) {
+    projected.acceptedStepLabels = message.acceptedStepLabels.slice(0, 64)
+      .map((label) => safeBoundedString(label, 160, SAFE_ACTION_TEXT)).filter(Boolean);
   }
   return projected;
 }

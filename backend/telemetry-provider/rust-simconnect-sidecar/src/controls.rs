@@ -51,13 +51,33 @@ pub(crate) fn bounded_event_data(value: f64) -> Option<u32> {
     Some(value.round() as i64 as u32)
 }
 
-// SDK event IDs are stricter: only an exact, non-negative u32 is accepted.
-pub(crate) fn bounded_sdk_event_data(value: f64) -> Option<u32> {
-    if !value.is_finite()
-        || value < 0.0
-        || value > u32::MAX as f64
+// These two standby setters take Hz, above the general event ceiling. Keep
+// their exception exact and reject invalid channel designators without rounding.
+pub(crate) fn bounded_named_event_data(
+    name: &str,
+    value: f64,
+    parameter_count: usize,
+) -> Option<u32> {
+    if !matches!(name, "COM_STBY_RADIO_SET_HZ" | "COM2_STBY_RADIO_SET_HZ") {
+        return bounded_event_data(value);
+    }
+    if parameter_count != 0
+        || !value.is_finite()
+        || !(118_000_000.0..=136_990_000.0).contains(&value)
         || value.fract() != 0.0
     {
+        return None;
+    }
+    let hz = value as u32;
+    if hz % 1000 != 0 || !matches!((hz / 1000) % 25, 0 | 5 | 10 | 15) {
+        return None;
+    }
+    Some(hz)
+}
+
+// SDK event IDs are stricter: only an exact, non-negative u32 is accepted.
+pub(crate) fn bounded_sdk_event_data(value: f64) -> Option<u32> {
+    if !value.is_finite() || value < 0.0 || value > u32::MAX as f64 || value.fract() != 0.0 {
         return None;
     }
     Some(value as u32)
@@ -75,6 +95,40 @@ pub(crate) fn is_bounded_camera_number(value: f64, max_abs: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn com_hz_events_have_an_exact_channel_bounded_exception() {
+        for name in ["COM_STBY_RADIO_SET_HZ", "COM2_STBY_RADIO_SET_HZ"] {
+            for hz in [118_000_000, 118_005_000, 123_450_000, 136_990_000] {
+                assert_eq!(bounded_named_event_data(name, f64::from(hz), 0), Some(hz));
+                assert_eq!(bounded_named_event_data(name, f64::from(hz), 1), None);
+            }
+            for invalid in [
+                0.0,
+                117_995_000.0,
+                137_000_000.0,
+                123_020_000.0,
+                123_005_001.0,
+                123_005_000.5,
+                f64::NAN,
+                f64::INFINITY,
+            ] {
+                assert_eq!(bounded_named_event_data(name, invalid, 0), None);
+            }
+        }
+        for name in [
+            "AP_ALT_VAR_SET_ENGLISH",
+            "COM_RADIO_SET_HZ",
+            "COM1_RADIO_SWAP",
+            "#12345",
+        ] {
+            assert_eq!(bounded_named_event_data(name, 123_005_000.0, 0), None);
+        }
+        assert_eq!(
+            bounded_named_event_data("HEADING_BUG_SET", 275.0, 1),
+            Some(275)
+        );
+    }
 
     #[test]
     fn rejects_unsafe_control_payload_tokens_and_extreme_values() {

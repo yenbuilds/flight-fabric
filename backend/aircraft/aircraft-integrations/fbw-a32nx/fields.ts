@@ -96,6 +96,9 @@ function enumField(
 // FlyByWire publishes this interface for external hardware/software. Raw names,
 // units, detents, and deprecated compatibility details stay inside the adapter.
 const FBW_A32NX_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
+  'controls.flapsHandle': enumField('controls.flapsHandle', 'A32NX_FLAPS_HANDLE_INDEX', {
+    0: 'up', 1: '1', 2: '2', 3: '3', 4: 'full',
+  }),
   'propulsion.throttleLever1Angle': numberField(
     'propulsion.throttleLever1Angle',
     'A32NX_AUTOTHRUST_TLA:1',

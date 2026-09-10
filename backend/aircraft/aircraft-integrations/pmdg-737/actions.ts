@@ -112,6 +112,7 @@ function pressSdkAction(params: {
   fieldId: string;
   groupId: string;
   expectedValue?: AircraftIntegrationPrimitive;
+  freshness?: 'field';
 }): AircraftIntegrationAction {
   return {
     id: params.actionId,
@@ -132,37 +133,7 @@ function pressSdkAction(params: {
           ? { confirmation: 'changed' as const }
           : { expectedValue: params.expectedValue }),
         timeoutMs: DEFAULT_READBACK_TIMEOUT_MS,
-      },
-    }],
-    verification: 'untested',
-  };
-}
-
-function setSdkChangedAction(params: {
-  actionId: string;
-  eventId: number;
-  fieldId: string;
-  groupId: string;
-  rawValue: number;
-  timeoutMs?: number;
-}): AircraftIntegrationAction {
-  return {
-    id: params.actionId,
-    guard: {
-      cooldownMs: DEFAULT_COOLDOWN_MS,
-      groupId: params.groupId,
-      retry: 'never',
-    },
-    routes: [{
-      id: `pmdg737.${params.actionId}.sdk`,
-      transport: 'sdk',
-      adapter: SDK_ADAPTER_ID,
-      command: `#${params.eventId}`,
-      value: params.rawValue,
-      readback: {
-        fieldId: params.fieldId,
-        confirmation: 'changed',
-        timeoutMs: params.timeoutMs ?? DEFAULT_READBACK_TIMEOUT_MS,
+        ...(params.freshness ? { freshness: params.freshness } : {}),
       },
     }],
     verification: 'untested',
@@ -809,13 +780,27 @@ for (const [suffix, rawValue, expectedValue] of [
   });
 }
 
-actions['systems.apu.start'] = setSdkChangedAction({
-  actionId: 'systems.apu.start',
-  eventId: 69750,
-  fieldId: 'systems.apuMode',
-  groupId: 'systems.apu',
-  rawValue: 2,
-});
+// Installed 737-800 4.0.63 cockpit behavior: control 118, downward press=2,
+// release=4. Two downward movements reach START from OFF or ON; release once
+// at the endpoint. The SDK's APU_Selector=2 is readback, not a start interaction.
+actions['systems.apu.start'] = {
+  id: 'systems.apu.start',
+  guard: {
+    groupId: 'systems.apu', cooldownMs: 3000, retry: 'never',
+    skipWhen: [{ fieldId: 'systems.apuMode', expectedValue: 'start' }],
+  },
+  routes: [{
+    id: 'pmdg737.systems.apu.start.rotorBrake', transport: 'simconnect-sequence',
+    requiredSdkAdapter: SDK_ADAPTER_ID,
+    operations: [
+      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11802 },
+      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11802 },
+      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11804 },
+    ],
+    confirmation: 'transport-acknowledged',
+  }],
+  verification: 'untested',
+};
 
 for (const [suffix, expectedValue, rotorBrakeValues] of [
   ['connect', true, [1702, 1704]],
@@ -901,6 +886,14 @@ for (const [suffix, eventId, expectedValue] of [
     groupId: 'pmdg737.flightControls.speedbrake',
     expectedValue,
   });
+}
+
+for (const [suffix, eventId, expectedValue] of [
+  ['retracted', 76423, 0], ['half', 76425, 50], ['full', 76427, 100],
+] as const) {
+  const id = `flightControls.speedbrake.${suffix}`;
+  actions[id] = pressSdkAction({ actionId: id, eventId, expectedValue,
+    fieldId: 'flightControls.speedbrakePercent', groupId: 'pmdg737.flightControls.speedbrake', freshness: 'field' });
 }
 
 // PMDG publishes dedicated mouse targets for every normal 737 flap detent.

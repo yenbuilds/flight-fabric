@@ -1,5 +1,7 @@
 'use strict';
 
+import { pmdgAtcFields, pmdgAtcActions } from '../pmdg-atc.js';
+
 import type { AircraftIntegrationDefinition } from '../types.js';
 
 const { defineAircraftIntegration } = require('../registry') as {
@@ -35,8 +37,8 @@ const PMDG_777_INTEGRATION = defineAircraftIntegration({
   presentation: {
     templateId: 'pmdg-777',
   },
-  fields: PMDG_777_FIELDS,
-  actions: PMDG_777_ACTIONS,
+  fields: { ...PMDG_777_FIELDS, ...pmdgAtcFields() },
+  actions: { ...PMDG_777_ACTIONS, ...pmdgAtcActions('pmdg777', 746) },
 });
 
 module.exports = {

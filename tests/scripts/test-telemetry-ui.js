@@ -246,6 +246,20 @@ function testHistoryWidgetDoesNotClearBetweenPhaseTransitions() {
 
 function testSharedLandingPresentationKeepsVerdictsFactual() {
   const { landingPresentation } = loadTelemetryUi().utils;
+  for (const verdict of ['stable', 'marginal', 'unstable', 'no_verdict']) {
+    const v4 = landingPresentation({ ultimateStability: { score: verdict === 'no_verdict' ? null : 98,
+      verdict, scoringContext: { assessment: { version: 4 } } } });
+    assert.equal(v4.approachLabel, verdict.toUpperCase().replace('_', ' '));
+    assert.equal(v4.approachScoreText, verdict === 'no_verdict' ? '' : '98% score');
+  }
+  const mini = loadTelemetryUi().utils.stabilityBreakdownPresentation({ breakdown: {
+    speed_ok: 98, vs_ok: 92, glidepath_ok: null, glideslope_ok: 100, localizer_ok: 95,
+    thrust_ok: 99, thrust_not_idle_ok: 0, thrust_stable_ok: 40,
+  } });
+  assert.match(mini.text, /GS 100%/);
+  assert.match(mini.text, /LOC 95%/);
+  assert.match(mini.text, /THR MOV 99%/);
+  assert.doesNotMatch(mini.text, /THR 0%|PATH --/);
   const capped = landingPresentation({
     grade: 'PERFECT',
     touchdownDistance: {
@@ -315,6 +329,7 @@ function testLandingWidgetsUseSharedPresentationAndRetainLateFacts() {
   for (const filename of ['widgets-compact/widget.html', 'widgets-compact/widget-top.html']) {
     const widgetSource = readWidget(filename);
     assert.match(widgetSource, /TelemetryUI\.utils\.landingPresentation\(msg\)/, `${filename} should use the shared landing presentation`);
+    assert.match(widgetSource, /TelemetryUI\.utils\.stabilityBreakdownPresentation\(ultimateStability\)/, `${filename} should use the current scored metrics`);
     assert.match(widgetSource, /let latestFinalLanding = null;/, `${filename} should retain the latest final landing for late stability updates`);
     assert.match(widgetSource, /\$\('landing-bounce'\)\.textContent = presentation\.bounceLabel;/, `${filename} should retain bounce facts after a late stability update`);
     assert.match(widgetSource, />TD RATE</, `${filename} should use a source-neutral touchdown-rate label`);

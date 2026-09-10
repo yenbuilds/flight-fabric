@@ -8,17 +8,6 @@ export declare const LifecycleState: Readonly<{
     readonly COOLDOWN: "COOLDOWN";
 }>;
 export type LifecycleStateValue = (typeof LifecycleState)[keyof typeof LifecycleState];
-export type InFlightContextResult = {
-    inFlightContext: boolean;
-    reason: string;
-};
-export type ComputeInFlightContextParams = {
-    simconnectConnected: boolean;
-    simRunning?: boolean | null;
-    userInputEnabled?: boolean | null;
-    aircraftLoadedName?: string | null;
-    paused?: boolean;
-};
 export type EligibilityResult = {
     eligible: boolean;
     state: LifecycleStateValue;
@@ -156,7 +145,6 @@ export type BuildFlightStartReasonParams = {
     minActiveFields?: number;
     telemetryActivityOk?: boolean;
 };
-export declare function computeInFlightContext({ simconnectConnected, simRunning, userInputEnabled, aircraftLoadedName, paused, }: ComputeInFlightContextParams): InFlightContextResult;
 export declare function updateActiveFlightEndGuard({ state, flightActive, nowEpochMs, simconnectConnected, simRunning, disconnectGraceMs, simStoppedGraceMs, }: UpdateActiveFlightEndGuardParams): UpdateActiveFlightEndGuardResult;
 export declare function updateManualAutoStartSuppression({ suppression, nowEpochMs, simconnectConnected, simRunning, inFlightContext, paused, aircraftTitle, phase, wow, iasKnots, gsKnots, anyEngineRunning, maxEnginePct, parkedResetDwellMs, contextResetDwellMs, stoppedGsKts, stoppedIasKts, engineOffMaxPct, }: UpdateManualAutoStartSuppressionParams): UpdateManualAutoStartSuppressionResult;
 export declare function checkFlightStartEligibility({ flightActive, lastFlightEndMs, nowEpochMs, simconnectConnected, inFlightContext, altMslFt, iasKnots, gsKnots, raFeet, wow, slewActive, motionDetected, activeFieldCount, cooldownMs, maxAltMslFt, minIasKts, minGsKts, minRaFt, requireCount, requireMovement, requireTelemetryActivity, minActiveFields, blockOnSlew, }: CheckFlightStartEligibilityParams): EligibilityResult;

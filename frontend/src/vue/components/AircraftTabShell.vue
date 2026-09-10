@@ -1,17 +1,39 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, provide, ref } from 'vue';
 import { resolveAircraftSpecificTemplate } from '../aircraft-specific/template-registry.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
+import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
+import { AIRCRAFT_PAGE_SECTIONS } from './aircraft-specific/aircraft-page-sections.js';
 import AircraftIntegrationCheatSheetModal from './AircraftIntegrationCheatSheetModal.vue';
 import AircraftPageSearch from './AircraftPageSearch.vue';
 import AircraftQuickActions from './AircraftQuickActions.vue';
+import CockpitLightingPresets from './CockpitLightingPresets.vue';
+import ExteriorLightControls from './ExteriorLightControls.vue';
+import AircraftCommandBrowser from './AircraftCommandBrowser.vue';
+import ComRadios from './ComRadios.vue';
+import BaroControls from './BaroControls.vue';
+import TransponderControls from './TransponderControls.vue';
+import MinimumsControls from './MinimumsControls.vue';
+import EfisControls from './EfisControls.vue';
 import AircraftSpecificSection from './aircraft-specific/AircraftSpecificSection.vue';
 import AircraftVoiceControlModal from './AircraftVoiceControlModal.vue';
 import AutopilotControlsTab from './AutopilotControlsTab.vue';
 
 const aircraftSpecific = useAircraftSpecificStore();
 const voice = useVoiceControlStore();
+const controls = useAircraftControlsStore();
+const pageSections = computed(() => [
+  { id: 'page-com', label: 'COM', title: 'COM radios', commands: ['radios.com1.setStandby', 'radios.com2.setStandby'] },
+  { id: 'page-baro', label: 'Altimeters', title: 'Altimeters', commands: ['baro.both.qnhHpa'] },
+  { id: 'page-transponder', label: 'Transponder', title: 'Transponder', commands: ['surveillance.squawk.set', 'surveillance.ident.activate'] },
+  { id: 'page-minimums', label: 'Minimums', title: 'Approach minimums', commands: ['approach.minimums.baro'] },
+  ...(aircraftSpecific.templateId === 'fbw-a32nx' ? [] : [
+    { id: 'page-efis', label: 'EFIS', title: 'EFIS & approach', commands: ['navigation.captain.range', 'navigation.firstOfficer.range'] },
+  ]),
+].filter((section) => section.commands.some((id) => controls.isAircraftCommandSupported(id)))
+  .map(({ commands, ...section }) => ({ ...section, targetId: `aircraft-${section.id}` })));
+provide(AIRCRAFT_PAGE_SECTIONS, pageSections);
 const searchableContent = ref(null);
 const integrationGuideButton = ref(null);
 const voiceControlButton = ref(null);
@@ -154,6 +176,16 @@ function openVoiceCommandGuide() {
           />
         </div>
         <AircraftQuickActions class="aircraft-page-presets" />
+        <ExteriorLightControls />
+        <AircraftCommandBrowser />
+        <CockpitLightingPresets v-if="aircraftSpecific.templateId !== 'pmdg-737'" />
+        <ComRadios id="aircraft-page-com" class="aircraft-mobile-navigable-section" tabindex="-1" />
+        <BaroControls id="aircraft-page-baro" class="aircraft-mobile-navigable-section" tabindex="-1" />
+        <div class="aircraft-page-control-grid">
+          <TransponderControls id="aircraft-page-transponder" class="aircraft-mobile-navigable-section" tabindex="-1" />
+          <MinimumsControls id="aircraft-page-minimums" class="aircraft-mobile-navigable-section" tabindex="-1" />
+          <EfisControls id="aircraft-page-efis" class="aircraft-mobile-navigable-section" tabindex="-1" />
+        </div>
       </div>
       <AircraftSpecificSection v-if="hasResolvedAircraftTemplate" />
       <AutopilotControlsTab v-else />
@@ -178,6 +210,17 @@ function openVoiceCommandGuide() {
   align-items: start;
   gap: 0.75rem;
   margin-bottom: 1rem;
+}
+
+.aircraft-page-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.aircraft-page-control-grid:empty {
+  display: none;
 }
 
 .aircraft-page-tool-actions {
@@ -210,7 +253,7 @@ function openVoiceCommandGuide() {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  min-height: 3.75rem;
+  min-height: 3rem;
   padding: 0 1.1rem;
   border: 1px solid rgb(var(--color-accent, 0 212 255) / 0.38);
   border-radius: 9999px;

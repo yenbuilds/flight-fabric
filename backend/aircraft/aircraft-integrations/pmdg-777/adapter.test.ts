@@ -25,11 +25,16 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
     assert.equal(integration.id, PMDG_777_INTEGRATION.id);
     assert.deepEqual(integration.trustedProfileKeys, PMDG_777_INTEGRATION.trustedProfileKeys);
     assert.equal(integration.presentation.templateId, 'pmdg-777');
+    const apuContext = { adapterId: PMDG_777_ADAPTER_ID, profileKey, actionId: 'systems.apuSelector.start' };
+    assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['simconnect-sequence']), null);
+    assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['sdk']), null);
+    assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['sdk', 'simconnect-sequence']).transport,
+      'simconnect-sequence');
   }
 
   assert.equal(PMDG_777_INTEGRATION.presentation.templateId, 'pmdg-777');
-  assert.equal(Object.keys(PMDG_777_INTEGRATION.fields).length, 169);
-  assert.equal(Object.keys(PMDG_777_INTEGRATION.actions).length, 340);
+  assert.equal(Object.keys(PMDG_777_INTEGRATION.fields).length, 180);
+  assert.equal(Object.keys(PMDG_777_INTEGRATION.actions).length, 345);
   assert.deepEqual(PMDG_777_INTEGRATION.fields['lights.beacon'].sources[0], {
     route: { type: 'sdk', adapter: 'clientdata-manifest', path: 'lights.beacon' },
     decode: { type: 'boolean', trueValues: [true], falseValues: [false] },
@@ -246,8 +251,33 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
 
   for (const action of Object.values(PMDG_777_INTEGRATION.actions) as any[]) {
     assert.equal(action.guard.retry, 'never', `${action.id} must never retry a PMDG write`);
-    assert.ok(action.guard.cooldownMs >= 650, `${action.id} must retain the PMDG cooldown`);
+    if (action.id.startsWith('lighting.') && action.id.endsWith('.set')) assert.equal(action.guard.cooldownMs, 0);
+    else assert.ok(action.guard.cooldownMs >= 650, `${action.id} must retain the PMDG cooldown`);
     for (const route of action.routes) {
+      if (['surveillance.squawk.set', 'surveillance.ident.activate'].includes(action.id)) {
+        assert.equal(route.transport, 'simconnect-sequence');
+        assert.equal(route.precondition.freshness, 'field');
+        assert.equal(route.confirmation === 'transport-acknowledged', action.id === 'surveillance.ident.activate');
+        if (route.readback) assert.equal(route.readback.freshness, 'field');
+        continue;
+      }
+      if (action.id === 'systems.apuSelector.start') {
+        assert.equal(action.routes.length, 1, 'START must not fall back to the unverified direct selector payload');
+        assert.equal(route.transport, 'simconnect-sequence');
+        assert.equal(route.requiredSdkAdapter, 'clientdata-manifest');
+        assert.deepEqual(route.operations, [
+          { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+          { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+          { type: 'event', name: 'ROTOR_BRAKE', value: 304 },
+        ]);
+        assert.equal(route.confirmation, 'transport-acknowledged');
+        assert.equal(route.readback, undefined);
+        assert.deepEqual(action.guard.skipWhen, [
+          { fieldId: 'systems.apuRunning', expectedValue: true },
+          { fieldId: 'systems.apuSelectorMode', expectedValue: 'start' },
+        ]);
+        continue;
+      }
       assert.equal(route.transport, 'sdk');
       assert.equal(route.adapter, 'clientdata-manifest');
       assert.ok(route.readback, `${action.id} must require fresh SDK readback`);

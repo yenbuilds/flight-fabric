@@ -5,9 +5,11 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  watch,
 } from 'vue';
 import { useDocumentEvent } from '../../composables/useDocumentEvent.js';
 import { useAircraftSectionMemory } from './aircraft-section-memory.js';
+import { aircraftSectionAnchorY, useAircraftPageSections } from './aircraft-page-sections.js';
 
 const props = defineProps({
   sections: { type: Array, required: true },
@@ -15,6 +17,8 @@ const props = defineProps({
   aircraftLabel: { type: String, required: true },
   memoryKey: { type: String, default: '' },
 });
+
+const sections = useAircraftPageSections(() => props.sections);
 
 const sectionRibbon = ref(null);
 const sectionMenu = ref(null);
@@ -27,15 +31,15 @@ let ribbonSwipeStart = null;
 let suppressRibbonClick = false;
 let suppressRibbonClickTimer = null;
 
-const activeSection = computed(() => props.sections[activeSectionIndex.value] || props.sections[0]);
-const previousSection = computed(() => props.sections[activeSectionIndex.value - 1] || null);
-const nextSection = computed(() => props.sections[activeSectionIndex.value + 1] || null);
+const activeSection = computed(() => sections.value[activeSectionIndex.value] || sections.value[0]);
+const previousSection = computed(() => sections.value[activeSectionIndex.value - 1] || null);
+const nextSection = computed(() => sections.value[activeSectionIndex.value + 1] || null);
 const menuId = computed(() => `${props.sectionIdPrefix}menu`);
 const menuTitleId = computed(() => `${props.sectionIdPrefix}menu-title`);
 
 function sectionElement(index) {
-  const section = props.sections[index];
-  return section ? document.getElementById(`${props.sectionIdPrefix}${section.id}`) : null;
+  const section = sections.value[index];
+  return section ? document.getElementById(section.targetId || `${props.sectionIdPrefix}${section.id}`) : null;
 }
 
 function closeSectionMenu({ restoreFocus = false } = {}) {
@@ -65,8 +69,8 @@ function openAncestorDetails(target) {
 function goToSection(index, options = {}) {
   const numericIndex = Number(index);
   if (!Number.isFinite(numericIndex)) return false;
-  const boundedIndex = Math.max(0, Math.min(props.sections.length - 1, Math.trunc(numericIndex)));
-  const section = props.sections[boundedIndex];
+  const boundedIndex = Math.max(0, Math.min(sections.value.length - 1, Math.trunc(numericIndex)));
+  const section = sections.value[boundedIndex];
   const target = sectionElement(boundedIndex);
   if (!section || !target) return false;
 
@@ -85,9 +89,9 @@ function goToSection(index, options = {}) {
 
 const { aircraftTabIsActive, rememberSection } = useAircraftSectionMemory({
   memoryKey: () => props.memoryKey,
-  sections: () => props.sections,
+  sections,
   onRestore: (sectionId) => {
-    const index = props.sections.findIndex((section) => section.id === sectionId);
+    const index = sections.value.findIndex((section) => section.id === sectionId);
     return index >= 0
       ? goToSection(index, { behavior: 'auto', focus: false, remember: false })
       : false;
@@ -136,7 +140,7 @@ function handleRibbonPointerUp(event) {
   if (Math.abs(deltaX) < threshold || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
 
   const nextIndex = activeSectionIndex.value + (deltaX < 0 ? 1 : -1);
-  if (nextIndex < 0 || nextIndex >= props.sections.length) return;
+  if (nextIndex < 0 || nextIndex >= sections.value.length) return;
 
   event.preventDefault?.();
   suppressRibbonClick = true;
@@ -151,11 +155,10 @@ function handleRibbonPointerUp(event) {
 function syncActiveSection() {
   sectionSyncTimer = null;
   if (!aircraftTabIsActive()) return;
-  const ribbonBottom = sectionRibbon.value?.getBoundingClientRect?.().bottom || 0;
-  const anchorY = ribbonBottom + 16;
+  const anchorY = aircraftSectionAnchorY(sectionRibbon.value, sectionScrollTarget);
   let nextIndex = 0;
 
-  for (let index = 0; index < props.sections.length; index += 1) {
+  for (let index = 0; index < sections.value.length; index += 1) {
     const target = sectionElement(index);
     if (!target || target.getBoundingClientRect().top > anchorY) break;
     nextIndex = index;
@@ -167,16 +170,18 @@ function syncActiveSection() {
     && scroller !== window
     && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 24
   ) {
-    nextIndex = props.sections.length - 1;
+    nextIndex = sections.value.length - 1;
   }
   activeSectionIndex.value = nextIndex;
-  rememberSection(props.sections[nextIndex]?.id);
+  rememberSection(sections.value[nextIndex]?.id);
 }
 
 function scheduleSectionSync() {
   if (sectionSyncTimer != null || !aircraftTabIsActive()) return;
   sectionSyncTimer = window.setTimeout(syncActiveSection, 32);
 }
+
+watch(sections, () => nextTick(scheduleSectionSync));
 
 function handleDocumentKeydown(event) {
   if (!sectionMenuOpen.value) return;

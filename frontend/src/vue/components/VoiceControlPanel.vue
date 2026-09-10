@@ -1,12 +1,15 @@
 <script setup>
 import {
   computed,
+  onBeforeUnmount,
   ref,
   watch,
 } from 'vue';
 import { shortcutFromKeyboardEvent } from '../../voice/shortcut-recorder.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
+import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
+import { canQueryAircraftState, stateQueryExamples } from '../../voice/state-queries.js';
 
 const props = defineProps({
   presentation: {
@@ -18,6 +21,9 @@ const props = defineProps({
 
 const voice = useVoiceControlStore();
 const aircraftControls = useAircraftControlsStore();
+const specific = useAircraftSpecificStore();
+const queriesAvailable = computed(() => canQueryAircraftState(specific));
+const queryExamples = computed(() => stateQueryExamples(specific));
 const shortcutDraft = ref(voice.runtime.shortcut);
 const shortcutRecording = ref(false);
 const shortcutSaving = ref(false);
@@ -26,6 +32,7 @@ const recognitionSaving = ref(false);
 const isModalPresentation = computed(() => props.presentation === 'modal');
 
 function sampleSpeechValue(command = {}) {
+  if (command.input?.units === 'squawk') return '0042';
   const commandId = String(command.id || '').toLowerCase();
   if (commandId.includes('heading')) return '270';
   if (commandId.includes('altitude')) return '10,000';
@@ -69,6 +76,7 @@ const examples = computed(() => prioritizeAltitudeTarget(
   .filter(Boolean)
   .slice(0, 3));
 const developmentTranscription = computed(() => voice.runtime.development
+  && !queriesAvailable.value
   && (aircraftControls.availability.enabled !== true || examples.value.length === 0));
 const captureLocked = computed(() => voice.listening || voice.finishing);
 const recognitionOff = computed(() => voice.runtime.enabled !== true);
@@ -79,6 +87,7 @@ const pushToTalkDisabled = computed(() => (
   || (!voice.ready && !voice.listening)
   || (!voice.listening
     && (aircraftControls.availability.enabled !== true || examples.value.length === 0)
+    && !queriesAvailable.value
     && !developmentTranscription.value)
 ));
 const selectedInputMissing = computed(() => Boolean(voice.selectedInputDeviceId)
@@ -119,14 +128,33 @@ watch(() => voice.runtime.shortcut, (value) => {
   shortcutError.value = '';
 });
 
+let localPress = null;
+function beginLocalPress() {
+  if (localPress || !voice.ready) return;
+  const press = {};
+  localPress = press;
+  void Promise.resolve(voice.pressToTalk()).then((started) => {
+    if (started === false && localPress === press) localPress = null;
+  });
+}
 function press(event) {
   event.currentTarget?.setPointerCapture?.(event.pointerId);
-  void voice.pressToTalk();
+  beginLocalPress();
 }
 function pressWithKeyboard(event) {
-  if (!event.repeat) void voice.pressToTalk();
+  if (!event.repeat) beginLocalPress();
 }
-function release() { void voice.releaseToTalk(); }
+function release() {
+  if (!localPress) return;
+  localPress = null;
+  void voice.releaseToTalk();
+}
+function cancelLocalPress() {
+  if (!localPress) return;
+  localPress = null;
+  void voice.cancel();
+}
+onBeforeUnmount(cancelLocalPress);
 function beginShortcutRecording() {
   if (recognitionOff.value || captureLocked.value || shortcutSaving.value) return;
   shortcutRecording.value = true;
@@ -237,8 +265,9 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           aria-describedby="voice-control-status"
           @pointerdown.prevent="press"
           @pointerup.prevent="release"
-          @pointercancel.prevent="release"
+          @pointercancel.prevent="cancelLocalPress"
           @lostpointercapture="release"
+          @blur="cancelLocalPress"
           @keydown.space.prevent="pressWithKeyboard"
           @keyup.space.prevent="release"
           @keydown.enter.prevent="pressWithKeyboard"
@@ -256,6 +285,17 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
       </div>
     </div>
 
+    <div v-if="queriesAvailable" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg" data-state-query-guide>
+      <p class="font-semibold">Ask about the aircraft</p>
+      <p class="mt-1">{{ queryExamples.slice(0, 3).join(' · ') }}</p>
+      <details v-if="queryExamples.length > 3" class="mt-2" data-more-state-queries>
+        <summary class="cursor-pointer py-1">More questions ({{ queryExamples.length - 3 }})</summary>
+        <ul class="mt-1 grid gap-1 sm:grid-cols-2">
+          <li v-for="example in queryExamples.slice(3)" :key="example">{{ example }}</li>
+        </ul>
+      </details>
+      <p class="mt-1">Replies use fresh aircraft data. Enable spoken readbacks to hear the answer.</p>
+    </div>
     <div v-if="examples.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3 text-xs">
       <span class="mr-1 text-muted-fg">Try saying</span>
       <span

@@ -165,6 +165,10 @@ npm run dead-code
 
 Knip's runtime-loaded entry points are documented in `knip.json`. Review its
 findings before removing code; the audit does not delete files automatically.
+Browser test fixtures are served as HTML script entry points, with `vue` and
+`pinia` resolved from the frontend installation by the test Vite aliases. Root
+`ajv`, `ajv-formats`, and `dotenv` dependencies support the compiled backend in
+`dist/`, so they are retained even though their source imports live in `backend/`.
 
 </details>
 

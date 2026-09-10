@@ -582,6 +582,28 @@ test('outbound projection narrows app settings and aircraft-control responses by
   assert.equal(projectedCommand?.configurationId, 'pmdg-737-v1');
   assert.equal(projectedCommand?.completedStepCount, 0);
   assert.equal(projectedCommand?.stepCount, 3);
+  const acknowledgedApu = projectServerMessageForClient({ __ffAircraftControlClient: true }, {
+    ...commandResult, ok: true, code: 'executed', commandId: 'configuration.apu.start',
+    transportAcknowledged: true,
+  });
+  assert.equal(acknowledgedApu?.transportAcknowledged, true, 'paired clients must retain request-only completion');
+  const observedRadio = projectServerMessageForClient({ __ffAircraftControlClient: true }, {
+    ...commandResult, ok: true, code: 'executed', commandId: 'radios.com2.swap',
+    radio: { index: 2, bank: 'active', frequencyMhz: 123.005, privateField: 'private' },
+  });
+  assert.deepEqual(observedRadio?.radio, { index: 2, bank: 'active', frequencyMhz: 123.005 },
+    'paired clients retain bounded actual radio readback for swap feedback');
+  for (const invalid of [{ index: 3, bank: 'active', frequencyMhz: 123.005 }, { index: 1, bank: 'active', frequencyMhz: Infinity }]) {
+    assert.equal(projectServerMessageForClient({ __ffAircraftControlClient: true }, {
+      ...commandResult, ok: true, code: 'executed', radio: invalid,
+    })?.radio, undefined);
+  }
+  const partialApu = projectServerMessageForClient({ __ffAircraftControlClient: true }, {
+    ...commandResult, ok: false, completedStepCount: 1,
+    acceptedStepLabels: ['APU master ON'], failedStepLabel: 'APU START',
+  });
+  assert.deepEqual(partialApu?.acceptedStepLabels, ['APU master ON']);
+  assert.equal(partialApu?.failedStepLabel, 'APU START');
   assert.equal(projectedCommand?.executionStarted, undefined, 'a recorded failed step is not itself proof of dispatch');
   assert.equal(projectedCommand?.steps, undefined);
   assert.deepEqual(projectedCommand?.request.input, { value: 'down' });

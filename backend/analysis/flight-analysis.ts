@@ -94,6 +94,12 @@ function averageFinite(values: unknown[]): number | null {
 function buildCanonicalStabilityFrameFromCsvRow(row: AnyRecord, dtMs: number | null): AnyRecord {
   return {
     raFt: finiteNumberOrNull(row.ra_ft),
+    timestampMs: Number.isFinite(Date.parse(row.timestamp_utc)) ? Date.parse(row.timestamp_utc) : finiteNumberOrNull(row.ts),
+    gsDeviation: finiteNumberOrNull(row.gs_deviation_dots),
+    locDeviation: finiteNumberOrNull(row.loc_deviation_dots),
+    nav1HasGlideSlope: booleanOrNull(row.nav1_has_glideslope),
+    nav1HasLocalizer: booleanOrNull(row.nav1_has_localizer),
+    nav1Signal: finiteNumberOrNull(row.nav1_signal),
     altMslFt: finiteNumberOrNull(row.alt_msl_ft),
     altCalibratedFt: finiteNumberOrNull(row.alt_calibrated_ft),
     altPlaneFt: finiteNumberOrNull(row.alt_plane_ft),

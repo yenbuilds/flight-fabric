@@ -68,7 +68,8 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Only the narrow standard gear/flaps fallback is available outside the dedicated monitoring page. No aircraft-specific control writes are mapped without a vendor-documented route and independent in-sim readback."
+      "_comment": "Only the narrow standard gear/flaps fallback is available outside the dedicated monitoring page. No aircraft-specific control writes are mapped without a vendor-documented route and independent in-sim readback.",
+      "standardLightFallback": false
     }
   },
   "meta": {

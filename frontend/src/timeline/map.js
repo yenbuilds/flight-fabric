@@ -1,3 +1,5 @@
+import { alertTone } from './alert-presentation.js';
+
 export function eventCategory(event) {
   const type = String(event?.type || '').toLowerCase();
   if (type.startsWith('violation')) return 'violations';
@@ -47,7 +49,12 @@ export function getTimelineEventMarkerVisual(event) {
 
   if (type === 'worst_moment') return { glyph: 'W', bg: '#7f1d1d', border: '#f87171', fg: '#ffffff', size: 11, shape: 'diamond' };
   if (type === 'landing') return { glyph: 'LDG', bg: '#14532d', border: '#4ade80', fg: '#f0fdf4', size: 9, shape: 'pill' };
-  if (type === 'violation_start' || type === 'violation_end') return { glyph: '!', bg: '#7f1d1d', border: '#f87171', fg: '#fee2e2', size: 14, shape: 'round' };
+  if (type === 'violation_start' || type === 'violation_end') {
+    const tone = alertTone(event);
+    if (tone === 'recovery') return { glyph: event.context?.end_reason && event.context.end_reason !== 'recovered' ? '·' : '✓', bg: '#334155', border: '#94a3b8', fg: '#f1f5f9', size: 10, shape: 'round' };
+    if (tone === 'caution') return { glyph: '!', bg: '#78350f', border: '#fbbf24', fg: '#fef3c7', size: 12, shape: 'round' };
+    return { glyph: '!', bg: '#7f1d1d', border: '#f87171', fg: '#fee2e2', size: 14, shape: 'round' };
+  }
   if (type === 'score_change' || type === 'score_final') return { glyph: 'S', bg: '#78350f', border: '#fbbf24', fg: '#fef3c7', size: 11, shape: 'round' };
   if (type === 'automation_event') return { glyph: 'AP', bg: '#134e4a', border: '#2dd4bf', fg: '#ccfbf1', size: 9, shape: 'pill' };
   if (type === 'flight_guidance_event') return { glyph: 'FG', bg: '#4c1d95', border: '#a78bfa', fg: '#ede9fe', size: 9, shape: 'pill' };

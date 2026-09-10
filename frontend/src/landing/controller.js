@@ -16,6 +16,8 @@ const STABILITY_METRIC_LABELS = {
   speed_trend_ok: 'Speed Trend',
   vs_ok: 'V/S',
   glidepath_ok: 'Path Rate',
+  glideslope_ok: 'Glideslope',
+  localizer_ok: 'Localizer',
   glidepath_below_ok: 'Path Rate (steep)',
   glidepath_above_ok: 'Path Rate (shallow)',
   thrust_ok: 'Throttle Movement',

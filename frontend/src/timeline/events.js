@@ -1,10 +1,11 @@
 import { buildLandingPresentation, gradeSeverity } from '../landing/scoring.js';
 import { RULE_END_LABELS, RULE_LABELS, VIOLATION_RULE } from './constants.js';
+import { alertTone, APPROACH_REASON_LABELS } from './alert-presentation.js';
 
 function resolveEventType(event) {
   const type = String(event?.type || '');
   if (type.includes('phase')) return 'phase';
-  if (type.includes('violation')) return 'violation';
+  if (type.includes('violation')) return alertTone(event);
   if (type === 'automation_event') return 'automation';
   if (type === 'flight_guidance_event') return 'flight-guidance';
   if (type === 'configuration_event') return 'marker';
@@ -66,7 +67,7 @@ export function buildTimelineEventRowState(event, index, startMs, {
     title = event.newPhase || 'Unknown Phase';
     subtitle = event.previousPhase ? `from ${event.previousPhase}` : '';
   } else if (event.type === 'violation_start') {
-    title = getViolationLabel(event).toUpperCase();
+    title = alertTone(event) === 'caution' ? getViolationLabel(event) : getViolationLabel(event).toUpperCase();
     subtitle = event.severity || '';
     if (event.ruleId === VIOLATION_RULE.HIGH_SINK_RATE) {
       const peakFpm = Number(event.context?.peak_sink_rate_fpm);
@@ -78,9 +79,22 @@ export function buildTimelineEventRowState(event, index, startMs, {
       }
       subtitle = details.filter(Boolean).join(' · ');
     }
+    if (event.context?.assessment_version === 4) {
+      const ctx = event.context;
+      const details = [alertTone(event) === 'caution' ? 'Caution' : 'Violation'];
+      if (typeof ctx.start_height_ft === 'number') details.push(`${Math.round(ctx.start_height_ft)} ft ${ctx.altitude_source === 'radio' ? 'RA' : 'AAL'}`);
+      if (typeof ctx.threshold_exceedance_duration_ms === 'number') details.push(`${(ctx.threshold_exceedance_duration_ms / 1000).toFixed(1)}s outside limits`);
+      const reasons = (ctx.reasons || []).map(reason => APPROACH_REASON_LABELS[reason] || reason);
+      if (reasons.length) details.push(reasons.join(' + '));
+      subtitle = details.join(' · ');
+    }
   } else if (event.type === 'violation_end') {
     const violationLabel = getViolationLabel(event);
     title = RULE_END_LABELS[event.ruleId] || `${violationLabel} ended`;
+    if (event.context?.assessment_version === 4 && event.context.end_reason !== 'recovered') {
+      title = `${violationLabel} — ${event.context.end_reason === 'data_gap' ? 'telemetry gap'
+        : event.context.end_reason === 'paused' ? 'simulator paused' : 'assessment ended'}`;
+    }
     if (event.scoreImpact) {
       badges.push(createBadge(event.scoreImpact, 'negative'));
     }

@@ -10,7 +10,7 @@ export const TAB_ORDER = Object.freeze([
   'system',
 ]);
 
-export const CONTEXTUAL_TAB_IDS = Object.freeze([
+const CONTEXTUAL_TAB_IDS = Object.freeze([
   'landing',
   'lvars',
 ]);

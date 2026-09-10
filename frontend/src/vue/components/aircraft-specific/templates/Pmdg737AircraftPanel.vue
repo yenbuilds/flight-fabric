@@ -8,7 +8,11 @@ import {
   watch,
 } from 'vue';
 import AircraftHotGroupModal from '../AircraftHotGroupModal.vue';
+import TakeoffLightsPreset from '../TakeoffLightsPreset.vue';
+import CockpitLightingPresets from '../../CockpitLightingPresets.vue';
+import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 import { useAircraftSectionMemory } from '../aircraft-section-memory.js';
+import { aircraftSectionAnchorY, useAircraftPageSections } from '../aircraft-page-sections.js';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 import { useDocumentEvent } from '../../../composables/useDocumentEvent.js';
 
@@ -27,16 +31,11 @@ const props = defineProps({
 });
 
 const unavailableFields = computed(() => new Set(props.unavailable));
-const electronApi = typeof window !== 'undefined' ? window.electronAPI : null;
-const authorizationState = ref(electronApi ? 'unknown' : 'unavailable');
-const eulaOpened = ref(false);
-const eulaConfirmed = ref(false);
-const authorizationBusy = ref(false);
-const authorizationError = ref('');
 const mcpDrafts = ref({});
 const bothCourseDraft = ref('');
 const bothNavFrequencyDraft = ref('');
 const cockpitLightingDraft = ref('50');
+const lightingControls = useAircraftControlsStore();
 const sectionRibbon = ref(null);
 const sectionMenu = ref(null);
 const sectionMenuButton = ref(null);
@@ -66,7 +65,7 @@ watch(
   resetControlDrafts,
 );
 
-const mobileSections = Object.freeze([
+const mobileSections = useAircraftPageSections([
   Object.freeze({ id: 'mcp', label: 'MCP', title: 'Mode Control Panel', detail: 'Targets, flight directors and AFDS modes.' }),
   Object.freeze({ id: 'radios', label: 'Radios', title: 'Navigation Radios', detail: 'NAV active, standby and frequency transfer.' }),
   Object.freeze({ id: 'exterior', label: 'Exterior', title: 'Exterior Lights', detail: 'Landing, taxi, position and exterior lighting.' }),
@@ -77,9 +76,9 @@ const mobileSections = Object.freeze([
   Object.freeze({ id: 'systems', label: 'Systems', title: 'Air & Systems', detail: 'Packs, bleed air, anti-ice, APU and warning state.' }),
 ]);
 
-const activeSection = computed(() => mobileSections[activeSectionIndex.value]);
-const previousSection = computed(() => mobileSections[activeSectionIndex.value - 1] || null);
-const nextSection = computed(() => mobileSections[activeSectionIndex.value + 1] || null);
+const activeSection = computed(() => mobileSections.value[activeSectionIndex.value] || mobileSections.value[0]);
+const previousSection = computed(() => mobileSections.value[activeSectionIndex.value - 1] || null);
+const nextSection = computed(() => mobileSections.value[activeSectionIndex.value + 1] || null);
 
 const variant = computed(() => {
   const liveModel = props.values['aircraft.model'];
@@ -90,17 +89,12 @@ const variant = computed(() => {
   return '737-800';
 });
 
-const showAuthorization = computed(() => (
-  authorizationState.value === 'required'
-  || (authorizationState.value === 'unavailable' && sdkSourceStatus.value === 'disabled')
-));
-
 const sdkStatusNotice = computed(() => {
-  if (showAuthorization.value || sdkSourceStatus.value === 'connected') return null;
+  if (sdkSourceStatus.value === 'connected') return null;
   const messages = {
     stale: 'PMDG SDK data stopped updating. Check EnableDataBroadcast=1 and restart the aircraft or simulator.',
     disconnected: 'The PMDG SDK data connection is offline. Check EnableDataBroadcast=1 and restart the aircraft or simulator.',
-    disabled: 'PMDG SDK data is disabled. Confirm desktop SDK authorization and EnableDataBroadcast=1, then restart Flight Fabric.',
+    disabled: 'PMDG SDK data is disabled. Check EnableDataBroadcast=1, then restart Flight Fabric.',
     error: 'The PMDG SDK data connection failed. Check the desktop logs and PMDG data-broadcast setting.',
     unsupported: 'This installation cannot start the PMDG 737 SDK connector.',
     'awaiting-values': 'Waiting for the first PMDG SDK data snapshot. Confirm EnableDataBroadcast=1 if this does not clear.',
@@ -303,6 +297,12 @@ const flightControlSelectors = [
   ),
 ];
 
+const speedbrakePositionControl = detentControl(
+  'SPEEDBRAKE POSITION', 'flightControls.speedbrakePercent', 'flightControls.speedbrake',
+  [['retracted', 'RETRACT', 0], ['half', 'HALF', 50], ['full', 'FULL', 100]],
+  'surfaces.spoilers.set', (id) => id,
+);
+
 const gearHandleControl = detentControl(
   'GEAR HANDLE',
   'gear.handleMode',
@@ -317,6 +317,7 @@ const autobrakeControl = detentControl(
   'gear.autobrakeMode',
   'gear.autobrake',
   [['rto', 'RTO'], ['off', 'OFF'], ['level1', '1', '1'], ['level2', '2', '2'], ['level3', '3', '3'], ['max', 'MAX']],
+  'surfaces.autobrake.set', (_id, value) => value,
 );
 
 const parkingBrakeControl = detentControl(
@@ -531,6 +532,15 @@ function requestMcpAction(field) {
   return sent;
 }
 
+function mcpDisabledReason(field) {
+  if (!mcpDisabled(field)) return '';
+  if (props.sourceStatus !== 'connected') return 'Waiting for live PMDG aircraft data.';
+  if (groupPending(mcpControlGroup(field))) return 'Command in progress.';
+  if (field.id === 'mcp.verticalSpeedFpm' && !hasValue(field.id)) return 'Select V/S mode to open the MCP vertical-speed window before setting a target.';
+  if (!hasValue(field.id)) return 'The MCP window must be active before setting its target.';
+  return 'Waiting for the PMDG control connection.';
+}
+
 function afdsActionId(mode) {
   if (mode.control === 'engage') return `${mode.id}.engage`;
   if (mode.control === 'toggle') return `${mode.id}.${value(mode.id) === true ? 'off' : 'on'}`;
@@ -675,6 +685,7 @@ function cockpitLightingGroupText(fieldIds) {
 
 function cockpitLightingDisabled() {
   return props.sourceStatus !== 'connected'
+    || lightingControls.isCommandPending('aircraft-command:configuration.lighting.displays')
     || !cockpitLightingFieldIds.every(hasValue)
     || !props.isCommandSupported(cockpitLightingCommandId)
     || cockpitLightingValue() === null
@@ -804,8 +815,8 @@ function gearClass(gear) {
 }
 
 function sectionElement(index) {
-  const section = mobileSections[index];
-  return section ? document.getElementById(`pmdg-737-section-${section.id}`) : null;
+  const section = mobileSections.value[index];
+  return section ? document.getElementById(section.targetId || `pmdg-737-section-${section.id}`) : null;
 }
 
 function closeSectionMenu({ restoreFocus = false } = {}) {
@@ -827,8 +838,8 @@ function openSectionMenu() {
 function goToSection(index, options = {}) {
   const numericIndex = Number(index);
   if (!Number.isFinite(numericIndex)) return false;
-  const boundedIndex = Math.max(0, Math.min(mobileSections.length - 1, Math.trunc(numericIndex)));
-  const section = mobileSections[boundedIndex];
+  const boundedIndex = Math.max(0, Math.min(mobileSections.value.length - 1, Math.trunc(numericIndex)));
+  const section = mobileSections.value[boundedIndex];
   const target = sectionElement(boundedIndex);
   if (!section || !target) return false;
 
@@ -846,9 +857,9 @@ function goToSection(index, options = {}) {
 
 const { aircraftTabIsActive, rememberSection } = useAircraftSectionMemory({
   memoryKey: () => props.profileKey || 'bundled/msfs/pmdg-737',
-  sections: () => mobileSections,
+  sections: mobileSections,
   onRestore: (sectionId) => {
-    const index = mobileSections.findIndex((section) => section.id === sectionId);
+    const index = mobileSections.value.findIndex((section) => section.id === sectionId);
     return index >= 0
       ? goToSection(index, { behavior: 'auto', focus: false, remember: false })
       : false;
@@ -904,7 +915,7 @@ function handleRibbonPointerUp(event) {
   if (Math.abs(deltaX) < threshold || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
 
   const nextIndex = activeSectionIndex.value + (deltaX < 0 ? 1 : -1);
-  if (nextIndex < 0 || nextIndex >= mobileSections.length) return;
+  if (nextIndex < 0 || nextIndex >= mobileSections.value.length) return;
 
   event.preventDefault?.();
   suppressRibbonClick = true;
@@ -919,11 +930,10 @@ function handleRibbonPointerUp(event) {
 function syncActiveSection() {
   sectionSyncTimer = null;
   if (!aircraftTabIsActive()) return;
-  const ribbonBottom = sectionRibbon.value?.getBoundingClientRect?.().bottom || 0;
-  const anchorY = ribbonBottom + 16;
+  const anchorY = aircraftSectionAnchorY(sectionRibbon.value, sectionScrollTarget);
   let nextIndex = 0;
 
-  for (let index = 0; index < mobileSections.length; index += 1) {
+  for (let index = 0; index < mobileSections.value.length; index += 1) {
     const target = sectionElement(index);
     if (!target || target.getBoundingClientRect().top > anchorY) break;
     nextIndex = index;
@@ -935,16 +945,18 @@ function syncActiveSection() {
     && scroller !== window
     && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 24
   ) {
-    nextIndex = mobileSections.length - 1;
+    nextIndex = mobileSections.value.length - 1;
   }
   activeSectionIndex.value = nextIndex;
-  rememberSection(mobileSections[nextIndex]?.id);
+  rememberSection(mobileSections.value[nextIndex]?.id);
 }
 
 function scheduleSectionSync() {
   if (sectionSyncTimer != null || !aircraftTabIsActive()) return;
   sectionSyncTimer = window.setTimeout(syncActiveSection, 32);
 }
+
+watch(mobileSections, () => nextTick(scheduleSectionSync));
 
 function handleDocumentKeydown(event) {
   if (!sectionMenuOpen.value) return;
@@ -970,51 +982,7 @@ function handleDocumentKeydown(event) {
 
 useDocumentEvent('keydown', handleDocumentKeydown);
 
-async function refreshAuthorization() {
-  if (typeof electronApi?.getPmdg737SdkEulaStatus !== 'function') {
-    authorizationState.value = 'unavailable';
-    return;
-  }
-  const result = await electronApi.getPmdg737SdkEulaStatus();
-  authorizationState.value = result?.accepted === true ? 'accepted' : 'required';
-}
-
-async function openSdkEula() {
-  authorizationBusy.value = true;
-  authorizationError.value = '';
-  try {
-    const result = await electronApi?.openPmdg737SdkEula?.();
-    if (result?.success !== true) throw new Error(result?.error || 'Could not open the installed PMDG SDK EULA.');
-    eulaOpened.value = true;
-  } catch (error) {
-    authorizationError.value = error?.message || String(error);
-  } finally {
-    authorizationBusy.value = false;
-  }
-}
-
-async function acceptSdkEula() {
-  if (!eulaOpened.value || !eulaConfirmed.value) return;
-  authorizationBusy.value = true;
-  authorizationError.value = '';
-  try {
-    const result = await electronApi?.acceptPmdg737SdkEula?.();
-    if (result?.success !== true) throw new Error(result?.error || 'Could not save SDK authorization.');
-    authorizationState.value = 'accepted';
-    await electronApi?.restartApp?.();
-  } catch (error) {
-    authorizationError.value = error?.message || String(error);
-  } finally {
-    authorizationBusy.value = false;
-  }
-}
-
 onMounted(() => {
-  refreshAuthorization().catch((error) => {
-    authorizationError.value = error?.message || String(error);
-    authorizationState.value = 'unavailable';
-  });
-
   sectionScrollTarget = document.getElementById('vue-main-root') || window;
   sectionScrollTarget.addEventListener?.('scroll', scheduleSectionSync, { passive: true });
   window.addEventListener('resize', scheduleSectionSync, { passive: true });
@@ -1046,25 +1014,8 @@ onBeforeUnmount(() => {
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sdkSourceStatus }}</span>
     </div>
 
-    <div v-if="showAuthorization" class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
-      <div class="text-sm font-semibold text-amber-200">PMDG 737 SDK authorization required</div>
-      <p class="mt-1 text-xs leading-relaxed text-amber-100/75">
-        PMDG requires SDK applications to show its SDK EULA and obtain your explicit acceptance. This can only be completed in the Flight Fabric desktop app.
-      </p>
-      <template v-if="electronApi">
-        <button type="button" class="ff-button-secondary mt-3 px-3 py-2 text-xs" :disabled="authorizationBusy" @click="openSdkEula">Open installed PMDG SDK EULA</button>
-        <label class="mt-3 flex items-start gap-2 text-xs text-gray-300">
-          <input v-model="eulaConfirmed" type="checkbox" class="mt-0.5" :disabled="!eulaOpened || authorizationBusy" />
-          <span>I have read and accept the installed PMDG 737 SDK EULA.</span>
-        </label>
-        <button type="button" class="ff-button-primary mt-3 px-3 py-2 text-xs" :disabled="!eulaOpened || !eulaConfirmed || authorizationBusy" @click="acceptSdkEula">Accept and restart Flight Fabric</button>
-      </template>
-      <p v-else class="mt-3 text-xs text-gray-400">Open this Aircraft page in the desktop app to authorize the SDK host; phones cannot accept it.</p>
-      <p v-if="authorizationError" class="mt-2 text-xs text-red-300">{{ authorizationError }}</p>
-    </div>
-
     <div
-      v-else-if="sdkStatusNotice"
+      v-if="sdkStatusNotice"
       class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
       role="status"
       data-aircraft-sdk-notice="pmdg-737"
@@ -1359,10 +1310,11 @@ onBeforeUnmount(() => {
               :step="mcpInputConfig(field).step"
               :value="mcpDraft(field)"
               :disabled="mcpDisabled(field)"
+              :title="mcpDisabledReason(field) || undefined"
               :aria-label="`Set ${field.label}`"
               @input="updateMcpDraft(field, $event)"
             />
-            <button type="submit" class="rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:opacity-45" :data-aircraft-action="mcpInputConfig(field).actionId" :disabled="mcpDisabled(field)">SET</button>
+            <button type="submit" class="rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:opacity-45" :data-aircraft-action="mcpInputConfig(field).actionId" :disabled="mcpDisabled(field)" :title="mcpDisabledReason(field) || undefined">SET</button>
           </div>
         </form>
       </div>
@@ -1487,6 +1439,7 @@ onBeforeUnmount(() => {
         <div class="dashboard-section-kicker">Exterior Lights</div>
         <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
       </div>
+      <TakeoffLightsPreset :source-status="sourceStatus === 'connected' ? sdkSourceStatus : sourceStatus" />
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
           <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
@@ -1571,6 +1524,7 @@ onBeforeUnmount(() => {
           Discrete dome and spot lights, chart/map light mechanisms, EFB buttons and the inoperative lower-DU inner knob are intentionally unchanged.
         </p>
       </form>
+      <CockpitLightingPresets displays-only class="mt-3" />
     </section>
 
     <section
@@ -1611,6 +1565,12 @@ onBeforeUnmount(() => {
           <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ flapHandleControl.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(flapHandleControl) }}</span></div>
           <div class="grid grid-cols-3 gap-1.5 sm:grid-cols-9">
             <button v-for="action in flapHandleControl.actions" :key="action.id" type="button" class="min-h-10 rounded border px-1 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45" :class="actionButtonClass(controlValue(flapHandleControl) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(flapHandleControl) === action.value" :disabled="actionDisabled(flapHandleControl, action.id)" @click="requestControlAction(flapHandleControl, action.id)">{{ action.label }}</button>
+          </div>
+        </div>
+        <div class="mb-2 rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="speedbrakePositionControl.groupId" data-speedbrake-positions>
+          <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ speedbrakePositionControl.title }}</span><span>{{ controlValueText(speedbrakePositionControl) }}</span></div>
+          <div class="grid grid-cols-3 gap-2">
+            <button v-for="action in speedbrakePositionControl.actions" :key="action.id" type="button" class="min-h-10 rounded border px-2 text-[10px] disabled:opacity-45" :class="actionButtonClass(controlValue(speedbrakePositionControl) === action.value)" :data-aircraft-action="action.id" :aria-pressed="controlValue(speedbrakePositionControl) === action.value" :disabled="actionDisabled(speedbrakePositionControl, action.id)" @click="requestControlAction(speedbrakePositionControl, action.id)">{{ action.label }}</button>
           </div>
         </div>
         <div class="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">

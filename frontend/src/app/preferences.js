@@ -122,7 +122,6 @@ export function createAppPreferences({
 
   preferencesStore.registerRuntimeActions?.({
     cycleFuelUnit,
-    applyShowBranding,
   });
 
   renderFuelValue();

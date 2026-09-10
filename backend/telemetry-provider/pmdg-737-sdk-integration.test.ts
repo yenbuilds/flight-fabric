@@ -4,9 +4,6 @@ const test = require('node:test');
 const profileLoader = require('../aircraft/aircraft-profile-loader');
 const { executeAircraftCommand } = require('../aircraft/aircraft-control-service');
 const userSettings = require('../core/user-settings');
-const {
-  PMDG_737_SDK_EULA_ACCEPTANCE_VERSION,
-} = require('../../shared/pmdg-737-sdk-authorization');
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
 
 const PMDG_737_PROFILE_KEY = 'bundled/msfs/pmdg-737';
@@ -122,27 +119,65 @@ function stubPmdg737SdkIntegration(provider) {
   );
 }
 
-test('PMDG 737 SDK profile remains disabled until the reviewed EULA version is accepted', () => {
+test('PMDG 737 SDK profile resolves without an app agreement or acceptance record', () => {
   const provider = new SimConnectTelemetryProvider();
   const originalProfileKey = profileLoader.getActiveProfile()?._qualifiedId || 'bundled/msfs/generic';
   const originalIntegrations = userSettings.settings.integrations;
 
   try {
     profileLoader.setActiveProfile(PMDG_737_PROFILE_KEY);
-    userSettings.settings.integrations = {};
-    assert.equal(provider._resolveActiveSdkProfile(), null, 'unaccepted SDK profile must not start');
-
-    userSettings.settings.integrations = {
-      pmdg737Sdk: {
-        eulaAcceptedVersion: PMDG_737_SDK_EULA_ACCEPTANCE_VERSION,
-        eulaAcceptedAt: new Date().toISOString(),
-      },
-    };
-    const authorized = provider._resolveActiveSdkProfile();
-    assert.equal(authorized?.adapter?.id, 'clientdata-manifest');
-    assert.equal(authorized?.profileSdk?.target?.channel, 'pmdg-737-ng3-clientdata');
-    assert.equal(authorized?.profileSdk?.target?.connector, 'pmdg-737-ng3-clientdata');
+    for (const integrations of [undefined, {}, { pmdg737Sdk: { eulaAcceptedVersion: 'obsolete' } }]) {
+      userSettings.settings.integrations = integrations;
+      const resolved = provider._resolveActiveSdkProfile();
+      assert.equal(resolved?.adapter?.id, 'clientdata-manifest');
+      assert.equal(resolved?.profileSdk?.target?.channel, 'pmdg-737-ng3-clientdata');
+      assert.equal(resolved?.profileSdk?.target?.connector, 'pmdg-737-ng3-clientdata');
+      assert.equal(userSettings.settings.integrations, integrations, 'resolving the SDK never records acceptance');
+    }
   } finally {
+    userSettings.settings.integrations = originalIntegrations;
+    profileLoader.setActiveProfile(originalProfileKey);
+  }
+});
+
+test('PMDG SDK startup follows aircraft changes without agreement settings', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const originalProfileKey = profileLoader.getActiveProfile()?._qualifiedId || 'bundled/msfs/generic';
+  const originalIntegrations = userSettings.settings.integrations;
+  const targets: any[] = [];
+  let starts = 0;
+  const bridge = {
+    _adapter: { id: 'clientdata-manifest' },
+    _started: false,
+    async start() { starts += 1; this._started = true; },
+    connect(target) { targets.push(target); },
+    async stop() { this._started = false; },
+  };
+  provider._sdkBridge = bridge;
+  try {
+    userSettings.settings.integrations = {};
+    profileLoader.setActiveProfile('bundled/msfs/generic');
+    await provider._initSdkBridge();
+    assert.equal(starts, 0, 'generic aircraft does not start the SDK');
+    assert.equal(targets.at(-1), null);
+
+    const variants = profileLoader.listProfiles().filter((profile) => /^pmdg-(737|777)/.test(profile.id));
+    assert.ok(variants.some((profile) => profile.id.startsWith('pmdg-737')));
+    assert.ok(variants.some((profile) => profile.id.startsWith('pmdg-777')));
+    for (const variant of variants) {
+      profileLoader.setActiveProfile(`bundled/msfs/${variant.id}`);
+      await provider._initSdkBridge();
+      const connector = variant.id.startsWith('pmdg-737') ? 'pmdg-737-ng3-clientdata' : 'pmdg-777x-clientdata';
+      assert.equal(targets.at(-1)?.connector, connector, variant.id);
+      assert.equal(starts, 1, 'aircraft changes reuse the SDK bridge');
+    }
+
+    profileLoader.setActiveProfile('bundled/msfs/generic');
+    await provider._initSdkBridge();
+    assert.equal(targets.at(-1), null, 'leaving PMDG clears the SDK target');
+    assert.deepEqual(userSettings.settings.integrations, {}, 'startup never creates acceptance records');
+  } finally {
+    await provider.stop();
     userSettings.settings.integrations = originalIntegrations;
     profileLoader.setActiveProfile(originalProfileKey);
   }

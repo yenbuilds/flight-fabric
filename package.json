@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -24,10 +24,17 @@
     "test:dry-guards": "node tests/scripts/test-dry-guards.js",
     "test:io-boundaries": "node tests/scripts/test-io-boundaries.js",
     "test:aircraft-visuals": "node tests/scripts/test-aircraft-visuals.js",
+    "test:aircraft-command-matrix": "node --test tests/scripts/test-aircraft-command-matrix.js",
+    "test:autopilot-targets": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/aircraft/autopilot-targets.test.js tests/scripts/test-aircraft-command-matrix.js",
     "test:vue-stores": "node tests/scripts/test-vue-stores.js",
     "test:vue-components": "node tests/scripts/test-vue-components.js",
     "test:vue-interactions": "node tests/scripts/test-vue-interactions.js",
     "test:nav-radios-browser": "node tests/scripts/test-nav-radios-browser.js",
+    "test:com-radios-browser": "node tests/scripts/test-com-radios-browser.js",
+    "test:atc-families-browser": "node tests/scripts/test-atc-families-browser.js",
+    "test:a32nx-approach-browser": "node tests/scripts/test-a32nx-approach-browser.js",
+    "test:baro-controls-browser": "node tests/scripts/test-baro-controls-browser.js",
+    "test:baro-controls": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/aircraft/baro.test.js dist/backend/aircraft/baro-standard.test.js tests/scripts/test-baro-controls.js tests/scripts/test-fenix-baro-controls.js tests/scripts/test-aircraft-command-matrix.js",
     "test:approach-profile-renderer": "node tests/scripts/test-approach-profile-renderer.js",
     "test:browser-smoke": "npm run frontend:build && node tests/scripts/test-browser-smoke.js",
     "test:pmdg-737-preview": "node tests/scripts/test-pmdg-737-preview.js",
@@ -37,7 +44,7 @@
     "test:http-server-simbrief": "npm run build:backend:runtime && node --test dist/backend/core/http-server.test.js",
     "test:user-identity": "node tests/scripts/test-user-identity.js",
     "test:electron": "node electron/test-electron.js",
-    "test:voice": "node --test frontend/src/voice/command-interpreter.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/voice-controller.test.js tests/scripts/test-generic-nav-voice.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/windows-local-tts.test.js",
+    "test:voice": "node --test frontend/src/aircraft/apu-controls.test.js frontend/src/voice/state-queries.test.js frontend/src/voice/command-interpreter.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/voice-controller.test.js tests/scripts/test-generic-nav-voice.js tests/scripts/test-a32nx-approach-voice.js tests/scripts/test-a32nx-atc-voice.js tests/scripts/test-atc-aircraft-families.js tests/scripts/test-approach-aircraft-families.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/windows-local-tts.test.js",
     "test:electron:output-guard": "node --test tests/scripts/test-electron-release-output-failure-guard.js",
     "test:electron:ipc-runtime": "node tests/scripts/test-electron-ipc-runtime.js",
     "test:electron:sqlite": "node tests/scripts/test-electron-sqlite-runtime.js",
@@ -103,7 +110,8 @@
     "data:sync": "node scripts/sync-aviation-data.js",
     "data:sync:required": "node scripts/sync-aviation-data.js --required-only",
     "logs:analyze": "node scripts/analyze-flight-csv-sampling.js",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:approach-families-browser": "node tests/scripts/test-approach-families-browser.js"
   },
   "repository": {
     "type": "git",

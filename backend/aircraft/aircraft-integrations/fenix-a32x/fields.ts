@@ -146,12 +146,14 @@ for (const [id, lvar, precision] of [
   ['flightGuidance.speedValue', 'N_FCU_SPEED', 2],
   ['flightGuidance.headingDeg', 'N_FCU_HEADING', 0],
   ['flightGuidance.altitudeFt', 'N_FCU_ALTITUDE', 0],
-  // This is display-only: N_FCU_VS represents either V/S or FPA depending on
-  // the active FCU mode, so the adapter deliberately exposes no target action.
+  // Units are selected by the independent TRACK/FPA mode readback below.
   ['flightGuidance.verticalValue', 'N_FCU_VS', 2],
 ] as const) {
   addNumberField(id, lvar, precision);
 }
+
+addBooleanField('flightGuidance.machMode', 'B_FCU_SPEED_MACH');
+addBooleanField('flightGuidance.trkFpaMode', 'B_FCU_TRACK_FPA_MODE');
 
 for (const [id, lvar, values] of [
   ['lights.landingLeftMode', 'S_OH_EXT_LT_LANDING_L', {

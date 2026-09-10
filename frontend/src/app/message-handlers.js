@@ -287,7 +287,7 @@ export function createAppMessageHandler({
         updateAircraftProfileDisplay(aircraftProfileDeps, message);
         break;
       case 'aircraftSpecificState':
-        aircraftSpecificStore?.ingestState?.(message);
+        if (aircraftSpecificStore?.ingestState?.(message)) voiceController?.refreshReadyState?.();
         break;
       case 'runwayContext':
         break;

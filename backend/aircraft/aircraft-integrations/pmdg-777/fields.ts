@@ -42,6 +42,15 @@ function enumField(
 }
 
 const PMDG_777_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
+  'efis.captain.baroMinimumsFt': numberField('efis.captain.baroMinimumsFt', 'efis.captain.baroMinimumsFt'),
+  'efis.captain.baroMinimumsSet': booleanField('efis.captain.baroMinimumsSet', 'efis.captain.baroMinimumsSet'),
+  'efis.captain.radioMinimumsFt': numberField('efis.captain.radioMinimumsFt', 'efis.captain.radioMinimumsFt'),
+  'efis.captain.radioMinimumsSet': booleanField('efis.captain.radioMinimumsSet', 'efis.captain.radioMinimumsSet'),
+  'efis.firstOfficer.baroMinimumsFt': numberField('efis.firstOfficer.baroMinimumsFt', 'efis.firstOfficer.baroMinimumsFt'),
+  'efis.firstOfficer.baroMinimumsSet': booleanField('efis.firstOfficer.baroMinimumsSet', 'efis.firstOfficer.baroMinimumsSet'),
+  'efis.firstOfficer.radioMinimumsFt': numberField('efis.firstOfficer.radioMinimumsFt', 'efis.firstOfficer.radioMinimumsFt'),
+  'efis.firstOfficer.radioMinimumsSet': booleanField('efis.firstOfficer.radioMinimumsSet', 'efis.firstOfficer.radioMinimumsSet'),
+
   'aircraft.model': enumField('aircraft.model', 'aircraft.model', {
     '777-200': '777-200',
     '777-200ER': '777-200ER',

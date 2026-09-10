@@ -3288,9 +3288,10 @@ async function runAsyncTests() {
           hardMinFpm: -400,
         },
       });
-      const heights = [1200, 950, 750, 550, 350, 150];
+      // Current assessment requires meaningful elapsed time below the gate.
+      const heights = Array.from({ length: 24 }, (_, index) => 1200 - index * 50);
       const buildAttempt = (startOffsetMs, landingKey, bounceCount) => {
-        const touchdownOffsetMs = startOffsetMs + 6000;
+        const touchdownOffsetMs = startOffsetMs + 24000;
         const touchdownLat = 37.001 + (landingKey / 10000000);
         const rows = heights.map((raFt, index) => sample(startOffsetMs + index * 1000, {
           ra_ft: raFt,
@@ -3420,7 +3421,7 @@ async function runAsyncTests() {
       const rows = [
         ...buildAttempt(0, 1001, 0),
         {
-          ...sample(9000, {
+          ...sample(39000, {
             phase: 'GO_AROUND',
             ra_ft: 1200,
             alt_msl_ft: 1900,
@@ -3433,7 +3434,7 @@ async function runAsyncTests() {
           goaround_altitude_ft: 1200,
           previous_phase: 'LANDING',
         },
-        ...buildAttempt(10000, 2002, 1),
+        ...buildAttempt(40000, 2002, 1),
       ];
       const recorded = timelineGenerator._generateTimelineFromRows(`${flightId}.csv`, rows);
       const preview = timelineGenerator._generateTimelineFromRows(
@@ -3672,6 +3673,121 @@ async function runAsyncTests() {
       assert(landings.length === 2, `expected two landing attempts, got ${landings.length}`);
       assert((landings[0].bounceCount || 0) === 0, `expected no first-attempt bounce, got ${landings[0].bounceCount}`);
       assert((landings[1].bounceCount || 0) === 0, `expected no second-attempt bounce, got ${landings[1].bounceCount}`);
+    });
+  });
+
+  await testAsync('replay rearms only on an airborne sample at the live cooldown boundary', async () => {
+    await withMockRunway(null, async (timelineGenerator) => {
+      const baseTs = 1700000209000;
+      const sample = (ms, onGround, heightFt, vsFpm) => ({
+        flight_id: 'airborne-rearm-boundary', ts: baseTs + ms,
+        flight_elapsed_ms: ms, record_type: 'SAMPLE', phase: 'APPROACH',
+        lat_deg: 37.001, lon_deg: -122, on_ground: onGround, ra_ft: heightFt,
+        ias_kts: 140, gs_kts: 130, vs_fpm: vsFpm, g_force: 1.25,
+      });
+      for (const lastAirborneMs of [6199, 6200]) {
+        const result = timelineGenerator._generateTimelineFromRows('airborne-rearm-boundary.csv', [
+          sample(0, false, 120, -180),
+          sample(100, true, 0, -180),
+          sample(200, false, 5, 300),
+          sample(lastAirborneMs, false, 5, -180),
+          sample(6201, true, 0, -180),
+          sample(6300, true, 0, 0),
+        ]);
+        assert(result.success, `expected replay success, got ${result.error}`);
+        const landings = result.timeline.events.filter((event) => event.type === 'landing');
+        if (lastAirborneMs === 6199) {
+          assert(landings.length === 1, 'ground recontact cannot complete the airborne cooldown and create another landing');
+          assert(landings[0].bounceCount === 1, 'recontact before observed rearm remains a bounce');
+        } else {
+          assert(landings.length === 2, 'six observed airborne seconds must allow the next landing');
+          assert(landings.every((event) => (event.bounceCount || 0) === 0), 'rearmed landings must remain bounce-free');
+        }
+      }
+    });
+  });
+
+  await testAsync('replay isolates the next approach from touch-and-go and go-around climb configuration', async () => {
+    await withMockRunway(null, async (timelineGenerator) => {
+      const baseTs = 1700000210000;
+      const sample = (second, heightFt, overrides = {}) => ({
+        flight_id: 'approach-attempt-isolation',
+        timestamp_utc: new Date(baseTs + second * 1000).toISOString(),
+        ts: baseTs + second * 1000,
+        flight_elapsed_ms: second * 1000,
+        record_type: 'SAMPLE',
+        phase: 'APPROACH',
+        lat_deg: 37.001,
+        lon_deg: -122,
+        ra_ft: heightFt,
+        on_ground: false,
+        ias_kts: 145,
+        vs_fpm: -700,
+        g_force: 1.2,
+        gs_kts: 140,
+        aircraft: 'A320',
+        gear_down_locked: 1,
+        flaps_pct: 35,
+        thr1_pct: 40,
+        pitch_deg: 2,
+        bank_deg: 0,
+        ...overrides,
+      });
+      const approach = (start) => Array.from({ length: 86 }, (_, index) =>
+        sample(start + index, 1000 - index * 1000 / 86));
+      const climb = Array.from({ length: 60 }, (_, index) => sample(88 + index, (index + 1) * 1000 / 60, {
+        phase: 'CLIMB', vs_fpm: 1000, gear_down_locked: 0, flaps_pct: 15, thr1_pct: 90,
+      }));
+      const nextApproach = [...approach(148), sample(234, 0, { on_ground: true, vs_fpm: -180 })];
+      const landingsFor = (rows) => {
+        const result = timelineGenerator._generateTimelineFromRows('approach-attempt-isolation.csv', rows);
+        assert(result.success, `expected replay success, got ${result.error}`);
+        return result.timeline.events.filter((event) => event.type === 'landing');
+      };
+      const baseline = landingsFor(nextApproach)[0];
+      assert(baseline.ultimateStability.score === 100, 'isolated approach should be stable');
+      for (const boundary of ['touch-and-go', 'go-around']) {
+        const firstAttempt = boundary === 'touch-and-go'
+          ? [
+              ...approach(0),
+              sample(86, 0, { on_ground: true, vs_fpm: -180 }),
+              sample(87, 2, { on_ground: true, vs_fpm: 0, gs_kts: 70 }),
+            ]
+          : [...approach(0), sample(87, 10, { record_type: 'GO_AROUND', phase: 'GO_AROUND', vs_fpm: 1000 })];
+        const landings = landingsFor([...firstAttempt, ...climb, ...nextApproach]);
+        assert(landings.length === (boundary === 'touch-and-go' ? 2 : 1), `${boundary}: incorrect attempt count`);
+        const next = landings.at(-1);
+        assert(next.ultimateStability.score === baseline.ultimateStability.score,
+          `${boundary}: normal climb configuration contaminated the next score (${next.ultimateStability.score})`);
+        assert(JSON.stringify(next.ultimateStability) === JSON.stringify(baseline.ultimateStability),
+          `${boundary}: next approach must retain the same score, verdict, breakdown and coverage`);
+        assert(next.approachProfile[0].absMs === baseTs + 148000, `${boundary}: profile must start with the next approach`);
+        if (boundary === 'touch-and-go') {
+          assert(landings[0].ultimateStability.score === 100, 'first approach must retain its score');
+          assert(landings.every((event) => (event.bounceCount || 0) === 0), 'touch-and-go must remain two bounce-free landings');
+        }
+      }
+    });
+  });
+
+  await testAsync('replay retains level and climbing deviations after an approach has started', async () => {
+    await withMockRunway(null, async (timelineGenerator) => {
+      const baseTs = 1700000450000;
+      const rows = Array.from({ length: 21 }, (_, index) => ({
+        flight_id: 'approach-rebound', ts: baseTs + index * 1000,
+        flight_elapsed_ms: index * 1000, record_type: 'SAMPLE', phase: 'APPROACH',
+        lat_deg: 37.001, lon_deg: -122, ra_ft: index === 20 ? 0 : 950 + index,
+        on_ground: index === 20, ias_kts: 145, gs_kts: 140,
+        vs_fpm: index === 0 || index === 20 ? -500 : (index < 10 ? 0 : 500),
+        gear_down_locked: 1, flaps_pct: index === 10 ? 15 : 35,
+        thr1_pct: 40, pitch_deg: 2, bank_deg: 0, g_force: 1.2,
+      }));
+      const result = timelineGenerator._generateTimelineFromRows('approach-rebound.csv', rows);
+      assert(result.success, `expected replay success, got ${result.error}`);
+      const landing = result.timeline.events.find((event) => event.type === 'landing');
+      assert(landing.ultimateStability.gateFailures.includes('flaps_changed_after_gate'), 'post-gate flap change must remain visible');
+      assert(landing.ultimateStability.gateFailures.includes('vs_unstable_after_gate'), 'post-gate climb must remain visible');
+      assert(landing.ultimateStability.samples === rows.length - 1, 'level and climbing approach samples must be retained');
     });
   });
 

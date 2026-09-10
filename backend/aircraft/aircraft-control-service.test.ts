@@ -221,7 +221,8 @@ test('FlyByWire A32NX catalogue exposes guarded FCU custom-event commands with n
     },
   });
   const commandIds = capabilities.aircraftCommands.commands.map((command) => command.id);
-  assert.deepEqual(commandIds.slice(0, 17), [
+  assert.deepEqual(commandIds.slice(0, 18), [
+    'configuration.apu.start',
     'flightGuidance.speed.set',
     'flightGuidance.mach.set',
     'flightGuidance.heading.set',
@@ -240,7 +241,13 @@ test('FlyByWire A32NX catalogue exposes guarded FCU custom-event commands with n
     'flightGuidance.altitudeMode.set',
     'propulsion.throttleDetent.set',
   ]);
-  assert.equal(commandIds.length, 26);
+  assert.equal(commandIds.length, 84);
+  assert.deepEqual(commandIds.filter((id) => id.startsWith('radios.com')), [
+    'radios.com1.setStandby', 'radios.com1.swap', 'radios.com1.switchTo',
+    'radios.com2.setStandby', 'radios.com2.swap', 'radios.com2.switchTo',
+  ]);
+  assert.deepEqual(commandIds.filter((id) => id.startsWith('baro.')), ['captain', 'firstOfficer', 'both'].flatMap((target) =>
+    ['qnhHpa', 'qnhInHg', 'std'].map((operation) => `baro.${target}.${operation}`)));
 
   const options = {
     profile: buildFbwA32nxProfile(),
@@ -358,6 +365,11 @@ test('FlyByWire A32NX takeoff-light voice preset remains an ordered guarded reci
 
 test('Fenix A32X catalogue exposes one reviewed UI and voice command slice across all three variants', () => {
   const supportedCommandIds = [
+    'configuration.apu.start',
+    'flightGuidance.mach.set',
+    'flightGuidance.altitude.set',
+    'flightGuidance.verticalSpeed.set',
+    'flightGuidance.flightPathAngle.set',
     'flightGuidance.speed.set',
     'flightGuidance.heading.set',
     'flightGuidance.altitudeHundred.set',
@@ -378,6 +390,47 @@ test('Fenix A32X catalogue exposes one reviewed UI and voice command slice acros
     'lights.navLogoMode.set',
     'lights.noseMode.set',
     'configuration.lights.takeoff',
+    'surveillance.squawk.set',
+    'surveillance.ident.activate',
+    'navigation.captain.range',
+    'navigation.captain.ls',
+    'navigation.firstOfficer.range',
+    'navigation.firstOfficer.ls',
+    'surfaces.flaps.set',
+    'surfaces.autobrake.set',
+    'surfaces.spoilers.set',
+    'surfaces.spoilersArmed.set',
+    ...['captain', 'firstOfficer', 'both'].flatMap(target => ['qnhHpa', 'qnhInHg', 'std'].map(op => `baro.${target}.${op}`)),
+    'lights.landing.set',
+    'lights.landingLeft.set',
+    'lights.landingRight.set',
+    'lights.taxi.set',
+    'lights.runwayTurnoff.set',
+    'cabin.seatBelts.set',
+    'cabin.noSmoking.set',
+    'cabin.emergencyExit.set',
+    'lights.wing.set',
+    'systems.apuMaster.set',
+    'systems.apuBleed.set',
+    'systems.wingAntiIce.set',
+    'systems.probeHeat.set',
+    'systems.crossBleed.set',
+    'systems.packFlow.set',
+    'systems.ramAir.set',
+    'systems.brakeFan.set',
+    'systems.engineAntiIce1.set',
+    'systems.engineBleed1.set',
+    'systems.pack1.set',
+    'systems.battery1.set',
+    'systems.engineAntiIce2.set',
+    'systems.engineBleed2.set',
+    'systems.pack2.set',
+    'systems.battery2.set',
+    'systems.apuGenerator.set',
+    'visibility.captain.wiper',
+    'visibility.firstOfficer.wiper',
+    'configuration.lighting.cockpit',
+    'configuration.lighting.displays',
   ];
 
   for (const variant of ['a319', 'a320', 'a321'] as const) {
@@ -510,6 +563,7 @@ test('Fenix A32X takeoff-light voice preset remains an ordered guarded recipe', 
 
 test('iniBuilds A350 catalogue exposes the shared page controls to voice across both variants', () => {
   const expectedCommandIds = [
+    'configuration.apu.start',
     'flightGuidance.speed.set',
     'flightGuidance.heading.set',
     'flightGuidance.altitude.set',
@@ -525,6 +579,27 @@ test('iniBuilds A350 catalogue exposes the shared page controls to voice across 
     'lights.landing.set',
     'lights.noseMode.set',
     'configuration.lights.takeoff',
+    'navigation.captain.range',
+    'navigation.captain.ls',
+    'navigation.firstOfficer.range',
+    'navigation.firstOfficer.ls',
+    'lights.taxi.set',
+    'cabin.seatBelts.set',
+    'cabin.noSmoking.set',
+    'cabin.emergencyExit.set',
+    'lights.wing.set',
+    'lights.logoMode.set',
+    'cabin.noMobile.set',
+    'flightGuidance.flightDirector.set',
+    'flightGuidance.metricAltitude.set',
+    'flightGuidance.captain.verticalView',
+    'flightGuidance.firstOfficer.verticalView',
+    'systems.apuMaster.set',
+    'systems.ramAir.set',
+    'systems.wingAntiIce.set',
+    'systems.probeHeat.set',
+    'systems.crossBleed.set',
+    'systems.packFlow.set',
   ];
 
   for (const variant of ['900', '1000'] as const) {
@@ -627,6 +702,7 @@ test('iniBuilds A350 takeoff-light voice preset remains an ordered guarded recip
 
 test('PMDG 777 catalogue exposes one reviewed UI and voice command slice across all four variants', () => {
   const supportedCommandIds = [
+    'configuration.apu.start',
     'flightGuidance.speed.set',
     'flightGuidance.mach.set',
     'flightGuidance.heading.set',
@@ -659,6 +735,41 @@ test('PMDG 777 catalogue exposes one reviewed UI and voice command slice across 
     'lights.strobe.set',
     'lights.taxi.set',
     'configuration.lights.takeoff',
+    'surveillance.squawk.set',
+    'surveillance.ident.activate',
+    'navigation.captain.range',
+    'approach.captain.minimumsMode',
+    'navigation.firstOfficer.range',
+    'approach.firstOfficer.minimumsMode',
+    'surfaces.spoilers.set',
+    'lights.landing.set',
+    'lights.landingLeft.set',
+    'lights.landingNose.set',
+    'lights.landingRight.set',
+    'lights.runwayTurnoff.set',
+    'lights.turnoffLeft.set',
+    'lights.turnoffRight.set',
+    'cabin.seatBelts.set',
+    'cabin.noSmoking.set',
+    'cabin.emergencyExit.set',
+    'lights.wing.set',
+    'lights.logo.set',
+    'systems.apuMaster.set',
+    'systems.apuGenerator.set',
+    'systems.apuBleed.set',
+    'systems.wingAntiIce.set',
+    'navigation.captain.mode',
+    'navigation.firstOfficer.mode',
+    'systems.pack1.set',
+    'systems.engineBleed1.set',
+    'systems.engineAntiIce1.set',
+    'visibility.captain.wiper',
+    'systems.pack2.set',
+    'systems.engineBleed2.set',
+    'systems.engineAntiIce2.set',
+    'visibility.firstOfficer.wiper',
+    'configuration.lighting.cockpit',
+    'configuration.lighting.displays',
   ];
 
   for (const variant of ['pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'] as const) {
@@ -666,7 +777,7 @@ test('PMDG 777 catalogue exposes one reviewed UI and voice command slice across 
       profileRevision: 14,
       capabilities: {
         actionTypes: ['aircraft-integration'],
-        integrationTransports: ['sdk'],
+        integrationTransports: ['sdk', 'simconnect-sequence'],
       },
     });
     assert.equal(capabilities.aircraftCommands.configurationId, 'pmdg-777');
@@ -851,6 +962,7 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
   assert.equal(inventory.get('flightGuidance.heading.set').supported, true);
 
   assert.deepEqual([...commands.keys()], [
+    'configuration.apu.start',
     'flightGuidance.heading.set',
     'flightGuidance.course.setBoth',
     'flightGuidance.altitude.set',
@@ -872,6 +984,52 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'radios.nav.setBothActive',
     'lights.taxi.set',
     'configuration.lights.takeoff',
+    'surveillance.squawk.set',
+    'surveillance.ident.activate',
+    'navigation.captain.range',
+    'approach.captain.minimumsMode',
+    'navigation.firstOfficer.range',
+    'approach.firstOfficer.minimumsMode',
+    'surfaces.autobrake.set',
+    'surfaces.spoilers.set',
+    'lights.landingLeft.set',
+    'lights.landingRight.set',
+    'lights.landing.set',
+    'lights.runwayTurnoff.set',
+    'lights.turnoffLeft.set',
+    'lights.turnoffRight.set',
+    'cabin.seatBelts.set',
+    'cabin.noSmoking.set',
+    'cabin.emergencyExit.set',
+    'lights.wing.set',
+    'lights.logo.set',
+    'lights.beacon.set',
+    'lights.wheelWell.set',
+    'lights.positionMode.set',
+    'flightGuidance.lnav.engage',
+    'flightGuidance.vnav.engage',
+    'flightGuidance.autopilot2.engage',
+    'flightGuidance.speed.engage',
+    'flightGuidance.n1.engage',
+    'flightGuidance.autothrottleArm.set',
+    'flightGuidance.flightDirectorCaptain.set',
+    'flightGuidance.course.captain',
+    'flightGuidance.flightDirectorFirstOfficer.set',
+    'flightGuidance.course.firstOfficer',
+    'surfaces.yawDamper.set',
+    'systems.apuMaster.set',
+    'systems.apuBleed.set',
+    'systems.wingAntiIce.set',
+    'systems.externalPower.set',
+    'systems.pack1.set',
+    'systems.engineBleed1.set',
+    'systems.engineAntiIce1.set',
+    'visibility.captain.wiper',
+    'systems.pack2.set',
+    'systems.engineBleed2.set',
+    'systems.engineAntiIce2.set',
+    'visibility.firstOfficer.wiper',
+    'configuration.lighting.displays',
   ]);
   assert.deepEqual(commands.get('flightGuidance.altitude.set').speech.patterns, [
     'set altitude {value}',
@@ -903,6 +1061,8 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     '{value} spoilers',
     'speed brake {value}',
     '{value} speed brake',
+    'speedbrake {value}',
+    '{value} speedbrake',
   ]);
   assert.equal(commands.get('surfaces.parkingBrake.set').kind, 'action');
   assert.equal(commands.get('surfaces.spoilersArmed.set').kind, 'action');

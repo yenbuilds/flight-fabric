@@ -1,14 +1,5 @@
 type AnyRecord = Record<string, any>;
 
-type RuntimeSnapshotInput = {
-  flightActive: boolean;
-  flightId: string | null | undefined;
-  flightStartIso: string | null | undefined;
-  aircraftTitle: string | null | undefined;
-  phase: string | null | undefined;
-  timestampMs: number;
-};
-
 export function createSimbridgeRuntimeState(params: {
   destinationTarget?: AnyRecord | null;
   originTarget?: AnyRecord | null;
@@ -33,19 +24,6 @@ export function createSimbridgeRuntimeState(params: {
     replay: {
       latestMessages: {},
     },
-  };
-}
-
-export function buildSimbridgeRuntimeSnapshot(runtimeState: AnyRecord, input: RuntimeSnapshotInput) {
-  return {
-    tickFrame: runtimeState.sim.latestTickFrame,
-    phase: input.phase || null,
-    simState: runtimeState.sim.lastState,
-    flightActive: input.flightActive,
-    flightId: input.flightId || null,
-    flightStartIso: input.flightStartIso || null,
-    aircraftTitle: input.aircraftTitle || null,
-    timestampMs: input.timestampMs,
   };
 }
 
@@ -134,7 +112,7 @@ function getReplayState(runtimeState: AnyRecord): AnyRecord {
   return runtimeState.replay.latestMessages;
 }
 
-export function clearLiveReplayMessages(runtimeState: AnyRecord) {
+function clearLiveReplayMessages(runtimeState: AnyRecord) {
   const latestMessages = getReplayState(runtimeState);
   for (const type of LIVE_REPLAY_TYPES) {
     delete latestMessages[type];
@@ -173,8 +151,6 @@ export function getReplayMessages(runtimeState: AnyRecord) {
 
 module.exports = {
   createSimbridgeRuntimeState,
-  buildSimbridgeRuntimeSnapshot,
-  clearLiveReplayMessages,
   getReplayMessages,
   rememberReplayMessage,
   resetSimbridgeBroadcastState,

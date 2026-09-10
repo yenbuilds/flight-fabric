@@ -334,7 +334,7 @@ test('Frame contract validations (Tests 1-8)', () => {
   assertType(scFrame.alt_msl, 'number', 'alt_msl');
 });
 
-test('Two-definition & FDM regressions (Tests 9-19)', () => {
+test('SimVar priority, native definition bounds and FDM regressions (Tests 9-19)', () => {
   const CHUNK_SIZE = SIMCONNECT_CHUNK_SIZE;
   const SPLIT_INDEX = 4 * CHUNK_SIZE;
   const varNames = SIMCONNECT_VARS.map((entry) => entry.name);
@@ -505,15 +505,17 @@ test('Two-definition & FDM regressions (Tests 9-19)', () => {
     }
   }
 
-  const def1Size = SPLIT_INDEX;
-  const def2Size = varNames.length - SPLIT_INDEX;
-  const SC_SOFT_LIMIT = 85;
-  const SC_HARD_LIMIT = 80;
-  if (def1Size > SC_SOFT_LIMIT) {
-    throw new Error(`Definition 1 has ${def1Size} vars, exceeds practical ~${SC_SOFT_LIMIT} limit`);
-  }
-  if (def2Size > SC_HARD_LIMIT) {
-    throw new Error(`Definition 2 has ${def2Size} vars, exceeds hard ~${SC_HARD_LIMIT} limit`);
+  // The Rust bridge partitions numeric subscriptions into bounded chunks and
+  // puts isolated probes in individual definitions (subscriptions.rs tests this
+  // partition). The array tail is no longer a single second data definition.
+  assertEqual(Number.isInteger(CHUNK_SIZE) && CHUNK_SIZE >= 1 && CHUNK_SIZE <= 64, true, 'Native chunk size remains bounded');
+  const subscriptions = new SimConnectTelemetryProvider()._buildRustSimvarSubscriptions();
+  for (const index of [1, 2]) {
+    for (const property of ['Installed', 'Status', 'SpacingMode', 'ActiveMhz', 'StandbyMhz']) {
+      const key = `com${index}${property}`;
+      assertEqual(subscriptions.find((subscription) => subscription.key === key)?.isolated, true,
+        `${key} must retain its own native definition without expanding core batches`);
+    }
   }
 });
 
@@ -1214,6 +1216,14 @@ function fenixA320IntegrationOptions(actionId, value = undefined) {
 
 function stubFenixA320IntegrationFields(provider) {
   const fields = {
+    'flightGuidance.machMode': {
+      id: 'flightGuidance.machMode', source: { type: 'lvar', key: 'fenix_mach_mode' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
+    'flightGuidance.trkFpaMode': {
+      id: 'flightGuidance.trkFpaMode', source: { type: 'lvar', key: 'fenix_trk_fpa_mode' },
+      decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+    },
     'lights.beacon': {
       id: 'lights.beacon',
       source: { type: 'lvar', key: 'fenix_beacon' },
@@ -1460,12 +1470,12 @@ test('iniBuilds A330 rejects former FCU and light writes at the provider boundar
   assertDeepEqual(events, [], 'no former A330 write reaches any native transport');
 });
 
-test('FBW A380X altitude target writes and confirms the documented slot-three value only', async () => {
+test('FBW A380X altitude target writes and confirms the custom FCU target', async () => {
   const provider = new SimConnectTelemetryProvider();
   const snapshot: any = {
     source: 'mock-sidecar',
     profileId: FBW_A380X_PROFILE_KEY,
-    values: { a380_altitude_slot_3: 12000 },
+    values: { a380_fcu_altitude: 12000 },
     snapshotSequence: 5,
     updatedAt: new Date().toISOString(),
   };
@@ -1478,7 +1488,7 @@ test('FBW A380X altitude target writes and confirms the documented slot-three va
     },
     async sendEvent(name, value, parameters) {
       events.push({ name, value, parameters });
-      snapshot.values.a380_altitude_slot_3 = value;
+      snapshot.values.a380_fcu_altitude = value;
       snapshot.snapshotSequence += 1;
       snapshot.updatedAt = new Date().toISOString();
       return { ok: true };
@@ -1489,7 +1499,7 @@ test('FBW A380X altitude target writes and confirms the documented slot-three va
   stubFbwA380xIntegrationFields(provider, {
     'flightGuidance.altitudeFt': {
       id: 'flightGuidance.altitudeFt',
-      source: { type: 'lvar', key: 'a380_altitude_slot_3' },
+      source: { type: 'lvar', key: 'a380_fcu_altitude' }, // gitleaks:allow -- simulator field name, not a credential
       decode: { type: 'number', precision: 0 },
     },
   });
@@ -1503,13 +1513,13 @@ test('FBW A380X altitude target writes and confirms the documented slot-three va
     action,
     fbwA380xIntegrationOptions('flightGuidance.altitude.set', 12300),
   );
-  assertEqual(result.ok, true, 'A380X altitude should confirm against a fresh slot-three readback');
+  assertEqual(result.ok, true, 'A380X altitude should confirm against a fresh FCU readback');
   assertEqual(result.confirmedValue, 12300, 'A380X altitude confirmation retains the exact requested target');
   assertDeepEqual(events, [{
-    name: 'AP_ALT_VAR_SET_ENGLISH',
+    name: 'A32NX.FCU_ALT_SET',
     value: 12300,
-    parameters: [3],
-  }], 'A380X altitude dispatch owns the fixed slot-three parameter');
+    parameters: [],
+  }], 'A380X altitude dispatch uses the custom FCU event');
 
   const invalid = await provider.executeAircraftControlAction(
     action,
@@ -2756,8 +2766,10 @@ test('FBW fixed LVAR actions confirm once and same-target toggle actions are saf
   });
 
   const apuStart = await execute('systems.apuStart.start');
-  assertEqual(apuStart.ok, true, 'documented fixed APU LVAR should confirm');
-  assertEqual(apuStart.transportMode, 'direct-lvar', 'bounded direct route reports its diagnostic mode');
+  assertEqual(apuStart.ok, true, 'documented APU START should acknowledge dispatch');
+  assertEqual(apuStart.transportMode, 'simconnect-sequence', 'request uses a fixed sequence route');
+  assertEqual(apuStart.transportAcknowledged, true, 'START acknowledges dispatch');
+  assertEqual(apuStart.confirmedValue, undefined, 'START does not imply a running APU');
   assertEqual(writes.length, 1, 'fixed LVAR dispatches once');
   assertEqual(writes[0].name, 'L:A32NX_OVHD_APU_START_PB_IS_ON', 'trusted adapter owns the exact APU target');
 
@@ -2956,7 +2968,7 @@ function buildFenixFcuProvider(initialValues, executeCode) {
   const snapshot: any = {
     source: 'mock-sidecar',
     profileId: FENIX_A320_PROFILE_KEY,
-    values: { ...initialValues },
+    values: { fenix_mach_mode: initialValues.fenix_speed < 100 ? 1 : 0, fenix_trk_fpa_mode: 0, ...initialValues },
     snapshotSequence: 1,
     updatedAt: new Date().toISOString(),
     mobiflight: {

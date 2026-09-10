@@ -27,14 +27,14 @@ type StabilityPolicyResolution = {
 };
 
 const TRANSPORT_STABILITY_POLICY = Object.freeze({
-  id: 'transport-v3',
-  version: 3,
+  id: 'transport-v4',
+  version: 4,
   name: 'Common transport rules',
 });
 
 const GA_STABILITY_POLICY = Object.freeze({
-  id: 'ga-profile-v3',
-  version: 3,
+  id: 'ga-profile-v4',
+  version: 4,
   name: 'General aviation profile rules',
 });
 
@@ -60,14 +60,14 @@ function resolveStabilityPolicy({
   if (isGeneralAviationProfile(profile) && profileCriteria && typeof profileCriteria === 'object') {
     return {
       ...GA_STABILITY_POLICY,
-      criteria: { ...common, ...profileCriteria },
+      criteria: { ...common, ...profileCriteria, assessmentVersion: 4 },
       profileCriteriaApplied: true,
     };
   }
 
   return {
     ...TRANSPORT_STABILITY_POLICY,
-    criteria: { ...common },
+    criteria: { ...common, assessmentVersion: 4 },
     profileCriteriaApplied: false,
   };
 }
@@ -95,7 +95,8 @@ function buildStabilityScoringContext({
   });
 
   return {
-    schemaVersion: 3,
+    schemaVersion: scoreResult?.assessment ? 4 : 3,
+    ...(scoreResult?.assessment ? { assessment: scoreResult.assessment } : {}),
     criteriaSource,
     policy: {
       id: resolvedPolicy.id,
@@ -105,7 +106,7 @@ function buildStabilityScoringContext({
     },
     verdictPolicy: {
       id: STABILITY_VERDICT_POLICY_ID,
-      version: STABILITY_VERDICT_POLICY_VERSION,
+      version: scoreResult?.assessment ? 3 : STABILITY_VERDICT_POLICY_VERSION,
       minimumOverallScore: STABILITY_VERDICT_MIN_OVERALL_SCORE,
       severeMetricFloorPct: STABILITY_VERDICT_SEVERE_METRIC_FLOOR_PCT,
     },

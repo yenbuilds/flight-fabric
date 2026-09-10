@@ -1,5 +1,8 @@
 'use strict';
 
+import { pmdgAtcFields, pmdgAtcActions } from '../pmdg-atc.js';
+import { pmdg737EfisFields, pmdg737EfisActions } from './efis.js';
+
 import type { AircraftIntegrationDefinition } from '../types.js';
 
 const { defineAircraftIntegration } = require('../registry') as {
@@ -36,8 +39,8 @@ const PMDG_737_INTEGRATION = defineAircraftIntegration({
   presentation: {
     templateId: 'pmdg-737',
   },
-  fields: PMDG_737_FIELDS,
-  actions: PMDG_737_ACTIONS,
+  fields: { ...PMDG_737_FIELDS, ...pmdgAtcFields(), ...pmdg737EfisFields() },
+  actions: { ...PMDG_737_ACTIONS, ...pmdgAtcActions('pmdg737', 806), ...pmdg737EfisActions() },
 });
 
 module.exports = {

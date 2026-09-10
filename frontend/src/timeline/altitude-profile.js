@@ -27,7 +27,7 @@ function formatSvgNumber(value) {
   return String(Math.round(value * 10) / 10);
 }
 
-export function formatAltitudeProfileFeet(value) {
+function formatAltitudeProfileFeet(value) {
   if (!Number.isFinite(value)) return '--';
   return `${Math.round(value).toLocaleString()} ft`;
 }
@@ -192,15 +192,4 @@ export function updateTimelineAltitudeProfileCursor(model, offsetMs = 0) {
     cursorY: formatSvgNumber(cursorY),
     currentText: formatAltitudeProfileFeet(cursorAlt),
   };
-}
-
-export function buildTimelineAltitudeProfileState(points, {
-  offsetMs = 0,
-  startMs = null,
-  endMs = null,
-} = {}) {
-  return updateTimelineAltitudeProfileCursor(
-    buildTimelineAltitudeProfileModel(points, { startMs, endMs }),
-    offsetMs,
-  );
 }

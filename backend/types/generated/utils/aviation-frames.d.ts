@@ -7,7 +7,6 @@ export declare function deriveTrueHeadingFromMagnetic(magneticHeadingDeg: unknow
 export declare function deriveMagneticHeadingFromTrue(trueHeadingDeg: unknown, magvarDeg: unknown): number | null;
 export declare function headingDifferenceDegrees(leftHeadingDeg: unknown, rightHeadingDeg: unknown): number | null;
 export declare function roundedHeadingDifferenceDegrees(leftHeadingDeg: unknown, rightHeadingDeg: unknown, precision?: number): number | null;
-export declare function getMagvarDeg(input: HeadingInput): number | null;
 export declare function getAircraftTrueHeadingDeg(input: HeadingInput): number | null;
 export declare function getRunwayTrueHeadingDeg(input: HeadingInput): number | null;
 export {};

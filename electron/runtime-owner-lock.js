@@ -77,8 +77,6 @@ function acquireRuntimeOwnerLock(options = {}) {
 }
 
 module.exports = {
-  DEFAULT_RUNTIME_OWNER_LOCK_PORT,
-  RUNTIME_OWNER_LOCK_HOST,
   acquireRuntimeOwnerLock,
   getDefaultRuntimeOwnerPipePath,
   normalizeLockPort,

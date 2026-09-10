@@ -52,7 +52,6 @@ function selectNewestManagedRustSidecar(telemetryProviderDir, binaryName) {
 }
 
 module.exports = {
-  RUST_SIDECAR_PENDING_DIR_NAME,
   existingFileMtimeMs,
   getManagedRustSidecarPaths,
   selectNewestManagedRustSidecar,

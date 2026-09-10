@@ -1,5 +1,7 @@
 'use strict';
 
+import { decodeSquawkBco16 } from '../utils/transponder-code.js';
+
 const { MSG } = require('../core/message-types') as {
   MSG: Readonly<Record<string, string>>;
 };
@@ -50,6 +52,7 @@ type ProjectorInput = {
 
 type AircraftSpecificBindingResolverRegistry = {
   resolve: (binding: unknown, context: AnyRecord) => {
+    valueUpdatedAt?: string;
     rawValue?: unknown;
     sourceId: string;
     status: AircraftSpecificSourceStatus;
@@ -65,6 +68,7 @@ function valuesMatch(rawValue: unknown, configuredValues: unknown[]): boolean {
 
 function decodeAircraftSpecificValue(rawValue: unknown, decoder: AnyRecord | null | undefined): string | number | boolean | undefined {
   if (rawValue == null || !decoder || typeof decoder !== 'object') return undefined;
+  if (decoder.type === 'squawk-bco16') return decodeSquawkBco16(rawValue);
 
   if (decoder.type === 'boolean') {
     if (Array.isArray(decoder.trueValues) && valuesMatch(rawValue, decoder.trueValues)) return true;
@@ -186,6 +190,7 @@ function buildAircraftSpecificState(params: {
     : DEFAULT_STALE_AFTER_MS;
   const resolverRegistry = params.resolverRegistry || defaultAircraftSpecificBindingResolverRegistry;
   const values: Record<string, string | number | boolean> = {};
+  const valueUpdatedAt: Record<string, string> = {};
   const unavailable: string[] = [];
   const sources: Record<string, AircraftSpecificSourceStatus> = {};
 
@@ -213,6 +218,7 @@ function buildAircraftSpecificState(params: {
       unavailable.push(field.id);
     } else {
       values[field.id] = decodedValue;
+      if (resolved.valueUpdatedAt) valueUpdatedAt[field.id] = resolved.valueUpdatedAt;
     }
   }
 
@@ -230,6 +236,7 @@ function buildAircraftSpecificState(params: {
       sources,
     },
     values,
+    valueUpdatedAt,
     unavailable,
     actionCapabilities: sanitizeActionCapabilities(params.actionCapabilities),
     dependencies: sanitizeAircraftSpecificDependencies(params.dependencies),

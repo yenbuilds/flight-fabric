@@ -65,16 +65,22 @@ const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
     verification: 'untested',
     vendorEvents: [
       'A32NX.FCU_AP_1_PUSH',
+      'A32NX.FCU_EFIS_L_BARO_PUSH',
+      'A32NX.FCU_EFIS_R_BARO_PUSH',
+      'A32NX.FCU_SPD_SET',
+      'A32NX.FCU_HDG_SET',
+      'A32NX.FCU_ALT_SET',
+      'A32NX.FCU_VS_SET',
+      'A32NX_OVHD_APU_MASTER_SW_PB_IS_ON',
+      'A32NX_OVHD_APU_START_PB_IS_ON',
       ...FBW_A380X_THROTTLE_MAPPING_LVARS,
     ],
     events: [
+      'LIGHT_POTENTIOMETER_SET',
       'AUTO_THROTTLE_DISCONNECT',
       'AUTO_THROTTLE_ARM',
       'AP_LOC_HOLD',
       'AP_APR_HOLD',
-      'AP_SPD_VAR_SET',
-      'HEADING_BUG_SET',
-      'AP_ALT_VAR_SET_ENGLISH',
       'STROBES_SET',
       'BEACON_LIGHTS_SET',
       'NAV_LIGHTS_SET',
@@ -389,6 +395,7 @@ function formatRelative(filePath) {
 
 function collectAdapterRouteTokens(route) {
   if (!route || typeof route !== 'object') return [];
+  if (route.transport === 'simbridge-mcdu') return [route.target === 'baro' ? 'setPerfApprMDA' : 'setPerfApprDH'];
   if (route.type === 'lvar') {
     return /^L:/i.test(route.name || '') ? [String(route.name).replace(/^L:/i, '')] : [];
   }
@@ -402,6 +409,8 @@ function collectAdapterRouteTokens(route) {
       route.releaseCode,
       route.increaseCode,
       route.decreaseCode,
+      ...(route.codes || []),
+      ...(route.pulses || []).flatMap(pulse => [pulse.pressCode, pulse.releaseCode]),
     ].filter((code) => typeof code === 'string');
     return [...new Set(calculatorCodes.flatMap((code) => (
       [...code.matchAll(/\(?L:([^,\)]+)/gi)]

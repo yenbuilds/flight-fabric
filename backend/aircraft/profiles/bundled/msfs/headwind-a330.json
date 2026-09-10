@@ -101,10 +101,13 @@
     },
     "controls": {
       "backend": "simconnect",
-      "_comment": "FBW/Headwind custom FCU writes are documented as custom events such as A32NX.FCU_ALT_SET, but Flight Fabric's current MSFS provider does not execute custom input events yet. Keep only the existing generic MSFS write fallback active until provider support and A339X testing are available."
+      "_comment": "The exact Headwind adapter exposes only bounded cockpit and flight-display lighting presets, checked against the installed A330_NEO_INTERIOR.xml. Other custom cockpit writes remain unmapped."
     },
     "presentation": {
       "visualSupport": "basic"
+    },
+    "aircraftSpecific": {
+      "adapter": "headwind-a330"
     }
   },
   "meta": {
@@ -153,6 +156,36 @@
         "url": "https://github.com/headwindsim/aircraft/releases",
         "retrievedAt": "2026-06-05",
         "notes": "Release history records FBW Core Module updates, demonstrating why inherited A32NX interfaces must be revalidated per Headwind release rather than assumed compatible."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "Installed Headwind A339X cockpit lighting behavior",
+        "url": "https://github.com/headwindsim/aircraft",
+        "retrievedAt": "2026-09-10",
+        "notes": "The installed headwindsim-aircraft-a330-900 SimObjects/Airplanes/Headwind_A330neo/model/A330_NEO_INTERIOR.xml explicitly assigns cockpit panel potentiometers 84,87,85,86; flood 83,76; PFD/ND/weather/ECAM displays 88,89,94,90,91,95,92,93. Uses the standard LIGHT_POTENTIOMETER_SET index then percentage contract, with independent knob readback. Discrete ceiling/map and dome controls are excluded. No general A32NX compatibility is inferred."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator SDK - indexed cockpit light potentiometers",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-09-10",
+        "notes": "LIGHT_POTENTIOMETER_SET takes potentiometer index in parameter 0, brightness percentage in parameter 1. Aircraft-specific indices are grounded separately in vendor evidence. The caller supplies only a bounded whole percentage."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "Installed aircraft exterior lighting selectors and light indices",
+        "url": "https://github.com/headwindsim/aircraft",
+        "retrievedAt": "2026-09-10",
+        "notes": "A330_NEO_INTERIOR.xml: paired landing lamps LIGHT LANDING:2 and LIGHT LANDING:3. Both aircraft use LIGHT TAXI:1 for nose taxi lighting, LIGHT TAXI:2 and LIGHT TAXI:3 for runway turnoff lamps. Bounded LANDING_LIGHTS_SET and TAXI_LIGHTS_SET events use state first, fixed light index second, matching the shipped switch templates. All changed indexed outputs require independent newer readback. Existing takeoff preset actions are retained. See docs/EXTERIOR-LIGHTS-VALIDATION.md."
       }
     ],
     "verification": {

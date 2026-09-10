@@ -1,5 +1,10 @@
 'use strict';
 
+import { fenixAtcEfisFields, fenixAtcEfisActions } from './atc-efis.js';
+import { fenixApproachActions, fenixApproachFields } from './approach.js';
+import { fenixBaroActions, fenixBaroFields } from './baro.js';
+import { cockpitLightingIntegration } from '../cockpit-lighting.js';
+
 import type { AircraftIntegrationDefinition } from '../types.js';
 
 const { defineAircraftIntegration } = require('../registry') as {
@@ -33,8 +38,8 @@ const FENIX_A32X_INTEGRATION = defineAircraftIntegration({
   presentation: {
     templateId: 'fenix-a32x',
   },
-  fields: FENIX_A32X_FIELDS,
-  actions: FENIX_A32X_ACTIONS,
+  fields: { ...FENIX_A32X_FIELDS, ...fenixAtcEfisFields(), ...fenixApproachFields(), ...fenixBaroFields(), ...cockpitLightingIntegration('fenix-a32x').fields },
+  actions: { ...FENIX_A32X_ACTIONS, ...fenixAtcEfisActions(), ...fenixApproachActions(), ...fenixBaroActions(), ...cockpitLightingIntegration('fenix-a32x').actions },
 });
 
 module.exports = {

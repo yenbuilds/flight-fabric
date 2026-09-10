@@ -9,15 +9,19 @@ import {
   incompleteVoiceCommandPrompt,
   interpretAircraftVoiceCommand,
 } from './command-interpreter.js';
-import { createLocalReadback, formatAviationReadback } from './local-readback.js';
+import { createLocalReadback, formatAviationReadback, formatComRadioReadback, formatBaroReadback } from './local-readback.js';
+import { baroResultText } from '../aircraft/baro.js';
+import { comRadioResultText } from '../aircraft/com-radio.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
+import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
+import { formatSquawk } from '../aircraft/transponder.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
 const VOICE_RELEASE_TAIL_MS = 250;
 
 function formatCommand(match) {
   const value = Object.prototype.hasOwnProperty.call(match.input || {}, 'value')
-    ? `: ${String(match.input.value)}`
+    ? `: ${match.commandId === 'surveillance.squawk.set' ? formatSquawk(match.input.value) : String(match.input.value)}`
     : '';
   return `${match.label}${value}`;
 }
@@ -26,6 +30,7 @@ export function createVoiceControlController({
   api = globalThis?.electronAPI?.voice,
   aircraftControl,
   aircraftControlsStore,
+  aircraftSpecificStore,
   voiceStore,
   globalRef = globalThis,
   createCapture = createPcmCapture,
@@ -131,7 +136,9 @@ export function createVoiceControlController({
   }
 
   function activeCatalogue() {
-    return aircraftControlsStore?.aircraftCommandCatalogue || {};
+    const catalogue = aircraftControlsStore?.aircraftCommandCatalogue || {};
+    return canQueryAircraftState(aircraftSpecificStore) && !catalogue.profileKey
+      ? { ...catalogue, profileKey: aircraftSpecificStore.activeProfileKey, profileRevision: aircraftSpecificStore.activeProfileRevision } : catalogue;
   }
 
   function voiceCommandCount() {
@@ -142,6 +149,7 @@ export function createVoiceControlController({
 
   function isDevelopmentTranscriptionOnly() {
     return voiceStore.runtime.development === true
+      && !canQueryAircraftState(aircraftSpecificStore)
       && (aircraftControlsStore?.availability?.enabled !== true || voiceCommandCount() === 0);
   }
 
@@ -192,12 +200,12 @@ export function createVoiceControlController({
     // command. Keep ownership of an in-flight command or its correlated result
     // until the command completes or the user starts a real replacement.
     if (pendingCommand || resultHeld) return;
-    if (aircraftControlsStore?.availability?.enabled !== true) {
+    if (aircraftControlsStore?.availability?.enabled !== true && !canQueryAircraftState(aircraftSpecificStore)) {
       resultHeld = false;
       voiceStore.setState('blocked', aircraftControlsStore?.availability?.reason || 'Aircraft control is unavailable.');
       return;
     }
-    if (voiceCommandCount() === 0) {
+    if (voiceCommandCount() === 0 && !canQueryAircraftState(aircraftSpecificStore)) {
       resultHeld = false;
       voiceStore.setState('blocked', 'This aircraft profile has no voice-enabled commands.');
       return;
@@ -209,7 +217,33 @@ export function createVoiceControlController({
     if (pendingCommand !== command) return;
     pendingCommand = null;
     resultHeld = true;
+    if (/^baro\.(captain|firstOfficer|both)\./.test(command.commandId || '')) {
+      const status = baroResultText(result);
+      voiceStore.setState(status.confirmed ? 'sent' : 'error', status.text);
+      speakReadback(formatBaroReadback(result));
+      return;
+    }
     if (result.ok === true) {
+      if (/^radios\.com[12]\./.test(command.commandId || '')) {
+        voiceStore.setState('sent', comRadioResultText(result) || 'Radio response unconfirmed. Check the aircraft radio.');
+        speakReadback(formatComRadioReadback(result));
+        return;
+      }
+      if (command.commandId === 'configuration.apu.start' && result.code === 'already_satisfied') {
+        voiceStore.setState('sent', 'APU already starting or running. No additional START was sent.');
+        speakReadback('A P U already starting or running.');
+        return;
+      }
+      if (result.transportAcknowledged === true && result.code !== 'sent_unconfirmed') {
+        const text = command.commandId === 'configuration.apu.start'
+          ? 'APU start requested.' : command.commandId === 'surveillance.ident.activate'
+            ? 'IDENT requested.' : `Requested ${command.description}.`;
+        voiceStore.setState('sent', `${text} Aircraft outcome is not yet confirmed.`);
+        speakReadback(command.commandId === 'configuration.apu.start'
+          ? 'A P U start requested.' : command.commandId === 'surveillance.ident.activate'
+            ? 'IDENT requested.' : 'Command requested. Aircraft outcome is not yet confirmed.');
+        return;
+      }
       if (result.code === 'sent_unconfirmed') {
         voiceStore.setState('sent', `Sent ${command.description}. Aircraft response unconfirmed; check the simulator.`);
         speakReadback('Command sent. Aircraft response unconfirmed. Check the simulator.');
@@ -271,6 +305,7 @@ export function createVoiceControlController({
     // dismiss the held result when no new command can start.
     if (
       resultHeld
+      && !canQueryAircraftState(aircraftSpecificStore)
       && !isDevelopmentTranscriptionOnly()
       && (
         aircraftControlsStore?.availability?.enabled !== true
@@ -497,6 +532,14 @@ export function createVoiceControlController({
       voiceStore.setState('error', 'Aircraft changed before the command could execute.');
       return;
     }
+    const query = answerAircraftStateQuery(transcript, aircraftSpecificStore, session);
+    if (query) {
+      resultHeld = true;
+      voiceStore.setLastCommand(`Read aircraft state: ${query.id}`);
+      voiceStore.setState(query.ok ? 'sent' : 'error', query.text);
+      speakReadback(query.text);
+      return;
+    }
     const match = interpretAircraftVoiceCommand(transcript, catalogue);
     if (!match.ok) {
       const retryPrompt = match.reason === 'unmatched'
@@ -520,12 +563,13 @@ export function createVoiceControlController({
       ? `Interpreted as “${match.interpretedTranscript}” · ${description}`
       : description);
     const command = {
+      commandId: match.commandId,
       description,
       spokenResult: formatAviationReadback(match),
     };
     pendingCommand = command;
     const sent = aircraftControl.sendCommand(match.commandId, match.input, {
-      pendingKey: `voice:${match.commandId}`,
+      pendingKey: `aircraft-command:${match.commandId}`,
       onResult: (result) => handleCommandResult(command, result),
     });
     if (!sent) {
@@ -685,7 +729,8 @@ export function createVoiceControlController({
   return Object.freeze({
     begin,
     cancel,
-    collectHints: () => collectVoiceHints(activeCatalogue()),
+    collectHints: () => [...collectVoiceHints(activeCatalogue()),
+      ...(canQueryAircraftState(aircraftSpecificStore) ? stateQueryExamples(aircraftSpecificStore).map((text) => text.toUpperCase()) : [])],
     dispose,
     finish,
     handleAircraftContextChange,

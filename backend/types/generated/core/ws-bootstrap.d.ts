@@ -7,7 +7,9 @@ type WsSocketLike = {
     send?: (payload: string, ...args: any[]) => void;
     __ffPrivilegedClient?: boolean;
     __ffAircraftControlClient?: boolean;
+    __ffAircraftControlPairingStatus?: AircraftControlPairingStatus;
 };
+type AircraftControlPairingStatus = 'not-requested' | 'accepted' | 'expired' | 'disabled';
 type ClientConnectedHandler = (ws: WsSocketLike) => void;
 type ClientMessageHandler = (ws: WsSocketLike, msg: Record<string, unknown>) => Promise<void> | void;
 export declare function isPrivateOrLoopbackRemoteAddress(remoteAddress: string | null | undefined): boolean;

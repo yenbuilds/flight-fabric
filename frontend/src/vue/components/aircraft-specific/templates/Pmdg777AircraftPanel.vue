@@ -1,11 +1,11 @@
 <script setup>
 import {
   computed,
-  onMounted,
   ref,
   watch,
 } from 'vue';
 import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
+import TakeoffLightsPreset from '../TakeoffLightsPreset.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 import { buildPmdg777CommandInput } from '../pmdg777-command-routing.js';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
@@ -26,12 +26,6 @@ const props = defineProps({
 
 const aircraftControls = useAircraftControlsStore();
 const unavailableFields = computed(() => new Set(props.unavailable));
-const electronApi = typeof window !== 'undefined' ? window.electronAPI : null;
-const authorizationState = ref('unknown');
-const eulaOpened = ref(false);
-const eulaConfirmed = ref(false);
-const authorizationBusy = ref(false);
-const authorizationError = ref('');
 const mcpDrafts = ref({});
 const directDrafts = ref({});
 const sdkSourceStatus = computed(() => (
@@ -72,17 +66,12 @@ const variant = computed(() => {
   return '777-300ER';
 });
 
-const showAuthorization = computed(() => (
-  authorizationState.value === 'required'
-  || (authorizationState.value === 'unavailable' && sdkSourceStatus.value === 'disabled')
-));
-
 const sdkStatusNotice = computed(() => {
-  if (showAuthorization.value || sdkSourceStatus.value === 'connected') return null;
+  if (sdkSourceStatus.value === 'connected') return null;
   const messages = {
     stale: 'PMDG SDK data stopped updating. Check EnableDataBroadcast=1 and reload the aircraft or simulator.',
     disconnected: 'The PMDG SDK data connection is offline. Check EnableDataBroadcast=1 and reload the aircraft or simulator.',
-    disabled: 'PMDG SDK data is disabled. Confirm desktop SDK authorization and EnableDataBroadcast=1, then restart Flight Fabric.',
+    disabled: 'PMDG SDK data is disabled. Check EnableDataBroadcast=1, then restart Flight Fabric.',
     error: 'The PMDG SDK data connection failed. Check the desktop logs and PMDG data-broadcast setting.',
     unsupported: 'This installation cannot start the PMDG 777 SDK connector.',
     'awaiting-values': 'Waiting for the first PMDG SDK data snapshot. Confirm EnableDataBroadcast=1 if this does not clear.',
@@ -368,6 +357,7 @@ const controlSections = [
       ]),
       detentControl('SPEEDBRAKE', 'controls.speedbrakePercent', 'controls.speedbrake', [
         ['stowed', 'STOW', 0], ['armed', 'ARM', 25],
+        ['half', 'HALF', 50], ['full', 'FULL', 100],
       ]),
       booleanControl('PARKING BRAKE', 'controls.parkingBrake', 'controls.parkingBrake'),
     ],
@@ -658,6 +648,17 @@ function mcpDisabled(field) {
     || groupPending(field.groupId);
 }
 
+function mcpDisabledReason(field) {
+  if (!mcpDisabled(field)) return '';
+  if (sdkSourceStatus.value !== 'connected') return 'Waiting for live PMDG aircraft data.';
+  if (groupPending(field.groupId)) return 'Command in progress.';
+  const config = mcpInputConfig(field);
+  if (!hasValue(config.fieldId)) return config.signed
+    ? 'Select V/S or FPA mode to open the MCP vertical window before setting a target.'
+    : 'The MCP window must be active before setting its target.';
+  return 'Waiting for the PMDG control connection.';
+}
+
 function requestMcpAction(field) {
   const config = mcpInputConfig(field);
   const sent = submitMcpDraft({
@@ -717,7 +718,8 @@ function actionSupported(actionId) {
   return props.actionCapabilities[actionId] === true;
 }
 
-function commandIdFor(control) {
+function commandIdFor(control, actionId) {
+  if (actionId === 'controls.speedbrake.half' || actionId === 'controls.speedbrake.full') return 'surfaces.spoilers.set';
   return control.commandId || sharedControlCommandIds[control.groupId] || '';
 }
 
@@ -726,7 +728,7 @@ function actionFor(control, actionId) {
 }
 
 function commandRouteSupported(control, actionId) {
-  const commandId = commandIdFor(control);
+  const commandId = commandIdFor(control, actionId);
   return pmdg777CommandCatalogueActive() && commandId
     ? props.isCommandSupported(commandId)
     : actionSupported(actionId);
@@ -745,7 +747,7 @@ function actionDisabled(control, actionId) {
 
 function requestControlAction(control, actionId) {
   if (actionDisabled(control, actionId)) return false;
-  const commandId = commandIdFor(control);
+  const commandId = commandIdFor(control, actionId);
   if (pmdg777CommandCatalogueActive() && commandId) {
     const action = actionFor(control, actionId);
     return props.requestCommand(commandId, control.groupId, buildPmdg777CommandInput(control, action));
@@ -805,51 +807,6 @@ function indicatorClass(id, tone = 'positive') {
   return 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300';
 }
 
-async function refreshAuthorization() {
-  if (typeof electronApi?.getPmdg777SdkEulaStatus !== 'function') {
-    authorizationState.value = 'unavailable';
-    return;
-  }
-  const result = await electronApi.getPmdg777SdkEulaStatus();
-  authorizationState.value = result?.accepted === true ? 'accepted' : 'required';
-}
-
-async function openSdkEula() {
-  authorizationBusy.value = true;
-  authorizationError.value = '';
-  try {
-    const result = await electronApi?.openPmdg777SdkEula?.();
-    if (result?.success !== true) throw new Error(result?.error || 'Could not open the installed PMDG SDK EULA.');
-    eulaOpened.value = true;
-  } catch (error) {
-    authorizationError.value = error?.message || String(error);
-  } finally {
-    authorizationBusy.value = false;
-  }
-}
-
-async function acceptSdkEula() {
-  if (!eulaOpened.value || !eulaConfirmed.value) return;
-  authorizationBusy.value = true;
-  authorizationError.value = '';
-  try {
-    const result = await electronApi?.acceptPmdg777SdkEula?.();
-    if (result?.success !== true) throw new Error(result?.error || 'Could not save SDK authorization.');
-    authorizationState.value = 'accepted';
-    await electronApi?.restartApp?.();
-  } catch (error) {
-    authorizationError.value = error?.message || String(error);
-  } finally {
-    authorizationBusy.value = false;
-  }
-}
-
-onMounted(() => {
-  refreshAuthorization().catch((error) => {
-    authorizationError.value = error?.message || String(error);
-    authorizationState.value = 'unavailable';
-  });
-});
 </script>
 
 <template>
@@ -866,29 +823,8 @@ onMounted(() => {
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sdkSourceStatus }}</span>
     </div>
 
-    <div v-if="showAuthorization" class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
-      <div class="text-sm font-semibold text-amber-200">PMDG 777 SDK authorization required</div>
-      <p class="mt-1 text-xs leading-relaxed text-amber-100/75">
-        PMDG requires SDK applications to show its SDK EULA and obtain your explicit acceptance. This can only be completed in the Flight Fabric desktop app.
-      </p>
-      <template v-if="electronApi">
-        <button type="button" class="ff-button-secondary mt-3 px-3 py-2 text-xs" :disabled="authorizationBusy" @click="openSdkEula">
-          Open installed PMDG SDK EULA
-        </button>
-        <label class="mt-3 flex items-start gap-2 text-xs text-gray-300">
-          <input v-model="eulaConfirmed" type="checkbox" class="mt-0.5" :disabled="!eulaOpened || authorizationBusy" />
-          <span>I have read and accept the installed PMDG 777 SDK EULA.</span>
-        </label>
-        <button type="button" class="ff-button-primary mt-3 px-3 py-2 text-xs" :disabled="!eulaOpened || !eulaConfirmed || authorizationBusy" @click="acceptSdkEula">
-          Accept and restart Flight Fabric
-        </button>
-      </template>
-      <p v-else class="mt-3 text-xs text-gray-400">Open this Aircraft page in the desktop app to authorize the SDK host; phones cannot accept it.</p>
-      <p v-if="authorizationError" class="mt-2 text-xs text-red-300">{{ authorizationError }}</p>
-    </div>
-
     <div
-      v-else-if="sdkStatusNotice"
+      v-if="sdkStatusNotice"
       class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
       role="status"
       data-aircraft-sdk-notice="pmdg-777"
@@ -933,10 +869,11 @@ onMounted(() => {
               :step="mcpInputConfig(field).step"
               :value="mcpDraft(field)"
               :disabled="mcpDisabled(field)"
+              :title="mcpDisabledReason(field) || undefined"
               :aria-label="`Set ${field.label}`"
               @input="updateMcpDraft(field, $event)"
             />
-            <button type="submit" class="rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:opacity-45" :data-aircraft-action="mcpInputConfig(field).actionId" :disabled="mcpDisabled(field)">SET</button>
+            <button type="submit" class="rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:opacity-45" :data-aircraft-action="mcpInputConfig(field).actionId" :disabled="mcpDisabled(field)" :title="mcpDisabledReason(field) || undefined">SET</button>
           </div>
         </form>
       </div>
@@ -964,6 +901,7 @@ onMounted(() => {
     >
       <div>
         <div class="dashboard-section-kicker">Exterior Lights</div>
+        <TakeoffLightsPreset :source-status="sourceStatus === 'connected' ? sdkSourceStatus : sourceStatus" />
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
           <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
             <div class="mb-2 flex items-center justify-between text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>

@@ -300,7 +300,3 @@ export function resolveAircraftVisual({ profileId = '', profileKey = '', aircraf
   if (profileMapping) return buildResolvedVisual(profileMapping.assetKey, profileMapping.fidelity);
   return buildResolvedVisual('generic-aircraft', 'class');
 }
-
-export function getAircraftVisualAssetKeys() {
-  return Object.keys(AIRCRAFT_VISUAL_ASSETS);
-}

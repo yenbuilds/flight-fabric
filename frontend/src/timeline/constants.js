@@ -2,6 +2,12 @@ import '../../../shared/violation-rules.js';
 
 export const { VIOLATION_RULE } = globalThis.FlightFabricViolationRules;
 
+export const INSPECTOR_FILTER_OPTIONS = Object.freeze([
+  { key: 'configuration_event', label: 'Configuration changes', detail: 'Flaps, gear and spoilers' },
+  { key: 'automation_event', label: 'Automation', detail: 'Autopilot and autothrottle changes' },
+  { key: 'flight_guidance_event', label: 'Flight guidance', detail: 'Selected targets and guidance modes' },
+]);
+
 export const TYPE_LABELS = Object.freeze({
   crash: 'Crash',
   phase_start: 'Phase',
@@ -33,15 +39,30 @@ export const MARKER_LABELS = Object.freeze({
 });
 
 export const RULE_LABELS = Object.freeze({
+  approach_vertical_profile: 'Vertical approach profile',
+  approach_airspeed: 'Approach airspeed',
+  approach_bank: 'Approach bank angle',
+  approach_pitch: 'Approach pitch',
+  approach_localizer: 'Approach localizer',
   [VIOLATION_RULE.LATE_GO_AROUND]: 'Possible late go-around',
   below_glidepath: 'Path rate too steep',
 });
 
 export const RULE_END_LABELS = Object.freeze({
+  approach_vertical_profile: 'Vertical profile recovered',
+  approach_airspeed: 'Airspeed recovered',
+  approach_bank: 'Bank angle recovered',
+  approach_pitch: 'Pitch recovered',
+  approach_localizer: 'Localizer recovered',
   below_glidepath: 'Path rate recovered',
 });
 
 export const RULE_DESCRIPTIONS = Object.freeze({
+  approach_vertical_profile: 'Related sink-rate and path deviations share one episode and one vertical scoring contribution. Assessment starts at the recorded height gate. Path-rate and glideslope checks stop at 50 ft; sink rate continues to touchdown. A rate proxy does not establish position above or below the runway path.',
+  approach_airspeed: 'Airspeed is compared with the IAS recorded at the height gate, not a verified VAPP. This estimate is advisory. Magnitude and elapsed time affect the speed score; speed checks stop at 50 ft for the flare.',
+  approach_bank: 'Bank is assessed from the recorded height gate to touchdown. Small deviations have a gradual scoring effect. Sustained or severe breaches become red violations.',
+  approach_pitch: 'Pitch is assessed from the recorded height gate to touchdown. Small deviations have a gradual scoring effect. Sustained or severe breaches become red violations.',
+  approach_localizer: 'A valid localizer signal is assessed from the recorded height gate to 50 ft. The ideal band is within one dot; severe deviations exceed two dots. Entry and recovery use elapsed time.',
   [VIOLATION_RULE.HIGH_SINK_RATE]: 'Flight Fabric stability rule: vertical speed dropped below the configured threshold during APPROACH/FINAL. This differs from a GPWS "SINK RATE" aural callout, which uses a height-versus-rate envelope and may occur at a different time or not at all.',
   [VIOLATION_RULE.EXCESS_IAS_DEVIATION]: 'Indicated airspeed deviated from the reference speed by more than the configured tolerance during the approach.',
   [VIOLATION_RULE.GLIDEPATH_DEVIATION]: 'Glideslope deviation exceeded +/-1 dot during the approach.',

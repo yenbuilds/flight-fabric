@@ -1,11 +1,80 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAviationNumber } from './aviation-number-parser.js';
+import { normalizeVoiceText, parseAviationNumber } from './aviation-number-parser.js';
 import {
   collectVoiceHints,
   incompleteVoiceCommandPrompt,
   interpretAircraftVoiceCommand,
 } from './command-interpreter.js';
+
+test('complete spoken letter names work in command names, modes and units without changing numbers', () => {
+  const commands = [
+    { id: 'test.qnh', input: { kind: 'number', min: 948, max: 1084, step: 1, units: 'hpa' }, speech: { patterns: ['captain qnh {value}'] } },
+    { id: 'test.ls', input: { kind: 'boolean' }, speech: { patterns: ['captain ls {value}'] } },
+    { id: 'test.fpa', input: { kind: 'number', min: -10, max: 10, step: 0.1 }, speech: { patterns: ['set fpa {value}'] } },
+    { id: 'test.mode', input: { kind: 'enum', values: ['hdg', 'trk', 'vs', 'fpa', 'rto'] }, speech: { patterns: ['mode {value}'] } },
+    ...['lnav', 'vnav', 'flch'].map(name => ({ id: `test.${name}`, input: { kind: 'none' }, speech: { patterns: [`engage ${name}`] } })),
+  ];
+  for (const [phrase, commandId, input] of [
+    ['captain cue en aitch one zero one six', 'test.qnh', { value: 1016 }],
+    ['captain queue n haitch one zero one six aitch pee ay', 'test.qnh', { value: 1016 }],
+    ['captain Q.N.H. 1016 H.P.A.', 'test.qnh', { value: 1016 }],
+    ['captain ell ess on', 'test.ls', { value: true }],
+    ['captain L. S. off', 'test.ls', { value: false }],
+    ['set eff pee ay minus three point two', 'test.fpa', { value: -3.2 }],
+    ['mode aitch dee gee', 'test.mode', { value: 'hdg' }],
+    ['mode tee are kay', 'test.mode', { value: 'trk' }],
+    ['mode vee ess', 'test.mode', { value: 'vs' }],
+    ['mode are tee oh', 'test.mode', { value: 'rto' }],
+    ['engage ell nav', 'test.lnav', {}],
+    ['engage vee nav', 'test.vnav', {}],
+    ['engage eff ell see aitch', 'test.flch', {}],
+  ]) {
+    const result = interpretAircraftVoiceCommand(phrase, { commands });
+    assert.equal(result.ok, true, `${phrase}: ${JSON.stringify(result)}`);
+    assert.equal(result.commandId, commandId);
+    assert.deepEqual(result.input, input);
+  }
+  for (const phrase of ['captain cue en 1016', 'captain ell on', 'set eff pee minus three',
+    'captain cue en aitch one zero one you', 'captain cue en aitch 9999',
+    'do not engage vee nav', 'engage vee nav then engage ell nav']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, { commands }).ok, false, phrase);
+  }
+});
+
+test('acronym repair preserves exact command precedence and rejects ambiguous repairs', () => {
+  const command = (id, pattern) => ({ id, input: { kind: 'none' }, speech: { patterns: [pattern] } });
+  const apuCommand = command('test.apu', 'start apu');
+  const literal = command('test.literal', 'start ay pee you');
+  assert.equal(interpretAircraftVoiceCommand('start ay pee you', { commands: [apuCommand, literal] }).commandId, literal.id);
+  assert.equal(interpretAircraftVoiceCommand('start aye pea ewe', {
+    commands: [apuCommand, command('test.different', 'start a p u')],
+  }).reason, 'ambiguous');
+  assert.equal(interpretAircraftVoiceCommand('start ay pee you', { commands: [] }).ok, false);
+});
+
+test('numeric minus signs survive normalization and aircraft voice command matching', () => {
+  for (const sign of ['-', '\u2212']) {
+    for (const gap of ['', ' ']) {
+      assert.equal(parseAviationNumber(`${sign}${gap}1500`), -1500);
+      for (const [text, commandId, value] of [
+        [`vertical speed ${sign}${gap}1500`, 'flightGuidance.verticalSpeed.set', -1500],
+        [`set vertical speed ${sign}${gap}500 feet per minute`, 'flightGuidance.verticalSpeed.set', -500],
+        [`set fpa ${sign}${gap}3.2`, 'flightGuidance.flightPathAngle.set', -3.2],
+      ]) {
+        const result = interpretAircraftVoiceCommand(text, fbwA32nxCatalogue);
+        assert.equal(result.ok, true, `${text}: ${JSON.stringify(result)}`);
+        assert.equal(result.commandId, commandId);
+        assert.deepEqual(result.input, { value });
+      }
+      for (const text of [`heading ${sign}${gap}270`, `speed ${sign}${gap}250`]) {
+        assert.equal(interpretAircraftVoiceCommand(text, fbwA32nxCatalogue).ok, false, text);
+      }
+    }
+  }
+  assert.equal(normalizeVoiceText('vertical-speed minus twenty-five'), 'vertical speed minus twenty five');
+  assert.equal(interpretAircraftVoiceCommand('vertical speed 1000-2000', fbwA32nxCatalogue).ok, false);
+});
 
 const catalogue = Object.freeze({
   configurationId: 'test-aircraft',

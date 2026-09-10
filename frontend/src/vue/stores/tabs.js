@@ -74,10 +74,6 @@ export const useTabsStore = defineStore('tabs', () => {
     };
   }
 
-  function openMoreSheet() {
-    moreSheetOpen.value = true;
-  }
-
   function closeMoreSheet() {
     moreSheetOpen.value = false;
   }
@@ -113,7 +109,6 @@ export const useTabsStore = defineStore('tabs', () => {
     isMoreTabActive,
     registerBeforeChangeGuard,
     moreSheetOpen,
-    openMoreSheet,
     pullRefreshClass,
     pullRefreshLabel,
     pullRefreshRefreshing,

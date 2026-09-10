@@ -101,6 +101,12 @@ function copyAircraftCommandCatalogue(rawCatalogue) {
       label: typeof descriptor.label === 'string' ? descriptor.label.slice(0, 100) : id,
       group: typeof descriptor.group === 'string' ? descriptor.group.slice(0, 64) : '',
       kind: descriptor.kind === 'preset' ? 'preset' : 'action',
+      ...(Array.isArray(descriptor.brightnessFields) ? {
+        brightnessFields: Object.freeze(descriptor.brightnessFields.filter(id => typeof id === 'string' && SAFE_COMMAND_ID_RE.test(id)).slice(0, 64)),
+      } : {}),
+      ...(Array.isArray(descriptor.observations)
+        ? { observations: descriptor.observations.slice(0, 4).map((observation) => ({ ...observation })) }
+        : {}),
       description: typeof descriptor.description === 'string'
         ? descriptor.description.slice(0, 320)
         : '',
@@ -509,7 +515,9 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
 
     isCommandPending(commandOrKey) {
       const pendingKey = this.resolvePendingKey(commandOrKey);
-      return pendingKey ? this.pendingCommands[pendingKey] === true : false;
+      if (pendingKey && this.pendingCommands[pendingKey] === true) return true;
+      const commandId = getAircraftControlCanonicalCommandId(commandOrKey);
+      return commandId ? this.pendingCommands[`aircraft-command:${commandId}`] === true : false;
     },
 
     isCommandSupported(commandOrKey) {

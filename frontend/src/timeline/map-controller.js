@@ -877,7 +877,6 @@ export function createTimelineMapController({
   return {
     destroy,
     focusEvent,
-    getTrackPoints: () => timelineTrackPoints.slice(),
     hasMap: () => Boolean(timelineMap),
     invalidateSizeStaggered: invalidateTimelineMapSizeStaggered,
     render,

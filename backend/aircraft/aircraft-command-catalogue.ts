@@ -1,5 +1,12 @@
 'use strict';
 
+import { normalizeComFrequencyMhz } from '../utils/radio-frequency.js';
+import { encodeSquawkBco16 } from '../utils/transponder-code.js';
+import { MINIMUMS_INPUTS } from './aircraft-integrations/fbw-a32nx/minimums.js';
+import { BARO_INPUTS } from './aircraft-integrations/fbw-a32nx/baro.js';
+import { cockpitLightingGroups } from './aircraft-integrations/cockpit-lighting.js';
+import { aircraftParityBindings, PARITY_COMMAND_DEFINITIONS } from './aircraft-command-parity.js';
+
 type GenericRecord = Record<string, any>;
 
 export type AircraftCommandInput = Readonly<
@@ -17,6 +24,7 @@ export type AircraftCommandDefinition = Readonly<{
   kind?: 'action' | 'preset';
   label: string;
   speech?: Readonly<{
+    fixedInputs?: Readonly<Record<string, Readonly<{ value: boolean }>>>;
     hints?: readonly string[];
     patterns: readonly string[];
   }>;
@@ -30,13 +38,22 @@ type LegacyRequest = Readonly<{
   value?: unknown;
 }>;
 
-type AircraftCommandBinding = Readonly<{
+export type AircraftCommandBinding = Readonly<{
   commandId: string;
   input?: AircraftCommandInput;
+  brightnessFields?: readonly string[];
+  observations?: readonly Readonly<{
+    fieldId: string;
+    expectedValue: boolean | string;
+    label: string;
+    inhibitsRequest?: boolean;
+  }>[];
 } & (
   | { kind: 'fixed'; request: LegacyRequest }
   | { kind: 'input'; inputKey: string; request: LegacyRequest }
   | { kind: 'choice'; choices: Readonly<Record<string, LegacyRequest>> }
+  | { kind: 'choice-sequence'; description: string;
+      choices: Readonly<Record<string, readonly Readonly<{ label: string; request: LegacyRequest }>[]>> }
   | {
       kind: 'sequence';
       description: string;
@@ -68,6 +85,67 @@ const BOOLEAN_INPUT = Object.freeze({ kind: 'boolean' } as const);
 
 const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefinition>> = Object.freeze(
   Object.fromEntries(([
+    ...PARITY_COMMAND_DEFINITIONS,
+    ...(['baro', 'radio'] as const).map((target): AircraftCommandDefinition => ({
+      id: `approach.minimums.${target}`, label: `${target.toUpperCase()} minimums`, group: 'approach',
+      description: 'Requires local FlyByWire SimBridge and active PERF APPR on the captain MCDU with an empty scratchpad. The MCDU clears the other minimums type.',
+      input: { kind: 'number', min: MINIMUMS_INPUTS[target].min, max: MINIMUMS_INPUTS[target].max, step: 1, units: 'feet' },
+      speech: { patterns: [`set ${target} minimums {value}`, `${target} minimums {value}`, `set ${target} minimums to {value}`, `captain ${target} minimums {value}`], hints: [`${target.toUpperCase()} MINIMUMS`] },
+    })),
+    { id: 'surveillance.squawk.set', label: 'Squawk', group: 'surveillance',
+      input: { kind: 'number', min: 0, max: 7777, step: 1, units: 'squawk' },
+      speech: { patterns: ['squawk {value}', 'set squawk {value}', 'set squawk to {value}', 'transponder code {value}'], hints: ['SQUAWK', 'TRANSPONDER CODE'] } },
+    { id: 'surveillance.ident.activate', label: 'IDENT', group: 'surveillance', input: NONE_INPUT,
+      speech: { patterns: ['ident', 'squawk ident', 'transponder ident'], hints: ['IDENT', 'SQUAWK IDENT'] } },
+    ...(['captain', 'firstOfficer'] as const).flatMap((side): AircraftCommandDefinition[] => {
+      const word = side === 'captain' ? 'captain' : 'first officer';
+      return [
+        { id: `approach.${side}.minimumsMode`, label: `${word} minimums reference`, group: 'approach',
+          input: { kind: 'enum', values: ['baro', 'radio'] },
+          description: 'Selects the EFIS minimums reference. Enter the numeric minimums in the cockpit.',
+          speech: { patterns: [`${word} minimums {value}`, `set ${word} minimums {value}`, `${word} minimums reference {value}`], hints: [`${word.toUpperCase()} MINIMUMS`] } },
+        { id: `navigation.${side}.range`, label: `${word} ND range`, group: 'navigation',
+          input: { kind: 'enum', values: ['10', '20', '40', '80', '160', '320'] },
+          speech: { patterns: [`${word} range {value}`, `set ${word} range {value}`, `${word} nd range {value}`], hints: [`${word.toUpperCase()} RANGE`] } },
+        { id: `navigation.${side}.ls`, label: `${word} LS`, group: 'navigation', input: BOOLEAN_INPUT,
+          speech: { patterns: [`${word} ls {value}`, `set ${word} ls {value}`, `${word} l s {value}`, `${word} landing system {value}`], hints: [`${word.toUpperCase()} LS`] } },
+      ];
+    }),
+    ...(['captain', 'firstOfficer', 'both'] as const).flatMap((target): AircraftCommandDefinition[] => {
+      const side = target === 'firstOfficer' ? 'first officer' : target;
+      const altimeter = target === 'both' ? 'altimeters' : 'altimeter';
+      return [
+        ...(['qnhHpa', 'qnhInHg'] as const).map((operation): AircraftCommandDefinition => ({
+          id: `baro.${target}.${operation}`, label: `${side} QNH (${operation === 'qnhHpa' ? 'hPa' : 'inHg'})`, group: 'baro',
+          input: { kind: 'number', min: BARO_INPUTS[operation].min, max: BARO_INPUTS[operation].max,
+            step: BARO_INPUTS[operation].step, units: operation === 'qnhHpa' ? 'hpa' : 'inhg' },
+          speech: { patterns: [ `${side} qnh {value}`, `set ${side} qnh {value}`, `set ${side} qnh to {value}`,
+            `${side} ${altimeter} {value}`, `set ${side} ${altimeter} to {value}` ], hints: [`${side.toUpperCase()} QNH`] },
+        })),
+        { id: `baro.${target}.std`, label: `${side} standard pressure`, group: 'baro', input: NONE_INPUT,
+          speech: { patterns: [`${side} standard pressure`, `set ${side} standard pressure`, `${side} ${altimeter} standard`,
+            `set ${side} ${altimeter} standard`, `set ${side} ${altimeter} to standard`,
+            `set ${side} baro standard`, `set ${side} baro to standard`, `${side} baro standard`,
+            ...(target === 'both' ? ['set baro standard', 'set baro to standard', 'baro standard',
+              'set standard pressure', 'set altimeters standard', 'set altimeters to standard'] : []),
+          ], hints: ['SET BARO STANDARD', 'STANDARD PRESSURE'] } },
+      ];
+    }),
+    ...[1, 2].flatMap((index): AircraftCommandDefinition[] => {
+      const word = index === 1 ? 'one' : 'two';
+      const radios = [`com ${word}`, `com ${index}`, `vhf ${word}`, `vhf ${index}`];
+      const input: AircraftCommandInput = { kind: 'number', min: 118, max: 136.99, step: 0.005, units: 'com-megahertz' };
+      return [
+        { id: `radios.com${index}.setStandby`, label: `COM ${index} standby frequency`, group: 'radios', input,
+          speech: { patterns: radios.flatMap((radio) => [`${radio} standby {value}`, `set ${radio} standby {value}`,
+            `set ${radio} standby to {value}`, `tune ${radio} standby {value}`]), hints: [`COM ${word.toUpperCase()} STANDBY`] } },
+        { id: `radios.com${index}.swap`, label: `COM ${index} active / standby swap`, group: 'radios', input: NONE_INPUT,
+          speech: { patterns: radios.flatMap((radio) => [`swap ${radio}`, `${radio} swap`]), hints: [`SWAP COM ${word.toUpperCase()}`] } },
+        { id: `radios.com${index}.switchTo`, label: `COM ${index} active frequency`, group: 'radios', input,
+          description: 'Tune standby, confirm it, then swap once and confirm active.',
+          speech: { patterns: radios.map((radio) => `switch ${radio} to {value}`), hints: [`SWITCH COM ${word.toUpperCase()}`] } },
+      ];
+    }),
     {
       id: 'flightGuidance.heading.set', label: 'Selected heading', group: 'flightGuidance',
       input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
@@ -316,7 +394,8 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       ['flightGuidance.nav1.toggle', 'VOR/NAV 1'],
       ['flightGuidance.ins.toggle', 'INS navigation'],
       ['flightGuidance.backcourse.toggle', 'Back course'],
-    ].map(([id, label]) => ({ id, label, group: 'flightGuidance', input: NONE_INPUT })),
+    ].map(([id, label]) => ({ id, label, group: 'flightGuidance', input: NONE_INPUT,
+      speech: { patterns: [`toggle ${label.toLowerCase()}`], hints: [label.toUpperCase()] } })),
     ...[
       ['flightGuidance.headingSelect.engage', 'Heading select', 'HEADING SELECT'],
       ['flightGuidance.altitudeHold.engage', 'Altitude hold', 'ALTITUDE HOLD'],
@@ -352,6 +431,7 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'flightGuidance.speedHold.set', label: 'Speed hold', group: 'flightGuidance',
       input: BOOLEAN_INPUT,
+      speech: { patterns: ['speed hold {value}', 'set speed hold {value}'], hints: ['SPEED HOLD'] },
     },
     {
       id: 'flightGuidance.headingHold.set', label: 'Heading hold', group: 'flightGuidance',
@@ -427,7 +507,14 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'surfaces.spoilers.set', label: 'Spoilers', group: 'surfaces',
       input: { kind: 'enum', values: ['retracted', 'full'] },
-      speech: { patterns: ['spoilers {value}'], hints: ['SPOILERS'] },
+      speech: {
+        patterns: [
+          'spoilers {value}', 'set spoilers {value}',
+          'speedbrake {value}', 'set speedbrake {value}', '{value} speedbrake',
+          'speed brake {value}', 'set speed brake {value}', '{value} speed brake',
+        ],
+        hints: ['SPOILERS', 'SPEEDBRAKE', 'SPEED BRAKE'],
+      },
     },
     {
       id: 'surfaces.spoilersArmed.set', label: 'Ground spoilers', group: 'surfaces',
@@ -439,6 +526,8 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
           '{value} spoilers',
           'speed brake {value}',
           '{value} speed brake',
+          'speedbrake {value}',
+          '{value} speedbrake',
         ],
         hints: ['GROUND SPOILERS', 'SPOILERS', 'SPEED BRAKE'],
       },
@@ -488,7 +577,7 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'configuration.lighting.cockpit',
       label: 'Cockpit lighting',
-      description: 'Set PMDG 737 panel, flood and display-unit dimmers to one brightness.',
+      description: 'Set the aircraft panel, flood and flight-display dimmers to one brightness.',
       group: 'presets',
       kind: 'preset',
       input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
@@ -499,6 +588,34 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
           'set all cockpit lights {value}',
         ],
         hints: ['SET COCKPIT LIGHTING', 'COCKPIT LIGHTS'],
+      },
+    },
+    {
+      id: 'configuration.lighting.displays',
+      label: 'Flight displays',
+      description: 'Set all flight-display dimmers to one brightness.',
+      group: 'presets', kind: 'preset',
+      input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+      speech: {
+        patterns: ['set display brightness {value}', 'set flight displays {value}',
+          'set all displays {value}', 'set all screens {value}', 'set cockpit screens {value}',
+          'set pfd brightness {value}', 'set all pfds {value}'],
+        hints: ['SET DISPLAY BRIGHTNESS', 'SET ALL SCREENS', 'SET ALL PFDS'],
+      },
+    },
+    {
+      id: 'configuration.apu.start',
+      label: 'Start APU',
+      group: 'presets',
+      kind: 'preset',
+      input: NONE_INPUT,
+      speech: {
+        patterns: [
+          'start apu', 'start the apu', 'apu start',
+          'start a p u', 'start the a p u', 'a p u start',
+          'start auxiliary power unit', 'start the auxiliary power unit',
+        ],
+        hints: ['START APU', 'A P U', 'AUXILIARY POWER UNIT'],
       },
     },
     {
@@ -558,16 +675,25 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
         hints: ['NOSE LIGHT'],
       },
     },
-    ...['nav', 'beacon', 'strobe', 'landing', 'taxi'].map((light) => ({
+    ...['nav', 'beacon', 'strobe', 'landing', 'taxi', 'runwayTurnoff',
+      'landingLeft', 'landingRight', 'landingNose', 'turnoffLeft', 'turnoffRight'].map((light) => {
+      const name = ({ runwayTurnoff: 'runway turnoff', landingLeft: 'left landing', landingRight: 'right landing',
+        landingNose: 'nose landing', turnoffLeft: 'left runway turnoff', turnoffRight: 'right runway turnoff' })[light] || light;
+      const names = name.includes('turnoff') ? [name, name.replace('turnoff', 'turn off')] : [name];
+      const phrases = names.flatMap(name => [`${name} lights`, `${name} light`]);
+      const bare = ['landing', 'taxi', 'runwayTurnoff'].includes(light) ? phrases.map(phrase => `set ${phrase}`) : [];
+      return ({
       id: `lights.${light}.set`,
-      label: `${light[0].toUpperCase()}${light.slice(1)} lights`,
+      label: `${name[0].toUpperCase()}${name.slice(1)} lights`,
       group: 'lights',
       input: BOOLEAN_INPUT,
       speech: {
-        patterns: [`${light} lights {value}`, `${light} light {value}`],
-        hints: [`${light.toUpperCase()} LIGHTS`],
+        patterns: [...phrases.flatMap(phrase => [`${phrase} {value}`, `set ${phrase} {value}`,
+          `turn {value} ${phrase}`, `switch ${phrase} {value}`]), ...bare],
+        ...(bare.length ? { fixedInputs: Object.fromEntries(bare.map(phrase => [phrase, { value: true }])) } : {}),
+        hints: [`${name.toUpperCase()} LIGHTS`],
       },
-    })),
+    }); }),
   ] as AircraftCommandDefinition[]).map((definition) => [definition.id, Object.freeze(definition)])),
 );
 
@@ -647,7 +773,7 @@ const genericBoolean = (control: string, target?: string): LegacyRequest => ({
   ...(target ? { target } : {}),
 });
 
-export const GENERIC_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+const GENERIC_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'generic',
   bindings: Object.freeze([
     ...['nav1', 'nav2'].flatMap((target) => [
@@ -717,9 +843,96 @@ const aircraftAction = (actionId: string): LegacyRequest => ({
   target: actionId,
 });
 
-export const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+// These adapters already own fixed, readback-confirmed exterior-light actions.
+// Bind the canonical controls to those actions instead of the disabled generic
+// fallback. Keep this explicit: other add-ons may use different switch detents.
+function standardLightBindings(on = 'on', off = 'off'): readonly AircraftCommandBinding[] {
+  return Object.freeze([
+    ...['nav', 'beacon', 'strobe', 'landing', 'taxi'].map((light) => choice(`lights.${light}.set`, {
+      false: aircraftAction(`lights.${light}.${off}`),
+      true: aircraftAction(`lights.${light}.${on}`),
+    }, BOOLEAN_INPUT)),
+    sequence('configuration.lights.takeoff', 'Landing ON · Taxi ON · Strobe ON · Navigation ON', [
+      { label: 'Landing lights ON', request: aircraftAction(`lights.landing.${on}`) },
+      { label: 'Taxi lights ON', request: aircraftAction(`lights.taxi.${on}`) },
+      { label: 'Strobe lights ON', request: aircraftAction(`lights.strobe.${on}`) },
+      { label: 'Navigation lights ON', request: aircraftAction(`lights.nav.${on}`) },
+    ]),
+  ]);
+}
+
+function usesStandardLightBinding(binding: AircraftCommandBinding): boolean {
+  return binding.commandId.startsWith('lights.') || binding.commandId === 'configuration.lights.takeoff';
+}
+
+function standardLightConfiguration(id: string, on = 'on', off = 'off'): AircraftCommandConfiguration {
+  return Object.freeze({
+    id,
+    bindings: Object.freeze([
+      ...GENERIC_AIRCRAFT_COMMAND_CONFIGURATION.bindings.filter((binding) => !usesStandardLightBinding(binding)),
+      ...standardLightBindings(on, off),
+    ]),
+  });
+}
+
+function apuStartPreset(
+  startActionId: string,
+  masterActionId?: string,
+  observations?: AircraftCommandBinding['observations'],
+  settlingSeconds = 0,
+): AircraftCommandBinding {
+  return Object.freeze({
+    ...sequence(
+      'configuration.apu.start',
+      `${masterActionId ? `APU master ON${settlingSeconds ? `, allow ${settlingSeconds} seconds to settle` : ''}, then request START.` : 'Request APU selector START.'} Requires aircraft electrical power.`,
+      [
+        ...(masterActionId ? [{ label: 'APU master ON', request: aircraftAction(masterActionId) }] : []),
+        { label: 'APU START', request: aircraftAction(startActionId) },
+      ],
+    ),
+    ...(observations ? { observations } : {}),
+  });
+}
+
+const FBW_APU_OBSERVATIONS = Object.freeze([
+  { fieldId: 'systems.apuMasterFault', expectedValue: true, label: 'APU fault' },
+  { fieldId: 'systems.apuAvailable', expectedValue: true, label: 'APU available', inhibitsRequest: true },
+  { fieldId: 'systems.apuStart', expectedValue: true, label: 'APU starting', inhibitsRequest: true },
+]);
+
+// A380X FCU setters use its custom events, shared by page and voice.
+const FBW_A380X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'fbw-a380x',
+  bindings: Object.freeze([
+    ...(['captain', 'firstOfficer', 'both'] as const).map((target) =>
+      fixed(`baro.${target}.std`, aircraftAction(`baro.${target}.std`))),
+    ...GENERIC_AIRCRAFT_COMMAND_CONFIGURATION.bindings.filter((binding) => !usesStandardLightBinding(binding) && ![
+      'flightGuidance.speed.set', 'flightGuidance.heading.set',
+      'flightGuidance.altitude.set', 'flightGuidance.verticalSpeed.set',
+    ].includes(binding.commandId)),
+    ...standardLightBindings(),
+    ...([
+      ['speed', 100, 399, 1, 'knots'],
+      ['mach', 0.4, 0.99, 0.01, 'mach'],
+      ['heading', 0, 359, 1, 'degrees'],
+      ['altitude', 100, 49000, 100, 'feet'],
+      ['verticalSpeed', -6000, 6000, 100, 'feet-per-minute'],
+      ['flightPathAngle', -9.9, 9.9, 0.1, 'degrees'],
+    ] as const).map(([target, min, max, step, units]) => input(
+      `flightGuidance.${target}.set`, aircraftAction(`flightGuidance.${target}.set`),
+      'value', { kind: 'number', min, max, step, units },
+    )),
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3),
+  ]),
+});
+
+const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'pmdg-737',
   bindings: Object.freeze([
+    apuStartPreset('systems.apu.start', undefined, [
+      { fieldId: 'systems.apuFault', expectedValue: true, label: 'APU fault' },
+      { fieldId: 'systems.apuMode', expectedValue: 'start', label: 'APU starting', inhibitsRequest: true },
+    ]),
     input(
       'flightGuidance.heading.set',
       aircraftAction('mcp.heading.set'),
@@ -817,12 +1030,29 @@ export const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
         { label: 'Position lights STROBE + STEADY', request: aircraftAction('lights.position.strobeSteady') },
       ],
     ),
+    input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
+    fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
+    ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
+      choice(`navigation.${side}.range`, Object.fromEntries(['5', '10', '20', '40', '80', '160', '320', '640'].map((nm) =>
+        [nm, aircraftAction(`efis.${side}.range.nm${nm}`)])), { kind: 'enum', values: ['5', '10', '20', '40', '80', '160', '320', '640'] }),
+      choice(`approach.${side}.minimumsMode`, { baro: aircraftAction(`efis.${side}.minimums.baro`), radio: aircraftAction(`efis.${side}.minimums.radio`) }),
+    ]),
+    choice('surfaces.autobrake.set', {
+      rto: aircraftAction('gear.autobrake.rto'), off: aircraftAction('gear.autobrake.off'),
+      1: aircraftAction('gear.autobrake.level1'), 2: aircraftAction('gear.autobrake.level2'),
+      3: aircraftAction('gear.autobrake.level3'), max: aircraftAction('gear.autobrake.max'),
+    }, { kind: 'enum', values: ['rto', 'off', '1', '2', '3', 'max'] }),
+    choice('surfaces.spoilers.set', {
+      retracted: aircraftAction('flightControls.speedbrake.retracted'),
+      half: aircraftAction('flightControls.speedbrake.half'), full: aircraftAction('flightControls.speedbrake.full'),
+    }, { kind: 'enum', values: ['retracted', 'half', 'full'] }),
   ]),
 });
 
-export const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'inibuilds-a350',
   bindings: Object.freeze([
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on'),
     input(
       'flightGuidance.speed.set',
       aircraftAction('flightGuidance.speed.set'),
@@ -865,8 +1095,9 @@ export const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfi
     }, BOOLEAN_INPUT),
     choice('surfaces.spoilers.set', {
       retracted: { ...aircraftAction('controls.speedbrake.set'), value: 0 },
+      half: { ...aircraftAction('controls.speedbrake.set'), value: 50 },
       full: { ...aircraftAction('controls.speedbrake.set'), value: 100 },
-    }),
+    }, { kind: 'enum', values: ['retracted', 'half', 'full'] }),
     choice('lights.strobeMode.set', {
       off: aircraftAction('lights.strobe.off'),
       auto: aircraftAction('lights.strobe.auto'),
@@ -899,12 +1130,18 @@ export const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfi
         { label: 'Navigation lights NAV 1', request: aircraftAction('lights.nav.nav1') },
       ],
     ),
+    ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
+      choice(`navigation.${side}.range`, Object.fromEntries(['10', '20', '40', '80', '160', '320', '640'].map((nm) =>
+        [nm, aircraftAction(`navigation.${side}.range.nm${nm}`)])), { kind: 'enum', values: ['10', '20', '40', '80', '160', '320', '640'] }),
+      choice(`navigation.${side}.ls`, { true: aircraftAction(`flightGuidance.ls${side === 'captain' ? 'Captain' : 'FirstOfficer'}.on`), false: aircraftAction(`flightGuidance.ls${side === 'captain' ? 'Captain' : 'FirstOfficer'}.off`) }),
+    ]),
   ]),
 });
 
-export const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'fbw-a32nx',
   bindings: Object.freeze([
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3),
     input(
       'flightGuidance.speed.set',
       aircraftAction('flightGuidance.speed.set'),
@@ -1033,12 +1270,62 @@ export const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurat
         { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
       ],
     ),
+    ...[1, 2].flatMap((index) => [
+      input(`radios.com${index}.setStandby`, aircraftAction(`radios.com${index}.setStandby`)),
+      fixed(`radios.com${index}.swap`, aircraftAction(`radios.com${index}.swap`)),
+      input(`radios.com${index}.switchTo`, aircraftAction(`radios.com${index}.switchTo`)),
+    ]),
+    ...['captain', 'firstOfficer', 'both'].flatMap((target) => [
+      input(`baro.${target}.qnhHpa`, aircraftAction(`baro.${target}.qnhHpa`)),
+      input(`baro.${target}.qnhInHg`, aircraftAction(`baro.${target}.qnhInHg`)),
+      fixed(`baro.${target}.std`, aircraftAction(`baro.${target}.std`)),
+    ]),
+    choice('surfaces.flaps.set', {
+      up: aircraftAction('controls.flaps.up'),
+      '1': aircraftAction('controls.flaps.one'),
+      '2': aircraftAction('controls.flaps.two'),
+      '3': aircraftAction('controls.flaps.three'),
+      full: aircraftAction('controls.flaps.full'),
+    }, { kind: 'enum', values: ['up', '1', '2', '3', 'full'] }),
+    choice('surfaces.autobrake.set', {
+      off: aircraftAction('systems.autobrake.disarm'),
+      disarm: aircraftAction('systems.autobrake.disarm'),
+      low: aircraftAction('systems.autobrake.low'),
+      medium: aircraftAction('systems.autobrake.medium'),
+      max: aircraftAction('systems.autobrake.max'),
+    }, { kind: 'enum', values: ['off', 'disarm', 'low', 'medium', 'max'] }),
+    choice('surfaces.spoilers.set', {
+      retracted: aircraftAction('controls.spoilers.retracted'),
+      half: aircraftAction('controls.spoilers.half'),
+      full: aircraftAction('controls.spoilers.full'),
+    }, { kind: 'enum', values: ['retracted', 'half', 'full'] }),
+    ...(['baro', 'radio'] as const).map((target) => input(`approach.minimums.${target}`, aircraftAction(`approach.minimums.${target}`))),
+    input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
+    fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
+    ...(['captain', 'firstOfficer'] as const).flatMap((side) => {
+      const suffix = side === 'captain' ? 'Captain' : 'FirstOfficer';
+      return [
+        choice(`navigation.${side}.range`, Object.fromEntries(['10', '20', '40', '80', '160', '320'].map((nm) =>
+          [nm, aircraftAction(`navigation.nd${suffix}Range.nm${nm}`)]))),
+        choice(`navigation.${side}.ls`, { true: aircraftAction(`navigation.ls${suffix}.on`), false: aircraftAction(`navigation.ls${suffix}.off`) }),
+      ];
+    }),
   ]),
 });
 
-export const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'fenix-a32x',
   bindings: Object.freeze([
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on'),
+    ...([
+      ['mach', 0.4, 0.99, 0.01, 'mach'],
+      ['altitude', 0, 49000, 100, 'feet'],
+      ['verticalSpeed', -6000, 6000, 100, 'feet-per-minute'],
+      ['flightPathAngle', -9.9, 9.9, 0.1, 'degrees'],
+    ] as const).map(([target, min, max, step, units]) => input(
+      `flightGuidance.${target}.set`, aircraftAction(`flightGuidance.${target}.set`),
+      'value', { kind: 'number', min, max, step, units },
+    )),
     input(
       'flightGuidance.speed.set',
       aircraftAction('flightGuidance.speed.set'),
@@ -1136,12 +1423,43 @@ export const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigura
         { label: 'Navigation lights ON', request: aircraftAction('lights.navLogo.nav') },
       ],
     ),
+    input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
+    fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
+    ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
+      choice(`navigation.${side}.range`, Object.fromEntries(['10', '20', '40', '80', '160', '320'].map((nm) =>
+        [nm, aircraftAction(`navigation.${side}.range.nm${nm}`)]))),
+      choice(`navigation.${side}.ls`, { true: aircraftAction(`navigation.${side}.ls.on`), false: aircraftAction(`navigation.${side}.ls.off`) }),
+    ]),
+    choice('surfaces.flaps.set', {
+      up: aircraftAction('controls.flaps.up'), 1: aircraftAction('controls.flaps.one'),
+      2: aircraftAction('controls.flaps.two'), 3: aircraftAction('controls.flaps.three'), full: aircraftAction('controls.flaps.full'),
+    }, { kind: 'enum', values: ['up', '1', '2', '3', 'full'] }),
+    choice('surfaces.autobrake.set', {
+      off: aircraftAction('controls.autobrake.off'), disarm: aircraftAction('controls.autobrake.off'), low: aircraftAction('controls.autobrake.low'),
+      medium: aircraftAction('controls.autobrake.medium'), max: aircraftAction('controls.autobrake.max'),
+    }, { kind: 'enum', values: ['off', 'disarm', 'low', 'medium', 'max'] }),
+    choice('surfaces.spoilers.set', {
+      retracted: aircraftAction('controls.speedbrake.retracted'), half: aircraftAction('controls.speedbrake.half'),
+      full: aircraftAction('controls.speedbrake.full'),
+    }, { kind: 'enum', values: ['retracted', 'half', 'full'] }),
+    choice('surfaces.spoilersArmed.set', {
+      false: aircraftAction('controls.speedbrake.retracted'), true: aircraftAction('controls.speedbrake.armed'),
+    }, BOOLEAN_INPUT),
+    ...(['captain', 'firstOfficer', 'both'] as const).flatMap((target) => [
+      input(`baro.${target}.qnhHpa`, aircraftAction(`baro.${target}.qnhHpa`)),
+      input(`baro.${target}.qnhInHg`, aircraftAction(`baro.${target}.qnhInHg`)),
+      fixed(`baro.${target}.std`, aircraftAction(`baro.${target}.std`)),
+    ]),
   ]),
 });
 
-export const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'pmdg-777',
   bindings: Object.freeze([
+    apuStartPreset('systems.apuSelector.start', undefined, [
+      { fieldId: 'systems.apuRunning', expectedValue: true, label: 'APU running', inhibitsRequest: true },
+      { fieldId: 'systems.apuSelectorMode', expectedValue: 'start', label: 'APU starting', inhibitsRequest: true },
+    ]),
     input(
       'flightGuidance.speed.set',
       aircraftAction('mcp.ias.set'),
@@ -1249,10 +1567,26 @@ export const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfigurati
         { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
       ],
     ),
+    input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
+    fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
+    ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
+      choice(`navigation.${side}.range`, Object.fromEntries([
+        ['10', 'ten'], ['20', 'twenty'], ['40', 'forty'], ['80', 'eighty'], ['160', 'oneSixty'], ['320', 'threeTwenty'], ['640', 'sixForty'],
+      ].map(([nm, suffix]) => [nm, aircraftAction(`efis.${side}.range.${suffix}`)])), { kind: 'enum', values: ['10', '20', '40', '80', '160', '320', '640'] }),
+      choice(`approach.${side}.minimumsMode`, { baro: aircraftAction(`efis.${side}.minimums.baro`), radio: aircraftAction(`efis.${side}.minimums.radio`) }),
+    ]),
+    choice('surfaces.spoilers.set', {
+      retracted: aircraftAction('controls.speedbrake.stowed'), half: aircraftAction('controls.speedbrake.half'),
+      full: aircraftAction('controls.speedbrake.full'),
+    }, { kind: 'enum', values: ['retracted', 'half', 'full'] }),
   ]),
 });
 
 const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>([
+  ['microsoft-inibuilds-a32x', standardLightConfiguration('microsoft-inibuilds-a32x')],
+  ['microsoft-737-max-8', standardLightConfiguration('microsoft-737-max-8')],
+  ['inibuilds-tristar', standardLightConfiguration('inibuilds-tristar', 'setOn', 'setOff')],
+  ['fbw-a380x', FBW_A380X_AIRCRAFT_COMMAND_CONFIGURATION],
   ['fbw-a32nx', FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION],
   ['fenix-a32x', FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION],
   ['inibuilds-a350', INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION],
@@ -1265,9 +1599,75 @@ function getDeclaredAdapterId(profile: unknown): string {
   return typeof adapter === 'string' ? adapter.trim() : '';
 }
 
+function individualLightBindings(adapterId: string): AircraftCommandBinding[] {
+  const bindings: AircraftCommandBinding[] = [];
+  const add = (target: string, on: string[], off: string[], description = '') => {
+    const steps = (ids: string[]) => Object.freeze(ids.map(actionId => Object.freeze({
+      label: actionId.replace(/^lights\.(?:individual\.)?/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\./g, ' '),
+      request: aircraftAction(actionId),
+    })));
+    bindings.push(Object.freeze({ commandId: `lights.${target}.set`, kind: 'choice-sequence',
+      input: BOOLEAN_INPUT, description, choices: Object.freeze({ true: steps(on), false: steps(off) }) }));
+  };
+  const pair = (target: string, prefixes: string[], description = '') =>
+    add(target, prefixes.map(prefix => `${prefix}.on`), prefixes.map(prefix => `${prefix}.off`), description);
+  if (adapterId === 'pmdg-737') {
+    for (const side of ['Left', 'Right']) add(`landing${side}`,
+      [`lights.landingRetractable${side}.on`, `lights.landing${side}.on`],
+      [`lights.landingRetractable${side}.extend`, `lights.landing${side}.off`]);
+    add('landing', ['Left', 'Right'].flatMap(side => [`lights.landingRetractable${side}.on`, `lights.landing${side}.on`]),
+      ['Left', 'Right'].flatMap(side => [`lights.landingRetractable${side}.extend`, `lights.landing${side}.off`]),
+      'Fixed and retractable landing lights. OFF leaves retractable lights extended and unlit.');
+  } else if (adapterId === 'pmdg-777') {
+    pair('landing', ['lights.landingLeft', 'lights.landingNose', 'lights.landingRight']);
+    for (const side of ['Left', 'Nose', 'Right']) pair(`landing${side}`, [`lights.landing${side}`]);
+  } else if (['fenix-a32x', 'fbw-a32nx'].includes(adapterId)) {
+    pair('landing', ['lights.landingLeft', 'lights.landingRight'], 'Left and right landing lights; the nose-light selector is separate.');
+    for (const side of ['Left', 'Right']) pair(`landing${side}`, [`lights.landing${side}`]);
+  }
+  if (['pmdg-737', 'pmdg-777'].includes(adapterId)) {
+    pair('runwayTurnoff', ['lights.turnoffLeft', 'lights.turnoffRight']);
+    for (const side of ['Left', 'Right']) pair(`turnoff${side}`, [`lights.turnoff${side}`]);
+  }
+  if (['fenix-a32x', 'fbw-a32nx', 'inibuilds-a350'].includes(adapterId)) {
+    add('taxi', ['lights.nose.taxi'], ['lights.nose.off'], 'Uses the shared nose-light selector: TAXI or OFF.');
+    if (adapterId !== 'inibuilds-a350') pair('runwayTurnoff', ['lights.runwayTurnoff']);
+  }
+  if (['fbw-a380x', 'headwind-a330'].includes(adapterId)) {
+    for (const light of ['landing', 'taxi', 'runwayTurnoff']) pair(light, [`lights.individual.${light}`],
+      light === 'taxi' ? 'Nose taxi light only; runway turnoff lights are controlled separately.' : '');
+  }
+  return bindings;
+}
+
 export function resolveAircraftCommandConfiguration(profile: unknown): AircraftCommandConfiguration {
-  return CONFIGURATIONS_BY_ADAPTER.get(getDeclaredAdapterId(profile))
-    || GENERIC_AIRCRAFT_COMMAND_CONFIGURATION;
+  const adapterId = getDeclaredAdapterId(profile);
+  const original = CONFIGURATIONS_BY_ADAPTER.get(adapterId) || GENERIC_AIRCRAFT_COMMAND_CONFIGURATION;
+  const overrides = [...individualLightBindings(adapterId), ...aircraftParityBindings(adapterId)];
+  const configuration = overrides.length ? { id: adapterId, bindings: [
+    ...original.bindings.map(binding => overrides.find(override => override.commandId === binding.commandId) || binding),
+    ...overrides.filter(override => !original.bindings.some(binding => binding.commandId === override.commandId)),
+  ] } : original;
+  const groups = cockpitLightingGroups(adapterId);
+  if (groups.length === 0) return configuration;
+  const bindings = [...configuration.bindings];
+  for (const target of ['cockpit', 'displays']) {
+    const selected = target === 'displays' ? groups.filter(group => group.displays) : groups;
+    const commandId = `configuration.lighting.${target}`;
+    const brightnessFields = Object.freeze(selected.flatMap(group => [...group.fields]));
+    const existing = bindings.findIndex(binding => binding.commandId === commandId);
+    if (existing >= 0) {
+      bindings[existing] = Object.freeze({ ...bindings[existing], brightnessFields });
+    } else {
+      bindings.push(Object.freeze({
+        ...inputSequence(commandId, `${brightnessFields.length} dimmers · ${target === 'displays'
+          ? 'PFD, navigation and engine displays' : 'panel and flood lighting · flight displays'}`,
+        selected.map(group => ({ label: group.label, request: aircraftAction(group.actionId) }))),
+        brightnessFields,
+      }));
+    }
+  }
+  return Object.freeze({ id: adapterId, bindings: Object.freeze(bindings) });
 }
 
 function normalizeProfileKey(value: unknown): string | null {
@@ -1281,7 +1681,7 @@ function normalizeProfileRevision(value: unknown): number | null {
   return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : null;
 }
 
-export function normalizeAircraftCommandRequest(rawRequest: unknown): NormalizedAircraftCommandRequest | null {
+function normalizeAircraftCommandRequest(rawRequest: unknown): NormalizedAircraftCommandRequest | null {
   if (!rawRequest || typeof rawRequest !== 'object' || Array.isArray(rawRequest)) return null;
   const request = rawRequest as GenericRecord;
   const commandId = typeof request.commandId === 'string' ? request.commandId.trim() : '';
@@ -1332,6 +1732,12 @@ function normalizeCommandInput(
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return { ok: false, error: `${definition.label} requires a finite numeric value.` };
   }
+  if (contract.units === 'com-megahertz' && normalizeComFrequencyMhz(value) == null) {
+    return { ok: false, error: 'Enter a valid COM channel from 118.000 to 136.990 MHz. Unsupported channels are not rounded.' };
+  }
+  if (contract.units === 'squawk' && encodeSquawkBco16(value) == null) {
+    return { ok: false, error: 'Squawk requires four digits from 0 to 7.' };
+  }
   if (value < contract.min || value > contract.max || !isStepAligned(value, contract.min, contract.step)) {
     return {
       ok: false,
@@ -1359,6 +1765,8 @@ function requestsForBinding(
     return [{ label: '', request: { ...binding.request, value: inputValue[binding.inputKey] } }];
   }
   const key = String(inputValue.value);
+  if (binding.kind === 'choice-sequence') return Object.prototype.hasOwnProperty.call(binding.choices, key)
+    ? binding.choices[key].map(step => ({ label: step.label, request: { ...step.request } })) : null;
   return Object.prototype.hasOwnProperty.call(binding.choices, key)
     ? [{ label: '', request: { ...binding.choices[key] } }]
     : null;
@@ -1487,10 +1895,12 @@ export function buildAircraftCommandCatalogue(
       group: definition.group,
       kind: definition.kind || 'action',
       input: inputContract,
-      ...(binding.kind === 'sequence' || binding.kind === 'input-sequence'
+      ...(binding.kind === 'sequence' || binding.kind === 'input-sequence' || binding.kind === 'choice-sequence'
         ? { description: binding.description }
         : (definition.description ? { description: definition.description } : {})),
       ...(definition.speech ? { speech: definition.speech } : {}),
+      ...(binding.observations ? { observations: binding.observations } : {}),
+      ...(binding.brightnessFields ? { brightnessFields: binding.brightnessFields } : {}),
     };
     inventory.push({
       ...descriptor,
@@ -1510,14 +1920,7 @@ export function buildAircraftCommandCatalogue(
 
 module.exports = {
   AIRCRAFT_COMMAND_DEFINITIONS,
-  FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION,
-  FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION,
-  GENERIC_AIRCRAFT_COMMAND_CONFIGURATION,
-  INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION,
-  PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION,
-  PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION,
   buildAircraftCommandCatalogue,
-  normalizeAircraftCommandRequest,
   resolveAircraftCommandConfiguration,
   resolveAircraftCommandRequest,
 };

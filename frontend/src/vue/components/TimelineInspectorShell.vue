@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import AircraftArtwork from './AircraftArtwork.vue';
 import { useTimelineStore } from '../stores/timeline.js';
+import { INSPECTOR_FILTER_OPTIONS } from '../../timeline/constants.js';
 
 const timeline = useTimelineStore();
 const timelineAircraftName = computed(() => {
@@ -40,7 +41,36 @@ const timelineAircraftName = computed(() => {
       />
     </div>
 
+    <details v-if="timeline.inspectorAllRows.length" class="border-b border-surface-200 px-4 text-xs">
+      <summary class="flex min-h-[44px] cursor-pointer items-center gap-2 py-2 text-gray-400 hover:text-gray-200">
+        <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4h16v3l-6 6v6l-4 2v-8L4 7z" />
+        </svg>
+        Event filters
+        <span v-if="timeline.inspectorHiddenRowCount" class="ml-auto text-accent" role="status">{{ timeline.inspectorHiddenRowCount }} hidden</span>
+      </summary>
+      <div class="pb-2" role="group" aria-label="Show in timeline list">
+        <label v-for="option in INSPECTOR_FILTER_OPTIONS" :key="option.key" class="flex min-h-[44px] cursor-pointer items-center gap-3 py-1.5">
+          <input
+            type="checkbox"
+            class="h-4 w-4 shrink-0 accent-accent"
+            :data-timeline-event-filter="option.key"
+            :checked="timeline.inspectorFilters[option.key]"
+            @change="timeline.setInspectorFilter(option.key, $event.target.checked)"
+          >
+          <span>
+            <span class="block text-gray-300">{{ option.label }}</span>
+            <span class="text-[10px] text-gray-500">{{ option.detail }}</span>
+          </span>
+        </label>
+      </div>
+    </details>
+
     <div id="timeline-events" class="relative h-96 overflow-y-auto px-4 py-2">
+      <div v-if="timeline.inspectorAllRows.length && !timeline.inspectorTotalRowCount" class="flex h-full flex-col items-center justify-center gap-1 text-center text-xs text-gray-500" role="status">
+        <span>No events match these filters.</span>
+        <span>Enable an event type above to show it.</span>
+      </div>
       <div
         id="timeline-empty"
         class="flex flex-col items-center justify-center h-full text-gray-500"

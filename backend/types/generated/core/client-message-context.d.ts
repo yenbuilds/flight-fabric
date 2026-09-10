@@ -1,5 +1,6 @@
 export type ClientMessageContextState = {
     lastSimState: unknown;
+    getSimState?: unknown;
     getPhase: unknown;
     flightCsvWriter: unknown;
     flightCsvStore?: unknown;

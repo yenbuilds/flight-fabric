@@ -51,12 +51,13 @@ function setSdkNumberAction(params: {
   offset?: number;
   round?: 'nearest';
   scale?: number;
+  cooldownMs?: number;
 }): AircraftIntegrationAction {
   return {
     id: params.actionId,
     input: { type: 'number', ...params.input },
     guard: {
-      cooldownMs: DEFAULT_COOLDOWN_MS,
+      cooldownMs: params.cooldownMs ?? DEFAULT_COOLDOWN_MS,
       groupId: params.groupId,
       retry: 'never',
     },
@@ -112,6 +113,31 @@ function pressSdkAction(params: {
 }
 
 const actions: Record<string, AircraftIntegrationAction> = {};
+
+// Installed 777-300ER 2.4.146 cockpit behavior: control 3, clockwise press=2,
+// release=4. Reach START from OFF or ON, then release once at the endpoint.
+// The SDK's ELEC_APU_Selector=2 is telemetry, not evidence of a START interaction.
+actions['systems.apuSelector.start'] = {
+  id: 'systems.apuSelector.start',
+  guard: {
+    groupId: 'pmdg777.systems.apuSelector', cooldownMs: 3000, retry: 'never',
+    skipWhen: [
+      { fieldId: 'systems.apuRunning', expectedValue: true },
+      { fieldId: 'systems.apuSelectorMode', expectedValue: 'start' },
+    ],
+  },
+  routes: [{
+    id: 'pmdg777.systems.apuSelector.start.rotorBrake', transport: 'simconnect-sequence',
+    requiredSdkAdapter: SDK_ADAPTER_ID,
+    operations: [
+      { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+      { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+      { type: 'event', name: 'ROTOR_BRAKE', value: 304 },
+    ],
+    confirmation: 'transport-acknowledged',
+  }],
+  verification: 'untested',
+};
 
 function addMouseToggleActions(params: {
   eventId: number;
@@ -390,8 +416,7 @@ addDetentActions({
   fieldId: 'systems.apuSelectorMode',
   groupId: 'pmdg777.systems.apuSelector',
   eventId: 69635,
-  // START is spring-loaded and APURunning can take much longer than the
-  // confirmation window, so only stable OFF/ON positions are exposed.
+  // Stable OFF/ON positions retain readback; START acknowledges dispatch.
   positions: [
     { id: 'off', rawValue: 0, value: 'off' },
     { id: 'on', rawValue: 1, value: 'on' },
@@ -567,6 +592,8 @@ for (const [suffix, eventId, expectedValue] of [
 for (const [suffix, eventId, expectedValue] of [
   ['stowed', 74613, 0],
   ['armed', 74614, 25],
+  ['full', 74615, 100],
+  ['half', 74616, 50],
 ] as const) {
   const actionId = `controls.speedbrake.${suffix}`;
   actions[actionId] = pressSdkAction({
@@ -860,6 +887,9 @@ for (const definition of [
     groupId: `pmdg777.${definition[1]}`,
     input: { min: 0, max: 100, step: 1 },
     round: 'nearest',
+    // Absolute dimmer settings can follow a completed global preset immediately.
+    // The per-knob in-flight guard and whole-preset lock still prevent overlap.
+    cooldownMs: 0,
   });
 }
 

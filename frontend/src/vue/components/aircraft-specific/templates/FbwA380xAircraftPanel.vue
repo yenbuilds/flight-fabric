@@ -52,6 +52,8 @@ const props = defineProps({
   sourceStatuses: { type: Object, default: () => ({}) },
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
+  requestCommand: { type: Function, default: () => false },
+  isCommandSupported: { type: Function, default: () => false },
   isActionPending: { type: Function, default: () => false },
   controlSetupRequired: { type: Boolean, default: false },
 });
@@ -102,11 +104,26 @@ const selectorControls = Object.freeze([
     fieldId: 'flightGuidance.altitudeFt',
     actionId: 'flightGuidance.altitude.set',
     groupId: 'flightGuidance.altitude',
-    min: 0,
+    min: 100,
     max: 49000,
     step: 100,
     unit: 'ft',
     inputmode: 'numeric',
+  },
+  {
+    id: 'mach', label: 'MACH', fieldId: 'flightGuidance.speedValue',
+    actionId: 'flightGuidance.mach.set', groupId: 'flightGuidance.speed',
+    min: 0.4, max: 0.99, step: 0.01, unit: 'Mach', inputmode: 'decimal',
+  },
+  {
+    id: 'verticalSpeed', label: 'V/S', fieldId: 'flightGuidance.verticalValue',
+    actionId: 'flightGuidance.verticalSpeed.set', groupId: 'flightGuidance.vertical',
+    min: -6000, max: 6000, step: 100, unit: 'fpm', inputmode: 'text',
+  },
+  {
+    id: 'flightPathAngle', label: 'FPA', fieldId: 'flightGuidance.verticalValue',
+    actionId: 'flightGuidance.flightPathAngle.set', groupId: 'flightGuidance.vertical',
+    min: -9.9, max: 9.9, step: 0.1, unit: 'deg', inputmode: 'text',
   },
 ]);
 
@@ -402,8 +419,19 @@ function fixedActionClass(selected) {
 function numericDisabled(control) {
   return !controlSessionReady.value
     || numberValue(control.fieldId) === null
-    || !actionSupported(control.actionId)
+    || !props.isCommandSupported(control.actionId)
+    || Boolean(numericModeIssue(control))
     || groupPending(control.groupId);
+}
+
+function numericModeIssue(control) {
+  const field = ['speed', 'mach'].includes(control.id) ? 'flightGuidance.machMode'
+    : ['heading', 'verticalSpeed', 'flightPathAngle'].includes(control.id) ? 'flightGuidance.trkFpaMode' : null;
+  if (!field) return '';
+  const mode = booleanValue(field);
+  if (mode === null) return 'Waiting for live FCU mode.';
+  const expected = ['mach', 'flightPathAngle'].includes(control.id);
+  return mode === expected ? '' : `Select ${control.id === 'speed' ? 'SPD' : control.id === 'mach' ? 'MACH' : expected ? 'TRK/FPA' : 'HDG/V/S'} mode in the cockpit.`;
 }
 
 function numericDisabledReason(control) {
@@ -412,7 +440,8 @@ function numericDisabledReason(control) {
   const globalReason = globalControlReason();
   if (globalReason) return globalReason;
   if (numberValue(control.fieldId) === null) return 'Live target readback unavailable.';
-  if (!actionSupported(control.actionId)) return 'Compatible target control unavailable.';
+  if (numericModeIssue(control)) return numericModeIssue(control);
+  if (!props.isCommandSupported(control.actionId)) return 'Compatible target control unavailable.';
   return 'Target control temporarily unavailable.';
 }
 
@@ -430,6 +459,7 @@ function numericLiveText(control) {
   const current = numberValue(control.fieldId);
   if (current === null) return control.id === 'heading' ? '---' : '--';
   if (control.id === 'heading') return String(Math.round(current)).padStart(3, '0');
+  if (control.step < 1) return current.toFixed(control.step === 0.01 ? 2 : 1);
   return Math.round(current).toLocaleString('en-US');
 }
 
@@ -451,11 +481,12 @@ function submitNumeric(control) {
     return false;
   }
   const sent = submitMcpDraft({
-    config: control,
+    config: { ...control, commandId: control.actionId },
     disabled: false,
     groupId: control.groupId,
     rawValue,
     requestAction: props.requestAction,
+    requestCommand: props.requestCommand,
   });
   if (sent === false) {
     selectorErrors[control.id] = 'Command could not be sent.';
@@ -554,7 +585,7 @@ function requestThrottleAction(actionId) {
     </div>
 
     <p class="rounded-md border border-surface-200 bg-surface-50 px-3 py-2 text-[10px] leading-relaxed text-gray-400" aria-live="polite">
-      {{ pageStatus }} AP1 uses the documented direct AP1 push target and confirms fresh AP1 state. AP2 has no action and remains read-only, as do the vertical target and runway-turnoff lights.
+      {{ pageStatus }} Set FCU targets in the matching SPD/MACH and HDG/V/S or TRK/FPA mode. AP2 and runway-turnoff lights remain read-only.
     </p>
 
     <section id="fbw-a380x-section-fcu-autopilot" class="aircraft-mobile-navigable-section" tabindex="-1" data-a380-section="fcu-autopilot">

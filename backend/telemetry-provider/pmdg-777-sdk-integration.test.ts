@@ -3,9 +3,6 @@ const test = require('node:test');
 
 const profileLoader = require('../aircraft/aircraft-profile-loader');
 const userSettings = require('../core/user-settings');
-const {
-  PMDG_777_SDK_EULA_ACCEPTANCE_VERSION,
-} = require('../../shared/pmdg-777-sdk-authorization');
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
 
 const PMDG_777_PROFILE_KEY = 'bundled/msfs/pmdg-777';
@@ -124,26 +121,21 @@ function stubPmdg777SdkIntegration(provider) {
   );
 }
 
-test('PMDG 777 SDK profile remains disabled until the reviewed EULA version is accepted', () => {
+test('PMDG 777 SDK profile resolves without an app agreement or acceptance record', () => {
   const provider = new SimConnectTelemetryProvider();
   const originalProfileKey = profileLoader.getActiveProfile()?._qualifiedId || 'bundled/msfs/generic';
   const originalIntegrations = userSettings.settings.integrations;
 
   try {
     profileLoader.setActiveProfile(PMDG_777_PROFILE_KEY);
-    userSettings.settings.integrations = {};
-    assert.equal(provider._resolveActiveSdkProfile(), null, 'unaccepted SDK profile must not start');
-
-    userSettings.settings.integrations = {
-      pmdg777Sdk: {
-        eulaAcceptedVersion: PMDG_777_SDK_EULA_ACCEPTANCE_VERSION,
-        eulaAcceptedAt: new Date().toISOString(),
-      },
-    };
-    const authorized = provider._resolveActiveSdkProfile();
-    assert.equal(authorized?.adapter?.id, 'clientdata-manifest');
-    assert.equal(authorized?.profileSdk?.target?.channel, 'pmdg-777x-clientdata');
-    assert.equal(authorized?.profileSdk?.target?.connector, 'pmdg-777x-clientdata');
+    for (const integrations of [undefined, {}, { pmdg777Sdk: { eulaAcceptedVersion: 'obsolete' } }]) {
+      userSettings.settings.integrations = integrations;
+      const resolved = provider._resolveActiveSdkProfile();
+      assert.equal(resolved?.adapter?.id, 'clientdata-manifest');
+      assert.equal(resolved?.profileSdk?.target?.channel, 'pmdg-777x-clientdata');
+      assert.equal(resolved?.profileSdk?.target?.connector, 'pmdg-777x-clientdata');
+      assert.equal(userSettings.settings.integrations, integrations, 'resolving the SDK never records acceptance');
+    }
   } finally {
     userSettings.settings.integrations = originalIntegrations;
     profileLoader.setActiveProfile(originalProfileKey);

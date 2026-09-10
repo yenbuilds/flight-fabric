@@ -149,10 +149,40 @@
     "contributor": "YenBuilds",
     "updated": "2026-08-29",
     "status": "partial",
-    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 126 documentation-backed logical read fields and 259 semantic actions spanning FCU targets and managed/selected controls, FCU mode buttons, paired calibrated forward-throttle detents, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. FCU targets use only FlyByWire's fixed documented global custom client events through the native SimConnect event bridge. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. The IDLE, CLB, FLX/MCT, and TOGA controls use each lever's saved calibration-window midpoint and require independent newer TLA confirmation. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Reverse thrust, arbitrary axis targets, irreversible fire/IDG/oxygen actions, presets and pushback motion remain excluded."
+    "notes": "FlyByWire A32NX (Airbus A320neo). Activates the trusted A32NX aircraft page with 150 documentation-backed logical read fields and 287 semantic actions spanning FCU targets and managed/selected controls, FCU mode buttons, paired calibrated forward-throttle detents, EFIS/ND selectors, exterior lights, signs, electrical, APU, pneumatic, air conditioning, anti-ice, ADIRS, brakes, exact flap lever selection, spoilers, engine controls, switching, weather radar, ATC/TCAS, RMP and ECAM. FCU targets use only FlyByWire's fixed documented global custom client events through the native SimConnect event bridge. Fixed flap lever events confirm the custom A32NX_FLAPS_HANDLE_INDEX values 0..4; the standard aerodynamic FLAPS HANDLE INDEX is not used. Approach control review and pinned vendor source: docs/A32NX-APPROACH-CONTROLS.md. ATC/EFIS and minimums review 2026-09-07: docs/A32NX-ATC-EFIS-VOICE.md records pinned source evidence for XPNDR_SET BCO16, XPNDR_IDENT_ON, sided ND/LS, and bounded local SimBridge MCDU BARO/RADIO minimums entry. Minimums require active PERF APPR and a clear scratchpad; no output-LVAR writes or automatic navigation are used. Every aircraft-specific action requires the exact bundled profile, a supported bounded transport, fresh preflight readback, per-control cooldown and post-write confirmation; routes never retry. The IDLE, CLB, FLX/MCT, and TOGA controls use each lever's saved calibration-window midpoint and require independent newer TLA confirmation. Landing-light ON uses FlyByWire's documented guarded extension delay before circuit energization. Reverse thrust, arbitrary axis targets, irreversible fire/IDG/oxygen actions, presets and pushback motion remain excluded."
   },
   "provenance": {
     "sources": [
+      {
+        "type": "official-docs",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS indexed transponder events and BCO16 code",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm",
+        "retrievedAt": "2026-09-07",
+        "notes": "XPNDR_SET takes four octal digits packed as BCO16. XPNDR_IDENT_ON activates indexed TRANSPONDER IDENT for the normal timed period; the A32NX uses transponder index 1 for both source-selector positions. TRANSPONDER CODE:1 and TRANSPONDER STATE:1 provide code and powered/transmitting state. The related official Aircraft_RadioNavigation_Variables page documents these indexed readbacks. Live ATC validation remains pending."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire A32NX PERF APPR minimums and FMGC entry handlers (pinned source)",
+        "url": "https://github.com/flybywiresim/aircraft/blob/5702838ee1d27dd50386d9a3490d686a4128786f/fbw-a32nx/src/systems/instruments/src/MCDU/legacy_pages/A320_Neo_CDU_PerformancePage.ts",
+        "retrievedAt": "2026-09-07",
+        "notes": "PERF APPR calls setPerfApprMDA on R2 to store approachBaroMinimum and clears RADIO with setPerfApprDH. R3 calls setPerfApprDH to store approachRadioMinimum and clears BARO with setPerfApprMDA. RADIO is available only for an ILS approach. A32NX_FMCMainDisplay.ts at the same revision validates BARO 0..39000 feet or destination runway threshold through threshold+5000, and RADIO 0..5000 feet. Output AIRLINER_MINIMUM_DESCENT_ALTITUDE and AIRLINER_DECISION_HEIGHT LVARs are not supported inputs. The paired A320_Neo_CDU_MainDisplay.ts exposes event:left numeric/R2/R3 keys, requestUpdate and update JSON with title, lines and scratchpad. Flight Fabric requires a fresh active PERF APPR page and empty scratchpad, confirms each key and the final stored entry, never navigates or clears input, and stops on interruption without retry. Full evidence and live-validation limits are in docs/A32NX-ATC-EFIS-VOICE.md."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "FlyByWire SimBridge MCDU WebSocket gateway (pinned source)",
+        "url": "https://github.com/flybywiresim/simbridge/blob/94300badd1a6d78933b68a12e50bee987f6b24e2/apps/server/src/interfaces/mcdu.gateway.ts",
+        "retrievedAt": "2026-09-07",
+        "notes": "The /interfaces/v1/mcdu gateway broadcasts requestUpdate, update JSON and event messages among the aircraft and remote MCDU clients. The bounded simbridge-mcdu minimums adapter uses only localhost port 8380, fixed numeric keys and R2/R3, with fresh screen checks, current profile/lifecycle guards, a shared lock/cooldown and a 9-second deadline. No browser-supplied URLs, key names or raw protocol messages are accepted."
+      },
       {
         "type": "official-docs",
         "authority": "aircraft-vendor",
@@ -160,8 +190,8 @@
         "supportsActiveMappings": true,
         "name": "FlyByWire A32NX Flight Deck API",
         "url": "https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-flightdeck-api/",
-        "retrievedAt": "2026-08-15",
-        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, LANDING_2_RETRACTED, LANDING_3_RETRACTED, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. The throttle contract includes A32NX_AUTOTHRUST_TLA:* readbacks plus THROTTLE1_AXIS_SET_EX1 and THROTTLE2_AXIS_SET_EX1, whose payload range is -16383..16384. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 and SPOILERS_SET. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build."
+        "retrievedAt": "2026-09-10",
+        "notes": "Documents the active A32NX_*, A32NX_EXT_PWR_AVAIL:*, LIGHTING_*, LANDING_2_RETRACTED, LANDING_3_RETRACTED, STROBE_0_AUTO, XMLVAR_*, standard SimConnect and circuit interfaces used by the profile and trusted adapter. The throttle contract includes A32NX_AUTOTHRUST_TLA:* readbacks plus THROTTLE1_AXIS_SET_EX1 and THROTTLE2_AXIS_SET_EX1, whose payload range is -16383..16384. Fixed event routes covered here are STROBES_SET, BEACON_SET, WING_SET, NAV_LIGHTS_SET, LOGO_LIGHTS_SET, CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, ENGINE_BLEED_AIR_SOURCE_TOGGLE, ANTI_ICE_TOGGLE_ENG1, ANTI_ICE_TOGGLE_ENG2, TOGGLE_STRUCTURAL_DEICE, TOGGLE_FLIGHT_DIRECTOR, AP_LOC_HOLD, AP_APR_HOLD, AP_ATT_HOLD, AP_MACH_HOLD, AP_VS_HOLD, SPOILERS_ARM_TOGGLE, AUTOPILOT_OFF, AUTOPILOT_ON, AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM, FUELSYSTEM_VALVE_CLOSE, FUELSYSTEM_VALVE_OPEN, TURBINE_IGNITION_SWITCH_SET1, TURBINE_IGNITION_SWITCH_SET2 SPOILERS_SET, FLAPS_UP, FLAPS_1, FLAPS_2, FLAPS_3 and FLAPS_DOWN. The page identifies read/write status and value semantics for FCU/EFIS, exterior lights, signs, electrical, ADIRS, APU, air conditioning, anti-ice, autobrake, switching, ECAM, RMP, weather radar, ATC/TCAS, engine, spoiler and parking-brake controls. It also warns that the table may lag the development build. APU START review 2026-09-06: the Flight Deck API defines A32NX_OVHD_APU_MASTER_SW_PB_IS_ON and A32NX_OVHD_APU_START_PB_IS_ON as writable 0/1 controls, A32NX_OVHD_APU_START_PB_IS_AVAILABLE as availability, and A32NX_OVHD_APU_MASTER_SW_PB_HAS_FAULT as fault. The preset confirms master ON then acknowledges START dispatch; ON is distinct from AVAIL. No spool-up delay or automatic electrical setup is added. Installed Stable 2024.1.0-161051add8a6959e3325289dbebe097c0793056f aircraft_preset_procedures.xml also confirms these assignments and specifies 3000 ms after master ON. The preset retains that bounded settling interval for a newly enabled master; it skips the write and delay when master is already confirmed ON. COM review 2026-09-06: the RMP section declares COM ACTIVE FREQUENCY:n and COM STANDBY FREQUENCY:n read/write and COM1_RADIO_SWAP. Installed Stable rmp.js confirms standard Hz setters for the native left COM1/right COM2 banks. COM_STBY_RADIO_SET_HZ, COM2_STBY_RADIO_SET_HZ, COM1_RADIO_SWAP and COM2_RADIO_SWAP use exact fresh standard readbacks, power/status and spacing-mode checks. Six A32NX-only UI/voice routes require confirmed standby before switching and newer confirmation of both swapped banks. Cross-selected RMP displays are separate; live cockpit/ATC synchronization remains untested. See docs/COM-RADIO-CONTROLS.md for the MSFS event/SimVar sources and validation scope. Barometer review 2026-09-06: A32NX.FCU_EFIS_L_BARO_SET, A32NX.FCU_EFIS_R_BARO_SET accept hPa times 16; A32NX.FCU_EFIS_L_BARO_PUSH and A32NX.FCU_EFIS_R_BARO_PUSH leave STD or switch QNH/QFE, while A32NX.FCU_EFIS_L_BARO_PULL and A32NX.FCU_EFIS_R_BARO_PULL select STD. A32NX_FCU_EFIS_L_DISPLAY_BARO_MODE and the right counterpart encode 0 STD, 1 QNH, 2 QFE; DISPLAY_BARO_VALUE_MODE encodes 0 STD, 1 hPa, 2 inHg. Both commands require each selected side independently. A32NX_FCU_HEALTHY gates zero-valued unpowered outputs. Published bounds 948..1084 hPa and 27.99..32.01 inHg are retained. See docs/BARO-CONTROLS.md for pinned vendor implementation evidence, the installed Stable display and event XML review, EFIS synchronization behavior, and pending live checks. Cockpit lighting review 2026-09-10: LIGHT_POTENTIOMETER_SET uses fixed index then 0..100 brightness. Panel indices 84,87,85,86; flood/table 83,76,10,11; PFD/ND/weather/engine 88,89,94,90,91,95,92,93. Each knob is independently confirmed through LIGHT POTENTIOMETER:index Percent. Display presets exclude panel and flood controls. See docs/COCKPIT-LIGHTING-VALIDATION.md."
       },
       {
         "type": "official-docs",
@@ -219,6 +249,16 @@
         "url": "https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Aircraft_SimVars/Aircraft_AutopilotAssistant_Variables.htm",
         "retrievedAt": "2026-05-31",
         "notes": "Documents AUTOPILOT ALTITUDE LOCK VAR and altitude slot behavior used by the profile's altitude selector override."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "Microsoft Flight Simulator SDK - indexed cockpit light potentiometers",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm",
+        "retrievedAt": "2026-09-10",
+        "notes": "LIGHT_POTENTIOMETER_SET takes potentiometer index in parameter 0, brightness percentage in parameter 1. Aircraft-specific indices are grounded separately in vendor evidence. The caller supplies only a bounded whole percentage."
       }
     ],
     "verification": {
@@ -233,7 +273,8 @@
         "FCU speed/Mach, heading, altitude, vertical-speed/FPA, AP2 and managed/selected routes use FlyByWire's documented global custom client events through SimConnect. Event names and payload transforms are adapter-owned, mode-dependent setters require fresh mode readback before dispatch, toggle targets skip same-state writes, and every changed target dispatches once and requires newer logical readback. These routes still need live Stable and Development validation.",
         "The four forward-throttle detents use the midpoint of each lever's saved FlyPad calibration window through one MobiFlight calculator expression, then require newer exact A32NX_AUTOTHRUST_TLA:1 and :2 confirmation. Missing or malformed calibration bounds prevent every axis write. Reverse thrust and arbitrary raw-axis targets remain excluded.",
         "Fire, oxygen, irreversible IDG disconnect, flight-control-computer, preset loading/saving, pushback motion, arbitrary flight axes and momentary controls without durable readback remain excluded.",
-        "Wipers remain excluded because the published interface requires indexed electrical-circuit power events and the current trusted integration transport does not provide an independently confirmed, position-safe indexed circuit route."
+        "Wipers remain excluded because the published interface requires indexed electrical-circuit power events and the current trusted integration transport does not provide an independently confirmed, position-safe indexed circuit route.",
+        "Start APU UI and voice preset is source-backed and covered by automated transport tests; live start, electrical prerequisites, selector release and aircraft variant/build coverage remain untested. See docs/APU-START-VALIDATION.md."
       ]
     }
   }

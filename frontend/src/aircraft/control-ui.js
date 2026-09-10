@@ -1,23 +1,4 @@
-export const AIRCRAFT_CONTROL_BUTTON_SELECTOR = [
-  '#ctrl-gear-up-btn',
-  '#ctrl-gear-down-btn',
-  '#ctrl-flaps-dec-btn',
-  '#ctrl-flaps-inc-btn',
-  '#ctrl-park-brake-release-btn',
-  '#ctrl-park-brake-set-btn',
-  '#ctrl-spoilers-retract-btn',
-  '#ctrl-spoilers-extend-btn',
-  '#ctrl-spoilers-disarm-btn',
-  '#ctrl-spoilers-arm-btn',
-  '#ap-master-btn',
-  '#ap-athr-btn',
-  '#ap-fd-btn',
-  '#ap-flc-btn',
-  '#ap-loc-btn',
-  '#ap-app-btn',
-  '.ap-engage-btn',
-  '.ap-adj-btn',
-].join(',');
+import { formatSquawk } from './transponder.js';
 
 const CONTROL_CANONICAL_COMMAND_IDS = Object.freeze({
   gearUp: 'surfaces.gear.set',
@@ -231,6 +212,7 @@ export function describeAircraftCommandRequest(request, descriptor = null) {
         : 'Aircraft command');
   if (!request.input || !Object.prototype.hasOwnProperty.call(request.input, 'value')) return label;
   const value = request.input.value;
+  if (request.commandId === 'surveillance.squawk.set') return `${label} ${formatSquawk(value)}`;
   if (typeof value === 'boolean') return `${label} ${value ? 'on' : 'off'}`;
   return `${label} ${value}`;
 }

@@ -11,8 +11,8 @@
  * - Rows are schema-built and CSV-escaped here before they touch disk.
  * - LANDING, GO_AROUND, warning, and violation rows are intentionally persisted
  *   beside SAMPLE rows because replay needs the live event context.
- * - Route-based filename updates must not drop rows; inline writes are buffered
- *   while a rename is in progress, and worker writes are serialized by request.
+ * - A recording bundle path is immutable from startup through finalization;
+ *   route data belongs in rows rather than filesystem names.
  * - Disk exhaustion fails closed and emits a storage warning so the UI can tell
  *   the user that only a partial authoritative record exists.
  *

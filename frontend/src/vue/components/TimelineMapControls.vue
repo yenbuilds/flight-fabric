@@ -8,7 +8,7 @@ const timeline = useTimelineStore();
 const wrapEl = ref(null);
 
 const FILTER_OPTIONS = [
-  { key: 'violations', label: 'Violations' },
+  { key: 'violations', label: 'Cautions & violations' },
   { key: 'landing', label: 'Landing' },
   { key: 'automation', label: 'Automation' },
   { key: 'flightGuidance', label: 'Flight Guidance' },

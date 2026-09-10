@@ -20,6 +20,8 @@ export function buildPmdg777CommandInput(control, action) {
     return { value: action?.value === 'UP' ? 'up' : String(action?.value) };
   }
   if (control?.groupId === 'controls.speedbrake') {
+    if (action?.id === 'controls.speedbrake.half') return { value: 'half' };
+    if (action?.id === 'controls.speedbrake.full') return { value: 'full' };
     return { value: BOOLEAN_INPUT_BY_ACTION[action?.id] };
   }
   return { value: action?.value };

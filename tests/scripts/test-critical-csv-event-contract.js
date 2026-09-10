@@ -1415,7 +1415,7 @@ async function main() {
       assert(landing.touchdownDistance.lateralOffsetSource === 'landing-row', 'merged landing lateral offset should come from LANDING row when present');
       assert(landing.ultimateStability?.score === landingPayload.ultimate_stability_score, 'merged landing lost delayed LANDING stability score');
       assert(landing.ultimateStability?.verdict === landingPayload.ultimate_stability_verdict, 'merged landing lost delayed LANDING stability verdict');
-      assert(landing.ultimateStability?.scoringContext?.criteriaSource === 'reconstructed', 'older merged landing lost reconstructed scoring context');
+      assert(landing.ultimateStability?.scoringContext == null, 'a preserved older score must not inherit newly reconstructed v4 rules');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

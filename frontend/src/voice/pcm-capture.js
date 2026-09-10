@@ -1,10 +1,10 @@
-export const PCM_WORKLET_PROCESSOR_NAME = 'flight-fabric-pcm-capture';
-export const DEFAULT_PCM_CHUNK_FRAMES = 2048;
-export const MAX_PCM_CHUNK_FRAMES = 8192;
+const PCM_WORKLET_PROCESSOR_NAME = 'flight-fabric-pcm-capture';
+const DEFAULT_PCM_CHUNK_FRAMES = 2048;
+const MAX_PCM_CHUNK_FRAMES = 8192;
 // AudioWorklet modules are scripts, so they must remain a same-origin file under
 // the renderer CSP. `no-inline` prevents Vite from turning this small module
 // into a data: URL in production builds.
-export const DEFAULT_PCM_WORKLET_URL = new URL('./pcm-worklet.js?no-inline', import.meta.url).href;
+const DEFAULT_PCM_WORKLET_URL = new URL('./pcm-worklet.js?no-inline', import.meta.url).href;
 
 const MIN_PCM_CHUNK_FRAMES = 128;
 const MIN_SAMPLE_RATE = 8000;
@@ -68,7 +68,7 @@ export async function discoverAudioInputDevices(globalRef = globalThis) {
   }
 }
 
-export function inspectPcmCaptureSupport(globalRef = globalThis) {
+function inspectPcmCaptureSupport(globalRef = globalThis) {
   const AudioContext = globalRef?.AudioContext || globalRef?.webkitAudioContext;
   return {
     secureContext: globalRef?.isSecureContext === true,
@@ -78,7 +78,7 @@ export function inspectPcmCaptureSupport(globalRef = globalThis) {
   };
 }
 
-export function validateSampleRate(value) {
+function validateSampleRate(value) {
   const sampleRate = Number(value);
   if (!Number.isFinite(sampleRate) || sampleRate < MIN_SAMPLE_RATE || sampleRate > MAX_SAMPLE_RATE) {
     throw new RangeError('PCM sample rate is outside the supported range.');
@@ -94,7 +94,7 @@ function boundedFrameCount(value, name, minimum = 1) {
   return frames;
 }
 
-export function copyPcmChunk(value, { maxFrames = MAX_PCM_CHUNK_FRAMES } = {}) {
+function copyPcmChunk(value, { maxFrames = MAX_PCM_CHUNK_FRAMES } = {}) {
   const limit = boundedFrameCount(maxFrames, 'maxFrames');
   let input;
   if (value instanceof Float32Array) input = value;

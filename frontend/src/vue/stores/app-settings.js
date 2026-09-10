@@ -39,14 +39,6 @@ export const useAppSettingsStore = defineStore('appSettings', () => {
     return saveSettingsAction(normalizedSettings) !== false;
   }
 
-  function updateSettings(updater) {
-    if (!settings.value || typeof settings.value !== 'object') return false;
-    const nextSettings = typeof updater === 'function'
-      ? updater(settings.value)
-      : updater;
-    return saveSettings(nextSettings);
-  }
-
   function bindRuntimeActions({ onSaveSettings = null } = {}) {
     saveSettingsAction = typeof onSaveSettings === 'function' ? onSaveSettings : null;
     saveActionBound.value = saveSettingsAction != null;
@@ -61,6 +53,5 @@ export const useAppSettingsStore = defineStore('appSettings', () => {
     settings,
     settingsFile,
     storage,
-    updateSettings,
   };
 });

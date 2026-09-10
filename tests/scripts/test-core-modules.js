@@ -124,18 +124,6 @@ test('msToFpm ∘ fpmToMs = identity', () => {
   assertApprox(units.msToFpm(units.fpmToMs(val)), val, 0.001);
 });
 
-test('MS_TO_KTS ≈ 1.944', () => {
-  assertApprox(units.MS_TO_KTS, 1.94384, 0.0001);
-});
-
-test('sanity bounds: VS_MAX_MS = 50', () => {
-  assertEqual(units.VS_MAX_MS, 50);
-});
-
-test('sanity bounds: RA_MAX_M = 15000', () => {
-  assertEqual(units.RA_MAX_M, 15000);
-});
-
 // =============================================================================
 // message-types.js Tests
 // =============================================================================

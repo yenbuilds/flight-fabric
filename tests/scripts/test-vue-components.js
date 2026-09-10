@@ -178,6 +178,24 @@ function compileJavaScriptModule(filename) {
   return outputPath;
 }
 
+function createMountedTestRenderer(createRenderer) {
+  const nodes = [], makeNode = (kind, text = '') => {
+    const node = { kind, text, children: [], props: {}, parent: null,
+      get options() { return this.children.filter(child => child.kind === 'option'); },
+      get value() { return this.props.value; }, set value(value) { this.props.value = value; },
+      addEventListener() {}, removeEventListener() {}, getRootNode: () => globalThis.document }; nodes.push(node); return node;
+  };
+  const renderer = createRenderer({
+    createElement: makeNode, createText: text => makeNode('text', text), createComment: text => makeNode('comment', text),
+    setText: (node, text) => { node.text = text; }, setElementText: (node, text) => { node.text = text; },
+    patchProp: (node, key, _previous, value) => { node.props[key] = value; },
+    insert: (node, parent) => { node.parent = parent; parent.children.push(node); },
+    remove: node => { node.parent.children = node.parent.children.filter(child => child !== node); },
+    parentNode: node => node.parent, nextSibling: () => null,
+  });
+  return { nodes, makeNode, renderer };
+}
+
 async function main() {
   fs.rmSync(cacheRoot, { recursive: true, force: true });
 
@@ -210,7 +228,6 @@ async function main() {
     { useProfilesStore },
     { useSystemHostStore },
     { useDataSourcesUiStore },
-    { AIRCRAFT_CONTROL_BUTTON_SELECTOR },
     { resolveAircraftSpecificTemplate },
     { mcpDraftKey, submitMcpDraft },
     { buildPmdg777CommandInput },
@@ -238,7 +255,6 @@ async function main() {
     import(toFrontendUrl('src', 'vue', 'stores', 'profiles.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'system-host.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'data-sources-ui.js')),
-    import(toFrontendUrl('src', 'aircraft', 'control-ui.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'template-registry.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'pmdg777-command-routing.js')),
@@ -305,6 +321,264 @@ async function main() {
   }
 
   console.log('\n=== Vue Component SSR Tests ===\n');
+
+  const lightingRuntime = require('./backend-runtime-paths').resolveBackendRuntimeFile;
+  const lightingLoader = require(lightingRuntime('aircraft/aircraft-profile-loader.js'));
+  const lightingService = require(lightingRuntime('aircraft/aircraft-control-service.js'));
+  function configureLighting(id, scenario = 'ready') {
+    const profile = lightingLoader.loadProfile(`bundled/msfs/${id}`);
+    const capability = lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 1,
+      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration'],
+        integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
+    const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
+    controls.applyControlCapabilities(capability); controls.setAvailability({ enabled: scenario !== 'viewer' });
+    const fields = controls.getAircraftCommand('configuration.lighting.cockpit')?.brightnessFields || [];
+    const updatedAt = new Date().toISOString();
+    const values = Object.fromEntries(fields.map(field => [field, 50]));
+    const valueUpdatedAt = Object.fromEntries(fields.map(field => [field, updatedAt]));
+    const displayField = controls.getAircraftCommand('configuration.lighting.displays')?.brightnessFields[0];
+    if (scenario === 'missing') delete values[displayField];
+    if (scenario === 'mixed') values[displayField] = 60;
+    if (scenario === 'stale') valueUpdatedAt[displayField] = new Date(Date.now() - 10000).toISOString();
+    specific.applyProfile({ _profileKey: profile._profileKey, profileRevision: 1, aircraftSpecificTemplateId: capability.aircraftSpecific?.templateId || 'generic' });
+    specific.ingestState({ profileKey: profile._profileKey, profileRevision: 1,
+      templateId: capability.aircraftSpecific?.templateId || 'generic', available: true,
+      sourceStatus: { overall: scenario === 'disconnected' ? 'disconnected' : 'connected' }, updatedAt, values, valueUpdatedAt, unavailable: [] });
+    if (scenario === 'pending') controls.setCommandPending({ type: 'canonical', commandId: 'configuration.lighting.displays', input: { value: 70 } });
+    if (scenario === 'other-profile') specific.activeProfileKey = 'bundled/msfs/other';
+    return { controls, specific, fields };
+  }
+
+  await test('cockpit brightness presets expose two controls with independent live readings on every mapped family', async () => {
+    for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'fbw-a380x', 'headwind-a330']) {
+      for (const scenario of ['ready', 'mixed', 'stale', 'missing', 'disconnected', 'viewer', 'pending', 'other-profile']) {
+        const { html } = await renderComponent(path.join('src', 'vue', 'components', 'CockpitLightingPresets.vue'), () => configureLighting(id, scenario));
+        const buttons = html.match(/<button[^>]*data-aircraft-command="configuration\.lighting\.[^"]+"[^>]*>/g) || [];
+        assert.equal(buttons.length, 2, `${id}: both settings must be visible`);
+        assert.ok(buttons.every(button => /\sdisabled(?:\s|=|>)/.test(button) === !['ready', 'mixed'].includes(scenario)), `${id}: ${scenario}`);
+        assert.match(html, /All flight displays/); assert.match(html, /set display brightness seventy five percent/);
+        if (scenario === 'mixed') assert.match(html, /data-lighting-current="displays">Mixed</);
+        if (scenario === 'ready') assert.match(html, /data-lighting-current="displays">50%</);
+      }
+    }
+    const only = await renderComponent(path.join('src', 'vue', 'components', 'CockpitLightingPresets.vue'), () => configureLighting('pmdg-737'), { props: { displaysOnly: true } });
+    assert.match(only.html, /data-lighting-preset="displays"/);
+    assert.doesNotMatch(only.html, /data-lighting-preset="cockpit"/);
+    const generic = await renderComponent(path.join('src', 'vue', 'components', 'CockpitLightingPresets.vue'), () => configureLighting('generic'));
+    assert.doesNotMatch(generic.html, /data-lighting-preset/);
+  });
+
+  await test('mounted lighting controls keep separate targets and reject invalid or overlapping requests', async () => {
+    const savedDocument = globalThis.Document, savedShadowRoot = globalThis.ShadowRoot;
+    globalThis.Document = class {}; globalThis.ShadowRoot = class {};
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'CockpitLightingPresets.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const { controls, specific } = configureLighting('fbw-a32nx');
+    const sent = []; let release;
+    controls.requestControlCommand = async payload => {
+      sent.push(payload);
+      if (sent.length === 1) await new Promise(resolve => { release = resolve; });
+      const fields = controls.getAircraftCommand(payload.commandId).brightnessFields;
+      for (const field of fields) specific.values[field] = payload.input.value;
+      return true;
+    };
+    const app = renderer.createApp(component); app.use(pinia);
+    try {
+      app.mount(makeNode('root'));
+      const form = target => nodes.find(node => node.props['data-lighting-preset'] === target);
+      const input = label => nodes.find(node => node.props['aria-label'] === label);
+      const button = target => nodes.find(node => node.props['data-aircraft-command'] === `configuration.lighting.${target}`);
+      const submit = target => form(target).props.onSubmit({ preventDefault() {} });
+      input('Global cockpit lighting percentage').props['onUpdate:modelValue']('40');
+      input('All flight displays percentage').props['onUpdate:modelValue']('80');
+      await nextTick(); const first = submit('cockpit'); await nextTick();
+      assert.equal(button('displays').props.disabled, true);
+      await submit('displays'); assert.equal(sent.length, 1);
+      release(); await first; await nextTick();
+      await submit('displays'); await nextTick();
+      assert.deepEqual(sent, [
+        { type: 'canonical', commandId: 'configuration.lighting.cockpit', input: { value: 40 } },
+        { type: 'canonical', commandId: 'configuration.lighting.displays', input: { value: 80 } },
+      ]);
+      const displays = controls.getAircraftCommand('configuration.lighting.displays').brightnessFields;
+      for (const field of controls.getAircraftCommand('configuration.lighting.cockpit').brightnessFields) {
+        assert.equal(specific.values[field], displays.includes(field) ? 80 : 40);
+      }
+      for (const invalid of ['', '-1', '101', '50.5']) {
+        input('All flight displays percentage').props['onUpdate:modelValue'](invalid); await nextTick();
+        assert.equal(button('displays').props.disabled, true); await submit('displays'); assert.equal(sent.length, 2);
+      }
+      input('All flight displays percentage').props['onUpdate:modelValue']('70');
+      controls.setCommandPending({ type: 'canonical', commandId: 'configuration.lighting.cockpit', input: { value: 30 } });
+      await nextTick(); assert.equal(button('displays').props.disabled, true, 'a voice preset blocks the page during execution');
+      await submit('displays'); assert.equal(sent.length, 2);
+    } finally { app.unmount(); globalThis.Document = savedDocument; globalThis.ShadowRoot = savedShadowRoot; }
+  });
+
+  await test('individual exterior lights follow real catalogue availability on all 50 aircraft', async () => {
+    let enabled = 0, turnoff = 0;
+    for (const entry of lightingLoader.listProfiles()) {
+      const profile = lightingLoader.loadProfile(`bundled/${entry.simulator}/${entry.id}`);
+      let commands;
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'ExteriorLightControls.vue'), () => {
+        const controls = useAircraftControlsStore();
+        controls.applyControlCapabilities(lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 1,
+          capabilities: { simulator: entry.simulator, actionTypes: entry.simulator === 'msfs' ? ['aircraft-integration', 'key-event'] : [],
+            integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } }));
+        controls.setAvailability({ enabled: true });
+        commands = ['landing', 'taxi', 'runwayTurnoff'].map(target => controls.getAircraftCommand(`lights.${target}.set`));
+      });
+      const visible = commands.some(Boolean);
+      assert.equal(html.includes('data-exterior-light-controls'), visible, entry.id);
+      if (!visible) continue;
+      enabled++;
+      if (commands[2]) turnoff++;
+      for (const [index, target] of ['landing', 'taxi', 'runwayTurnoff'].entries()) {
+        const buttons = html.match(new RegExp(`<button[^>]*data-aircraft-command="lights\\.${target}\\.set"[^>]*>`, 'g')) || [];
+        assert.equal(buttons.length, 2, entry.id);
+        assert.ok(buttons.every(button => /\sdisabled(?:\s|=|>)/.test(button) === !commands[index]), `${entry.id}: ${target}`);
+      }
+    }
+    assert.equal(enabled, 25); assert.equal(turnoff, 14);
+  });
+
+  await test('mounted exterior light ON/OFF buttons use canonical voice commands and block overlaps', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'ExteriorLightControls.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const { controls } = configureLighting('pmdg-737'); const sent = []; let release;
+    controls.requestControlCommand = async request => { sent.push(request);
+      if (sent.length === 1) await new Promise(resolve => { release = resolve; }); return true; };
+    const app = renderer.createApp(component); app.use(pinia);
+    try {
+      app.mount(makeNode('root'));
+      const button = (target, value) => nodes.find(node => node.props['data-aircraft-command'] === `lights.${target}.set`
+        && node.props['data-light-value'] === String(value));
+      const pending = button('landing', true).props.onClick(); await nextTick();
+      assert.equal(button('taxi', false).props.disabled, true);
+      await button('runwayTurnoff', false).props.onClick(); assert.equal(sent.length, 1);
+      release(); await pending; await nextTick();
+      for (const target of ['landing', 'taxi', 'runwayTurnoff']) for (const value of [false, true]) {
+        await button(target, value).props.onClick(); await nextTick();
+        assert.deepEqual(sent.at(-1), { type: 'canonical', commandId: `lights.${target}.set`, input: { value } });
+      }
+      controls.setCommandPending({ type: 'canonical', commandId: 'configuration.lights.takeoff', input: {} }); await nextTick();
+      assert.equal(button('landing', false).props.disabled, true);
+      controls.resetPendingCommands(); controls.setAvailability({ enabled: false }); await nextTick();
+      assert.equal(button('taxi', true).props.disabled, true);
+    } finally { app.unmount(); }
+  });
+
+  await test('all 50 profiles expose a UI editor and voice hint for every supported action command', async () => {
+    for (const entry of lightingLoader.listProfiles()) {
+      let commands;
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftCommandBrowser.vue'), () => {
+        const profile = lightingLoader.loadProfile(`bundled/${entry.simulator}/${entry.id}`);
+        const controls = useAircraftControlsStore();
+        controls.applyControlCapabilities(lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 1,
+          capabilities: { simulator: entry.simulator, actionTypes: entry.simulator === 'msfs' ? ['aircraft-integration', 'key-event', 'lvar', 'simvar'] : [],
+            integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } }));
+        controls.setAvailability({ enabled: true });
+        commands = Object.values(controls.aircraftCommandCatalogue.commands).filter(command => command.kind !== 'preset');
+      });
+      assert.equal(html.includes('data-aircraft-command-browser'), commands.length > 0, entry.id);
+      assert.equal((html.match(/data-command-editor=/g) || []).length, commands.length, entry.id);
+      for (const command of commands) {
+        assert.ok(html.includes(`data-command-editor="${command.id}"`), `${entry.id}: ${command.id}`);
+        assert.ok(command.speech?.patterns?.length, `${entry.id}: ${command.id} needs a voice hint`);
+      }
+      assert.doesNotMatch(html, /data-command-editor="configuration\./, 'presets retain their dedicated controls');
+    }
+  });
+
+  await test('command browser validates inputs, sends canonical requests and clears drafts on aircraft changes', async () => {
+    const savedDocument = globalThis.Document, savedShadowRoot = globalThis.ShadowRoot;
+    globalThis.Document = class {}; globalThis.ShadowRoot = class {};
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'AircraftCommandBrowser.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const { controls } = configureLighting('pmdg-737'); const sent = []; let release;
+    controls.requestControlCommand = async payload => {
+      sent.push(payload); if (sent.length === 1) await new Promise(resolve => { release = resolve; }); return true;
+    };
+    const app = renderer.createApp(component); app.use(pinia);
+    const descendants = node => [node, ...node.children.flatMap(descendants)];
+    const active = () => descendants(root);
+    const editor = id => active().find(node => node.props['data-command-editor'] === id);
+    const target = id => descendants(editor(id)).find(node => ['input', 'select'].includes(node.kind));
+    const submit = id => editor(id).props.onSubmit({ preventDefault() {} });
+    const root = makeNode('root');
+    try {
+      app.mount(root);
+      const speed = 'flightGuidance.speed.set', belts = 'cabin.seatBelts.set';
+      await submit(speed); assert.equal(sent.length, 0, 'blank target must not dispatch');
+      target(speed).props['onUpdate:modelValue']('400'); await nextTick(); await submit(speed); assert.equal(sent.length, 0);
+      target(speed).props['onUpdate:modelValue']('250'); await nextTick();
+      const pending = submit(speed); await nextTick();
+      await submit('flightGuidance.lnav.engage'); assert.equal(sent.length, 1, 'pending command blocks overlapping requests');
+      release(); await pending; await nextTick();
+      assert.deepEqual(sent[0], { type: 'canonical', commandId: speed, input: { value: 250 } });
+      target(belts).props['onUpdate:modelValue']('auto'); await nextTick(); await submit(belts);
+      assert.deepEqual(sent.at(-1), { type: 'canonical', commandId: belts, input: { value: 'auto' } });
+      const beacon = descendants(editor('lights.beacon.set')).find(node => node.props['data-command-value'] === 'false');
+      await beacon.props.onClick(); assert.deepEqual(sent.at(-1).input, { value: false });
+      await submit('flightGuidance.lnav.engage'); assert.deepEqual(sent.at(-1).input, {});
+      controls.setAvailability({ enabled: false }); await nextTick();
+      const count = sent.length; await submit(speed); assert.equal(sent.length, count);
+      configureLighting('pmdg-777'); await nextTick();
+      assert.equal(target(speed).props.value ?? '', '', 'aircraft change must discard speed draft');
+      assert.equal(target(belts).props.value, undefined, 'aircraft change must discard selector draft');
+      await submit(speed); assert.equal(sent.length, count);
+      controls.requestControlCommand = async () => false;
+      await submit('flightGuidance.lnav.engage'); await nextTick();
+      assert.ok(active().some(node => node.props.role === 'alert'), 'failed sends must remain visible');
+    } finally { app.unmount(); globalThis.Document = savedDocument; globalThis.ShadowRoot = savedShadowRoot; }
+  });
+
+  await test('A380 altimeter card exposes STD with independent live panel gates', async () => {
+    const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
+    const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
+    const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
+    const profileKey = 'bundled/msfs/fbw-a380x';
+    const capability = buildAircraftControlCapabilities(loader.loadProfile(profileKey), { profileRevision: 1,
+      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence'] } });
+    for (const scenario of ['ready', 'mixed', 'unpowered', 'missing', 'stale', 'viewer', 'pending', 'other-profile']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'BaroControls.vue'),
+        ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+          const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
+          controls.applyControlCapabilities(capability);
+          controls.setAvailability({ enabled: scenario !== 'viewer' });
+          const values = { 'baro.captain.active': true, 'baro.firstOfficer.active': scenario !== 'unpowered',
+            'baro.captain.std': scenario === 'mixed', 'baro.firstOfficer.std': false };
+          if (scenario === 'missing') delete values['baro.firstOfficer.std'];
+          const updatedAt = new Date().toISOString();
+          const valueUpdatedAt = Object.fromEntries(Object.keys(values).map(key => [key, updatedAt]));
+          if (scenario === 'stale') valueUpdatedAt['baro.firstOfficer.std'] = new Date(Date.now() - 3000).toISOString();
+          specific.applyProfile({ _profileKey: profileKey, profileRevision: 1, aircraftSpecificTemplateId: 'fbw-a380x' });
+          specific.ingestState({ profileKey, profileRevision: 1, templateId: 'fbw-a380x', available: true,
+            sourceStatus: { overall: 'connected' }, updatedAt, values, valueUpdatedAt, unavailable: [] });
+          if (scenario === 'pending') controls.setCommandPending({ type: 'canonical', commandId: 'baro.captain.std', input: {} });
+          if (scenario === 'other-profile') controls.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/other', profileRevision: 2, commands: [] } });
+        });
+      if (scenario === 'other-profile') { assert.doesNotMatch(html, /data-baro-controls/); continue; }
+      assert.match(html, /Set baro standard/); assert.match(html, /Both altimeters/);
+      assert.doesNotMatch(html, /<input|Set QNH|Altimeter units/);
+      const std = html.match(/<button[^>]*>Set STD<\/button>/)?.[0];
+      assert.ok(std, scenario);
+      assert.equal(std.includes('disabled'), !['ready', 'mixed'].includes(scenario), scenario);
+      if (scenario === 'mixed') {
+        assert.match(html, /Captain altimeter[^>]*>STD<\/output>/);
+        assert.match(html, /First officer altimeter[^>]*>STD off<\/output>/);
+      }
+    }
+  });
 
   await test('Fenix throttle haptic uses one short capability-detected Android vibration', () => {
     const pulses = [];
@@ -1876,14 +2150,18 @@ async function main() {
         });
       },
     );
-    const controlIds = AIRCRAFT_CONTROL_BUTTON_SELECTOR
-      .split(',')
-      .map((selector) => selector.trim())
-      .filter((selector) => selector.startsWith('#'))
-      .map((selector) => selector.slice(1));
+    const controlIds = [
+      'ctrl-gear-up-btn', 'ctrl-gear-down-btn',
+      'ctrl-flaps-dec-btn', 'ctrl-flaps-inc-btn',
+      'ctrl-park-brake-release-btn', 'ctrl-park-brake-set-btn',
+      'ctrl-spoilers-retract-btn', 'ctrl-spoilers-extend-btn',
+      'ctrl-spoilers-disarm-btn', 'ctrl-spoilers-arm-btn',
+      'ap-master-btn', 'ap-athr-btn', 'ap-fd-btn',
+      'ap-flc-btn', 'ap-loc-btn', 'ap-app-btn',
+    ];
 
     for (const id of controlIds) {
-      assert.match(html, new RegExp(`id="${id}"`), `${id} should render for the legacy control controller`);
+      assert.match(html, new RegExp(`id="${id}"`), `${id} should render as an aircraft control`);
     }
 
     assert.match(html, /id="controls-availability-text"/, 'availability text target should render');
@@ -2532,6 +2810,24 @@ async function main() {
     assert.match((await renderPanelState('unmatched')).html, /bg-amber-400/, 'unmatched speech should use the same attention tone as the launcher');
   });
 
+  await test('VoiceControlPanel exposes aircraft-specific state questions in a closed compact guide', async () => {
+    for (const profile of ['fbw-a32nx', 'fenix-a320', 'pmdg-777']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+        ({ useAircraftSpecificStore }) => {
+          const specific = useAircraftSpecificStore();
+          specific.activeProfileKey = `bundled/msfs/${profile}`; specific.activeProfileRevision = 1;
+          specific.sourceStatus = 'connected';
+        });
+      assert.match(html, /data-more-state-queries/);
+      assert.doesNotMatch(html, /<details[^>]*\bopen(?:[ =>])/);
+      assert.match(html, /what is the autobrake setting/);
+      if (profile !== 'pmdg-777') {
+        assert.match(html, /what is captain qnh/);
+        assert.match(html, /are both altimeters on std/);
+      } else assert.doesNotMatch(html, /what is captain qnh/);
+    }
+  });
+
   await test('VoiceControlPanel keeps an available altitude target in the three visible examples', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
@@ -2761,6 +3057,161 @@ async function main() {
     assert.match(html, /aria-label="Takeoff lights unavailable"/, 'disabled preset accessible name should match its visible state');
     assert.match(html, /aria-describedby="aircraft-preset-reason-configuration-lights-takeoff"/, 'disabled preset should reference its visible reason');
     assert.match(html, /Simulator telemetry link unavailable\./, 'disabled preset should explain why it cannot run');
+  });
+
+  await test('every bundled aircraft renders the takeoff preset exactly when its real catalogue supports it', async () => {
+    const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
+    const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
+    const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
+    let supportedCount = 0;
+    for (const entry of loader.listProfiles()) {
+      const profileKey = `bundled/${entry.simulator}/${entry.id}`;
+      const profile = loader.loadProfile(profileKey);
+      const capability = buildAircraftControlCapabilities(profile, { profileRevision: 1,
+        capabilities: entry.simulator === 'msfs'
+          ? { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar'],
+            integrationTransports: ['simconnect-sequence', 'sdk', 'lvar', 'mobiflight-calculator'] }
+          : { simulator: 'xplane', actionTypes: [], integrationTransports: [] } });
+      const supported = capability.aircraftCommands.commands.some(command => command.id === 'configuration.lights.takeoff');
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftQuickActions.vue'),
+        ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+          const controls = useAircraftControlsStore();
+          controls.applyControlCapabilities(capability);
+          controls.setAvailability({ enabled: true, reason: 'Ready.' });
+          const specific = useAircraftSpecificStore();
+          specific.templateId = profile.integration?.aircraftSpecific?.adapter || '';
+          specific.sourceStatus = 'connected';
+          specific.sourceStatuses = { sdk: 'connected' };
+        });
+      assert.equal(html.includes('data-aircraft-preset="configuration.lights.takeoff"'), supported, profileKey);
+      if (supported) {
+        supportedCount++;
+        assert.match(html, /aria-label="Apply Takeoff lights"/, profileKey);
+        assert.match(html, /set lights for takeoff/, profileKey);
+      }
+    }
+    assert.equal(supportedCount, 24, 'all 24 writable takeoff recipes must reach the shared UI');
+  });
+
+  await test('APU quick action renders Start and fresh observed status without conflating the request with availability', async () => {
+    for (const running of [false, true]) for (const stale of [false, true]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'AircraftQuickActions.vue'),
+        ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+          const controls = useAircraftControlsStore();
+          controls.applyControlCapabilities({ aircraftCommands: {
+            profileKey: 'bundled/msfs/pmdg-777', profileRevision: 1,
+            commands: [{ id: 'configuration.apu.start', label: 'Start APU', kind: 'preset',
+              input: { kind: 'none' }, description: 'Request APU selector START. Requires aircraft electrical power.',
+              speech: { patterns: ['start apu'] },
+              observations: [{ fieldId: 'systems.apuRunning', expectedValue: true,
+                label: 'APU running', inhibitsRequest: true }],
+            }],
+          } });
+          controls.setAvailability({ enabled: true, reason: 'Ready.' });
+          const specific = useAircraftSpecificStore();
+          specific.available = true;
+          specific.sourceStatus = 'connected';
+          specific.updatedAt = new Date().toISOString();
+          specific.receivedAt = Date.now();
+          specific.valueUpdatedAt = { 'systems.apuRunning': new Date(Date.now() - (stale ? 60000 : 0)).toISOString() };
+          specific.values = { 'systems.apuRunning': running };
+        },
+      );
+      assert.match(html, /data-aircraft-preset="configuration.apu.start"/);
+      assert.match(html, /aria-label="Start APU"/);
+      assert.match(html, /Say “start apu”/);
+      assert.match(html, running && !stale ? /APU running/ : /APU status unknown/);
+      assert.match(html, running && !stale ? /disabled/ : />Start<\/button>/);
+      assert.doesNotMatch(html, /APU start requested/, 'rendering a button cannot imply dispatch');
+    }
+  });
+
+  await test('APU status stays current when telemetry arrives between freshness timer ticks', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'AircraftQuickActions.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const originalNow = Date.now, originalInterval = globalThis.setInterval, originalClear = globalThis.clearInterval;
+    let time = originalNow(), tick, app;
+    try {
+      Date.now = () => time;
+      globalThis.setInterval = callback => { tick = callback; return 1; };
+      globalThis.clearInterval = () => {};
+      const pinia = createPinia(); setActivePinia(pinia);
+      const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
+      controls.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/pmdg-777', profileRevision: 1,
+        commands: [{ id: 'configuration.apu.start', label: 'Start APU', kind: 'preset', input: { kind: 'none' },
+          observations: [{ fieldId: 'systems.apuRunning', expectedValue: true, label: 'APU running', inhibitsRequest: true }] }],
+      } });
+      controls.setAvailability({ enabled: true });
+      const publish = () => {
+        specific.available = true; specific.sourceStatus = 'connected'; specific.receivedAt = time;
+        specific.updatedAt = new Date(time).toISOString();
+        specific.valueUpdatedAt = { 'systems.apuRunning': specific.updatedAt };
+        specific.values = { 'systems.apuRunning': true };
+      };
+      publish();
+      app = renderer.createApp(component); app.use(pinia); app.mount(makeNode('root'));
+      const status = () => nodes.find(node => node.props.role === 'status').text;
+      const start = () => nodes.find(node => node.kind === 'button');
+      assert.equal(status(), 'APU running');
+      time += 250; publish(); await nextTick();
+      assert.equal(status(), 'APU running', 'new telemetry must not look like a future delivery relative to the old timer tick');
+      assert.equal(start().props.disabled, true);
+      time += 3000; tick(); await nextTick();
+      assert.equal(status(), 'APU status unknown', 'the timer must still expire an actual stale observation');
+      assert.equal(start().props.disabled, false);
+    } finally {
+      app?.unmount(); Date.now = originalNow;
+      globalThis.setInterval = originalInterval; globalThis.clearInterval = originalClear;
+    }
+  });
+
+  await test('on-screen push-to-talk cancels lost-focus and unmounted holds without cancelling global PTT', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'VoiceControlPanel.vue'))).href)).default;
+    for (const interruption of ['keyup', 'pointerup', 'blur', 'pointercancel', 'unmount', 'global']) {
+      const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+      const pinia = createPinia(); setActivePinia(pinia);
+      const voice = useVoiceControlStore(), controls = useAircraftControlsStore();
+      controls.setAvailability({ enabled: true });
+      controls.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/generic', profileRevision: 1,
+        commands: [{ id: 'surfaces.gear.set', input: { kind: 'enum', values: ['up', 'down'] }, speech: { patterns: ['gear {value}'] } }],
+      } });
+      voice.runtime.enabled = true; voice.setState('ready');
+      let cancelled = 0, released = 0, app;
+      voice.bindRuntime({ begin: () => { voice.setState('listening'); return true; },
+        cancel: () => { cancelled++; voice.setState('ready'); return true; },
+        finish: () => { released++; voice.setState('finishing'); return true; } });
+      try {
+        app = renderer.createApp(component); app.use(pinia); app.mount(makeNode('root'));
+        const button = nodes.find(node => node.kind === 'button' && node.props.onPointerdown);
+        assert.ok(button);
+        if (interruption === 'global') voice.setState('listening');
+        else {
+          const event = { key: ' ', repeat: false, preventDefault() {}, stopPropagation() {},
+            currentTarget: { setPointerCapture() {} }, pointerId: 1 };
+          if (interruption.startsWith('pointer')) button.props.onPointerdown(event);
+          else for (const handler of [button.props.onKeydown].flat()) handler(event);
+          await nextTick();
+          assert.equal(voice.listening, true);
+        }
+        if (interruption === 'keyup') {
+          for (const handler of [button.props.onKeyup].flat()) handler({ key: ' ', preventDefault() {} });
+        }
+        else if (interruption === 'pointerup') button.props.onPointerup({ preventDefault() {} });
+        else if (interruption === 'blur') button.props.onBlur?.({});
+        else if (interruption === 'pointercancel') button.props.onPointercancel?.({ preventDefault() {} });
+        else { app.unmount(); app = null; }
+        await nextTick();
+        const normalRelease = ['keyup', 'pointerup'].includes(interruption);
+        assert.equal(cancelled, interruption === 'global' || normalRelease ? 0 : 1, `${interruption}: abandoned local holds must close capture`);
+        assert.equal(released, normalRelease ? 1 : 0, 'only an intentional release may execute the spoken command');
+        assert.equal(voice.listening, interruption === 'global', 'background global PTT remains independent of the modal');
+      } finally { app?.unmount(); }
+    }
   });
 
   await test('Aircraft voice control modal keeps desktop PTT and settings off the main page', async () => {
@@ -3183,6 +3634,95 @@ async function main() {
     assert.match(searchSource, /details\.open = true/, 'selecting a result should reveal its closed 777 system group');
   });
 
+  await test('PMDG quick presets require their SDK source while general telemetry remains live', async () => {
+    for (const family of ['737', '777']) {
+      for (const [overall, sdk, disabled] of [
+        ['connected', 'stale', true],
+        ['connected', 'disabled', true],
+        ['paused', 'connected', true],
+        ['awaiting-values', undefined, true],
+        ['connected', 'connected', false],
+        ['connected', undefined, false],
+      ]) {
+        const { html } = await renderComponent(
+          path.join('src', 'vue', 'components', 'AircraftQuickActions.vue'),
+          ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+            const controls = useAircraftControlsStore();
+            controls.setAvailability({ enabled: true });
+            controls.applyControlCapabilities({ aircraftCommands: {
+              profileKey: `bundled/msfs/pmdg-${family}`, profileRevision: 1, configurationId: `pmdg-${family}`,
+              commands: ['configuration.lights.takeoff', 'configuration.apu.start'].map(id => ({ id, label: id, kind: 'preset', input: { kind: 'none' } })),
+            } });
+            const specific = useAircraftSpecificStore();
+            specific.applyProfile({ _profileKey: `bundled/msfs/pmdg-${family}`, profileRevision: 1, aircraftSpecificTemplateId: `pmdg-${family}` });
+            specific.sourceStatus = overall;
+            specific.sourceStatuses = { sdk, simvar: 'connected' };
+          },
+        );
+        const buttons = [...html.matchAll(/<button\b[^>]*>/g)].map(match => match[0]);
+        assert.equal(buttons.length, 2);
+        for (const button of buttons) {
+          assert.equal(/\sdisabled(?:\s|=|>)/.test(button), disabled, `${family} overall=${overall} SDK=${sdk}`);
+        }
+        if (disabled) assert.match(html, /Waiting for live PMDG SDK data/);
+      }
+    }
+  });
+
+  await test('Takeoff lights stay disabled until the aircraft advertises the preset', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'aircraft-specific', 'TakeoffLightsPreset.vue'),
+      ({ useAircraftControlsStore }) => {
+        useAircraftControlsStore().setAvailability({ enabled: true });
+      },
+      { props: { sourceStatus: 'connected' } },
+    );
+    assert.match(html, /Takeoff lights are unavailable/, 'the missing command should be explained');
+    const button = html.match(/<button\b[^>]*>/)?.[0] || '';
+    assert.match(button, /\sdisabled(?:\s|=|>)/, 'a missing command catalogue must disable the preset');
+  });
+
+  await test('PMDG takeoff lights require live SDK data even when other telemetry is connected', async () => {
+    for (const family of ['737', '777']) {
+      for (const [overall, sdk] of [['connected', 'stale'], ['connected', 'disabled'], ['paused', 'connected'], ['connected', 'connected']]) {
+        const { html } = await renderComponent(
+          path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', `Pmdg${family}AircraftPanel.vue`),
+          ({ useAircraftControlsStore }) => {
+            const controls = useAircraftControlsStore();
+            controls.setAvailability({ enabled: true });
+            controls.applyControlCapabilities({ aircraftCommands: {
+              profileKey: `bundled/msfs/pmdg-${family}`, profileRevision: 1, configurationId: `pmdg-${family}`,
+              commands: [{ id: 'configuration.lights.takeoff', label: 'Takeoff lights', kind: 'preset', input: { kind: 'none' } }],
+            } });
+          },
+          { props: { sourceStatus: overall, sourceStatuses: { sdk, simvar: 'connected' } } },
+        );
+        const button = html.match(/<button\b(?=[^>]*aria-label="Set takeoff lights")[^>]*>/)?.[0] || '';
+        assert.ok(button, `${family} exposes the takeoff preset`);
+        assert.equal(/\sdisabled(?:\s|=|>)/.test(button), overall !== 'connected' || sdk !== 'connected', `${family}: overall=${overall}, SDK=${sdk}`);
+      }
+    }
+  });
+
+  await test('PMDG panels show SDK connection guidance without an agreement step', async () => {
+    for (const family of ['737', '777']) {
+      for (const sdk of ['disabled', 'stale', 'connected']) {
+        const { html } = await renderComponent(
+          path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', `Pmdg${family}AircraftPanel.vue`),
+          () => {},
+          { props: { sourceStatus: 'connected', sourceStatuses: { sdk } } },
+        );
+        assert.doesNotMatch(html, /EULA|authorization required|accept the installed|Accept and restart/i, `${family} ${sdk} must not ask for agreement`);
+        if (sdk === 'connected') {
+          assert.doesNotMatch(html, /data-aircraft-sdk-notice/, 'connected aircraft need no setup notice');
+        } else {
+          assert.match(html, new RegExp(`data-aircraft-sdk-notice="pmdg-${family}"`));
+          assert.match(html, /EnableDataBroadcast=1/, 'SDK setup guidance remains available');
+        }
+      }
+    }
+  });
+
   await test('PMDG target drafts reset across profile and source lifecycle changes', () => {
     const sectionSource = fs.readFileSync(path.join(
       frontendRoot,
@@ -3324,7 +3864,7 @@ async function main() {
         aircraftLabel: 'Fenix A320',
         sectionPrefix: 'fenix-section-',
         sectionIds: [
-          'throttle', 'fcu', 'exterior-lights', 'cabin-visibility', 'cockpit-lighting',
+          'throttle', 'approach', 'fcu', 'exterior-lights', 'cabin-visibility', 'cockpit-lighting',
           'electrical-apu', 'fuel', 'pneumatic', 'protection-hydraulics', 'engine-adirs',
           'efis-navigation', 'switching', 'surveillance-radio', 'safety-misc',
         ],
@@ -3846,6 +4386,9 @@ async function main() {
       'flightGuidance.speed.set',
       'flightGuidance.heading.set',
       'flightGuidance.altitude.set',
+      'flightGuidance.mach.set',
+      'flightGuidance.verticalSpeed.set',
+      'flightGuidance.flightPathAngle.set',
       'propulsion.throttle.toga',
       'propulsion.throttle.flexMct',
       'propulsion.throttle.climb',
@@ -3876,6 +4419,8 @@ async function main() {
       'propulsion.throttleLever3Angle': 35,
       'propulsion.throttleLever4Angle': 35,
       'flightGuidance.speedValue': 287,
+      'flightGuidance.machMode': false,
+      'flightGuidance.trkFpaMode': false,
       'flightGuidance.headingDeg': 43,
       'flightGuidance.altitudeFt': 37000,
       'flightGuidance.verticalValue': -650.5,
@@ -3918,8 +4463,8 @@ async function main() {
       'systems.outsideAirTemperatureC': -52.4,
       'systems.mach': 0.84,
     };
-    assert.equal(Object.keys(values).length, 46, 'the fixture should exercise every A380X adapter field');
-    assert.equal(actionIds.length, 38, 'the fixture should exercise every A380X adapter action capability');
+    assert.equal(Object.keys(values).length, 48, 'the fixture should exercise every A380X adapter field');
+    assert.equal(actionIds.length, 41, 'the fixture should exercise every A380X adapter action capability');
 
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA380xAircraftPanel.vue'),
@@ -3931,6 +4476,7 @@ async function main() {
           profileKey: 'bundled/msfs/fbw-a380x',
           sourceStatus: 'connected',
           values,
+          isCommandSupported: id => actionIds.includes(id),
           actionCapabilities: Object.fromEntries(actionIds.map((actionId) => [actionId, true])),
         },
       },
@@ -3962,7 +4508,7 @@ async function main() {
     assert.deepEqual(
       [...uniqueRenderedActionIds].sort(),
       [...actionIds].sort(),
-      'the panel should expose all and only the 38 adapter actions',
+      'the panel should expose all and only the 41 adapter actions',
     );
     assert.equal(
       renderedActionIds.filter((actionId) => actionId === 'controls.spoilers.set').length,
@@ -5664,6 +6210,7 @@ async function main() {
 
   await test('FlyByWire A32NX template renders broad guarded controls and explicit safety boundaries', async () => {
     const actionCapabilities = Object.fromEntries([
+      ...['up', 'one', 'two', 'three', 'full'].map((suffix) => `controls.flaps.${suffix}`),
       'propulsion.throttle.toga',
       'propulsion.throttle.flexMct',
       'propulsion.throttle.climb',
@@ -5701,6 +6248,7 @@ async function main() {
         props: {
           sourceStatus: 'connected',
           values: {
+            'controls.flapsHandle': '2',
             'propulsion.throttleLever1Angle': 25,
             'propulsion.throttleLever2Angle': 25,
             'flightGuidance.speedValue': 250,
@@ -5776,8 +6324,13 @@ async function main() {
     assert.match(html, /data-aircraft-template="fbw-a32nx"/, 'template should identify its trusted registry key');
     assert.match(html, /FlyByWire Airbus A32NX/, 'template should render the aircraft heading');
     const renderedActionIds = [...html.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
-    assert.equal(renderedActionIds.length, 245, 'the page should render every reviewed A32NX action');
-    assert.equal(new Set(renderedActionIds).size, 245, 'every rendered A32NX action ID should be unique');
+    assert.equal(renderedActionIds.length, 254, 'the page should render every reviewed A32NX action');
+    assert.equal(new Set(renderedActionIds).size, 254, 'every rendered A32NX action ID should be unique');
+    assert.match(html, /data-aircraft-action="controls\.flaps\.two"[^>]*aria-pressed="true"/);
+    for (const suffix of ['up', 'one', 'two', 'three', 'full']) {
+      assert.doesNotMatch(html, new RegExp(`data-aircraft-action="controls\\.flaps\\.${suffix}"[^>]*disabled`));
+    }
+    assert.match(html, /Lever selection; flap surfaces may still be moving/);
     const throttleHtml = html.match(/<section(?=[^>]*data-fbw-section="virtual-throttle")[\s\S]*?<\/section>/)?.[0] || '';
     assert.ok(
       html.indexOf('data-fbw-section="virtual-throttle"') < html.indexOf('id="fbw-a32nx-section-fcu"'),
@@ -5903,6 +6456,9 @@ async function main() {
       'flightGuidance.speed.set',
       'flightGuidance.heading.set',
       'flightGuidance.altitudeHundred.set',
+      'flightGuidance.mach.set',
+      'flightGuidance.verticalSpeed.set',
+      'flightGuidance.flightPathAngle.set',
     ];
     const throttleActionIds = [
       'propulsion.throttle.toga',
@@ -5940,6 +6496,8 @@ async function main() {
             'flightGuidance.approach': false,
             'flightGuidance.expedite': false,
             'flightGuidance.speedValue': 250,
+            'flightGuidance.machMode': false,
+            'flightGuidance.trkFpaMode': false,
             'flightGuidance.headingDeg': 271,
             'flightGuidance.altitudeFt': 12000,
             'flightGuidance.verticalValue': -700,
@@ -5995,7 +6553,7 @@ async function main() {
     assert.doesNotMatch(html, /FCU pushbuttons remain monitoring-only/, 'the restored FCU must not retain obsolete read-only copy');
     const fcuHtml = html.match(/<section(?=[^>]*data-fenix-section="flight-guidance-fcu")[\s\S]*?<\/section>/)?.[0] || '';
     const renderedFcuActionIds = [...fcuHtml.matchAll(/data-aircraft-action="([^"]+)"/g)].map((match) => match[1]);
-    assert.equal(renderedFcuActionIds.length, 21, 'the active FCU view should expose 12 mode targets, 6 managed targets, and 3 validated selector applies');
+    assert.equal(renderedFcuActionIds.length, 24, 'the active FCU view should expose 12 mode targets, 6 managed targets, and 6 validated selector applies');
     assert.deepEqual(
       [...renderedFcuActionIds].sort(),
       [...fcuModeActionIds, ...managedActionIds, ...selectorActionIds].sort(),
@@ -6011,8 +6569,8 @@ async function main() {
     assert.match(html, /<input(?=[^>]*data-fenix-selector-input="altitude")(?=[^>]*value="12000")[^>]*>/, 'altitude should initialize from the live FCU target');
     assert.doesNotMatch(html, /data-fenix-selector-input="(?:speed|heading|altitude)"[^>]*disabled/, 'typed targets should enable only after global availability, readback, and capability are all ready');
     assert.match(html, /data-aircraft-action="flightGuidance\.altitudeHundred\.set"/, 'the live 100-foot FCU step should choose the bounded hundred-step action');
-    assert.match(html, /data-fenix-fcu-readback="vertical"[\s\S]*-700[\s\S]*Units are mode-dependent/, 'V\/S-FPA should remain clearly read-only because its units depend on cockpit mode');
-    assert.doesNotMatch(fcuHtml, /vertical(?:Speed)?\.set/, 'no raw V\/S-FPA write should leak into the Fenix panel');
+    assert.doesNotMatch(html, /data-aircraft-action="flightGuidance\.verticalSpeed\.set"[^>]*disabled/, 'V/S is writable with matching live HDG/V/S mode');
+    assert.match(html, /data-aircraft-action="flightGuidance\.flightPathAngle\.set"[^>]*disabled/, 'FPA stays disabled while HDG/V/S is selected');
     assert.doesNotMatch(html, /Fixed target|FCU lamp readback|Live lamp &amp; target readback|Aircraft-system effect/, 'repeated implementation and warning labels should stay out of the control cards');
     assert.match(html, /data-aircraft-action="lights\.strobe\.auto"[^>]*aria-pressed="true"/);
     assert.match(html, /data-aircraft-action="lights\.nose\.taxi"[^>]*aria-pressed="true"/);
@@ -6062,6 +6620,8 @@ async function main() {
             'flightGuidance.ap1': false,
             'flightGuidance.speedManaged': false,
             'flightGuidance.speedValue': 250,
+            'flightGuidance.machMode': false,
+            'flightGuidance.trkFpaMode': false,
             'flightGuidance.headingDeg': 271,
             'flightGuidance.altitudeFt': 12000,
             'flightGuidance.altitudeIncrementMode': 'hundred',
@@ -6157,6 +6717,8 @@ async function main() {
           sourceStatus: 'connected',
           values: {
             'flightGuidance.speedValue': 0.78,
+            'flightGuidance.machMode': true,
+            'flightGuidance.trkFpaMode': false,
             'flightGuidance.headingDeg': 90,
             'flightGuidance.altitudeFt': 12000,
             'flightGuidance.altitudeIncrementMode': 'thousand',
@@ -6175,7 +6737,7 @@ async function main() {
     );
 
     assert.equal(hasDisabledAttribute(tagFor(machHtml, 'input', 'data-fenix-selector-input', 'speed')), true, 'a sub-100 Fenix speed value denotes Mach mode and must block knot writes');
-    assert.match(machHtml, /Mach mode detected\. Switch the FCU to SPD in the cockpit before setting knots\./, 'Mach blocking must tell the pilot how to enable a knot target');
+    assert.match(machHtml, /Select SPD mode in the cockpit\./, 'Mach blocking must tell the pilot how to enable a knot target');
     assert.match(machHtml, /LIVE MACH RAW 0\.78/, 'ambiguous fractional Mach readback should be shown exactly as a raw value');
     assert.doesNotMatch(machHtml, /LIVE (?:1|0\.78) KTS/, 'ambiguous Mach readback must never be rounded or labelled as knots');
     assert.match(machHtml, /data-aircraft-action="flightGuidance\.altitudeThousand\.set"/, 'the live 1000-foot selector state must choose the thousand-step backend action');
@@ -6216,6 +6778,8 @@ async function main() {
           sourceStatus: 'connected',
           values: {
             'flightGuidance.speedValue': 250,
+            'flightGuidance.machMode': false,
+            'flightGuidance.trkFpaMode': false,
             'flightGuidance.headingDeg': 360,
             'flightGuidance.altitudeFt': 12500,
             'flightGuidance.altitudeIncrementMode': 'thousand',
@@ -6250,6 +6814,8 @@ async function main() {
           values: {
             'flightGuidance.ap1': false,
             'flightGuidance.speedValue': 250,
+            'flightGuidance.machMode': false,
+            'flightGuidance.trkFpaMode': false,
             'flightGuidance.altitudeIncrementMode': 'hundred',
             'lights.beacon': false,
           },
@@ -6298,6 +6864,8 @@ async function main() {
           sourceStatus: 'connected',
           values: {
             'flightGuidance.speedValue': 250,
+            'flightGuidance.machMode': false,
+            'flightGuidance.trkFpaMode': false,
             'flightGuidance.speedManaged': false,
             'flightGuidance.headingDeg': 90,
             'flightGuidance.headingManaged': false,
@@ -6313,7 +6881,7 @@ async function main() {
       },
     );
 
-    assert.equal((html.match(/data-aircraft-control-group="flightGuidance\.speed"/g) || []).length, 2, 'speed target and push/pull controls should share the physical speed-knob group');
+    assert.equal((html.match(/data-aircraft-control-group="flightGuidance\.speed"/g) || []).length, 3, 'speed and Mach targets and push/pull controls should share the physical speed-knob group');
     assert.equal((html.match(/data-aircraft-control-group="flightGuidance\.heading"/g) || []).length, 2, 'heading target and push/pull controls should share the physical heading-knob group');
     assert.equal((html.match(/data-aircraft-control-group="flightGuidance\.altitude"/g) || []).length, 3, 'altitude target, push/pull, and 100/1000 controls should share the physical altitude-knob group');
     const statusIds = [...html.matchAll(/id="(fenix-control-status-[^"]+)"/g)].map((match) => match[1]);
@@ -7191,7 +7759,36 @@ async function main() {
     assert.match(html, /MARGINAL[\s\S]*Throttle movement 79%/, 'desktop rows should show a marginal throttle cause without requiring a tooltip');
     assert.match(html, /MARGINAL[\s\S]*Path rate 56% · Path rate steep 79%/, 'desktop rows should show the two leading proxy causes');
     assert.match(html, /UNSTABLE[\s\S]*Speed 38%/, 'desktop rows should show a substantial direct cause');
-    assert.match(html, /Stable requires every applicable strict check[\s\S]*Marginal means a strict check was missed[\s\S]*no hard or substantial deviation/, 'Logbook should explain the four-state policy');
+    assert.match(html, /Verdicts use each flight&#39;s recorded rules[\s\S]*amber cautions[\s\S]*Red violations[\s\S]*Older flights retain their original checks/, 'Logbook should explain current scoring and preserve historical rules');
+  });
+
+  await test('LogbookPanel shows v4 cautions and red violations consistently on desktop and mobile', async () => {
+    for (const desktop of [true, false]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+        ({ useLogbookStore }) => useLogbookStore().ingestMessage({ type: 'logbook',
+          stats: { total: 2, grades: { Good: 2 }, airports: 1, aircraft: 1 },
+          entries: ['marginal', 'unstable'].map((verdict, index) => ({
+            id: `v4-${verdict}`, timestamp: `2026-05-2${index}T17:16:50.465Z`, aircraft: '737-800',
+            icao: 'YSCB', runway: '35', vsFpm: -180, grade: 'GOOD', gateStable: false,
+            stabilityScore: 98, stabilityVerdict: verdict,
+            stabilityGateFailures: [verdict === 'unstable' ? 'approach_warning' : 'approach_caution'],
+            stabilityBreakdown: { vs_ok: 92, glideslope_ok: 100, localizer_ok: 100 },
+            stabilityContext: { profile: { id: 'pmdg-737' }, criteria: { gateRaFt: 1000, passPct: 80 },
+              policy: { id: 'transport-v4', version: 4 },
+              assessment: { version: 4, rules: { lowHeightFt: 500 }, groups: {},
+                episodes: [{ severity: verdict === 'unstable' ? 'warning' : 'caution' }] } },
+          })),
+        }),
+        { matchMedia: () => ({ matches: desktop }) },
+      );
+      assert.match(html, /approach caution recorded/);
+      assert.match(html, /severe or sustained approach violation/);
+      assert.match(html, /Marginal|MARGINAL/);
+      assert.match(html, /Unstable|UNSTABLE/);
+      assert.match(html, /98%/);
+      assert.doesNotMatch(html, /soft\/proxy|Strict check missed/);
+    }
   });
 
   await test('LogbookPanel shows the persisted marginal verdict and cause on mobile', async () => {
@@ -7361,6 +7958,39 @@ async function main() {
   });
 
   console.log('\n--- timeline flights panel ---\n');
+  await test('AircraftArtwork distinguishes unknown aircraft and unavailable pictures without inventing an airframe', async () => {
+    for (const [props, label] of [
+      [{}, 'Unknown aircraft'],
+      [{ profileId: null, aircraftName: null }, 'Unknown aircraft'],
+      [{ profileId: 'generic', aircraftName: 'Unknown aircraft' }, 'Unknown aircraft'],
+      [{ profileId: 'generic', aircraftName: 'Boeing 747-400' }, 'Aircraft image unavailable'],
+      [{ profileId: 'inibuilds-a350-900' }, 'Aircraft image unavailable'],
+    ]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftArtwork.vue'), undefined, { props });
+      assert.match(html, new RegExp(`role="img" aria-label="${label}"`));
+      assert.match(html, /aircraft-artwork__placeholder-icon/);
+      assert.doesNotMatch(html, /<img/, 'a missing picture must not load a representative aircraft image');
+    }
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftArtwork.vue'), undefined,
+      { props: { profileId: 'pmdg-737', aircraftName: 'PMDG 737-800' } });
+    assert.match(html, /src="\/assets\/aircraft\/boeing-737-800.png"/);
+    assert.doesNotMatch(html, /aircraft-artwork__placeholder-icon/);
+  });
+
+  await test('TimelineInspectorShell renders filtered rows and an actionable empty state', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'TimelineInspectorShell.vue'), ({ useTimelineStore }) => {
+      const timeline = useTimelineStore();
+      timeline.setInspectorState({ rows: [{ rowKey: 'flaps', event: { type: 'configuration_event' }, title: 'Flaps extended' }] });
+      timeline.setInspectorFilter('configuration_event', false);
+    });
+    assert.match(html, /Event filters/);
+    assert.match(html, /1 hidden/);
+    assert.match(html, /No events match these filters/);
+    assert.match(html, /Enable an event type above/);
+    assert.doesNotMatch(html, /data-row-key="flaps"/);
+    assert.equal((html.match(/data-timeline-event-filter=/g) || []).length, 3);
+  });
+
   await test('TimelineInspectorShell renders timeline controller targets', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'TimelineInspectorShell.vue'));
     const ids = [

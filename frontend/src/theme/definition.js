@@ -1,6 +1,6 @@
 import { writeStorageValue } from '../app/browser-environment.js';
 
-export const THEME_STORAGE_KEY = 'ff-theme-v2';
+const THEME_STORAGE_KEY = 'ff-theme-v2';
 export const DEFAULT_THEME = 'dark';
 
 const LEGACY_THEME_ALIASES = Object.freeze({

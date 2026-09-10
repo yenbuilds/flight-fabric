@@ -9,6 +9,7 @@
 
 const { scoreLateralOffset } = require('../landing/landing-distance') as LandingDistanceModule;
 const config = require('../core/config') as ConfigModule;
+const { assessApproach } = require('./approach-assessment') as typeof import('./approach-assessment');
 const {
   GLIDEPATH_ANGLE_OVERRIDES,
 } = require('./glidepath-angle-overrides') as {
@@ -214,6 +215,7 @@ type StabilityScoringContext = {
 };
 
 type StabilityScoringCriteria = {
+  assessmentVersion?: number;
   gateRaFt: number;
   speedMinusKts: number;
   speedPlusKts: number;
@@ -231,6 +233,9 @@ type StabilityScoringCriteria = {
 };
 
 type ApproachSample = {
+  timestampMs?: number | null;
+  gsDeviationDots?: number | null;
+  locDeviationDots?: number | null;
   raFt: number;
   iasKts: number;
   vsFpm: number;
@@ -262,6 +267,9 @@ type ApproachSample = {
 };
 
 type CanonicalFrame = {
+  timestampMs?: unknown;
+  gsDeviationDots?: number | null;
+  locDeviationDots?: number | null;
   raFt: unknown;
   iasKts: unknown;
   vsFpm: unknown;
@@ -295,6 +303,7 @@ type CanonicalFrame = {
 };
 
 type StabilityScoreResult = {
+  assessment?: Record<string, any>;
   score: number | null;
   verdict: ApproachStabilityVerdict;
   breakdown: StabilityBreakdown;
@@ -520,9 +529,16 @@ function percentageOfWindowedRates(
   let pairCount = 0;
   let passCount = 0;
   for (let currentIndex = 1; currentIndex < samples.length; currentIndex++) {
+    const currentValue = selector(samples[currentIndex]);
+    if (!Number.isFinite(currentValue)) continue;
+
     let previousIndex = currentIndex;
     let elapsedMs = 0;
-    while (previousIndex > 0 && elapsedMs < windowMs) {
+    // Compare observed values at least one window apart. Missing readings still
+    // contribute elapsed time, but cannot serve as either rate endpoint.
+    while (previousIndex > 0 && (
+      elapsedMs < windowMs || !Number.isFinite(selector(samples[previousIndex]))
+    )) {
       const dtMs = samples[previousIndex].dtMs;
       elapsedMs += typeof dtMs === 'number' && Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 100;
       previousIndex--;
@@ -530,8 +546,7 @@ function percentageOfWindowedRates(
     if (elapsedMs < windowMs) continue;
 
     const previousValue = selector(samples[previousIndex]);
-    const currentValue = selector(samples[currentIndex]);
-    if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) continue;
+    if (!Number.isFinite(previousValue)) continue;
 
     pairCount++;
     const rate = Math.abs((currentValue as number) - (previousValue as number)) / (elapsedMs / 1000);
@@ -654,6 +669,7 @@ function getStabilityCriteria(overrides: Partial<StabilityScoringCriteria> | nul
 
   return {
     gateRaFt: Math.max(100, finiteOrDefault(source.gateRaFt, 1000)),
+    ...(source.assessmentVersion === 4 ? { assessmentVersion: 4 } : {}),
     speedMinusKts: Math.max(0, finiteOrDefault(source.speedMinusKts, SPEED_MINUS_KTS)),
     speedPlusKts: Math.max(0, finiteOrDefault(source.speedPlusKts, SPEED_PLUS_KTS)),
     vsMinFpm: finiteOrDefault(source.vsMinFpm, VS_MIN_FPM),
@@ -704,6 +720,12 @@ class SimpleStabilityScorer {
   // Maximum samples to retain. A typical approach from 5000ft at 10Hz is ~3000 samples.
   // 5000 provides generous headroom while bounding memory (~750KB worst case).
   static readonly MAX_SAMPLES = 5000;
+
+  notePause(timestampMs: number): void {
+    const last = this.samples[this.samples.length - 1];
+    if (!last || (last as any).paused || !Number.isFinite(timestampMs)) return;
+    this.addSample({ ...last, timestampMs, paused: true } as ApproachSample);
+  }
 
   /**
    * Add a sample to the approach history.
@@ -810,6 +832,38 @@ class SimpleStabilityScorer {
     // Check configuration stability after gate
     const result = this._checkConfigurationStability(gateSample, heightOf, scoringContext, criteria);
 
+    if (criteria.assessmentVersion === 4) {
+      const configurationFailures = result.gateFailures.filter(failure => HARD_STABILITY_FAILURES.has(failure));
+      const evaluated = assessApproach({
+        samples: this.samples.map(sample => ({ ...sample, heightFt: heightOf(sample) })),
+        criteria,
+        configuration: { score: result.breakdown.config_ok,
+          gear: result.breakdown.gear_ok === null ? null : result.breakdown.gear_ok === 100,
+          flaps: result.breakdown.flaps_ok === null ? null : result.breakdown.flaps_ok === 100,
+          failures: configurationFailures },
+        lateralScore: getLateralOffsetOkPct(scoringContext),
+      });
+      const breakdown = evaluated.score === null ? this._createEmptyBreakdown() : { ...result.breakdown };
+      for (const [key, metric] of Object.entries(evaluated.assessment.metrics) as Array<[string, { score: number | null }]>) {
+        breakdown[key] = metric.score;
+      }
+      breakdown.thrust_stable_ok = breakdown.thrust_ok;
+      const metricCoverage = evaluated.score === null ? this._createEmptyCoverage().metrics : { ...result.coverage.metrics };
+      for (const [key, metric] of Object.entries(evaluated.assessment.metrics) as Array<[string, { score: number | null; observedMs: number }]>) {
+        metricCoverage[key] = { available: metric.score !== null,
+          eligibleCount: Math.round(metric.observedMs / 200), observedCount: Math.round(metric.observedMs / 200) };
+      }
+      const scoredGroups = Object.values(evaluated.assessment.groups).filter((group: any) => group.score !== null).length;
+      return {
+        score: evaluated.score, verdict: evaluated.verdict, breakdown, samples: this.samples.length,
+        gateStable: evaluated.failures.length === 0, gateFailures: evaluated.failures,
+        criteria, assessment: evaluated.assessment,
+        coverage: { scoredMetrics: scoredGroups, totalMetrics: 6, metrics: metricCoverage },
+        reference: { altitudeSource, gateHeightFt: evaluated.assessment.window.observedGateHeightFt,
+          gateIasKts: evaluated.assessment.referenceIasKts },
+      };
+    }
+
     const verdict = classifyApproachStability({
       ...result,
       samples: this.samples.length,
@@ -841,8 +895,10 @@ class SimpleStabilityScorer {
     scoringContext: StabilityScoringContext = {},
     criteria: StabilityScoringCriteria = getStabilityCriteria(scoringContext.criteria),
   ): StabilityCheckResult {
-    const gateHeight = heightOf(gateSample);
-    const samplesAfterGate = this.samples.filter(s => heightOf(s) <= gateHeight);
+    // The gate starts an interval in time. A later height rebound must not
+    // discard samples, even when the first recorded crossing was below the
+    // configured gate height.
+    const samplesAfterGate = this.samples.slice(this.samples.indexOf(gateSample));
     // Stability is an approach quality judgement. A current-flight buffer may
     // continue receiving frames until rollout finalization, so exclude WOW/rollout samples
     // from all after-gate checks. Otherwise normal touchdown effects (idle thrust,
@@ -945,10 +1001,6 @@ class SimpleStabilityScorer {
           return smoothedVsFpm <= targetVsFpm + criteria.glidepathVsDeltaMaxFpm;
         });
 
-    const thrustSamples = energySamplesAfterGate.filter(
-      (sample): sample is ApproachSample & { thrustPct: number } =>
-        typeof sample.thrustPct === 'number' && Number.isFinite(sample.thrustPct),
-    );
     // Legacy compatibility field. This used to treat reported engine/thrust percent
     // >= 15 as "not idle", but many turbojets report real idle near 20% N1 and
     // add-ons differ on whether this value is N1, thrust, or lever position. Keep
@@ -958,8 +1010,10 @@ class SimpleStabilityScorer {
     // Compatibility name: this is a throttle/engine-percent movement proxy,
     // not a turbofan spool-rate requirement. Live collection prefers explicit
     // throttle lever percent before falling back to N1-like engine levels.
+    // Keep missing readings in the time window: dtMs is the interval since the
+    // preceding frame, not the preceding frame with a valid throttle value.
     const thrustStableResult = percentageOfWindowedRates(
-      thrustSamples,
+      energySamplesAfterGate,
       sample => sample.thrustPct,
       criteria.thrustStableMaxPctPerSec,
     );
@@ -1427,6 +1481,9 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
 
   return {
     raFt, iasKts, vsFpm, gsKts, altMslFt,
+    timestampMs: input.timestampMs,
+    gsDeviationDots: normalizedApproachDeviation(input, 'gs'),
+    locDeviationDots: normalizedApproachDeviation(input, 'loc'),
     altCalibratedFt, altPlaneFt, pressureAltFt,
     aircraftAglFt, aircraftAboveObstaclesFt, planeAglFt, planeAglMinusCgFt,
     gearDownLocked: normalizedGearDownLocked, gearDown, gearAvailable,
@@ -1446,6 +1503,21 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
  * @param {object} frame - Raw or canonical telemetry frame
  * @returns {object | null} ApproachSample or null if frame is unusable.
  */
+function normalizedApproachDeviation(input: Record<string, any>, kind: 'gs' | 'loc'): number | null {
+  const fdm = input.fdm || {};
+  const hasSignal = kind === 'gs'
+    ? firstDefined(input.nav1HasGlideSlope, fdm.nav1HasGlideSlope)
+    : firstDefined(input.nav1HasLocalizer, fdm.nav1HasLocalizer);
+  const strength = firstDefined(input.nav1Signal, fdm.nav1Signal);
+  // Explicit receiver validity is required. Default zero needles are not proof
+  // that the aircraft is following a localizer/glideslope.
+  if (hasSignal !== true || (typeof strength === 'number' && strength <= 0)) return null;
+  const value = kind === 'gs'
+    ? firstDefined(input.gsDeviation, input.ilsGsDeviation, fdm.gsDeviationDots)
+    : firstDefined(input.locDeviation, input.ilsLocDeviation, fdm.locDeviationDots);
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 5 ? value : null;
+}
+
 function frameToSample(frame: Record<string, any>): ApproachSample | null {
   const n = normalizeFrame(frame);
   if (!n) return null;
@@ -1475,6 +1547,9 @@ function frameToSample(frame: Record<string, any>): ApproachSample | null {
 
   return {
     raFt: n.raFt,
+    timestampMs: finiteNumberOrNull(n.timestampMs),
+    gsDeviationDots: n.gsDeviationDots,
+    locDeviationDots: n.locDeviationDots,
     iasKts: n.iasKts,
     vsFpm: n.vsFpm,
     altMslFt,

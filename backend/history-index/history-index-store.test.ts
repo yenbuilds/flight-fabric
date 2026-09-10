@@ -172,16 +172,11 @@ test('history index store replaces one source transactionally', (t) => {
     assert.equal(flights.flights[0].flightId, 'flight-a');
     assert.equal(flights.flights[0].arrivalIcao, 'LFPG');
 
-    const landings = store.queryLandings({ limit: 10 });
+    const landings = store.queryLogbookEntries({ limit: 10 });
     assert.equal(landings.totalMatching, 1);
-    assert.equal(landings.landings[0].landingId, 'landing-a');
-    assert.equal(landings.landings[0].gateStable, true);
-    assert.deepEqual(landings.landings[0].payload, {
-      id: 'landing-a',
-      grade: 'Good',
-      stabilityVerdict: 'stable',
-    });
-    const latestLanding = store.queryLatestLandingForSource(landings.landings[0].sourceId);
+    assert.equal(landings.entries[0].landingId, 'landing-a');
+    assert.equal(landings.entries[0].gateStable, true);
+    const latestLanding = store.queryLatestLandingForSource(landings.entries[0].sourceId);
     assert.equal(latestLanding.landingId, 'landing-a');
     assert.deepEqual(latestLanding.payload, {
       id: 'landing-a',
@@ -250,7 +245,9 @@ test('history index normalizes retired spoiler penalties before persistence', (t
       }],
     });
 
-    const landing = store.queryLandings({ limit: 10 }).landings[0];
+    const landing = store.queryLatestLandingForSource(
+      store.getSourceByPath(sourcePath(tmpRoot, 'legacy-spoiler.csv')).sourceId,
+    );
     assert.equal(landing.stabilityScore, 89);
     assert.equal(landing.stabilityVerdict, 'marginal');
     assert.equal(landing.gateStable, false);
@@ -446,7 +443,7 @@ test('history index store prunes only the missing flight lane and preserves land
     assert.deepEqual(store.getCounts(), { sources: 2, flights: 1, landings: 2 });
     assert.equal(store.queryFlights({ limit: 10 }).flights[0].flightId, 'keep');
     assert.deepEqual(
-      store.queryLandings({ limit: 10 }).landings.map((landing) => landing.landingId),
+      store.queryLogbookEntries({ limit: 10 }).entries.map((landing) => landing.landingId),
       ['delete-landing', 'keep-landing'],
     );
     assert.equal(store.getFlightsSourceByPath(deletePath), null);
@@ -553,7 +550,7 @@ test('history index relinks inferred landing identity when the flight lane chang
       flights: [{ flightId: 'flight-v2', startedAtMs: 3000 }],
     }]);
 
-    const landing = store.queryLandings({ limit: 10 }).landings[0];
+    const landing = store.queryLogbookEntries({ limit: 10 }).entries[0];
     assert.equal(landing.flightId, 'flight-v2');
     assert.equal(landing.flightKey, `${landing.sourceId}:flight-v2`);
   });
@@ -627,7 +624,7 @@ test('history index assigns the same landing flight key regardless of lane refre
       landings: [{ landingId: 'flights-first', timestampMs: 4000, timestamp: '2026-07-09T00:00:04.000Z' }],
     }]);
 
-    const landings = store.queryLandings({ limit: 10 }).landings;
+    const landings = store.queryLogbookEntries({ limit: 10 }).entries;
     const landingsFirst = landings.find((landing) => landing.landingId === 'landings-first');
     const flightsFirst = landings.find((landing) => landing.landingId === 'flights-first');
     assert.equal(landingsFirst.flightId, 'landings-first-flight');

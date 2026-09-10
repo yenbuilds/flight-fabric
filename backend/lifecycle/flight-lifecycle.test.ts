@@ -4,7 +4,6 @@
 
 const {
   LifecycleState,
-  computeInFlightContext,
   checkFlightStartEligibility,
   updateActiveFlightEndGuard,
   updateManualAutoStartSuppression,
@@ -13,31 +12,6 @@ const {
 const { createHarness } = require('../../tests/support/mini-test-harness');
 
 const { test, assertEqual, assertTrue, summary } = createHarness();
-
-test('computeInFlightContext gates menu/paused/disconnected', () => {
-  const disconnected = computeInFlightContext({ simconnectConnected: false });
-  assertEqual(disconnected.inFlightContext, false, 'Disconnected gate');
-  assertEqual(disconnected.reason, 'simconnect_disconnected', 'Disconnected reason');
-
-  const menu = computeInFlightContext({
-    simconnectConnected: true,
-    simRunning: true,
-    userInputEnabled: false,
-    aircraftLoadedName: 'B737',
-  });
-  assertEqual(menu.inFlightContext, false, 'Menu gate');
-  assertEqual(menu.reason, 'user_input_disabled', 'Menu reason');
-
-  const good = computeInFlightContext({
-    simconnectConnected: true,
-    simRunning: true,
-    userInputEnabled: true,
-    aircraftLoadedName: 'B737',
-    paused: false,
-  });
-  assertEqual(good.inFlightContext, true, 'Valid in-flight context');
-  assertEqual(good.reason, 'ok', 'Valid reason');
-});
 
 test('checkFlightStartEligibility blocks menu/globe and allows valid airborne start', () => {
   const now = Date.now();

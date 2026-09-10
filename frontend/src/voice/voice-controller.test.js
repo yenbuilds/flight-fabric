@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVoiceControlController } from './voice-controller.js';
+import { createPinia, setActivePinia } from 'pinia';
+import { useAircraftControlsStore } from '../vue/stores/aircraft-controls.js';
+import { createAircraftControlController } from '../aircraft/control-controller.js';
+import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
 
 function createHarness(options = {}) {
   const command = {
@@ -13,12 +17,12 @@ function createHarness(options = {}) {
       configurationId: 'generic', profileKey: 'test/generic', profileRevision: 1,
       commands: { [command.id]: command },
   };
-  const aircraftControlsStore = {
+  const aircraftControlsStore = options.aircraftControlsStore || {
     availability: options.availability || { enabled: true, reason: 'Ready.' },
     aircraftCommandCatalogue: options.catalogue || defaultCatalogue,
   };
   const sentCommands = [];
-  const aircraftControl = {
+  const aircraftControl = options.aircraftControl || {
     sendCommand(commandId, input, commandOptions) {
       sentCommands.push({ commandId, input, options: commandOptions });
       return options.sendCommandResult ?? true;
@@ -134,6 +138,7 @@ function createHarness(options = {}) {
   };
   const controller = createVoiceControlController({
     api, aircraftControl, aircraftControlsStore, voiceStore, createCapture,
+    aircraftSpecificStore: options.aircraftSpecificStore,
     globalRef: options.globalRef || {}, readback, pushToTalkTone,
     // Most controller tests do not need to spend real time in the production
     // release tail. The dedicated regression below exercises the real delay.
@@ -148,6 +153,173 @@ function createHarness(options = {}) {
     readbackCancellations, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
+
+test('voice and page COM swap requests share pending state and cannot overlap in either direction', async () => {
+  setActivePinia(createPinia());
+  const controls = useAircraftControlsStore(), sent = [];
+  const command = { id: 'radios.com1.swap', label: 'Swap COM 1', input: { kind: 'none' },
+    speech: { patterns: ['swap com one'] } };
+  const catalogue = { profileKey: 'bundled/msfs/fbw-a32nx', profileRevision: 1,
+    configurationId: 'fbw-a32nx', commands: [command] };
+  const aircraftControl = createAircraftControlController({
+    WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+    getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true,
+    aircraftControlsStore: controls,
+  });
+  aircraftControl.setActiveProfileToken({ _profileKey: catalogue.profileKey, profileRevision: 1 });
+  aircraftControl.applyControlCapabilities({ aircraftCommands: catalogue });
+  aircraftControl.updateAvailability();
+  const h = createHarness({ aircraftControlsStore: controls, aircraftControl });
+  const speakSwap = async () => {
+    assert.equal(await h.controller.begin(), true);
+    const sessionId = h.voiceStore.activeSessionId;
+    await h.controller.finish();
+    await h.emitRecognition({ type: 'final', sessionId, text: 'swap com one' });
+  };
+  const pendingKey = 'aircraft-command:radios.com1.swap';
+  try {
+    await h.controller.initialize();
+    await speakSwap();
+    assert.equal(sent.length, 1);
+    assert.equal(aircraftControl.sendCommand(command.id), false, 'a page click cannot send a second swap');
+    assert.equal(controls.isCommandPending(pendingKey), true, 'the page must show the voice swap as pending');
+    aircraftControl.handleResult({ requestId: sent[0].requestId, commandId: command.id, ok: true, code: 'executed',
+      radio: { index: 1, bank: 'active', frequencyMhz: 123.45 } });
+    assert.equal(controls.isCommandPending(pendingKey), false);
+    assert.match(h.spokenReadbacks.at(-1), /confirmed/i, 'voice still owns its correlated result');
+    assert.equal(aircraftControl.sendCommand(command.id), true);
+    await speakSwap();
+    assert.equal(sent.length, 2, 'voice cannot send another swap while a page request is pending');
+    aircraftControl.handleResult({ requestId: sent[1].requestId, commandId: command.id, ok: false, error: 'Swap rejected' });
+    assert.equal(controls.isCommandPending(pendingKey), false, 'a failure releases the shared pending state');
+  } finally {
+    await h.controller.dispose();
+    aircraftControl.clearPendingRequests();
+  }
+});
+
+test('generic flap buttons and voice cannot send overlapping relative adjustments', async () => {
+  setActivePinia(createPinia());
+  const controls = useAircraftControlsStore(), sent = [], timers = [];
+  const command = { id: 'surfaces.flaps.adjust', label: 'Adjust flaps', input: { kind: 'enum', values: ['increase', 'decrease'] },
+    speech: { patterns: ['flaps {value}'] } };
+  const catalogue = { profileKey: 'bundled/msfs/generic', profileRevision: 1, configurationId: 'generic', commands: [command] };
+  const aircraftControl = createAircraftControlController({
+    WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+    getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true, aircraftControlsStore: controls,
+    now: () => 1000,
+    setTimeoutRef: callback => { const timer = { callback }; timers.push(timer); return timer; },
+    clearTimeoutRef: timer => { timer.cancelled = true; },
+  });
+  aircraftControl.setActiveProfileToken({ _profileKey: catalogue.profileKey, profileRevision: 1 });
+  aircraftControl.applyControlCapabilities({ aircraftCommands: catalogue });
+  const panel = createAutopilotPanel({ aircraftControl, aircraftControlsStore: controls, getCurrentState: () => ({}) });
+  panel.bindControls();
+  const h = createHarness({ aircraftControlsStore: controls, aircraftControl });
+  const button = { type: 'control', id: 'flapsIncrease' };
+  const speak = async () => {
+    assert.equal(await h.controller.begin(), true);
+    const sessionId = h.voiceStore.activeSessionId;
+    await h.controller.finish();
+    await h.emitRecognition({ type: 'final', sessionId, text: 'flaps increase' });
+  };
+  try {
+    await h.controller.initialize();
+    await speak();
+    assert.equal(await controls.requestControlCommand(button), false, 'a page click cannot add another flap detent');
+    assert.equal(controls.isCommandPending(button), true, 'the generic flap button shows the voice request as pending');
+    aircraftControl.handleResult({ requestId: sent[0].requestId, commandId: command.id, ok: true, code: 'executed' });
+    assert.equal(controls.isCommandPending(button), false);
+    assert.equal(await controls.requestControlCommand(button), true);
+    await speak();
+    assert.equal(sent.length, 2, 'voice cannot add a flap detent while the page request is pending');
+    aircraftControl.handleResult({ requestId: sent[1].requestId, commandId: command.id, ok: false, error: 'Rejected' });
+    assert.equal(controls.isCommandPending(button), false);
+    assert.equal(controls.isCommandPending(`aircraft-command:${command.id}`), false);
+    const options = { pendingKey: 'panel:flaps', minimumPendingMs: 350 };
+    assert.equal(aircraftControl.sendCommand(command.id, { value: 'increase' }, options), true);
+    aircraftControl.handleResult({ requestId: sent.at(-1).requestId, commandId: command.id, ok: true, code: 'executed' });
+    assert.equal(aircraftControl.sendCommand(command.id, { value: 'increase' }), false, 'the shared command remains pending during the panel cooldown');
+    aircraftControl.clearPendingRequests('Connection lost.');
+    assert.deepEqual(controls.pendingCommands, {}, 'disconnect clears every pending key owned by the request');
+    assert.ok(timers.every(timer => timer.cancelled));
+    assert.equal(aircraftControl.sendCommand(command.id, { value: 'increase' }, options), true);
+    for (const timer of timers) timer.callback();
+    assert.equal(controls.isCommandPending('panel:flaps'), true, 'old cooldowns cannot release a new panel request');
+    assert.equal(controls.isCommandPending(`aircraft-command:${command.id}`), true, 'old cooldowns cannot release its canonical key');
+  } finally { await h.controller.dispose(); aircraftControl.clearPendingRequests(); }
+});
+
+test('state queries speak fresh observations while writes are unavailable and never call sendCommand', async () => {
+  for (const stale of [false, true]) {
+    const now = Date.now();
+    const state = { activeProfileKey: 'bundled/msfs/fbw-a32nx', activeProfileRevision: 2, sourceStatus: 'connected',
+      values: { 'controls.spoilersArmed': true }, unavailable: [], updatedAt: new Date(now).toISOString(), receivedAt: now,
+      valueUpdatedAt: { 'controls.spoilersArmed': new Date(now - (stale ? 60000 : 0)).toISOString() } };
+    const h = createHarness({ aircraftSpecificStore: state, availability: { enabled: false, reason: 'Read only' },
+      catalogue: { profileKey: state.activeProfileKey, profileRevision: 2, configurationId: 'fbw-a32nx', commands: {} } });
+    await h.controller.initialize(); assert.equal(await h.controller.begin(), true);
+    await h.controller.finish();
+    h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'are spoilers armed' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(h.sentCommands.length, 0);
+    assert.equal(h.voiceStore.status, stale ? 'error' : 'sent');
+    assert.match(h.spokenReadbacks[0], stale ? /unavailable/ : /Ground spoilers armed/);
+    await h.controller.dispose();
+  }
+});
+
+test('read-only queries work before a control catalogue and reject profile or data loss during capture', async () => {
+  for (const change of ['none', 'profile', 'disconnected', 'missing-field']) {
+    const now = Date.now();
+    const state = { activeProfileKey: 'bundled/msfs/fbw-a32nx', activeProfileRevision: 2, sourceStatus: 'connected',
+      values: { 'controls.spoilersArmed': false }, unavailable: [], updatedAt: new Date(now).toISOString(), receivedAt: now,
+      valueUpdatedAt: { 'controls.spoilersArmed': new Date(now).toISOString() } };
+    const h = createHarness({ aircraftSpecificStore: state, availability: { enabled: false, reason: 'Read only' },
+      catalogue: { profileKey: '', profileRevision: null, configurationId: '', commands: {} } });
+    await h.controller.initialize(); assert.equal(await h.controller.begin(), true);
+    await h.controller.finish();
+    if (change === 'profile') state.activeProfileRevision++;
+    if (change === 'disconnected') state.sourceStatus = 'disconnected';
+    if (change === 'missing-field') state.valueUpdatedAt = {};
+    await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'are spoilers armed' });
+    assert.equal(h.sentCommands.length, 0);
+    assert.equal(h.voiceStore.status, change === 'none' ? 'sent' : 'error');
+    assert.equal(h.spokenReadbacks.includes('Ground spoilers disarmed.'), change === 'none');
+    await h.controller.dispose();
+  }
+});
+
+test('new altimeter and Fenix state questions speak observations without dispatching controls', async () => {
+  const cases = [
+    ['fbw-a32nx', 'what is captain q n h', { 'baro.captain.mode': 1, 'baro.captain.valueMode': 1,
+      'baro.captain.value': 1016, 'flightGuidance.baroUnitCaptain': false }, true, 'Captain Q N H one zero one six hectopascals.'],
+    ['fenix-a320', 'what is first officer qnh', { 'baro.firstOfficer.qnh': true,
+      'flightGuidance.baroUnitFirstOfficer': 'inhg', 'baro.firstOfficer.inhg': 29.90 }, true, 'First officer Q N H two nine decimal nine zero inches of mercury.'],
+    ['fenix-a320', 'are both altimeters on std', { 'baro.captain.qnh': false, 'baro.firstOfficer.qnh': false }, true, 'Yes. Both altimeters standard pressure.'],
+    ['fenix-a320', 'are both altimeters on std', { 'baro.captain.qnh': false }, false, 'Captain standard pressure. First officer altimeter data unavailable.'],
+    ['fenix-a320', 'are spoilers armed', { 'controls.speedbrakePosition': 0 }, true, 'Ground spoilers armed.'],
+    ['fenix-a320', 'what is autobrake', { 'controls.autobrake.low': false, 'controls.autobrake.medium': true,
+      'controls.autobrake.max': false }, true, 'Autobrake medium.'],
+  ];
+  for (const [profile, phrase, readings, ok, expected] of cases) for (const enabled of [false, true]) {
+    const now = Date.now(), values = { 'baro.healthy': true, ...readings };
+    const state = { activeProfileKey: `bundled/msfs/${profile}`, activeProfileRevision: 2, sourceStatus: 'connected', values,
+      unavailable: [], updatedAt: new Date(now).toISOString(), receivedAt: now,
+      valueUpdatedAt: Object.fromEntries(Object.keys(values).map(id => [id, new Date(now).toISOString()])) };
+    const h = createHarness({ aircraftSpecificStore: state, availability: { enabled, reason: 'Test access' },
+      catalogue: { profileKey: state.activeProfileKey, profileRevision: 2, configurationId: profile, commands: {} } });
+    await h.controller.initialize(); assert.equal(await h.controller.begin(), true);
+    assert.ok(h.controller.collectHints().includes('WHAT IS CAPTAIN QNH'));
+    await h.controller.finish();
+    await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: phrase });
+    assert.equal(h.sentCommands.length, 0, phrase);
+    assert.equal(h.voiceStore.status, ok ? 'sent' : 'error', phrase);
+    assert.equal(h.spokenReadbacks[0], expected, phrase);
+    assert.equal(h.voiceStore.statusText, expected, phrase);
+    await h.controller.dispose();
+  }
+});
 
 test('voice preferences select a microphone and persist local spoken feedback safely', async () => {
   const values = new Map([
@@ -284,7 +456,7 @@ test('one push-to-talk session dispatches one exact shared aircraft command', as
   assert.equal(harness.sentCommands.length, 1);
   assert.deepEqual(harness.sentCommands[0].input, { value: 270 });
   assert.equal(harness.sentCommands[0].commandId, 'flightGuidance.heading.set');
-  assert.equal(harness.sentCommands[0].options.pendingKey, 'voice:flightGuidance.heading.set');
+  assert.equal(harness.sentCommands[0].options.pendingKey, 'aircraft-command:flightGuidance.heading.set');
   assert.equal(typeof harness.sentCommands[0].options.onResult, 'function');
   harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading one eight zero' });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -581,6 +753,7 @@ test('unconfirmed backend results keep voice feedback honest for commands and pr
     harness.completeLastCommand({
       ok: true, code: 'sent_unconfirmed', requestId: 'ctrl-1',
       stepCount, completedStepCount: stepCount, unconfirmedStepCount: 1,
+      ...(stepCount > 1 ? { transportAcknowledged: true } : {}),
     });
     assert.equal(harness.voiceStore.status, 'sent');
     assert.match(harness.voiceStore.statusText, /response unconfirmed.*check the simulator/i);
@@ -590,6 +763,111 @@ test('unconfirmed backend results keep voice feedback honest for commands and pr
     assert.equal(harness.sentCommands.length, 1, 'feedback must not retry the command');
     await harness.controller.begin();
     await harness.controller.cancel('user');
+  }
+});
+
+test('APU voice dispatch reports request acceptance or existing startup without claiming availability', async () => {
+  for (const code of ['executed', 'already_satisfied']) for (const transcript of ['start apu', 'start ay pee you', 'START A P YOU']) {
+    const harness = createHarness({ catalogue: { configurationId: 'test-apu', profileKey: 'test/apu', profileRevision: 1, commands: {
+      apu: { id: 'configuration.apu.start', label: 'Start APU', input: { kind: 'none' },
+        speech: { patterns: ['start apu'] } },
+    } } });
+    await harness.controller.initialize();
+    await harness.controller.begin();
+    await harness.controller.finish();
+    await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: transcript });
+    harness.completeLastCommand({ ok: true, code, transportAcknowledged: code === 'executed' });
+    assert.equal(harness.voiceStore.status, 'sent');
+    assert.equal(harness.sentCommands.length, 1);
+    assert.deepEqual(harness.spokenReadbacks, [code === 'executed'
+      ? 'A P U start requested.' : 'A P U already starting or running.']);
+    assert.doesNotMatch(harness.voiceStore.statusText, /APU (?:is available|started successfully)/i);
+  }
+});
+
+test('IDENT transport acceptance speaks a request without claiming active IDENT or retrying', async () => {
+  const harness = createHarness({ catalogue: { configurationId: 'pmdg-777', profileKey: 'bundled/msfs/pmdg-777', profileRevision: 1, commands: {
+    ident: { id: 'surveillance.ident.activate', label: 'IDENT', input: { kind: 'none' }, speech: { patterns: ['ident'] } },
+  } } });
+  await harness.controller.initialize(); await harness.controller.begin(); await harness.controller.finish();
+  await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'ident' });
+  assert.equal(harness.spokenReadbacks.length, 0);
+  harness.completeLastCommand({ ok: true, code: 'executed', transportAcknowledged: true });
+  assert.deepEqual(harness.spokenReadbacks, ['IDENT requested.']);
+  assert.match(harness.voiceStore.statusText, /IDENT requested/);
+  assert.equal(harness.sentCommands.length, 1);
+});
+
+test('clipped APU letters never dispatch or produce a start-request readback', async () => {
+  for (const transcript of ['START A P', 'start ay pee', 'start AP']) {
+    const harness = createHarness({ catalogue: { configurationId: 'test-apu', profileKey: 'test/apu', profileRevision: 1, commands: {
+      apu: { id: 'configuration.apu.start', label: 'Start APU', input: { kind: 'none' },
+        speech: { patterns: ['start apu', 'start a p u'] } },
+    } } });
+    await harness.controller.initialize();
+    await harness.controller.begin();
+    await harness.controller.finish();
+    await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: transcript });
+    assert.equal(harness.sentCommands.length, 0, transcript);
+    assert.equal(harness.spokenReadbacks.length, 0, transcript);
+  }
+});
+
+test('COM voice completion speaks the observed active frequency and never confirms a missing readback', async () => {
+  for (const confirmed of [true, false]) {
+    const harness = createHarness({ catalogue: { configurationId: 'fbw-a32nx', profileKey: 'bundled/msfs/fbw-a32nx', profileRevision: 1, commands: {
+      swap: { id: 'radios.com2.swap', label: 'Swap COM 2', input: { kind: 'none' }, speech: { patterns: ['swap com two'] } },
+    } } });
+    await harness.controller.initialize();
+    await harness.controller.begin();
+    await harness.controller.finish();
+    await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'swap com two' });
+    assert.equal(harness.spokenReadbacks.length, 0, 'dispatch is not confirmation');
+    harness.completeLastCommand({ ok: true, code: 'executed', ...(confirmed
+      ? { radio: { index: 2, bank: 'active', frequencyMhz: 123.005 } } : {}) });
+    assert.equal(harness.sentCommands.length, 1);
+    if (confirmed) {
+      assert.match(harness.voiceStore.statusText, /COM 2 active 123.005 MHz confirmed/);
+      assert.deepEqual(harness.spokenReadbacks, ['Com two active one two three decimal zero zero five confirmed.']);
+    } else {
+      assert.match(harness.voiceStore.statusText, /unconfirmed/);
+      assert.match(harness.spokenReadbacks[0], /unconfirmed/);
+    }
+  }
+});
+
+test('approach voice waits for confirmation and never speaks a selection after failure or unconfirmed dispatch', async () => {
+  for (const [id, value, spoken] of [
+    ['surfaces.flaps.set', 'full', 'Flaps full selected.'],
+    ['surfaces.autobrake.set', 'medium', 'Autobrake medium set.'],
+    ['surfaces.spoilers.set', 'half', 'Speedbrake half selected.'],
+  ]) for (const code of ['executed', 'sent_unconfirmed', 'aircraft_integration_readback_timeout']) {
+    const harness = createHarness({ catalogue: { configurationId: 'fbw-a32nx', profileKey: 'bundled/msfs/fbw-a32nx', profileRevision: 1, commands: {
+      approach: { id, label: 'Approach control', input: { kind: 'enum', values: [value] }, speech: { patterns: ['select {value}'] } },
+    } } });
+    await harness.controller.initialize(); await harness.controller.begin(); await harness.controller.finish();
+    await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: `select ${value}` });
+    assert.equal(harness.spokenReadbacks.length, 0, 'dispatch alone cannot confirm selection');
+    harness.completeLastCommand({ ok: code !== 'aircraft_integration_readback_timeout', code });
+    assert.equal(harness.sentCommands.length, 1);
+    if (code === 'executed') assert.deepEqual(harness.spokenReadbacks, [spoken]);
+    else assert.equal(harness.spokenReadbacks.includes(spoken), false);
+  }
+});
+
+test('both altimeters voice feedback requires both readbacks and speaks partial failure', async () => {
+  for (const confirmed of [true, false]) {
+    const harness = createHarness({ catalogue: { configurationId: 'fbw-a32nx', profileKey: 'bundled/msfs/fbw-a32nx', profileRevision: 1, commands: {
+      baro: { id: 'baro.both.std', label: 'Both standard pressure', input: { kind: 'none' }, speech: { patterns: ['both standard pressure'] } },
+    } } });
+    await harness.controller.initialize(); await harness.controller.begin(); await harness.controller.finish();
+    await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'both standard pressure' });
+    assert.equal(harness.spokenReadbacks.length, 0);
+    harness.completeLastCommand({ ok: confirmed, code: confirmed ? 'executed' : 'baro_readback_timeout',
+      baro: { target: 'both', mode: 'std', confirmedSides: confirmed ? ['captain', 'firstOfficer'] : ['captain'] } });
+    assert.equal(harness.sentCommands.length, 1);
+    assert.equal(harness.voiceStore.status, confirmed ? 'sent' : 'error');
+    assert.match(harness.spokenReadbacks[0], confirmed ? /Both altimeters standard pressure confirmed/ : /Captain standard pressure observed.*First officer unconfirmed/);
   }
 });
 

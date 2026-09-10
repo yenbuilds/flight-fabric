@@ -647,16 +647,7 @@ export const useLandingStore = defineStore('landing', {
               : 'text-gray-400';
         landingCard.approach.stabilityNoteText = summaryPresentation.approachDetailText
           || (contextSummary.isGeneric ? 'Generic-profile estimate' : 'Approach score --');
-        const gateLabel = summaryPresentation.stabilityGateLabel;
-        const passPct = summaryPresentation.stabilityPassPct;
-        const stabilityExplanation = stabilityVerdict === 'unstable'
-          ? `A hard or substantial deviation was recorded after the ${gateLabel} gate.`
-          : stabilityVerdict === 'marginal'
-            ? `Only soft/proxy checks missed the strict ${passPct}% threshold after the ${gateLabel} gate.`
-            : stabilityVerdict === 'stable'
-              ? `Every applicable strict check met its recorded ${passPct}% threshold after the ${gateLabel} gate.`
-              : `There was not enough usable data for an approach verdict after the ${gateLabel} gate.`;
-        landingCard.approach.stabilityTooltip = `${contextSummary.label}. ${stabilityExplanation} Approach score is a separate retrospective aggregate.`;
+        landingCard.approach.stabilityTooltip = `${contextSummary.label}. ${summaryPresentation.approachExplanation} Approach score is a separate retrospective aggregate.`;
       }
 
       landingCard.approach.typeText = msg.approachType || 'VISUAL';
@@ -724,40 +715,44 @@ export const useLandingStore = defineStore('landing', {
             ? 'text-amber-400'
             : 'text-green-400';
         const rolloutMetrics = [];
-        if (Number.isFinite(Number(rollout.maxBankDeg))) {
+        if (rollout.maxBankDeg == null || Number.isFinite(Number(rollout.maxBankDeg))) {
           rolloutMetrics.push({
             key: 'bank',
             label: 'Peak bank',
-            value: `${Number(rollout.maxBankDeg).toFixed(1)} deg`,
+            value: rollout.maxBankDeg == null ? '--' : `${Number(rollout.maxBankDeg).toFixed(1)} deg`,
           });
         }
-        if (Number.isFinite(Number(rollout.maxBankRateDegS))) {
+        if (rollout.maxBankRateDegS == null || Number.isFinite(Number(rollout.maxBankRateDegS))) {
           rolloutMetrics.push({
             key: 'bank-rate',
             label: 'Bank change',
-            value: `${Number(rollout.maxBankRateDegS).toFixed(1)} deg/s`,
+            value: rollout.maxBankRateDegS == null ? '--' : `${Number(rollout.maxBankRateDegS).toFixed(1)} deg/s`,
           });
         }
-        if (Number.isFinite(Number(rollout.maxHeadingDeviationDeg))) {
+        if (rollout.maxHeadingDeviationDeg == null || Number.isFinite(Number(rollout.maxHeadingDeviationDeg))) {
           rolloutMetrics.push({
             key: 'heading',
             label: 'Heading deviation',
-            value: `${Number(rollout.maxHeadingDeviationDeg).toFixed(1)} deg ${rollout.maxHeadingDeviationSide || ''}`.trim(),
+            value: rollout.maxHeadingDeviationDeg == null
+              ? '--'
+              : `${Number(rollout.maxHeadingDeviationDeg).toFixed(1)} deg ${rollout.maxHeadingDeviationSide || ''}`.trim(),
           });
         }
-        if (Number.isFinite(Number(rollout.maxLateralOffsetFt))) {
+        if (rollout.maxLateralOffsetFt == null || Number.isFinite(Number(rollout.maxLateralOffsetFt))) {
           rolloutMetrics.push({
             key: 'lateral',
             label: 'Peak lateral offset',
-            value: `${Math.round(Number(rollout.maxLateralOffsetFt))} ft ${rollout.maxLateralOffsetSide || ''}`.trim(),
+            value: rollout.maxLateralOffsetFt == null
+              ? '--'
+              : `${Math.round(Number(rollout.maxLateralOffsetFt))} ft ${rollout.maxLateralOffsetSide || ''}`.trim(),
           });
         }
         const edgeMarginFt = rollout.conservativeRunwayEdgeMarginFt ?? rollout.minRunwayEdgeMarginFt;
-        if (Number.isFinite(Number(edgeMarginFt))) {
+        if (edgeMarginFt == null || Number.isFinite(Number(edgeMarginFt))) {
           rolloutMetrics.push({
             key: 'edge-margin',
             label: rollout.conservativeRunwayEdgeMarginFt != null ? 'Conservative edge margin' : 'Runway edge margin',
-            value: `${Math.round(Number(edgeMarginFt))} ft`,
+            value: edgeMarginFt == null ? '--' : `${Math.round(Number(edgeMarginFt))} ft`,
           });
         }
         const noteParts = ['Separate from approach stability.'];
@@ -789,11 +784,14 @@ export const useLandingStore = defineStore('landing', {
               ? 'text-red-400'
               : 'text-gray-100';
           landingCard.touchdown.lateralGradeText = tdz.lateralOffsetGrade || '--';
-          landingCard.touchdown.lateralGradeTone = tdz.lateralOffsetScore >= 90
-            ? 'text-green-400'
-            : tdz.lateralOffsetScore >= 70
-              ? 'text-amber-500'
-              : 'text-red-400';
+          const lateralScore = tdz.lateralOffsetScore != null ? Number(tdz.lateralOffsetScore) : NaN;
+          landingCard.touchdown.lateralGradeTone = Number.isFinite(lateralScore)
+            ? (lateralScore >= 90
+                ? 'text-green-400'
+                : lateralScore >= 70
+                  ? 'text-amber-500'
+                  : 'text-red-400')
+            : verdict.lateral.textClass;
         }
       }
 
@@ -810,7 +808,7 @@ export const useLandingStore = defineStore('landing', {
         landingCard.touchdown.bounceGradeText = tdz?.bounceDistanceFt && tdz.bounceDistanceFt > 0
           ? `${bounceGrade} (${Math.round(tdz.bounceDistanceFt)} ft)`
           : bounceGrade;
-        const bounceScore = Number(tdz?.bounceScore);
+        const bounceScore = tdz?.bounceScore != null ? Number(tdz.bounceScore) : NaN;
         landingCard.touchdown.bounceGradeTone = Number.isFinite(bounceScore)
           ? (bounceScore >= 90
               ? 'text-green-400'

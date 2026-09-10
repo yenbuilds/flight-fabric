@@ -7,7 +7,6 @@ const {
   buildVreEnrichedFrame,
   computeHeadingAndMagvar,
   computeSimStateMenuFlag,
-  createRunwayContextDetector,
   deriveApproachConfigurationState,
   isVreCsvSampleDue,
   MAX_VRE_CSV_SAMPLE_RATE_HZ,
@@ -267,104 +266,6 @@ test('derives magnetic heading from true heading and magvar', () => {
   assert(headingData.hdgTrueDeg === 253, `expected true heading 253, got ${headingData.hdgTrueDeg}`);
   assert(headingData.hdgMagDeg === 267, `expected magnetic heading 267, got ${headingData.hdgMagDeg}`);
   assert(headingData.magvarDeg === 14, `expected magvar 14, got ${headingData.magvarDeg}`);
-});
-
-console.log('\ncreateRunwayContextDetector');
-
-test('caches runway context during approach and clears after returning to ground', () => {
-  let runwayLookups = 0;
-  const detectAirportRunway = createRunwayContextDetector({
-    approachPhases: new Set(['APPROACH']),
-    groundPhases: new Set(['TAXI', 'PARKED']),
-    landingPhase: 'LANDING',
-    findRunwayByPosition() {
-      runwayLookups++;
-      return { icao: 'KSEA', runway: '16L' };
-    },
-    findNearbyAirport() {
-      throw new Error('airport lookup should not run when runway matches');
-    },
-  });
-
-  const approach = detectAirportRunway(47.45, -122.31, 160, 'APPROACH');
-  const firstGroundTick = detectAirportRunway(47.45, -122.31, 160, 'TAXI');
-  const secondGroundTick = detectAirportRunway(47.45, -122.31, 160, 'TAXI');
-
-  assert(runwayLookups === 1, 'expected one runway lookup while cached');
-  assert(approach.runway === '16L', 'expected approach runway context');
-  assert(firstGroundTick.runway === '16L', 'expected cached runway on first ground tick');
-  assert(secondGroundTick.runway === null, 'expected cache cleared after ground tick');
-});
-
-test('runway context cache is separated by geometry lookup context', () => {
-  let runwayLookups = 0;
-  const seenSimulators: string[] = [];
-  const detectAirportRunway = createRunwayContextDetector({
-    approachPhases: new Set(['APPROACH']),
-    groundPhases: new Set(['TAXI']),
-    landingPhase: 'LANDING',
-    findRunwayByPosition(_lat, _lon, _radiusNm, _headingDeg, context) {
-      runwayLookups++;
-      const simulator = context && typeof context.simulator === 'string' ? context.simulator : 'generic';
-      seenSimulators.push(simulator);
-      return { icao: 'KSEA', runway: simulator === 'msfs' ? '16R' : '16L' };
-    },
-    findNearbyAirport() {
-      throw new Error('airport lookup should not run when runway matches');
-    },
-  });
-
-  const xplane = detectAirportRunway(47.45, -122.31, 160, 'APPROACH', { simulator: 'xplane' });
-  const msfs = detectAirportRunway(47.45, -122.31, 160, 'APPROACH', { simulator: 'msfs' });
-
-  assert(runwayLookups === 2, 'expected a new lookup when simulator context changes');
-  assert(seenSimulators.join(',') === 'xplane,msfs', 'expected context to be forwarded to geometry lookup');
-  assert(xplane.runway === '16L', 'expected first lookup result');
-  assert(msfs.runway === '16R', 'expected context-specific lookup result');
-});
-
-test('retries airport-only approach cache until a runway is found', () => {
-  let runwayLookups = 0;
-  const detectAirportRunway = createRunwayContextDetector({
-    approachPhases: new Set(['APPROACH']),
-    groundPhases: new Set(['TAXI']),
-    landingPhase: 'LANDING',
-    findRunwayByPosition() {
-      runwayLookups++;
-      return runwayLookups === 2 ? { icao: 'KSEA', runway: '16C' } : null;
-    },
-    findNearbyAirport() {
-      return { icao: 'KSEA' };
-    },
-  });
-
-  const airportOnly = detectAirportRunway(47.45, -122.31, 160, 'APPROACH');
-  const runwayMatch = detectAirportRunway(47.45, -122.31, 160, 'APPROACH');
-
-  assert(runwayLookups === 2, 'expected retry when cache has airport but no runway');
-  assert(airportOnly.icao === 'KSEA' && airportOnly.runway === null, 'expected airport-only context first');
-  assert(runwayMatch.icao === 'KSEA' && runwayMatch.runway === '16C', 'expected runway context after retry');
-});
-
-test('skips runway lookup for invalid approach coordinates', () => {
-  let runwayLookups = 0;
-  const detectAirportRunway = createRunwayContextDetector({
-    approachPhases: new Set(['APPROACH']),
-    groundPhases: new Set(['TAXI']),
-    landingPhase: 'LANDING',
-    findRunwayByPosition() {
-      runwayLookups++;
-      return { icao: 'KSEA', runway: '16L' };
-    },
-    findNearbyAirport() {
-      return { icao: 'KSEA' };
-    },
-  });
-
-  const result = detectAirportRunway(null, -122.31, 160, 'APPROACH');
-
-  assert(runwayLookups === 0, 'expected no runway lookup for invalid coordinates');
-  assert(result.icao === null && result.runway === null, 'expected empty runway context');
 });
 
 console.log('\nresolveLandingGeometryScoringInputs');

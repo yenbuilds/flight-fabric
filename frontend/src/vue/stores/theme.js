@@ -1,20 +1,15 @@
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   DEFAULT_THEME,
-  THEMES,
   normalizeThemeName,
   persistThemeName,
 } from '../../theme/definition.js';
-
-export { THEMES, normalizeThemeName };
 
 export const useThemeStore = defineStore('theme', () => {
   const currentTheme = ref(DEFAULT_THEME);
   const runtimeBound = ref(false);
   let applyThemeAttributesAction = null;
-
-  const currentConfig = computed(() => THEMES[currentTheme.value] || THEMES[DEFAULT_THEME]);
 
   function persistTheme(name) {
     persistThemeName(name);
@@ -46,7 +41,6 @@ export const useThemeStore = defineStore('theme', () => {
   return {
     applyTheme,
     bindRuntime,
-    currentConfig,
     currentTheme,
     initialize,
     runtimeBound,

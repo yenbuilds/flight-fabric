@@ -2008,6 +2008,9 @@ function createLandingRunner(): LandingRunner {
       const shouldFinalizeRollout = !awaitingBounceConfirmation && (
         excursionDetected
         || runwayVacateEpochMs !== null
+        // A touch-and-go can re-arm before the runway-occupancy timeout.
+        // Preserve this landing before the next touchdown replaces its state.
+        || touchdownRearmed
         || (now >= rolloutDeadline && lastRunwayLike !== true)
         || now >= rolloutFinalizeDeadline
       );

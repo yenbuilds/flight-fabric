@@ -69,6 +69,7 @@ const airportSearch = require('../landing/airport-search');
 const landingDistance = require('../landing/landing-distance');
 const { VIOLATION_RULE } = require('../../shared/violation-rules.js') as typeof import('../../shared/violation-rules.js');
 const { parseCsvLine, splitCsvLines } = require('../utils/csv');
+const { applyRecordedApproachAssessments } = require('../stability/approach-timeline') as typeof import('../stability/approach-timeline');
 const { computeCrosswind } = require('../utils/helpers') as {
   computeCrosswind: (windSpeed: unknown, windDirectionDeg: unknown, headingDeg: unknown) => number | null;
 };
@@ -554,7 +555,7 @@ const ALTITUDE_MARKERS = Object.freeze([
  */
 const CURRENT_ANALYSIS_RESCORE_CONTRACT = Object.freeze({
   id: 'flight-fabric-landing-analysis',
-  version: 4,
+  version: 7,
   scope: 'full-landing-analysis',
 } as const);
 const RESPAWN_GAP_MS = 30000;
@@ -572,7 +573,7 @@ const FEET_PER_NAUTICAL_MILE = 6076.12;
 const TRACK_POINT_MIN_GAP_MS = 2000;
 const MAX_GENERATED_TIMELINE_EVENTS = 10_000;
 const NULL_ISLAND_EPSILON_DEG = 1e-6;
-const APPROACH_CEILING_FT = 1500;          // Collect approach samples below this RA
+const APPROACH_CEILING_FT = 10000;         // Bounded buffer also covers terrain/runway-height divergence
 const APPROACH_PROFILE_MAX_POINTS = 120;   // Max points after downsample
 const DELETE_MTIME_TOLERANCE_MS = 2000;
 // Retroactive Scan: dangerously_low_approach thresholds.
@@ -3577,11 +3578,14 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       updateReplayBounceCandidate(replayBounceCandidate, row);
     }
     if (
-      replayBounceCandidate
+      isRawBounceAirborneSegment
+      && replayBounceCandidate
       && replayTouchdownRearmed === false
       && elapsed - replayBounceCandidate.startedElapsedMs >= REPLAY_TOUCHDOWN_REARM_MS
     ) {
       // The live runner re-arms only after a continuous airborne interval.
+      // A ground recontact cannot complete that interval; an airborne sample
+      // must reach the cooldown before the contact can own a new attempt.
       // Once that interval elapses, the next contact owns a new attempt even
       // if it is still close to the previous touchdown in wall-clock time.
       replayTouchdownRearmed = true;
@@ -3589,10 +3593,15 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       pendingReplayBounceConfirmation = null;
     }
     
-    // Accumulate approach profile samples when descending below ceiling
-    // These are attached to landing events for the side-on approach diagram
-    // Note: use row.vs_fpm directly — the block-scoped `const vs` is declared later
-    if (shouldCollectApproachSample(row, ra, flightEnded, pausedOrMenu)) {
+    // Match live attempt boundaries: freeze after touchdown until capture is
+    // re-armed, then wait for descending airborne telemetry to start a fresh
+    // approach. Takeoff/go-around configuration must not become its gate.
+    // Once an approach starts, retain level/climbing deviations for scoring.
+    const awaitingLandingRearm = activeReplayLandingEvent !== null && replayTouchdownRearmed === false;
+    const canCollectApproach = approachSamples.length > 0
+      || (onGround !== true && (toFiniteNumber(row.vs_fpm) ?? 0) < 0);
+    if (pausedOrMenu && isTelemetrySample) stabilityScorer.notePause(timestampMs);
+    if (!awaitingLandingRearm && canCollectApproach && shouldCollectApproachSample(row, ra, flightEnded, pausedOrMenu)) {
       const approachSample = buildApproachProfileSample(row, rawElapsed, timestampMs, pausedOrMenuAccumulatedMs);
       approachSamples.push(approachSample);
       // Keep a hard cap to avoid unbounded memory on long approaches
@@ -4122,7 +4131,6 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
                   ...ultimateStability,
                   scoringContext:
                     ultimateStability.scoringContext
-                    || existing.ultimateStability?.scoringContext
                     || null,
                 }
               : existing.ultimateStability,
@@ -4276,6 +4284,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
   );
 
   // Sort events by timestamp (violations may have been inserted out of order)
+  generatedTimeline.events = applyRecordedApproachAssessments(generatedTimeline.events, startTimestampMs);
   generatedTimeline.events.sort((a, b) => a.timestampMs - b.timestampMs);
   attachSimulatorDateTimesToEvents(generatedTimeline.events, rows, startTimestampMs);
   finalizeAnalysisRescore(generatedTimeline, analysisRescoreMode);

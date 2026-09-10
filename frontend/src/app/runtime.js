@@ -339,6 +339,7 @@ export async function initAppRuntime({
   const voiceController = createVoiceControlController({
     aircraftControl,
     aircraftControlsStore,
+    aircraftSpecificStore,
     voiceStore,
     globalRef: window,
   });
@@ -418,11 +419,9 @@ export async function initAppRuntime({
 
   setAppServices({
     getWs: connection.getWs,
-    getWsUrl: connection.getWsUrl,
     getWsSend: () => connection.send,
     getAuthorizationScope: connection.getAuthorizationScope,
     sendWs: connection.send,
-    getBackendHttpBase: connection.getBackendHttpBase,
     ui: uiHelpers,
   });
   appSettingsStore?.bindRuntimeActions?.({
@@ -677,8 +676,6 @@ export async function initAppRuntime({
   setAppServices({
     getAppSettings: appSettingsController.getSettings,
     isValidCoord,
-    handleMessage,
-    showTimelineLanding: landingController.showTimelineLanding,
     reconnect: connection.reconnect,
   });
 

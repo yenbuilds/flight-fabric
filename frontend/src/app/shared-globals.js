@@ -18,20 +18,3 @@ export function getFlightPhases({
   }
   return fallback;
 }
-
-export function getPublishedFlightPhases({
-  required = true,
-  fallback = null,
-} = {}) {
-  const publishedPhases = getGlobalRoot().FlightPhases?.PUBLISHED_PHASES;
-  if (Array.isArray(publishedPhases) && publishedPhases.length > 0) {
-    return publishedPhases.slice();
-  }
-
-  const phases = getFlightPhases({ required, fallback: null });
-  if (!phases) {
-    return Array.isArray(fallback) ? fallback.slice() : fallback;
-  }
-
-  return Object.values(phases).filter((phase) => phase && phase !== phases.UNKNOWN);
-}
