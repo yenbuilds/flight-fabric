@@ -1,8 +1,10 @@
-# Flight Fabric 0.9.3
+# Flight Fabric 0.9.3 · Public Alpha
 
 ## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe)
 
-**Free · Windows 64-bit · Microsoft Flight Simulator 2024**
+**Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
+
+Still in development. Expect bugs and incomplete aircraft support.
 
 Open the downloaded installer, follow the setup steps, then launch Flight
 Fabric with MSFS 2024 running.

@@ -4,12 +4,14 @@
   <p><strong>Control your airliner by voice or from another screen.</strong></p>
   <p>Live flight data, automatic recording, and landing reviews for Microsoft Flight Simulator 2024.</p>
   <p>
-    <a href="https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe"><strong>Download for Windows (.exe)</strong></a>
+    <a href="https://www.flightfabric.com/download/windows/"><strong>Download for Windows (.exe)</strong></a>
     &nbsp;&middot;&nbsp;
     <a href="https://www.flightfabric.com/">Website</a>
     &nbsp;&middot;&nbsp;
     <a href="RELEASE_NOTES.md">What's new</a>
   </p>
+  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.9.3</span> · Windows 64-bit · Free</p>
+  <p data-release-note>Still in development. Expect bugs and incomplete aircraft support.</p>
 </div>
 
 ![Flight Fabric tour showing live flight data, aircraft controls, a full timeline replay, and a detailed landing review](readme-assets/flight-fabric-tour.gif)
@@ -42,7 +44,7 @@ touchdown, and rollout.
 
 ## Get flying
 
-1. [Download Flight Fabric for Windows](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe).
+1. [Download Flight Fabric for Windows](https://www.flightfabric.com/download/windows/).
 2. Open the downloaded installer and follow the setup steps.
 3. Start MSFS 2024 and open Flight Fabric.
 
@@ -57,7 +59,7 @@ publisher** warning. Use the official installer linked above.
 
 If you want to verify your download, you can compare its SHA-256 checksum with
 the value GitHub shows beside the installer on the
-[release page](https://github.com/yenbuilds/flight-fabric/releases/latest).
+<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.9.3">release page</a>.
 This is optional and is not required to install the app.
 
 </details>

@@ -353,7 +353,8 @@ test('recovery launcher display matches the root package version', () => {
 test('published update manifest is self-consistent and not newer than the root candidate', () => {
   const publishedVersion = UPDATE_MANIFEST_JSON.version;
   const expectedDownloadUrl = (
-    `https://github.com/yenbuilds/flight-fabric/releases/tag/v${publishedVersion}`
+    `https://github.com/yenbuilds/flight-fabric/releases/download/v${publishedVersion}`
+    + `/Flight.Fabric.Setup.${publishedVersion}.exe`
   );
   assert(
     compareAppVersions(publishedVersion, ROOT_VERSION) <= 0,
