@@ -273,7 +273,8 @@ const bounceDetailVisible = computed(() => {
               </span>
             </div>
             <div v-if="landing.landingCard.wind.cardinalText" id="landing-wind-reference" class="mt-0.5 text-[11px] text-gray-500">
-              True north · wind source {{ landing.landingCard.wind.cardinalText }}
+              True north · from {{ landing.landingCard.wind.cardinalText }}
+              <span v-if="landing.landingCard.wind.arrowVisible"> · Arrow shows airflow</span>
             </div>
             <div v-else-if="!landing.landingCard.wind.calm" id="landing-wind-reference" class="mt-0.5 text-[11px] text-gray-500">
               Direction unavailable

@@ -41,6 +41,7 @@ const TEST_STEPS = [
   ['npm', ['run', 'validate:simvar-units']],
   ['node', ['scripts/validate-profile-completeness.js']],
   ['node', ['tests/scripts/test-aircraft-profile-provenance.js']],
+  ['node', ['--test', 'tests/scripts/test-aircraft-support.js']],
   ['node', ['tests/scripts/test-architecture-guards.js']],
   ['node', ['tests/scripts/test-contract-drift.js']],
   ['node', ['tests/scripts/test-type-drift.js']],

@@ -1169,6 +1169,7 @@ function buildTopDownSvg(profile, landing, opts) {
       svg += `<line x1="39" y1="${windArrowCy}" x2="78" y2="${windArrowCy}" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" />`;
       svg += `<polygon points="86,${windArrowCy} 75,${windArrowCy - 7} 75,${windArrowCy + 7}" fill="#2dd4bf" />`;
       svg += `</g>`;
+      svg += `<text x="${windTextX}" y="89" fill="#94a3b8" font-size="9" font-family="system-ui, sans-serif">Arrow shows airflow</text>`;
       svg += `<text x="${windTextX}" y="55" fill="#99f6e4" font-size="10" font-weight="700" font-family="system-ui, sans-serif">WIND FROM ${escapeSvgText(wind.directionText)}</text>`;
       svg += `<text x="${windTextX}" y="74" fill="#e2e8f0" font-size="11" font-weight="600" font-family="system-ui, sans-serif">${escapeSvgText(wind.speedText)} · ${escapeSvgText(wind.crosswindDetailText)}</text>`;
     } else {

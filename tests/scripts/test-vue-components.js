@@ -7028,11 +7028,11 @@ async function main() {
     assert.match(html, /id="landing-wind-direction-prefix"[^>]*>FROM</, 'wind context should make the meteorological from convention explicit');
     assert.match(html, /id="landing-wind-direction"[^>]*>\s*240°T\s*</, 'wind context should render the true touchdown direction prominently');
     assert.match(html, /id="landing-wind-speed"[^>]*>\s*12 kt\s*</, 'wind context should render touchdown wind speed prominently');
-    assert.match(html, /<path d="M32 55V19"><\/path>/, 'the zero-degree compass vector should point toward the north wind source');
-    assert.match(html, /<path d="m25 27 7-8 7 8"><\/path>/, 'the compass arrowhead should point to the meteorological FROM bearing');
-    assert.match(html, /id="landing-wind-reference"[^>]*>\s*True north · wind source WSW\s*</, 'wind context should spell out its reference and cardinal source');
+    assert.match(html, /<path d="M32 55V19"><\/path>/, 'the unrotated compass vector should point north before applying the airflow bearing');
+    assert.match(html, /<path d="m25 27 7-8 7 8"><\/path>/, 'the compass arrowhead should point along the airflow vector');
+    assert.match(html, /id="landing-wind-reference"[^>]*>\s*True north · from WSW\s*<span>\s*· Arrow shows airflow<\/span>/, 'wind context should distinguish the true source bearing from airflow');
     assert.match(html, /id="landing-wind-crosswind"[^>]*>\s*XW 8 kt from left\s*</, 'wind context should retain runway-relative crosswind');
-    assert.match(html, /transform:rotate\(240deg\)/, 'wind compass arrow should rotate to the wind-from bearing');
+    assert.match(html, /transform:rotate\(60deg\)/, 'wind from 240 true should render an airflow arrow toward 060 true');
     assert.match(html, /id="landing-wind-total"[^>]*>FROM 240°T · 12 kt</, 'detailed metrics should repeat the absolute wind summary');
     assert.match(html, /id="landing-approach-type"[^>]*>ILS</, 'landing approach type should render from store state');
     assert.match(html, /id="landing-pitch"[^>]*>\+3\.1 deg</, 'landing pitch should render from store state');
@@ -7965,6 +7965,14 @@ async function main() {
       [{ profileId: 'generic', aircraftName: 'Unknown aircraft' }, 'Unknown aircraft'],
       [{ profileId: 'generic', aircraftName: 'Boeing 747-400' }, 'Aircraft image unavailable'],
       [{ profileId: 'inibuilds-a350-900' }, 'Aircraft image unavailable'],
+      [{ aircraftName: 'Unlisted Experimental Aircraft' }, 'Aircraft image unavailable'],
+      [{ profileId: 'unlisted-profile', aircraftName: 'Unlisted Aircraft' }, 'Aircraft image unavailable'],
+      [{ profileId: 'ga-base', aircraftName: 'Cessna 172' }, 'Aircraft image unavailable'],
+      [{ profileId: 'regional-jet', aircraftName: 'Embraer E190' }, 'Aircraft image unavailable'],
+      [{ profileId: 'turboprop-base', aircraftName: 'ATR 42-600' }, 'Aircraft image unavailable'],
+      [{ profileId: 'widebody-base', aircraftName: 'Boeing 747-400' }, 'Aircraft image unavailable'],
+      [{ aircraftName: 'A330-BelugaXL' }, 'Aircraft image unavailable'],
+      [{ profileId: 'inibuilds-a330', aircraftName: 'A330-BelugaXL' }, 'Aircraft image unavailable'],
     ]) {
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftArtwork.vue'), undefined, { props });
       assert.match(html, new RegExp(`role="img" aria-label="${label}"`));
@@ -7975,6 +7983,25 @@ async function main() {
       { props: { profileId: 'pmdg-737', aircraftName: 'PMDG 737-800' } });
     assert.match(html, /src="\/assets\/aircraft\/boeing-737-800.png"/);
     assert.doesNotMatch(html, /aircraft-artwork__placeholder-icon/);
+  });
+
+  await test('Timeline replay keeps the question-mark artwork for loaded flights with unknown aircraft', async () => {
+    for (const aircraft of ['', 'Unknown', 'N/A', '--', 'Unlisted Experimental Aircraft', 'Boeing 747-400']) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'TimelineTabShell.vue'),
+        ({ useTimelineStore }) => {
+          const timeline = useTimelineStore();
+          timeline.setLoadedTimelineIdentity({ flightId: 'unknown-aircraft-flight', aircraft });
+          timeline.openTimelineMobileViewer();
+        },
+      );
+      for (const placement of ['timeline-mobile-aircraft-thumb', 'timeline-inspector-aircraft-art']) {
+        assert.match(html, new RegExp(`${placement}[^>]*data-aircraft-visual-key="generic-aircraft"[^>]*data-aircraft-visual-fidelity="placeholder"`),
+          `${placement} must show the question-mark placeholder for ${JSON.stringify(aircraft)}`);
+      }
+      assert.equal((html.match(/aircraft-artwork__placeholder-icon/g) || []).length, 2);
+      assert.doesNotMatch(html, /src="\/assets\/aircraft\//, 'unknown aircraft must not display catalog airplane artwork');
+    }
   });
 
   await test('TimelineInspectorShell renders filtered rows and an actionable empty state', async () => {

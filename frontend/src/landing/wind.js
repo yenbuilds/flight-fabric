@@ -113,8 +113,9 @@ export function buildLandingWindPresentation(input = {}) {
     directionText,
     speedText,
     cardinalText,
-    arrowVisible: directionDeg != null,
-    arrowRotationDeg: directionDeg ?? 0,
+    arrowVisible: directionDeg != null && speedKts != null,
+    // Bearings describe the wind source; the north-up arrow shows airflow.
+    arrowRotationDeg: directionDeg == null ? 0 : (directionDeg + 180) % 360,
     crosswindText,
     crosswindDetailText,
     totalText,

@@ -1,6 +1,6 @@
-# Flight Fabric 0.9.3 · Public Alpha
+# Flight Fabric 0.9.4 · Public Alpha
 
-## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe)
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.4/Flight.Fabric.Setup.0.9.4.exe)
 
 **Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
 
@@ -15,73 +15,48 @@ on it for real-world decisions.
 
 ## What's new
 
-- **More aircraft controls and voice commands**, with searchable controls,
-  lighting adjustments, and expanded radio and approach support.
-- **More consistent approach scoring**, with clearer feedback and the option
-  to rescore saved flights.
-- **Easier flight reviews**, with saved timeline filters and replay fixes.
+- **Clearer landing wind graphics:** both arrows show airflow, while the
+  bearing clearly states where the wind comes from, measured against true north.
+- **Correct aircraft placeholders:** Beluga aircraft and unnamed timeline
+  flights use the aircraft/question-mark graphic when suitable artwork is absent.
+- **Aircraft support tools for developers:** inspect existing mappings,
+  compare revisions, and capture selected readings during manual testing.
 
 <details>
 <summary><strong>Full release notes</strong></summary>
 
-## Aircraft controls and voice
+## Landing wind graphics
 
-- A searchable **All aircraft controls** section exposes additional supported
-  controls across 19 aircraft profiles, with value editors and voice examples.
-  PMDG 737/777, Fenix A32X and FlyByWire aircraft gain broader access to their
-  existing systems; the available commands still depend on the exact aircraft.
-- Main autopilot targets have more consistent UI and voice support, including
-  speed/Mach, heading, altitude and vertical speed where supported. Controls
-  respect aircraft modes, current telemetry and valid input ranges.
-- PMDG APU start requests use the START position. Start feedback distinguishes
-  an accepted request from an APU that has actually become available. Complete
-  spoken letter names such as "AY PEE YOU" are handled more consistently.
-- Cockpit lighting and flight-display brightness can be set separately on
-  PMDG 737/777, Fenix A32X, FBW A32NX/A380X and Headwind A330. For example, set
-  cockpit lighting to 50%, then display brightness to 80%. The display group
-  includes primary, navigation and engine/system screens, but excludes
-  CDU/MCDU units, tablets and standby instruments.
-- Landing, taxi and runway-turnoff lights have individual commands where
-  mapped. **Set takeoff lights** retains its full lighting-preset behavior.
-- Radio, transponder, minimums and approach controls have expanded UI and
-  voice coverage. QNH and STD are available on FBW A32NX and Fenix A32X;
-  FBW A380X also gains STD. PMDG 737/777 and iniBuilds A350 QNH/STD remain
-  unavailable pending a reliable mode and readback contract.
+The compass arrow now follows the same airflow convention as the runway
+graphic. A wind labelled **FROM 305°T** comes from the northwest; the compass
+arrow points toward the southeast. Both graphics say **Arrow shows airflow**.
 
-## Approach scoring and flight review
+The runway view rotates that airflow relative to the runway's true heading,
+so the arrow agrees with the headwind, tailwind and crosswind geometry.
+The bearing continues to describe the wind's source; it is not reversed.
+Calm wind and unavailable wind speed do not display a directional arrow.
 
-The new approach assessment uses graded, time-based quality scores. Transport
-aircraft normally share a 1,000 ft height gate; distance and changing weather
-do not silently move that gate. Deviations below 500 ft carry more weight,
-valid ILS guidance takes precedence over path-rate estimates, and related
-vertical deviations are grouped to avoid duplicate deductions.
+## Aircraft artwork
 
-Amber cautions, red violations and neutral recovery events make the timeline
-easier to interpret. Configuration failures and severe deviations still affect
-the final verdict. Missing telemetry, pauses and insufficient approach coverage
-are disclosed rather than treated as good flying.
+Beluga and BelugaXL aircraft now use the neutral aircraft/question-mark graphic
+instead of inheriting an ordinary Airbus image from a broader family match.
+Loaded timeline flights without an aircraft name also retain the placeholder
+in the inspector and mobile replay header.
 
-Existing recorded scores remain unchanged until you explicitly apply new
-analysis through **Review scoring**. Rescore results propagate to the timeline,
-logbook and landing debrief, including flights without runway geometry.
+## Developer tools
 
-Timeline Inspector now has filters for configuration changes such as flaps,
-automation and flight guidance. All start enabled, and your choices are saved
-locally. Filtering does not alter the recording, score or map-layer settings.
+The source repository includes a local aircraft support workbench for
+developers and technical testers. It can report implemented mappings, compare
+revisions to identify controls worth retesting, and record selected readings
+during an explicitly started manual test. No LLM connection or API key is needed.
 
-Aircraft without a suitable picture now show a neutral aircraft/question-mark
-symbol, with separate labels for an unknown aircraft and an unavailable image.
+Capture is bounded and read-only. Reports and captures do not upload
+automatically, add new cockpit controls, or establish live aircraft verification.
+The workbench keeps its settings separate from normal Flight Fabric settings
+and checks aircraft identity, reading freshness and connection state.
 
-## Reliability and maintenance
-
-- Improved touch-and-go and go-around replay boundaries, sparse throttle
-  observations, and retention of completed landing scores.
-- Missing landing scores and rollout measurements remain unavailable; actual
-  zero values retain their meaning.
-- Improved aircraft-control freshness, failed-send feedback and reconnect
-  handling, and streamlined PMDG setup.
-- Updated build dependencies to address the js-yaml security advisory and
-  expanded automated regression coverage.
+The website also has clearer MSFS 2024 wording, blog links, and a permanent
+Windows download address shared with the getting-started material.
 
 </details>
 
@@ -116,7 +91,7 @@ Settings. MSFS 2020 and X-Plane are not currently supported.
 <details>
 <summary><strong>Installation help and optional file verification</strong></summary>
 
-The installer is `Flight.Fabric.Setup.0.9.3.exe`. The **Source code** archives
+The installer is `Flight.Fabric.Setup.0.9.4.exe`. The **Source code** archives
 in GitHub's Assets section are for developers; you only need the installer to
 use Flight Fabric.
 
@@ -130,6 +105,6 @@ installation step.
 </details>
 
 [Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
-[Safety information](https://github.com/yenbuilds/flight-fabric/blob/v0.9.3/SAFETY-NOTICE.md) ·
-[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.3/LICENSE.md) ·
-[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.3/THIRD_PARTY_NOTICES.md)
+[Safety information](https://github.com/yenbuilds/flight-fabric/blob/v0.9.4/SAFETY-NOTICE.md) ·
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.4/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.4/THIRD_PARTY_NOTICES.md)

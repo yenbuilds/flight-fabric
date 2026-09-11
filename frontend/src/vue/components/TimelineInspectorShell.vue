@@ -34,7 +34,7 @@ const timelineAircraftName = computed(() => {
         </div>
       </div>
       <AircraftArtwork
-        v-if="timelineAircraftName"
+        v-if="!timeline.timelineLoading && timeline.loadedTimelineFlightLabel"
         class="timeline-inspector-aircraft-art"
         :profile-id="timeline.loadedTimelineAircraftProfileId"
         :aircraft-name="timelineAircraftName"

@@ -169,7 +169,7 @@ onUnmounted(() => {
       >
         <div class="flex min-w-0 items-center gap-2.5">
           <AircraftArtwork
-            v-if="timelineViewerAircraft"
+            v-if="!timeline.timelineLoading && timeline.loadedTimelineFlightLabel"
             class="timeline-mobile-aircraft-thumb"
             :profile-id="timeline.loadedTimelineAircraftProfileId"
             :aircraft-name="timelineViewerAircraft"

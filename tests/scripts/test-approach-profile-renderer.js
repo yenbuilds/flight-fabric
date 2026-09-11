@@ -395,6 +395,7 @@ async function main() {
     assert.match(getSvgAttribute(fromLeftVector, 'transform') || '', /rotate\(90(?:\.0+)?(?:[ ,)]|$)/, 'wind from the left should draw an airflow arrow pointing down');
     assert.match(fromLeftSvg, /WIND FROM (?:000|360)°T/, 'left-source vector should retain its true wind-from direction');
     assert.match(fromLeftSvg, /14 kt/, 'left-source vector should show touchdown wind speed');
+    assert.match(fromLeftSvg, /Arrow shows airflow/, 'the runway graphic should explain its arrow convention');
     assertNoBadNumbers(fromLeftSvg, 'left-crosswind top-down SVG');
 
     const fromRightSvg = approachProfileApi.buildTopDownSvg(profile, {

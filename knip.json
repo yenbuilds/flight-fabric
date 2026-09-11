@@ -7,6 +7,7 @@
         "tests/fixtures/*-browser.js",
         "tests/backend/**/*.test.ts",
         "tests/support/**/*.ts",
+        "scripts/aircraft-support/report-runtime.js",
         "scripts/dev/pmdg-737-preview-client.js",
         "scripts/migrate-flat-flight-logs.js",
         "scripts/prepare-start-runtime.js"

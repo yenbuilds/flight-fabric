@@ -1,11 +1,13 @@
 {
   "name": "flight-fabric",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
+    "aircraft:support": "node scripts/aircraft-support.js",
+    "test:aircraft-support": "node --test tests/scripts/test-aircraft-support.js",
     "test": "node tests/run-test-suite.js",
     "dead-code": "knip",
     "test:core": "node tests/scripts/test-core-modules.js",

@@ -100,6 +100,9 @@ const FALLBACK_ASSET_KEYS = new Set([
   'widebody',
 ]);
 
+// These derivatives need their own artwork, even when a broader family profile matches.
+const UNAVAILABLE_ARTWORK_ALIASES = ['Beluga', 'BelugaXL'];
+
 const NAME_RULES = [
   { aliases: ['A380', 'A380X', 'A388'], assetKey: 'airbus-a380-800' },
   // "Atlas" alone is unsafe: it is also an airline and appears in unrelated aircraft names.
@@ -290,6 +293,10 @@ function buildResolvedVisual(assetKey, fidelity) {
 }
 
 export function resolveAircraftVisual({ profileId = '', profileKey = '', aircraftName = '' } = {}) {
+  if (matchesAnyIdentityPhrase(normalizeIdentity(aircraftName), UNAVAILABLE_ARTWORK_ALIASES)) {
+    return buildResolvedVisual('generic-aircraft', 'class');
+  }
+
   const profileMapping = resolveProfileMapping(profileKey) || resolveProfileMapping(profileId);
   if (profileMapping && !FALLBACK_ASSET_KEYS.has(profileMapping.assetKey)) {
     return buildResolvedVisual(profileMapping.assetKey, profileMapping.fidelity);

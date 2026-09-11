@@ -249,6 +249,9 @@ async function main() {
     ['Some Model 700', 'generic-aircraft'],
     ['Model 700X', 'generic-aircraft'],
     ['Airbus A330-800neo', 'airbus-a330-family'],
+    ['A330-BelugaXL', 'generic-aircraft'],
+    ['Airbus A330 Beluga XL', 'generic-aircraft'],
+    ['Airbus A300-600ST Beluga', 'generic-aircraft'],
     ['Boeing 777-300', 'generic-aircraft'],
     ['B77L', 'generic-aircraft'],
     ['B773', 'generic-aircraft'],
@@ -267,6 +270,17 @@ async function main() {
       assetKey,
       `${aircraftName} must not be promoted to dishonest adjacent-model artwork`,
     );
+  }
+
+  for (const profile of [
+    {},
+    { profileId: 'generic' },
+    { profileId: 'bundled/msfs/inibuilds-a330' },
+    { profileKey: 'inibuilds-a330' },
+  ]) {
+    const visual = resolveAircraftVisual({ ...profile, aircraftName: 'A330-BelugaXL' });
+    assert.strictEqual(visual.assetKey, 'generic-aircraft', 'Beluga must not inherit passenger A330 artwork');
+    assert.strictEqual(visual.fidelity, 'class', 'missing Beluga artwork must render the unavailable-image placeholder');
   }
 
   assert.strictEqual(resolveAircraftVisual({ aircraftName: 'Unknown Experimental Type' }).assetKey, 'generic-aircraft');

@@ -1914,7 +1914,7 @@ async function main() {
     assert.equal(normal.speedText, '14 kt', 'touchdown wind speed should be rounded to knots');
     assert.equal(normal.cardinalText, 'WSW', 'wind direction should include a familiar compass point');
     assert.equal(normal.crosswindDetailText, 'XW 8 kt from left', 'crosswind should retain its runway-relative source side');
-    assert.equal(normal.arrowRotationDeg, 240, 'north-up compass arrow should rotate to the wind-from bearing');
+    assert.equal(normal.arrowRotationDeg, 60, 'wind from WSW should flow toward ENE on the north-up compass');
     assert.match(normal.ariaLabel, /from 240 degrees true.*14 knots.*from left/, 'wind context should have a complete accessible label');
 
     const reportedLanding = buildLandingWindPresentation({
@@ -1934,10 +1934,22 @@ async function main() {
 
     const north = buildLandingWindPresentation({ wind_dir_deg: 360, wind_speed_kts: 7 });
     assert.equal(north.directionText, '360°T', 'north wind should use the conventional aviation 360-degree display');
-    assert.equal(north.arrowRotationDeg, 0, '360 degrees should normalize to north for the compass arrow');
+    assert.equal(north.arrowRotationDeg, 180, 'wind from north should flow south on the compass');
 
     const wrapped = buildLandingWindPresentation({ windDirectionDeg: -10, windSpeed: 11 });
     assert.equal(wrapped.directionText, '350°T', 'negative source bearings should wrap into the compass range');
+
+    for (const [source, airflow] of [[0, 180], [90, 270], [180, 0], [270, 90], [305, 125], [-10, 170], [720, 180]]) {
+      const wind = buildLandingWindPresentation({ windDirectionTrueDeg: source, windSpeed: 14 });
+      assert.equal(wind.arrowRotationDeg, airflow, `wind from ${source} should flow toward ${airflow} degrees true`);
+      assert.equal(wind.arrowVisible, true, 'known moving wind should display airflow');
+      assert.equal(wind.directionPrefixText, 'FROM', 'the reported bearing must remain a source bearing');
+    }
+    for (const speed of [undefined, null, -1, NaN, Infinity]) {
+      const wind = buildLandingWindPresentation({ windDirectionTrueDeg: 305, windSpeed: speed });
+      assert.equal(wind.directionText, '305°T', 'a known source bearing must remain available');
+      assert.equal(wind.arrowVisible, false, 'unknown or invalid speed must not imply airflow');
+    }
 
     const calm = buildLandingWindPresentation({ windDirectionTrueDeg: 120, windSpeed: 0.2, crosswind: 0 });
     assert.equal(calm.directionText, 'CALM', 'near-zero wind should be labelled calm');
