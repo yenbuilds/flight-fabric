@@ -4,7 +4,7 @@
   <p><strong>Control your airliner by voice or from another screen.</strong></p>
   <p>Live flight data, automatic recording, and landing reviews for Microsoft Flight Simulator 2024.</p>
   <p>
-    <a href="https://github.com/yenbuilds/flight-fabric/releases/latest"><strong>Download for Windows</strong></a>
+    <a href="https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe"><strong>Download for Windows (.exe)</strong></a>
     &nbsp;&middot;&nbsp;
     <a href="https://www.flightfabric.com/">Website</a>
     &nbsp;&middot;&nbsp;
@@ -42,10 +42,25 @@ touchdown, and rollout.
 
 ## Get flying
 
-1. Download the latest **Windows Setup** installer from
-   [GitHub Releases](https://github.com/yenbuilds/flight-fabric/releases/latest).
-2. Check the installer SHA-256 value shown by GitHub beside the release asset.
-3. Install Flight Fabric, start MSFS 2024, and open the app.
+1. [Download Flight Fabric for Windows](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe).
+2. Open the downloaded installer and follow the setup steps.
+3. Start MSFS 2024 and open Flight Fabric.
+
+The download is the complete Windows 64-bit installer. You do not need the
+**Source code** archives on GitHub.
+
+<details>
+<summary><strong>Installation help and optional file verification</strong></summary>
+
+Windows builds are currently unsigned, so Windows may show an **Unknown
+publisher** warning. Use the official installer linked above.
+
+If you want to verify your download, you can compare its SHA-256 checksum with
+the value GitHub shows beside the installer on the
+[release page](https://github.com/yenbuilds/flight-fabric/releases/latest).
+This is optional and is not required to install the app.
+
+</details>
 
 Voice control is off until you enable it. Open **Aircraft** > **Voice control**,
 then set a shortcut in **Voice settings** or use the talk button on screen.
@@ -78,10 +93,6 @@ These aircraft have their own detailed controls and voice commands:
 
 The A32NX integration uses FlyByWire's documented events for flight guidance
 values and checks the result against fresh aircraft data.
-
-Windows builds are currently unsigned, so SmartScreen or antivirus may show an
-**Unknown publisher** warning. Download only from the official release page and
-do not run a file with an unexpected SHA-256 digest or an unknown source.
 
 The supported Windows and SimConnect target is **Microsoft Flight Simulator
 2024**. MSFS 2020 is untested and unsupported; any compatibility is incidental.

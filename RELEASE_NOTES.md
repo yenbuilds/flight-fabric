@@ -1,9 +1,26 @@
 # Flight Fabric 0.9.3
 
-Flight Fabric 0.9.3 expands aircraft UI and offline voice controls, makes
-approach scoring more consistent, and makes busy flight timelines easier to
-review. It remains experimental alpha software for Microsoft Flight Simulator
-2024.
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.3/Flight.Fabric.Setup.0.9.3.exe)
+
+**Free · Windows 64-bit · Microsoft Flight Simulator 2024**
+
+Open the downloaded installer, follow the setup steps, then launch Flight
+Fabric with MSFS 2024 running.
+
+Flight Fabric is experimental alpha software for consumer flight simulators.
+It is not certified, approved, or intended for real-world aviation. Do not rely
+on it for real-world decisions.
+
+## What's new
+
+- **More aircraft controls and voice commands**, with searchable controls,
+  lighting adjustments, and expanded radio and approach support.
+- **More consistent approach scoring**, with clearer feedback and the option
+  to rescore saved flights.
+- **Easier flight reviews**, with saved timeline filters and replay fixes.
+
+<details>
+<summary><strong>Full release notes</strong></summary>
 
 ## Aircraft controls and voice
 
@@ -64,17 +81,10 @@ symbol, with separate labels for an unknown aircraft and an unavailable image.
 - Updated build dependencies to address the js-yaml security advisory and
   expanded automated regression coverage.
 
-## Download
+</details>
 
-Download `Flight.Fabric.Setup.0.9.3.exe` from GitHub Releases. GitHub displays
-the installer's immutable SHA-256 digest beside the asset.
-
-Flight Fabric is unsigned experimental alpha software for consumer flight
-simulators. It is not certified, approved, or intended for real-world aviation.
-Do not rely on it for real-world decisions. Windows may show an **Unknown
-publisher** warning.
-
-## Known limitations
+<details>
+<summary><strong>Known limitations</strong></summary>
 
 New aircraft mappings have not all completed live simulator testing. Automated
 tests verify routing and guards, not actual cockpit response or recognition
@@ -99,6 +109,25 @@ Online maps use OpenStreetMap's community tile service. Flight Fabric does not
 prefetch or provide offline tiles. Online map traffic can be disabled in
 Settings. MSFS 2020 and X-Plane are not currently supported.
 
-See `README.md`, `SAFETY-NOTICE.md`, `LICENSE.md`, and
-`THIRD_PARTY_NOTICES.md` for requirements, safety information, licence terms,
-and third-party notices.
+</details>
+
+<details>
+<summary><strong>Installation help and optional file verification</strong></summary>
+
+The installer is `Flight.Fabric.Setup.0.9.3.exe`. The **Source code** archives
+in GitHub's Assets section are for developers; you only need the installer to
+use Flight Fabric.
+
+The current alpha is unsigned, so Windows may show an **Unknown publisher**
+warning. Use the official installer linked at the top of this page.
+
+If you want to verify your download, GitHub shows its SHA-256 checksum beside
+the installer in **Assets**. This is an optional file-integrity check, not an
+installation step.
+
+</details>
+
+[Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
+[Safety information](https://github.com/yenbuilds/flight-fabric/blob/v0.9.3/SAFETY-NOTICE.md) ·
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.3/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.3/THIRD_PARTY_NOTICES.md)

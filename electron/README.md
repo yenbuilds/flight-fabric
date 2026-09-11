@@ -17,9 +17,10 @@ Output files:
 - `dist/electron/win-unpacked/Flight Fabric.exe`
 
 `npm run electron:release` runs the packaged smoke, lifecycle, content, and
-summary checks. Publish only the installer and `SHA256SUMS.txt`, never the
-portable executable. Upload the installer as `Flight.Fabric.Setup.<version>.exe`;
-the checksum file uses that name even though the local output uses spaces.
+summary checks. Publish only the installer, never the portable executable or
+local checksum file. Upload the installer as `Flight.Fabric.Setup.<version>.exe`.
+Keep `SHA256SUMS.txt` locally to compare with GitHub's asset digest; it uses the
+published filename even though the local output uses spaces.
 
 ## Features
 
