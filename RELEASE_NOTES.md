@@ -29,11 +29,16 @@ updated results, then select **Save all current scoring** to keep them.
 
 ### Landing warnings and scoring
 
-Runway coordinates can differ between an airport database and the scenery in
-your simulator. Flight Fabric now excludes uncertain alignment and runway-edge
-measurements from scoring. Conflicting on-runway readings also leave those
-measurements unverified. A runway excursion requires a sustained transition
-from runway contact to an off-runway unpaved or water surface at high speed.
+For live MSFS flights, Flight Fabric tries the MSFS Facilities API first for
+runway geometry. The OurAirports database is a fallback when suitable simulator
+geometry is unavailable.
+
+In 0.9.6, alignment and runway-edge measurements based on that database fallback
+are marked unverified and excluded from scoring. Simulator geometry remains
+eligible for scoring when the measurements are reliable; conflicting on-runway
+readings also leave the affected measurements unverified. A runway excursion
+warning requires a sustained transition from runway contact to an off-runway
+unpaved or water surface at high speed.
 
 Touchdowns from the threshold through 3,000 ft receive full touchdown-zone
 credit, provided they occur before the runway end. Weather no longer shortens
