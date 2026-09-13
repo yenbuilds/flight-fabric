@@ -7,11 +7,26 @@ import {
   watch,
 } from 'vue';
 import { useTimelineStore } from '../stores/timeline.js';
+import { containDialogFocus } from '../../ui/dialog-focus.js';
+import { useDocumentEvent } from '../composables/useDocumentEvent.js';
+import { useBodyClass } from '../composables/useBodyClass.js';
 
 const timeline = useTimelineStore();
 const mounted = ref(false);
 const closeButton = ref(null);
+const dialog = ref(null);
 let returnFocus = null;
+
+useBodyClass(() => timeline.analysisRescoreModalOpen, 'ff-dialog-open');
+useDocumentEvent('keydown', (event) => {
+  if (!timeline.analysisRescoreModalOpen || event.defaultPrevented) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    timeline.closeAnalysisRescoreModal();
+    return;
+  }
+  containDialogFocus(event, dialog.value);
+});
 
 onMounted(() => {
   mounted.value = true;
@@ -24,6 +39,7 @@ watch(
     if (isOpen) {
       returnFocus = document.activeElement;
       await nextTick();
+      if (!timeline.analysisRescoreModalOpen) return;
       closeButton.value?.focus?.();
       return;
     }
@@ -76,6 +92,8 @@ function previewUnavailableReason(value) {
   <Teleport to="body" :disabled="!mounted">
     <div
       v-if="timeline.analysisRescoreModalOpen"
+      ref="dialog"
+      tabindex="-1"
       id="timeline-analysis-rescore-modal"
       class="timeline-analysis-modal-backdrop"
       role="dialog"

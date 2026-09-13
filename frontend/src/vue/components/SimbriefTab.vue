@@ -8,7 +8,7 @@ const simbrief = useSimbriefStore();
 const runwayAnalysisSections = computed(() => buildRunwayAnalysisSections(simbrief.plan?.tlr));
 
 function onUsernameKeydown(event) {
-  if (event.key === 'Enter') {
+  if (event.key === 'Enter' && !simbrief.fetchInProgress && simbrief.username.trim()) {
     simbrief.fetchOfp();
   }
 }
@@ -27,6 +27,7 @@ function formatDuration(value) {
 }
 
 function formatWeight(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '--';
   return simbrief.fmtFuel(Number(value), simbrief.plan?.weightUnit || 'lbs');
 }
 
@@ -45,14 +46,14 @@ function hasValues(object) {
   <div class="simbrief-shell page-stack">
     <div class="page-intro">
       <h2 class="text-sm font-semibold tracking-wide mb-1">SimBrief</h2>
-      <p class="text-xs text-muted-fg">Fetch your latest SimBrief Operational Flight Plan. The active OFP is broadcast to all connected strip overlays and stored locally for the session.</p>
+      <p class="text-xs text-muted-fg">Your route, fuel, weather, and timings in one place. Import your latest flight plan to get started.</p>
     </div>
 
     <div class="simbrief-card ff-card overflow-hidden">
       <div class="simbrief-card-section simbrief-card-section--header px-4 py-3">
         <div class="simbrief-card-head">
-          <div class="simbrief-kicker">SimBrief</div>
-          <div class="text-xs text-muted-fg">Enter your SimBrief username or numeric pilot ID, then fetch your latest OFP.</div>
+          <label for="sb-username-input" class="simbrief-fetch-label">SimBrief username or pilot ID</label>
+          <div id="sb-username-help" class="text-xs text-muted-fg">Use the account you planned your flight with.</div>
         </div>
       </div>
       <div class="px-4 py-4 space-y-3">
@@ -64,6 +65,8 @@ function hasValues(object) {
             maxlength="40"
             autocomplete="off"
             spellcheck="false"
+            autocapitalize="none"
+            aria-describedby="sb-username-help"
             placeholder="SimBrief username or pilot ID"
             class="simbrief-input"
             @keydown="onUsernameKeydown"
@@ -72,7 +75,7 @@ function hasValues(object) {
             id="sb-fetch-btn"
             type="button"
             class="simbrief-button simbrief-button--primary whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
-            :disabled="simbrief.fetchInProgress"
+            :disabled="simbrief.fetchInProgress || !simbrief.username.trim()"
             @click="simbrief.fetchOfp"
           >
             {{ simbrief.fetchInProgress ? 'Fetching...' : 'Fetch Latest OFP' }}
@@ -82,6 +85,7 @@ function hasValues(object) {
               id="sb-clear-btn"
               type="button"
               class="simbrief-button simbrief-button--secondary"
+              :disabled="!simbrief.plan || simbrief.fetchInProgress"
               @click="simbrief.clearOfp"
             >
               Clear
@@ -90,6 +94,8 @@ function hasValues(object) {
         </div>
         <div
           id="sb-status"
+          role="status"
+          aria-live="polite"
           class="simbrief-status"
           :class="{
             hidden: !simbrief.status,
@@ -98,8 +104,14 @@ function hasValues(object) {
         >
           {{ simbrief.status }}
         </div>
-        <div id="sb-error" class="simbrief-error" :class="{ hidden: !simbrief.error }">{{ simbrief.error }}</div>
+        <div id="sb-error" role="alert" class="simbrief-error" :class="{ hidden: !simbrief.error }">{{ simbrief.error }}</div>
       </div>
+    </div>
+
+    <div v-if="!simbrief.plan" class="ff-empty-state simbrief-empty-state" :aria-busy="simbrief.fetchInProgress">
+      <svg class="ff-empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z M14 3v6h6 M8 13h8M8 17h5" /></svg>
+      <h3>{{ simbrief.fetchInProgress ? 'Bringing your flight plan aboard' : 'Ready for your next flight' }}</h3>
+      <p>Your latest SimBrief plan will appear here and in your connected flight strips.</p>
     </div>
 
     <div
@@ -184,6 +196,7 @@ function hasValues(object) {
             id="sb-copy-route-btn"
             type="button"
             class="simbrief-copy-button"
+            :disabled="!simbrief.plan?.route"
             @click="simbrief.copyRoute"
           >
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -333,7 +346,7 @@ function hasValues(object) {
 
 .simbrief-fetch-row {
   display: grid;
-  grid-template-columns: minmax(14rem, 0.42fr) auto auto;
+  grid-template-columns: minmax(14rem, 1fr) auto auto;
   gap: 0.55rem;
   align-items: center;
 }

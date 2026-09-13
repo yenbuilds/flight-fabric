@@ -21,24 +21,26 @@ const settingsFilePath = computed(() => (
 <template>
   <div class="settings-action-bar">
     <div class="min-w-0">
-      <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-1" style="font-family: 'B612 Mono', monospace;">Settings File</div>
-      <AppTooltip :content="settingsFilePath" placement="top-start" anchor-tag="div">
-        <div
-          id="settings-file-path"
-          class="text-xs text-gray-300 break-all"
-          style="font-family: 'B612 Mono', monospace;"
-        >
-          {{ settingsFilePath }}
-        </div>
-      </AppTooltip>
-      <div id="settings-status" :class="settingsForm.statusClass">{{ settingsForm.statusMessage }}</div>
+      <div id="settings-status" :class="settingsForm.statusClass" role="status" aria-live="polite">{{ settingsForm.statusMessage }}</div>
+      <details class="settings-file-details">
+        <summary>Settings file location</summary>
+        <AppTooltip :content="settingsFilePath" placement="top-start" anchor-tag="div">
+          <div
+            id="settings-file-path"
+            class="text-xs text-gray-300 break-all"
+            style="font-family: 'B612 Mono', monospace;"
+          >
+            {{ settingsFilePath }}
+          </div>
+        </AppTooltip>
+      </details>
     </div>
 
-    <div class="flex gap-2 shrink-0">
+    <div class="settings-save-actions">
       <button
         id="settings-reveal-file-btn"
         type="button"
-        class="px-3 py-1.5 rounded-lg bg-surface-200 border border-surface-300 text-gray-300 text-sm font-medium hover:bg-surface-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        class="ff-button-secondary px-3 py-1.5 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
         :disabled="!systemHost.isElectron || systemHost.isBusy"
         @click="systemHost.revealSettingsFile()"
       >
@@ -47,7 +49,7 @@ const settingsFilePath = computed(() => (
       <button
         id="settings-reload-btn"
         type="button"
-        class="px-3 py-1.5 rounded-lg bg-surface-200 border border-surface-300 text-gray-300 text-sm font-medium hover:bg-surface-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        class="ff-button-secondary px-3 py-1.5 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
         :disabled="settingsForm.reloadButtonDisabled"
         @click="settingsForm.requestReload()"
       >

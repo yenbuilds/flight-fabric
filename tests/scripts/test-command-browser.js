@@ -62,7 +62,16 @@ async function runBrowser() {
     await type('Aircraft control category', 'systems');
     assert.equal(await evaluate('return [...document.querySelectorAll("[data-command-editor]")].every(el => el.dataset.commandEditor.startsWith("systems."));'), true);
     await evaluate('commandTest.controls.setAvailability({ enabled: false }); await commandTest.settle();');
-    assert.equal(await evaluate('return [...document.querySelectorAll("button")].every(el => el.disabled);'), true);
+    const offlineControls = await evaluate(`const buttons = [...document.querySelectorAll('[data-command-editor] button')];
+      return { count: buttons.length, disabled: buttons.every(el => el.disabled), sent: commandTest.sent.length,
+        clearDisabled: document.querySelector('.aircraft-command-results button').disabled };`);
+    assert.ok(offlineControls.count > 0, 'offline check must include aircraft command buttons');
+    assert.equal(offlineControls.disabled, true, 'aircraft commands stay disabled without availability');
+    assert.equal(offlineControls.clearDisabled, false, 'clearing filters remains available offline');
+    await evaluate('document.querySelector(".aircraft-command-results button").click(); await commandTest.settle();');
+    assert.equal(await evaluate(`return document.querySelector('select[aria-label="Aircraft control category"]').value;`), '');
+    assert.equal(await evaluate('return commandTest.sent.length;'), offlineControls.sent, 'clearing filters never sends an aircraft command');
+    assert.equal(await evaluate('return [...document.querySelectorAll("[data-command-editor] button")].every(el => el.disabled);'), true);
     await evaluate('await commandTest.profile("inibuilds-a330");');
     assert.equal(await evaluate('return document.querySelectorAll("[data-aircraft-command-browser]").length;'), 0);
     assert.deepEqual(errors, []);

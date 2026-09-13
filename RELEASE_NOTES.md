@@ -1,6 +1,6 @@
-# Flight Fabric 0.9.6 · Public Alpha
+# Flight Fabric 0.9.7 · Public Alpha
 
-## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.6/Flight.Fabric.Setup.0.9.6.exe)
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.7/Flight.Fabric.Setup.0.9.7.exe)
 
 **Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
 
@@ -11,68 +11,50 @@ Then launch Flight Fabric with MSFS 2024 running.
 
 ## What's new
 
-- **Fewer false landing warnings:** uncertain runway alignment is shown as
-  unverified, and excursion warnings need sustained off-runway evidence.
-- **Fairer touchdown and airspeed scoring:** touchdowns within 3,000 ft of the
-  threshold receive full touchdown-zone credit when before the runway end.
-  Airspeed assessment uses a reliable selected speed when available.
-- **Clearer approach charts:** the default view focuses on the stability gate
-  and final approach. Earlier turns remain available as unscored context.
-- **Brief stall-warning pulses filtered:** a momentary simulator signal no
-  longer creates a stall event in the flight timeline.
-
-For an older flight, open its timeline, choose **Review scoring**, review the
-updated results, then select **Save all current scoring** to keep them.
+- **Runway data ready earlier:** Flight Fabric now requests nearby airport data
+  from MSFS while you are on the ground or approaching an airport, helping make
+  simulator runway dimensions available for your landing debrief.
+- **Clearer landing summaries:** refreshed grade cards, telemetry displays and
+  Settings layouts make results and controls easier to read.
+- **Focused flight details:** Timeline flight details open in a responsive dialog
+  that you can close with Escape or by clicking outside it.
+- **Easier control browsing:** clear the aircraft-control filters even while the
+  simulator is disconnected.
 
 <details>
 <summary><strong>Full release notes</strong></summary>
 
-### Landing warnings and scoring
+### Airport data and saved flights
 
-For live MSFS flights, Flight Fabric tries the MSFS Facilities API first for
-runway geometry. The OurAirports database is a fallback when suitable simulator
-geometry is unavailable.
+Nearby airport data is requested in the background during normal simulator use,
+including after reconnecting. Invalid runway dimensions or coordinates are
+rejected, failed requests can be retried, and a failed refresh preserves usable
+cached airport data.
 
-In 0.9.6, alignment and runway-edge measurements based on that database fallback
-are marked unverified and excluded from scoring. Simulator geometry remains
-eligible for scoring when the measurements are reliable; conflicting on-runway
-readings also leave the affected measurements unverified. A runway excursion
-warning requires a sustained transition from runway contact to an off-runway
-unpaved or water surface at high speed.
+Saved flights retain their recorded airport geometry when you revisit them in
+Timeline or Logbook. These changes do not replace the geometry in older flights.
 
-Touchdowns from the threshold through 3,000 ft receive full touchdown-zone
-credit, provided they occur before the runway end. Weather no longer shortens
-that scoring zone, and unavailable weather is left unknown. Short landings and
-touchdowns beyond the runway end retain their warnings.
+### Interface improvements
 
-Approach airspeed is assessed against the selected speed recorded at the
-stability gate when reliable target data and active autothrottle are available.
-Without that evidence, the target-speed criterion is left unscored. A speed
-sample at the gate is no longer assumed to be the intended approach speed.
+Landing grade cards, telemetry and Settings have updated spacing and layouts,
+including adjustments for smaller screens. Timeline flight details now appear in
+a focused dialog with keyboard and click-outside dismissal.
 
-Stall events now require a continuous airborne warning for at least one second.
-Reviewing an older flight with current scoring also removes complete warning
-pulses shorter than one second.
-
-### Approach charts
-
-Side and ground-track views start with a little context above the stability
-gate. Expand **Show full approach context** to see the earlier descent and
-turn-in. Earlier manoeuvres are shown as context, and warning colours follow
-the events assessed within the scoring window.
-
-The gate is labelled where scoring starts. The dashed 3° line is a reference
-path. Recordings with too little final-approach data show the available context
-with an explanation instead of losing the chart.
+Aircraft-control filters can be reset without a live simulator connection.
+Sending a command still requires an available, supported aircraft control.
 
 </details>
 
 <details>
 <summary><strong>Known limitations</strong></summary>
 
-The selected-speed reference is an aircraft target, not a verified VAPP or
-Vref. Unavailable target, runway or approach-guidance data remains unscored
-where required; a high score does not imply that every criterion was measured.
+Runway data availability depends on the simulator and airport. Database fallback
+geometry remains unverified where scoring requires reliable simulator data.
+Unavailable target, runway or approach-guidance data remains unscored where
+required; a high score does not imply that every criterion was measured.
+
+The experimental aircraft support workbench is temporarily unavailable while it
+undergoes further review. Previously saved workbench sessions are retained.
 
 Aircraft mappings have not all completed live simulator testing. PMDG controls
 require the matching installed aircraft and working SDK data. Unsupported
@@ -95,7 +77,7 @@ Settings. MSFS 2020 and X-Plane are not currently supported.
 <details>
 <summary><strong>Installation help and optional file verification</strong></summary>
 
-The installer is `Flight.Fabric.Setup.0.9.6.exe`. The **Source code** archives
+The installer is `Flight.Fabric.Setup.0.9.7.exe`. The **Source code** archives
 in GitHub's Assets section are for developers; you only need the installer to
 use Flight Fabric.
 
@@ -108,5 +90,5 @@ the installer in **Assets**. This is an optional file-integrity check.
 </details>
 
 [Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
-[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.6/LICENSE.md) ·
-[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.6/THIRD_PARTY_NOTICES.md)
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.7/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.7/THIRD_PARTY_NOTICES.md)

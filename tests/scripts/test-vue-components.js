@@ -1198,11 +1198,12 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render for settings runtime`);
     }
 
-    assert.match(html, /App Settings/, 'settings form title should render');
+    assert.match(html, /Preferences/, 'settings form title should render');
+    assert.doesNotMatch(html, /data-aircraft-workbench|Open workbench|Aircraft support workbench/, 'the release must not render a workbench entry point');
     assert.match(html, /settings file/, 'settings explanatory copy should render');
     assert.doesNotMatch(html, /id="setting-aircraft-profile"/, 'settings should not duplicate the compact profile correction selector');
     assert.doesNotMatch(html, /id="settings-aircraft-profile-tools"/, 'settings should not expose profile file mutation tools');
-    assert.match(html, /release-owned, read-only compatibility profiles/, 'settings should describe profile ownership explicitly');
+    assert.match(html, /automatically detects your aircraft/, 'settings should explain automatic aircraft matching');
     assert.doesNotMatch(html, /id="settings-manage-profiles-btn"/, 'settings should not link to a retired Profiles workspace');
     assert.doesNotMatch(html, /FSX_SP2|FSX \/ P3D/, 'settings should not advertise the removed legacy simulator path');
     assert.match(
@@ -7950,6 +7951,8 @@ async function main() {
     assert.match(html, /id="sb-origin"[^>]*>YSSY</, 'origin ICAO should render from store state');
     assert.match(html, /id="sb-dest"[^>]*>WSSS</, 'destination ICAO should render from store state');
     assert.match(html, /id="sb-alt"[^>]*>WMKK</, 'alternate ICAO should render from store state');
+    assert.match(html, /id="sb-trip-fuel"[^>]*>--</, 'unreported fuel must not look like a measured zero');
+    assert.match(html, /id="sb-payload"[^>]*>--</, 'unreported payload must not look like a measured zero');
     assert.match(html, /id="sb-departure-runway"[^>]*>34L</, 'departure runway should render from store state when available');
     assert.match(html, /id="sb-arrival-runway"[^>]*>02C</, 'arrival runway should render from store state when available');
     assert.match(html, /id="sb-aircraft"[^>]*>A388</, 'aircraft ICAO should render from store state');
@@ -8157,7 +8160,7 @@ async function main() {
     assert.match(html, /timeline-count-badge[^>]*>x2</, 'timeline inspector should render repeat-count badges from store state');
   });
 
-  await test('TimelineDetailPanel renders selected-event data in a dedicated inspector drawer', async () => {
+  await test('TimelineDetailPanel renders selected-event data in a dedicated dialog', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'TimelineDetailPanel.vue'),
       ({ useTimelineStore }) => {
@@ -8207,7 +8210,7 @@ async function main() {
     assert.doesNotMatch(html, /136 kts|Landing Snapshot|Touchdown Zone Analysis|Touchdown stayed inside/, 'compact landing detail should omit duplicate secondary information');
     assert.doesNotMatch(html, /id="timeline-approach-profile"|id="timeline-topdown-profile"/, 'landing profile images should be reserved for the debrief modal');
     assert.match(html, /id="timeline-open-landing-btn"[^>]*>\s*Open Landing Debrief\s*</, 'landing detail action should remain available');
-    assert.match(html, /id="timeline-detail"[^>]*timeline-detail-drawer/, 'event details should render in the out-of-flow inspector drawer');
+    assert.match(html, /id="timeline-detail"[^>]*role="dialog"[^>]*aria-modal="true"/, 'event details should render as a modal dialog');
     assert.match(html, /id="timeline-detail-close"[^>]*>\s*Close\s*</, 'event details should provide a dedicated close action');
     assert.match(html, /id="timeline-detail-content"[^>]*timeline-detail-drawer-content/, 'large event payloads should own a separate scrolling surface');
     assert.doesNotMatch(html, /id="timeline-detail-score"/, 'detail panel should not render the unused score-impact side block');
@@ -8652,13 +8655,13 @@ async function main() {
       },
     );
 
-    assert.match(html, /Recent Flights/, 'panel title should render');
+    assert.match(html, /Recent flights/, 'panel title should render');
     assert.match(html, /id="timeline-flights-card"[^>]*class="ff-card[^"]*overflow-hidden/, 'recent flights panel should use rounded app card styling');
     assert.match(html, /id="timeline-page-refresh-btn"/, 'recent flights panel should expose the page-level refresh action');
     assert.match(html, /Flight In Progress/, 'recent flights panel should explain that a recording is still active');
     assert.match(html, /id="history-index-progress"/, 'recent flights should expose first-time index progress');
     assert.match(html, /Indexing 30 of 120 flights/, 'history progress should show bounded file counts');
-    assert.match(html, /Refresh saved flights, events, map, and scored landings/, 'refresh helper copy should describe the full refresh scope');
+    assert.match(html, /Choose a flight to explore its route, events, and landing/, 'helper copy should explain how to open a replay');
     assert.match(html, /Showing all 2 saved flights/, 'meta summary should reflect loaded flights');
     assert.match(html, /C:\/Flights/, 'storage path should render');
     assert.match(html, /2 CSV files - 12\.0 KB on disk/, 'storage summary should render');

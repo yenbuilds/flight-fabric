@@ -1,15 +1,35 @@
 <script setup>
+import { ref } from 'vue';
 import DataSourcesButton from './DataSourcesButton.vue';
 import FlightStatusBadges from './FlightStatusBadges.vue';
 import { useDebugStore } from '../stores/debug.js';
 import { useStatusStore } from '../stores/status.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 import { useTabsStore } from '../stores/tabs.js';
+import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 
 const debug = useDebugStore();
 const status = useStatusStore();
 const settingsUi = useSettingsUiStore();
 const tabs = useTabsStore();
+const diagnostics = ref(null);
+
+function closeDiagnostics(restoreFocus = false) {
+  if (!diagnostics.value?.open) return;
+  diagnostics.value.open = false;
+  if (restoreFocus) diagnostics.value.querySelector('summary')?.focus();
+}
+
+function handleDiagnosticAction(event) {
+  if (event.target.closest('button')) closeDiagnostics();
+}
+
+useDocumentEvent('pointerdown', (event) => {
+  if (!diagnostics.value?.contains(event.target)) closeDiagnostics();
+});
+useDocumentEvent('focusin', (event) => {
+  if (!diagnostics.value?.contains(event.target)) closeDiagnostics();
+});
 </script>
 
 <template>
@@ -27,48 +47,57 @@ const tabs = useTabsStore();
             target="_blank"
             rel="noopener noreferrer"
           >Source (AGPL)</a>
-          <button
-            id="footer-open-lvars-btn"
-            type="button"
-            class="inline-flex items-center rounded-full px-2 py-1 text-gray-500 transition-colors hover:bg-panel-elevated/80 hover:text-gray-300"
-            style="font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase;"
-            @click="tabs.requestTabChange('lvars')"
-          >
-            LVARs
-          </button>
-          <button
-            id="msfs-installs-btn"
-            type="button"
-            class="inline-flex items-center rounded-full px-2 py-1 text-gray-500 transition-colors hover:bg-panel-elevated/80 hover:text-gray-300"
-            :class="{ hidden: !settingsUi.canDetectMsfsInstalls }"
-            style="font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase;"
-            @click="settingsUi.openMsfsInstallsModal()"
-          >
-            MSFS Installs
-          </button>
         </div>
         <div class="flex items-center gap-4">
-          <div id="vue-datasources-button-root">
-            <DataSourcesButton />
-          </div>
-          <span
-            id="surface-indicator"
-            class="rounded-full px-2 py-0.5 text-[10px] font-mono uppercase"
-            :class="[status.surfaceToneClass, { hidden: !status.surfaceVisible }]"
-          >{{ status.surfaceLabel }}</span>
-          <span id="vue-footer-sim-status-root" class="contents">
-            <FlightStatusBadges mode="footer" />
-          </span>
           <span id="runway-context" :class="{ hidden: !status.runwayContextVisible }">{{ status.runwayContextLabel }}</span>
-          <button
-            id="debug-toggle-btn"
-            class="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-mono uppercase text-primary transition-colors hover:bg-primary/15"
-            :class="{ hidden: !debug.toggleVisible }"
-            @click="debug.toggleModal()"
-          >
-            Debug
-          </button>
-          <span id="connection-info">{{ status.connectionInfoLabel }}</span>
+          <details ref="diagnostics" class="footer-diagnostics" @keydown.esc.stop.prevent="closeDiagnostics(true)">
+            <summary>Diagnostics</summary>
+            <div class="footer-diagnostics-panel" @click="handleDiagnosticAction">
+              <div class="footer-diagnostics-tools">
+                <div id="vue-datasources-button-root">
+                  <DataSourcesButton />
+                </div>
+                <span
+                  id="surface-indicator"
+                  class="rounded-full px-2 py-0.5 text-[10px] font-mono uppercase"
+                  :class="[status.surfaceToneClass, { hidden: !status.surfaceVisible }]"
+                >{{ status.surfaceLabel }}</span>
+                <span id="vue-footer-sim-status-root" class="contents">
+                  <FlightStatusBadges mode="footer" />
+                </span>
+              </div>
+              <div class="footer-diagnostics-tools">
+                <button
+                  id="footer-open-lvars-btn"
+                  type="button"
+                  class="inline-flex items-center rounded-full px-2 py-1 text-gray-500 transition-colors hover:bg-panel-elevated/80 hover:text-gray-300"
+                  style="font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase;"
+                  @click="tabs.requestTabChange('lvars')"
+                >
+                  LVARs
+                </button>
+                <button
+                  id="msfs-installs-btn"
+                  type="button"
+                  class="inline-flex items-center rounded-full px-2 py-1 text-gray-500 transition-colors hover:bg-panel-elevated/80 hover:text-gray-300"
+                  :class="{ hidden: !settingsUi.canDetectMsfsInstalls }"
+                  style="font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase;"
+                  @click="settingsUi.openMsfsInstallsModal()"
+                >
+                  MSFS Installs
+                </button>
+                <button
+                  id="debug-toggle-btn"
+                  class="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-mono uppercase text-primary transition-colors hover:bg-primary/15"
+                  :class="{ hidden: !debug.toggleVisible }"
+                  @click="debug.toggleModal()"
+                >
+                  Debug
+                </button>
+              </div>
+              <span id="connection-info">{{ status.connectionInfoLabel }}</span>
+            </div>
+          </details>
         </div>
       </div>
     </div>

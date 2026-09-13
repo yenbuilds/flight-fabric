@@ -6716,7 +6716,7 @@ async function main() {
     await nextTick();
     await nextTick();
     assert.equal(settingsFormStore.pendingVisible, true, 'recording auto-start changes should show the pending bar');
-    assert.match(settingsFormStore.pendingTitle, /restart-required/i, 'recording auto-start changes should mark restart-required copy');
+    assert.match(settingsFormStore.pendingTitle, /save and restart/i, 'recording auto-start changes should mark restart-required copy');
     assert.match(settingsFormStore.pendingMeta, /Automatic recording/i, 'recording auto-start dirty state should name the restart reason');
     assert.match(settingsFormStore.statusMessage, /Automatic recording/i, 'recording auto-start status should name the restart reason');
 
@@ -6768,7 +6768,7 @@ async function main() {
 
     assert.equal(settingsFormStore.saveEnabled, true, 'editing settings should enable save through the form store');
     assert.equal(settingsFormStore.pendingVisible, true, 'editing should show the pending bar');
-    assert.match(settingsFormStore.pendingTitle, /restart-required/i, 'aircraft profile changes should mark restart-required copy');
+    assert.match(settingsFormStore.pendingTitle, /save and restart/i, 'aircraft profile changes should mark restart-required copy');
 
     windowRef.confirm = () => {
       confirmCalls += 1;
@@ -6827,7 +6827,7 @@ async function main() {
     await nextTick();
     await nextTick();
     assert.equal(settingsFormStore.pendingVisible, true, 'recording changes should show the pending bar');
-    assert.match(settingsFormStore.pendingTitle, /restart-required/i, 'recording changes should mark restart-required copy');
+    assert.match(settingsFormStore.pendingTitle, /save and restart/i, 'recording changes should mark restart-required copy');
     assert.match(settingsFormStore.pendingMeta, /Automatic recording/i, 'recording changes should identify the restart reason');
     assert.match(settingsFormStore.statusMessage, /Automatic recording/i, 'recording dirty state should name the restart reason');
 
@@ -6943,6 +6943,9 @@ async function main() {
     documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
 
     const sent = [];
+    let navigationGuard;
+    const confirmations = [];
+    windowRef.confirm = (message) => { confirmations.push(message); return false; };
     const ws = {
       readyState: 1,
       send(payload) {
@@ -6959,11 +6962,20 @@ async function main() {
       settingsFormStore,
       settingsUiStore: useSettingsUiStore(),
       subscribeAppSettingsSignal: subscribeAppSettings,
+      tabsStore: {
+        registerBeforeChangeGuard(guard) {
+          navigationGuard = guard;
+          return () => {};
+        },
+      },
       appSettingsShared: sharedSettings,
       windowRef,
       WebSocketRef: { OPEN: 1 },
       consoleRef: { warn() {} },
     });
+
+    assert.equal(navigationGuard('settings', 'flight'), true, 'viewing unloaded settings must not block navigation');
+    assert.equal(confirmations.length, 0, 'viewing unloaded settings must not show an unsaved warning');
 
     settingsEditorStore.remoteAccess = true;
     await nextTick();
@@ -6991,11 +7003,19 @@ async function main() {
     assert.equal(settingsEditorStore.wsPort, '9123', 'the first backend snapshot must hydrate persisted network settings');
     assert.equal(settingsEditorStore.recordingAutoStart, false, 'the first backend snapshot must hydrate persisted non-network settings');
     assert.equal(settingsFormStore.saveEnabled, false, 'initial hydration must establish a clean save baseline');
+    assert.equal(navigationGuard('settings', 'flight'), true, 'freshly loaded settings must allow navigation');
+    assert.equal(confirmations.length, 0, 'loading saved settings must not show an unsaved warning');
 
     settingsEditorStore.remoteAccess = true;
     await nextTick();
     await nextTick();
     assert.equal(settingsFormStore.saveEnabled, true, 'post-hydration edits should enable persistence normally');
+    assert.equal(navigationGuard('settings', 'flight'), false, 'real unsaved changes must still respect a cancelled navigation');
+    assert.equal(confirmations.length, 1, 'real edits should show one unsaved warning');
+    settingsEditorStore.remoteAccess = false;
+    assert.equal(navigationGuard('settings', 'flight'), true, 'reverting an edit should allow navigation without a warning');
+    assert.equal(confirmations.length, 1, 'reverting an edit should not prompt again');
+    settingsEditorStore.remoteAccess = true;
     assert.equal(await settingsFormStore.requestSave(), true, 'post-hydration settings should save normally');
     assert.equal(sent.length, 1, 'post-hydration save should send one request');
     assert.equal(sent[0].settings.network.remoteAccess, true, 'post-hydration save should include the trusted-LAN edit');
@@ -7426,6 +7446,46 @@ async function main() {
     connected = false;
     handler({ type: 'navRadios', data: { ...data, profileRevision: 3 } });
     assert.equal(controls.navRadiosReceivedAt, null, 'disconnected telemetry cannot restore controls');
+  });
+
+  await test('dialog keyboard navigation skips hidden controls and wraps at visible boundaries', async () => {
+    const { containDialogFocus } = await import(toFrontendUrl('src', 'ui', 'dialog-focus.js'));
+    const ownerDocument = { activeElement: null };
+    const control = (visible = true, inert = false) => ({
+      tabIndex: 0,
+      closest: () => inert ? {} : null,
+      getClientRects: () => visible ? [{}] : [],
+      focus() { ownerDocument.activeElement = this; },
+    });
+    const first = control(), middle = control(), last = control();
+    const root = {
+      ownerDocument,
+      querySelectorAll: () => [control(false), first, middle, last, control(true, true)],
+      contains: element => [first, middle, last].includes(element),
+      focus() { ownerDocument.activeElement = this; },
+    };
+    let prevented = false;
+    const key = shiftKey => ({ key: 'Tab', shiftKey, preventDefault() { prevented = true; } });
+    ownerDocument.activeElement = last;
+    containDialogFocus(key(false), root);
+    assert.equal(ownerDocument.activeElement, first, 'Tab returns to first visible control');
+    assert.equal(prevented, true);
+    containDialogFocus(key(true), root);
+    assert.equal(ownerDocument.activeElement, last, 'Shift+Tab returns to last visible control');
+    prevented = false;
+    ownerDocument.activeElement = middle;
+    containDialogFocus(key(false), root);
+    assert.equal(prevented, false, 'interior navigation keeps native Tab behavior');
+    ownerDocument.activeElement = {};
+    containDialogFocus(key(false), root);
+    assert.equal(ownerDocument.activeElement, first, 'focus outside an open dialog returns inside');
+    root.querySelectorAll = () => [control(false)];
+    containDialogFocus(key(false), root);
+    assert.equal(ownerDocument.activeElement, root, 'empty dialogs retain focus');
+    const nestedControl = control();
+    ownerDocument.activeElement = nestedControl;
+    containDialogFocus({ ...key(false), target: { closest: () => ({ contains: () => false }) } }, root);
+    assert.equal(ownerDocument.activeElement, nestedControl, 'a dialog above this one keeps control of focus');
   });
 
   console.log(`Results: ${passed} passed, ${failed} failed`);

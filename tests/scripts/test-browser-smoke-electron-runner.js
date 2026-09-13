@@ -758,6 +758,8 @@ async function runSettingsSmoke(windowRef) {
     "document.getElementById('tab-settings')?.classList.contains('active')",
     'Settings tab activation',
   );
+  assert.equal(await evaluate(windowRef, "document.querySelector('[data-aircraft-workbench]') === null"), true,
+    'the production Settings screen must not expose the disabled workbench');
   await waitFor(
     windowRef,
     "document.getElementById('setting-cabin-announcements-enabled')?.checked === true",
@@ -1568,11 +1570,11 @@ async function runTimelineSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.querySelector('#tab-timeline .cursor-pointer') && document.querySelector('#tab-timeline .cursor-pointer').textContent.includes('KPHL -> KBOS')",
+    "document.querySelector('#tab-timeline .timeline-flight-open')?.textContent.includes('KPHL -> KBOS')",
     'Timeline flights list content',
   );
 
-  await click(windowRef, "document.querySelector('#tab-timeline .cursor-pointer')", 'first Timeline flight');
+  await click(windowRef, "document.querySelector('#tab-timeline .timeline-flight-open')", 'first Timeline flight');
   await waitFor(
     windowRef,
     "document.querySelector('#vue-timeline-summary-root dl')?.textContent.includes('Violations')",
@@ -1642,18 +1644,18 @@ async function runTimelineSmoke(windowRef) {
   await waitFor(
     windowRef,
     "document.getElementById('timeline-detail') && document.getElementById('timeline-detail-title')?.textContent.includes('Landing at KBOS 27')",
-    'Timeline landing detail drawer',
+    'Timeline landing detail dialog',
   );
   const overlayLayout = await evaluate(
     windowRef,
     `(() => {
       const events = document.getElementById('timeline-events')?.getBoundingClientRect();
-      const card = document.getElementById('timeline-card')?.getBoundingClientRect();
+      const viewer = document.querySelector('#tab-timeline .timeline-split')?.getBoundingClientRect();
       const drawer = document.getElementById('timeline-detail')?.getBoundingClientRect();
       return {
         eventListHeight: events?.height || 0,
-        cardRight: card?.right || 0,
-        drawerLeft: drawer?.left || 0,
+        centerOffsetX: (drawer.left + drawer.width / 2) - (viewer.left + viewer.width / 2),
+        centerOffsetY: (drawer.top + drawer.height / 2) - (viewer.top + viewer.height / 2),
       };
     })();`,
   );
@@ -1662,8 +1664,8 @@ async function runTimelineSmoke(windowRef) {
     'Timeline overlays must not steal vertical space from the event list',
   );
   assert.ok(
-    overlayLayout.drawerLeft >= overlayLayout.cardRight - 2,
-    'Timeline event details should overlay the replay side instead of the event-list column',
+    Math.abs(overlayLayout.centerOffsetX) <= 2 && Math.abs(overlayLayout.centerOffsetY) <= 2,
+    'Timeline event details should be centered over the replay viewer',
   );
   await assertUsableLayout(windowRef, 'Timeline tab', [
     '#tab-timeline.active',
@@ -1677,6 +1679,43 @@ async function runTimelineSmoke(windowRef) {
     "(() => { const detail = document.getElementById('timeline-detail'); const text = document.getElementById('timeline-detail-metrics')?.textContent || ''; return text.includes('Touchdown Rate Grade') && text.includes('PERFECT') && text.includes('TDZ') && text.includes('MARGINAL') && text.includes('Bounce') && !text.toLowerCase().includes('touchdown zone analysis') && !detail?.querySelector('#timeline-approach-profile, #timeline-topdown-profile') && document.getElementById('timeline-open-landing-btn'); })()",
     'Timeline landing detail metrics and action',
   );
+  await waitFor(
+    windowRef,
+    "document.activeElement?.id === 'timeline-detail-close'",
+    'Event details receive keyboard focus',
+  );
+  for (const [width, height] of [[390, 844], [844, 390], [viewportWidth, viewportHeight]]) {
+    await setContentSizeAndWait(windowRef, width, height, 'Event details');
+    const layout = await evaluate(windowRef, `(() => {
+      const detail = document.getElementById('timeline-detail');
+      const rect = detail.getBoundingClientRect();
+      return {
+        centered: Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 2
+          && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 2,
+        contained: rect.left >= 10 && rect.top >= 10 && rect.right <= innerWidth - 10 && rect.bottom <= innerHeight - 10,
+        contentFits: detail.scrollHeight <= detail.clientHeight + 2,
+      };
+    })()`);
+    assert.ok(layout.centered && layout.contained && layout.contentFits, `Event details should fit and stay centered at ${width}x${height}: ${JSON.stringify(layout)}`);
+    if (process.env.FF_BROWSER_SMOKE_TIMELINE_SCREENSHOT) {
+      const screenshot = await windowRef.webContents.capturePage();
+      fs.writeFileSync(`${process.env.FF_BROWSER_SMOKE_TIMELINE_SCREENSHOT}-${width}x${height}.png`, screenshot.toPNG());
+    }
+  }
+  await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))`);
+  assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-open-landing-btn', 'Shift+Tab should stay inside event details');
+  await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))`);
+  assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-detail-close', 'Tab should wrap inside event details');
+  await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
+  await waitFor(windowRef, "!document.getElementById('timeline-detail') && document.querySelector('.timeline-mobile-viewer-open')", 'Escape closes only event details');
+  const landingRowExpression = "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at'))";
+  await evaluate(windowRef, `(${landingRowExpression}).focus()`);
+  await click(windowRef, landingRowExpression, 'Timeline landing event row');
+  await waitFor(windowRef, "document.activeElement?.id === 'timeline-detail-close'", 'Reopened event details');
+  await click(windowRef, "document.querySelector('.timeline-detail-backdrop')", 'Event details backdrop');
+  await waitFor(windowRef, "!document.getElementById('timeline-detail') && document.activeElement?.classList.contains('timeline-event')", 'Backdrop dismisses event details and returns focus to the event');
+  await click(windowRef, landingRowExpression, 'Timeline landing event row');
+  await waitFor(windowRef, "document.activeElement?.id === 'timeline-detail-close'", 'Event details before opening landing debrief');
   await click(windowRef, "document.getElementById('timeline-open-landing-btn')", 'Timeline Open Landing Debrief button');
   await waitFor(
     windowRef,
@@ -1718,7 +1757,7 @@ async function runReconnectSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.getElementById('flight-state-title')?.textContent.includes('Telemetry disconnected')",
+    "document.getElementById('flight-state-panel')?.hidden === false && document.getElementById('flight-state-title')?.textContent.includes('Waiting for a connection')",
     'flight-state disconnect panel',
     timeoutMs + 3000,
   );
@@ -1773,6 +1812,10 @@ async function runSmoke(windowRef) {
   );
   await assertHeaderLayout(windowRef);
   if (headerOnly) return;
+  if (process.env.FF_BROWSER_SMOKE_TIMELINE_ONLY === '1') {
+    await runTimelineSmoke(windowRef);
+    return;
+  }
 
   await runSecondScreenSetupSmoke(windowRef);
   await assertCompactFlightLayout(windowRef);

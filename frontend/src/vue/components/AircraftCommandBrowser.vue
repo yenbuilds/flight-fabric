@@ -4,7 +4,13 @@ import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { aircraftCommandInput, aircraftCommandValueLabel } from '../../aircraft/command-input.js';
 
 const controls = useAircraftControlsStore();
+const searchInput = ref(null);
 const search = ref(''), group = ref(''), sending = ref(false), error = ref('');
+function clearFilters() {
+  search.value = '';
+  group.value = '';
+  searchInput.value?.focus?.({ preventScroll: true });
+}
 const drafts = reactive({});
 const context = computed(() => `${controls.aircraftCommandCatalogue.profileKey}:${controls.aircraftCommandCatalogue.profileRevision}`);
 watch(context, () => {
@@ -55,7 +61,7 @@ async function apply(command, input = value(command)) {
     <summary class="min-h-12 cursor-pointer text-sm font-semibold text-gray-100">All aircraft controls <span class="font-normal text-gray-400">({{ commands.length }})</span></summary>
     <p class="mb-3 text-xs leading-relaxed text-gray-400">Search the controls available for this aircraft. Each control shows its voice command too.</p>
     <div class="mb-3 flex flex-col gap-2 sm:flex-row">
-      <input v-model="search" type="search" aria-label="Search aircraft controls" placeholder="Search controls or voice commands"
+      <input ref="searchInput" v-model="search" type="search" aria-label="Search aircraft controls" placeholder="Search controls or voice commands"
         class="min-h-12 min-w-0 flex-1 rounded border border-surface-300 bg-surface-50 px-3 text-base text-gray-100 sm:text-sm" />
       <select v-model="group" aria-label="Aircraft control category" class="min-h-12 min-w-0 rounded border border-surface-300 bg-surface-50 px-3 text-base text-gray-100 sm:text-sm">
         <option value="">All categories</option>
@@ -66,7 +72,14 @@ async function apply(command, input = value(command)) {
     <p v-if="error" role="alert" class="mb-3 text-xs text-amber-300">{{ error }}</p>
     <p v-if="busy" role="status" class="mb-3 text-xs text-cyan-100">Waiting for the current command…</p>
     <p v-if="controls.feedback.status !== 'idle'" role="status" class="mb-3 text-xs text-gray-300">{{ controls.feedback.actionText }}</p>
-    <p v-if="!filtered.length" class="text-sm text-gray-400">No matching controls.</p>
+    <div class="aircraft-command-results" role="status" aria-live="polite">
+      <span>{{ filtered.length }} of {{ commands.length }} controls</span>
+      <button v-if="search || group" type="button" class="timeline-clear-filters" @click="clearFilters">Clear filters</button>
+    </div>
+    <div v-if="!filtered.length" class="ff-empty-state">
+      <h3>No matching controls</h3>
+      <p>Try another control name or choose a different category.</p>
+    </div>
     <div class="grid gap-3 lg:grid-cols-2">
       <form v-for="command in filtered" :key="`${context}:${command.id}`" class="min-w-0 rounded-lg border border-surface-300 p-3"
         :data-command-editor="command.id" @submit.prevent="apply(command)">
@@ -91,7 +104,7 @@ async function apply(command, input = value(command)) {
             class="min-h-12 rounded border border-cyan-400/50 bg-cyan-400/10 px-4 text-xs font-semibold text-cyan-100 disabled:opacity-45">{{ command.input.kind === 'none' ? 'Execute' : 'Set' }}</button>
         </div>
         <p v-if="command.input.kind === 'number'" class="mt-2 text-xs text-gray-400">{{ command.input.min }}–{{ command.input.max }} {{ unit(command) }}; increments of {{ command.input.step }}.</p>
-        <p v-if="phrase(command)" class="mt-2 break-words text-xs text-gray-400">Say “{{ phrase(command).replace('{value}', '[setting]') }}”</p>
+        <p v-if="phrase(command)" class="aircraft-command-voice-hint">Say “{{ phrase(command).replace('{value}', '[setting]') }}”</p>
       </form>
     </div>
   </details>

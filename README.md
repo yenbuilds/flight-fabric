@@ -278,29 +278,9 @@ Packaged output is written to `dist/electron`.
 <details>
 <summary><strong>Develop aircraft support</strong></summary>
 
-The aircraft support workbench is terminal tooling for developers and technical
-testers working from source. It lists implemented controls and readings,
-compares mapping changes, and optionally captures selected simulator readings
-during manual testing. It runs without an LLM connection or API key.
-
-From the repository root, after completing the build prerequisites above:
-
-```powershell
-npm.cmd run aircraft:support -- --help
-npm.cmd run aircraft:support -- report --profile pmdg-737 --out-dir .tmp/aircraft-support/737-before
-```
-
-`report` rebuilds the backend and writes `report.md`, `report.json`, and
-`validation-plan.json`. It loads definitions with isolated temporary settings.
-Use `diff` to compare before/after reports, or `capture` to record chosen fields
-from Flight Fabric on the same PC. The command reference lists the required
-profile, version, and starting-state inputs. Use a new output path for each run.
-
-Capture sends no aircraft control commands and performs no automatic upload.
-Its files contain readable test data and notes; review them before sharing.
-Completed collection does not prove correct cockpit behavior. Developers still
-check vendor sources, test the implementation, and verify it in the simulator.
-Ordinary app users do not need to run this tooling.
+The aircraft support workbench is disabled in this release pending further review.
+Its interface, API, and command-line operations are unavailable. Existing saved
+sessions are preserved. The implementation is retained for a later review.
 
 </details>
 

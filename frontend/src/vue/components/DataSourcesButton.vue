@@ -29,7 +29,7 @@ function shortSourceName(source) {
 
 const label = computed(() => {
   const visibleSources = sources.value;
-  if (visibleSources.length === 0) return '--';
+  if (visibleSources.length === 0) return 'Data sources';
 
   const visibleNames = visibleSources.slice(0, 3).map(shortSourceName);
   const extraCount = visibleSources.length - visibleNames.length;

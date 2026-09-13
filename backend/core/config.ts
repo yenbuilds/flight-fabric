@@ -470,7 +470,8 @@ const config = Object.freeze({
     rustMaxVars: int('RUST_SIMVARS_MAX_VARS', 0), // 0 = let Rust try the full restored list
     rustStaleDisconnectMs: Math.max(3000, int('RUST_SIMVARS_STALE_DISCONNECT_MS', 12000)),
     facilitiesEnable: bool('MSFS_FACILITIES_ENABLE', true),
-    // Disabled by default to avoid repeated console noise while MSFS is closed.
+    // Diagnostic probing is disabled by default to avoid console noise while
+    // MSFS is closed. Normal airport-cache warming runs independently.
     // Re-enable temporarily with MSFS_FACILITIES_PROBE_ENABLE=1 if Facilities diagnostics are needed.
     facilitiesProbeEnable: bool('MSFS_FACILITIES_PROBE_ENABLE', false),
     facilitiesProbeIntervalMs: Math.max(1000, int('MSFS_FACILITIES_PROBE_INTERVAL_MS', 10000)),

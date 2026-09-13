@@ -340,6 +340,7 @@ function toggleLogbookPanel() {
 function formatDate(iso) {
   try {
     const date = new Date(iso);
+    if (!iso || !Number.isFinite(date.getTime())) return '--';
     const month = date.toLocaleString('en', { month: 'short' });
     const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     return `${date.getDate()} ${month}\u2002${time}`;
@@ -352,7 +353,7 @@ function shortAircraft(name) {
   if (!name) return '--';
   return name
     .replace(/\s*\(.*?\)\s*/g, '')
-    .slice(0, 26) || name.slice(0, 26);
+    .trim() || name;
 }
 
 function num(value, dp) {
@@ -728,7 +729,7 @@ function trendStabilityText(row) {
   <div class="logbook-panel overflow-hidden">
     <div class="p-3 sm:p-4 border-b border-surface-200 flex items-center justify-between gap-3 flex-wrap">
       <div>
-        <div class="text-sm font-semibold text-gray-300">Scored Landings</div>
+        <h2 class="text-sm font-semibold text-gray-200">Scored landings</h2>
         <div class="text-xs text-gray-500 mt-0.5">{{ subtitle }}</div>
       </div>
       <div class="flex items-center gap-2">
@@ -736,19 +737,20 @@ function trendStabilityText(row) {
           <button
             id="logbook-panel-toggle"
             type="button"
-            class="px-2 py-1.5 text-xs font-semibold bg-surface-200 text-gray-300 rounded hover:bg-surface-300 transition-colors"
+            class="ff-button-secondary logbook-expand-button"
             :aria-expanded="logbookPanelExpanded ? 'true' : 'false'"
             aria-controls="logbook-panel-body"
             :aria-label="logbookPanelExpanded ? 'Collapse scored landings' : 'Expand scored landings'"
             @click="toggleLogbookPanel"
           >
-            {{ logbookPanelExpanded ? 'v' : '>' }}
+            <span>{{ logbookPanelExpanded ? 'Hide history' : 'View history' }}</span>
+            <svg class="logbook-expand-chevron" :class="{ 'is-expanded': logbookPanelExpanded }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
           </button>
         </AppTooltip>
         <button
           id="logbook-refresh-btn"
           type="button"
-          class="px-3 py-1.5 text-xs font-medium bg-surface-200 text-gray-300 rounded hover:bg-surface-300 transition-colors"
+          class="ff-button-secondary"
           @click="requestRefresh"
         >
           Refresh
@@ -757,7 +759,7 @@ function trendStabilityText(row) {
     </div>
 
     <div id="logbook-panel-body" v-show="logbookPanelExpanded">
-    <div class="px-3 sm:px-4 py-3 border-b border-surface-200 grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 text-center">
+    <div class="logbook-stat-grid px-3 sm:px-4 py-3 border-b border-surface-200 grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 text-center">
       <div>
         <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">Landings</div>
         <div class="text-lg font-semibold text-gray-200 tabular-nums">{{ knownLandingCount }}</div>
@@ -860,13 +862,16 @@ function trendStabilityText(row) {
       No landings recorded yet. Complete a flight with a landing to see your history here.
     </div>
 
-    <div
+    <details
       v-if="hasEntries"
       id="logbook-stability-verdict-explanation"
-      class="border-b border-surface-200 px-3 py-2 text-[10px] leading-snug text-gray-500 sm:px-4"
+      class="logbook-scoring-note"
     >
+      <summary>How approach verdicts work</summary>
+      <p>
       Verdicts use each flight's recorded rules. With current scoring, amber cautions or quality checks below target make an approach Marginal. Red violations, configuration failures or substantial quality losses make it Unstable. The percentage describes average approach quality; a high score can still accompany an Unstable verdict. Older flights retain their original checks until rescored.
-    </div>
+      </p>
+    </details>
 
     <div v-if="hasEntries && !isDesktopLayout" class="logbook-mobile-list">
       <article
@@ -884,7 +889,7 @@ function trendStabilityText(row) {
             />
             <div class="min-w-0">
               <div class="logbook-mobile-card__date">{{ formatDate(entry.timestamp) }}</div>
-              <div class="logbook-mobile-card__title">{{ shortAircraft(entry.aircraft) }}</div>
+              <div class="logbook-mobile-card__title" :title="entry.aircraft">{{ shortAircraft(entry.aircraft) }}</div>
               <div class="logbook-mobile-card__meta">
                 {{ entry.icao || '--' }}
                 <span v-if="entry.runway" style="color:#64748b">{{ entry.runway }}</span>
@@ -930,6 +935,7 @@ function trendStabilityText(row) {
 
     <div v-if="hasEntries && isDesktopLayout" class="logbook-desktop-table overflow-x-auto">
       <table class="w-full text-xs">
+        <caption class="sr-only">Recorded landing results, newest first. Dates use this device’s local time.</caption>
         <thead>
           <tr class="text-[10px] uppercase tracking-widest text-gray-500 border-b border-surface-200 bg-surface-50/40">
             <th class="px-3 py-2 text-left font-medium">Date</th>

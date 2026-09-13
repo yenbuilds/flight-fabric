@@ -2373,7 +2373,10 @@ async function main() {
     assert.equal(flight.telemetry.ias, '---', 'reset should restore default IAS');
     assert.equal(flight.telemetry.raVisible, false, 'reset should hide the radio altitude card');
     assert.equal(flight.telemetry.fuelUnit, 'kg', 'reset should preserve the selected fuel unit');
-    assert.equal(flight.telemetry.lights.available, true, 'reset should restore lights availability');
+    assert.equal(flight.telemetry.lights.available, false, 'reset should wait for light data instead of implying every light is off');
+    assert.equal(flight.telemetry.gearState, '--', 'reset should not imply that the gear is up');
+    assert.equal(flight.telemetry.flaps, '--', 'reset should not imply that flaps are up');
+    assert.equal(flight.telemetry.spoilers, '--', 'reset should not imply that spoilers are stowed');
     assert.equal(flight.speedWarningVisible, false, 'reset should clear speed warnings');
     assert.equal(flight.fuelExhaustedWarningVisible, false, 'reset should clear fuel warnings');
     assert.equal(flight.cabinAltCardToneClass, 'border-surface-200', 'reset should restore cabin card tone');

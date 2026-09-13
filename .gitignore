@@ -7,6 +7,7 @@ __pycache__/
 *.pyc
 
 # Build output
+/output/
 dist/
 frontend-dist/
 backend-build/
@@ -24,6 +25,7 @@ logs/
 # Temporary analysis/lint/test scratch files
 .tmp-*
 .tmp/
+/tmp/
 C_tmp/
 tmp/icon-size-preview.png
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AircraftArtwork from './AircraftArtwork.vue';
 import { useLogbookStore } from '../stores/logbook.js';
@@ -20,8 +20,10 @@ import {
 const logbook = useLogbookStore();
 const status = useStatusStore();
 const timeline = useTimelineStore();
+const routeFilterInput = ref(null);
 
 const flights = computed(() => timeline.visibleFlights);
+const hasFilters = computed(() => Boolean(timeline.routeFilter.trim() || timeline.aircraftFilter.trim()));
 const pageRefreshing = computed(() => timeline.listStatus === 'loading' || timeline.timelineLoading);
 const flightProgressLabel = computed(() => {
   if (status.recordingFinalizing) return 'Finalizing Flight';
@@ -44,6 +46,34 @@ function getFlightKey(flight) {
 function isFlightLoading(flight) {
   return timeline.timelineLoading && timeline.timelineLoadingFlightKey === getFlightKey(flight);
 }
+
+function isFlightSelected(flight) {
+  return Boolean((flight.filePath && flight.filePath === timeline.loadedTimelineFilePath)
+    || (flight.flightId && flight.flightId === timeline.loadedTimelineFlightId));
+}
+
+function clearFilters() {
+  timeline.setRouteFilter('');
+  timeline.setAircraftFilter('');
+  routeFilterInput.value?.focus?.({ preventScroll: true });
+}
+
+const emptyTitle = computed(() => {
+  if (timeline.listStatus === 'not-connected') return 'Your flight history is waiting';
+  if (timeline.listStatus === 'loading') return 'Loading your flights';
+  if (timeline.listStatus === 'error') return 'Couldn’t load your flights';
+  if (timeline.listStatus === 'restricted') return 'Open your history on desktop';
+  if (timeline.historyIndexStatus?.busy) return 'Preparing your flight history';
+  if (hasFilters.value) return 'No matching flights';
+  return 'Your flights, ready to replay';
+});
+const emptyDescription = computed(() => {
+  if (timeline.listStatus === 'not-connected') return 'Connect to Flight Fabric on your simulator PC to browse saved flights.';
+  if (timeline.listStatus === 'error' || timeline.listStatus === 'restricted' || timeline.historyIndexStatus?.busy) return timeline.emptyStateMessage;
+  if (timeline.listStatus === 'loading') return 'Recent recordings will appear here as they load.';
+  if (hasFilters.value) return 'Try another airport or aircraft, or clear your filters to see all flights.';
+  return 'Record a flight to revisit its route, flight events, and landing.';
+});
 
 function openFlight(flight) {
   timeline.requestTimeline(flight.filePath, flight.flightId, {
@@ -99,8 +129,8 @@ function flightDateTimeLabel(flight) {
   <div id="timeline-flights-card" class="ff-card overflow-hidden">
     <div class="p-3 sm:p-4 border-b border-surface-200 flex items-start justify-between gap-3 flex-wrap">
       <div class="min-w-0">
-        <div class="text-sm font-semibold text-gray-300">Recent Flights</div>
-        <div class="text-xs text-gray-500 mt-0.5">Refresh saved flights, events, map, and scored landings.</div>
+        <h2 class="text-sm font-semibold text-gray-200">Recent flights</h2>
+        <div class="text-xs text-gray-400 mt-0.5">Choose a flight to explore its route, events, and landing.</div>
       </div>
       <div class="flex items-center gap-2 flex-wrap justify-end">
         <div
@@ -114,7 +144,7 @@ function flightDateTimeLabel(flight) {
         <button
           id="timeline-page-refresh-btn"
           type="button"
-          class="px-3 py-1.5 text-xs font-medium bg-surface-200 text-gray-300 rounded hover:bg-surface-300 transition-colors disabled:cursor-wait disabled:opacity-70"
+          class="ff-button-secondary timeline-refresh-button"
           :disabled="pageRefreshing"
           @click="refreshTimelinePage"
         >
@@ -147,22 +177,31 @@ function flightDateTimeLabel(flight) {
     </div>
     <div class="px-3 sm:px-4 py-3 border-b border-surface-200 bg-surface-50/60">
       <div class="timeline-filters-grid">
+        <label class="timeline-filter-field">
+          <span>Route or airport</span>
         <input
+          ref="routeFilterInput"
           :value="timeline.routeFilter"
-          type="text"
-          placeholder="Filter route or airport"
+          type="search"
+          placeholder="e.g. YSSY or EGLL"
           style="color-scheme: dark"
           class="timeline-filter-control w-full px-3 py-2 text-xs rounded border border-surface-300 bg-surface-200 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent/50"
           @input="timeline.setRouteFilter($event.target.value)"
         />
+        </label>
+        <label class="timeline-filter-field">
+          <span>Aircraft</span>
         <input
           :value="timeline.aircraftFilter"
-          type="text"
-          placeholder="Filter aircraft"
+          type="search"
+          placeholder="e.g. A320"
           style="color-scheme: dark"
           class="timeline-filter-control w-full px-3 py-2 text-xs rounded border border-surface-300 bg-surface-200 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent/50"
           @input="timeline.setAircraftFilter($event.target.value)"
         />
+        </label>
+        <label class="timeline-filter-field">
+          <span>Sort by</span>
         <select
           :value="timeline.sort"
           style="color-scheme: dark"
@@ -174,8 +213,16 @@ function flightDateTimeLabel(flight) {
           <option style="background-color: rgb(var(--color-surface-200)); color: #e5e7eb" value="route">Route A - Z</option>
           <option style="background-color: rgb(var(--color-surface-200)); color: #e5e7eb" value="aircraft">Aircraft A - Z</option>
         </select>
+        </label>
       </div>
-      <div class="mt-2 text-[11px] text-gray-500">{{ timeline.flightsMeta }}</div>
+      <div class="timeline-filter-summary">
+        <span role="status" aria-live="polite">{{ timeline.flightsMeta }}</span>
+        <button v-if="hasFilters" type="button" class="timeline-clear-filters" @click="clearFilters">Clear filters</button>
+      </div>
+    </div>
+
+    <div v-if="timeline.listStatus === 'error' && flights.length" class="px-4 py-3 text-xs text-amber-300 border-b border-surface-200" role="status">
+      {{ timeline.listErrorMessage || 'Couldn’t refresh your flights. Your previous results are still available.' }}
     </div>
 
     <div v-if="timeline.showStorage" class="px-3 sm:px-4 py-2 border-b border-surface-200 bg-surface-200/30 text-xs text-gray-400 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
@@ -192,9 +239,10 @@ function flightDateTimeLabel(flight) {
       </div>
     </div>
 
-    <div class="relative overflow-y-auto" style="height: min(56vh, 42rem); min-height: 20rem;">
+    <div class="timeline-flight-list" :aria-busy="timeline.listStatus === 'loading'">
       <div
         v-if="timeline.timelineLoading"
+        role="status"
         class="sticky top-0 z-10 mx-3 mt-3 mb-1 rounded border border-accent/30 bg-surface-100/95 px-3 py-2 text-xs text-gray-300 shadow-lg backdrop-blur"
       >
         <div class="flex items-center gap-2">
@@ -206,27 +254,31 @@ function flightDateTimeLabel(flight) {
         </div>
       </div>
 
-      <div v-if="timeline.emptyStateMessage" class="p-4 text-center text-gray-500 text-sm">
+      <div v-if="timeline.emptyStateMessage" class="ff-empty-state" role="status">
         <div
           v-if="timeline.listStatus === 'loading'"
           class="mx-auto mb-2 h-4 w-4 rounded-full border-2 border-accent/30 border-t-accent animate-spin"
           role="status"
           aria-label="Loading saved flights"
         ></div>
-        <div class="text-xs">{{ timeline.emptyStateMessage }}</div>
+        <svg v-else class="ff-empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21V5.5Z M9 3v15.5M15 5.5V21" /></svg>
+        <h3>{{ emptyTitle }}</h3>
+        <p>{{ emptyDescription }}</p>
       </div>
 
       <template v-else>
         <div
           v-for="flight in flights"
           :key="flight.filePath || flight.flightId"
-          class="px-4 py-3 border-b border-surface-200 last:border-0 hover:bg-surface-200/30 transition-colors"
-          :class="{ 'bg-accent/5': isFlightLoading(flight) }"
+          class="timeline-flight-row"
+          :class="{ 'is-loading': isFlightLoading(flight), 'is-selected': isFlightSelected(flight) }"
         >
-        <div class="flex items-center justify-between gap-2">
+        <div class="timeline-flight-row-layout">
           <button
             type="button"
-            class="flex flex-1 min-w-0 items-center justify-between gap-2 appearance-none border-0 bg-transparent p-0 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+            class="timeline-flight-open"
+            :aria-label="`Replay ${getFlightRouteLabel(flight) || 'flight'}, ${getFlightAircraftLabel(flight) || 'unknown aircraft'}, ${flightDateTimeLabel(flight)}`"
+            :aria-current="isFlightSelected(flight) ? 'true' : undefined"
             @click="openFlight(flight)"
           >
             <AircraftArtwork
@@ -237,31 +289,34 @@ function flightDateTimeLabel(flight) {
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <div
-                  class="text-sm font-medium truncate"
-                  :class="flight.route ? 'text-accent' : 'text-gray-200'"
+                  class="timeline-flight-route"
                 >
-                  {{ getFlightRouteLabel(flight) || 'Unknown' }}
+                  {{ getFlightRouteLabel(flight) || 'Route unavailable' }}
                 </div>
                 <div v-if="isFlightLoading(flight)" class="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin flex-shrink-0" aria-label="Loading timeline"></div>
               </div>
-              <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                <div class="text-xs text-gray-500">{{ flightTimestampKind(flight) }} {{ flightDateTimeLabel(flight) }}</div>
-                <div v-if="getFlightAircraftLabel(flight)" class="text-xs text-gray-400">• {{ getFlightAircraftLabel(flight) }}</div>
-                <div v-if="flight.durationFormatted || flight.durationMs" class="text-xs text-gray-500">• {{ flight.durationFormatted || formatDuration(flight.durationMs) }}</div>
-                <div v-if="getFiniteDistanceNm(flight.distanceNm) !== null" class="text-xs text-gray-500">• {{ formatDistanceNm(flight.distanceNm) }}</div>
-                <div v-if="getFlightBundleSizeBytes(flight) !== null" class="text-xs text-gray-500">• {{ formatBytes(getFlightBundleSizeBytes(flight)) }}</div>
+              <div class="timeline-flight-aircraft">{{ getFlightAircraftLabel(flight) || 'Aircraft unavailable' }}</div>
+              <div class="timeline-flight-meta">
+                <span>{{ flightTimestampKind(flight) }} {{ flightDateTimeLabel(flight) }}</span>
+                <span v-if="flight.durationFormatted || flight.durationMs">{{ flight.durationFormatted || formatDuration(flight.durationMs) }}</span>
+                <span v-if="getFiniteDistanceNm(flight.distanceNm) !== null">{{ formatDistanceNm(flight.distanceNm) }}</span>
               </div>
             </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <div v-if="isFlightLoading(flight)" class="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin flex-shrink-0" aria-label="Loading timeline"></div>
-              <div class="text-xs text-gray-500">{{ flight.eventCount }} samples</div>
+            <div class="timeline-flight-replay-hint" aria-hidden="true">
+              <span>{{ isFlightLoading(flight) ? 'Opening' : isFlightSelected(flight) ? 'Open again' : 'Replay' }}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m9 5 7 7-7 7" /></svg>
             </div>
           </button>
-          <div class="flex items-center gap-2 flex-shrink-0">
+          <div class="timeline-flight-actions">
+            <AppTooltip v-slot="{ tooltipId }" :content="`${flight.eventCount ?? 0} samples${getFlightBundleSizeBytes(flight) !== null ? ` · ${formatBytes(getFlightBundleSizeBytes(flight))}` : ''}`">
+              <button type="button" class="timeline-flight-info" :aria-describedby="tooltipId" :aria-label="`Recording details for ${getFlightRouteLabel(flight) || 'flight'}`">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg>
+              </button>
+            </AppTooltip>
             <button
               v-if="hasLandingAction(flight)"
               type="button"
-              class="px-2.5 py-1 text-[11px] font-semibold rounded border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+              class="ff-button-secondary timeline-flight-landing"
               title="Open the recorded landing card"
               @click.stop="openLanding(flight)"
             >
@@ -271,7 +326,7 @@ function flightDateTimeLabel(flight) {
               <button
                 type="button"
                 aria-label="Delete this flight log"
-                class="p-1.5 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                class="timeline-flight-delete"
                 @click.stop="deleteFlight(flight)"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

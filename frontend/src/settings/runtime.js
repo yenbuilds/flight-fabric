@@ -105,7 +105,7 @@ export function initSettingsRuntime({
     }
     if (!sendWs({ type: 'requestAppSettings' })) {
       settingsFormStore?.setReloadBusy?.(false);
-      setStatus('Connect to SimBridge to load settings.', 'error');
+      setStatus('Waiting for Flight Fabric to connect.', 'neutral');
     }
   }
 
@@ -141,11 +141,11 @@ export function initSettingsRuntime({
     const restartRequired = restartReasons.length > 0;
     settingsFormStore.setPendingState(true, {
       title: restartRequired
-        ? 'Unsaved changes with restart-required updates'
+        ? 'Save and restart to apply these changes'
         : 'Unsaved settings changes',
       meta: restartRequired
         ? `Save now, then restart to apply: ${restartReasons.join(', ')}.`
-        : 'Save to write them to the settings file. Immediate-only settings will apply as soon as the save completes.',
+        : 'Your changes will take effect when you save.',
     });
   }
 
@@ -154,7 +154,7 @@ export function initSettingsRuntime({
       settingsFormStore?.setSaveBusy?.(false);
       settingsFormStore?.setSaveEnabled?.(false);
       updatePendingBar(false);
-      setStatus('Waiting for settings from backend...', 'pending');
+      setStatus('Loading your settings...', 'pending');
       return false;
     }
 
@@ -162,9 +162,9 @@ export function initSettingsRuntime({
 
     if (!sendWs({ type: 'saveAppSettings', settings })) {
       settingsFormStore?.setSaveBusy?.(false);
-      setStatus('Connect to SimBridge to save settings.', 'error');
+      setStatus('Reconnect to Flight Fabric before saving settings.', 'error');
       if (showAppToast) {
-        showAppToast('error', 'Save failed', 'Connect to SimBridge before saving settings.');
+        showAppToast('error', 'Save failed', 'Reconnect to Flight Fabric before saving settings.');
       }
       return false;
     }
@@ -178,7 +178,7 @@ export function initSettingsRuntime({
     if (!settingsHydrated) {
       settingsFormStore?.setSaveEnabled?.(false);
       updatePendingBar(false);
-      setStatus('Waiting for settings from backend...', 'pending');
+      setStatus('Loading your settings...', 'pending');
       return;
     }
 
@@ -352,8 +352,7 @@ export function initSettingsRuntime({
   if (typeof tabsStore?.registerBeforeChangeGuard === 'function') {
     const unregisterBeforeChangeGuard = tabsStore.registerBeforeChangeGuard((fromTabId, toTabId) => {
       if (fromTabId !== 'settings' || toTabId === 'settings') return true;
-      const currentJson = JSON.stringify(readFormSettings());
-      if (currentJson === lastSavedJson) return true;
+      if (!settingsHydrated || JSON.stringify(readFormSettings()) === lastSavedJson) return true;
       return windowRef.confirm('You have unsaved changes to Settings. Leave without saving?');
     });
     cleanupFns.push(unregisterBeforeChangeGuard);

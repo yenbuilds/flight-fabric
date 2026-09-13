@@ -1,5 +1,6 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { containDialogFocus } from '../../ui/dialog-focus.js';
 import { getAuthorizationScope, getCoordValidator } from '../../../app-shared.js';
 import {
   subscribeLandingReceived,
@@ -15,15 +16,20 @@ import TimelineInspectorShell from './TimelineInspectorShell.vue';
 import TimelineMapShell from './TimelineMapShell.vue';
 import TimelineSummaryBar from './TimelineSummaryBar.vue';
 import { useAppSettingsStore } from '../stores/app-settings.js';
+import { useLandingStore } from '../stores/landing.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useTimelineStore } from '../stores/timeline.js';
 
 const appSettings = useAppSettingsStore();
+const landing = useLandingStore();
 const status = useStatusStore();
 const tabs = useTabsStore();
 const timeline = useTimelineStore();
 let cleanupTimelinePage = null;
+const viewer = ref(null);
+const viewerClose = ref(null);
+let viewerReturnFocus = null;
 
 const timelineViewerClass = computed(() => [
   'timeline-split',
@@ -85,11 +91,11 @@ function closeTimelineMobileViewer() {
 }
 
 function handleTimelineViewerKeydown(event) {
+  if (event.defaultPrevented || tabs.activeTabId !== 'timeline') return;
+  if (landing.landingModalOpen || landing.stabilityMetricModal.open) return;
+  if (timeline.analysisRescoreModalOpen) return;
+  if (timeline.timelineMobileViewerOpen) containDialogFocus(event, viewer.value);
   if (event?.key !== 'Escape') return;
-  if (timeline.analysisRescoreModalOpen) {
-    timeline.closeAnalysisRescoreModal();
-    return;
-  }
   if (timeline.detailVisible) {
     timeline.clearDetail();
     return;
@@ -101,8 +107,17 @@ watch(
   () => timelineViewerDocumentLockActive.value,
   async (isActive) => {
     setTimelineViewerDocumentState(isActive);
-    if (!isActive) return;
+    if (!isActive) {
+      const target = viewerReturnFocus;
+      viewerReturnFocus = null;
+      await nextTick();
+      if (target?.isConnected && tabs.activeTabId === 'timeline') target.focus?.({ preventScroll: true });
+      return;
+    }
+    viewerReturnFocus = document.activeElement;
     await nextTick();
+    if (!timelineViewerDocumentLockActive.value) return;
+    viewerClose.value?.focus?.({ preventScroll: true });
     notifyTimelineViewerResize();
   },
 );
@@ -157,7 +172,9 @@ onUnmounted(() => {
     </div>
 
     <div
+      ref="viewer"
       :class="timelineViewerClass"
+      tabindex="-1"
       :role="timeline.timelineMobileViewerOpen ? 'dialog' : undefined"
       :aria-modal="timeline.timelineMobileViewerOpen ? 'true' : undefined"
       :aria-labelledby="timeline.timelineMobileViewerOpen ? 'timeline-mobile-viewer-title' : undefined"
@@ -239,6 +256,7 @@ onUnmounted(() => {
             LANDING DEBRIEF
           </button>
           <button
+            ref="viewerClose"
             id="timeline-mobile-viewer-close"
             type="button"
             class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded border border-surface-300 text-gray-200 hover:bg-surface-300/50 transition-colors"

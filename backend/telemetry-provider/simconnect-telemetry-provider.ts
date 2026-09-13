@@ -183,6 +183,7 @@ const AIRCRAFT_INTEGRATION_DERIVED_LIGHT_SIMVARS: Readonly<Record<string, string
 const PMDG_777_INTEGRATION_ID = 'pmdg-777';
 
 function finiteTelemetryNumber(value: unknown): number | null {
+  if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) return null;
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -777,6 +778,7 @@ class SimConnectTelemetryProvider {
     // Rust SimVar bridge is the primary MSFS generic telemetry path.
     this._rustSimvarBridge = null;
     this._msfsFacilitiesGeometryProvider = null;
+    this._msfsFacilitiesWarmupTimer = null;
     this._msfsFacilitiesProbeTimer = null;
     this._msfsFacilitiesProbePausedUntilMs = 0;
     this._msfsFacilitiesProbeConsecutiveFailures = 0;
@@ -1513,9 +1515,54 @@ class SimConnectTelemetryProvider {
       this._msfsFacilitiesGeometryProvider = createMsfsFacilitiesGeometryProvider(this._rustSimvarBridge);
       registerAirportGeometryProvider(this._msfsFacilitiesGeometryProvider);
       console.log('[MSFS Facilities] geometry provider registered (Rust SimVars bridge)');
+      this._startMsfsFacilitiesWarmup();
       this._startMsfsFacilitiesProbe();
     } catch (err) {
       Debug.log('simconnect-telemetry', 'msfs_facilities_provider_register_failed', {
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  _startMsfsFacilitiesWarmup() {
+    if (this._msfsFacilitiesWarmupTimer || this._stopping) return;
+    // Airport acquisition must not depend on diagnostic probing or on runway
+    // selection. Landing scoring deliberately selects its geometry only once,
+    // after rollout capture, so the simulator cache needs to be ready earlier.
+    this._msfsFacilitiesWarmupTimer = setInterval(() => {
+      this._warmMsfsFacilitiesAirport();
+    }, 10000);
+    try { this._msfsFacilitiesWarmupTimer.unref?.(); } catch {}
+    this._warmMsfsFacilitiesAirport();
+  }
+
+  _stopMsfsFacilitiesWarmup() {
+    if (this._msfsFacilitiesWarmupTimer) clearInterval(this._msfsFacilitiesWarmupTimer);
+    this._msfsFacilitiesWarmupTimer = null;
+  }
+
+  _warmMsfsFacilitiesAirport() {
+    if (this._stopping) return;
+    try {
+      const provider = this._msfsFacilitiesGeometryProvider;
+      if (typeof provider?.prefetchAirport !== 'function') return;
+      const status = this._rustSimvarBridge?.getSnapshot?.()?.status;
+      if (status !== 'connected' && status !== 'running') return;
+      const lat = finiteTelemetryNumber(this._data?.lat);
+      const lon = finiteTelemetryNumber(this._data?.lon);
+      if (!isValidLatLon(lat, lon)) return;
+      // Avoid loading airports merely overflown at cruise altitude. Missing
+      // radio height must not prevent acquisition when position is available.
+      const heightFt = finiteTelemetryNumber(this._data?.ra);
+      if (heightFt != null && heightFt > 10000) return;
+      // Portable airport locations discover an ICAO only; no runway is chosen
+      // and no portable geometry is mixed into the simulator cache.
+      const airport = findNearbyAirport(lat!, lon!, 12, { simulator: 'msfs', offline: true });
+      if (airport?.icao) provider.prefetchAirport(airport.icao);
+      // prefetchAirport owns pending-request deduplication, cache TTL, bounded
+      // request timeouts, error retry and outcome logging. Never force a probe.
+    } catch (err) {
+      Debug.log('simconnect-telemetry', 'msfs_facilities_warmup_failed', {
         error: err?.message || String(err),
       });
     }
@@ -4720,6 +4767,7 @@ class SimConnectTelemetryProvider {
       this._sdkAircraftListener = null;
     }
 
+    this._stopMsfsFacilitiesWarmup();
     this._stopMsfsFacilitiesProbe();
     this._msfsFacilitiesGeometryProvider = null;
 

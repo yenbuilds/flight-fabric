@@ -91,16 +91,16 @@ function getDefaultTelemetry() {
     fuelUnit: 'gal',
     fuelTotalGal: null,
     fuelTotalWeightLbs: null,
-    gearState: 'UP',
+    gearState: '--',
     gear: {
       nose: null,
       left: null,
       right: null,
       parkingBrake: false,
     },
-    flaps: 'UP',
+    flaps: '--',
     flapsUnit: '',
-    spoilers: 'STOWED',
+    spoilers: '--',
     engines: {
       count: 2,
       values: ['--', '--', '--', '--'],
@@ -109,7 +109,7 @@ function getDefaultTelemetry() {
     cabinVs: '----',
     oat: '--',
     lights: {
-      available: true,
+      available: false,
       nav: false,
       beacon: false,
       strobe: false,
@@ -190,27 +190,27 @@ function resolveGearDotValue(data, position, state) {
 
 const FLIGHT_STATES = Object.freeze({
   connecting: {
-    title: 'Connecting to telemetry',
-    copy: 'Waiting for the backend and simulator to start streaming live flight data.',
-    hidden: true,
+    title: 'Connecting to your flight',
+    copy: 'Keep Flight Fabric open on your simulator PC. Live readings will appear here when the connection is ready.',
+    hidden: false,
     muted: true,
   },
   waiting: {
-    title: 'Waiting for live telemetry',
-    copy: 'Connected to the backend. Start or resume a flight to populate the live aircraft panels.',
-    hidden: true,
+    title: 'Ready when you are',
+    copy: 'Start or resume a flight in your simulator to see live readings here.',
+    hidden: false,
     muted: true,
   },
   disconnected: {
-    title: 'Telemetry disconnected',
-    copy: 'The live feed is offline right now. We will keep trying to reconnect automatically.',
-    hidden: true,
+    title: 'Waiting for a connection',
+    copy: 'Check that Flight Fabric is running on your simulator PC. We will reconnect automatically.',
+    hidden: false,
     muted: true,
   },
   error: {
     title: 'Connection failed',
-    copy: 'The UI could not establish a live telemetry session yet. Check the backend and simulator, then try again.',
-    hidden: true,
+    copy: 'Check that Flight Fabric and your simulator are running on the simulator PC. We will keep trying to reconnect.',
+    hidden: false,
     muted: true,
   },
   inMenu: {

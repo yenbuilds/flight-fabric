@@ -40,7 +40,7 @@ function assertDeepEqual(actual, expected, message) {
   }
 }
 
-function withTempHome(fn) {
+async function withTempHome(fn) {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flight-fabric-http-theme-assets-'));
   const tempAppData = path.join(tmpRoot, 'AppData', 'Roaming');
   const tempXdgConfig = path.join(tmpRoot, '.config');
@@ -62,7 +62,7 @@ function withTempHome(fn) {
   delete process.env.HOMEPATH;
 
   try {
-    return fn(tmpRoot);
+    return await fn(tmpRoot);
   } finally {
     if (prev.HOME === undefined) delete process.env.HOME; else process.env.HOME = prev.HOME;
     if (prev.USERPROFILE === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prev.USERPROFILE;
@@ -141,6 +141,13 @@ function requestBuffer(port, pathname) {
 async function run() {
   await withTempHome(async (tmpRoot) => {
     const { storagePaths, httpServer } = loadFreshModules();
+    const loadedWorkbenchModules = () => Object.keys(require.cache).filter(file => /[\\/]aircraft[\\/]support[\\/]/.test(file));
+    assertEqual(loadedWorkbenchModules().length, 0, 'disabled workbench modules must not load at backend startup');
+    const supportRoot = path.join(storagePaths.getAppDataRoot(), 'Aircraft Support');
+    const savedFile = path.join(supportRoot, '00000000-0000-4000-8000-000000000000.json');
+    fs.mkdirSync(supportRoot, { recursive: true });
+    fs.writeFileSync(savedFile, 'Synthetic saved evidence must stay untouched.');
+    const savedAt = fs.statSync(savedFile).mtimeMs;
     const simulatedPackagedModuleDir = path.join(tmpRoot, 'resources', 'backend', 'core');
     assertEqual(
       httpServer.resolvePackagedFrontendDir(simulatedPackagedModuleDir, true),
@@ -327,6 +334,27 @@ async function run() {
       assertEqual(bootstrapPayload.networkInfo.httpPort, 0, 'loopback HTTP bootstrap should identify the configured HTTP listener port');
       assertEqual(bootstrapPayload.networkInfo.wsPort, 9199, 'loopback HTTP bootstrap should identify the configured WebSocket listener port');
       assertEqual(Array.isArray(bootstrapPayload.networkInfo.ips), true, 'loopback HTTP bootstrap should include ranked private LAN addresses');
+
+      // Exercise the actual release router, rather than the isolated workbench
+      // fixture handler. Even privileged desktop requests must remain disabled.
+      const sessionId = '00000000-0000-4000-8000-000000000000';
+      for (const resource of ['', '/catalogue', '/report?profile=bundled/msfs/pmdg-737', '/sessions',
+        `/sessions/${sessionId}`, `/sessions/${sessionId}/capture`, `/sessions/${sessionId}/results`,
+        `/sessions/${sessionId}/capture/stop`, `/sessions/${sessionId}/capture/marker`, '/storage/delete']) {
+        for (const method of ['GET', 'POST']) {
+          const disabled = await fetch(`http://127.0.0.1:${port}/api/aircraft-support${resource}`, {
+            method, headers: { Authorization: 'Bearer fixture-privileged-token', 'Content-Type': 'application/json' },
+            ...(method === 'POST' ? { body: '{}' } : {}),
+          });
+          assertEqual(disabled.status, 503, `${method} ${resource} must be disabled in the release`);
+          assertIncludes((await disabled.json()).error, 'disabled in this release', 'disabled API should explain the release hold');
+          assertEqual(disabled.headers.get('cache-control'), 'no-store', 'release hold must not be cached');
+        }
+      }
+      assertEqual(loadedWorkbenchModules().length, 0, 'disabled requests must not load the service, capture engine, or storage worker');
+      assertEqual(fs.readFileSync(savedFile, 'utf8'), 'Synthetic saved evidence must stay untouched.', 'disabled requests must preserve saved data');
+      assertEqual(fs.statSync(savedFile).mtimeMs, savedAt, 'disabled requests must not rewrite saved data');
+      assertDeepEqual(fs.readdirSync(supportRoot), [path.basename(savedFile)], 'disabled requests must not create captures or sessions');
       assertIncludes(bootstrap.headers['content-security-policy'], "default-src 'self'", 'API responses should carry the restrictive CSP');
 
       const dashboardPage = await requestText(port, '/');
@@ -501,6 +529,10 @@ async function run() {
       assertEqual(privateLanPayload.wsAuthToken, '', 'private-LAN bootstrap must not receive the privileged token');
       assertEqual(privateLanPayload.aircraftControlToken, '', 'private-LAN bootstrap must not receive the aircraft-control token');
       assertEqual(privateLanPayload.remoteAccessEnabled, true, 'private-LAN bootstrap should report the active trusted-LAN binding');
+      const disabledLanWorkbench = await requestText(lanPort, '/api/aircraft-support/sessions', {
+        Host: '192.168.50.49:8100', Origin: privateOrigin, Authorization: 'Bearer fixture-privileged-token',
+      });
+      assertEqual(disabledLanWorkbench.statusCode, 503, 'enabling LAN access must not enable the workbench');
 
       const reboundLanResponse = await requestText(lanPort, '/api/bootstrap', {
         Host: 'fc00.attacker.example:8100',
@@ -512,6 +544,7 @@ async function run() {
       lanServer.close();
       await once(lanServer, 'close');
     }
+    assertEqual(loadedWorkbenchModules().length, 0, 'normal HTTP operations and shutdown must not load workbench code');
   });
 
   console.log('✅ http-server user asset tests passed');

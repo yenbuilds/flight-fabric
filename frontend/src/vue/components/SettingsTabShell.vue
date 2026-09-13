@@ -61,15 +61,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="max-w-6xl page-stack">
+  <div class="max-w-6xl page-stack settings-page">
     <div class="page-intro">
       <h2 class="text-sm font-semibold tracking-wide mb-1">Settings</h2>
-      <p class="text-xs text-gray-500">Persisted to your Flight Fabric settings file so the packaged Electron app and backend use the same source of truth.</p>
+      <p class="text-xs text-gray-500">Make Flight Fabric work the way you fly. Save your changes below; settings that need a restart will be marked.</p>
     </div>
 
     <form id="settings-form" class="settings-form-shell" @submit.prevent="settingsForm.requestSave()">
       <div class="settings-form-head">
-        <div class="text-xs font-semibold uppercase tracking-widest text-cyan-400" style="font-family: 'B612 Mono', monospace;">App Settings</div>
+        <div class="settings-form-heading">Preferences</div>
         <HelpTooltip label="App settings help">Changes are written to the settings file. Simulator, aircraft profile, network, and recording changes require restart.</HelpTooltip>
       </div>
 

@@ -339,6 +339,33 @@ export function createConnection({
     void connect();
   }
 
+  async function requestAircraftSupport(resource, options = {}) {
+    if (authorizationScope !== 'full-control' || !wsAuthToken) {
+      throw new Error('Open the workbench on the simulator PC with Flight Fabric connected.');
+    }
+    const base = getBackendHttpBase();
+    const endpoint = new URL(base || windowRef.location.origin);
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)) {
+      throw new Error('The aircraft workbench is available on the simulator PC.');
+    }
+    if (!/^(catalogue|report\?profile=[^#]+|storage\/delete|sessions(?:\/[a-f0-9-]+(?:\/(?:results|capture(?:\/(?:stop|marker))?))?)?)$/.test(resource)) {
+      throw new Error('Invalid workbench request.');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await (windowRef.fetch || globalThis.fetch)(`${base}/api/aircraft-support/${resource}`, {
+        method: options.body === undefined ? 'GET' : 'POST',
+        headers: { Authorization: `Bearer ${wsAuthToken}`, ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: controller.signal, redirect: 'error', cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Workbench request failed.');
+      return result;
+    } finally { clearTimeout(timer); }
+  }
+
   async function initialize() {
     await resolveWsPort();
     await resolveBackendHttpPort();
@@ -348,6 +375,7 @@ export function createConnection({
   return {
     connect,
     getBackendHttpBase,
+    requestAircraftSupport,
     getAuthorizationScope,
     getWs: () => ws,
     getWsUrl,

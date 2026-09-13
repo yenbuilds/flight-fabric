@@ -5,6 +5,8 @@ const os = require('os') as typeof import('os');
 const path = require('path') as typeof import('path');
 const fs = require('fs') as typeof import('fs');
 const crypto = require('crypto') as typeof import('crypto');
+import type { createWorkbenchService } from '../aircraft/support/service';
+import { AIRCRAFT_SUPPORT_ENABLED, AIRCRAFT_SUPPORT_DISABLED_MESSAGE } from '../../shared/aircraft-support-release';
 const {
   getCabinAnnouncementAudioDir,
   getThemesDir,
@@ -674,6 +676,15 @@ export function startHttpServer({
     : (wsPort + HTTP_PORT_OFFSET);
   const httpBindAddress = remoteAccessEnable ? '0.0.0.0' : '127.0.0.1';
   const simbriefRequestLimiter = createSimbriefRequestLimiter();
+  let aircraftWorkbench: ReturnType<typeof createWorkbenchService> | null = null;
+  const getAircraftWorkbench = () => {
+    if (!aircraftWorkbench) {
+      const { createWorkbenchService } = require('../aircraft/support/service') as typeof import('../aircraft/support/service');
+      const { getAppDataRoot } = require('../utils/storage-paths');
+      aircraftWorkbench = createWorkbenchService({ root: path.join(getAppDataRoot(), 'Aircraft Support'), wsPort });
+    }
+    return aircraftWorkbench;
+  };
 
   const httpServer = http.createServer((req: RequestLike, res: ResponseLike) => {
     if (!isTrustedHttpRequest(req, remoteAccessEnable)) {
@@ -713,11 +724,26 @@ export function startHttpServer({
       // apply when there is no Origin, so this is safe.
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    if (requestPathname === '/api/aircraft-support' || requestPathname.startsWith('/api/aircraft-support/')) {
+      // Reject before authentication, body parsing, service initialization, or
+      // storage access. Cached clients and direct API calls stay disabled too.
+      if (!AIRCRAFT_SUPPORT_ENABLED) {
+        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ error: AIRCRAFT_SUPPORT_DISABLED_MESSAGE }));
+        return;
+      }
+      const { handleWorkbenchRequest } = require('../aircraft/support/http') as typeof import('../aircraft/support/http');
+      void handleWorkbenchRequest(req, res, { token: wsAuthToken,
+        local: isLoopbackRequest(req) && (!origin || resolveCorsAllowOrigin(origin, req, false) === origin),
+        service: getAircraftWorkbench });
       return;
     }
 
@@ -1083,6 +1109,7 @@ export function startHttpServer({
 </html>`);
   });
 
+  httpServer.on('close', () => { void aircraftWorkbench?.close(); });
   httpServer.on('error', (error) => {
     const err = error as { message?: string };
     try {

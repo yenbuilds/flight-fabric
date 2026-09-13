@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/vue';
 
 const props = defineProps({
@@ -44,6 +44,7 @@ const mounted = ref(false);
 const viewportAdjustedStyles = ref({});
 const tooltipId = `app-tooltip-${Math.random().toString(36).slice(2)}`;
 let hideTimer = null;
+let showTimer = null;
 let clampFrame = null;
 const interactiveSelector = 'button,a,input,select,textarea,summary,[role="button"],[role="link"]';
 const VIEWPORT_PADDING = 8;
@@ -151,18 +152,34 @@ function updateFloatingPosition() {
 
 function show() {
   if (props.disabled) return;
+  clearShowTimer();
   clearHideTimer();
   open.value = true;
   nextTick(updateFloatingPosition);
 }
 
+function clearShowTimer() {
+  if (showTimer === null) return;
+  clearTimeout(showTimer);
+  showTimer = null;
+}
+
+function scheduleShow() {
+  clearHideTimer();
+  clearShowTimer();
+  if (open.value) return;
+  showTimer = setTimeout(show, 180);
+}
+
 function hide() {
+  clearShowTimer();
   clearHideTimer();
   viewportAdjustedStyles.value = {};
   open.value = false;
 }
 
 function scheduleHide() {
+  clearShowTimer();
   clearHideTimer();
   hideTimer = setTimeout(() => {
     open.value = false;
@@ -180,6 +197,8 @@ function handleFocusOut() {
 
 function toggle() {
   if (props.disabled) return;
+  clearShowTimer();
+  clearHideTimer();
   open.value = !open.value;
   if (open.value) nextTick(updateFloatingPosition);
 }
@@ -220,7 +239,9 @@ function handleClick(event) {
 }
 
 function handleKeydown(event) {
-  if (event.key === 'Escape') {
+  if (event.key === 'Escape' && open.value) {
+    event.preventDefault();
+    event.stopPropagation();
     hide();
   }
 }
@@ -237,10 +258,18 @@ onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown, true);
 });
 
+watch([open, mounted], ([isOpen, isMounted]) => {
+  if (typeof document === 'undefined') return;
+  if (isOpen && isMounted) document.addEventListener('keydown', handleKeydown, true);
+  else document.removeEventListener('keydown', handleKeydown, true);
+});
+
 onBeforeUnmount(() => {
   clearHideTimer();
+  clearShowTimer();
   clearClampFrame();
   document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+  document.removeEventListener('keydown', handleKeydown, true);
 });
 </script>
 
@@ -254,14 +283,14 @@ onBeforeUnmount(() => {
     :aria-describedby="open && !disabled ? tooltipId : undefined"
     :aria-controls="open && !disabled && interactive ? tooltipId : undefined"
     :aria-expanded="interactive ? String(open && !disabled) : undefined"
-    @mouseenter="show"
+    @mouseenter="scheduleShow"
     @mouseleave="scheduleHide"
     @focusin="show"
     @focusout="handleFocusOut"
     @click="handleClick"
     @keydown="handleKeydown"
   >
-    <slot />
+    <slot :tooltip-id="tooltipId" />
   </component>
 
   <Teleport to="body" :disabled="!mounted">

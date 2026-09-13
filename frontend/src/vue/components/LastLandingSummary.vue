@@ -24,13 +24,14 @@ const gradeStyle = computed(() => ({
       <button
         id="data-open-landing-btn"
         type="button"
+        :disabled="!flight.lastLanding.available"
         class="ff-button-secondary flight-summary-action px-3 py-2 text-xs font-medium rounded transition-colors"
         @click="tabs.requestTabChange('landing')"
       >
         Full Report
       </button>
     </div>
-    <div class="grid grid-cols-2 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-surface-200">
+    <div v-show="flight.lastLanding.available" class="grid grid-cols-2 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-surface-200">
       <div class="px-4 py-3">
         <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown rate grade</div>
         <div

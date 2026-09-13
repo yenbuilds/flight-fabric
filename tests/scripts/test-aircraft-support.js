@@ -288,12 +288,15 @@ test('report loading leaves caller settings and backend module state untouched',
   }
 });
 
-test('CLI refuses to overwrite existing evidence', async () => {
+test('release hold blocks every CLI operation before file access or connection', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-aircraft-support-'));
   const before = path.join(dir, 'report.json'), out = path.join(dir, 'diff.json');
   try {
     fs.writeFileSync(before, JSON.stringify(buildReport(fixture()))); fs.writeFileSync(out, 'retain evidence');
-    await assert.rejects(main(['diff', '--before', before, '--after', before, '--out', out]), /EEXIST/);
+    for (const command of ['report', 'diff', 'capture', 'session']) {
+      await assert.rejects(main([command]), /disabled in this release/);
+    }
+    await assert.rejects(main(['diff', '--before', before, '--after', before, '--out', out]), /disabled in this release/);
     assert.equal(fs.readFileSync(out, 'utf8'), 'retain evidence');
   } finally {
     fs.unlinkSync(before); fs.unlinkSync(out); fs.rmdirSync(dir);

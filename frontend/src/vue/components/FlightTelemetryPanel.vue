@@ -10,10 +10,10 @@ const preferences = usePreferencesStore();
 const warningBannerBaseClass = 'flight-global-warning fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 text-white font-bold text-xl rounded-lg shadow-lg z-50 animate-pulse';
 const primaryGridClass = 'telemetry-grid-primary grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5';
 const secondaryGridClass = 'telemetry-grid-secondary grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5';
-const primaryCardClass = 'flight-metric-card flight-metric-card--primary telemetry-card-primary card-hover bg-surface-100 border border-surface-200 rounded-lg p-4 lg:p-5';
-const secondaryCardClass = 'flight-metric-card flight-metric-card--secondary telemetry-card-secondary card-hover bg-surface-100 border border-surface-200 rounded-lg p-4 lg:p-5';
-const systemCardClass = 'flight-system-card card-hover bg-surface-100 border border-surface-200 rounded-lg p-3';
-const environmentCardClass = 'flight-environment-card card-hover bg-surface-100 border rounded-lg p-4';
+const primaryCardClass = 'flight-metric-card flight-metric-card--primary telemetry-card-primary ff-readout bg-surface-100 border border-surface-200 rounded-lg p-4 lg:p-5';
+const secondaryCardClass = 'flight-metric-card flight-metric-card--secondary telemetry-card-secondary ff-readout bg-surface-100 border border-surface-200 rounded-lg p-4 lg:p-5';
+const systemCardClass = 'flight-system-card ff-readout bg-surface-100 border border-surface-200 rounded-lg p-3';
+const environmentCardClass = 'flight-environment-card ff-readout bg-surface-100 border rounded-lg p-4';
 const telemetryValueLargeClass = 'text-3xl sm:text-4xl lg:text-5xl font-semibold tabular telemetry-value';
 const telemetryValueMediumClass = 'text-2xl sm:text-3xl font-semibold tabular telemetry-value';
 const telemetryValueSystemClass = 'text-xl lg:text-2xl font-semibold telemetry-value';
@@ -74,7 +74,7 @@ const lightItems = [
       {{ flight.cabinAltitudeBannerLabel }}
     </div>
 
-    <div id="flight-primary-grid" :class="primaryGridClass">
+    <div id="flight-primary-grid" :class="[primaryGridClass, { 'without-radio-alt': !flight.telemetry.raVisible }]">
       <div
         v-for="card in primaryMetricCards"
         v-show="!card.visibleKey || flight.telemetry[card.visibleKey]"
@@ -123,7 +123,7 @@ const lightItems = [
         </div>
       </div>
 
-      <div id="xwind-card" :class="[secondaryCardClass, metricWatermarkCardClass, 'col-span-2 sm:col-span-1']">
+      <div id="xwind-card" :class="[secondaryCardClass, metricWatermarkCardClass]">
         <FlightMetricWatermark kind="crosswind" />
         <div class="relative z-10">
           <div class="telemetry-label">Crosswind</div>
@@ -145,6 +145,8 @@ const lightItems = [
             <AppTooltip content="Toggle fuel unit (gal / lbs / kg)">
               <button
                 id="fuel-unit-btn"
+                type="button"
+                aria-label="Change fuel unit"
                 class="flight-unit-toggle transition-colors tabular rounded"
                 @click="preferences.requestFuelUnitCycle()"
               >{{ flight.telemetry.fuelUnit }}</button>
@@ -156,6 +158,100 @@ const lightItems = [
           </div>
         </div>
       </div>
+    </div>
+
+
+    <div class="flight-support-grid">
+      <section class="flight-overview-section" aria-labelledby="flight-configuration-title">
+        <h3 id="flight-configuration-title" class="flight-section-title">Configuration</h3>
+
+        <div id="flight-systems-grid" class="telemetry-grid-systems grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5 mt-0">
+          <div id="gear-card" :class="systemCardClass">
+            <div class="telemetry-label">Gear</div>
+            <div id="gear-state" :class="telemetryValueSystemClass" style="font-family: 'B612 Mono', monospace;">{{ flight.telemetry.gearState }}</div>
+            <div class="flight-gear-indicators flex items-center justify-center gap-2 lg:gap-3">
+              <AppTooltip content="Nose" anchor-tag="div"><div id="gear-n" :class="flight.gearDotClass('nose')"></div></AppTooltip>
+              <AppTooltip content="Left" anchor-tag="div"><div id="gear-l" :class="flight.gearDotClass('left')"></div></AppTooltip>
+              <AppTooltip content="Right" anchor-tag="div"><div id="gear-r" :class="flight.gearDotClass('right')"></div></AppTooltip>
+            </div>
+            <div class="flex justify-center">
+              <AppTooltip content="Parking Brake" anchor-tag="div"><div id="parking-brake" :class="flight.parkingBrakeClass">P/BRK</div></AppTooltip>
+            </div>
+          </div>
+
+          <div id="flaps-card" :class="systemCardClass">
+            <div class="telemetry-label">Flaps</div>
+            <div class="flex items-baseline gap-1">
+              <span id="flaps-value" :class="telemetryValueSystemClass">{{ flight.telemetry.flaps }}</span>
+              <span id="flaps-unit" class="telemetry-unit">{{ flight.telemetry.flapsUnit }}</span>
+            </div>
+          </div>
+
+          <div id="spoilers-card" :class="systemCardClass">
+            <div class="telemetry-label">Spoilers</div>
+            <div id="spoilers-value" :class="telemetryValueSystemClass" style="font-family: 'B612 Mono', monospace;">{{ flight.telemetry.spoilers }}</div>
+          </div>
+        </div>
+
+        <div class="flight-section-block">
+          <div class="flight-support-label">Exterior lights</div>
+          <div id="lights-bar" class="flight-lights-bar flex flex-wrap gap-2" :class="{ hidden: !flight.telemetry.lights.available }">
+            <div
+              v-for="light in lightItems"
+              :id="light.id"
+              :key="light.name"
+              :class="flight.lightClass(light.name)"
+              :data-light="light.name"
+            >
+              {{ light.label }}
+            </div>
+          </div>
+          <p id="lights-na" class="flight-empty-copy text-sm text-gray-500" :class="{ hidden: flight.telemetry.lights.available }">{{ flight.mode === 'live' ? 'Light data not available for this aircraft.' : 'Waiting for light data.' }}</p>
+        </div>
+      </section>
+
+      <section class="flight-overview-section" aria-labelledby="flight-power-title">
+        <h3 id="flight-power-title" class="flight-section-title">Engines &amp; environment</h3>
+        <div class="flight-section-block">
+          <div
+            id="engines-grid"
+            class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"
+            :class="{ 'has-three-engines': flight.telemetry.engines.count === 3 }"
+            :style="{
+              '--flight-engine-columns': flight.telemetry.engines.count,
+              '--flight-engine-mobile-columns': Math.min(2, flight.telemetry.engines.count),
+            }"
+          >
+            <div
+              v-for="engine in flight.engineCards"
+              :id="`eng${engine.number}-card`"
+              :key="engine.number"
+              class="flight-engine-card ff-readout bg-surface-100 border border-surface-200 rounded-lg p-4"
+              :class="{ hidden: !engine.visible }"
+            >
+              <div class="flight-card-caption text-xs text-gray-500 mb-1">ENG {{ engine.number }}</div>
+              <div :id="`eng${engine.number}-value`" class="text-2xl sm:text-3xl font-semibold tabular telemetry-value">{{ engine.value }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flight-section-block">
+          <div class="flight-environment-grid">
+            <div
+              v-for="card in environmentCards"
+              :id="card.cardId"
+              :key="card.cardId"
+              :class="[environmentCardClass, card.cardToneKey ? flight[card.cardToneKey] : 'border-surface-200']"
+            >
+              <div :class="environmentLabelClass">{{ card.label }}</div>
+              <div class="flex items-baseline gap-1">
+                <span :id="card.valueId" :class="[telemetryValueMediumClass, card.toneKey ? flight.valueToneClass(card.toneKey) : '']">{{ flight.telemetry[card.valueKey] }}</span>
+                <span :class="environmentUnitClass">{{ card.unit }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <details id="flight-altitude-diagnostics" class="flight-section-block flight-altitude-diagnostics">
@@ -178,85 +274,5 @@ const lightItems = [
         </div>
       </div>
     </details>
-
-    <div class="dashboard-section-kicker">Systems</div>
-
-    <div id="flight-systems-grid" class="telemetry-grid-systems grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5 mt-0">
-      <div id="gear-card" :class="systemCardClass">
-        <div class="telemetry-label">Gear</div>
-        <div id="gear-state" :class="telemetryValueSystemClass" style="font-family: 'B612 Mono', monospace;">{{ flight.telemetry.gearState }}</div>
-        <div class="flight-gear-indicators flex items-center justify-center gap-2 lg:gap-3">
-          <AppTooltip content="Nose" anchor-tag="div"><div id="gear-n" :class="flight.gearDotClass('nose')"></div></AppTooltip>
-          <AppTooltip content="Left" anchor-tag="div"><div id="gear-l" :class="flight.gearDotClass('left')"></div></AppTooltip>
-          <AppTooltip content="Right" anchor-tag="div"><div id="gear-r" :class="flight.gearDotClass('right')"></div></AppTooltip>
-        </div>
-        <div class="flex justify-center">
-          <AppTooltip content="Parking Brake" anchor-tag="div"><div id="parking-brake" :class="flight.parkingBrakeClass">P/BRK</div></AppTooltip>
-        </div>
-      </div>
-
-      <div id="flaps-card" :class="systemCardClass">
-        <div class="telemetry-label">Flaps</div>
-        <div class="flex items-baseline gap-1">
-          <span id="flaps-value" :class="telemetryValueSystemClass">{{ flight.telemetry.flaps }}</span>
-          <span id="flaps-unit" class="telemetry-unit">{{ flight.telemetry.flapsUnit }}</span>
-        </div>
-      </div>
-
-      <div id="spoilers-card" :class="systemCardClass">
-        <div class="telemetry-label">Spoilers</div>
-        <div id="spoilers-value" :class="telemetryValueSystemClass" style="font-family: 'B612 Mono', monospace;">{{ flight.telemetry.spoilers }}</div>
-      </div>
-    </div>
-
-    <div class="flight-section-block">
-      <div class="dashboard-section-kicker">Lights</div>
-      <div id="lights-bar" class="flight-lights-bar flex flex-wrap gap-2" :class="{ hidden: !flight.telemetry.lights.available }">
-        <div
-          v-for="light in lightItems"
-          :id="light.id"
-          :key="light.name"
-          :class="flight.lightClass(light.name)"
-          :data-light="light.name"
-        >
-          {{ light.label }}
-        </div>
-      </div>
-      <p id="lights-na" class="flight-empty-copy text-sm text-gray-500 italic" :class="{ hidden: flight.telemetry.lights.available }">Light data not available for this aircraft.</p>
-    </div>
-
-    <div class="flight-section-block">
-      <div class="dashboard-section-kicker">Engines</div>
-      <div id="engines-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div
-          v-for="engine in flight.engineCards"
-          :id="`eng${engine.number}-card`"
-          :key="engine.number"
-          class="flight-engine-card card-hover bg-surface-100 border border-surface-200 rounded-lg p-4 text-center"
-          :class="{ hidden: !engine.visible }"
-        >
-          <div class="flight-card-caption text-xs text-gray-500 mb-1">ENG {{ engine.number }}</div>
-          <div :id="`eng${engine.number}-value`" class="text-2xl sm:text-3xl font-semibold tabular telemetry-value">{{ engine.value }}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="flight-section-block">
-      <div class="dashboard-section-kicker">Environment</div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div
-          v-for="card in environmentCards"
-          :id="card.cardId"
-          :key="card.cardId"
-          :class="[environmentCardClass, card.cardToneKey ? flight[card.cardToneKey] : 'border-surface-200']"
-        >
-          <div :class="environmentLabelClass">{{ card.label }}</div>
-          <div class="flex items-baseline gap-1">
-            <span :id="card.valueId" :class="[telemetryValueMediumClass, card.toneKey ? flight.valueToneClass(card.toneKey) : '']">{{ flight.telemetry[card.valueKey] }}</span>
-            <span :class="environmentUnitClass">{{ card.unit }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>

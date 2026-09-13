@@ -4,12 +4,24 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { profileKey, buildValidationPlan, diffReports, renderReport } = require('./aircraft-support/inventory');
-const { captureSession } = require('./aircraft-support/capture');
 const { getRepoScratchPath } = require('./repo-scratch');
+const { AIRCRAFT_SUPPORT_ENABLED, AIRCRAFT_SUPPORT_DISABLED_MESSAGE } = require('../shared/aircraft-support-release');
 
 const ROOT = path.resolve(__dirname, '..');
 const HELP = `Aircraft support workbench (developer tooling)
+
+  npm run aircraft:support -- session --op list
+  npm run aircraft:support -- session --op show --id <session-id> [--out session.json]
+  npm run aircraft:support -- session --op create --input session-setup.json
+  npm run aircraft:support -- session --op result --id <session-id> --input result.json
+  npm run aircraft:support -- session --op capture --id <session-id> --input capture-setup.json
+  npm run aircraft:support -- session --op marker --id <session-id> --input marker.json
+  npm run aircraft:support -- session --op stop --id <session-id>
+    [--url http://127.0.0.1:8100]
+
+session uses the running app's guided workbench and saved sessions. It does not build
+the backend. Input and output are JSON; session credentials are never printed.
+The same sessions are available under Settings > Aircraft support workbench.
 
   npm run aircraft:support -- report --profile pmdg-737 [--out-dir .tmp/737-baseline]
   npm run aircraft:support -- diff --before report.json --after report.json [--out diff.json]
@@ -37,10 +49,11 @@ function parseArgs(argv) {
   if (!argv.length || argv.includes('--help') || argv.includes('-h')) return { command: 'help' };
   const command = argv[0];
   const allowed = {
+    session: ['op', 'id', 'input', 'out', 'url'],
     report: ['profile', 'out-dir'], diff: ['before', 'after', 'out'],
     capture: ['report', 'fields', 'aircraft-version', 'simulator-version', 'condition', 'seconds', 'url', 'out'],
   }[command];
-  if (!allowed) throw new Error('Choose report, diff or capture. Use --help for examples.');
+  if (!allowed) throw new Error('Choose report, diff, capture or session. Use --help for examples.');
   const args = { command };
   for (let index = 1; index < argv.length; index += 2) {
     const key = argv[index]?.slice(2), value = argv[index + 1];
@@ -48,7 +61,7 @@ function parseArgs(argv) {
       || !value || value.startsWith('--')) throw new Error(`Invalid or duplicate option: ${argv[index]}`);
     args[key] = value;
   }
-  const required = { report: ['profile'], diff: ['before', 'after'],
+  const required = { session: ['op'], report: ['profile'], diff: ['before', 'after'],
     capture: ['report', 'fields', 'aircraft-version', 'simulator-version', 'condition', 'out'] }[command];
   for (const key of required) if (!args[key]) throw new Error(`--${key} is required.`);
   return args;
@@ -66,6 +79,7 @@ function writeNew(file, content) {
 }
 
 function loadReport(keyValue) {
+  const { profileKey } = require('./aircraft-support/inventory');
   const key = profileKey(keyValue);
   // Build before isolating the worker so compiler discovery keeps the caller's
   // toolchain environment. This resolver does not import backend config.
@@ -86,13 +100,32 @@ function loadReport(keyValue) {
 }
 
 async function main(argv = process.argv.slice(2)) {
+  // Fail before resolving input/output paths, loading runtime definitions,
+  // rebuilding anything, or connecting to the simulator/backend.
+  if (!AIRCRAFT_SUPPORT_ENABLED) {
+    if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
+      process.stdout.write(`${AIRCRAFT_SUPPORT_DISABLED_MESSAGE}\n`);
+      return 0;
+    }
+    throw new Error(AIRCRAFT_SUPPORT_DISABLED_MESSAGE);
+  }
   const args = parseArgs(argv);
   if (args.command === 'help') { process.stdout.write(HELP); return 0; }
+  if (args.command === 'session') {
+    if (args.out && fs.existsSync(args.out)) throw new Error('Output already exists. Choose a new file.');
+    const { requestSession } = require('./aircraft-support/session-client');
+    const result = await requestSession({ operation: args.op, id: args.id,
+      input: args.input ? readJson(args.input) : undefined, url: args.url });
+    const json = JSON.stringify(result, null, 2) + '\n';
+    if (args.out) writeNew(args.out, json); else process.stdout.write(json);
+    return 0;
+  }
   if (args.command === 'report') {
-    const key = profileKey(args.profile);
     // Both executable definitions and copied profile JSON must come from this
     // checkout. An old dist directory is not evidence about today's sources.
     execFileSync(process.execPath, [path.join(ROOT, 'scripts/build-backend-runtime.js')], { cwd: ROOT, stdio: 'inherit' });
+    const { profileKey, buildValidationPlan, renderReport } = require('./aircraft-support/inventory');
+    const key = profileKey(args.profile);
     const report = loadReport(key);
     const output = path.resolve(args['out-dir'] || path.join(ROOT, '.tmp/aircraft-support',
       `${key.split('/').at(-1)}-${new Date().toISOString().replace(/[:.]/g, '-')}`));
@@ -104,6 +137,7 @@ async function main(argv = process.argv.slice(2)) {
     return 0;
   }
   if (args.command === 'diff') {
+    const { diffReports } = require('./aircraft-support/inventory');
     const diff = diffReports(readJson(args.before), readJson(args.after));
     const json = JSON.stringify(diff, null, 2) + '\n';
     if (args.out) writeNew(args.out, json);
@@ -111,6 +145,8 @@ async function main(argv = process.argv.slice(2)) {
     return 0;
   }
   const report = readJson(args.report);
+  const { diffReports } = require('./aircraft-support/inventory');
+  const { captureSession } = require('./aircraft-support/capture');
   // Reuse full report validation, including its hash, without trusting edited cases.
   diffReports(report, report);
   if (fs.existsSync(args.out)) throw new Error('Capture output already exists. Choose a new file.');

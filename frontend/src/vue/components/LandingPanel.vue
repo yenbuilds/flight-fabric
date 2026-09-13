@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AircraftArtwork from './AircraftArtwork.vue';
 import LandingSummaryWatermark from './LandingSummaryWatermark.vue';
+import LandingGradeCard from './LandingGradeCard.vue';
 import { useLandingStore } from '../stores/landing.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTimelineStore } from '../stores/timeline.js';
@@ -230,8 +231,19 @@ const bounceDetailVisible = computed(() => {
             <span class="absolute right-1 top-1/2 -translate-y-1/2">E</span>
             <span class="absolute bottom-0.5 left-1/2 -translate-x-1/2">S</span>
             <span class="absolute left-1 top-1/2 -translate-y-1/2">W</span>
-            <svg class="absolute inset-0 h-full w-full" viewBox="0 0 64 64">
+            <svg class="absolute inset-0 h-full w-full" viewBox="0 0 64 64" focusable="false">
               <circle cx="32" cy="32" r="22" fill="none" stroke="currentColor" stroke-width="1" class="text-surface-300" />
+              <circle cx="32" cy="32" r="17" fill="none" stroke="currentColor" stroke-width=".5" opacity=".25" />
+              <g fill="none" stroke="currentColor" stroke-linecap="round">
+                <path
+                  v-for="tick in 24"
+                  :key="tick"
+                  :d="`M32 11v${tick % 6 === 0 ? 4 : 2}`"
+                  :transform="`rotate(${tick * 15} 32 32)`"
+                  :stroke-width="tick % 6 === 0 ? 1.2 : .65"
+                  :opacity="tick % 6 === 0 ? .7 : .4"
+                />
+              </g>
               <g
                 v-if="landing.landingCard.wind.arrowVisible"
                 class="text-accent"
@@ -243,8 +255,9 @@ const bounceDetailVisible = computed(() => {
                 stroke="currentColor"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                stroke-width="2.5"
+                stroke-width="1.8"
               >
+                <path d="m32 19 5 8-5-2-5 2Z" fill="currentColor" fill-opacity=".18" stroke="none" />
                 <path d="M32 55V19" />
                 <path d="m25 27 7-8 7 8" />
               </g>
@@ -290,8 +303,7 @@ const bounceDetailVisible = computed(() => {
         </div>
       </section>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-px overflow-hidden rounded-lg border border-surface-200/50 bg-surface-200/50">
-        <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
-          <LandingSummaryWatermark kind="grade" />
+        <LandingGradeCard>
           <div class="relative z-10">
             <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown rate grade</div>
             <div
@@ -301,7 +313,7 @@ const bounceDetailVisible = computed(() => {
               :style="[landing.landingGradeStyle, { fontFamily: '\'B612 Mono\', monospace', letterSpacing: '0.08em' }]"
             >{{ landing.landingCard.gradeText }}</div>
           </div>
-        </div>
+        </LandingGradeCard>
 
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="rate" />

@@ -67,6 +67,12 @@ export function getAuthorizationScope() {
     : 'read-only';
 }
 
+export function requestAircraftSupport(resource, options) {
+  const request = resolveService('requestAircraftSupport');
+  if (typeof request !== 'function') return Promise.reject(new Error('Waiting for Flight Fabric to connect.'));
+  return request(resource, options);
+}
+
 export function getUiHelpers() {
   const uiHelpers = resolveService('ui');
   return uiHelpers && typeof uiHelpers === 'object' ? uiHelpers : {};

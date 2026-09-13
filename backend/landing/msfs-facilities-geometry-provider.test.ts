@@ -257,6 +257,55 @@ test('empty diagnostic probe response returns failed normalized outcome', () => 
   assertEqual(outcome?.runwayCount, 0, 'empty diagnostic probe should include zero runway count');
 });
 
+test('malformed geometry is rejected and retried instead of cached as a successful airport', () => {
+  let nowMs = 1000;
+  let requests = 0;
+  const message = facilityAirportMessage();
+  const good = message.runways[0];
+  const invalidRunways = [
+    { ...good, threshold: { lat: null, lon: 149.194 } },
+    { ...good, threshold: { lat: 95, lon: 149.194 } },
+    { ...good, headingTrueDeg: null, heading: null },
+    { ...good, lengthFt: 0 },
+    { ...good, widthFt: -1 },
+  ];
+  for (const invalid of invalidRunways) {
+    let validResponse = false;
+    const provider = createMsfsFacilitiesGeometryProvider({
+      getSnapshot: () => ({ status: 'running' }),
+      requestFacilityAirport: () => {
+        requests += 1;
+        return immediateResponse(validResponse ? message : { ...message, runways: [invalid] });
+      },
+    }, { logger: null, now: () => nowMs });
+    provider.prefetchAirport('YSCB');
+    assertEqual(provider.getRunway('YSCB', '35'), null, 'malformed runway must not suppress fallback');
+    assertEqual(provider.getDiagnosticSnapshot().lastOutcome.ok, false, 'rejected runway records must be a failed fetch');
+    const beforeRetry = requests;
+    validResponse = true;
+    nowMs += 30001;
+    provider.prefetchAirport('YSCB');
+    assertEqual(requests, beforeRetry + 1, 'invalid responses must retry after the failure backoff, not the successful-cache TTL');
+    assertEqual(provider.getRunway('YSCB', '35')?.source, 'msfs-facilities', 'valid retry must recover preferred geometry');
+  }
+});
+
+test('missing Facilities elevation and displacement remain unknown rather than becoming zero', () => {
+  const message = facilityAirportMessage();
+  message.airport.elevationFt = null;
+  message.elevationFt = null;
+  message.runways[0].displacedThresholdFt = null;
+  message.runways[0].displaced_threshold_ft = null;
+  const provider = createMsfsFacilitiesGeometryProvider({
+    getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: () => immediateResponse(message),
+  }, { logger: null });
+  provider.prefetchAirport('YSCB');
+  const runway = provider.getRunway('YSCB', '35');
+  assertEqual(runway.elevation_ft, null, 'missing elevation must not become a sea-level scoring reference');
+  assertEqual(runway.displacedThresholdFt, null, 'missing displacement must remain unknown');
+});
+
 test('provider emits basic throttled facility request and cache logs', () => {
   const { logger, info, warnings } = createLogCollector();
   const bridge = {

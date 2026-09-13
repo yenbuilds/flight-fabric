@@ -86,7 +86,7 @@ const timelineAircraftName = computed(() => {
         </svg>
         <div class="text-sm text-center px-4">{{ timeline.inspectorEmptyMessage }}</div>
         <div class="text-xs text-gray-600 mt-1">
-          {{ timeline.timelineLoading ? `Preparing ${timeline.timelineLoadingFlightLabel}` : 'Select a completed flight from the list below' }}
+          {{ timeline.timelineLoading ? `Preparing ${timeline.timelineLoadingFlightLabel}` : 'Choose a flight from Recent flights to begin' }}
         </div>
       </div>
 
@@ -106,6 +106,7 @@ const timelineAircraftName = computed(() => {
           :data-index="String(row.index)"
           :data-row-key="row.rowKey"
           :data-type="row.type"
+          :aria-current="timeline.inspectorSelectedRowKey === row.rowKey ? 'true' : undefined"
           @click="timeline.selectEventRow(row.rowKey)"
         >
           <div class="timeline-event-row">

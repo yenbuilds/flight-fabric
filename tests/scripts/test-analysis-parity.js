@@ -196,6 +196,27 @@ async function main() {
     assert(replay.tdzAchieved === sharedAnalysis.tdzAchieved, `TDZ drift: replay=${replay.tdzAchieved} shared=${sharedAnalysis.tdzAchieved}`);
   });
 
+  await test('warming live Facilities cannot replace geometry during offline replay', async () => {
+    const geometry = require(resolveBackendRuntimeFile('landing', 'airport-geometry-service.js'));
+    let liveLookups = 0;
+    geometry.registerAirportGeometryProvider({
+      id: 'msfs-facilities', simulator: 'msfs', isAvailable: () => true,
+      getRunway: () => { liveLookups += 1; return { ...fixtures.runway, source: 'msfs-facilities' }; },
+      findRunwayByPosition: () => { liveLookups += 1; return { ...fixtures.runway, source: 'msfs-facilities' }; },
+      prefetchAirport: () => { throw new Error('offline replay attempted a simulator request'); },
+    });
+    try {
+      const fixture = fixtures.fixtures.find((item) => item.id === 'wet-failsafe-touchdown');
+      const result = await replayFixture(fixture);
+      const touchdown = landingEvents(result)[0].touchdownDistance;
+      assert(liveLookups === 0, 'offline reconstruction consulted the current simulator cache');
+      assert(touchdown.runwayGeometrySource === 'ourairports', 'offline reconstruction changed geometry source');
+      assert(touchdown.lateralOffsetSuspect === true, 'portable geometry became verified because a live cache exists');
+    } finally {
+      geometry.resetAirportGeometryProviders();
+    }
+  });
+
   await test('high-elevation stability gate uses height above runway threshold', async () => {
     const fixture = fixtures.fixtures.find((item) => item.id === 'high-elevation-gate');
     const scorer = new SimpleStabilityScorer();

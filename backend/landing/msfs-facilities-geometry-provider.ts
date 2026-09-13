@@ -55,6 +55,7 @@ const FT_PER_DEG_LAT = 364567;
 const HEADING_TOLERANCE_DEG = 30;
 
 function finiteNumber(value: unknown): number | null {
+  if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) return null;
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -105,7 +106,7 @@ function coordinate(value: unknown): { lat: number; lon: number } | null {
   if (!value || typeof value !== 'object') return null;
   const lat = finiteNumber((value as AnyRecord).lat);
   const lon = finiteNumber((value as AnyRecord).lon);
-  return lat == null || lon == null ? null : { lat, lon };
+  return lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180 ? null : { lat, lon };
 }
 
 function computeAlongTrack(
@@ -148,6 +149,9 @@ function normalizeRunway(raw: AnyRecord, airport: CachedAirport): AnyRecord | nu
   const lengthFt = finiteNumber(raw.lengthFt ?? raw.length_ft);
   const physicalLengthFt = finiteNumber(raw.physicalLengthFt ?? raw.physical_length_ft);
   const widthFt = finiteNumber(raw.widthFt ?? raw.width_ft);
+  // An incomplete simulator runway must not win provider selection and prevent
+  // a usable fallback. Scoring requires a real runway footprint.
+  if (lengthFt == null || lengthFt <= 0 || widthFt == null || widthFt <= 0) return null;
   const displacedThresholdFt = finiteNumber(raw.displacedThresholdFt ?? raw.displaced_threshold_ft);
   const elevationFt = finiteNumber(raw.elevation_ft ?? raw.elevationFt ?? airport.elevation_ft);
 
@@ -309,11 +313,15 @@ function createMsfsFacilitiesGeometryProvider(
       }
     }
 
-    cache.set(icao, airport);
-    if (icao !== requestedIcao) cache.set(requestedIcao, airport);
-
     const runways = allUniqueRunwaysForAirport(airport);
     const runwayCount = runways.length;
+    if (runwayCount === 0) {
+      // A nonempty response can still contain no usable records. Preserve any
+      // last good cache and use the failure retry interval for a cold airport.
+      return ingestAirport({ ok: false, error: 'invalid_facility_response' }, requestedIcao);
+    }
+    cache.set(icao, airport);
+    if (icao !== requestedIcao) cache.set(requestedIcao, airport);
     const unvalidatedThresholdCount = runways
       .filter((runway) => runway.thresholdMappingValidated === false)
       .length;

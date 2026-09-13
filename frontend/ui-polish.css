@@ -1,0 +1,980 @@
+/* Shared UI finishing. Landing artwork owns its own effects. */
+
+/* Flight history: a calm list with a clear route, aircraft, and replay action. */
+.timeline-section-stack { grid-template-columns: minmax(0, 1fr); }
+.timeline-section-stack > div { min-width: 0; }
+#timeline-flights-card,
+.logbook-panel {
+  background: rgb(var(--panel) / 0.88);
+  border-color: rgb(var(--border) / 0.5);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025);
+}
+
+.timeline-filter-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgb(var(--muted-foreground));
+}
+
+.timeline-filter-field .timeline-filter-control {
+  width: 100%;
+  min-height: 2.5rem;
+  font-size: 0.8125rem;
+  background: rgb(var(--background) / 0.55);
+  border-color: rgb(var(--border) / 0.6);
+}
+
+.timeline-filter-summary,
+.aircraft-command-results {
+  display: flex;
+  min-height: 2rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: rgb(var(--muted-foreground));
+}
+
+.timeline-clear-filters {
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.35rem;
+  color: rgb(var(--primary));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.timeline-clear-filters:hover {
+  background: rgb(var(--primary) / 0.08);
+}
+
+.timeline-refresh-button { min-width: 7.5rem; }
+:is(.logbook-panel, #timeline-flights-card) .ff-button-secondary {
+  padding: 0.5rem 0.85rem;
+  border: 1px solid;
+  font-size: 0.75rem;
+}
+
+.timeline-flight-list {
+  position: relative;
+  max-height: min(56vh, 42rem);
+  min-height: 15rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
+.timeline-flight-row {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid rgb(var(--border) / 0.38);
+  border-left: 3px solid transparent;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.timeline-flight-row:last-child { border-bottom: 0; }
+.timeline-flight-row:hover { background: rgb(var(--panel-elevated) / 0.32); }
+.timeline-flight-row:is(.is-selected, .is-loading) {
+  border-left-color: rgb(var(--primary));
+  background: rgb(var(--primary) / 0.055);
+}
+
+.timeline-flight-row-layout,
+.timeline-flight-open,
+.timeline-flight-actions,
+.timeline-flight-replay-hint {
+  display: flex;
+  align-items: center;
+}
+
+.timeline-flight-row-layout { gap: 1rem; }
+.timeline-flight-open {
+  flex: 1;
+  min-width: 0;
+  gap: 0.85rem;
+  padding: 0.2rem;
+  border-radius: 0.375rem;
+  text-align: left;
+}
+
+.timeline-flight-route {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.timeline-flight-aircraft {
+  margin-top: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--gray-300));
+  font-size: 0.8125rem;
+}
+
+.timeline-flight-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.85rem;
+  margin-top: 0.35rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-flight-replay-hint {
+  gap: 0.35rem;
+  flex-shrink: 0;
+  color: rgb(var(--primary));
+  font-size: 0.75rem;
+}
+
+.timeline-flight-actions { gap: 0.4rem; }
+.timeline-flight-info,
+.timeline-flight-delete {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  min-height: 2.5rem;
+  border-radius: 0.5rem;
+  color: rgb(var(--muted-foreground));
+}
+
+.timeline-flight-info:hover { background: rgb(var(--panel-elevated) / 0.6); color: rgb(var(--foreground)); }
+.timeline-flight-delete:hover { background: rgb(var(--danger) / 0.1); color: rgb(var(--danger)); }
+.timeline-flight-landing { font-size: 0.75rem; }
+
+.ff-empty-state {
+  display: flex;
+  min-height: 15rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1.25rem;
+  text-align: center;
+}
+
+.ff-empty-state-icon { width: 2rem; height: 2rem; margin-bottom: 0.35rem; color: rgb(var(--primary) / 0.65); }
+.ff-empty-state h3 { color: rgb(var(--foreground)); font-size: 0.9375rem; font-weight: 600; }
+.ff-empty-state p { max-width: 42ch; color: rgb(var(--muted-foreground)); font-size: 0.8125rem; line-height: 1.65; }
+
+.logbook-expand-button { display: inline-flex; align-items: center; gap: 0.6rem; }
+.logbook-expand-chevron { transition: transform 160ms ease; }
+.logbook-expand-chevron.is-expanded { transform: rotate(180deg); }
+.logbook-stat-grid > div { display: flex; flex-direction: column; justify-content: space-between; gap: 0.4rem; padding: 0.5rem; }
+.logbook-stat-grid > div > div:first-child {
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: 0;
+  color: rgb(var(--muted-foreground));
+}
+
+.logbook-scoring-note { border-bottom: 1px solid rgb(var(--border) / 0.4); padding: 0 1rem; }
+.logbook-scoring-note summary { min-height: 2.75rem; align-content: center; cursor: pointer; font-size: 0.75rem; color: rgb(var(--muted-foreground)); }
+.logbook-scoring-note p { max-width: 100ch; margin: 0 0 1rem; font-size: 0.75rem; line-height: 1.65; color: rgb(var(--muted-foreground)); }
+.logbook-desktop-table { scrollbar-gutter: stable; }
+.logbook-desktop-table thead { position: sticky; top: 0; z-index: 1; background: rgb(var(--panel)); }
+.logbook-desktop-table th { padding-block: 0.8rem; font-size: 0.6875rem; letter-spacing: 0; text-transform: none; color: rgb(var(--muted-foreground)); }
+.logbook-desktop-table td { padding-block: 0.9rem; border-bottom: 1px solid rgb(var(--border) / 0.3); }
+.logbook-desktop-table .logbook-aircraft-cell { max-width: 16rem; }
+.logbook-mobile-card__title { overflow-wrap: anywhere; }
+.logbook-mobile-card__stats { padding-top: 0.8rem; margin-top: 0.8rem; border-top: 1px solid rgb(var(--border) / 0.3); }
+.logbook-mobile-card__stat-label { display: block; margin-bottom: 0.3rem; }
+.logbook-mobile-card__stats > div { min-width: 0; }
+
+/* SimBrief uses the same label hierarchy and quieter secondary information. */
+.simbrief-fetch-label { display: block; margin-bottom: 0.3rem; color: rgb(var(--foreground)); font-size: 0.875rem; font-weight: 600; }
+.simbrief-shell .simbrief-card .simbrief-metric-label { font-family: var(--ff-font-ui); font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.025em; text-transform: none; }
+.simbrief-shell .simbrief-metric-value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.simbrief-shell .simbrief-card .simbrief-copy-button { letter-spacing: 0; text-transform: none; font-size: 0.75rem; padding-inline: 0.5rem; border-radius: 0.375rem; }
+.simbrief-shell .simbrief-card .simbrief-details summary { text-transform: none; letter-spacing: 0; font-size: 0.8125rem; }
+.simbrief-shell .simbrief-details summary { gap: 0.75rem; min-height: 3rem; }
+.simbrief-shell .simbrief-details-hint { text-align: right; }
+.simbrief-shell .simbrief-kpi-cell { box-shadow: none; }
+
+.aircraft-command-results { margin-bottom: 0.75rem; }
+[data-aircraft-command-browser] [data-command-editor] {
+  display: flex;
+  flex-direction: column;
+  border-color: rgb(var(--border) / 0.5);
+  background: rgb(var(--background) / 0.22);
+  padding: 1rem;
+}
+
+[data-aircraft-command-browser] [data-command-editor] > div { margin-top: auto; padding-top: 0.9rem; }
+.aircraft-command-voice-hint { margin-top: 0.8rem; padding-top: 0.7rem; border-top: 1px solid rgb(var(--border) / 0.35); font-size: 0.75rem; line-height: 1.5; overflow-wrap: anywhere; color: rgb(var(--muted-foreground)); }
+[data-aircraft-command-browser] [data-command-editor] button:disabled { box-shadow: none; filter: saturate(0.2); }
+.aircraft-tab-shell .aircraft-voice-control-button__status { font-size: 0.6875rem; }
+
+.app-tooltip { font-size: 0.75rem; line-height: 1.6; border-radius: 0.5rem; box-shadow: 0 8px 24px rgb(0 0 0 / 0.28); }
+.timeline-event.selected { box-shadow: inset 2px 0 0 rgb(var(--primary)); }
+:is(.timeline-analysis-modal-content, #timeline-events) { overscroll-behavior: contain; scrollbar-gutter: stable; }
+
+@media (max-width: 639px) {
+  .timeline-filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .timeline-filter-field:last-child { grid-column: 1 / -1; }
+  .timeline-flight-row { padding: 0.85rem 0.7rem; }
+  .timeline-flight-row-layout { flex-wrap: wrap; gap: 0.6rem; }
+  .timeline-flight-open { flex-basis: 100%; gap: 0.65rem; }
+  .timeline-flight-actions { justify-content: flex-end; width: 100%; border-top: 1px solid rgb(var(--border) / 0.25); padding-top: 0.35rem; }
+  .timeline-flight-actions .app-tooltip-anchor:first-child { margin-right: auto; }
+  .timeline-flight-replay-hint span { display: none; }
+  .timeline-flight-list { max-height: 65vh; }
+  .logbook-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .logbook-mobile-card__top { flex-wrap: wrap; gap: 0.65rem; }
+  .logbook-mobile-card__top > .logbook-aircraft-cell { flex: 1 1 100%; }
+  .logbook-mobile-card__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .simbrief-shell .simbrief-details summary { flex-wrap: wrap; }
+  .simbrief-shell .simbrief-details-hint { text-align: left; }
+}
+
+@media (max-width: 980px) {
+  .simbrief-shell .simbrief-card .simbrief-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .simbrief-shell .simbrief-kpi-grid > .simbrief-kpi-cell:last-child { grid-column: 1 / -1; }
+  .simbrief-shell .simbrief-card .simbrief-fetch-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .simbrief-shell .simbrief-fetch-row .simbrief-input { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .timeline-mobile-viewer-header > div:first-child { flex: 1; }
+  .timeline-mobile-viewer-header .items-baseline { flex-wrap: wrap; gap: 0.2rem; }
+  #timeline-mobile-viewer-title { flex-basis: 100%; }
+  .timeline-mobile-viewer-header .items-baseline > span[aria-hidden] { display: none; }
+  #timeline-mobile-viewer-aircraft { font-size: 0.6875rem; }
+  .timeline-mobile-viewer-open > #timeline-card {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .timeline-mobile-viewer-open #vue-timeline-inspector-shell-root,
+  .timeline-mobile-viewer-open #vue-timeline-inspector-shell-root > div {
+    display: block;
+    min-height: 0;
+  }
+  .timeline-mobile-viewer-open #timeline-events {
+    height: clamp(10rem, 25dvh, 16rem);
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logbook-expand-chevron, .timeline-flight-row { transition: none; }
+}
+
+.desktop-tab {
+  min-height: 2.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  text-transform: none;
+}
+
+.desktop-tab.active {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.desktop-tab-bar {
+  border-color: rgb(var(--border) / 0.45);
+  box-shadow: none;
+}
+
+.page-intro h2 {
+  font-size: 1.375rem !important;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+
+.page-intro p {
+  max-width: 65ch;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+:is(.ff-button, .ff-button-primary, .ff-button-secondary, .ff-button-ghost,
+    .ff-toolbar-button, .settings-btn-accent, .settings-btn-warning,
+    .settings-pending-btn, .timeline-storage-btn, .flight-summary-action,
+    .simbrief-button, .simbrief-copy-button) {
+  min-height: 2.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+:is(.ff-button-primary, .settings-btn-accent, .simbrief-button--primary):not(:disabled) {
+  color: rgb(var(--primary-foreground)) !important;
+  background: rgb(var(--primary)) !important;
+  border-color: rgb(var(--primary)) !important;
+}
+
+/* Disabled controls retain their appearance under the pointer. */
+button:disabled,
+button[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+:is(.ff-button, .ff-button-primary, .ff-button-secondary, .ff-button-ghost,
+    .ff-toolbar-button, .settings-btn-accent, .settings-btn-warning,
+    .settings-pending-btn, .timeline-storage-btn, .flight-summary-action,
+    .simbrief-button, .simbrief-copy-button):disabled {
+  color: rgb(var(--muted-foreground)) !important;
+  background: rgb(var(--panel-elevated) / 0.25) !important;
+  border-color: rgb(var(--border) / 0.4) !important;
+  box-shadow: none;
+  transform: none;
+  opacity: 0.55;
+}
+
+:is(button, summary, a, input, select, textarea):focus-visible {
+  outline: 2px solid rgb(var(--primary)) !important;
+  outline-offset: 3px;
+}
+
+:is(input, select, textarea) {
+  transition: border-color var(--ff-motion-fast) var(--ff-motion-ease),
+    box-shadow var(--ff-motion-fast) var(--ff-motion-ease);
+}
+
+:is(input, select, textarea):focus-visible {
+  border-color: rgb(var(--primary) / 0.8) !important;
+  box-shadow: 0 0 0 3px rgb(var(--primary) / 0.12);
+}
+
+input[type="checkbox"] {
+  accent-color: rgb(var(--primary));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(.ff-button-primary, .settings-btn-accent, .simbrief-button--primary):not(:disabled):hover {
+    background: color-mix(in srgb, rgb(var(--primary)), white 10%) !important;
+    border-color: color-mix(in srgb, rgb(var(--primary)), white 10%) !important;
+  }
+}
+
+:is(.ff-button, .ff-button-primary, .ff-button-secondary, .ff-button-ghost,
+    .ff-toolbar-button, .settings-btn-accent, .settings-btn-warning,
+    .settings-pending-btn, .simbrief-button, .simbrief-copy-button,
+    .desktop-tab):not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* Main flight readings stay still; only actual controls have hover motion. */
+.ff-readout {
+  min-width: 0;
+  border-radius: var(--ff-radius-card);
+  border-color: rgb(var(--border) / 0.48);
+  background: linear-gradient(160deg, rgb(var(--card) / 0.9), rgb(var(--panel) / 0.95));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025);
+}
+
+#flight-primary-grid,
+#flight-secondary-grid {
+  gap: 0.875rem !important;
+}
+
+#flight-primary-grid.without-radio-alt > #alt-card {
+  grid-column: 1 / -1;
+}
+
+#flight-live-shell .telemetry-label,
+#flight-live-shell .flight-card-caption {
+  margin-bottom: 0.625rem;
+  color: rgb(var(--muted-foreground)) !important;
+  font-family: var(--ff-font-ui);
+  font-size: 0.8125rem !important;
+  font-weight: 550;
+  letter-spacing: 0.015em;
+  line-height: 1.3;
+  text-transform: none;
+}
+
+#flight-live-shell .telemetry-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+#flight-live-shell .telemetry-value.text-warning {
+  color: rgb(var(--warning)) !important;
+}
+
+#flight-live-shell .telemetry-value.text-danger {
+  color: rgb(var(--danger)) !important;
+}
+
+#flight-live-shell .telemetry-unit,
+#flight-live-shell .flight-card-unit {
+  font-family: var(--ff-font-ui);
+  font-size: 0.75rem !important;
+  letter-spacing: 0;
+}
+
+#flight-live-shell .telemetry-card-primary {
+  min-height: 7.5rem;
+  padding: 1.125rem 1.25rem !important;
+}
+
+#flight-live-shell .flight-metric-card .telemetry-label {
+  min-height: 1.75rem;
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+#flight-live-shell #fuel-card .telemetry-label {
+  margin-bottom: 0;
+}
+
+#fuel-card > .relative > .flex:first-child {
+  margin-bottom: 0.5rem;
+}
+
+#flight-live-shell .telemetry-card-primary .telemetry-value {
+  font-size: clamp(1.8rem, 3.4vw, 3rem) !important;
+}
+
+#flight-live-shell .telemetry-card-secondary {
+  min-height: 6.5rem;
+  padding: 1rem 1.125rem !important;
+}
+
+#flight-live-shell .telemetry-card-secondary .telemetry-value {
+  font-size: clamp(1.5rem, 2.5vw, 2.25rem) !important;
+}
+
+.flight-unit-toggle {
+  min-width: 2.5rem;
+  min-height: 1.75rem;
+}
+
+.flight-support-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+  margin-top: 0.375rem;
+}
+
+.flight-overview-section {
+  min-width: 0;
+  padding: 1.125rem;
+  border: 1px solid rgb(var(--border) / 0.4);
+  border-radius: var(--ff-radius-panel);
+  background: rgb(var(--panel) / 0.65);
+}
+
+.flight-section-title {
+  margin: 0 0 1rem;
+  color: rgb(var(--foreground));
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+#flight-systems-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 0.625rem !important;
+}
+
+.flight-overview-section .ff-readout {
+  background: rgb(var(--card) / 0.35);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+#flight-live-shell #cabin-alt-card.border-red-500 {
+  border-color: rgb(var(--danger));
+}
+
+#flight-live-shell #cabin-alt-card.border-amber-500 {
+  border-color: rgb(var(--warning));
+}
+
+#flight-systems-grid .telemetry-value {
+  font-size: clamp(0.9375rem, 1.7vw, 1.375rem) !important;
+}
+
+.flight-overview-section .flight-system-card {
+  align-content: start;
+  padding: 0.875rem 0.75rem !important;
+}
+
+.flight-overview-section .flight-section-block {
+  margin-top: 1rem;
+  padding-top: 0;
+}
+
+.flight-section-title + .flight-section-block {
+  margin-top: 0;
+}
+
+.flight-support-label {
+  margin-bottom: 0.625rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.8125rem;
+}
+
+.flight-overview-section #engines-grid {
+  grid-template-columns: repeat(var(--flight-engine-columns, 2), minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+.flight-environment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+.flight-overview-section .flight-engine-card,
+.flight-overview-section .flight-environment-card {
+  min-height: 4.5rem;
+  padding: 0.75rem !important;
+}
+
+.flight-overview-section .flight-environment-card .telemetry-value {
+  font-size: clamp(1.05rem, 1.6vw, 1.625rem) !important;
+}
+
+.flight-altitude-diagnostics {
+  margin-top: 0.375rem;
+}
+
+#flight-live-shell .flight-altitude-diagnostics-summary {
+  min-height: 2.75rem;
+  font-family: var(--ff-font-ui);
+  font-size: 0.8125rem !important;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.flight-state-panel {
+  padding: 1rem 1.125rem;
+  border-color: rgb(var(--border) / 0.5) !important;
+  box-shadow: none;
+}
+
+.flight-state-eyebrow {
+  font-size: 0.6875rem !important;
+  letter-spacing: 0.08em;
+}
+
+.flight-state-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.flight-state-copy {
+  font-size: 0.875rem;
+}
+
+.flight-live-shell.is-muted {
+  opacity: 1;
+  filter: none;
+}
+
+.flight-live-shell.is-muted .telemetry-value {
+  color: rgb(var(--gray-400)) !important;
+}
+
+/* The approach strip has its own space, so it never obscures flight controls. */
+.quick-glance {
+  display: none;
+  position: relative;
+  top: auto;
+  right: auto;
+  flex: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: min(40rem, calc(100% - 3rem));
+  margin: 0.75rem auto 0;
+  padding: 0.625rem 0;
+  border: 1px solid rgb(var(--border) / 0.5);
+  border-radius: var(--ff-radius-panel);
+  background: rgb(var(--panel));
+  transform: none;
+}
+
+.quick-glance.show {
+  display: grid;
+}
+
+.qg-item {
+  min-width: 0;
+  padding: 0 0.875rem;
+}
+
+.qg-item + .qg-item {
+  border-left: 1px solid rgb(var(--border) / 0.4);
+}
+
+.qg-label {
+  margin-bottom: 0.25rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.qg-item > div:last-child {
+  white-space: nowrap;
+}
+
+.qg-value {
+  font-family: var(--ff-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.qg-unit {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.6875rem;
+}
+
+.qg-gear {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.5rem;
+}
+
+.qg-gear-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 1px solid rgb(var(--border-strong));
+  border-radius: 50%;
+  background: rgb(var(--panel-elevated));
+}
+
+.qg-gear-dot.down {
+  background: rgb(var(--success));
+  border-color: rgb(var(--success));
+}
+
+.qg-gear-dot.transit {
+  background: rgb(var(--warning));
+  border-color: rgb(var(--warning));
+}
+
+/* A single surface per settings section, with clear everyday and advanced groups. */
+.settings-page .page-intro {
+  padding: 0.25rem 0 0.5rem;
+  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+}
+
+.settings-form-shell {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-form-head {
+  padding: 0 0 0.75rem;
+  border: 0;
+}
+
+.settings-form-heading {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.settings-page .settings-panel-grid {
+  gap: 1rem;
+  padding: 0;
+  align-items: start;
+}
+
+.settings-page .settings-panel {
+  padding: 1.25rem;
+  border-color: rgb(var(--border) / 0.45) !important;
+  background: rgb(var(--panel) / 0.95) !important;
+  box-shadow: none;
+}
+
+.settings-page .settings-panel-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.settings-page .settings-panel-kicker {
+  font-size: 0.6875rem !important;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+}
+
+.settings-page .settings-label-row label,
+.settings-page label[for="setting-ws-port"],
+.settings-page label[for="setting-http-port"] {
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.settings-page .settings-label-row {
+  margin-bottom: 0.5rem;
+}
+
+.settings-preferences-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-preferences-stack .settings-runtime-connection {
+  grid-column: auto;
+}
+
+.settings-option-row {
+  padding: 0.875rem 0;
+  border: 0;
+  border-top: 1px solid rgb(var(--border) / 0.35);
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-option-row input[type="checkbox"] {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.settings-option-row .text-xs {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.8125rem;
+}
+
+.settings-page .settings-advanced {
+  grid-column: 1 / -1;
+}
+
+.settings-advanced > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-advanced > summary::after {
+  content: '+';
+  color: rgb(var(--muted-foreground));
+  font-size: 1.25rem;
+}
+
+.settings-advanced[open] > summary::after {
+  content: '\2212';
+}
+
+.settings-advanced[open] > summary {
+  margin-bottom: 1.25rem;
+}
+
+.settings-advanced-copy {
+  display: block;
+  margin-top: 0.375rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.settings-page .settings-action-bar {
+  margin-top: 1rem;
+  padding: 1rem 0;
+}
+
+.settings-save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.settings-file-details {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: rgb(var(--muted-foreground));
+}
+
+.settings-file-details > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.settings-file-details #settings-file-path {
+  margin-top: 0.5rem;
+}
+
+/* Diagnostic tools remain a click away without competing with the flight. */
+.footer-diagnostics {
+  position: relative;
+  font-family: var(--ff-font-ui);
+}
+
+.footer-diagnostics > summary {
+  padding: 0.375rem 0.625rem;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.75rem;
+}
+
+.footer-diagnostics > summary::-webkit-details-marker {
+  display: none;
+}
+
+.footer-diagnostics > summary:hover,
+.footer-diagnostics[open] > summary {
+  color: rgb(var(--foreground));
+  background: rgb(var(--panel-elevated) / 0.5);
+}
+
+.footer-diagnostics-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.75rem);
+  z-index: 60;
+  display: grid;
+  gap: 0.75rem;
+  width: min(21rem, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid rgb(var(--border) / 0.7);
+  border-radius: var(--ff-radius-panel);
+  background: rgb(var(--panel));
+  box-shadow: var(--ff-shadow-card);
+}
+
+.footer-diagnostics-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.footer-diagnostics-tools button {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.footer-diagnostics-panel #connection-info {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1024px) {
+  #flight-primary-grid.without-radio-alt {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  #flight-primary-grid.without-radio-alt > #alt-card {
+    grid-column: auto;
+  }
+
+  .flight-support-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .quick-glance {
+    width: calc(100% - 1.6rem);
+  }
+
+  .qg-item {
+    padding: 0 0.5rem;
+  }
+
+  .qg-value {
+    font-size: 0.875rem;
+  }
+
+  .qg-unit {
+    font-size: 0.625rem;
+  }
+
+  .flight-overview-section #engines-grid {
+    grid-template-columns: repeat(var(--flight-engine-mobile-columns, 2), minmax(0, 1fr));
+  }
+
+  #engines-grid.has-three-engines #eng3-card {
+    grid-column: 1 / -1;
+  }
+
+  #flight-live-shell .telemetry-card-primary,
+  #flight-live-shell .telemetry-card-secondary {
+    min-height: 6.25rem;
+    padding: 1rem !important;
+  }
+
+  .flight-overview-section {
+    padding: 0.875rem;
+  }
+
+  #flight-live-shell .flight-system-card .telemetry-label,
+  #flight-live-shell .flight-environment-card .flight-card-caption {
+    font-size: 0.75rem !important;
+  }
+
+  .settings-page .settings-panel {
+    padding: 1rem;
+  }
+
+  .settings-save-actions {
+    width: 100%;
+  }
+
+  .settings-save-actions > button,
+  .settings-save-actions > .app-tooltip-anchor {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 360px) {
+  #flight-live-shell .telemetry-card-primary .telemetry-value {
+    font-size: 1.55rem !important;
+  }
+
+  .flight-environment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flight-environment-grid #oat-card {
+    grid-column: 1 / -1;
+  }
+
+  .qg-item > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.ff-button, .ff-button-primary, .ff-button-secondary, .ff-button-ghost,
+      .ff-toolbar-button, .settings-btn-accent, .settings-btn-warning,
+      .settings-pending-btn, .simbrief-button, .simbrief-copy-button,
+      .desktop-tab):active {
+    transform: none;
+  }
+}

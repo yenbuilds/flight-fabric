@@ -17,6 +17,11 @@ const RUST_ROOT = path.join(BACKEND_ROOT, 'telemetry-provider', 'rust-simconnect
 const EXPECTED_FS_BOUNDARIES = [
   ['backend/aircraft/aircraft-profile-loader.ts', 'release-owned-content', 'existsSync=5,lstatSync=1,readFileSync=2,readdirSync=3,statSync=1'],
   ['backend/aircraft/aircraft-profile-registry.ts', 'release-owned-content', 'existsSync=1,readFileSync=4,readdirSync=1'],
+  ['backend/aircraft/support/runtime-report.ts', 'release-owned-content', 'readFileSync=1,statSync=1'],
+  ['backend/aircraft/support/service.ts', 'release-owned-runtime', 'readFileSync=1,readdirSync=1'],
+  // Storage worker: quota scans and version-checked deletion of named regular files;
+  // no recursive deletion, linked targets, arbitrary filenames, or automatic cleanup.
+  ['backend/aircraft/support/sessions.ts', 'guarded-workbench-sessions', 'existsSync=3,lstatSync=4,mkdirSync=1,readFileSync=1,readdirSync=2,renameSync=1,unlinkSync=2,writeFileSync=3'],
   ['backend/core/destination-target-store.ts', 'guarded-settings', 'existsSync=1,readFileSync=1'],
   ['backend/core/http-server.ts', 'validated-static-assets', 'close=2,createReadStream=1,existsSync=2,fstat=1,lstatSync=2,open=1,readFile=1,realpathSync=2'],
   ['backend/core/user-settings.ts', 'guarded-settings', 'existsSync=2,readFileSync=1'],

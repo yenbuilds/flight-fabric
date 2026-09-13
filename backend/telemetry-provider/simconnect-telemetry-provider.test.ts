@@ -646,6 +646,88 @@ test('SimConnect frame keeps missing spoilers-armed telemetry unavailable', asyn
   assertEqual(frame.spoilers.state, 'STOWED', 'surface deployment state can still use the known handle position');
 });
 
+test('MSFS Facilities warms arrival geometry with the diagnostic probe disabled', async (t) => {
+  const config = require('../core/config');
+  const geometry = require('../landing/airport-geometry-service');
+  const runwayDatabase = require('../landing/runway-database');
+  const provider = new SimConnectTelemetryProvider();
+  const requested = [];
+  let bridgeStatus = 'running';
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(runwayDatabase, 'findNearbyAirport', (lat) => ({ icao: lat < 0 ? 'YSCB' : 'WSSS' }));
+  provider._rustSimvarBridge = {
+    getSnapshot: () => ({ status: bridgeStatus }),
+    stop: async () => { bridgeStatus = 'stopped'; },
+    requestFacilityAirport: async (icao) => {
+      requested.push(icao);
+      return {
+        ok: true, icao,
+        runways: [{
+          runway: '36', headingTrueDeg: 0, lengthFt: 10000, widthFt: 150,
+          threshold: { lat: icao === 'YSCB' ? -35.307 : 1.36, lon: 149.194 },
+          surface: 'ASPHALT',
+        }],
+      };
+    },
+  };
+  try {
+    assertEqual(config.simconnect.facilitiesProbeEnable, false, 'normal operation must not depend on diagnostic probing');
+    provider._registerMsfsFacilitiesGeometryProvider();
+    assertEqual(provider._msfsFacilitiesProbeTimer, null, 'diagnostic probe stays disabled');
+    assertEqual(requested.length, 0, 'startup must wait for position');
+
+    provider._data = { lat: -35.307, lon: 149.194, ra: 2000 };
+    t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    assertEqual(requested.join(','), 'YSCB', 'normal background work must request the approach airport before landing lookup');
+    const first = geometry.findRunwayByPosition(-35.306, 149.194, 2, 0, { simulator: 'msfs' });
+    assertEqual(first?.source, 'msfs-facilities', 'the first finalized lookup must already have simulator geometry');
+
+    t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    assertEqual(requested.length, 1, 'fresh cache must not trigger repeated simulator requests');
+
+    provider._data = { lat: 1.36, lon: 149.194, ra: 2000 };
+    t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    assertEqual(requested.join(','), 'YSCB,WSSS', 'arrival at a different airport must warm its own geometry');
+    const arrival = geometry.findRunwayByPosition(1.361, 149.194, 2, 0, { simulator: 'msfs' });
+    assertEqual(arrival?.runway_geometry_provider_chain, 'msfs-facilities:hit', 'arrival must not fall back to portable geometry');
+
+    await provider.stop();
+    t.mock.timers.tick(10000);
+    assertEqual(provider._msfsFacilitiesWarmupTimer, null, 'provider shutdown must cancel normal airport warming');
+    assertEqual(requested.length, 2, 'stopped provider must not make more requests');
+  } finally {
+    await provider.stop();
+    geometry.resetAirportGeometryProviders();
+  }
+});
+
+test('MSFS Facilities normal warming waits for usable telemetry and survives lookup errors', (t) => {
+  const runwayDatabase = require('../landing/runway-database');
+  const provider = new SimConnectTelemetryProvider();
+  let status = 'stopped';
+  let lookups = 0;
+  let requests = 0;
+  provider._rustSimvarBridge = { getSnapshot: () => ({ status }) };
+  provider._msfsFacilitiesGeometryProvider = { prefetchAirport: () => { requests += 1; } };
+  t.mock.method(runwayDatabase, 'findNearbyAirport', () => { lookups += 1; throw new Error('unavailable'); });
+  provider._data = { lat: -35.307, lon: 149.194, ra: 2000 };
+  provider._warmMsfsFacilitiesAirport();
+  status = 'running';
+  provider._data.lat = null;
+  provider._warmMsfsFacilitiesAirport();
+  provider._data.lat = -35.307;
+  provider._data.ra = 30000;
+  provider._warmMsfsFacilitiesAirport();
+  assertEqual(lookups, 0, 'disconnected, missing-position and cruise states must not scan airports');
+  provider._data.ra = 2000;
+  provider._warmMsfsFacilitiesAirport();
+  assertEqual(lookups, 1, 'a lookup failure must be contained in the background task');
+  assertEqual(requests, 0, 'an unresolved airport must not trigger a request');
+});
+
 test('MSFS Facilities probe warms the nearest local airport once SimConnect is live', async () => {
   const provider = new SimConnectTelemetryProvider();
   const requested = [];

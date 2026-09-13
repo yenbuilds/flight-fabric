@@ -71,6 +71,8 @@ function requestCommittedScrubOffset(event) {
         <input
           id="timeline-time-scrubber"
           type="range"
+          aria-label="Replay position"
+          :aria-valuetext="`${timeline.scrubberCurrentLabel} of ${timeline.scrubberEndLabel}`"
           :min="timeline.scrubberMin"
           :max="timeline.scrubberMax"
           :value="timeline.scrubberValue"
