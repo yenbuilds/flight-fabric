@@ -134,7 +134,29 @@ export function rememberReplayMessage(runtimeState: AnyRecord, message: AnyRecor
   }
 
   if (!REPLAY_TYPES.has(type)) return;
-  getReplayState(runtimeState)[type] = { ...message };
+  const latestMessages = getReplayState(runtimeState);
+  latestMessages[type] = { ...message };
+
+  if (type === 'dataSources' && message.controlCapabilities && typeof message.controlCapabilities === 'object') {
+    const profileMessage = latestMessages.aircraftProfile;
+    const profile = profileMessage?.profile;
+    const profileKey = profile?._profileKey || profile?._qualifiedId
+      || (profile?.namespace && profile?.simulator && profile?.id
+        ? `${profile.namespace}/${profile.simulator}/${profile.id}` : profile?.id);
+    if (
+      profileKey && profileKey === message.profileKey
+      && Number.isSafeInteger(message.profileRevision) && message.profileRevision >= 0
+      && profile?.profileRevision === message.profileRevision
+    ) {
+      // SDK readiness updates arrive separately from the aircraft profile.
+      // Later dataSources broadcasts omit unchanged capabilities, so requestState
+      // must replay the updated profile instead of its startup command catalogue.
+      latestMessages.aircraftProfile = {
+        ...profileMessage,
+        controlCapabilities: message.controlCapabilities,
+      };
+    }
+  }
 }
 
 export function getReplayMessages(runtimeState: AnyRecord) {

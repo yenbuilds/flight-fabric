@@ -3841,6 +3841,74 @@ async function main() {
     assert.match(source, /configurationId === 'pmdg-777'/u, 'a present PMDG 777 catalogue should be authoritative while retaining the old-backend fallback');
   });
 
+  await test('all PMDG MCP inputs recover after capability replay while blank SDK windows stay disabled', async () => {
+    const { createSimbridgeRuntimeState, rememberReplayMessage, getReplayMessages } = require(lightingRuntime('core/simbridge-runtime-state.js'));
+    const profiles = lightingLoader.listProfiles().filter(profile => /^pmdg-(737|777)/.test(profile.id));
+    for (const entry of profiles) {
+      const family = entry.id.startsWith('pmdg-737') ? '737' : '777';
+      const profile = lightingLoader.loadProfile(`bundled/msfs/${entry.id}`);
+      const profileToken = { _profileKey: profile._profileKey, profileRevision: 3 };
+      const build = transports => lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 3,
+        capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'simvar', 'lvar'], integrationTransports: transports } });
+      const cold = build([]);
+      const ready = build(['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator']);
+      for (const scenario of ['ias-vs', 'mach-fpa', 'blank', 'sdk-unavailable']) {
+        const runtimeState = createSimbridgeRuntimeState();
+        rememberReplayMessage(runtimeState, { type: 'aircraftProfile', profile: profileToken, controlCapabilities: cold });
+        rememberReplayMessage(runtimeState, { type: 'dataSources', profileKey: profile._profileKey, profileRevision: 3, controlCapabilities: ready });
+        if (scenario === 'sdk-unavailable') {
+          rememberReplayMessage(runtimeState, { type: 'dataSources', profileKey: profile._profileKey, profileRevision: 3, controlCapabilities: cold });
+        }
+        rememberReplayMessage(runtimeState, { type: 'dataSources', sources: [] });
+        const replayed = getReplayMessages(runtimeState).find(message => message.type === 'aircraftProfile').controlCapabilities;
+        const values = family === '777'
+          ? { 'flightGuidance.headingDeg': 340, 'flightGuidance.altitudeFt': 38000, 'flightGuidance.verticalMode': 'VS' }
+          : { 'mcp.headingDeg': 340, 'mcp.altitudeFt': 38000 };
+        if (scenario !== 'blank') {
+          if (family === '777') {
+            if (scenario === 'mach-fpa') Object.assign(values, { 'flightGuidance.mach': 0.78, 'flightGuidance.fpaDeg': -3.1, 'flightGuidance.verticalMode': 'FPA' });
+            else Object.assign(values, { 'flightGuidance.speedKts': 250, 'flightGuidance.vsFpm': -1800 });
+          } else Object.assign(values, { 'mcp.speed': scenario === 'mach-fpa' ? 0.78 : 250, 'mcp.verticalSpeedFpm': -1800 });
+        }
+        let controls;
+        const { html } = await renderComponent(
+          path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', `Pmdg${family}AircraftPanel.vue`),
+          ({ useAircraftControlsStore }) => {
+            controls = useAircraftControlsStore();
+            controls.setAvailability({ enabled: true });
+            controls.applyControlCapabilities(ready);
+            controls.applyControlCapabilities(replayed);
+          },
+          { props: {
+            profileKey: profile._profileKey, sourceStatus: 'connected', sourceStatuses: { sdk: 'connected' }, values,
+            actionCapabilities: ready.aircraftSpecific,
+            isCommandSupported: id => controls.isAircraftCommandSupported(id),
+            getCommand: id => controls.getAircraftCommand(id),
+          } },
+        );
+        const actions = [
+          ['IAS / MACH', scenario === 'mach-fpa' ? 'mcp.mach.set' : 'mcp.ias.set', scenario === 'blank'],
+          ['HEADING', 'mcp.heading.set', false],
+          ['ALTITUDE', 'mcp.altitude.set', false],
+          ['V/S / FPA', scenario === 'mach-fpa' && family === '777' ? 'mcp.fpa.set' : 'mcp.verticalSpeed.set', scenario === 'blank'],
+        ];
+        for (const [label, actionId, blank] of actions) {
+          const inputLabel = label === 'V/S / FPA' && family === '737' ? 'VERT SPEED'
+            : label === 'HEADING' && family === '777' ? 'HDG / TRK' : label;
+          const input = html.match(new RegExp(`<input(?=[^>]*aria-label="Set ${inputLabel}")[^>]*>`))?.[0];
+          const button = html.match(new RegExp(`<button(?=[^>]*data-aircraft-action="${actionId.replaceAll('.', '\\.')}")[^>]*>`))?.[0];
+          assert.ok(input && button, `${entry.id} ${scenario}: ${label} input and SET button exist`);
+          for (const tag of [input, button]) {
+            assert.equal(/\sdisabled(?:\s|=|>)/.test(tag), scenario === 'sdk-unavailable' || blank,
+              `${entry.id} ${scenario}: ${label}`);
+          }
+          if (blank) assert.match(input, /window.*(?:active|before setting)/i, 'blank windows explain the separate mode/readback restriction');
+        }
+      }
+    }
+    assert.equal(profiles.length, 8, 'all bundled PMDG variants are covered');
+  });
+
   await test('PMDG 777 gear buttons dispatch the canonical enum payload', () => {
     const gearControl = { groupId: 'controls.gear' };
 

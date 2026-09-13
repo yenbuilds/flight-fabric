@@ -114,6 +114,7 @@ const TEST_STEPS = [
   ['node', ['--test', 'dist/backend/aircraft/cockpit-lighting.test.js']],
   ['node', ['--test', 'dist/backend/aircraft/exterior-lights.test.js']],
   ['node', ['--test', 'tests/scripts/test-aircraft-command-matrix.js']],
+  ['node', ['--test', 'tests/scripts/test-aircraft-capability-replay.js']],
   ['node', ['--test', 'tests/scripts/test-aircraft-command-parity.js', 'frontend/src/aircraft/command-input.test.js']],
   ['node', ['tests/scripts/test-command-browser.js']],
   ['node', ['--test', 'dist/backend/aircraft/apu-start.test.js']],

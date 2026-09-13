@@ -656,6 +656,7 @@ test('inline CSV close waits for an in-progress periodic fdatasync', async () =>
   const originalFdatasync = fs.fdatasync;
   let fdatasyncCalls = 0;
   let releasePeriodicSync: ((error?: NodeJS.ErrnoException | null) => void) | null = null;
+  let releaseWriteBarrier: (() => void) | null = null;
   (fs as any).fdatasync = (
     _fd: number,
     callback: (error?: NodeJS.ErrnoException | null) => void,
@@ -671,7 +672,6 @@ test('inline CSV close waits for an in-progress periodic fdatasync', async () =>
     assert.equal(writer.start(), true);
     const stream = writer.stream as any;
     const originalWrite = stream.write.bind(stream);
-    let releaseWriteBarrier: (() => void) | null = null;
     let delayedBarrier = false;
     stream.write = (chunk: unknown, ...args: unknown[]) => {
       if (chunk === '' && !delayedBarrier) {
@@ -690,18 +690,25 @@ test('inline CSV close waits for an in-progress periodic fdatasync', async () =>
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(settled, false, 'close must retain the stream until the periodic sync completes');
     releaseWriteBarrier();
-    for (let attempt = 0; attempt < 20 && !releasePeriodicSync; attempt += 1) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
+    releaseWriteBarrier = null;
+    // Disk completion is not bounded by a count of immediate event-loop turns.
+    const syncDeadline = Date.now() + 5000;
+    while (!releasePeriodicSync && Date.now() < syncDeadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
     assert(releasePeriodicSync, 'fdatasync must start after the write-queue barrier is released');
     releasePeriodicSync();
+    releasePeriodicSync = null;
     const stats = await closing;
     assert.equal(stats.rowCount, 2);
     assert(fdatasyncCalls >= 2, 'close must perform its own final durable sync after the periodic sync');
   } finally {
     (fs as any).fdatasync = originalFdatasync;
+    if (releaseWriteBarrier) releaseWriteBarrier();
+    if (releasePeriodicSync) releasePeriodicSync();
     timeSource.resetTimeSource();
-    if (!writer.closed) await writer.close();
+    // Join an already-started close before a following test replaces fdatasync.
+    await writer.close();
     fs.rmSync(outputDir, { recursive: true, force: true });
   }
 });

@@ -255,7 +255,8 @@ test('backend runtime build preserves a locked running Rust sidecar', () => {
   assert(electronMainSource.includes("'--ff-launch-owner=electron'"), 'Electron should mark its managed backend child');
   assert(runtimeOwnerLockSource.includes('exclusive: true'), 'launch-mode lock should use an exclusive OS-owned listener');
   assert(runtimeOwnerLockSource.includes('getDefaultRuntimeOwnerPipePath'), 'Windows launch-mode locking should use a per-user named pipe');
-  assert(electronMainSource.includes("acquireRuntimeOwnerLock({ owner: 'electron' })"), 'Electron should hold the shared launch-mode lock for its lifetime');
+  assert(/acquireRuntimeOwnerLock\(\{\s*owner: 'electron',/.test(electronMainSource), 'Electron should hold its launch-mode lock for its lifetime');
+  assert(electronMainSource.includes('lifecycleSmokeConfig ? { path: getLifecycleRuntimeOwnerPipePath(lifecycleSmokeConfig.nonce) } : {}'), 'normal Electron launches should retain the shared lock while validated probes use their own pipe');
   assert(backendWrapperSource.includes("acquireRuntimeOwnerLock({ owner: 'standalone' })"), 'standalone wrapper should acquire the same launch-mode lock before spawning');
   assert(backendWrapperSource.includes('function canonicalizeBackendArgs'), 'standalone wrapper should canonicalize caller-controlled launch identity arguments');
   assert(backendWrapperSource.includes("forwarded.push(`${LAUNCH_OWNER_FLAG}=batch`)"), 'standalone wrapper should emit exactly its canonical batch owner marker');

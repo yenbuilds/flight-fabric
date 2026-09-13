@@ -1,6 +1,6 @@
 <div align="center">
   <img src="readme-assets/flight-fabric-icon.png" width="112" alt="Flight Fabric logo">
-  <h1>Flight Fabric</h1>
+  <h1>Flight Fabric for MSFS 2024</h1>
   <p><strong>Control your airliner by voice or from another screen.</strong></p>
   <p>Live flight data, automatic recording, and landing reviews for Microsoft Flight Simulator 2024.</p>
   <p>

@@ -8,7 +8,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { classifyFlightFabricBackendIdentity } = require('../../electron/backend-process-identity');
-const { acquireRuntimeOwnerLock } = require('../../electron/runtime-owner-lock');
+const { acquireRuntimeOwnerLock, getLifecycleRuntimeOwnerPipePath } = require('../../electron/runtime-owner-lock');
 const {
   captureCurrentUserWindowsProcessIdentity,
   forceStopVerifiedWindowsProcessTree,
@@ -189,10 +189,10 @@ async function waitForPortsReleased(ports, timeoutMs = PROCESS_EXIT_TIMEOUT_MS) 
   return (await Promise.all(ports.map(canListenOnPort))).every(Boolean);
 }
 
-async function waitForRuntimeOwnerLockRelease(timeoutMs = PROCESS_EXIT_TIMEOUT_MS) {
+async function waitForRuntimeOwnerLockRelease(lockPath, timeoutMs = PROCESS_EXIT_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const lock = await acquireRuntimeOwnerLock({ owner: 'packaged-lifecycle-postflight' });
+    const lock = await acquireRuntimeOwnerLock({ owner: 'packaged-lifecycle-postflight', path: lockPath });
     if (lock.acquired) return lock;
     await delay(50);
   }
@@ -219,7 +219,9 @@ async function runPackagedLifecycleScenario(action) {
   const exePath = resolvePackagedExecutable();
   const chromiumDebugLogPath = path.join(path.dirname(exePath), 'debug.log');
   const chromiumDebugLogExistedBefore = fs.existsSync(chromiumDebugLogPath);
-  const lockProbe = await acquireRuntimeOwnerLock({ owner: 'packaged-lifecycle-test-preflight' });
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const lockPath = getLifecycleRuntimeOwnerPipePath(nonce);
+  const lockProbe = await acquireRuntimeOwnerLock({ owner: 'packaged-lifecycle-test-preflight', path: lockPath });
   if (!lockProbe.acquired) {
     throw new Error(`Cannot run packaged lifecycle probe while another Flight Fabric launch mode owns ${lockProbe.path}`);
   }
@@ -228,7 +230,6 @@ async function runPackagedLifecycleScenario(action) {
   let httpPort = await findFreePort();
   while (httpPort === wsPort) httpPort = await findFreePort();
 
-  const nonce = crypto.randomBytes(16).toString('hex');
   const smokeRoot = path.resolve(os.tmpdir(), `flight-fabric-electron-lifecycle-${nonce}`);
   const statusPath = path.join(smokeRoot, 'status.jsonl');
   const profileRoot = path.join(smokeRoot, 'profile');
@@ -283,6 +284,11 @@ async function runPackagedLifecycleScenario(action) {
     child.once('error', (error) => { stderr += `\nprocess error: ${error.message || error}`; });
 
     const managedReady = await waitForStatusEvent(statusPath, 'managed-ready', child);
+    const competingLock = await acquireRuntimeOwnerLock({ owner: 'packaged-lifecycle-contender', path: lockPath });
+    if (competingLock.acquired) {
+      await competingLock.release();
+      throw new Error('Packaged lifecycle app did not hold its isolated runtime-owner lock');
+    }
     backendPid = Math.trunc(Number(managedReady.backendPid));
     guardianPid = Math.trunc(Number(managedReady.guardianPid));
     if (!Number.isFinite(backendPid) || backendPid <= 0 || !Number.isFinite(guardianPid) || guardianPid <= 0) {
@@ -370,7 +376,7 @@ async function runPackagedLifecycleScenario(action) {
     if (!(await waitForPortsReleased([wsPort, httpPort]))) {
       throw new Error(`Backend ports remained bound after Electron ${action}: ${wsPort}, ${httpPort}`);
     }
-    const releasedRuntimeLock = await waitForRuntimeOwnerLockRelease();
+    const releasedRuntimeLock = await waitForRuntimeOwnerLockRelease(lockPath);
     if (!releasedRuntimeLock) {
       throw new Error(`Runtime-owner lock remained held after Electron ${action}`);
     }

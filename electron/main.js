@@ -22,7 +22,7 @@ const { isTrustedIpcSender } = require('./ipc-sender-policy');
 const { installSessionPermissionPolicy } = require('./session-permission-policy');
 const { createVoiceRuntime } = require('./voice-runtime');
 const { canStopBackendPortOwner } = require('./backend-cleanup-policy');
-const { acquireRuntimeOwnerLock } = require('./runtime-owner-lock');
+const { acquireRuntimeOwnerLock, getLifecycleRuntimeOwnerPipePath } = require('./runtime-owner-lock');
 const { isManagedProcessAlive } = require('./process-liveness');
 const {
   classifyFlightFabricBackendIdentity,
@@ -165,6 +165,16 @@ function resolveLifecycleSmokeConfig() {
 
   const expectedRoot = path.resolve(os.tmpdir(), `flight-fabric-electron-lifecycle-${envNonce}`);
   const expectedStatusPath = path.join(expectedRoot, 'status.jsonl');
+  const expectedProfile = path.join(expectedRoot, 'profile');
+  const isolatedPaths = {
+    USERPROFILE: expectedProfile,
+    APPDATA: path.join(expectedProfile, 'AppData', 'Roaming'),
+    LOCALAPPDATA: path.join(expectedProfile, 'AppData', 'Local'),
+  };
+  if (process.env.FLIGHT_FABRIC_SKIP_WINDOWS_KNOWN_DOCUMENTS !== '1'
+    || Object.entries(isolatedPaths).some(([key, expected]) => path.resolve(process.env[key] || '') !== expected)) {
+    return null;
+  }
   try {
     if (path.resolve(envStatusPath) !== expectedStatusPath || !fs.statSync(expectedRoot).isDirectory()) {
       return null;
@@ -2995,7 +3005,12 @@ void app.whenReady().then(async () => {
   if (!gotTheLock) return;
   installDefaultSessionPermissionPolicy();
   installOpenStreetMapRequestIdentification();
-  const lock = await acquireRuntimeOwnerLock({ owner: 'electron' });
+  // The validated lifecycle probe has its own profile, ports and named pipe.
+  // Normal launches still contend on the shared per-user ownership lock.
+  const lock = await acquireRuntimeOwnerLock({
+    owner: 'electron',
+    ...(lifecycleSmokeConfig ? { path: getLifecycleRuntimeOwnerPipePath(lifecycleSmokeConfig.nonce) } : {}),
+  });
   if (!lock.acquired) {
     recordLifecycleSmokeEvent('startup-blocked', { reason: 'runtime-owner-lock' });
     if (!lifecycleSmokeConfig) {

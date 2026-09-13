@@ -29,6 +29,13 @@ function normalizeLockPort(value) {
     : DEFAULT_RUNTIME_OWNER_LOCK_PORT;
 }
 
+function getLifecycleRuntimeOwnerPipePath(nonce) {
+  if (typeof nonce !== 'string' || !/^[a-f0-9]{32}$/.test(nonce)) {
+    throw new Error('Lifecycle runtime lock requires a valid smoke-test nonce');
+  }
+  return `${getDefaultRuntimeOwnerPipePath()}-lifecycle-${nonce}`;
+}
+
 function acquireRuntimeOwnerLock(options = {}) {
   const owner = String(options.owner || 'unknown');
   const usePipe = process.platform === 'win32' && options.port === undefined && !options.host;
@@ -79,5 +86,6 @@ function acquireRuntimeOwnerLock(options = {}) {
 module.exports = {
   acquireRuntimeOwnerLock,
   getDefaultRuntimeOwnerPipePath,
+  getLifecycleRuntimeOwnerPipePath,
   normalizeLockPort,
 };

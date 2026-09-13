@@ -12,6 +12,7 @@ process.env.FF_RUNTIME_LOCK_TEST_USERNAME = `ff-runtime-lock-test-${require('nod
 require(identityFixture);
 const {
   acquireRuntimeOwnerLock,
+  getLifecycleRuntimeOwnerPipePath,
   normalizeLockPort,
 } = require('../../electron/runtime-owner-lock');
 const { classifyFlightFabricBackendIdentity } = require('../../electron/backend-process-identity');
@@ -349,6 +350,25 @@ async function verifyPreparedLaunchReadiness(root, wrapper, env, wsPort, httpPor
 }
 
 async function main() {
+  assert.throws(() => getLifecycleRuntimeOwnerPipePath(''), /valid smoke-test nonce/);
+  assert.throws(() => getLifecycleRuntimeOwnerPipePath('../another-pipe'), /valid smoke-test nonce/);
+  if (process.platform === 'win32') {
+    const regular = await acquireRuntimeOwnerLock({ owner: 'active-desktop-test' });
+    const probePath = getLifecycleRuntimeOwnerPipePath('a'.repeat(32));
+    const probe = await acquireRuntimeOwnerLock({ owner: 'lifecycle-test', path: probePath });
+    try {
+      assert.equal(regular.acquired, true);
+      assert.equal(probe.acquired, true, 'lifecycle lock can coexist with an active desktop');
+      for (const lockOptions of [{}, { path: probePath }]) {
+        const contender = await acquireRuntimeOwnerLock({ owner: 'contender', ...lockOptions });
+        if (contender.acquired) await contender.release();
+        assert.equal(contender.acquired, false, 'both locks still reject competing owners');
+      }
+    } finally {
+      if (probe.acquired) await probe.release();
+      if (regular.acquired) await regular.release();
+    }
+  }
   const root = path.resolve(__dirname, '..', '..');
   verifyBatchPortValidation(root);
   verifyCanonicalWrapperOwnership();

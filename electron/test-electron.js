@@ -1265,7 +1265,13 @@ test(
     packagedLifecycleProbeSource.includes('isLifecycleSidecarIdentity') &&
     packagedLifecycleProbeSource.includes('waitForProcessesToExit(managedPids)') &&
     packagedLifecycleProbeSource.includes('waitForPortsReleased([wsPort, httpPort])') &&
-    packagedLifecycleProbeSource.includes('waitForRuntimeOwnerLockRelease()'),
+    packagedLifecycleProbeSource.includes('waitForRuntimeOwnerLockRelease(lockPath)'),
+);
+test(
+  'only validated lifecycle probes use a nonce-scoped runtime lock',
+  mainSource.includes('lifecycleSmokeConfig ? { path: getLifecycleRuntimeOwnerPipePath(lifecycleSmokeConfig.nonce) } : {}') &&
+    packagedLifecycleProbeSource.includes('getLifecycleRuntimeOwnerPipePath(nonce)') &&
+    packagedLifecycleProbeSource.includes('if (competingLock.acquired)'),
 );
 test(
   'renderer disposal cannot crash backend lifecycle event delivery',
@@ -1355,7 +1361,7 @@ test(
     !/^\s*const identity\s*=.*os\.homedir\(\)/m.test(runtimeOwnerLockSource) &&
     runtimeOwnerLockSource.includes('server.listen(path, onListening)') &&
     runtimeOwnerLockSource.includes("host, port, exclusive: true") &&
-    mainSource.includes("acquireRuntimeOwnerLock({ owner: 'electron' })") &&
+    /acquireRuntimeOwnerLock\(\{\s*owner: 'electron',/.test(mainSource) &&
     backendWrapperSource.includes("acquireRuntimeOwnerLock({ owner: 'standalone' })") &&
     mainSource.includes("'Runtime-owner lock release'") &&
     mainSource.includes('() => lock.release()') &&

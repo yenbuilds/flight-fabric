@@ -128,6 +128,49 @@ test('latest unbroadcast simulator disconnect suppresses stale live telemetry re
   );
 });
 
+test('capability updates keep the replayed aircraft profile current after SDK connection and loss', () => {
+  const runtimeState = createSimbridgeRuntimeState();
+  const profile = { _profileKey: 'bundled/msfs/pmdg-777', profileRevision: 3 };
+  const unavailable = { aircraftCommands: { commands: [] } };
+  const available = { aircraftCommands: { commands: [{ id: 'configuration.lights.takeoff' }] } };
+  const initialMessage = { type: 'aircraftProfile', profile, controlCapabilities: unavailable };
+  rememberReplayMessage(runtimeState, initialMessage);
+
+  for (const controlCapabilities of [available, unavailable]) {
+    rememberReplayMessage(runtimeState, {
+      type: 'dataSources', profileKey: profile._profileKey,
+      profileRevision: profile.profileRevision, controlCapabilities,
+    });
+    // Ordinary source updates omit the unchanged capability catalogue. They
+    // must not erase the update when a page requests the latest state again.
+    rememberReplayMessage(runtimeState, { type: 'dataSources', sources: [] });
+    const replayedProfile = getReplayMessages(runtimeState).find(message => message.type === 'aircraftProfile');
+    assert.deepEqual(replayedProfile.controlCapabilities, controlCapabilities);
+  }
+  assert.deepEqual(initialMessage.controlCapabilities, unavailable, 'do not mutate the original broadcast');
+});
+
+test('replay never applies capabilities from another aircraft or profile revision', () => {
+  const runtimeState = createSimbridgeRuntimeState();
+  const profile = { _profileKey: 'bundled/msfs/pmdg-777', profileRevision: 3 };
+  const original = { aircraftCommands: { commands: [] } };
+  rememberReplayMessage(runtimeState, { type: 'aircraftProfile', profile, controlCapabilities: original });
+
+  for (const token of [
+    { profileKey: 'bundled/msfs/pmdg-737', profileRevision: 3 },
+    { profileKey: profile._profileKey, profileRevision: 2 },
+    { profileKey: profile._profileKey },
+    { profileRevision: 3 },
+  ]) {
+    rememberReplayMessage(runtimeState, {
+      type: 'dataSources', ...token,
+      controlCapabilities: { aircraftCommands: { commands: [{ id: 'configuration.lights.takeoff' }] } },
+    });
+    const replayedProfile = getReplayMessages(runtimeState).find(message => message.type === 'aircraftProfile');
+    assert.deepEqual(replayedProfile.controlCapabilities, original);
+  }
+});
+
 console.log(`PASS simbridge-runtime-state ${passed}`);
 
 export {};
