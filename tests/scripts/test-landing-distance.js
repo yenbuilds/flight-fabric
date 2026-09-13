@@ -214,9 +214,9 @@ test('scoreTouchdownDistance: 2001 ft = Good grade', () => {
   assertEqual(result.grade, 'Good', '2001 ft');
 });
 
-test('scoreTouchdownDistance: 3000 ft = ACCEPTABLE zone', () => {
+test('scoreTouchdownDistance: 3000 ft remains within TDZ', () => {
   const result = landingDist.scoreTouchdownDistance(3000);
-  assertEqual(result.grade, 'Acceptable', '3000 ft');
+  assertEqual(result.grade, 'Good', '3000 ft');
 });
 
 test('scoreTouchdownDistance: 3001 ft = Acceptable grade', () => {
@@ -290,8 +290,8 @@ test('scoreLateralOffset: 150 ft runway band boundaries match modal copy', () =>
     { offset: 49.5, score: 85, grade: 'Marginal' },
     { offset: 49.51, score: 70, grade: 'Poor' },
     { offset: 75, score: 70, grade: 'Poor' },
-    { offset: 75.1, score: 50, grade: 'Excursion' },
-    { offset: 90, score: 48, grade: 'Excursion' },
+    { offset: 75.1, score: 50, grade: 'Outside runway reference' },
+    { offset: 90, score: 48, grade: 'Outside runway reference' },
   ];
 
   for (const testCase of cases) {
@@ -379,46 +379,15 @@ test('getAdjustedBands: default returns standard bands', () => {
     throw new Error('Expected standard bands');
   }
   assertEqual(bands.PERFECT.max, 1000, 'PERFECT max');
-  assertEqual(bands.GOOD.max, 2500, 'GOOD max');
+  assertEqual(bands.GOOD.max, 3000, 'GOOD max');
 });
 
-test('getAdjustedBands: short runway tightens bands via pct cap', () => {
-  const normalBands = landingDist.getAdjustedBands(10000);
-  const shortBands = landingDist.getAdjustedBands(4000);
-  
-  // Short runway: GOOD pctCap=0.33, 4000*0.33=1320 < 2500 → max=1320
-  // Normal runway: GOOD pctCap=0.33, 10000*0.33=3300 > 2500 → max=2500
-  if (shortBands.GOOD.max >= normalBands.GOOD.max) {
-    throw new Error('Short runway should have tighter GOOD threshold via pct cap');
+test('getAdjustedBands: short runway and contamination do not move the TDZ boundary', () => {
+  for (const surface of ['dry', 'wet', 'ice', 'snow', 'unknown', null]) {
+    const bands = landingDist.getAdjustedBands(4000, surface);
+    assertEqual(bands.GOOD.max, 3000, 'TDZ ends at 3000ft');
+    assertEqual(bands.PERFECT.max, 1000, 'Ideal marker retained');
   }
-});
-
-test('getAdjustedBands: wet surface keeps the ideal target band fixed and reduces later thresholds', () => {
-  const dryBands = landingDist.getAdjustedBands(10000, 'dry');
-  const wetBands = landingDist.getAdjustedBands(10000, 'wet');
-  if (wetBands.PERFECT.max !== dryBands.PERFECT.max) {
-    throw new Error('Wet surface must not move the ideal touchdown target');
-  }
-  if (wetBands.GOOD.max >= dryBands.GOOD.max) {
-    throw new Error('Wet surface should reduce later touchdown tolerance');
-  }
-});
-
-test('getAdjustedBands: ice keeps ideal target fixed while giving the tightest later thresholds', () => {
-  const dryBands = landingDist.getAdjustedBands(10000, 'dry');
-  const iceBands = landingDist.getAdjustedBands(10000, 'ice');
-
-  assertEqual(iceBands.PERFECT.max, dryBands.PERFECT.max, 'Ice must not move the ideal target');
-  assertApprox(iceBands.GOOD.max, dryBands.GOOD.max * 0.5, 10, 'Ice later-band multiplier');
-});
-
-test('getAdjustedBands: surface names are normalized and unknown values fail safe to wet', () => {
-  const wetBands = landingDist.getAdjustedBands(10000, 'wet');
-  const normalizedWetBands = landingDist.getAdjustedBands(10000, '  WET  ');
-  const unknownBands = landingDist.getAdjustedBands(10000, 'unknown');
-
-  assertEqual(normalizedWetBands.GOOD.max, wetBands.GOOD.max, 'Surface names should be trimmed and case-normalized');
-  assertEqual(unknownBands.GOOD.max, wetBands.GOOD.max, 'Unknown surface should use the conservative wet bands');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -436,15 +405,15 @@ test('scoreTouchdownDistance: runway context affects bands', () => {
   }
 });
 
-test('scoreTouchdownDistance: surface condition affects bands', () => {
+test('scoreTouchdownDistance: surface condition does not change TDZ position', () => {
   const dryResult = landingDist.scoreTouchdownDistance(2000, { surface: 'dry' });
   const wetResult = landingDist.scoreTouchdownDistance(2000, { surface: 'wet' });
   
   if (dryResult.grade !== 'Good') {
     throw new Error('Expected Good on dry');
   }
-  if (wetResult.grade !== 'Acceptable') {
-    throw new Error(`Expected Acceptable on wet, got ${wetResult.grade}`);
+  if (wetResult.grade !== 'Good') {
+    throw new Error(`Expected Good on wet, got ${wetResult.grade}`);
   }
 });
 
@@ -902,17 +871,17 @@ test('inferSurfaceCondition: no precip + OAT = -1 → dry (above -2 floor)', () 
   assertEqual(r.surface, 'dry');
 });
 
-test('inferSurfaceCondition: OAT only, warm → wet failsafe', () => {
+test('inferSurfaceCondition: OAT only, warm → unknown', () => {
   const r = landingDist.inferSurfaceCondition({ oatC: 20 });
-  assertEqual(r.surface, 'wet');
-  assertEqual(r.source, 'failsafe');
+  assertEqual(r.surface, null);
+  assertEqual(r.source, 'unavailable');
   assertEqual(r.confident, false, 'OAT alone cannot establish runway condition');
 });
 
-test('inferSurfaceCondition: OAT only, freezing → wet failsafe', () => {
+test('inferSurfaceCondition: OAT only, freezing → unknown', () => {
   const r = landingDist.inferSurfaceCondition({ oatC: -1 });
-  assertEqual(r.surface, 'wet');
-  assertEqual(r.source, 'failsafe');
+  assertEqual(r.surface, null);
+  assertEqual(r.source, 'unavailable');
   assertEqual(r.confident, false);
 });
 
@@ -928,17 +897,17 @@ test('inferSurfaceCondition: precipRate = 0 mm/hr counts as no precipitation', (
   assertEqual(r.surface, 'dry', 'Zero precip rate = noPrecip');
 });
 
-test('inferSurfaceCondition: no inputs at all → wet failsafe, not confident', () => {
+test('inferSurfaceCondition: no inputs at all → unknown, not confident', () => {
   const r = landingDist.inferSurfaceCondition({});
-  assertEqual(r.surface, 'wet', 'No data = fail-safe wet');
-  assertEqual(r.source, 'failsafe');
+  assertEqual(r.surface, null, 'No data means unknown');
+  assertEqual(r.source, 'unavailable');
   assertEqual(r.confident, false);
 });
 
-test('inferSurfaceCondition: called with no argument → wet failsafe', () => {
+test('inferSurfaceCondition: called with no argument → unknown', () => {
   const r = landingDist.inferSurfaceCondition();
-  assertEqual(r.surface, 'wet', 'No argument = fail-safe wet');
-  assertEqual(r.source, 'failsafe');
+  assertEqual(r.surface, null, 'No argument means unknown');
+  assertEqual(r.source, 'unavailable');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

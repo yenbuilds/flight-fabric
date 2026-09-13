@@ -233,6 +233,7 @@ type StabilityScoringCriteria = {
 };
 
 type ApproachSample = {
+  selectedSpeedKts?: number | null;
   timestampMs?: number | null;
   gsDeviationDots?: number | null;
   locDeviationDots?: number | null;
@@ -267,6 +268,7 @@ type ApproachSample = {
 };
 
 type CanonicalFrame = {
+  selectedSpeedKts?: unknown;
   timestampMs?: unknown;
   gsDeviationDots?: number | null;
   locDeviationDots?: number | null;
@@ -860,7 +862,7 @@ class SimpleStabilityScorer {
         criteria, assessment: evaluated.assessment,
         coverage: { scoredMetrics: scoredGroups, totalMetrics: 6, metrics: metricCoverage },
         reference: { altitudeSource, gateHeightFt: evaluated.assessment.window.observedGateHeightFt,
-          gateIasKts: evaluated.assessment.referenceIasKts },
+          gateIasKts: evaluated.assessment.observedGateIasKts },
       };
     }
 
@@ -1240,6 +1242,7 @@ class SimpleStabilityScorer {
       }
       prevKeptIdx = idx;
       result.push({
+        absMs: s.timestampMs ?? null,
         raFt: s.raFt,
         // Legacy cockpit indication retained for diagnosis and old clients.
         // `profileAltitudeFt` below is the approach-locked chart reference.
@@ -1481,6 +1484,7 @@ function normalizeFrame(input: Record<string, any> | null | undefined): Canonica
 
   return {
     raFt, iasKts, vsFpm, gsKts, altMslFt,
+    selectedSpeedKts: input.selectedSpeedKts ?? null,
     timestampMs: input.timestampMs,
     gsDeviationDots: normalizedApproachDeviation(input, 'gs'),
     locDeviationDots: normalizedApproachDeviation(input, 'loc'),
@@ -1551,6 +1555,7 @@ function frameToSample(frame: Record<string, any>): ApproachSample | null {
     gsDeviationDots: n.gsDeviationDots,
     locDeviationDots: n.locDeviationDots,
     iasKts: n.iasKts,
+    selectedSpeedKts: finiteNumberOrNull(n.selectedSpeedKts),
     vsFpm: n.vsFpm,
     altMslFt,
     altCalibratedFt,

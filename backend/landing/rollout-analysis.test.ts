@@ -45,6 +45,7 @@ test('rollout analysis flags bank, bank-rate, and heading-control events separat
     sample(2_500, { bankDeg: 2.0, headingTrueDeg: 14.6, gsKts: 111, lon: 149.1943 }),
     sample(3_000, { bankDeg: 0.2, headingTrueDeg: 8.9, gsKts: 100, lon: 149.1944 }),
   ], {
+    runwayGeometrySource: 'msfs-facilities',
     runwayHeadingTrueDeg: 360,
     runwayThreshold: { lat: -35.3148, lon: 149.1944 },
     runwayWidthFt: 150,
@@ -73,6 +74,7 @@ test('rollout analysis detects a conservative runway-edge risk with precise coor
     sample(2_000, { lat: 0.0002, lon: 0.00019, gsKts: 80 }),
     sample(3_000, { lat: 0.0004, lon: 0.0002, gsKts: 70 }),
   ], {
+    runwayGeometrySource: 'msfs-facilities',
     runwayHeadingTrueDeg: 360,
     runwayThreshold: { lat: 0, lon: 0 },
     runwayWidthFt: 150,
@@ -108,6 +110,7 @@ test('rollout analysis stops before the first sample at the aircraft taxi-in spe
     }),
   ], {
     taxiInMaxKts: 60,
+    runwayGeometrySource: 'msfs-facilities',
     runwayHeadingTrueDeg: 360,
     runwayThreshold: { lat: 0, lon: 0 },
     runwayWidthFt: 150,
@@ -115,7 +118,7 @@ test('rollout analysis stops before the first sample at the aircraft taxi-in spe
   });
 
   assert(result);
-  assert.equal(result.schemaVersion, 2);
+  assert.equal(result.schemaVersion, 3);
   assert.equal(result.sampleCount, 3);
   assert.equal(result.endGsKts, 60.1);
   assert.equal(result.maxBankDeg, 0.3);
@@ -137,6 +140,7 @@ test('rollout analysis uses confirmed taxi-in only when groundspeed is unavailab
     sample(4_000, { gsKts: 90, bankDeg: 12, headingTrueDeg: 300 }),
   ], {
     taxiInMaxKts: 60,
+    runwayGeometrySource: 'msfs-facilities',
     runwayHeadingTrueDeg: 360,
   });
 
@@ -175,6 +179,7 @@ test('runway-edge contact is critical only when corroborated by an excursion', (
     sample(2_000, { lat: 0.0002, lon: 0.0003, gsKts: 80 }),
   ];
   const context = {
+    runwayGeometrySource: 'msfs-facilities',
     runwayHeadingTrueDeg: 360,
     runwayThreshold: { lat: 0, lon: 0 },
     runwayWidthFt: 150,
@@ -207,6 +212,7 @@ test('rollout analysis excludes airborne, paused, and low-speed taxi samples', (
     sample(5_000, { gsKts: 20, bankDeg: 20 }),
     sample(6_000, { bankDeg: 20, gsKts: 70 }),
   ], {
+    runwayGeometrySource: 'msfs-facilities',
     runwayHeadingTrueDeg: 360,
   });
 

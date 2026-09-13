@@ -16,9 +16,8 @@
 
 type NullableNumber = number | null | undefined;
 type RunwaySide = 'left' | 'right' | 'center';
-type LandingSurface = 'dry' | 'wet' | 'ice' | 'snow' | 'slush';
 type KnownSurface = 'dry' | 'wet' | 'ice' | 'snow';
-type SurfaceSource = 'simconnect' | 'xplane' | 'inferred' | 'failsafe';
+type SurfaceSource = 'simconnect' | 'xplane' | 'inferred' | 'unavailable';
 type BandKey = 'PERFECT' | 'GOOD' | 'ACCEPTABLE' | 'POOR' | 'DANGEROUS';
 
 type CoordinateLike = {
@@ -101,7 +100,7 @@ type SurfaceConditionInputs = {
 };
 
 type ResolvedSurfaceCondition = {
-  surface: KnownSurface;
+  surface: KnownSurface | null;
   source: SurfaceSource;
   confident: boolean;
 };
@@ -125,15 +124,9 @@ const EARTH_RADIUS_FT = 20902224;
  * Distance thresholds in feet from the landing threshold. These scores are a
  * proficiency heuristic, not an FAA/ICAO grading standard.
  *
- * Two-tier design:
- *   ABSOLUTE lower bounds — match physical TDZ markings, which exist at fixed distances
- *   regardless of runway length (ICAO Annex 14 aiming-point markers at ~1,000 ft;
- *   TDZ markings span first 3,000 ft on precision runways).
- *
- *   PERCENTAGE upper caps on the later bands — because a touchdown at 2,800 ft on a
- *   4,500 ft regional runway (62% consumed) is categorically more dangerous than the
- *   same distance on a 12,000 ft hub runway (23% consumed). Percentage cap applies
- *   whichever limit is reached first (i.e. tighter wins).
+ * Touchdowns within 3,000 ft receive no TDZ penalty, provided they are before
+ * the runway end. Runway-length caps apply only to the later touchdown bands.
+ * Weather does not move the TDZ boundary or establish stopping performance.
  *
  * Reference geometry (the scoring cutoffs themselves remain product policy):
  *   - FAA AIM 2-3-3: aiming-point markings are approximately 1,000 ft from the threshold
@@ -142,9 +135,9 @@ const EARTH_RADIUS_FT = 20902224;
 const TDZ_BANDS: TouchdownBands = {
   //                  absMax  pctCap  score  grade            zone
   PERFECT:    { max: 1000, pctCap: null, score: 100, grade: 'Outstanding',  zone: 'Ideal TDZ'      },
-  GOOD:       { max: 2500, pctCap: 0.33, score: 90,  grade: 'Good',         zone: 'Normal TDZ'     },
+  GOOD:       { max: 3000, pctCap: null, score: 100, grade: 'Good',         zone: 'Within TDZ'     },
   ACCEPTABLE: { max: 3500, pctCap: 0.50, score: 75,  grade: 'Acceptable',   zone: 'Late TDZ'       },
-  POOR:       { max: 5000, pctCap: 0.65, score: 40,  grade: 'Long Landing', zone: 'Long Landing'   },
+  POOR:       { max: 5000, pctCap: 0.65, score: 70,  grade: 'Long Landing', zone: 'Beyond TDZ'     },
   DANGEROUS:  { max: Infinity, pctCap: null, score: 10, grade: 'Dangerous', zone: 'Overrun Risk'   },
 };
 
@@ -159,20 +152,6 @@ function isTouchdownZoneAchieved(distanceFt: unknown, runwayLengthFt: unknown = 
     && runwayLengthFt > 0;
   return !hasValidRunwayLength || distanceFt < (runwayLengthFt as number);
 }
-
-/**
- * Surface condition multipliers for scoring band adjustment
- * Wet/contaminated runways reduce the tolerated late-touchdown margin. The
- * normal target area itself remains fixed; contamination does not move the
- * aiming point toward the threshold.
- */
-const SURFACE_MULTIPLIERS: Record<LandingSurface, number> = {
-  dry: 1.0,
-  wet: 0.7,      // Tighten bands by 30%
-  ice: 0.5,      // Tighten bands by 50%
-  snow: 0.6,     // Tighten bands by 40%
-  slush: 0.55    // Tighten bands by 45%
-};
 
 const FT_PER_DEG_LAT = 364567;
 
@@ -593,7 +572,7 @@ function scoreLateralOffset(offsetFt: NullableNumber, runwayWidthFt: NullableNum
     // Off runway - serious
     const overshoot = absOffset - halfWidth;
     const extraPenalty = Math.min(50, Math.round(overshoot / 10)); // +1 penalty per 10ft past edge
-    return { score: Math.max(0, 50 - extraPenalty), grade: 'Excursion', penalty: 50 + extraPenalty, zone: 'off runway' };
+    return { score: Math.max(0, 50 - extraPenalty), grade: 'Outside runway reference', penalty: 50 + extraPenalty, zone: 'outside reference edge' };
   }
 }
 
@@ -703,34 +682,22 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
 // -----------------------------------------------------------------------------
 
 /**
- * Get effective scoring band thresholds adjusted for conditions
+ * Get effective scoring band thresholds adjusted for runway length
  * 
  * @param {number} runwayLengthFt - Runway length in feet
- * @param {string} surface - Surface condition ('dry', 'wet', 'ice', etc.)
+ * @param {string} _surface - Retained for caller compatibility; does not alter TDZ
  * @returns {Object} Adjusted band thresholds
  */
-function getAdjustedBands(runwayLengthFt: NullableNumber, surface: string | null = 'dry'): TouchdownBands {
-  const surfaceKey = typeof surface === 'string' ? surface.trim().toLowerCase() : '';
-  const normalizedSurface = Object.prototype.hasOwnProperty.call(SURFACE_MULTIPLIERS, surfaceKey)
-    ? (surfaceKey as LandingSurface)
-    : 'wet';
-  const surfaceMultiplier = SURFACE_MULTIPLIERS[normalizedSurface];
-
+function getAdjustedBands(runwayLengthFt: NullableNumber, _surface: string | null = null): TouchdownBands {
   const adjusted = {} as TouchdownBands;
   let previousFiniteMax = 0;
   for (const [key, band] of Object.entries(TDZ_BANDS) as Array<[BandKey, TouchdownBand]>) {
-    // Runway contamination increases the consequence of a late touchdown, but
-    // it does not move the normal aiming point. Keep the ideal band fixed and
-    // tighten only the later-distance bands.
-    const conditionMultiplier = key === 'PERFECT' ? 1 : surfaceMultiplier;
-    let effectiveMax = band.max === Infinity
-      ? Infinity
-      : Math.round(band.max * conditionMultiplier);
+    // TDZ describes a position, not a stopping-distance assessment. Weather
+    // cannot move its boundary, and missing weather must never tighten it.
+    let effectiveMax = band.max;
 
     // Apply percentage-based cap for upper bands when runway length is known.
-    // Surface multiplier is NOT applied to the pct cap — wet/icy surfaces require
-    // an earlier touchdown (absolute cap already tightened), and the pct boundary
-    // reflects remaining stopping distance which is a separate concern.
+    // These caps do not change the first 3,000 ft or predict stopping distance.
     if (band.pctCap != null && isNumericValue(runwayLengthFt) && runwayLengthFt > 0) {
       const pctMax = Math.round(runwayLengthFt * band.pctCap);
       effectiveMax = Math.min(effectiveMax, pctMax);
@@ -827,9 +794,8 @@ function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownSc
 /**
  * SimConnect surface condition enum (when present): 0=Normal, 1=Wet, 2=Icy, 3=Snow.
  * NOTE: as of MSFS 2024 this SimVar is not exposed by the stock SimConnect SDK,
- * so the raw value is virtually always null. We must therefore infer from
- * weather telemetry, and fall back to a conservative assumption when nothing
- * is known (per "fail-safe" requirement: do not optimistically grade as dry).
+ * so the raw value is virtually always null. Weather telemetry can provide an
+ * explicitly uncertain proxy; missing observations remain unknown.
  */
 const SIMCONNECT_SURFACE_ENUM = ['dry', 'wet', 'ice', 'snow'] as const;
 
@@ -843,19 +809,16 @@ const SIMCONNECT_SURFACE_ENUM = ['dry', 'wet', 'ice', 'snow'] as const;
  *        - explicit rain state or measurable rate -> 'wet'
  *        - explicit no precipitation + warm OAT -> 'dry'
  *        - explicit no precipitation + freezing OAT -> 'wet' (conservative)
- *   3. If inputs are missing (cannot determine), return `{ surface: 'wet',
- *      source: 'failsafe', confident: false }`. This is the fail-safe: when
- *      the data we need to grade fairly is unavailable, we tighten the
- *      scoring bands so an unfair "Outstanding" grade cannot result from
- *      missing data. Weather-derived values are never marked confident because
- *      precipitation and OAT are not an observed runway assessment.
+ *   3. If inputs are missing, return null with source 'unavailable'.
+ *      Weather-derived values are never marked confident because precipitation
+ *      and OAT are not an observed runway assessment. They do not alter TDZ scoring.
  *
  * @param {Object} inputs
  * @param {number|null} [inputs.surfaceCondition] - SimConnect enum if present
  * @param {number|null} [inputs.precipState]      - MSFS 2024 mask: 2 = none, 4 = rain, 8 = snow
  * @param {number|null} [inputs.precipRateMm]     - mm/hr
  * @param {number|null} [inputs.oatC]             - outside air temperature, °C
- * @returns {{ surface: 'dry'|'wet'|'ice'|'snow', source: 'simconnect'|'inferred'|'failsafe', confident: boolean }}
+ * @returns Resolved observation or uncertain weather proxy; null when unavailable.
  */
 function inferSurfaceCondition(inputs: SurfaceConditionInputs = {}): ResolvedSurfaceCondition {
   const { surfaceCondition, xplaneRunwayFriction, precipState, precipRateMm, oatC } = inputs;
@@ -904,7 +867,7 @@ function inferSurfaceCondition(inputs: SurfaceConditionInputs = {}): ResolvedSur
   // OAT alone cannot establish whether precipitation or residual runway
   // contamination is present. Without an explicit precipitation observation,
   // treat the available weather data as insufficient and fail safe to wet.
-  return { surface: 'wet', source: 'failsafe', confident: false };
+  return { surface: null, source: 'unavailable', confident: false };
 }
 
 // -----------------------------------------------------------------------------
@@ -929,7 +892,6 @@ module.exports = {
   inferSurfaceCondition,
   TDZ_BANDS,
   TOUCHDOWN_ZONE_MAX_FT,
-  SURFACE_MULTIPLIERS,
 };
 
 export {};

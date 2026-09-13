@@ -15,7 +15,7 @@ function samplesAt(cadence: number | number[], change: (seconds: number) => Reco
   while (ms <= 110000) {
     const seconds = ms / 1000;
     samples.push(frameToSample({ timestampMs: START + ms, dtMs: ms - previous,
-      raFt: 1100 - seconds * 10, altPlaneFt: 1115 - seconds * 10, iasKts: 140, gsKts: 140,
+      raFt: 1100 - seconds * 10, altPlaneFt: 1115 - seconds * 10, iasKts: 140, selectedSpeedKts: 140, gsKts: 140,
       vsFpm: -743.4, pitchDeg: 3, bankDeg: 0, thrustPct: 40,
       gearDownLocked: 1, flapsPercent: 40, onGround: false, ...change(seconds) }));
     previous = ms;
@@ -79,7 +79,7 @@ test('a fractional-second sensor excursion does not create an episode', () => {
   assert.equal(result.assessment.episodes.length, 0); assert.equal(result.verdict, 'stable');
 });
 
-test('self-referenced airspeed is advisory, never a definitive red VAPP violation', () => {
+test('selected-speed deviation is advisory, never a definitive red VAPP violation', () => {
   const result = score(samplesAt(100, t => ({ iasKts: t > 60 && t < 82 ? 156 : 140 })));
   const speed = result.assessment.episodes.filter(e => e.ruleId === 'approach_airspeed');
   assert.ok(speed.length > 0); assert.ok(speed.every(e => e.severity === 'caution'));
@@ -128,6 +128,7 @@ test('live and CSV-normalized telemetry produce the same v4 result', () => {
     timestamp_utc: new Date(s.timestampMs).toISOString(), ra_ft: s.raFt, alt_plane_ft: s.altPlaneFt,
     ias_kts: s.iasKts, vs_fpm: s.vsFpm, gs_kts: s.gsKts, gear_down_locked: 1, flaps_pct: 40,
     pitch_deg: 3, bank_deg: 0, thr1_pct: 40, thr2_pct: 40, on_ground: 0,
+    ap_reliable: 1, athr_reliable: 1, athr_active: 1, ap_speed_target_kts: s.selectedSpeedKts,
   }, s.dtMs)));
   const a = score(live), b = score(replay);
   assert.equal(a.score, b.score); assert.equal(a.verdict, b.verdict); assert.deepEqual(a.assessment, b.assessment);
@@ -196,6 +197,23 @@ test('a large path-rate estimate cannot turn a tiny measured sink exceedance red
   const result = score(samplesAt(200, t => ({ gsKts: 40, vsFpm: t >= 60 && t < 90 ? -1001 : -743.4 })));
   assert.ok(result.assessment.episodes.some(e => e.reasons.includes(VIOLATION_RULE.HIGH_SINK_RATE)));
   assert.ok(result.assessment.episodes.every(e => e.severity === 'caution'));
+});
+
+test('gate IAS without a reliable selected speed does not establish an airspeed target', () => {
+  const result = score(samplesAt(100, t => ({ selectedSpeedKts: null, iasKts: 140 + t / 10 })));
+  assert.equal(result.breakdown.speed_ok, null);
+  assert.equal(result.assessment.referenceIasKts, null);
+  assert.equal(result.assessment.speedReferenceSource, 'unavailable');
+  assert.ok(!result.assessment.episodes.some(e => e.ruleId === 'approach_airspeed'));
+  assert.equal(result.verdict, 'stable');
+});
+
+test('turn-in and descent before the gate cannot change the final score or episodes', () => {
+  const normal = score(samplesAt(100));
+  const turn = score(samplesAt(100, t => t < 9 ? { bankDeg: 30, vsFpm: -1600, iasKts: 200 } : {}));
+  assert.equal(turn.score, normal.score);
+  assert.deepEqual(turn.assessment.episodes, normal.assessment.episodes);
+  assert.equal(turn.breakdown.bank_ok, 100);
 });
 
 test('missing readings from the selected height source are data gaps, not low-altitude flight', () => {

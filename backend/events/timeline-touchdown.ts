@@ -70,15 +70,18 @@ function buildReplayLandingEvent(input: {
   let tdzAchieved = false;
   let lateralOffset = null;
   let lateralOffsetScore = null;
+  let lateralOffsetSuspect = true;
   let surfaceResolution = null;
 
   if (runway) {
     const runwayAnalysis = buildTouchdownRunwayAnalysis({
       runwayData: runway,
+      onRunway: row.surface_on_runway === true || row.surface_on_runway === 1 || row.surface_on_runway === '1',
       touchdownPoint: { lat: eventCoordinates.lat, lon: eventCoordinates.lon },
       surfaceInputs: { oatC: typeof row.oat_c === 'number' ? row.oat_c : null },
     });
     const touchdownDistanceData = runwayAnalysis.touchdownDistanceData;
+    lateralOffsetSuspect = touchdownDistanceData.lateral_offset_suspect !== false;
     touchdownScore = touchdownDistanceData.touchdown_distance_score != null
       ? {
           score: touchdownDistanceData.touchdown_distance_score,
@@ -120,6 +123,7 @@ function buildReplayLandingEvent(input: {
         runway && Number.isFinite(runway.elevation_ft) ? runway.elevation_ft : null,
         {
           lateralOffsetFt: lateralOffset && Number.isFinite(lateralOffset.offsetFt) ? lateralOffset.offsetFt : null,
+          lateralOffsetSuspect,
           runwayWidthFt: runway && Number.isFinite(runway.widthFt) && runway.widthFt > 0 ? runway.widthFt : null,
           airportIcao: runway?.icao ?? row.icao ?? row.airport_icao ?? null,
           runwayId: runway?.runway ?? row.runway ?? row.runway_id ?? null,
@@ -223,6 +227,8 @@ function buildReplayLandingEvent(input: {
       lateralOffsetSide: lateralOffset && Number.isFinite(lateralOffset.offsetFt) ? lateralOffset.side : null,
       lateralOffsetGrade: lateralOffsetScore ? lateralOffsetScore.grade : null,
       lateralOffsetScore: lateralOffsetScore ? lateralOffsetScore.score : null,
+      lateralOffsetSuspect,
+      runwayGeometrySource: runway?.source ?? null,
       runwayLengthFt: runway && Number.isFinite(runway.lengthFt) ? runway.lengthFt : null,
       runwayWidthFt: runway && Number.isFinite(runway.widthFt) && runway.widthFt > 0
         ? runway.widthFt

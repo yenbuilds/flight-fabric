@@ -342,10 +342,8 @@ async function main() {
     });
 
     assert.match(svg, /^<svg\b/, 'expected SVG markup');
-    assert.match(svg, /RWY hdg: 90\.0/, 'should report runway heading');
-    assert.match(svg, /GPS pts: 5\/5/, 'should use GPS projection branch');
-    assert.match(svg, /THR: 0\.00000, 0\.00000/, 'should report threshold coordinates');
-    assert.match(svg, /XT first: -50 ft\s+last: -50 ft/, 'right-of-centerline should stay negative in renderer convention');
+    assert.doesNotMatch(svg, /RWY hdg: 90\.0/, 'internal geometry diagnostics are hidden by default');
+    assert.doesNotMatch(svg, /GPS pts:|THR: 0|XT first:/, 'internal coordinate diagnostics stay hidden');
     assert.match(svg, /50 ft r/, 'touchdown label should match right-side offset');
     assertNoBadNumbers(svg, 'top-down GPS SVG');
 
@@ -534,8 +532,7 @@ async function main() {
       },
     });
 
-    assert.match(svg, /GPS pts: 0\/5/, 'should expose that GPS was unavailable');
-    assert.match(svg, /THR: \(no runway threshold\)/, 'should expose missing threshold');
+    assert.doesNotMatch(svg, /GPS pts:/, 'internal diagnostics are hidden by default');
     assert.match(svg, /50 ft r/, 'fallback should still anchor touchdown offset label');
     assertNoBadNumbers(svg, 'top-down fallback SVG');
   });
@@ -573,7 +570,7 @@ async function main() {
           },
         },
       },
-      { idSuffix: '"><script>alert(1)</script>' }
+      { idSuffix: '"><script>alert(1)</script>', debug: true }
     );
 
     assert.doesNotMatch(svg, /<script/i, 'should not emit raw script tags');
@@ -582,6 +579,63 @@ async function main() {
     assert.match(svg, /RWY 09&quot;&gt;&lt;img src=x onerror=alert\(1\)&gt;/, 'should render escaped runway text');
     assert.match(svg, /XT rollout-relative: 5 ft c \(&lt;img src=x&gt; pts, &lt;script&gt;alert\(1\)&lt;\/script&gt; ft\)/, 'should render escaped diagnostics');
     assertNoBadNumbers(svg, 'sanitized top-down SVG');
+  });
+
+  test('default charts crop sparse high-altitude context and split context at the scoring gate', () => {
+    const profile = [10000, 4000, 1600, 1200, 800, 400, 0].map((height, index) => ({
+      ...profilePoint({ alongFt: -24000 + index * 4000, crossFt: 0, raFt: height, altMslFt: height, dtMs: 1000 }),
+      absMs: 1700000000000 + index * 1000, bankDeg: index < 3 ? 30 : 0, vsFpm: -1500,
+    }));
+    const landing = { runwayHdg: 90, runwayThreshold: { lat: 0, lon: 0 },
+      touchdownDistance: { distanceFt: 1000, grade: 'Good', lateralOffsetGrade: 'Unverified' },
+      ultimateStability: { assessment: { window: { gateHeightFt: 1000, startMs: 1700000003500 }, episodes: [] } } };
+    for (const topDown of [false, true]) {
+      const html = approachProfileApi.buildChartHtml(profile, landing, { topDown });
+      const [focused, full] = [...html.matchAll(/<svg[\s\S]*?<\/svg>/g)].map(match => match[0]);
+      assert.ok(full, 'earlier descent remains available in full context');
+      assert.match(html, /<details[\s\S]*before the gate is not scored/);
+      for (const svg of [focused, full]) {
+        assert.doesNotMatch(svg, /data-approach-segment="assessed"/, 'raw sink/bank values cannot invent scored warnings');
+        assertNoBadNumbers(svg, 'gate-focused chart');
+      }
+      const pathPattern = topDown ? /<path d="([^"]+)" fill="none" stroke="url\(#topPathGrad/ : /<path d="([^"]+)" fill="none" stroke="url\(#pathGrad/;
+      assert.equal([...focused.match(pathPattern)[1].matchAll(/[ML]\s/g)].length, 5, 'sparse boundary is interpolated at 1500 ft');
+      assert.equal([...full.match(pathPattern)[1].matchAll(/[ML]\s/g)].length, 7);
+      const context = [...focused.matchAll(/<line data-approach-segment="context"[^>]+>/g)].at(-1)[0];
+      const gate = focused.match(/<line [^>]*stroke="#a78bfa"[^>]*>/)[0];
+      const axis = topDown ? 'x' : 'y';
+      assert.ok(Math.abs(Number(getSvgAttribute(context, `${axis}2`)) - Number(getSvgAttribute(gate, `${axis}1`))) < 0.01,
+        'context colour ends exactly at the gate');
+    }
+    const scored = structuredClone(landing);
+    scored.ultimateStability.assessment.episodes = ['approach_bank', 'approach_vertical_profile'].map(ruleId => ({
+      ruleId, severity: 'warning', startMs: 1700000004200, endMs: 1700000004800,
+    }));
+    assert.match(approachProfileApi.buildSvg(profile, scored), /data-approach-segment="assessed"/);
+    assert.match(approachProfileApi.buildTopDownSvg(profile, scored), /data-approach-segment="assessed"/);
+  });
+
+  test('sparse final-approach data retains available context with an explanation', () => {
+    const profile = [10000, 8000, 6000, 4000, 2000, 0].map((height, index) =>
+      profilePoint({ alongFt: -20000 + index * 4000, crossFt: 0, raFt: height, altMslFt: height }));
+    for (const topDown of [false, true]) {
+      const html = approachProfileApi.buildChartHtml(profile, {}, { topDown });
+      assert.match(html, /Limited final-approach data; showing available context/);
+      assert.equal([...html.matchAll(/<svg/g)].length, 1, 'show the available chart once');
+      assert.doesNotMatch(html, /data-approach-segment="assessed"/);
+      assertNoBadNumbers(html, 'sparse final-approach fallback');
+      assert.equal(approachProfileApi.buildChartHtml([], {}, { topDown }), '', 'absent telemetry remains absent');
+    }
+  });
+
+  test('chart crop respects custom gates and retains later climbs above the gate', () => {
+    const profile = [5000, 1500, 900, 600, 400, 1300, 200, 0].map((height, index) =>
+      profilePoint({ alongFt: -14000 + index * 2000, crossFt: 0, raFt: height, altMslFt: height }));
+    const svg = approachProfileApi.buildSvg(profile, { ultimateStability: { assessment: { window: { gateHeightFt: 500 } } } });
+    assert.match(svg, /Scoring starts here · 500 ft/);
+    const path = svg.match(/<path d="([^"]+)" fill="none" stroke="url\(#pathGrad/)[1];
+    assert.equal([...path.matchAll(/[ML]\s/g)].length, 7, 'crop starts at 1000 ft and preserves the later climb');
+    assertNoBadNumbers(svg, 'custom-gate chart');
   });
 
   console.log('\nApproach profile renderer summary');

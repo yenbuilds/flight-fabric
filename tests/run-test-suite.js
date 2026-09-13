@@ -69,6 +69,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-csv-read-guard-policy.js']],
   ['node', ['--test', 'dist/backend/flight-recording/post-flight-insights-summary.test.js']],
   ['node', ['--test', 'dist/backend/landing/rollout-analysis.test.js']],
+  ['node', ['--test', 'dist/backend/analysis/landing-warning-confidence.test.js']],
   ['node', ['dist/backend/flight-recording/schema-field-map.test.js']],
   ['node', ['tests/scripts/test-timeline-generator.js']],
   ['node', ['tests/scripts/test-analysis-parity.js']],

@@ -164,6 +164,10 @@ export function assessApproach(input: {
       * (previous.heightFt - criteria.gateRaFt) / (previous.heightFt - first.heightFt))
     : first;
   const last = samples[samples.length - 1];
+  // A momentary IAS at the gate is not VREF/VAPP. Only a recorded, reliable
+  // selected speed while autothrottle is active establishes a speed target.
+  const speedReference = finite(gate?.selectedSpeedKts) && gate.selectedSpeedKts >= 30 && gate.selectedSpeedKts <= 400
+    ? gate.selectedSpeedKts : null;
   const startMs = gate?.timeMs ?? 0;
   const endMs = last?.timeMs ?? startMs;
   const points = gate ? resample(samples, startMs, endMs) : [];
@@ -176,7 +180,9 @@ export function assessApproach(input: {
       gateHeightFt: criteria.gateRaFt, observedGateHeightFt: gate?.heightFt ?? null,
       observedDurationMs: knownMs, pausedDurationMs: pausedMs,
       coverage: endMs > startMs + pausedMs ? knownMs / (endMs - startMs - pausedMs) : 0 },
-    referenceIasKts: gate?.iasKts ?? null,
+    referenceIasKts: speedReference,
+    observedGateIasKts: gate?.iasKts ?? null,
+    speedReferenceSource: speedReference === null ? 'unavailable' : 'selected-speed',
     episodes: [], groups: {}, metrics: {},
   };
   const unavailableReason = !gate ? 'no_gate_sample'
@@ -213,10 +219,10 @@ export function assessApproach(input: {
     const pathDelta = energy && target !== null ? smoothVs - target : null;
     const pathIdeal = criteria.glidepathVsDeltaMaxFpm;
     const pathCaution = pathIdeal + RULES.pathCautionMarginFpm;
-    const speedMin = gate.iasKts - criteria.speedMinusKts;
-    const speedMax = gate.iasKts + criteria.speedPlusKts;
+    const speedMin = speedReference === null ? -Infinity : speedReference - criteria.speedMinusKts;
+    const speedMax = speedReference === null ? Infinity : speedReference + criteria.speedPlusKts;
     const values = {
-      speed_ok: energy ? lossOutside(point.iasKts, speedMin, speedMax, RULES.speedWarningMarginKts) : null,
+      speed_ok: energy && speedReference !== null ? lossOutside(point.iasKts, speedMin, speedMax, RULES.speedWarningMarginKts) : null,
       speed_trend_ok: lossOutside(speedTrend, 0, criteria.speedTrendMaxKtsPerSec, criteria.speedTrendMaxKtsPerSec || 1),
       vs_ok: lossOutside(smoothVs, sinkLimit, criteria.vsMaxClimbFpm, RULES.sinkWarningMarginFpm),
       glidepath_ok: lossOutside(pathDelta, -pathIdeal, pathIdeal, RULES.pathWarningMarginFpm),
@@ -251,10 +257,10 @@ export function assessApproach(input: {
         || smoothVs > criteria.vsMaxClimbFpm + RULES.sustainedSinkExcessFpm
         || (gsDeviation !== null && gsDeviation > RULES.navigationCautionDots + RULES.sustainedNavigationExcessDots),
     });
-    speedAlerts.push(energy ? { breach: point.iasKts < speedMin || point.iasKts > speedMax,
+    speedAlerts.push(energy && speedReference !== null && finite(point.iasKts) ? { breach: point.iasKts < speedMin || point.iasKts > speedMax,
       severe: point.iasKts < speedMin - RULES.speedWarningMarginKts || point.iasKts > speedMax + RULES.speedWarningMarginKts,
       clear: point.iasKts >= speedMin + 1 && point.iasKts <= speedMax - 1,
-      reasons: ['airspeed_deviation'], value: point.iasKts, target: gate.iasKts, advisoryOnly: true } : null);
+      reasons: ['selected_speed_deviation'], value: point.iasKts, target: speedReference, advisoryOnly: true } : null);
     bankAlerts.push(finite(point.bankDeg) ? { breach: Math.abs(point.bankDeg) > criteria.bankMaxDeg,
       sustainedEligible: Math.abs(point.bankDeg) > criteria.bankMaxDeg + RULES.sustainedAttitudeExcessDeg,
       severe: Math.abs(point.bankDeg) > criteria.bankMaxDeg + RULES.bankWarningMarginDeg,

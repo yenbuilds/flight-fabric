@@ -1,4 +1,5 @@
 import { encodeSquawkBco16 } from '../utils/transponder-code.js';
+import { StallWarningFilter } from './stall-warning-filter';
 import { executeA32nxMinimums } from './a32nx-minimums-control.js';
 // telemetry-provider/simconnect-telemetry-provider.js
 // SimConnect-only telemetry provider (generic, vendor-agnostic)
@@ -716,6 +717,7 @@ class SimConnectTelemetryProvider {
     // Overspeed/stall warning state
     this._overspeedActive = false;
     this._stallActive = false;
+    this._stallWarningFilter = new StallWarningFilter();
     
     // Fuel exhaustion state
     this._fuelExhausted = false;  // True when fuel drops below threshold
@@ -1398,6 +1400,7 @@ class SimConnectTelemetryProvider {
     this._debuggedNullVars = null;
     this._overspeedActive = false;
     this._stallActive = false;
+    this._stallWarningFilter = new StallWarningFilter();
     this._fuelExhausted = false;
     Debug.log('simconnect-telemetry', 'telemetry reset for aircraft change', {
       reason: reason || 'aircraftChanged',
@@ -4322,7 +4325,6 @@ class SimConnectTelemetryProvider {
     // Additional sanity checks: IAS must be realistic (<600kts), skip warmup period.
     // ═══════════════════════════════════════════════════════════════════════
     const overspeed = d.overspeedWarning ?? false;
-    const stall = d.stallWarning ?? false;
     const barberPoleKts = d.barberPoleKts ?? null;
     const barberPoleMach = d.barberPoleMach ?? null;
     const flapsPercent = d.flaps ?? 0;  // 0-100, 0 = retracted (FLAPS HANDLE PERCENT)
@@ -4380,7 +4382,8 @@ class SimConnectTelemetryProvider {
       this._overspeedActive = overspeed;
     }
     
-    // Stall warning state change (only when data looks valid)
+    const stall = this._stallWarningFilter.update(d.stallWarning, dataLooksValid, d.wow, Date.now());
+    // A quarter-second SimVar pulse is not a confirmed stall warning.
     if (stall && !this._stallActive && dataLooksValid) {
       console.log('\n⚠️  STALL WARNING ACTIVE\n');
       Debug.log('warnings', `Stall warning triggered at IAS=${iasKts?.toFixed(0) ?? '?'}kts`);
@@ -4398,9 +4401,7 @@ class SimConnectTelemetryProvider {
       });
     }
     // Track state only when data is valid to prevent menu-state false positives.
-    if (dataLooksValid) {
-      this._stallActive = stall;
-    }
+    this._stallActive = stall;
     
     // ═══════════════════════════════════════════════════════════════════════
     // CABIN ALTITUDE WARNING DETECTION

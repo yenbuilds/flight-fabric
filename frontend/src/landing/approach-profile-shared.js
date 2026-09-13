@@ -13,6 +13,8 @@ export const COLORS = {
 
 export function gradeToColor(grade) {
   if (!grade) return COLORS.neutral;
+  if (grade === 'Unverified' || grade === 'Unknown') return COLORS.neutral;
+  if (grade === 'Perfect' || grade === 'On Centerline') return COLORS.success;
   if (grade === 'Outstanding' || grade === 'Good') return COLORS.success;
   if (grade === 'Acceptable' || grade === 'Marginal') return COLORS.warning;
   return COLORS.danger;

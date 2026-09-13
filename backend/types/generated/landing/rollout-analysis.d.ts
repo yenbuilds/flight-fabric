@@ -2,6 +2,7 @@ type AnyRecord = Record<string, any>;
 export type RolloutAnalysisSample = {
     timestampMs: number;
     onGround: boolean;
+    onRunway?: boolean | null;
     paused?: boolean;
     phase?: string | null;
     gsKts: number | null;
@@ -20,6 +21,8 @@ export type RolloutAnalysisContext = {
     } | null;
     runwayWidthFt?: unknown;
     runwayExcursion?: unknown;
+    runwayGeometrySource?: unknown;
+    lateralOffsetSuspect?: unknown;
     coordinatePrecisionDigits?: unknown;
     source?: unknown;
 };

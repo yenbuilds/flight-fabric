@@ -151,12 +151,104 @@ import {
   DEFAULT_PITCH_DEG,
   GATE_ALTITUDE_FT,
   gradeToColor,
-  HIGH_SINK_RATE_FPM,
   MIN_PROFILE_POINTS,
   MIN_VALID_POINTS,
 } from './approach-profile-shared.js';
 
 const PROFILE_ALTITUDE_SOURCE_COVERAGE = 0.8;
+
+function assessmentOf(landing) {
+  return landing?.ultimateStability?.scoringContext?.assessment
+    ?? landing?.ultimateStability?.assessment ?? null;
+}
+
+function gateHeightOfLanding(landing) {
+  const value = assessmentOf(landing)?.window?.gateHeightFt
+    ?? landing?.ultimateStability?.scoringContext?.criteria?.gateRaFt;
+  return Number.isFinite(value) && value > 0 ? value : GATE_ALTITUDE_FT;
+}
+
+function pointTime(point) {
+  return Number.isFinite(point?.absMs) ? point.absMs : point?.timestampMs;
+}
+
+function beforeGate(points, index, landing, heightOf) {
+  const startMs = assessmentOf(landing)?.window?.startMs;
+  const time = pointTime(points[index]);
+  if (Number.isFinite(startMs) && Number.isFinite(time)) return time < startMs;
+  const gateIndex = points.findIndex(point => heightOf(point) <= gateHeightOfLanding(landing));
+  return gateIndex < 0 || index < gateIndex;
+}
+
+function segmentOverlays(points, index, landing, heightOf, ruleIds) {
+  const start = pointTime(points[index - 1]);
+  const end = pointTime(points[index]);
+  const gateTime = assessmentOf(landing)?.window?.startMs;
+  const timed = Number.isFinite(start) && Number.isFinite(end) && end > start;
+  const clamp = value => Math.max(0, Math.min(1, value));
+  let gateFraction;
+  if (timed && Number.isFinite(gateTime)) gateFraction = clamp((gateTime - start) / (end - start));
+  else {
+    const gate = gateHeightOfLanding(landing);
+    const gateIndex = points.findIndex(point => heightOf(point) <= gate);
+    gateFraction = gateIndex < 0 || index < gateIndex ? 1 : index > gateIndex ? 0
+      : clamp((heightOf(points[index - 1]) - gate) / (heightOf(points[index - 1]) - heightOf(points[index])));
+  }
+  const overlays = gateFraction > 0 ? [{ from: 0, to: gateFraction, context: true, color: '#64748b' }] : [];
+  if (!timed) return overlays;
+  const episodes = assessmentOf(landing)?.episodes ?? [];
+  for (const severity of ['caution', 'warning']) for (const episode of episodes) {
+    if (episode.severity !== severity || !ruleIds.includes(episode.ruleId)) continue;
+    const from = Math.max(gateFraction, clamp((episode.startMs - start) / (end - start)));
+    const to = clamp((episode.endMs - start) / (end - start));
+    if (to > from) overlays.push({ from, to, context: false, color: severity === 'warning' ? '#ef4444' : '#f59e0b' });
+  }
+  return overlays;
+}
+
+function overlayLine(segment, x1, y1, x2, y2) {
+  const x = fraction => x1 + (x2 - x1) * fraction;
+  const y = fraction => y1 + (y2 - y1) * fraction;
+  return `<line data-approach-segment="${segment.context ? 'context' : 'assessed'}" x1="${x(segment.from)}" y1="${y(segment.from)}" x2="${x(segment.to)}" y2="${y(segment.to)}" stroke="${segment.color}" stroke-width="3" stroke-linecap="round" />`;
+}
+
+// Keep a little context before the scoring gate, while retaining every later
+// point (including a climb back above the gate). Interpolate the display edge
+// so one sparse high-altitude point cannot expand the chart back to 10,000 ft.
+function selectProfileWindow(points, heightOf, landing, opts) {
+  if (opts?.fullContext) return points;
+  const ceiling = gateHeightOfLanding(landing) + 500;
+  const index = points.findIndex(point => heightOf(point) <= ceiling);
+  if (index <= 0) return points;
+  const previous = points[index - 1];
+  const first = points[index];
+  const fraction = (heightOf(previous) - ceiling) / (heightOf(previous) - heightOf(first));
+  const edge = { ...previous, dtMs: null };
+  for (const key of ['raFt', 'altMslFt', 'altPlaneFt', 'altCalibratedFt', 'profileAltitudeFt',
+    'profileAltMslFt', 'latDeg', 'lonDeg', 'gsKts', 'iasKts', 'absMs', 'timestampMs']) {
+    if (Number.isFinite(previous[key]) && Number.isFinite(first[key])) {
+      edge[key] = previous[key] + fraction * (first[key] - previous[key]);
+    }
+  }
+  return [edge, { ...first, dtMs: Number.isFinite(first.dtMs) ? first.dtMs * (1 - fraction) : null }, ...points.slice(index + 1)];
+}
+
+function buildChartHtml(profile, landing, opts = {}) {
+  const renderer = opts.topDown ? buildTopDownSvg : buildSvg;
+  const focused = renderer(profile, landing, opts);
+  if (!focused) {
+    const available = renderer(profile, landing, { ...opts, fullContext: true });
+    return available
+      ? `<p class="mb-2 text-sm text-gray-500">Limited final-approach data; showing available context. Before the gate is not scored.</p>${available}`
+      : '';
+  }
+  const reference = landing?.runwayReferenceElevFt ?? landing?.thresholdElevFt;
+  const { heightOf } = createProfileHeightResolver(profile, reference);
+  const hasEarlier = profile.some(point => heightOf(point) > gateHeightOfLanding(landing) + 500);
+  if (!hasEarlier) return focused;
+  const full = renderer(profile, landing, { ...opts, fullContext: true, idSuffix: `${opts.idSuffix || ''}-full` });
+  return `${focused}<details class="mt-3 text-sm text-gray-500"><summary class="cursor-pointer">Show full approach context (before the gate is not scored)</summary>${full}</details>`;
+}
 const RUNWAY_RELATIVE_ALTITUDE_SOURCES = new Set([
   'selected',
   'plane',
@@ -344,7 +436,7 @@ function buildSvg(profile, landing, opts) {
   const usingAglFallback = !heightResolver.usesRunwayReference;
 
   // Filter to valid altitude samples (under whichever axis we're using)
-  const points = filterProfileByHeight(profile, altOf);
+  const points = selectProfileWindow(filterProfileByHeight(profile, altOf), altOf, ld, opts);
   if (points.length < MIN_VALID_POINTS) return '';
 
   const maxAlt = Math.max(...points.map(p => altOf(p)));
@@ -476,10 +568,11 @@ function buildSvg(profile, landing, opts) {
   // The horizontal line is drawn at y = 1000 in the same preferred units as
   // scoring: selected absolute altitude minus the runway elevation reference
   // when available, otherwise radio altitude.
-  if (GATE_ALTITUDE_FT <= altMax) {
-    const gateY = yScale(GATE_ALTITUDE_FT);
+  const gateAltitude = gateHeightOfLanding(ld);
+  if (gateAltitude <= altMax) {
+    const gateY = yScale(gateAltitude);
     svg += `<line x1="${padL}" y1="${gateY}" x2="${padL + plotW}" y2="${gateY}" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.5" />`;
-    svg += `<text x="${padL + plotW - 2}" y="${gateY + 3}" text-anchor="end" fill="#a78bfa" fill-opacity="0.7" font-size="9" font-family="system-ui, sans-serif">GATE</text>`;
+    svg += `<text x="${padL + plotW - 2}" y="${gateY - 5}" text-anchor="end" fill="#a78bfa" font-size="9" font-family="system-ui, sans-serif">Scoring starts here · ${gateAltitude} ft</text>`;
   }
 
   // --- Terrain surface (ground before runway) ---
@@ -519,16 +612,10 @@ function buildSvg(profile, landing, opts) {
   }
   svg += `<path d="${pathD}" fill="none" stroke="url(#pathGrad${idSuffix})" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />`;
 
-  // --- V/S colour highlights (red for high sink rate) ---
+  // Display scored episodes only. Raw single-point rates are not warnings.
   for (let i = 1; i < points.length; i++) {
-    const sampleVs = points[i].vsFpm;
-    if (typeof sampleVs === 'number' && sampleVs < HIGH_SINK_RATE_FPM) {
-      const x1 = xScale(i - 1);
-      const y1 = yScale(altOf(points[i - 1]));
-      const x2 = xScale(i);
-      const y2 = yScale(altOf(points[i]));
-      const opacity = Math.min(0.8, Math.abs(sampleVs - HIGH_SINK_RATE_FPM) / 1000 * 0.5 + 0.2);
-      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#ef4444" stroke-width="3" stroke-opacity="${opacity.toFixed(2)}" stroke-linecap="round" />`;
+    for (const segment of segmentOverlays(points, i, ld, altOf, ['approach_vertical_profile'])) {
+      svg += overlayLine(segment, xScale(i - 1), yScale(altOf(points[i - 1])), xScale(i), yScale(altOf(points[i])));
     }
   }
 
@@ -600,8 +687,8 @@ function buildSvg(profile, landing, opts) {
   const legY = H - 6;
   const legItems = [
     { x: padL, color: '#38bdf8', dash: false, label: 'Flight path' },
-    { x: padL + 110, color: '#ef4444', dash: false, label: 'High sink rate' },
-    { x: padL + 230, color: '#4ade80', dash: true,  label: '3° glideslope' },
+    { x: padL + 110, color: '#ef4444', dash: false, label: 'Scored deviation' },
+    { x: padL + 230, color: '#4ade80', dash: true,  label: '3° reference' },
     { x: padL + 350, color: '#a78bfa', dash: true,  label: 'Stability gate' },
   ];
   for (const it of legItems) {
@@ -648,7 +735,7 @@ function buildTopDownSvg(profile, landing, opts) {
 
   const { heightOf: gateHeightOf } = createProfileHeightResolver(profile, runwayReferenceElevFt);
 
-  const points = filterProfileByHeight(profile, gateHeightOf);
+  const points = selectProfileWindow(filterProfileByHeight(profile, gateHeightOf), gateHeightOf, ld, opts);
   if (points.length < MIN_VALID_POINTS) return '';
 
   // Check if we have real GPS data (lat/lon)
@@ -1058,33 +1145,33 @@ function buildTopDownSvg(profile, landing, opts) {
     }
   }
 
-  // --- Bank-angle colour segments (highlight non-wings-level) ---
+  // Scored bank/localizer episodes; earlier turns are context, not faults.
   for (let i = 1; i < points.length; i++) {
-    const bank = points[i].bankDeg;
-    if (typeof bank === 'number' && Math.abs(bank) > 8) {
-      const x1 = xScale(i - 1);
-      const y1 = yScale(crossTrack[i - 1]);
-      const x2 = xScale(i);
-      const y2 = yScale(crossTrack[i]);
-      const opacity = Math.min(0.7, Math.abs(bank) / 30);
-      const color = Math.abs(bank) > 15 ? '#ef4444' : '#f59e0b';
-      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3" stroke-opacity="${opacity.toFixed(2)}" stroke-linecap="round" />`;
+    for (const segment of segmentOverlays(points, i, ld, gateHeightOf, ['approach_bank', 'approach_localizer'])) {
+      svg += overlayLine(segment, xScale(i - 1), yScale(crossTrack[i - 1]), xScale(i), yScale(crossTrack[i]));
     }
   }
 
   // --- Stability gate marker (altitude-based, find the sample crossing 1000ft) ---
-  if (GATE_ALTITUDE_FT > 0) {
+  if (gateHeightOfLanding(ld) > 0) {
     let gateIdx = -1;
     for (let i = points.length - 1; i >= 0; i--) {
-      if (gateHeightOf(points[i]) >= GATE_ALTITUDE_FT) {
+      if (beforeGate(points, i, ld, gateHeightOf)) {
         gateIdx = i;
         break;
       }
     }
     if (gateIdx >= 0) {
-      const gx = xScale(gateIdx);
+      const next = points[gateIdx + 1];
+      const startMs = assessmentOf(ld)?.window?.startMs;
+      const startTime = pointTime(points[gateIdx]);
+      const endTime = pointTime(next);
+      const fraction = Number.isFinite(startMs) && Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime
+        ? (startMs - startTime) / (endTime - startTime)
+        : next ? (gateHeightOf(points[gateIdx]) - gateHeightOfLanding(ld)) / (gateHeightOf(points[gateIdx]) - gateHeightOf(next)) : 0;
+      const gx = xScale(gateIdx) + (next ? xScale(gateIdx + 1) - xScale(gateIdx) : 0) * Math.max(0, Math.min(1, fraction || 0));
       svg += `<line x1="${gx}" y1="${padT}" x2="${gx}" y2="${padT + plotH}" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,3" stroke-opacity="0.5" />`;
-      svg += `<text x="${gx}" y="${padT - 4}" text-anchor="middle" fill="#a78bfa" fill-opacity="0.7" font-size="9" font-family="system-ui, sans-serif">GATE</text>`;
+      svg += `<text x="${gx}" y="${padT - 4}" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="system-ui, sans-serif">Scoring starts here</text>`;
     }
   }
 
@@ -1108,7 +1195,8 @@ function buildTopDownSvg(profile, landing, opts) {
   // misleading direction label.
   if (tdz && tdz.lateralOffsetFt != null) {
     const side = lateralSideCode(tdz.lateralOffsetSide);
-    const label = Math.abs(tdz.lateralOffsetFt) < 15
+    const label = tdz.lateralOffsetSuspect === true ? 'Alignment unverified'
+      : Math.abs(tdz.lateralOffsetFt) < 15
       ? 'ON CL'
       : `${Math.abs(tdz.lateralOffsetFt)} ft ${side}`;
     svg += `<text x="${tdMarkerX + 12}" y="${tdMarkerY + 4}" fill="${tdColor}" font-size="10" font-weight="600" font-family="system-ui, sans-serif">${label}</text>`;
@@ -1192,6 +1280,7 @@ function buildTopDownSvg(profile, landing, opts) {
   // diagonal really represents in feet (a 30 ft drift over a 5 nm approach
   // is "straight as an arrow" in pilot terms, but the chart's runway-width-
   // anchored scale will still draw it as a visible line).
+  if (opts?.debug) {
   const xtFirst = crossTrack.length > 0 ? crossTrack[0] : 0;
   const xtLast  = crossTrack.length > 0 ? crossTrack[crossTrack.length - 1] : 0;
   const xtMin   = crossTrack.length > 0 ? Math.min(...crossTrack) : 0;
@@ -1247,11 +1336,12 @@ function buildTopDownSvg(profile, landing, opts) {
   svg += `</g>`;
 
   // --- Legend ---
+  }
   const legY = H - 6;
   const legItems = [
     { x: padL, color: '#38bdf8', dash: false, label: 'Flight path' },
-    { x: padL + 110, color: '#f59e0b', dash: false, label: 'Bank > 8°' },
-    { x: padL + 210, color: '#ef4444', dash: false, label: 'Bank > 15°' },
+    { x: padL + 110, color: '#f59e0b', dash: false, label: 'Scored caution' },
+    { x: padL + 210, color: '#ef4444', dash: false, label: 'Scored warning' },
     { x: padL + 310, color: '#a78bfa', dash: true,  label: 'Stability gate' },
   ];
   for (const it of legItems) {
@@ -1265,6 +1355,8 @@ function buildTopDownSvg(profile, landing, opts) {
 }
 
 export const approachProfileApi = Object.freeze({
+  buildChartHtml,
+  gateHeightOfLanding,
   buildSvg,
   buildTopDownSvg,
   createProfileHeightResolver,

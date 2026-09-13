@@ -1,3 +1,5 @@
+import { isRunwayGeometryScorable, RunwayExcursionFilter } from '../landing/runway-geometry-confidence';
+import { transientStallRows } from '../telemetry-provider/stall-warning-filter';
 /**
  * Timeline Generator - Reconstruct timelines from CSV flight logs
  *
@@ -555,7 +557,7 @@ const ALTITUDE_MARKERS = Object.freeze([
  */
 const CURRENT_ANALYSIS_RESCORE_CONTRACT = Object.freeze({
   id: 'flight-fabric-landing-analysis',
-  version: 7,
+  version: 8,
   scope: 'full-landing-analysis',
 } as const);
 const RESPAWN_GAP_MS = 30000;
@@ -875,7 +877,10 @@ function rebuildCurrentReplayStability(
   const runwayId = toNonEmptyString(row.runway ?? event?.runway?.runway_id);
   const lateralOffsetFt = toFiniteNumber(row.lateral_offset_ft);
   const runwayWidthFt = toFiniteNumber(row.runway_width_ft);
-  const lateralOffsetSuspect = toBooleanOrNull(row.lateral_offset_suspect) === true;
+  const lateralOffsetSuspect = !isRunwayGeometryScorable(row.runway_geometry_source, row.lateral_offset_suspect)
+    || runwayWidthFt == null || runwayWidthFt <= 0
+    || (toBooleanOrNull(row.surface_on_runway) === true && lateralOffsetFt != null && runwayWidthFt != null
+      && Math.abs(lateralOffsetFt) > runwayWidthFt / 2);
   const glidepathAngle = resolveGlidepathAngleForApproach({ airportIcao, runwayId });
   const scoreResult = scorer.getScore(runwayReferenceElevFt, {
     lateralOffsetFt,
@@ -2533,13 +2538,21 @@ function buildLandingRowTouchdownDistance(
   };
 
   if (scoringMode === 'current-preview') {
+    common.lateralOffsetSuspect = !isRunwayGeometryScorable(common.runwayGeometrySource, common.lateralOffsetSuspect)
+      || runwayWidthFt == null || runwayWidthFt <= 0
+      || (toBooleanOrNull(row.surface_on_runway) === true && lateralOffsetFt != null && runwayWidthFt != null
+        && Math.abs(lateralOffsetFt) > runwayWidthFt / 2);
+    if (row.runway_condition_source === 'failsafe') {
+      common.runway_condition = null;
+      common.runway_condition_source = 'unavailable';
+    }
     const touchdownScoring = distanceFt === null
       ? null
       : landingDistance.scoreTouchdownDistance(distanceFt, {
           runwayLengthFt: runwayLengthFt ?? undefined,
           surface: runwayCondition ?? undefined,
         });
-    const lateralScoring = lateralOffsetFt === null
+    const lateralScoring = lateralOffsetFt === null || common.lateralOffsetSuspect
       ? null
       : landingDistance.scoreLateralOffset(
           lateralOffsetFt,
@@ -2572,7 +2585,7 @@ function buildLandingRowTouchdownDistance(
       score: touchdownScoring?.score ?? null,
       grade: touchdownScoring?.grade ?? null,
       zone: touchdownScoring?.zone ?? null,
-      lateralOffsetGrade: lateralScoring?.grade ?? null,
+      lateralOffsetGrade: lateralScoring?.grade ?? 'Unverified',
       lateralOffsetScore: lateralScoring?.score ?? null,
       bounceGrade: bounceScoring?.grade ?? null,
       bounceScore: bounceScoring?.score ?? null,
@@ -3128,6 +3141,7 @@ function applyRolloutAnalysis(
       // A preview is a clean current-rules reconstruction. Persisted schema-v2
       // assessments are comparison inputs only and must never win this path.
       event.rolloutAnalysis = null;
+      event.runwayExcursion = false;
     } else if (event.rolloutAnalysis && persistedSchemaVersion != null && persistedSchemaVersion >= 2) {
       continue;
     }
@@ -3164,6 +3178,7 @@ function applyRolloutAnalysis(
       rolloutRows.push({
         timestampMs: rowTimestampMs,
         onGround: true,
+        onRunway: toBooleanOrNull(row.surface_valid) === true ? onRunway : null,
         paused: toBooleanOrNull(row.sim_paused) === true || toBooleanOrNull(row.sim_in_menu) === true,
         phase: row.phase ?? row.flight_phase_hint ?? null,
         gsKts: toFiniteNumber(row.gs_kts),
@@ -3215,7 +3230,28 @@ function applyRolloutAnalysis(
     const taxiInMaxKts = configuredTaxiInMaxKts
       ?? profileTaxiInMaxKts
       ?? categoryTaxiInMaxKts;
+    if (scoringMode === 'current-preview') {
+      // A legacy grade/boolean is not proof under the current confidence rules.
+      // Reconstruct the surface transition, including samples after runway exit.
+      const excursion = new RunwayExcursionFilter();
+      if (taxiInMaxKts != null) for (const row of rows) {
+        if (String(row.record_type || 'SAMPLE').toUpperCase() !== 'SAMPLE') continue;
+        const at = getRowTimestampMs(row);
+        if (!Number.isFinite(at) || at < touchdownTimestampMs) continue;
+        if (at - touchdownTimestampMs > ROLLOUT_ANALYSIS_LIMITS.maxWindowMs) break;
+        const confirmed = excursion.update({
+          valid: toBooleanOrNull(row.surface_valid) === true
+            && toBooleanOrNull(row.sim_paused) !== true && toBooleanOrNull(row.sim_in_menu) !== true,
+          onGround: toBooleanOrNull(row.on_ground),
+          onRunway: toBooleanOrNull(row.surface_on_runway),
+          class: row.surface_class,
+        }, toFiniteNumber(row.gs_kts) ?? NaN, taxiInMaxKts, at);
+        if (confirmed) { event.runwayExcursion = true; break; }
+      }
+    }
     const analysis = analyzeRollout(rolloutRows, {
+      runwayGeometrySource: event.touchdownDistance?.runwayGeometrySource,
+      lateralOffsetSuspect: event.touchdownDistance?.lateralOffsetSuspect,
       taxiInMaxKts,
       runwayHeadingTrueDeg,
       runwayThreshold,
@@ -3251,6 +3287,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
   const analysisRescoreMode: 'recorded' | 'current-preview' = _options?.scoringMode === 'current-preview'
     ? 'current-preview'
     : 'recorded';
+  const suppressedStallRows = analysisRescoreMode === 'current-preview' ? transientStallRows(rows) : new Set<CsvRow>();
 
   const generatedTimeline = createInitialTimeline(csvPath, rows);
   generatedTimeline.analysisRescore = {
@@ -3895,7 +3932,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
         });
       }
       // Stall events
-      else if (recordType === 'STALL') {
+      else if (recordType === 'STALL' && !suppressedStallRows.has(row)) {
         generatedTimeline.events.push({
           type: 'violation_start',
           timestampMs,
@@ -3908,7 +3945,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             ias_kts: row.ias_kts,
           },
         });
-      } else if (recordType === 'STALL_END') {
+      } else if (recordType === 'STALL_END' && !suppressedStallRows.has(row)) {
         generatedTimeline.events.push({
           type: 'violation_end',
           timestampMs,

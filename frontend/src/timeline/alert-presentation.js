@@ -9,6 +9,7 @@ export const APPROACH_REASON_LABELS = Object.freeze({
   high_sink_rate: 'High sink rate', steep_path_rate: 'Steep path rate', shallow_path_rate: 'Shallow path rate',
   climbing_on_approach: 'Climbing on approach', glideslope_deviation: 'Glideslope deviation',
   airspeed_deviation: 'Airspeed changed from gate', excessive_bank: 'Excessive bank',
+  selected_speed_deviation: 'Airspeed outside selected-speed range',
   pitch_deviation: 'Pitch deviation', localizer_deviation: 'Localizer deviation',
 });
 
@@ -34,7 +35,9 @@ export function approachEpisodeDetails(event) {
     add('peak', 'Largest deviation reading', `${Number(ctx.peak_value.toFixed(1))} ${unit}`);
   }
   if (finite(ctx.peak_glideslope_dots)) add('glideslope', 'Peak glideslope deviation', `${ctx.peak_glideslope_dots.toFixed(1)} dots`);
-  if (event.ruleId === 'approach_airspeed' && finite(ctx.target_value)) add('reference', 'Recorded gate IAS', `${ctx.target_value.toFixed(1)} kt`);
+  if (event.ruleId === 'approach_airspeed' && finite(ctx.target_value)) {
+    add('reference', ctx.speed_reference_source === 'selected-speed' ? 'Selected speed at gate' : 'Recorded gate IAS', `${ctx.target_value.toFixed(1)} kt`);
+  }
   add('ending', 'Episode ended', ctx.end_reason === 'recovered' ? 'Recovered inside the clear band'
     : ctx.end_reason === 'data_gap' ? 'Telemetry gap; recovery unknown' : ctx.end_reason === 'paused' ? 'Simulator paused' : 'Assessment window ended');
   return rows;

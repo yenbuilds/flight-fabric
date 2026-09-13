@@ -147,12 +147,14 @@ export function getStabilityMetricPresentation(key, value, fallback = {}) {
   const gateText = gate == null ? 'the stability gate' : `${gate} ft gate`;
   const speedMinus = finite(criteria.speedMinusKts);
   const speedPlus = finite(criteria.speedPlusKts);
-  const gateIas = finite(context.reference?.gateIasKts);
+  const speedReference = context.assessment?.speedReferenceSource;
+  const gateIas = finite(speedReference === 'selected-speed' ? context.assessment.referenceIasKts : context.reference?.gateIasKts);
+  const speedReferenceLabel = speedReference === 'selected-speed' ? 'selected speed at gate' : 'gate IAS';
   const speedBand = speedMinus == null || speedPlus == null
     ? null
     : gateIas == null
       ? `-${formatNumber(speedMinus)}/+${formatNumber(speedPlus)} kt from gate IAS`
-      : `${formatNumber(gateIas - speedMinus, 1)}-${formatNumber(gateIas + speedPlus, 1)} kt (gate IAS ${formatNumber(gateIas, 1)} kt; -${formatNumber(speedMinus)}/+${formatNumber(speedPlus)})`;
+      : `${formatNumber(gateIas - speedMinus, 1)}-${formatNumber(gateIas + speedPlus, 1)} kt (${speedReferenceLabel} ${formatNumber(gateIas, 1)} kt; -${formatNumber(speedMinus)}/+${formatNumber(speedPlus)})`;
   const vsMin = finite(criteria.vsMinFpm);
   const vsMax = finite(criteria.vsMaxClimbFpm);
   const pathAngle = finite(criteria.glidepathAngleDeg);
@@ -223,7 +225,12 @@ export function getStabilityMetricPresentation(key, value, fallback = {}) {
   if (context.assessment?.version === 4) {
     const rules = context.assessment.rules;
     const graded = {
-      speed_ok: [`IAS is compared with recorded gate IAS, which is an estimate rather than a verified VAPP.`, `Ideal IAS ${speedBand}; deductions increase gradually outside this band, reaching full severity a further ${rules.speedWarningMarginKts} kt outside it.`],
+      speed_ok: speedReference === 'unavailable'
+        ? ['No reliable selected approach speed was recorded. IAS deviation is not scored.', 'Target unavailable; speed trend is assessed separately.']
+        : [speedReference === 'selected-speed'
+          ? 'IAS is compared with the reliable selected speed recorded at the gate while autothrottle was active. This does not verify VREF/VAPP.'
+          : 'IAS is compared with recorded gate IAS, which is an estimate rather than a verified VAPP.',
+          `Ideal IAS ${speedBand}; deductions increase gradually outside this band, reaching full severity a further ${rules.speedWarningMarginKts} kt outside it.`],
       speed_trend_ok: ['Speed changes are assessed over one second and share the speed contribution with IAS deviation.', `Ideal trend ≤${speedTrend} kt/s; greater changes have a gradual effect.`],
       vs_ok: ['Sink rate and path guidance share one vertical contribution; overlapping deviations use the greater penalty.', `Ideal V/S ${signed(vsMin)} to ${signed(vsMax)} fpm, adjusted for supported steep approaches. Full severity a further ${rules.sinkWarningMarginFpm} fpm outside the band.`],
       glidepath_ok: ['Groundspeed and smoothed vertical speed estimate the path rate. A valid glideslope signal takes precedence in the vertical contribution.', `Ideal rate within ${pathDelta} fpm of the ${pathAngle}° target; caution beyond ${pathDelta + rules.pathCautionMarginFpm} fpm. Quality decreases gradually beyond the ideal band.`],

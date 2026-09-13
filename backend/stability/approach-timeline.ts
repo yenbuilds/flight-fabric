@@ -40,6 +40,7 @@ export function applyRecordedApproachAssessments(events: Event[], flightStartMs:
         value: episode.peakValue,
         peak_value: episode.peakValue,
         target_value: episode.targetValue,
+        speed_reference_source: assessment.speedReferenceSource,
         peak_glideslope_dots: episode.peakGlideslopeDots,
         peak_sink_rate_fpm: episode.peakSinkRateFpm,
         reasons: episode.reasons,

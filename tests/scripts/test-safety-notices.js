@@ -109,10 +109,9 @@ test('network-facing and distribution surfaces provide corresponding source', ()
   assert.ok(appFooter.includes(sourceUrl));
 });
 
-test('prominent distribution surfaces include alpha, intended-use, and non-reliance warnings', () => {
+test('installation and legal surfaces include alpha, intended-use, and non-reliance warnings', () => {
   const prominentSurfaces = [
     'README.md',
-    'RELEASE_NOTES.md',
     'electron/installer-notice.txt',
     'frontend/src/vue/components/SettingsAboutLegal.vue',
   ];

@@ -1,5 +1,7 @@
 'use strict';
 
+import { isRunwayGeometryScorable } from './runway-geometry-confidence';
+
 const {
   finiteNumberOrNull,
   headingDifferenceDegrees,
@@ -15,6 +17,7 @@ type AnyRecord = Record<string, any>;
 export type RolloutAnalysisSample = {
   timestampMs: number;
   onGround: boolean;
+  onRunway?: boolean | null;
   paused?: boolean;
   phase?: string | null;
   gsKts: number | null;
@@ -34,6 +37,8 @@ export type RolloutAnalysisContext = {
   } | null;
   runwayWidthFt?: unknown;
   runwayExcursion?: unknown;
+  runwayGeometrySource?: unknown;
+  lateralOffsetSuspect?: unknown;
   coordinatePrecisionDigits?: unknown;
   source?: unknown;
 };
@@ -147,6 +152,8 @@ function normalizeSample(value: AnyRecord): RolloutAnalysisSample | null {
   return {
     timestampMs,
     onGround,
+    onRunway: value?.onRunway === true || value?.surface_on_runway === true || value?.surface_on_runway === '1'
+      || value?.surface_on_runway === 1 ? true : null,
     paused: booleanOrFalse(value?.paused ?? value?.sim_paused)
       || booleanOrFalse(value?.inMenu ?? value?.sim_in_menu),
     phase: normalizePhase(value?.phase ?? value?.flight_phase_hint),
@@ -306,6 +313,7 @@ export function analyzeRollout(
   let peakHeadingDeviationSignedDeg: number | null = null;
   let peakHeadingDeviationAtGsKts: number | null = null;
   let peakLateralOffsetSignedFt: number | null = null;
+  let surfaceGeometryConflict = false;
 
   for (const sample of samples) {
     if (
@@ -347,6 +355,10 @@ export function analyzeRollout(
         thresholdLon,
         runwayHeadingTrueDeg,
       );
+      if (sample.onRunway === true && runwayWidthFt != null && runwayWidthFt > 0
+          && Math.abs(offsetFt) - (lateralUncertaintyFt ?? 0) > runwayWidthFt / 2) {
+        surfaceGeometryConflict = true;
+      }
       if (
         peakLateralOffsetSignedFt == null
         || Math.abs(offsetFt) > Math.abs(peakLateralOffsetSignedFt)
@@ -390,21 +402,29 @@ export function analyzeRollout(
     if (peakBankRateDegS >= 8) addFlag(flags, 'rapid_bank_change', 'Rapid bank change during rollout', 'warning');
     else if (peakBankRateDegS >= 4) addFlag(flags, 'rapid_bank_change', 'Abrupt bank correction during rollout', 'caution');
   }
-  if (maxHeadingDeviationDeg != null) {
+  const geometryVerified = isRunwayGeometryScorable(context.runwayGeometrySource, context.lateralOffsetSuspect)
+    && !surfaceGeometryConflict;
+  if (maxHeadingDeviationDeg != null && geometryVerified) {
     if (maxHeadingDeviationDeg >= 20) addFlag(flags, 'heading_deviation', 'Major runway-heading deviation', 'warning');
     else if (maxHeadingDeviationDeg >= 10) addFlag(flags, 'heading_deviation', 'Runway-heading deviation', 'caution');
   }
-  if (conservativeRunwayEdgeMarginFt != null) {
-    if (conservativeRunwayEdgeMarginFt <= 0) {
+  // Require simulator-matched geometry and measured position coverage. An
+  // uncertainty interval touching an edge is not proof of crossing that edge.
+  const lateralVerified = geometryVerified && minRunwayEdgeMarginFt != null
+    && (lateralDataQuality === 'high' || lateralDataQuality === 'medium');
+  const bestCaseEdgeMarginFt = minRunwayEdgeMarginFt == null ? null
+    : minRunwayEdgeMarginFt + (lateralUncertaintyFt ?? 0);
+  if (lateralVerified && bestCaseEdgeMarginFt != null) {
+    if (bestCaseEdgeMarginFt <= 0) {
       addFlag(
         flags,
         'runway_edge_margin',
         'Aircraft reference point reached runway edge',
         runwayExcursion ? 'critical' : 'warning',
       );
-    } else if (conservativeRunwayEdgeMarginFt <= 15) {
+    } else if (bestCaseEdgeMarginFt <= 15) {
       addFlag(flags, 'runway_edge_margin', 'Very small runway-edge margin', 'warning');
-    } else if (conservativeRunwayEdgeMarginFt <= 25) {
+    } else if (bestCaseEdgeMarginFt <= 25) {
       addFlag(flags, 'runway_edge_margin', 'Reduced runway-edge margin', 'caution');
     }
   }
@@ -412,7 +432,7 @@ export function analyzeRollout(
   const first = samples[0];
   const last = samples[samples.length - 1];
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     source: typeof context.source === 'string' && context.source ? context.source : 'computed',
     assessment: maxSeverity(flags),
     sampleCount: samples.length,
@@ -434,6 +454,8 @@ export function analyzeRollout(
     conservativeRunwayEdgeMarginFt: round(conservativeRunwayEdgeMarginFt),
     lateralUncertaintyFt: round(lateralUncertaintyFt),
     lateralDataQuality,
+    lateralVerified,
+    lateralNotScoredReason: lateralVerified ? null : surfaceGeometryConflict ? 'surface_geometry_conflict' : 'runway_geometry_unverified',
     coordinatePrecisionDigits: coordinatePrecisionDigits == null
       ? null
       : Math.floor(coordinatePrecisionDigits),

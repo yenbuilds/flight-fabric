@@ -742,7 +742,7 @@ export const useLandingStore = defineStore('landing', {
           rolloutMetrics.push({
             key: 'lateral',
             label: 'Peak lateral offset',
-            value: rollout.maxLateralOffsetFt == null
+            value: rollout.lateralVerified === false ? 'Unverified' : rollout.maxLateralOffsetFt == null
               ? '--'
               : `${Math.round(Number(rollout.maxLateralOffsetFt))} ft ${rollout.maxLateralOffsetSide || ''}`.trim(),
           });
@@ -752,11 +752,13 @@ export const useLandingStore = defineStore('landing', {
           rolloutMetrics.push({
             key: 'edge-margin',
             label: rollout.conservativeRunwayEdgeMarginFt != null ? 'Conservative edge margin' : 'Runway edge margin',
-            value: edgeMarginFt == null ? '--' : `${Math.round(Number(edgeMarginFt))} ft`,
+            value: rollout.lateralVerified === false ? 'Unverified' : edgeMarginFt == null ? '--' : `${Math.round(Number(edgeMarginFt))} ft`,
           });
         }
         const noteParts = ['Separate from approach stability.'];
-        if (rollout.lateralDataQuality === 'low') {
+        if (rollout.lateralVerified === false) {
+          noteParts.push('Runway alignment is unverified and excluded from the assessment.');
+        } else if (rollout.lateralDataQuality === 'low') {
           noteParts.push(`Lateral estimate has \u00b1${Math.round(Number(rollout.lateralUncertaintyFt || 0))} ft coordinate uncertainty.`);
         }
         if (Array.isArray(rollout.flags) && rollout.flags.length > 0) {

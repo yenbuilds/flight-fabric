@@ -4788,7 +4788,13 @@ async function runSimbridgeCore({
 
     // LANDING EVENT (delegated)
     updateLandingRunnerIfEnabled(
-      frame,
+      {
+        ...frame,
+        // Use the same resolved automation source and reliability as CSV recording.
+        selectedSpeedKts: autopilotReliabilityForRecording?.apReliable === true
+          && autopilotReliabilityForRecording?.athrReliable === true && fdmForRecording?.athrActive === true
+          ? fdmForRecording.apSpeedTargetKts : null,
+      },
       xwind,
       stability,
       nowEpochMs,

@@ -168,7 +168,7 @@ async function main() {
     assert(landingEvents(result).length === fixture.expectLandingCount, 'brief takeoff hop became a landing');
   });
 
-  await test('unknown replay weather fails safe to wet runway scoring', async () => {
+  await test('unknown replay weather remains unknown', async () => {
     const fixture = fixtures.fixtures.find((item) => item.id === 'wet-failsafe-touchdown');
     const result = await replayFixture(fixture);
     const landings = landingEvents(result);

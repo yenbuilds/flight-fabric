@@ -3225,6 +3225,23 @@ async function runAsyncTests() {
     });
   });
 
+  test('current preview removes only complete transient stall pairs and preserves the recording', () => {
+    const types = ['SAMPLE', 'STALL', 'STALL_END', 'STALL', 'STALL_END', 'SAMPLE'];
+    const offsets = [0, 1000, 1250, 2000, 3500, 4000];
+    const rows = types.map((record_type, i) => ({ record_type, flight_id: 'stall-confidence',
+      ts: 1700000000000 + offsets[i], timestamp_utc: new Date(1700000000000 + offsets[i]).toISOString(),
+      phase: 'CLIMB', lat_deg: 37, lon_deg: -122, on_ground: false, ra_ft: 300,
+      ias_kts: 195, gs_kts: 190, vs_fpm: 1200 }));
+    const original = JSON.stringify(rows);
+    const recorded = generateTimelineFromRows('stall-confidence.csv', rows);
+    const preview = generateTimelineFromRows('stall-confidence.csv', rows, { scoringMode: 'current-preview' });
+    assert(recorded.success && preview.success, 'both timeline modes must load');
+    assert(recorded.timeline.events.filter(e => e.ruleId === 'STALL').length === 4, 'recorded events remain intact');
+    const warnings = preview.timeline.events.filter(e => e.ruleId === 'STALL');
+    assert(warnings.length === 2 && warnings[0].timestampMs === 1700000002000, 'the sustained warning must survive');
+    assert(JSON.stringify(rows) === original, 'preview must not mutate telemetry rows');
+  });
+
   await testAsync('current preview fully reconstructs every landing-analysis surface for multiple landings', async () => {
     await withMockRunway({
       icao: 'TEST',
@@ -3460,8 +3477,8 @@ async function runAsyncTests() {
         assert(after.ultimateStability?.score !== 1, 'persisted stability score must not leak into preview');
         assert(after.touchdownDistance?.score !== 1, 'persisted touchdown-distance score must not leak into preview');
         assert(after.touchdownDistance?.grade !== 'Dangerous', 'persisted touchdown-distance grade must not leak into preview');
-        assert(after.touchdownDistance?.lateralOffsetScore === 100, 'lateral score must be reconstructed from the recorded offset');
-        assert(after.touchdownDistance?.lateralOffsetGrade === 'Perfect', 'lateral grade must be reconstructed from the recorded offset');
+        assert(after.touchdownDistance?.lateralOffsetScore === (index === 1 ? null : 100), 'only verified geometry may receive a lateral score');
+        assert(after.touchdownDistance?.lateralOffsetGrade === (index === 1 ? 'Unverified' : 'Perfect'), 'suspect alignment remains unverified');
         assert(after.touchdownDistance?.bounceScore !== 1, 'persisted bounce score must not leak into preview');
         assert(after.touchdownDistance?.bounceGrade !== 'Porpoise', 'persisted bounce grade must not leak into preview');
         assert(after.rolloutAnalysis?.source === 'replay', 'persisted rollout analysis must not leak into preview');
@@ -4011,7 +4028,7 @@ async function runAsyncTests() {
       assert(result.success === true, `expected success, got ${result.error}`);
       const landing = result.timeline.events.find((event) => event.type === 'landing');
       assert(landing?.rolloutAnalysis, 'expected replay landing to include rollout analysis');
-      assert(landing.rolloutAnalysis.schemaVersion === 2, `expected rollout schema v2, got ${landing.rolloutAnalysis.schemaVersion}`);
+      assert(landing.rolloutAnalysis.schemaVersion === 3, `expected rollout schema v3, got ${landing.rolloutAnalysis.schemaVersion}`);
       assert(landing.rolloutAnalysis.assessment === 'caution', `expected rollout caution, got ${landing.rolloutAnalysis.assessment}`);
       assert(landing.rolloutAnalysis.maxBankDeg === 3.3, `expected 3.3 deg peak bank, got ${landing.rolloutAnalysis.maxBankDeg}`);
       assert(landing.rolloutAnalysis.maxHeadingDeviationDeg === 15, `expected 15 deg heading deviation, got ${landing.rolloutAnalysis.maxHeadingDeviationDeg}`);

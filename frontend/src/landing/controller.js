@@ -399,6 +399,7 @@ export function createLandingController({
 
   function getRenderedApproachProfileLandingData(msg, landingData) {
     return Object.assign({}, landingData || {}, {
+      ultimateStability: msg.ultimateStability ?? landingData?.ultimateStability ?? null,
       runwayReferenceElevFt: (landingData && Number.isFinite(landingData.runwayReferenceElevFt))
         ? landingData.runwayReferenceElevFt
         : (Number.isFinite(msg.runwayReferenceElevFt)
@@ -413,7 +414,7 @@ export function createLandingController({
   }
 
   function getApproachProfileGateLabel(msg) {
-    const gateAltitude = approachProfileApi.GATE_ALTITUDE_FT;
+    const gateAltitude = approachProfileApi.gateHeightOfLanding(msg);
     const runwayReferenceElevFt = Number.isFinite(msg.runwayReferenceElevFt)
       ? msg.runwayReferenceElevFt
       : (Number.isFinite(msg.thresholdElevFt) ? msg.thresholdElevFt : null);
@@ -429,11 +430,12 @@ export function createLandingController({
     }
 
     const usingRunwayReference = heightResolver.usesRunwayReference;
-    return `Gate: ${gateAltitude} ft ${usingRunwayReference ? 'above runway reference' : 'RA'}`;
+    return `Scoring starts at ${gateAltitude} ft ${usingRunwayReference ? 'above runway reference' : 'RA'} · Earlier flight is context only`;
   }
 
   function getTopdownLandingData(msg, landingData) {
     const nextLandingData = Object.assign({}, landingData || {});
+    nextLandingData.ultimateStability = msg.ultimateStability ?? nextLandingData.ultimateStability ?? null;
     if (!Number.isFinite(nextLandingData.runwayReferenceElevFt)) {
       nextLandingData.runwayReferenceElevFt = Number.isFinite(msg.runwayReferenceElevFt)
         ? msg.runwayReferenceElevFt
@@ -466,7 +468,7 @@ export function createLandingController({
     if (!landingStore) return;
 
     const renderedLandingData = getRenderedApproachProfileLandingData(msg, landingData);
-    const svgHtml = approachProfileApi.buildSvg(
+    const svgHtml = approachProfileApi.buildChartHtml(
       msg.approachProfile,
       renderedLandingData,
       { idSuffix: '' },
@@ -486,10 +488,10 @@ export function createLandingController({
     const landingStore = getLandingStore();
     if (!landingStore) return;
 
-    const svgHtml = approachProfileApi.buildTopDownSvg(
+    const svgHtml = approachProfileApi.buildChartHtml(
       msg.approachProfile,
       getTopdownLandingData(msg, landingData),
-      { idSuffix: 'td' },
+      { idSuffix: 'td', topDown: true },
     );
 
     if (svgHtml) {

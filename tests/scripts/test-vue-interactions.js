@@ -4054,7 +4054,7 @@ async function main() {
     });
 
     assert.equal(landingStore.approachProfile.visible, true, 'ultimate stability messages should expose the rendered approach profile through the store');
-    assert.equal(landingStore.approachProfile.gateLabel, 'Gate: 1000 ft above runway reference', 'rendered approach profile should store the derived gate label');
+    assert.equal(landingStore.approachProfile.gateLabel, 'Scoring starts at 1000 ft above runway reference · Earlier flight is context only', 'rendered approach profile should store the derived gate label');
     assert.match(landingStore.approachProfile.svgHtml, /<svg/, 'rendered approach profile should store SVG markup');
     assert.equal(landingStore.topdownProfile.visible, true, 'ultimate stability messages should expose the rendered top-down profile through the store');
     assert.match(landingStore.topdownProfile.svgHtml, /<svg/, 'rendered top-down profile should store SVG markup');
@@ -6619,8 +6619,9 @@ async function main() {
     assert.match(detailState.topdownProfileHtml, /^<svg\b/, 'post-flight detail should build the top-down approach SVG');
     assert.doesNotMatch(detailState.approachProfileHtml, /NaN|Infinity/, 'side-on detail SVG should not contain invalid coordinates');
     assert.doesNotMatch(detailState.topdownProfileHtml, /NaN|Infinity/, 'top-down detail SVG should not contain invalid coordinates');
-    assert.match(detailState.topdownProfileHtml, /GPS pts: 5\/5/, 'top-down detail SVG should use CSV GPS profile points when available');
-    assert.match(detailState.topdownProfileHtml, /RWY hdg: 335\.0/, 'top-down detail SVG should preserve runway heading');
+    assert.match(detailState.topdownProfileHtml, /stroke="url\(#topPathGrad/, 'top-down detail SVG should show the recorded flight path');
+    assert.doesNotMatch(detailState.topdownProfileHtml, /GPS pts:/, 'coordinate diagnostics stay hidden in the debrief');
+    assert.doesNotMatch(detailState.topdownProfileHtml, /RWY hdg:/, 'heading diagnostics stay hidden in the debrief');
     assert.match(detailState.topdownProfileHtml, /data-topdown-wind-vector="true"/, 'top-down detail SVG should preserve the CSV touchdown wind vector');
     assert.match(detailState.topdownProfileHtml, /data-wind-relative-deg="-90(?:\.0+)?"/, 'timeline wind vector should be runway-relative');
     assert.match(detailState.topdownProfileHtml, /data-wind-side="left"/, 'timeline wind vector should identify wind from the runway left');

@@ -1567,8 +1567,8 @@ test('runway touchdown at threshold counts as TDZ achieved and preserves score-s
     assert.strictEqual(finalEvent.touchdownDistance.shortLanding, false, 'Threshold touchdown is not short');
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetFt, 0, 'Centered touchdown should emit lateral offset');
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetSide, 'center', 'Centered touchdown should emit center side');
-    assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetScore, 100, 'Centered touchdown should score lateral offset');
-    assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetGrade, 'Perfect', 'Centered touchdown should grade lateral offset');
+    assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetScore, null, 'Portable runway geometry cannot prove alignment');
+    assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetGrade, 'Unverified');
     assert.strictEqual(finalEvent.ultimateStability.score, 67, 'score-shaped ultimateScore payload should be preserved');
     assert.strictEqual(finalEvent.ultimateStability.gateStable, false, 'score-shaped gateStable=false should be preserved for UI broadcast');
     assert.deepStrictEqual(
@@ -1639,7 +1639,7 @@ test('landing final payload includes separate rollout-control analysis', () => {
 
     const finalEvent = out.find((event) => event?.type === 'landing' && event.final === true);
     assert(finalEvent?.rolloutAnalysis, 'Expected final landing broadcast to include rollout analysis');
-    assert.strictEqual(finalEvent.rolloutAnalysis.schemaVersion, 2);
+    assert.strictEqual(finalEvent.rolloutAnalysis.schemaVersion, 3);
     assert.strictEqual(finalEvent.rolloutAnalysis.assessment, 'caution');
     assert.strictEqual(finalEvent.rolloutAnalysis.maxBankDeg, 3.3);
     assert.strictEqual(finalEvent.rolloutAnalysis.maxHeadingDeviationDeg, 15);
@@ -2099,6 +2099,7 @@ test('runway excursion stays separate from the touchdown-rate grade', () => {
   const t0 = 1_700_300_000_000;
   const ctx = makeCtx();
   const runwaySurface = {
+    onRunway: true,
     onGround: true,
     valid: true,
     runwayLike: true,
@@ -2107,6 +2108,7 @@ test('runway excursion stays separate from the touchdown-rate grade', () => {
     class: 'PAVED',
   };
   const offRunwaySurface = {
+    onRunway: false,
     onGround: true,
     valid: true,
     runwayLike: false,
@@ -2135,6 +2137,17 @@ test('runway excursion stays separate from the touchdown-rate grade', () => {
       surface: offRunwaySurface,
       display: { iasKts: 70, vsFpm: 0, raFt: 0 },
     }), broadcast, { nowEpochMs: t0 + 500, nowIso: new Date(t0 + 500).toISOString() }, ctx);
+
+    assert.equal(finalPayloads.length, 0, 'a single off-runway frame cannot finalize an excursion');
+    runner.update(makeFrame({ wow: true, gs: 100, surface: runwaySurface,
+      display: { iasKts: 100, vsFpm: 0, raFt: 0 } }), broadcast,
+    { nowEpochMs: t0 + 750, nowIso: new Date(t0 + 750).toISOString() }, ctx);
+    assert.equal(finalPayloads.length, 0, 'recovery from a surface glitch must keep rollout monitoring active');
+    for (const offset of [1000, 1500, 2000]) {
+      runner.update(makeFrame({ wow: true, gs: 70, surface: offRunwaySurface,
+        display: { iasKts: 70, vsFpm: 0, raFt: 0 } }), broadcast,
+      { nowEpochMs: t0 + offset, nowIso: new Date(t0 + offset).toISOString() }, ctx);
+    }
 
     runner.update(makeFrame({
       wow: true,

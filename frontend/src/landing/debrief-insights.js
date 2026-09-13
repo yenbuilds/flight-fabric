@@ -63,7 +63,7 @@ export function buildDebriefReasons(data, {
     addReason(reasons, 'Nose-down touchdown', DANGER_COLOR, 'danger');
   }
   if (data.bankDeg != null && Math.abs(Number(data.bankDeg)) > 5) addReason(reasons, 'Bank at touchdown', WARNING_COLOR, 'warning');
-  if (data.centerlineDev != null && Math.abs(Number(data.centerlineDev)) > 5) addReason(reasons, 'Runway heading misalignment', WARNING_COLOR, 'warning');
+  if (touchdownDistance?.lateralOffsetSuspect !== true && data.centerlineDev != null && Math.abs(Number(data.centerlineDev)) > 5) addReason(reasons, 'Runway heading misalignment', WARNING_COLOR, 'warning');
 
   if (touchdownDistance?.lateralOffsetGrade === 'Excursion') {
     addReason(reasons, 'Off runway edge', DANGER_COLOR, 'danger');
@@ -130,7 +130,7 @@ export function buildDebriefConfidence(data, ultimateStability, lastUltimateStab
   }
 
   if (data?.touchdownDistance?.lateralOffsetSuspect === true) {
-    lower(1, 'Runway geometry suspect');
+    lower(1, 'Runway geometry unverified');
   }
 
   if (data?.touchdownDistance?.runwayConditionConfident === false) {

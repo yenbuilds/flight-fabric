@@ -245,7 +245,7 @@ export function buildLandingDetailSections(event) {
       rolloutRows,
       'lateral-offset',
       'Peak Lateral Offset',
-      rollout.maxLateralOffsetFt != null
+      rollout.lateralVerified === false ? 'Unverified' : rollout.maxLateralOffsetFt != null
         ? `${Math.round(rollout.maxLateralOffsetFt)} ft ${rollout.maxLateralOffsetSide || ''}`.trim()
         : null,
     );
@@ -253,7 +253,7 @@ export function buildLandingDetailSections(event) {
       rolloutRows,
       'edge-margin',
       rollout.conservativeRunwayEdgeMarginFt != null ? 'Conservative Edge Margin' : 'Runway Edge Margin',
-      (rollout.conservativeRunwayEdgeMarginFt ?? rollout.minRunwayEdgeMarginFt) != null
+      rollout.lateralVerified === false ? 'Unverified' : (rollout.conservativeRunwayEdgeMarginFt ?? rollout.minRunwayEdgeMarginFt) != null
         ? `${Math.round(rollout.conservativeRunwayEdgeMarginFt ?? rollout.minRunwayEdgeMarginFt)} ft (aircraft reference point)`
         : null,
     );
@@ -267,7 +267,9 @@ export function buildLandingDetailSections(event) {
     );
 
     const noteParts = ['Separate from the approach stability score.'];
-    if (rollout.lateralDataQuality === 'low') {
+    if (rollout.lateralVerified === false) {
+      noteParts.push('Runway alignment is unverified and excluded from the assessment.');
+    } else if (rollout.lateralDataQuality === 'low') {
       noteParts.push(`Lateral result is low precision (\u00b1${Math.round(Number(rollout.lateralUncertaintyFt || 0))} ft coordinate uncertainty).`);
     } else if (rollout.lateralDataQuality === 'medium') {
       noteParts.push('Lateral result has medium coordinate precision.');
@@ -391,7 +393,7 @@ export function buildLandingApproachProfileHtml(event, approachProfileApi) {
       : (Number.isFinite(event.runwayReferenceElevFt) ? event.runwayReferenceElevFt : null),
   };
 
-  return approachProfileApi.buildSvg(event.approachProfile, landingForSvg, { idSuffix: '-tl' });
+  return (approachProfileApi.buildChartHtml ?? approachProfileApi.buildSvg)(event.approachProfile, landingForSvg, { idSuffix: '-tl' });
 }
 
 function buildLandingTopdownProfileHtml(event, approachProfileApi) {
@@ -425,6 +427,7 @@ function buildLandingTopdownProfileHtml(event, approachProfileApi) {
       ? event.thresholdElevFt
       : (Number.isFinite(event.runwayReferenceElevFt) ? event.runwayReferenceElevFt : null),
     runwayHdg: runwayHeadingTrueDeg,
+    ultimateStability: event.ultimateStability || null,
     runway: event.runway?.runway_id || null,
     runwayThreshold,
     touchdownDistance,
@@ -434,7 +437,7 @@ function buildLandingTopdownProfileHtml(event, approachProfileApi) {
     crosswind: wind.crosswindKts,
   };
 
-  return approachProfileApi.buildTopDownSvg(event.approachProfile, landingForSvg, { idSuffix: '-tl-td' });
+  return (approachProfileApi.buildChartHtml ?? approachProfileApi.buildTopDownSvg)(event.approachProfile, landingForSvg, { idSuffix: '-tl-td', topDown: true });
 }
 
 export function buildLandingDetailState(event, {

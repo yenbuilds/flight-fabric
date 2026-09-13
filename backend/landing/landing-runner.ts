@@ -290,6 +290,7 @@ function resolveMsfsTouchdownSnapshot(input: {
   };
 }
 
+import { RunwayExcursionFilter } from './runway-geometry-confidence';
 /**
  * Build a canonical landing event payload for event bus emission.
  * 
@@ -561,15 +562,6 @@ function isOnRunwaySurface(surface: AnyRecord | null | undefined): boolean {
   return surface.runwayLike === true;
 }
 
-function getSurfaceClass(surface: AnyRecord | null | undefined): string {
-  return String(surface?.class || surface?.surfaceClass || '').trim().toUpperCase();
-}
-
-function isLikelyRunwayExcursionSurface(surface: AnyRecord | null | undefined): boolean {
-  const surfaceClass = getSurfaceClass(surface);
-  return surfaceClass === 'UNPAVED' || surfaceClass === 'WATER';
-}
-
 // Touchdown snapshots are captured once at the WOW transition. Early HUD
 // broadcasts, final rollout scoring, and CSV/event payloads reuse these helpers
 // so touchdown-time values do not get mixed with later rollout frames.
@@ -796,6 +788,7 @@ function buildRunwayTouchdownDistanceData(input: {
   const { touchdownSummary, runwayData, bounceScoring } = input;
   const analysis = buildTouchdownRunwayAnalysis({
     runwayData,
+    onRunway: touchdownSummary.surface_on_runway === true || touchdownSummary.surface_on_runway === 1,
     touchdownPoint: {
       lat: touchdownSummary.lat_deg,
       lon: touchdownSummary.lon_deg,
@@ -927,6 +920,7 @@ function buildLiveRolloutAnalysisSample(
   return {
     timestampMs,
     onGround: frame?.wow === true,
+    onRunway: frame?.surface?.valid === true ? frame.surface.onRunway : null,
     paused: frame?.paused === true || frame?.inMenu === true,
     phase: ctx.phase ?? null,
     gsKts: firstFiniteNumber(frame?.display?.gsKts, frame?.gs),
@@ -1169,6 +1163,7 @@ function createLandingRunner(): LandingRunner {
   let rolloutFinalizeDeadline = 0;
   let touchdownSummary: AnyRecord | null = null; // { vs_fpm, ias_kts, ra_ft, alt_msl_ft, lights, grade, gforce }
   let excursionDetected = false;
+  let excursionFilter = new RunwayExcursionFilter();
   let lastRunwayLike: boolean | null = null;
   let touchdownEpochMs: number | null = null;
   let runwayVacateEpochMs: number | null = null;
@@ -1201,6 +1196,7 @@ function createLandingRunner(): LandingRunner {
     rolloutFinalizeDeadline = 0;
     touchdownSummary = null;
     excursionDetected = false;
+    excursionFilter = new RunwayExcursionFilter();
     lastRunwayLike = null;
     touchdownEpochMs = null;
     runwayVacateEpochMs = null;
@@ -1872,6 +1868,8 @@ function createLandingRunner(): LandingRunner {
       rolloutDeadline = nowEpochMs + rolloutWindowMs;
       rolloutFinalizeDeadline = nowEpochMs + Math.max(rolloutWindowMs, RUNWAY_OCCUPANCY_MAX_WAIT_MS);
       excursionDetected = false;
+      excursionFilter = new RunwayExcursionFilter();
+      excursionFilter.update(surface, typeof gs === 'number' ? gs : 0, landingAttemptTaxiInMaxKts ?? 60, nowEpochMs);
       touchdownEpochMs = nowEpochMs;
       runwayVacateEpochMs = null;
       rolloutAnalysisSamples = [];
@@ -1963,12 +1961,13 @@ function createLandingRunner(): LandingRunner {
         rolloutAnalysisSamples.push(buildLiveRolloutAnalysisSample(frame, ctx, now));
       }
       
-      // Only flag excursion if departing runway surface at significant speed (>30kt).
-      // Low-speed departures (e.g., turning onto taxiway) are normal operations, not excursions.
-      // Aviation definition: runway excursion = departing runway surface at high speed, implying loss of control.
+      // Require a sustained, explicit transition from the runway to an unpaved
+      // or water surface above the taxi threshold. Unknown/paved exits cannot
+      // establish an excursion from this telemetry.
       const gsKtsNow = typeof gs === 'number' ? gs : 0;
-      const highSpeedExcursion = gsKtsNow > 30 && isLikelyRunwayExcursionSurface(surface);
-      if (lastRunwayLike === true && onRunwayNow === false && wow && highSpeedExcursion && now <= rolloutDeadline) {
+      const confirmedExcursion = excursionFilter.update(surface, gsKtsNow,
+        touchdownSummary.rollout_taxi_in_max_kts ?? 60, now);
+      if (!excursionDetected && confirmedExcursion && now <= rolloutDeadline) {
         excursionDetected = true;
         Debug.log('landing', 'Runway excursion detected', {
           gs_kts: gsKtsNow,
@@ -1976,6 +1975,12 @@ function createLandingRunner(): LandingRunner {
           runwayLike: surface?.runwayLike,
           surfaceClass: surface?.class,
         });
+      }
+      // A pending exit that returns to the runway was a transient signal.
+      // Keep monitoring; it must not freeze the landing before a later event.
+      if (wow && onRunwayNow === true && !excursionDetected && runwayVacateEpochMs !== null) {
+        runwayVacateEpochMs = null;
+        touchdownSummary.runway_occupancy_s = null;
       }
       if (
         lastRunwayLike === true
@@ -2005,7 +2010,8 @@ function createLandingRunner(): LandingRunner {
       // second and prevents a same-frame runway/surface transition from racing
       // the normal-load peak used to confirm a real bounce.
       const awaitingBounceConfirmation = pendingBounceConfirmation !== null;
-      const shouldFinalizeRollout = !awaitingBounceConfirmation && (
+      const awaitingExcursionConfirmation = excursionFilter.pending && !excursionDetected && now <= rolloutDeadline;
+      const shouldFinalizeRollout = !awaitingBounceConfirmation && !awaitingExcursionConfirmation && (
         excursionDetected
         || runwayVacateEpochMs !== null
         // A touch-and-go can re-arm before the runway-occupancy timeout.
@@ -2034,17 +2040,6 @@ function createLandingRunner(): LandingRunner {
         let touchdownDistanceData = createDefaultTouchdownDistanceData(bounceScoring);
         const { runwayData, runwayReferenceData } = resolveTouchdownGeometry(touchdownSummary, ctx);
         touchdownSummary.xwind_kts = calculateRunwayCrosswind(runwayData, touchdownSummary);
-        touchdownSummary.rolloutAnalysis = analyzeRollout(rolloutAnalysisSamples, {
-          taxiInMaxKts: touchdownSummary.rollout_taxi_in_max_kts,
-          runwayHeadingTrueDeg: getRunwayTrueHeadingDeg(runwayData),
-          runwayThreshold: runwayData?.threshold ?? null,
-          runwayWidthFt: runwayData?.widthFt ?? null,
-          runwayExcursion: excursionDetected,
-          // Live provider coordinates retain substantially more precision than
-          // the legacy four-decimal CSV representation.
-          coordinatePrecisionDigits: 7,
-          source: 'live',
-        });
 
         // Track if this was a short landing (before threshold)
         let shortLandingDetected = false;
@@ -2061,6 +2056,17 @@ function createLandingRunner(): LandingRunner {
           tdzAchieved = result.tdzAchieved;
         }
 
+        touchdownSummary.rolloutAnalysis = analyzeRollout(rolloutAnalysisSamples, {
+          runwayGeometrySource: runwayData?.source,
+          lateralOffsetSuspect: touchdownDistanceData.lateral_offset_suspect,
+          taxiInMaxKts: touchdownSummary.rollout_taxi_in_max_kts,
+          runwayHeadingTrueDeg: getRunwayTrueHeadingDeg(runwayData),
+          runwayThreshold: runwayData?.threshold ?? null,
+          runwayWidthFt: runwayData?.widthFt ?? null,
+          runwayExcursion: excursionDetected,
+          coordinatePrecisionDigits: 7,
+          source: 'live',
+        });
         const centerlineDeviation = calculateCenterlineDeviation(runwayData, touchdownSummary);
 
         try {

@@ -9,6 +9,7 @@
 'use strict';
 
 const landingDistance = require('../landing/landing-distance') as LandingDistanceModule;
+const { isRunwayGeometryScorable } = require('../landing/runway-geometry-confidence') as typeof import('../landing/runway-geometry-confidence');
 const { getRunwayTrueHeadingDeg } = require('../utils/aviation-frames') as AviationFramesModule;
 
 type AnyRecord = Record<string, any>;
@@ -109,6 +110,9 @@ function buildCanonicalStabilityFrameFromCsvRow(row: AnyRecord, dtMs: number | n
     planeAglFt: finiteNumberOrNull(row.plane_agl_ft),
     planeAglMinusCgFt: finiteNumberOrNull(row.plane_agl_minus_cg_ft),
     iasKts: finiteNumberOrNull(row.ias_kts),
+    selectedSpeedKts: booleanOrNull(row.ap_reliable) === true && booleanOrNull(row.athr_reliable) === true
+      && booleanOrNull(row.athr_active) === true
+      ? finiteNumberOrNull(row.ap_speed_target_kts) : null,
     vsFpm: finiteNumberOrNull(row.vs_fpm),
     gsKts: finiteNumberOrNull(row.gs_kts),
     gearDownLocked: finiteNumberOrNull(row.gear_down_locked),
@@ -187,6 +191,7 @@ function buildTouchdownRunwayAnalysis(input: {
   runwayData: RunwayData | null | undefined;
   touchdownPoint: Coordinate;
   surfaceInputs?: AnyRecord;
+  onRunway?: boolean | null;
   bounceScoring?: BounceScoring;
 }): TouchdownRunwayAnalysis {
   const { runwayData, touchdownPoint, surfaceInputs = {}, bounceScoring = {} } = input;
@@ -220,7 +225,11 @@ function buildTouchdownRunwayAnalysis(input: {
   const lateralOffset = heading !== null
     ? landingDistance.calculateLateralOffset(threshold, touchdownPoint, heading)
     : { offsetFt: null, side: 'center' };
-  const lateralScore = lateralOffset.offsetFt != null
+  const lateralSuspect = !isRunwayGeometryScorable(runwayData.source)
+    || widthFt == null || widthFt <= 0
+    || (input.onRunway === true && lateralOffset.offsetFt != null && widthFt != null
+      && Math.abs(lateralOffset.offsetFt) > widthFt / 2);
+  const lateralScore = lateralOffset.offsetFt != null && !lateralSuspect && widthFt != null && widthFt > 0
     ? landingDistance.scoreLateralOffset(lateralOffset.offsetFt, widthFt != null && widthFt > 0 ? widthFt : undefined)
     : null;
   const surfaceResolution = landingDistance.inferSurfaceCondition(surfaceInputs);
@@ -257,8 +266,8 @@ function buildTouchdownRunwayAnalysis(input: {
     lateral_offset_ft: lateralOffset.offsetFt,
     lateral_offset_side: lateralOffset.offsetFt != null ? lateralOffset.side : null,
     lateral_offset_score: lateralScore ? lateralScore.score : null,
-    lateral_offset_grade: lateralScore ? lateralScore.grade : null,
-    lateral_offset_suspect: false,
+    lateral_offset_grade: lateralScore ? lateralScore.grade : 'Unverified',
+    lateral_offset_suspect: lateralSuspect,
     runway_width_ft: widthFt,
   };
 
