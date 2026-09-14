@@ -469,12 +469,32 @@ function addDetentActions(params: {
   }
 }
 
+// Fixed landing-light readback is boolean, but its event uses OFF=0 and full
+// ON=2. Sending 1 leaves the switch at centre. See EXTERIOR-LIGHTS-VALIDATION.md.
+for (const [side, eventId] of [['Left', 69745], ['Right', 69746]] as const) {
+  for (const [suffix, rawValue, expectedValue] of [['off', 0, false], ['on', 2, true]] as const) {
+    const actionId = `lights.landing${side}.${suffix}`;
+    const action = setSdkPositionAction({
+      actionId,
+      eventId,
+      expectedValue,
+      fieldId: `lights.landing${side}`,
+      groupId: `pmdg737.lights.landing${side}`,
+      rawValue,
+    });
+    actions[actionId] = {
+      ...action,
+      // A true boolean alone cannot prove full ON. Always send that fixed
+      // target, including when correcting a previous centre-position write.
+      guard: { ...action.guard, skipIfSatisfied: !expectedValue },
+    };
+  }
+}
+
 // PMDG's installed NG3 connection sample sends direct 0/1 positions to the logo-light
 // event. Keep these two-state exterior lights distinct from controls such as the flight
 // directors, for which the same sample sends mouse press/release flags.
 for (const definition of [
-  ['lights.landingLeft', 'lights.landingLeft', 69745],
-  ['lights.landingRight', 'lights.landingRight', 69746],
   ['lights.turnoffLeft', 'lights.turnoffLeft', 69747],
   ['lights.turnoffRight', 'lights.turnoffRight', 69748],
   ['lights.taxi', 'lights.taxi', 69749],

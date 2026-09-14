@@ -1136,8 +1136,8 @@ function controlGridClass(control) {
   >
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <div>
-        <h3 class="text-base font-semibold text-gray-100">Fenix {{ variant }} compatibility</h3>
-        <p class="text-xs text-gray-500">Guarded Fenix cockpit and FCU controls with cooldowns and live readback confirmation.</p>
+        <h3 class="text-base font-semibold text-gray-100">Fenix {{ variant }}</h3>
+        <p class="text-xs text-gray-500">Live cockpit controls and aircraft status.</p>
       </div>
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sourceStatus }}</span>
     </div>
@@ -1148,6 +1148,8 @@ function controlGridClass(control) {
       :aircraft-label="`Fenix ${variant}`"
       :memory-key="profileKey || 'bundled/msfs/fenix-a32x'"
     />
+
+    <slot name="presets" />
 
     <div id="fenix-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">
       <FenixThrottleControl
@@ -1336,6 +1338,8 @@ function controlGridClass(control) {
         </article>
       </div>
     </section>
+
+    <slot name="avionics" />
 
     <div
       v-for="section in controlSections"

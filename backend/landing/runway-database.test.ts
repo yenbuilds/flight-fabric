@@ -16,7 +16,9 @@ const csvCache = require('./ourairports-csv-cache') as {
 
 const { test, assertEqual, assertTrue, summary } = createHarness();
 
+const csvReads: string[] = [];
 csvCache.getContent = (fileName: string): string | null => {
+  csvReads.push(fileName);
   if (fileName === 'airports.csv') {
     return [
       'ident,name,elevation_ft',
@@ -27,6 +29,11 @@ csvCache.getContent = (fileName: string): string | null => {
       'BPAR,Staggered Parallel Field,100',
       'BDRV,Coordinate Derived Heading,100',
       'BSKP,Missing True Geometry,100',
+      'BSOU,Southern Latitude Boundary,100',
+      'BTIA,First Identical Runway,100',
+      'BTIB,Second Identical Runway,100',
+      'BEXT,Whole Airport Latitude Gate,100',
+      'BBND,Inclusive Latitude Boundary,100',
     ].join('\n');
   }
 
@@ -42,6 +49,14 @@ csvCache.getContent = (fileName: string): string | null => {
       'BPAR,36R,,19.99,40.003,,,8000,150,ASP,0,360,,,',
       'BDRV,05,23,0,0,0.01,0.01,8000,150,ASP,0,,,,',
       'BSKP,09,,5,5,,,8000,150,ASP,0,,,,',
+      'BSOU,36,,-31.001,150,,,8000,150,ASP,0,0,,,',
+      'BTIA,09,,41,70,,,8000,150,ASP,0,0,,,',
+      'BTIA,36,,41,70,,,8000,150,ASP,0,0,,,',
+      'BTIB,01,,40.99,80,,,8000,150,ASP,0,10,,,',
+      'BTIB,36,,41,70,,,8000,150,ASP,0,0,,,',
+      'BEXT,36,,-20.002,80,,,8000,150,ASP,0,0,,,',
+      'BEXT,09,,-20,81,,,8000,150,ASP,0,90,,,',
+      'BBND,36,,60,10,,,60000,150,ASP,0,0,,,',
     ].join('\n');
   }
 
@@ -49,7 +64,8 @@ csvCache.getContent = (fileName: string): string | null => {
 };
 csvCache.releaseAll = (): void => {};
 
-const { findRunwayByPosition, getRunway } = require('./runway-database') as {
+const { findRunwayByPosition, findNearbyAirport, getRunway } = require('./runway-database') as {
+  findNearbyAirport: (_lat: number, _lon: number, _radiusNm?: number) => { icao: string } | null;
   getRunway: (
     icao: string,
     runway: string,
@@ -161,6 +177,55 @@ test('staggered parallel runway matching keeps a short touchdown on the nearest 
     match != null && match.distanceFromThreshold < 0,
     'Expected the intended runway to retain its signed pre-threshold distance',
   );
+});
+
+test('latitude lookup finds airports across a southern integer latitude boundary', () => {
+  assertEqual(findNearbyAirport(-30.999, 150, 12)?.icao, 'BSOU');
+});
+
+test('latitude lookup preserves airport and runway enumeration order for exact ties', () => {
+  const match = findRunwayByPosition(41, 70, 2, 0);
+  assertEqual(match?.icao, 'BTIA', 'A lower-latitude endpoint must not reorder tied airports');
+  assertEqual(match?.runway, '36', 'Numeric runway keys must retain their original enumeration order');
+});
+
+test('latitude lookup retains every runway at an airport admitted by another endpoint', () => {
+  const match = findRunwayByPosition(-20, 80, 0.01, 0);
+  assertEqual(match?.icao, 'BEXT');
+  assertEqual(match?.runway, '36', 'The latitude gate applies to the airport, not each candidate runway');
+});
+
+test('latitude lookup preserves inclusive gate boundaries', () => {
+  assertEqual(findRunwayByPosition(60.125, 10, 3.75, 0)?.icao, 'BBND');
+  assertEqual(findRunwayByPosition(60.125 + 1e-10, 10, 3.75, 0), null);
+  assertEqual(findRunwayByPosition(60, 10, 0, 0)?.icao, 'BBND');
+});
+
+test('latitude lookup handles empty regions and unusual radii', () => {
+  assertEqual(findNearbyAirport(-80, -140, 12), null);
+  assertEqual(findNearbyAirport(-31, 150, -1), null);
+  assertEqual(findNearbyAirport(-31, 150, NaN), null);
+  assertEqual(findNearbyAirport(NaN, 150, 12), null);
+  assertEqual(findNearbyAirport(-31, 150, Infinity)?.icao, 'BSOU');
+});
+
+test('repeated nearby lookups reuse CSV data and do not revisit distant runway coordinates', () => {
+  const threshold = getRunway('BGUD', '09')!.threshold;
+  const descriptor = Object.getOwnPropertyDescriptor(threshold, 'lat')!;
+  let distantReads = 0;
+  Object.defineProperty(threshold, 'lat', {
+    configurable: true,
+    get: () => { distantReads += 1; return descriptor.value; },
+  });
+  try {
+    for (let i = 0; i < 5; i += 1) {
+      assertEqual(findNearbyAirport(-31, 150, 12)?.icao, 'BSOU');
+    }
+    assertEqual(distantReads, 0, 'Warm nearby lookups must skip distant airport data');
+    assertEqual(csvReads.join(','), 'airports.csv,runways.csv', 'CSV files should be loaded only once');
+  } finally {
+    Object.defineProperty(threshold, 'lat', descriptor);
+  }
 });
 
 summary('runway-database tests');

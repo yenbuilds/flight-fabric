@@ -93,6 +93,17 @@ type AirportEntry = {
 
 type AirportDatabase = Record<string, AirportEntry>;
 
+type IndexedAirport = {
+  icao: string;
+  airport: AirportEntry;
+  runwayEntries: Array<[string, RunwayRecord]>;
+};
+
+type AirportLatitudeIndex = {
+  airports: IndexedAirport[];
+  thresholds: Array<{ lat: number; airportIndex: number }>;
+};
+
 type RunwayLookup = RunwayRecord & {
   icao: string;
   runway: string;
@@ -125,6 +136,7 @@ const RUNWAYS_CSV = resolveOurAirportsFile('runways.csv');
 
 let csvAirportsCache: AirportDatabase | null = null;
 let csvLoadError: string | null = null;
+let airportLatitudeIndex: AirportLatitudeIndex | null = null;
 
 function ensureAirportEntry(
   database: AirportDatabase,
@@ -314,6 +326,55 @@ function getAirportsDb(): AirportDatabase {
   return csvAirportsCache;
 }
 
+function getAirportLatitudeIndex(): AirportLatitudeIndex {
+  if (airportLatitudeIndex) return airportLatitudeIndex;
+  const airports: IndexedAirport[] = [];
+  const thresholds: AirportLatitudeIndex['thresholds'] = [];
+  for (const [icao, airport] of Object.entries(getAirportsDb())) {
+    const runwayEntries = Object.entries(airport.runways);
+    if (runwayEntries.length === 0) continue;
+    const airportIndex = airports.length;
+    airports.push({ icao, airport, runwayEntries });
+    for (const [, runway] of runwayEntries) {
+      const lat = runway.threshold.lat;
+      if (Number.isFinite(lat)) thresholds.push({ lat, airportIndex });
+    }
+  }
+  thresholds.sort((a, b) => a.lat - b.lat);
+  airportLatitudeIndex = { airports, thresholds };
+  return airportLatitudeIndex;
+}
+
+function findAirportsWithinLatitudeGate(lat: number, maxDeltaDeg: number): IndexedAirport[] {
+  const { airports, thresholds } = getAirportLatitudeIndex();
+  // Preserve the original comparison for unusual callers, including an
+  // unlimited radius, without relying on binary search over non-finite bounds.
+  if (!Number.isFinite(lat) || !Number.isFinite(maxDeltaDeg)) {
+    return airports.filter(({ runwayEntries }) => runwayEntries.some(
+      ([, runway]) => Math.abs(runway.threshold.lat - lat) <= maxDeltaDeg,
+    ));
+  }
+  if (maxDeltaDeg < 0) return [];
+
+  // Compare the latitude difference directly, as the original gate did, so
+  // rounding at an inclusive radius boundary cannot exclude a runway.
+  let low = 0;
+  let high = thresholds.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (lat - thresholds[middle].lat > maxDeltaDeg) low = middle + 1;
+    else high = middle;
+  }
+  const airportIndexes = new Set<number>();
+  for (let i = low; i < thresholds.length; i += 1) {
+    if (thresholds[i].lat - lat > maxDeltaDeg) break;
+    airportIndexes.add(thresholds[i].airportIndex);
+  }
+  // The gate admits an entire airport when any endpoint qualifies. Keep its
+  // other runways and original database order, including exact-match ties.
+  return [...airportIndexes].sort((a, b) => a - b).map(index => airports[index]);
+}
+
 // -----------------------------------------------------------------------------
 // Query Functions
 // -----------------------------------------------------------------------------
@@ -385,10 +446,10 @@ function findRunwayByPosition(
   aircraftTrueHeadingDeg: number | null = null,
 ): RunwayPositionMatch | null {
   if (lat == null || lon == null) return null;
-  const airports = getAirportsDb();
 
   const NM_TO_DEG_LAT = 1 / 60;
   const maxDistDeg = maxDistanceNm * NM_TO_DEG_LAT * 2;
+  const nearbyAirports = findAirportsWithinLatitudeGate(lat, maxDistDeg);
   const HEADING_TOLERANCE_DEG = 30;
   // maxDistanceNm is primarily an along-runway/threshold search radius. It
   // must not permit runway identity several thousand feet off centerline.
@@ -430,21 +491,9 @@ function findRunwayByPosition(
     return Math.sqrt(dLatDeg ** 2 + dLonDeg ** 2) * 60;
   }
 
-  function hasRunwayWithinLatitudeGate(
-    runwayEntries: Array<[string, RunwayRecord]>,
-    targetLat: number,
-    maxDeltaDeg: number,
-  ): boolean {
-    return runwayEntries.some(([, rwy]) => Math.abs(rwy.threshold.lat - targetLat) <= maxDeltaDeg);
-  }
-
   const candidates: RunwayPositionMatch[] = [];
 
-  for (const [icao, airport] of Object.entries(airports) as Array<[string, AirportEntry]>) {
-    const runwayEntries = Object.entries(airport.runways) as Array<[string, RunwayRecord]>;
-    if (runwayEntries.length === 0) continue;
-    if (!hasRunwayWithinLatitudeGate(runwayEntries, lat, maxDistDeg)) continue;
-
+  for (const { icao, airport, runwayEntries } of nearbyAirports) {
     for (const [rwyId, rwy] of runwayEntries) {
       const runwayTrueHeadingDeg = getRunwayTrueHeadingDeg(rwy);
       if (runwayTrueHeadingDeg == null) continue;
@@ -500,11 +549,7 @@ function findRunwayByPosition(
   let bestMatch: RunwayPositionMatch | null = null;
   let bestDistanceNm = Infinity;
 
-  for (const [icao, airport] of Object.entries(airports) as Array<[string, AirportEntry]>) {
-    const runwayEntries = Object.entries(airport.runways) as Array<[string, RunwayRecord]>;
-    if (runwayEntries.length === 0) continue;
-    if (!hasRunwayWithinLatitudeGate(runwayEntries, lat, maxDistDeg)) continue;
-
+  for (const { icao, airport, runwayEntries } of nearbyAirports) {
     for (const [rwyId, rwy] of runwayEntries) {
       const runwayTrueHeadingDeg = getRunwayTrueHeadingDeg(rwy);
       if (runwayTrueHeadingDeg == null) continue;

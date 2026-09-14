@@ -4191,7 +4191,7 @@ async function main() {
     controller.handlePositionMessage({ lat: 0, lon: -179, hdg: 90 });
     controller.renderTargetMarker();
     const beforeCrossing = activeLayers.find(layer => (
-      layer.kind === 'circle' && layer.options.color === '#3b82f6'
+      layer.kind === 'circle' && layer.options.fillColor === '#3b82f6'
     ));
     assert(beforeCrossing, 'destination marker should exist before the crossing');
     assert(
@@ -4201,7 +4201,7 @@ async function main() {
 
     controller.handlePositionMessage({ lat: 0, lon: 179, hdg: 90 });
     const afterCrossing = activeLayers.find(layer => (
-      layer.kind === 'circle' && layer.options.color === '#3b82f6'
+      layer.kind === 'circle' && layer.options.fillColor === '#3b82f6'
     ));
     assert(afterCrossing, 'destination marker should still exist after the crossing');
     assert.notEqual(afterCrossing, beforeCrossing, 'position update should refresh the branch-specific destination marker');
@@ -4266,9 +4266,10 @@ async function main() {
       requestAnimationFrame(callback) { callback(); return 1; },
       cancelAnimationFrame() {},
     };
+    let targetAirport = { icao: 'YBAS', lat: -23.81, lon: 133.9 };
     const routeTargets = {
       getOriginAirport: () => ({ icao: 'YMML', lat: -37.67, lon: 144.84 }),
-      getTargetAirport: () => ({ icao: 'YBAS', lat: -23.81, lon: 133.9 }),
+      getTargetAirport: () => targetAirport,
       updateTargetOverlay() {},
       updateDestinationProgress() {},
     };
@@ -4311,6 +4312,25 @@ async function main() {
       'independent origin/destination updates should not repaint the route over the cyan trail',
     );
     assert(liveTrack.frontCount >= 1, 'route rendering should explicitly restore live-trail z-order');
+    const paths = activeLayers.filter(layer => layer.kind === 'polyline');
+    assert.equal(paths.length, 6, 'repeated position and route updates should retain exactly three paths and their outlines');
+    for (let index = 0; index < paths.length; index += 2) {
+      const [outline, foreground] = paths.slice(index, index + 2);
+      assert.equal(outline.options.className, 'flight-path-outline', 'each outline should remain directly below its foreground');
+      assert.deepEqual(outline.latLng, foreground.latLng, 'outline and foreground must follow the same geometry');
+      assert.equal(outline.options.dashArray, foreground.options.dashArray, 'planned-route outlines must preserve visible dash gaps');
+      assert(outline.options.weight > foreground.options.weight, 'the dark edge must extend beyond the colored stroke');
+      assert.equal(outline.options.interactive, false, 'outlines must not capture map interactions');
+    }
+
+    targetAirport = null;
+    controller.renderRouteLine();
+    controller.renderTargetLine();
+    assert.deepEqual(
+      activeLayers.filter(layer => layer.kind === 'polyline'),
+      paths.slice(-2),
+      'clearing the destination should remove both route outlines while retaining the flown track',
+    );
   });
 
   await test('live map activation redraw is coalesced and cancelled during teardown', () => {
@@ -6233,11 +6253,14 @@ async function main() {
     let zoomEndHandler = null;
     let polylineOptions = null;
     const renderedPathLengths = [];
+    const outlinePathLengths = [];
+    const pathLayers = [];
+    const removedPathLayers = [];
     const fakeMap = {
       setView() { return this; },
       getSize() { return { x: 640, y: 360 }; },
       invalidateSize() {},
-      removeLayer() {},
+      removeLayer(layer) { removedPathLayers.push(layer); },
       getZoom() { return zoom; },
       panTo() {},
       fitBounds() {},
@@ -6259,15 +6282,19 @@ async function main() {
         disableClickPropagation() {},
       },
       polyline: (latLngs, options) => {
-        polylineOptions = options;
-        renderedPathLengths.push(latLngs.length);
-        return {
+        const lengths = options.className === 'flight-path-outline' ? outlinePathLengths : renderedPathLengths;
+        if (options.className === 'flight-track-line') polylineOptions = options;
+        lengths.push(latLngs.length);
+        const layer = {
+          options,
           addTo() { return this; },
           setLatLngs(nextLatLngs) {
-            renderedPathLengths.push(nextLatLngs.length);
+            lengths.push(nextLatLngs.length);
             return this;
           },
         };
+        pathLayers.push(layer);
+        return layer;
       },
       layerGroup: () => ({
         addTo() { return this; },
@@ -6320,6 +6347,11 @@ async function main() {
       [700, 1500, 2500],
       'zooming in should reveal progressively detailed paths without exceeding the maximum render budget',
     );
+    assert.deepEqual(outlinePathLengths, renderedPathLengths, 'the outline must follow every zoom-dependent geometry update');
+    assert.equal(pathLayers[0].options.renderer, pathLayers[1].options.renderer, 'both strokes should share the canvas renderer');
+    assert.equal(pathLayers[0].options.interactive, false, 'the outline should leave replay event interactions available');
+    controller.reset();
+    assert(pathLayers.every(layer => removedPathLayers.includes(layer)), 'reset must remove both track strokes');
   });
 
   console.log('\n--- timeline inspector store bridge ---\n');

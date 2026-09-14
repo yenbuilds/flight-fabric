@@ -565,6 +565,8 @@ function requestThrottleAction(actionId) {
       :memory-key="profileKey || 'bundled/msfs/fbw-a380x'"
     />
 
+    <slot name="presets" />
+
     <div id="fbw-a380x-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">
       <FlyByWireThrottleControl
         aircraft-label="FlyByWire A380X"
@@ -679,6 +681,8 @@ function requestThrottleAction(actionId) {
         </div>
       </div>
     </section>
+
+    <slot name="avionics" />
 
     <section id="fbw-a380x-section-exterior-lights" class="aircraft-mobile-navigable-section" tabindex="-1" data-a380-section="exterior-lights">
       <div class="dashboard-section-kicker">Exterior Lights</div>

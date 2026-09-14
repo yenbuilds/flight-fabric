@@ -8,9 +8,6 @@ import {
   watch,
 } from 'vue';
 import AircraftHotGroupModal from '../AircraftHotGroupModal.vue';
-import TakeoffLightsPreset from '../TakeoffLightsPreset.vue';
-import CockpitLightingPresets from '../../CockpitLightingPresets.vue';
-import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 import { useAircraftSectionMemory } from '../aircraft-section-memory.js';
 import { aircraftSectionAnchorY, useAircraftPageSections } from '../aircraft-page-sections.js';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
@@ -34,8 +31,6 @@ const unavailableFields = computed(() => new Set(props.unavailable));
 const mcpDrafts = ref({});
 const bothCourseDraft = ref('');
 const bothNavFrequencyDraft = ref('');
-const cockpitLightingDraft = ref('50');
-const lightingControls = useAircraftControlsStore();
 const sectionRibbon = ref(null);
 const sectionMenu = ref(null);
 const sectionMenuButton = ref(null);
@@ -57,7 +52,6 @@ function resetControlDrafts() {
   mcpDrafts.value = {};
   bothCourseDraft.value = '';
   bothNavFrequencyDraft.value = '';
-  cockpitLightingDraft.value = '50';
 }
 
 watch(
@@ -67,9 +61,8 @@ watch(
 
 const mobileSections = useAircraftPageSections([
   Object.freeze({ id: 'mcp', label: 'MCP', title: 'Mode Control Panel', detail: 'Targets, flight directors and AFDS modes.' }),
-  Object.freeze({ id: 'radios', label: 'Radios', title: 'Navigation Radios', detail: 'NAV active, standby and frequency transfer.' }),
+  Object.freeze({ id: 'radios', label: 'NAV', title: 'Navigation Radios', detail: 'NAV active, standby and frequency transfer.' }),
   Object.freeze({ id: 'exterior', label: 'Exterior', title: 'Exterior Lights', detail: 'Landing, taxi, position and exterior lighting.' }),
-  Object.freeze({ id: 'cockpit-lighting', label: 'Lighting', title: 'Cockpit Lighting', detail: 'Panel backlighting, flood lights and display brightness.' }),
   Object.freeze({ id: 'cabin', label: 'Cabin', title: 'Cabin & Visibility', detail: 'Signs, emergency lights and windshield wipers.' }),
   Object.freeze({ id: 'flight-controls', label: 'Controls', title: 'Flight Controls', detail: 'Flaps, speedbrake, yaw damper and trim status.' }),
   Object.freeze({ id: 'gear-brakes', label: 'Gear', title: 'Gear & Brakes', detail: 'Gear position, parking brake, autobrake and anti-skid.' }),
@@ -145,45 +138,6 @@ const bothCourseCommandId = 'flightGuidance.course.setBoth';
 const bothCourseControlGroup = 'mcp.courseBoth';
 const bothNavCommandId = 'radios.nav.setBothActive';
 const bothNavControlGroup = 'radios.navBoth';
-const cockpitLightingCommandId = 'configuration.lighting.cockpit';
-const cockpitLightingControlGroup = 'lighting.cockpit';
-const cockpitLightingGroups = Object.freeze([
-  Object.freeze({
-    label: 'Panels',
-    fields: Object.freeze([
-      'lighting.overheadCircuitBreakerPercent',
-      'lighting.overheadPanelPercent',
-      'lighting.mainPanelCaptainPercent',
-      'lighting.mainPanelFirstOfficerPercent',
-    ]),
-  }),
-  Object.freeze({
-    label: 'Flood & background',
-    fields: Object.freeze([
-      'lighting.backgroundPercent',
-      'lighting.afdsFloodPercent',
-      'lighting.pedestalFloodPercent',
-      'lighting.pedestalPanelPercent',
-    ]),
-  }),
-  Object.freeze({
-    label: 'Flight displays',
-    fields: Object.freeze([
-      'lighting.displayCaptainOutboardPercent',
-      'lighting.displayCaptainInboardPercent',
-      'lighting.displayCaptainMapPercent',
-      'lighting.displayUpperPercent',
-      'lighting.displayLowerPercent',
-      'lighting.displayFirstOfficerOutboardPercent',
-      'lighting.displayFirstOfficerInboardPercent',
-      'lighting.displayFirstOfficerMapPercent',
-    ]),
-  }),
-]);
-const cockpitLightingFieldIds = Object.freeze(
-  cockpitLightingGroups.flatMap((group) => group.fields),
-);
-
 function booleanControl(title, fieldId, prefix = fieldId, commandId = '') {
   return {
     title,
@@ -663,43 +617,6 @@ function requestBothNavFrequency() {
   );
   if (sent !== false) bothNavFrequencyDraft.value = '';
   return sent;
-}
-
-function cockpitLightingInput() {
-  return commandNumberInput(
-    cockpitLightingCommandId,
-    { min: 0, max: 100, step: 1 },
-  );
-}
-
-function cockpitLightingValue() {
-  return steppedNumber(cockpitLightingDraft.value, cockpitLightingInput());
-}
-
-function cockpitLightingGroupText(fieldIds) {
-  if (!fieldIds.every(hasValue)) return '--';
-  const values = fieldIds.map((fieldId) => value(fieldId));
-  if (!values.every((current) => typeof current === 'number' && Number.isFinite(current))) return '--';
-  return values.every((current) => current === values[0]) ? `${values[0]}%` : 'MIXED';
-}
-
-function cockpitLightingDisabled() {
-  return props.sourceStatus !== 'connected'
-    || lightingControls.isCommandPending('aircraft-command:configuration.lighting.displays')
-    || !cockpitLightingFieldIds.every(hasValue)
-    || !props.isCommandSupported(cockpitLightingCommandId)
-    || cockpitLightingValue() === null
-    || groupPending(cockpitLightingControlGroup);
-}
-
-function requestCockpitLighting() {
-  const brightness = cockpitLightingValue();
-  if (cockpitLightingDisabled() || brightness === null) return false;
-  return props.requestCommand(
-    cockpitLightingCommandId,
-    cockpitLightingControlGroup,
-    { value: brightness },
-  );
 }
 
 function controlValue(control) {
@@ -1286,6 +1203,8 @@ onBeforeUnmount(() => {
       </div>
     </AircraftHotGroupModal>
 
+    <slot name="presets" />
+
     <section
       id="pmdg-737-section-mcp"
       class="pmdg-mobile-navigable-section"
@@ -1429,6 +1348,8 @@ onBeforeUnmount(() => {
       </form>
     </section>
 
+    <slot name="avionics" />
+
     <section
       id="pmdg-737-section-exterior"
       class="pmdg-mobile-navigable-section"
@@ -1439,7 +1360,6 @@ onBeforeUnmount(() => {
         <div class="dashboard-section-kicker">Exterior Lights</div>
         <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
       </div>
-      <TakeoffLightsPreset :source-status="sourceStatus === 'connected' ? sdkSourceStatus : sourceStatus" />
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
           <div class="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ controlValueText(control) }}</span></div>
@@ -1448,83 +1368,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-    </section>
-
-    <section
-      id="pmdg-737-section-cockpit-lighting"
-      class="pmdg-mobile-navigable-section"
-      data-pmdg-737-section="cockpit-lighting"
-      tabindex="-1"
-    >
-      <div class="pmdg-section-heading">
-        <div class="dashboard-section-kicker">Cockpit Lighting</div>
-        <span class="text-[9px] font-semibold tracking-widest text-gray-500">16 DIMMERS</span>
-      </div>
-      <form
-        class="rounded-xl border border-cyan-400/25 bg-cyan-400/[0.06] p-4"
-        data-aircraft-control-group="lighting.cockpit"
-        data-pmdg-cockpit-lighting-control
-        @submit.prevent="requestCockpitLighting"
-      >
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
-          <div class="min-w-0 flex-1">
-            <div class="text-sm font-semibold text-gray-100">Set the flight deck together</div>
-            <p class="mt-1 max-w-3xl text-xs leading-relaxed text-gray-400">
-              Applies one level to panel backlighting, AFDS and pedestal flood lighting, plus every operable captain, First Officer, upper and lower display-unit dimmer. Voice: &ldquo;set cockpit lighting fifty percent&rdquo;.
-            </p>
-            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div v-for="group in cockpitLightingGroups" :key="group.label" class="rounded-lg border border-surface-200 bg-surface-100/70 px-3 py-2">
-                <div class="text-[9px] uppercase tracking-widest text-gray-500">{{ group.label }}</div>
-                <div class="mt-1 font-mono text-sm font-semibold text-gray-200">{{ cockpitLightingGroupText(group.fields) }}</div>
-              </div>
-            </div>
-          </div>
-          <div class="w-full rounded-lg border border-surface-200 bg-surface-100 p-3 lg:w-[25rem]">
-            <div class="mb-2 flex items-center justify-between gap-3">
-              <label for="pmdg-737-cockpit-lighting" class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Target brightness</label>
-              <output class="font-mono text-lg font-semibold text-cyan-100">{{ cockpitLightingValue() ?? '--' }}%</output>
-            </div>
-            <input
-              id="pmdg-737-cockpit-lighting"
-              v-model="cockpitLightingDraft"
-              class="h-8 w-full cursor-pointer accent-cyan-400 disabled:cursor-not-allowed disabled:opacity-45"
-              type="range"
-              :min="cockpitLightingInput().min"
-              :max="cockpitLightingInput().max"
-              :step="cockpitLightingInput().step"
-              :disabled="!props.isCommandSupported(cockpitLightingCommandId) || groupPending(cockpitLightingControlGroup)"
-              aria-label="Cockpit lighting target percentage"
-            />
-            <div class="mt-2 flex gap-2">
-              <div class="relative min-w-0 flex-1">
-                <input
-                  v-model="cockpitLightingDraft"
-                  class="h-10 w-full rounded border border-surface-300 bg-surface-50 px-2 pr-9 font-mono text-sm text-gray-100 disabled:opacity-45"
-                  type="number"
-                  inputmode="numeric"
-                  :min="cockpitLightingInput().min"
-                  :max="cockpitLightingInput().max"
-                  :step="cockpitLightingInput().step"
-                  aria-label="Cockpit lighting percentage"
-                />
-                <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-gray-500">%</span>
-              </div>
-              <button
-                type="submit"
-                class="h-10 rounded border border-cyan-400/55 bg-cyan-400/12 px-4 text-[10px] font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
-                data-aircraft-command="configuration.lighting.cockpit"
-                :disabled="cockpitLightingDisabled()"
-              >
-                SET ALL
-              </button>
-            </div>
-          </div>
-        </div>
-        <p class="mt-3 text-[10px] leading-relaxed text-gray-500">
-          Discrete dome and spot lights, chart/map light mechanisms, EFB buttons and the inoperative lower-DU inner knob are intentionally unchanged.
-        </p>
-      </form>
-      <CockpitLightingPresets displays-only class="mt-3" />
     </section>
 
     <section

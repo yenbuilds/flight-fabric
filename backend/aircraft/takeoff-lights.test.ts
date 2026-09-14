@@ -5,6 +5,8 @@ const { loadProfile } = require('./aircraft-profile-loader');
 const { defaultAircraftIntegrationRegistry: registry } = require('./aircraft-integrations');
 const { buildAircraftControlCapabilities, executeAircraftCommand, resolveAircraftCommand,
   resolveAircraftControl } = require('./aircraft-control-service');
+const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
+const profileLoader = require('./aircraft-profile-loader');
 
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event'],
   integrationTransports: ['simconnect-sequence'] };
@@ -53,6 +55,43 @@ for (const id of ['fbw-a380x', 'microsoft-737-max-8', 'inibuilds-a320neo-v2', 'i
     assert.equal(unavailable.ok, false);
     assert.equal(unavailable.completedStepCount, 0);
     assert.deepEqual(sent, [], 'a missing route must reject the entire recipe before any write');
+  });
+}
+
+for (const id of ['fbw-a380x', 'microsoft-737-max-8', 'inibuilds-a320neo-v2', 'inibuilds-a321lr', 'inibuilds-tristar']) {
+  test(`${id}: fixed light commands still dispatch when aggregate readback already matches`, async () => {
+    profileLoader.setActiveProfile(id);
+    const config = profileLoader.getLvarConfig().aircraftSpecific;
+    const profile = loadProfile(`bundled/msfs/${id}`);
+    for (const on of [false, true]) {
+      const provider = new SimConnectTelemetryProvider();
+      provider._getActiveAircraftIntegrationConfig = () => config;
+      provider._getAircraftIntegrationTransportCapabilities = () => ({ 'simconnect-sequence': true });
+      const snapshot = { profileId: profile._profileKey, status: 'running', snapshotSequence: 1,
+        updatedAt: new Date().toISOString(), values: { standard_light_states: on ? 0xffff : 0 } };
+      const writes: string[] = [];
+      const bridge = { getSnapshot: () => snapshot,
+        async setNamedVar() { throw new Error('Light events must not write LVars'); },
+        async sendEvent(name: string) {
+          writes.push(name);
+          snapshot.snapshotSequence++;
+          snapshot.updatedAt = new Date().toISOString();
+          return { ok: true };
+        } };
+      provider._lvarBridge = bridge;
+      const suffix = id === 'inibuilds-tristar' ? (on ? 'setOn' : 'setOff') : (on ? 'on' : 'off');
+      for (const light of ['landing', 'taxi', 'strobe', 'nav', 'beacon', 'wing']) {
+        const result = await provider._executeAircraftIntegrationAction(bridge,
+          { name: profile.integration.aircraftSpecific.adapter }, 'test', {
+            profileKey: profile._profileKey, profileRevision: config.profileRevision,
+            request: { actionId: `lights.${light}.${suffix}` },
+          });
+        assert.equal(result.ok, true, `${light}: ${JSON.stringify(result)}`);
+        assert.notEqual(result.noOp, true, `${light}: a general output flag cannot prove every switch is set`);
+      }
+      assert.equal(writes.length, 6, 'every fixed target must be sent once, including a repeated ON/OFF request');
+      assert.ok(writes.every(name => /(?:_SET|_ON|_OFF)$/.test(name)), 'reapplied commands must never toggle');
+    }
   });
 }
 

@@ -4,7 +4,10 @@ import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { freshAircraftValue } from '../../voice/state-queries.js';
 
-const props = defineProps({ displaysOnly: { type: Boolean, default: false } });
+const props = defineProps({
+  displaysOnly: { type: Boolean, default: false },
+  embedded: { type: Boolean, default: false },
+});
 const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
 const draft = reactive({ cockpit: '50', displays: '75' });
 const now = ref(Date.now()), sending = ref(false);
@@ -54,10 +57,10 @@ const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty perce
 </script>
 
 <template>
-  <section v-if="targets.length" class="ff-panel rounded-xl border border-surface-200 bg-surface-100 p-3 sm:p-4"
+  <section v-if="targets.length" :class="embedded ? '' : 'ff-panel rounded-xl border border-surface-200 bg-surface-100 p-3 sm:p-4'"
     aria-label="Cockpit brightness presets" data-cockpit-lighting-presets>
-    <h2 v-if="!displaysOnly" class="text-sm font-semibold text-gray-100">Cockpit lighting</h2>
-    <p class="mb-3 text-xs leading-relaxed text-gray-400" :class="{ 'mt-1': !displaysOnly }">
+    <h2 v-if="!displaysOnly && !embedded" class="text-sm font-semibold text-gray-100">Cockpit lighting</h2>
+    <p v-if="!embedded" class="mb-3 text-xs leading-relaxed text-gray-400" :class="{ 'mt-1': !displaysOnly }">
       Set the cockpit lighting, then adjust the flight displays to their own brightness.
     </p>
     <div class="grid gap-3" :class="{ 'lg:grid-cols-2': targets.length > 1 }">

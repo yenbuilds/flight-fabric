@@ -31,6 +31,8 @@ for (const id of ['generic', 'widebody-base']) {
     for (const [index, word] of [[1, 'one'], [2, 'two']]) {
       const phrases = [
         [`set nav ${word} standby one one zero decimal three`, 'setStandby', 110.3],
+        [`set nav ${word} standby one zero nine decimal five`, 'setStandby', 109.5],
+        [`set nav ${word} standby one zero nine point five`, 'setStandby', 109.5],
         [`set nav ${index} standby to 110.35`, 'setStandby', 110.35],
         [`tune nav radio ${word} standby one seventeen decimal niner five megahertz`, 'setStandby', 117.95],
         [`nav ${word} standby 108.00`, 'setStandby', 108],
@@ -94,4 +96,45 @@ test('aircraft-specific opt-outs remain unavailable to generic NAV voice command
   }
   const match = interpretAircraftVoiceCommand('set nav radios one one zero decimal three', loadFixture('pmdg-737').catalogue);
   assert.equal(match.commandId, 'radios.nav.setBothActive', 'the separate PMDG paired active-radio command keeps its meaning');
+});
+
+test('paired NAV radios accept 109.50 with decimal or point through the real PMDG command service', () => {
+  const { profile, catalogue } = loadFixture('pmdg-737');
+  for (const prefix of ['set nav radios', 'set both nav radios', 'tune nav radios']) {
+    for (const separator of ['decimal', 'point']) {
+      for (const digits of ['one zero nine', 'one oh nine', 'one zero niner', '1 0 9', '109']) {
+        for (const fraction of ['five', 'five zero', '5', '5 0']) {
+          const phrase = `${prefix} ${digits} ${separator} ${fraction}`;
+          const match = interpretAircraftVoiceCommand(phrase, catalogue);
+          assert.equal(match.ok, true, phrase);
+          assert.equal(match.commandId, 'radios.nav.setBothActive', phrase);
+          assert.deepEqual(match.input, { value: 109.5 }, phrase);
+          const result = resolveAircraftCommand({
+            commandId: match.commandId, input: match.input,
+            profileKey: catalogue.profileKey, profileRevision: 7,
+          }, {
+            profile, profileRevision: 7, requireProfileToken: true,
+            capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence'] },
+          });
+          assert.equal(result.ok, true, phrase);
+          assert.equal(result.controlRequests.length, 1, phrase);
+          assert.equal(result.controlRequest.actionId, 'radios.navBoth.setActive', phrase);
+          assert.equal(result.controlRequest.value, 109.5, phrase);
+        }
+      }
+    }
+  }
+});
+
+test('paired NAV commands never reconstruct missing frequency digits from a garbled transcript', () => {
+  const { catalogue } = loadFixture('pmdg-737');
+  for (const phrase of [
+    'SAID THAT RADIO NINE DISCIPAL FIVE',
+    'SET NAV RADIOS NINE DECIMAL FIVE',
+    'SET NAV RADIOS NINE POINT FIVE',
+    'SET NAV RADIOS ONE ZERO NINE DISCIPAL FIVE',
+    'SET NAV RADIOS ONE ZERO NINE POINT',
+    'SET NAV RADIOS ONE ZERO NINE POINT FIVE TWO',
+    'SET NAV RADIOS ONE ZERO NINE DECIMAL FIVE POINT ZERO',
+  ]) assert.equal(interpretAircraftVoiceCommand(phrase, catalogue).ok, false, phrase);
 });

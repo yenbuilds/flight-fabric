@@ -2,6 +2,7 @@ import { getEventAttitudeDeg, normalizeTimelineTrackPoints } from './track-point
 import { getTimelineEventMarkerVisual } from './map.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from '../live-map/plane-icon.js';
 import { unwrapLatLngPath, unwrapLongitudeNear } from '../live-map/geo.js';
+import { createMapPathOutline, FLIGHT_TRACK_STYLE } from '../maps/path-style.js';
 import { createOpenStreetMapLayer } from '../maps/openstreetmap.js';
 
 const MAP_TRACK_RENDER_POINT_LIMIT = 700;
@@ -385,6 +386,7 @@ export function createTimelineMapController({
   let timelineMapResizeRaf = null;
   let timelineMapResizeTimer = null;
   let timelinePath = null;
+  let timelinePathOutline = null;
   let timelineCursor = null;
   let timelineTrackPoints = [];
   let timelineTrackTimestamps = [];
@@ -570,6 +572,10 @@ export function createTimelineMapController({
       timelineMap.removeLayer(timelinePath);
       timelinePath = null;
     }
+    if (timelinePathOutline) {
+      timelineMap.removeLayer(timelinePathOutline);
+      timelinePathOutline = null;
+    }
 
     if (timelineEventLayer) {
       try {
@@ -664,6 +670,7 @@ export function createTimelineMapController({
     timelineTrackRenderLimit = limit;
     const displayTrack = getDisplayTimelineTrack(getTimelineTrackRenderPoints(limit));
     timelinePath.setLatLngs?.(displayTrack);
+    timelinePathOutline?.setLatLngs?.(displayTrack);
   }
 
   function focusEvent(event) {
@@ -786,15 +793,12 @@ export function createTimelineMapController({
     const renderMarkers = selectTimelineMapEventMarkers(positioned);
     if (hasTrack) {
       const polylineOptions = {
-        color: '#00d4ff',
-        weight: 2.5,
-        opacity: 0.9,
-        className: 'flight-track-line',
-        interactive: false,
+        ...FLIGHT_TRACK_STYLE,
         smoothFactor: 1,
       };
       if (timelineCanvasRenderer) polylineOptions.renderer = timelineCanvasRenderer;
       const displayTrack = getDisplayTimelineTrack(renderTrackPoints);
+      timelinePathOutline = createMapPathOutline(windowRef.L, displayTrack, polylineOptions).addTo(timelineMap);
       timelinePath = windowRef.L.polyline(displayTrack, polylineOptions).addTo(timelineMap);
     }
 

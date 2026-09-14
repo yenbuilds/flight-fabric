@@ -51,7 +51,9 @@ function recognizerConfig() {
       provider: 'cpu',
     },
     decodingMethod: 'modified_beam_search',
-    maxActivePaths: 8,
+    // Keep enough alternatives for short aviation words such as NAV to
+    // survive until the rest of the command can disambiguate them.
+    maxActivePaths: 16,
     hotwordsFile: hotwordsFile(),
     hotwordsScore: 1.5,
     // Push-to-talk release is the only execution boundary. Automatic endpoint

@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, useSlots, watch } from 'vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 import { useAircraftPageSections } from '../aircraft-page-sections.js';
 
+const slots = useSlots();
 const props = defineProps({
   profileKey: { type: String, default: '' },
   values: { type: Object, default: () => ({}) },
@@ -101,6 +102,13 @@ const flightControls = Object.freeze([
   booleanControl('VV F/O', 'flightGuidance.verticalViewFirstOfficer', 'flightGuidance.verticalViewFirstOfficer'),
   booleanControl('METRIC ALT', 'flightGuidance.metricAltitude', 'flightGuidance.metricAltitude'),
 ]);
+
+const sharedLsSides = { 'flightGuidance.lsCaptain': 'captain', 'flightGuidance.lsFirstOfficer': 'firstOfficer' };
+const visibleFlightControls = computed(() => flightControls.filter(control => {
+  const side = sharedLsSides[control.fieldId];
+  return !(slots.avionics && side && props.isCommandSupported(`navigation.${side}.range`)
+    && props.isCommandSupported(`navigation.${side}.ls`));
+}));
 
 const exteriorControls = Object.freeze([
   detentControl('STROBE', 'lights.strobeMode', 'lights.strobe', [
@@ -202,13 +210,6 @@ const speedbrakeControl = Object.freeze({
   actionId: 'controls.speedbrake.set', groupId: 'controls.speedbrake',
   min: 0, max: 100, step: 1, unit: '%',
 });
-
-const takeoffLightReadbackFields = Object.freeze([
-  'lights.landing',
-  'lights.noseMode',
-  'lights.strobeMode',
-  'lights.navMode',
-]);
 
 const controlSections = Object.freeze([
   { id: 'a350-exterior', kicker: 'Exterior Lights', controls: exteriorControls, columns: 'xl:grid-cols-4' },
@@ -387,28 +388,6 @@ function requestFlapAction(action) {
   return props.requestCommand(action.commandId, flapControl.groupId, action.commandInput);
 }
 
-function takeoffLightsDisabled() {
-  return props.sourceStatus !== 'connected'
-    || takeoffLightReadbackFields.some((fieldId) => !hasValue(fieldId))
-    || !props.isCommandSupported('configuration.lights.takeoff')
-    || groupPending('lights.takeoffPreset');
-}
-
-function takeoffLightsDisabledReason() {
-  if (!takeoffLightsDisabled()) return '';
-  if (groupPending('lights.takeoffPreset')) return 'Command pending.';
-  if (props.sourceStatus !== 'connected') return 'Waiting for live aircraft data.';
-  if (takeoffLightReadbackFields.some((fieldId) => !hasValue(fieldId))) {
-    return 'Required light readback unavailable.';
-  }
-  return 'Compatible write transport unavailable.';
-}
-
-function requestTakeoffLights() {
-  if (takeoffLightsDisabled()) return false;
-  return props.requestCommand('configuration.lights.takeoff', 'lights.takeoffPreset', {});
-}
-
 function indicatorClass(indicator) {
   const current = value(indicator.id);
   if (current === null) return 'border-surface-200 bg-surface-50 text-gray-500';
@@ -430,14 +409,14 @@ function scrollToSection(sectionId) {
 
 <template>
   <div
-    class="space-y-5 p-3 sm:p-4"
+    class="min-w-0 space-y-5 p-3 sm:p-4"
     data-aircraft-template="inibuilds-a350"
     :data-inibuilds-a350-variant="variant"
   >
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <div>
         <h3 class="text-base font-semibold text-gray-100">iniBuilds Airbus {{ variant }}</h3>
-        <p class="text-xs text-gray-500">Published A350 state with guarded, readback-confirmed controls and voice commands.</p>
+        <p class="text-xs text-gray-500">Live cockpit controls and aircraft status.</p>
       </div>
       <span class="text-[10px] uppercase tracking-widest text-gray-500">{{ sourceStatus }}</span>
     </div>
@@ -459,6 +438,8 @@ function scrollToSection(sectionId) {
         {{ section.label }}
       </button>
     </nav>
+
+    <slot name="presets" />
 
     <section id="a350-fcu" class="aircraft-mobile-navigable-section scroll-mt-20" tabindex="-1">
       <div class="dashboard-section-kicker">Flight Control Unit</div>
@@ -498,9 +479,9 @@ function scrollToSection(sectionId) {
         </form>
       </div>
 
-      <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div class="mt-2 grid grid-cols-2 gap-2" :class="visibleFlightControls.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3 xl:grid-cols-6'">
         <div
-          v-for="control in flightControls"
+          v-for="control in visibleFlightControls"
           :key="control.groupId"
           class="rounded-lg border border-surface-200 bg-surface-50 p-2.5"
           :data-aircraft-control-group="control.groupId"
@@ -532,6 +513,8 @@ function scrollToSection(sectionId) {
       </p>
     </section>
 
+    <slot name="avionics" />
+
     <section
       v-for="section in controlSections"
       :id="section.id"
@@ -541,17 +524,6 @@ function scrollToSection(sectionId) {
     >
       <div class="flex items-center justify-between gap-3">
         <div class="dashboard-section-kicker">{{ section.kicker }}</div>
-        <button
-          v-if="section.id === 'a350-exterior'"
-          type="button"
-          class="min-h-9 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 text-[9px] font-semibold uppercase tracking-wider text-cyan-100 hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-45"
-          data-aircraft-command="configuration.lights.takeoff"
-          :disabled="takeoffLightsDisabled()"
-          :title="takeoffLightsDisabledReason() || undefined"
-          @click="requestTakeoffLights"
-        >
-          Takeoff lights
-        </button>
       </div>
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" :class="section.columns">
         <div

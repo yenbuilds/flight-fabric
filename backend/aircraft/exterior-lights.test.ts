@@ -70,27 +70,30 @@ for (const id of profiles) test(`${id}: individual light groups use complete fix
   if (!result.ok) assert.equal(result.completedStepCount, 1);
 });
 
-test('PMDG 737 landing commands operate fixed and retractable pairs with the correct SDK detents', async () => {
-  loader.setActiveProfile('pmdg-737'); const config = loader.getLvarConfig().aircraftSpecific;
-  const profile = loader.loadProfile('bundled/msfs/pmdg-737');
+for (const id of ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900']) test(`${id}: landing and takeoff commands reach the full ON and OFF switch positions`, async () => {
+  loader.setActiveProfile(id); const config = loader.getLvarConfig().aircraftSpecific;
+  const profile = loader.loadProfile(`bundled/msfs/${id}`);
   const provider = new SimConnectTelemetryProvider();
   provider._getActiveAircraftIntegrationConfig = () => config;
   provider._getAircraftIntegrationTransportCapabilities = () => ({ sdk: true });
   const snapshot = { adapterId: 'clientdata-manifest', status: 'running', snapshotSequence: 1,
     updatedAt: new Date().toISOString(), normalized: { lights: {
       landing: { retractableLeft: 'retract', retractableRight: 'retract', left: false, right: false },
-      turnoff: { left: false, right: false }, taxi: false,
+      turnoff: { left: false, right: false }, taxi: false, position: 'off',
     } } };
   provider._sdkBridge = { getSnapshot: () => snapshot, isDataConnected: () => true };
   const paths = { '#69743': ['landing', 'retractableLeft'], '#69744': ['landing', 'retractableRight'],
     '#69745': ['landing', 'left'], '#69746': ['landing', 'right'], '#69747': ['turnoff', 'left'],
-    '#69748': ['turnoff', 'right'], '#69749': ['taxi'] };
+    '#69748': ['turnoff', 'right'], '#69749': ['taxi'], '#69755': ['position'] };
+  const fixedPositions = { left: 0, right: 0 };
   const writes = [];
   const bridge = { sendSdkEvent: async (event, value) => {
     assert.ok(paths[event], event); writes.push([event, value]);
     const path = paths[event];
-    if (path.length === 1) snapshot.normalized.lights.taxi = Boolean(value);
+    if (event === '#69755') snapshot.normalized.lights.position = ['steady', 'off', 'strobe-steady'][value];
+    else if (path.length === 1) snapshot.normalized.lights.taxi = Boolean(value);
     else snapshot.normalized.lights[path[0]][path[1]] = path[1].startsWith('retractable') ? ['retract', 'extend', 'on'][value] : Boolean(value);
+    if (event === '#69745' || event === '#69746') fixedPositions[path[1]] = value;
     snapshot.snapshotSequence++; return { ok: true };
   } };
   const runner = { aircraftControlCapabilities: capabilities, executeAircraftControlAction: (_action, options) =>
@@ -98,17 +101,53 @@ test('PMDG 737 landing commands operate fixed and retractable pairs with the cor
   const options = { profile, capabilities, profileRevision: config.profileRevision };
   const landingOn = await executeAircraftCommand(runner, request('landing', true), options);
   assert.equal(landingOn.ok, true, JSON.stringify(landingOn));
-  assert.deepEqual(writes, [['#69743', 2], ['#69745', 1], ['#69744', 2], ['#69746', 1]]);
+  assert.deepEqual(writes, [['#69743', 2], ['#69745', 2], ['#69744', 2], ['#69746', 2]]);
+  assert.deepEqual(fixedPositions, { left: 2, right: 2 }, 'fixed switches must reach full ON, not the centre position');
   assert.deepEqual(snapshot.normalized.lights.turnoff, { left: false, right: false });
   assert.equal(snapshot.normalized.lights.taxi, false);
   // Advance the existing per-switch cooldown without changing control semantics.
   provider._aircraftIntegrationActionLastAttemptAt.clear(); writes.length = 0;
   assert.equal((await executeAircraftCommand(runner, request('landing', false), options)).ok, true);
-  assert.deepEqual(writes, [['#69743', 1], ['#69745', 0], ['#69744', 1], ['#69746', 0]]);
+  assert.deepEqual(writes, [['#69743', 0], ['#69745', 0], ['#69744', 0], ['#69746', 0]]);
+  assert.deepEqual(snapshot.normalized.lights.landing,
+    { retractableLeft: 'retract', retractableRight: 'retract', left: false, right: false });
+  provider._aircraftIntegrationActionLastAttemptAt.clear(); writes.length = 0;
+  assert.equal((await executeAircraftCommand(runner, request('landing', false), options)).ok, true);
+  assert.deepEqual(writes, [], 'repeating OFF must leave retracted lights alone');
+
+  // Each side must stow an extended light while leaving the opposite side alone.
+  for (const [side, other] of [['Left', 'Right'], ['Right', 'Left']]) {
+    Object.assign(snapshot.normalized.lights.landing,
+      { retractableLeft: 'extend', retractableRight: 'extend', left: true, right: true });
+    snapshot.snapshotSequence++;
+    provider._aircraftIntegrationActionLastAttemptAt.clear(); writes.length = 0;
+    assert.equal((await executeAircraftCommand(runner, request(`landing${side}`, false), options)).ok, true);
+    assert.deepEqual(writes, side === 'Left' ? [['#69743', 0], ['#69745', 0]] : [['#69744', 0], ['#69746', 0]]);
+    assert.equal(snapshot.normalized.lights.landing[`retractable${side}`], 'retract');
+    assert.equal(snapshot.normalized.lights.landing[side.toLowerCase()], false);
+    assert.equal(snapshot.normalized.lights.landing[`retractable${other}`], 'extend');
+    assert.equal(snapshot.normalized.lights.landing[other.toLowerCase()], true);
+    assert.deepEqual(snapshot.normalized.lights.turnoff, { left: false, right: false });
+    assert.equal(snapshot.normalized.lights.taxi, false);
+  }
   writes.length = 0;
   assert.equal((await executeAircraftCommand(runner, request('runwayTurnoff', true), options)).ok, true);
   assert.deepEqual(writes, [['#69747', 1], ['#69748', 1]]);
   assert.equal(snapshot.normalized.lights.taxi, false);
+
+  // A boolean SDK readback cannot distinguish a centre position from full ON.
+  // Start the takeoff preset with one fixed switch at centre and the other OFF.
+  Object.assign(snapshot.normalized.lights.landing,
+    { retractableLeft: 'on', retractableRight: 'on', left: true, right: false });
+  Object.assign(fixedPositions, { left: 1, right: 0 });
+  snapshot.snapshotSequence++;
+  provider._aircraftIntegrationActionLastAttemptAt.clear(); writes.length = 0;
+  assert.equal((await executeAircraftCommand(runner, { commandId: 'configuration.lights.takeoff', input: {} }, options)).ok, true);
+  assert.deepEqual(writes, [['#69745', 2], ['#69746', 2], ['#69749', 1], ['#69755', 2]]);
+  assert.deepEqual(fixedPositions, { left: 2, right: 2 });
+  provider._aircraftIntegrationActionLastAttemptAt.clear(); writes.length = 0;
+  assert.equal((await executeAircraftCommand(runner, { commandId: 'configuration.lights.takeoff', input: {} }, options)).ok, true);
+  assert.deepEqual(writes, [['#69745', 2], ['#69746', 2]], 'repeating the preset sets fixed ON directly without toggling');
 });
 
 for (const id of ['fbw-a380x', 'headwind-a330']) test(`${id}: indexed taxi and turnoff lights stay independent through the real provider`, async () => {

@@ -218,7 +218,10 @@ function isActionPending(groupId) {
         :get-command="getCommand"
         :is-action-pending="isActionPending"
         :profile-key="aircraftSpecific.activeProfileKey || ''"
-      />
+      >
+        <template #presets><slot name="presets" /></template>
+        <template #avionics><slot name="avionics" /></template>
+      </component>
       <template #fallback>
         <div class="p-4 text-sm text-gray-500">Loading aircraft panel...</div>
       </template>

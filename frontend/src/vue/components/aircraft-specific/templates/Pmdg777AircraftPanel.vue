@@ -2,10 +2,10 @@
 import {
   computed,
   ref,
+  useSlots,
   watch,
 } from 'vue';
 import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
-import TakeoffLightsPreset from '../TakeoffLightsPreset.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
 import { buildPmdg777CommandInput } from '../pmdg777-command-routing.js';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
@@ -25,6 +25,7 @@ const props = defineProps({
 });
 
 const aircraftControls = useAircraftControlsStore();
+const slots = useSlots();
 const unavailableFields = computed(() => new Set(props.unavailable));
 const mcpDrafts = ref({});
 const directDrafts = ref({});
@@ -486,9 +487,17 @@ const controlSections = [
   },
 ];
 
+const sharedAvionicsCommands = {
+  'efis.captain.range': 'navigation.captain.range',
+  'efis.firstOfficer.range': 'navigation.firstOfficer.range',
+  'efis.captain.minimums': 'approach.captain.minimumsMode',
+  'efis.firstOfficer.minimums': 'approach.firstOfficer.minimumsMode',
+};
 const visibleControlSections = computed(() => controlSections.map((section) => ({
   ...section,
-  controls: section.controls.filter((control) => !control.freighterOnly || variant.value === '777F'),
+  controls: section.controls.filter((control) => (!control.freighterOnly || variant.value === '777F')
+    && !(slots.avionics && sharedAvionicsCommands[control.groupId]
+      && props.isCommandSupported(sharedAvionicsCommands[control.groupId]))),
 })).filter((section) => section.controls.length > 0));
 
 const numericControlSections = [
@@ -840,6 +849,8 @@ function indicatorClass(id, tone = 'positive') {
       :memory-key="profileKey || 'bundled/msfs/pmdg-777'"
     />
 
+    <slot name="presets" />
+
     <div
       id="pmdg-777-section-mcp"
       class="pmdg777-mobile-navigable-section"
@@ -894,6 +905,8 @@ function indicatorClass(id, tone = 'positive') {
       <p class="mt-2 text-[10px] leading-relaxed text-gray-500">The official 777 SDK does not expose 737-style NAV frequency or course-selector controls, so those remain intentionally unavailable.</p>
     </div>
 
+    <slot name="avionics" />
+
     <div
       id="pmdg-777-section-lights"
       class="pmdg777-mobile-navigable-section space-y-5"
@@ -901,7 +914,6 @@ function indicatorClass(id, tone = 'positive') {
     >
       <div>
         <div class="dashboard-section-kicker">Exterior Lights</div>
-        <TakeoffLightsPreset :source-status="sourceStatus === 'connected' ? sdkSourceStatus : sourceStatus" />
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
           <div v-for="control in exteriorControls" :key="control.groupId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.groupId">
             <div class="mb-2 flex items-center justify-between text-[10px] font-semibold text-gray-200"><span>{{ control.title }}</span><span class="text-[9px] text-gray-500">{{ valueText(control.fieldId) }}</span></div>

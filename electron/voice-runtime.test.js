@@ -64,7 +64,9 @@ test('tracked aviation hotwords pass integrity verification', async () => {
     assert.match(hotwords, new RegExp(`^${digit} :`, 'm'));
   }
   for (const phrase of ['START A P U', 'START THE A P U', 'A P U START', 'START A P YOU',
-    'Q N H', 'H P A', 'L S', 'N D', 'V H F', 'S T D', 'CAPTAIN L S', 'CAPTAIN Q N H']) {
+    'Q N H', 'H P A', 'L S', 'N D', 'V H F', 'S T D', 'CAPTAIN L S', 'CAPTAIN Q N H',
+    'SET NAV RADIOS', 'SET BOTH NAV RADIOS', 'TUNE NAV RADIOS', 'NAV RADIOS',
+    'DECIMAL', 'POINT', 'NINER']) {
     assert.ok(hotwords.split('\n').some(line => line.startsWith(`${phrase} :`)), phrase);
   }
 });
@@ -445,6 +447,57 @@ test('each push-to-talk utterance uses a fresh Zipformer stream', () => {
   assert.match(workerSource, /FINAL_SILENCE_SECONDS/);
   assert.match(workerSource, /hotwordsFile: hotwordsFile\(\)/);
   assert.doesNotMatch(workerSource, /recognizer\.reset\(|reusableStream/);
+});
+
+test('native Zipformer recognizes NAV 109.50 with decimal and point and keeps silence empty', {
+  timeout: 30_000,
+}, async (t) => {
+  if (process.platform !== 'win32' || process.arch !== 'x64') {
+    t.skip('The bundled native recognizer targets Windows x64.');
+    return;
+  }
+  const modelDir = resolveVoiceModelDir({ appDir: __dirname, isPackaged: false });
+  if (!ZIPFORMER_MODEL.files.every((file) => fs.existsSync(path.join(modelDir, file.name)))) {
+    t.skip('Provision the pinned voice model to run acoustic regressions.');
+    return;
+  }
+  try { require.resolve('sherpa-onnx-node'); require.resolve('sherpa-onnx-win-x64'); } catch {
+    t.skip('Install Electron dependencies to run acoustic regressions.');
+    return;
+  }
+  const { readWave } = require('sherpa-onnx-node');
+  const engine = createVoiceSpeechEngine();
+  t.after(() => engine.shutdown());
+  await engine.initialize();
+  const fixtures = ['decimal', 'point'].map((separator) => ({
+    ...readWave(path.join(__dirname, '..', 'tests', 'fixtures', 'voice', `nav-109-${separator}-five.wav`)),
+    expected: `SET NAV RADIOS ONE ZERO NINE ${separator.toUpperCase()} FIVE`,
+  }));
+  fixtures.push({ samples: new Float32Array(1600), sampleRate: 16000, expected: '' });
+  for (const { samples, sampleRate, expected } of fixtures) {
+    const { sessionId } = engine.start();
+    let unsubscribe;
+    let timer;
+    const final = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Native recognition did not finalize')), 10_000);
+      unsubscribe = engine.onEvent((event) => {
+        if (event.sessionId !== sessionId) return;
+        if (event.type === 'error') reject(new Error(event.message));
+        if (event.type === 'final') resolve(event);
+      });
+      try {
+        // Each fixture fits inside the engine's four-second audio queue.
+        for (let offset = 0, sequence = 0; offset < samples.length; offset += 3200, sequence++) {
+          engine.pushAudio({ sessionId, sequence, sampleRate, samples: samples.slice(offset, offset + 3200) });
+        }
+        assert.equal(engine.finish(sessionId), true);
+      } catch (error) { reject(error); }
+    });
+    try { assert.equal((await final).text, expected); } finally {
+      clearTimeout(timer);
+      unsubscribe();
+    }
+  }
 });
 
 test('fatal worker initialization errors reject immediately instead of waiting for timeout', async () => {

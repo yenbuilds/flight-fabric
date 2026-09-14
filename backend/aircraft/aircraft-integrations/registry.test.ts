@@ -869,6 +869,7 @@ test('iniBuilds TriStar adapter exposes its bounded read/write contract only for
         cooldownMs: 750,
         groupId: `inibuildsTristar.lights.${lightId}`,
         retry: 'never',
+        ...(lightId === 'logo' ? {} : { skipIfSatisfied: false }),
       });
       assert.deepEqual(action?.routes, [{
         id: `inibuildsTristar.${actionId}.simconnectSequence`,

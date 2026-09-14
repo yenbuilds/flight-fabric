@@ -7,15 +7,10 @@ import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { AIRCRAFT_PAGE_SECTIONS } from './aircraft-specific/aircraft-page-sections.js';
 import AircraftIntegrationCheatSheetModal from './AircraftIntegrationCheatSheetModal.vue';
 import AircraftPageSearch from './AircraftPageSearch.vue';
-import AircraftQuickActions from './AircraftQuickActions.vue';
-import CockpitLightingPresets from './CockpitLightingPresets.vue';
+import AircraftPresets from './AircraftPresets.vue';
+import AircraftAvionics from './AircraftAvionics.vue';
 import ExteriorLightControls from './ExteriorLightControls.vue';
-import AircraftCommandBrowser from './AircraftCommandBrowser.vue';
-import ComRadios from './ComRadios.vue';
-import BaroControls from './BaroControls.vue';
-import TransponderControls from './TransponderControls.vue';
-import MinimumsControls from './MinimumsControls.vue';
-import EfisControls from './EfisControls.vue';
+import AircraftControlsModal from './AircraftControlsModal.vue';
 import AircraftSpecificSection from './aircraft-specific/AircraftSpecificSection.vue';
 import AircraftVoiceControlModal from './AircraftVoiceControlModal.vue';
 import AutopilotControlsTab from './AutopilotControlsTab.vue';
@@ -23,16 +18,21 @@ import AutopilotControlsTab from './AutopilotControlsTab.vue';
 const aircraftSpecific = useAircraftSpecificStore();
 const voice = useVoiceControlStore();
 const controls = useAircraftControlsStore();
+const avionicsPlacement = {
+  'pmdg-737': 'radios', 'pmdg-777': 'mcp', 'fenix-a32x': 'fcu',
+  'fbw-a32nx': 'fcu', 'fbw-a380x': 'fcu-autopilot', 'inibuilds-a350': 'a350-fcu',
+};
+const hasStructuredLayout = computed(() => hasResolvedAircraftTemplate.value
+  && Object.hasOwn(avionicsPlacement, aircraftSpecific.templateId));
 const pageSections = computed(() => [
-  { id: 'page-com', label: 'COM', title: 'COM radios', commands: ['radios.com1.setStandby', 'radios.com2.setStandby'] },
-  { id: 'page-baro', label: 'Altimeters', title: 'Altimeters', commands: ['baro.both.qnhHpa'] },
-  { id: 'page-transponder', label: 'Transponder', title: 'Transponder', commands: ['surveillance.squawk.set', 'surveillance.ident.activate'] },
-  { id: 'page-minimums', label: 'Minimums', title: 'Approach minimums', commands: ['approach.minimums.baro'] },
-  ...(aircraftSpecific.templateId === 'fbw-a32nx' ? [] : [
-    { id: 'page-efis', label: 'EFIS', title: 'EFIS & approach', commands: ['navigation.captain.range', 'navigation.firstOfficer.range'] },
-  ]),
-].filter((section) => section.commands.some((id) => controls.isAircraftCommandSupported(id)))
-  .map(({ commands, ...section }) => ({ ...section, targetId: `aircraft-${section.id}` })));
+  ...(Object.values(controls.aircraftCommandCatalogue.commands || {}).some(command => command.kind === 'preset')
+    ? [{ id: 'page-presets', label: 'Presets', title: 'Presets', targetId: 'aircraft-page-presets' }] : []),
+  ...(['radios.com1.setStandby', 'radios.com2.setStandby', 'baro.both.qnhHpa',
+    'surveillance.squawk.set', 'surveillance.ident.activate', 'approach.minimums.baro',
+    'navigation.captain.range', 'navigation.firstOfficer.range'].some(id => controls.isAircraftCommandSupported(id))
+    ? [{ id: 'page-avionics', label: 'Radios / approach', title: 'Radios & approach',
+      targetId: 'aircraft-page-avionics', after: avionicsPlacement[aircraftSpecific.templateId] }] : []),
+]);
 provide(AIRCRAFT_PAGE_SECTIONS, pageSections);
 const searchableContent = ref(null);
 const integrationGuideButton = ref(null);
@@ -42,6 +42,12 @@ const integrationCheatSheetFilter = ref('all');
 const integrationGuideReturnTarget = ref(null);
 const voiceControlOpen = ref(false);
 const searchExpanded = ref(false);
+const controlsModalOpen = ref(false);
+const controlsButton = ref(null);
+function closeControlsModal() {
+  controlsModalOpen.value = false;
+  nextTick(() => controlsButton.value?.focus?.({ preventScroll: true }));
+}
 
 // A trusted profile template owns the Aircraft page even while its live data is
 // awaiting, stale, or disconnected. Falling back based on transient source
@@ -174,21 +180,19 @@ function openVoiceCommandGuide() {
             :hide-on-mobile="hasResolvedAircraftTemplate && usesAircraftMobileRibbon"
             @expanded-change="searchExpanded = $event"
           />
-        </div>
-        <AircraftQuickActions class="aircraft-page-presets" />
-        <ExteriorLightControls />
-        <AircraftCommandBrowser />
-        <CockpitLightingPresets v-if="aircraftSpecific.templateId !== 'pmdg-737'" />
-        <ComRadios id="aircraft-page-com" class="aircraft-mobile-navigable-section" tabindex="-1" />
-        <BaroControls id="aircraft-page-baro" class="aircraft-mobile-navigable-section" tabindex="-1" />
-        <div class="aircraft-page-control-grid">
-          <TransponderControls id="aircraft-page-transponder" class="aircraft-mobile-navigable-section" tabindex="-1" />
-          <MinimumsControls id="aircraft-page-minimums" class="aircraft-mobile-navigable-section" tabindex="-1" />
-          <EfisControls id="aircraft-page-efis" class="aircraft-mobile-navigable-section" tabindex="-1" />
+          <button ref="controlsButton" type="button" class="aircraft-integration-guide-button ff-touch-target"
+            aria-haspopup="dialog" aria-controls="aircraft-controls-modal" :aria-expanded="controlsModalOpen"
+            data-aircraft-controls-trigger @click="controlsModalOpen = true">Control library</button>
         </div>
       </div>
-      <AircraftSpecificSection v-if="hasResolvedAircraftTemplate" />
+      <AircraftPresets v-if="!hasStructuredLayout" class="mb-5" />
+      <AircraftSpecificSection v-if="hasResolvedAircraftTemplate">
+        <template #presets><AircraftPresets /></template>
+        <template #avionics><AircraftAvionics /></template>
+      </AircraftSpecificSection>
       <AutopilotControlsTab v-else />
+      <AircraftAvionics v-if="!hasStructuredLayout" class="mt-5" />
+      <ExteriorLightControls v-if="!hasResolvedAircraftTemplate" class="mt-5" />
     </div>
     <AircraftIntegrationCheatSheetModal
       :open="integrationCheatSheetOpen"
@@ -200,6 +204,7 @@ function openVoiceCommandGuide() {
       @close="closeVoiceControl"
       @open-guide="openVoiceCommandGuide"
     />
+    <AircraftControlsModal :open="controlsModalOpen" @close="closeControlsModal" />
   </div>
 </template>
 
@@ -210,17 +215,6 @@ function openVoiceCommandGuide() {
   align-items: start;
   gap: 0.75rem;
   margin-bottom: 1rem;
-}
-
-.aircraft-page-control-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
-  align-items: start;
-  gap: 0.75rem;
-}
-
-.aircraft-page-control-grid:empty {
-  display: none;
 }
 
 .aircraft-page-tool-actions {
@@ -331,11 +325,6 @@ function openVoiceCommandGuide() {
 
 @keyframes voice-launcher-pulse {
   50% { opacity: 0.35; }
-}
-
-.aircraft-page-presets {
-  width: 100%;
-  min-width: 0;
 }
 
 @media (max-width: 1100px) {

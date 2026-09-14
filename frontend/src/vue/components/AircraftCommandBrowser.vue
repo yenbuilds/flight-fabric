@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { aircraftCommandInput, aircraftCommandValueLabel } from '../../aircraft/command-input.js';
 
+defineProps({ embedded: { type: Boolean, default: false } });
 const controls = useAircraftControlsStore();
 const searchInput = ref(null);
 const search = ref(''), group = ref(''), sending = ref(false), error = ref('');
@@ -21,7 +22,7 @@ const groupNames = { flightGuidance: 'Autopilot & flight guidance', surfaces: 'G
   navigation: 'Navigation displays', radios: 'Radios', surveillance: 'Transponder',
   approach: 'Approach', baro: 'Altimeters', lights: 'Exterior lights', cabin: 'Cabin signs',
   visibility: 'Wipers', systems: 'Aircraft systems', propulsion: 'Thrust' };
-// Presets have dedicated controls above. Every other advertised command has a
+// Presets have dedicated controls on the aircraft page. Every other advertised command has a
 // usable editor here, even when a family's handcrafted panel lacks that editor.
 const commands = computed(() => Object.values(controls.aircraftCommandCatalogue.commands || {})
   .filter(command => command.kind !== 'preset')
@@ -57,9 +58,8 @@ async function apply(command, input = value(command)) {
 </script>
 
 <template>
-  <details v-if="commands.length" class="ff-panel rounded-xl border border-surface-200 bg-surface-100 p-3 sm:p-4" data-aircraft-command-browser>
-    <summary class="min-h-12 cursor-pointer text-sm font-semibold text-gray-100">All aircraft controls <span class="font-normal text-gray-400">({{ commands.length }})</span></summary>
-    <p class="mb-3 text-xs leading-relaxed text-gray-400">Search the controls available for this aircraft. Each control shows its voice command too.</p>
+  <component :is="embedded ? 'div' : 'details'" v-if="commands.length" :class="embedded ? '' : 'ff-panel rounded-xl border border-surface-200 bg-surface-100 p-3 sm:p-4'" data-aircraft-command-browser>
+    <summary v-if="!embedded" class="min-h-12 cursor-pointer text-sm font-semibold text-gray-100">Aircraft controls <span class="font-normal text-gray-400">({{ commands.length }})</span></summary>
     <div class="mb-3 flex flex-col gap-2 sm:flex-row">
       <input ref="searchInput" v-model="search" type="search" aria-label="Search aircraft controls" placeholder="Search controls or voice commands"
         class="min-h-12 min-w-0 flex-1 rounded border border-surface-300 bg-surface-50 px-3 text-base text-gray-100 sm:text-sm" />
@@ -107,7 +107,7 @@ async function apply(command, input = value(command)) {
         <p v-if="phrase(command)" class="aircraft-command-voice-hint">Say “{{ phrase(command).replace('{value}', '[setting]') }}”</p>
       </form>
     </div>
-  </details>
+  </component>
 </template>
 
 <style scoped>

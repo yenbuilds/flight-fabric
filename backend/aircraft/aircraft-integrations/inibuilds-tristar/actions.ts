@@ -14,6 +14,7 @@ function fixedEventAction(params: {
   expectedValue: boolean;
   fieldId: string;
   groupId: string;
+  skipIfSatisfied?: boolean;
 }): AircraftIntegrationAction {
   return {
     id: params.actionId,
@@ -21,6 +22,7 @@ function fixedEventAction(params: {
       cooldownMs: LIGHT_COOLDOWN_MS,
       groupId: `inibuildsTristar.${params.groupId}`,
       retry: 'never',
+      ...(params.skipIfSatisfied === false ? { skipIfSatisfied: false } : {}),
     },
     routes: [{
       id: `inibuildsTristar.${params.actionId}.simconnectSequence`,
@@ -116,6 +118,9 @@ for (const light of [
       expectedValue: state.expectedValue,
       fieldId: light.fieldId,
       groupId: `lights.${light.id}`,
+      // Standard output cannot prove every cockpit switch is set. Reapply
+      // these fixed ON/OFF events; the logo toggle keeps its no-op guard.
+      skipIfSatisfied: false,
     });
   }
 }

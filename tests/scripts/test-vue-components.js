@@ -2679,8 +2679,8 @@ async function main() {
       'Aircraft presets should never compete with the intrinsic-width utility toolbar in one row',
     );
     assert.match(
-      shellSource,
-      /\.aircraft-page-presets\s*\{[\s\S]*?width:\s*100%;/,
+      fs.readFileSync(path.join(frontendRoot, 'src/vue/components/AircraftPresets.vue'), 'utf8'),
+      /\.aircraft-presets\s*\{[\s\S]*?width:\s*100%;/,
       'Aircraft presets should own the full content row at every viewport width',
     );
     assert.match(
@@ -3083,6 +3083,12 @@ async function main() {
           specific.templateId = profile.integration?.aircraftSpecific?.adapter || '';
           specific.sourceStatus = 'connected';
           specific.sourceStatuses = { sdk: 'connected' };
+          specific.activeProfileKey = profileKey;
+          specific.activeProfileRevision = 1;
+          specific.receivedAt = Date.now();
+          specific.updatedAt = new Date().toISOString();
+          specific.values = { 'lights.landing': false, 'lights.noseMode': 'off', 'lights.strobeMode': 'off', 'lights.navMode': 'off' };
+          specific.valueUpdatedAt = Object.fromEntries(Object.keys(specific.values).map(id => [id, specific.updatedAt]));
         });
       assert.equal(html.includes('data-aircraft-preset="configuration.lights.takeoff"'), supported, profileKey);
       if (supported) {
@@ -3521,12 +3527,12 @@ async function main() {
     assert.match(pmdgSource, /focus:\s*false,\s*remember:\s*false/, 'restoring a section must not steal focus or rewrite memory');
     assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');
     assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
-    assert.match(html, />1 of 8 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
+    assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
     assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'the next large target should name its permanent-section destination');
     assert.deepEqual(
       [...html.matchAll(/data-pmdg-737-section="([^"]+)"/g)].map((match) => match[1]),
-      ['mcp', 'radios', 'exterior', 'cockpit-lighting', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
-      'the ribbon should retain only the eight permanent PMDG aircraft sections',
+      ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
+      'the ribbon should retain the seven permanent cockpit sections',
     );
     assert.match(html, /data-pmdg-hot-group-launcher="initial-power"/, 'Initial power should be exposed as a compact hot-group launcher');
     const launcherStart = html.indexOf('data-pmdg-hot-group-launcher="initial-power"');
@@ -3552,11 +3558,7 @@ async function main() {
     assert.match(html, /data-pmdg-nav-both-control/, 'the PMDG radio section should expose coordinated active-frequency tuning');
     assert.match(html, /data-aircraft-command="radios\.nav\.setBothActive"/, 'the paired radio control should use the canonical command path');
     assert.match(html, /set nav radios one one zero decimal three/, 'the paired radio control should advertise its exact voice form');
-    assert.match(html, /data-pmdg-cockpit-lighting-control/, 'the PMDG page should expose one coordinated cockpit-lighting control');
-    assert.match(html, /data-aircraft-command="configuration\.lighting\.cockpit"/, 'cockpit lighting should use the canonical parameterized preset path');
-    assert.match(html, /set cockpit lighting fifty percent/, 'the cockpit-lighting control should advertise its exact voice form');
-    assert.match(html, /16 DIMMERS/, 'the cockpit-lighting section should disclose its reviewed control scope');
-    assert.match(html, /Discrete dome and spot lights/, 'the cockpit-lighting section should name the controls it intentionally leaves unchanged');
+    assert.doesNotMatch(html, /data-pmdg-cockpit-lighting-control/, "The template must not repeat the shared brightness presets");
     assert.match(html, /data-pmdg-location="aft-overhead">AFT OVERHEAD</, 'IRS should expose its aft-overhead location');
     assert.doesNotMatch(html, /data-pmdg-location="main-panel-overhead"/, 'mixed flight-control locations should not be presented as one cockpit panel');
     assert.doesNotMatch(html, /data-pmdg-location="overhead-glareshield"/, 'overhead system controls should not be presented as glareshield controls');
@@ -3687,8 +3689,11 @@ async function main() {
     for (const family of ['737', '777']) {
       for (const [overall, sdk] of [['connected', 'stale'], ['connected', 'disabled'], ['paused', 'connected'], ['connected', 'connected']]) {
         const { html } = await renderComponent(
-          path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', `Pmdg${family}AircraftPanel.vue`),
-          ({ useAircraftControlsStore }) => {
+          path.join('src', 'vue', 'components', 'AircraftPresets.vue'),
+          ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+            const specific = useAircraftSpecificStore();
+            specific.templateId = `pmdg-${family}`;
+            specific.sourceStatus = overall; specific.sourceStatuses = { sdk };
             const controls = useAircraftControlsStore();
             controls.setAvailability({ enabled: true });
             controls.applyControlCapabilities({ aircraftCommands: {
@@ -3698,10 +3703,39 @@ async function main() {
           },
           { props: { sourceStatus: overall, sourceStatuses: { sdk, simvar: 'connected' } } },
         );
-        const button = html.match(/<button\b(?=[^>]*aria-label="Set takeoff lights")[^>]*>/)?.[0] || '';
+        const button = html.match(/<button\b[^>]*>/)?.[0] || '';
         assert.ok(button, `${family} exposes the takeoff preset`);
         assert.equal(/\sdisabled(?:\s|=|>)/.test(button), overall !== 'connected' || sdk !== 'connected', `${family}: overall=${overall}, SDK=${sdk}`);
       }
+    }
+  });
+
+  await test('grouped A350 takeoff preset requires fresh light readings from the current profile', async () => {
+    for (const state of ['ready', 'missing', 'stale', 'disconnected', 'profile-mismatch', 'revision-mismatch']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftPresets.vue'),
+        ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+          const controls = useAircraftControlsStore();
+          controls.setAvailability({ enabled: true });
+          controls.applyControlCapabilities({ aircraftCommands: {
+            profileKey: 'bundled/msfs/inibuilds-a350-900', profileRevision: 2,
+            commands: [{ id: 'configuration.lights.takeoff', label: 'Takeoff lights', kind: 'preset', input: { kind: 'none' } }],
+          } });
+          const specific = useAircraftSpecificStore();
+          specific.templateId = 'inibuilds-a350';
+          specific.activeProfileKey = state === 'profile-mismatch' ? 'bundled/msfs/inibuilds-a350-1000' : 'bundled/msfs/inibuilds-a350-900';
+          specific.activeProfileRevision = state === 'revision-mismatch' ? 1 : 2;
+          specific.sourceStatus = state === 'disconnected' ? 'disconnected' : 'connected';
+          specific.receivedAt = Date.now();
+          specific.updatedAt = new Date().toISOString();
+          specific.values = { 'lights.landing': false, 'lights.noseMode': 'off', 'lights.strobeMode': 'off', 'lights.navMode': 'off' };
+          specific.valueUpdatedAt = Object.fromEntries(Object.keys(specific.values).map(id => [id, specific.updatedAt]));
+          if (state === 'missing') delete specific.values['lights.noseMode'];
+          if (state === 'stale') specific.valueUpdatedAt['lights.noseMode'] = new Date(Date.now() - 60000).toISOString();
+        });
+      const button = html.match(/<button\b[^>]*>/)?.[0];
+      assert.ok(button, `${state}: takeoff preset remains discoverable`);
+      assert.equal(/\sdisabled(?:\s|=|>)/.test(button), state !== 'ready', `${state}: current live readings required`);
+      assert.match(html, /data-aircraft-presets-section/);
     }
   });
 
@@ -3747,7 +3781,6 @@ async function main() {
           /mcpDrafts\.value = \{\}/,
           /bothCourseDraft\.value = ''/,
           /bothNavFrequencyDraft\.value = ''/,
-          /cockpitLightingDraft\.value = '50'/,
         ],
       },
       {
@@ -5896,7 +5929,6 @@ async function main() {
       'flightGuidance.heading.set',
       'flightGuidance.altitude.set',
       'flightGuidance.verticalSpeed.set',
-      'configuration.lights.takeoff',
       'surfaces.gear.set',
       'surfaces.flaps.adjust',
     ]) {
@@ -5930,11 +5962,7 @@ async function main() {
     assert.match(html, /data-aircraft-action="systems\.apuMaster\.on"[^>]*disabled/, 'missing capability and readback should disable unrelated controls');
     assert.match(html, /Live readback unavailable; control disabled\./, 'the fail-closed state should be explained');
     assert.match(html, /aria-label="SPD target"[^>]*disabled/, 'FCU targets must fail closed without a live value and catalogue route');
-    assert.match(
-      html,
-      /data-aircraft-command="configuration\.lights\.takeoff"[^>]*disabled/,
-      'takeoff-light preset must fail closed when any required light readback is unavailable',
-    );
+    assert.doesNotMatch(html, /data-aircraft-command="configuration\.lights\.takeoff"/, "Takeoff lights belong to shared presets");
 
     const { html: disconnectedHtml } = await renderComponent(
       path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'IniBuildsA350AircraftPanel.vue'),
@@ -5953,11 +5981,7 @@ async function main() {
         },
       },
     );
-    assert.match(
-      disconnectedHtml,
-      /data-aircraft-command="configuration\.lights\.takeoff"[^>]*disabled/,
-      'takeoff-light preset must remain disabled while the live aircraft source is disconnected',
-    );
+    assert.doesNotMatch(disconnectedHtml, /data-aircraft-command="configuration\.lights\.takeoff"/, "Takeoff lights belong to shared presets");
   });
 
   await test('iniBuilds L-1011-500 template renders monitoring, documented selector steps, and momentary AFCS keys', async () => {
@@ -6587,7 +6611,7 @@ async function main() {
 
     assert.match(html, /data-aircraft-template="fenix-a32x"/);
     assert.match(html, /data-fenix-variant="a320"/);
-    assert.match(html, /Fenix A320 compatibility/);
+    assert.match(html, /Fenix A320/);
     assert.ok(
       html.indexOf('data-fenix-section="virtual-throttle"') < html.indexOf('data-fenix-section="flight-guidance-fcu"'),
       'the high-value virtual throttle should lead the Fenix controls',

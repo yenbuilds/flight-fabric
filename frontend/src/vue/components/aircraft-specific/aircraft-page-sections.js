@@ -1,14 +1,19 @@
 import { computed, inject, unref } from 'vue';
 
-// Shell-owned cards precede the aircraft template in both DOM and navigation order.
+// Shared cards join the template at their actual position in the page.
 export const AIRCRAFT_PAGE_SECTIONS = Symbol('aircraft-page-sections');
 
 export function useAircraftPageSections(templateSections) {
   const pageSections = inject(AIRCRAFT_PAGE_SECTIONS, []);
-  return computed(() => [
-    ...unref(pageSections),
-    ...(typeof templateSections === 'function' ? templateSections() : unref(templateSections)),
-  ]);
+  return computed(() => {
+    const shared = unref(pageSections);
+    const native = typeof templateSections === 'function' ? templateSections() : unref(templateSections);
+    return [
+      ...shared.filter(section => !section.after),
+      ...native.flatMap(section => [section, ...shared.filter(card => card.after === section.id)]),
+      ...shared.filter(card => card.after && !native.some(section => section.id === card.after)),
+    ];
+  });
 }
 
 export function aircraftSectionAnchorY(ribbon, scroller) {

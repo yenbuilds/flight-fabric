@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -115,7 +115,8 @@
     "data:sync:required": "node scripts/sync-aviation-data.js --required-only",
     "logs:analyze": "node scripts/analyze-flight-csv-sampling.js",
     "prepare": "husky",
-    "test:approach-families-browser": "node tests/scripts/test-approach-families-browser.js"
+    "test:approach-families-browser": "node tests/scripts/test-approach-families-browser.js",
+    "test:aircraft-layout-browser": "npm run frontend:build && node tests/scripts/test-aircraft-layout-browser.js"
   },
   "repository": {
     "type": "git",

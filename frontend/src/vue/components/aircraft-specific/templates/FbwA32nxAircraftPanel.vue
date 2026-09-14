@@ -628,6 +628,8 @@ function alignmentText() {
       :memory-key="profileKey || 'bundled/msfs/fbw-a32nx'"
     />
 
+    <slot name="presets" />
+
     <div id="fbw-a32nx-section-throttle" class="aircraft-mobile-navigable-section" tabindex="-1">
       <FlyByWireThrottleControl
         aircraft-label="FlyByWire A32NX"
@@ -676,6 +678,8 @@ function alignmentText() {
         </div>
       </div>
     </div>
+
+    <slot name="avionics" />
 
     <div
       v-for="section in controlSections"

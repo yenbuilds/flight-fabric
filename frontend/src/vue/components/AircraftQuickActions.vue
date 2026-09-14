@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { presetObservation } from '../../aircraft/preset-observation.js';
+import { freshAircraftValue } from '../../voice/state-queries.js';
 
 const aircraftControls = useAircraftControlsStore();
 const aircraftSpecific = useAircraftSpecificStore();
@@ -35,6 +36,17 @@ function isPending(command) {
 }
 
 function sourceUnavailableReason(command) {
+  if (aircraftSpecific.templateId === 'inibuilds-a350' && command.id === 'configuration.lights.takeoff') {
+    const catalogue = aircraftControls.aircraftCommandCatalogue;
+    if (aircraftSpecific.sourceStatus !== 'connected'
+      || aircraftSpecific.activeProfileKey !== catalogue.profileKey
+      || aircraftSpecific.activeProfileRevision !== catalogue.profileRevision) return 'Waiting for live aircraft data.';
+    if (['lights.landing', 'lights.noseMode', 'lights.strobeMode', 'lights.navMode']
+      .some(id => freshAircraftValue(aircraftSpecific, id, Math.max(nowMs.value, Date.now())) === null)) {
+      return 'Waiting for live exterior light readings.';
+    }
+    return '';
+  }
   if (!['pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId)
     || !['configuration.lights.takeoff', 'configuration.apu.start'].includes(command.id)) return '';
   const sdkStatus = aircraftSpecific.sourceStatuses.sdk || aircraftSpecific.sourceStatus;

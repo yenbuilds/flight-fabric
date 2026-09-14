@@ -7,6 +7,7 @@ import {
 } from './geo.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from './plane-icon.js';
 import { createOpenStreetMapLayer } from '../maps/openstreetmap.js';
+import { createMapPathOutline, FLIGHT_TRACK_STYLE } from '../maps/path-style.js';
 
 const HEADING_DEADBAND_DEG = 0.75;
 const HEADING_SMOOTHING_FACTOR = 0.35;
@@ -57,9 +58,12 @@ export function createLiveMapController({
   let liveMap = null;
   let liveBaseLayer = null;
   let livePath = null;
+  let livePathOutline = null;
   let liveCursor = null;
   let targetLine = null;
+  let targetLineOutline = null;
   let routeLine = null;
+  let routeLineOutline = null;
   let targetMarker = null;
   let originMarker = null;
   let lastHeading = null;
@@ -244,6 +248,7 @@ export function createLiveMapController({
     if (!liveMap || typeof windowRef.L === 'undefined') return;
 
     livePath = removeLayer(livePath);
+    livePathOutline = removeLayer(livePathOutline);
     const renderableSegments = trackSegments.filter((segment) => segment.length >= 2);
     if (renderableSegments.length === 0) return;
 
@@ -251,16 +256,13 @@ export function createLiveMapController({
       ? renderableSegments[0]
       : renderableSegments;
 
-    livePath = windowRef.L.polyline(latLngs, {
-      color: '#00d4ff',
-      weight: 2.5,
-      opacity: 0.9,
-      className: 'flight-track-line',
-    }).addTo(liveMap);
+    livePathOutline = createMapPathOutline(windowRef.L, latLngs, FLIGHT_TRACK_STYLE).addTo(liveMap);
+    livePath = windowRef.L.polyline(latLngs, FLIGHT_TRACK_STYLE).addTo(liveMap);
   }
 
   function bringLiveTrackToFront() {
     try {
+      livePathOutline?.bringToFront?.();
       livePath?.bringToFront?.();
     } catch {}
   }
@@ -427,6 +429,7 @@ export function createLiveMapController({
     if (!liveMap || typeof windowRef.L === 'undefined') return;
 
     targetLine = removeLayer(targetLine);
+    targetLineOutline = removeLayer(targetLineOutline);
 
     const targetAirport = getRouteTargets()?.getTargetAirport?.();
     if (!targetAirport || !lastPosition) return;
@@ -440,11 +443,14 @@ export function createLiveMapController({
     ), lastPosition.lon);
     if (path.length < 2) return;
 
-    targetLine = windowRef.L.polyline(path, {
+    const options = {
       color: '#3b82f6',
-      weight: 2,
-      opacity: 0.9,
-    }).addTo(liveMap);
+      weight: 3,
+      opacity: 1,
+      interactive: false,
+    };
+    targetLineOutline = createMapPathOutline(windowRef.L, path, options).addTo(liveMap);
+    targetLine = windowRef.L.polyline(path, options).addTo(liveMap);
     bringLiveTrackToFront();
   }
 
@@ -462,10 +468,10 @@ export function createLiveMapController({
     const displayLon = unwrapLongitudeNear(targetAirport.lon, referenceLon);
     targetMarker = windowRef.L.circleMarker([targetAirport.lat, displayLon], {
       radius: 5,
-      color: '#3b82f6',
+      color: '#152536',
       fillColor: '#3b82f6',
-      fillOpacity: 0.9,
-      weight: 1,
+      fillOpacity: 1,
+      weight: 2,
     }).addTo(liveMap);
 
     targetMarker.bindTooltip(targetAirport.icao, {
@@ -479,6 +485,7 @@ export function createLiveMapController({
     if (!liveMap || typeof windowRef.L === 'undefined') return;
 
     routeLine = removeLayer(routeLine);
+    routeLineOutline = removeLayer(routeLineOutline);
 
     const routeTargets = getRouteTargets();
     const originAirport = routeTargets?.getOriginAirport?.();
@@ -495,12 +502,16 @@ export function createLiveMapController({
     ), referenceLon);
     if (path.length < 2) return;
 
-    routeLine = windowRef.L.polyline(path, {
+    const options = {
       color: '#3b82f6',
-      weight: 1.5,
-      opacity: 0.45,
-      dashArray: '4 4',
-    }).addTo(liveMap);
+      weight: 2,
+      opacity: 1,
+      dashArray: '8 8',
+      lineCap: 'butt',
+      interactive: false,
+    };
+    routeLineOutline = createMapPathOutline(windowRef.L, path, options).addTo(liveMap);
+    routeLine = windowRef.L.polyline(path, options).addTo(liveMap);
     bringLiveTrackToFront();
   }
 
@@ -516,10 +527,10 @@ export function createLiveMapController({
     const displayLon = unwrapLongitudeNear(originAirport.lon, referenceLon);
     originMarker = windowRef.L.circleMarker([originAirport.lat, displayLon], {
       radius: 5,
-      color: '#10b981',
+      color: '#152536',
       fillColor: '#10b981',
-      fillOpacity: 0.9,
-      weight: 1,
+      fillOpacity: 1,
+      weight: 2,
     }).addTo(liveMap);
 
     originMarker.bindTooltip(`FROM ${originAirport.icao}`, {
@@ -704,9 +715,12 @@ export function createLiveMapController({
     liveMap = null;
     liveBaseLayer = null;
     livePath = null;
+    livePathOutline = null;
     liveCursor = null;
     targetLine = null;
+    targetLineOutline = null;
     routeLine = null;
+    routeLineOutline = null;
     targetMarker = null;
     originMarker = null;
   }

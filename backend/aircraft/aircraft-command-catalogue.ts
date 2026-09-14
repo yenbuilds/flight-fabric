@@ -1614,10 +1614,10 @@ function individualLightBindings(adapterId: string): AircraftCommandBinding[] {
   if (adapterId === 'pmdg-737') {
     for (const side of ['Left', 'Right']) add(`landing${side}`,
       [`lights.landingRetractable${side}.on`, `lights.landing${side}.on`],
-      [`lights.landingRetractable${side}.extend`, `lights.landing${side}.off`]);
+      [`lights.landingRetractable${side}.retract`, `lights.landing${side}.off`]);
     add('landing', ['Left', 'Right'].flatMap(side => [`lights.landingRetractable${side}.on`, `lights.landing${side}.on`]),
-      ['Left', 'Right'].flatMap(side => [`lights.landingRetractable${side}.extend`, `lights.landing${side}.off`]),
-      'Fixed and retractable landing lights. OFF leaves retractable lights extended and unlit.');
+      ['Left', 'Right'].flatMap(side => [`lights.landingRetractable${side}.retract`, `lights.landing${side}.off`]),
+      'All four landing lights. OFF retracts both retractable lights and switches off both fixed lights.');
   } else if (adapterId === 'pmdg-777') {
     pair('landing', ['lights.landingLeft', 'lights.landingNose', 'lights.landingRight']);
     for (const side of ['Left', 'Nose', 'Right']) pair(`landing${side}`, [`lights.landing${side}`]);

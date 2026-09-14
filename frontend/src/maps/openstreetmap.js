@@ -12,6 +12,7 @@ export function createOpenStreetMapLayer(leaflet) {
   }
 
   return leaflet.tileLayer(OPENSTREETMAP_TILE_URL, {
+    className: 'flight-basemap-tiles',
     attribution: OPENSTREETMAP_ATTRIBUTION,
     maxNativeZoom: 19,
     maxZoom: 19,
