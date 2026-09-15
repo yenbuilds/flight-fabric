@@ -1,15 +1,11 @@
 {
   "name": "flight-fabric",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
-    "aircraft:support": "node scripts/aircraft-support.js",
-    "test:aircraft-support": "node --test tests/scripts/test-aircraft-support.js",
-    "test:aircraft-workbench": "node --test tests/scripts/test-aircraft-workbench.js",
-    "test:aircraft-workbench-browser": "node tests/scripts/test-aircraft-workbench-browser.js",
     "test": "node tests/run-test-suite.js",
     "dead-code": "knip",
     "test:core": "node tests/scripts/test-core-modules.js",
@@ -106,7 +102,7 @@
     "frontend:build": "npm --prefix frontend run build",
     "release:profile": "node scripts/release-profile-loader.js",
     "release:profile:validate": "node scripts/release-profile-loader.js user --validate",
-    "lint": "eslint backend/ --ext .ts,.js",
+    "lint": "eslint backend/ --ext .ts,.js --max-warnings 0",
     "lint:fix": "eslint backend/ --ext .ts,.js --fix",
     "audit:backend:companions": "node scripts/report-backend-js-companions.js",
     "test:backend:companions": "node scripts/report-backend-js-companions.js --fail-on-any",
@@ -135,6 +131,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",

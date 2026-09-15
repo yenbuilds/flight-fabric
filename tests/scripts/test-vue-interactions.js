@@ -2247,7 +2247,7 @@ async function main() {
     );
     assert.equal(sent.length, sentBeforePairing, 'read-only control attempts should not reach the websocket bridge');
     assert.equal(toasts.at(-1)?.kind, 'error', 'read-only control attempts should explain the unavailable capability');
-    assert.match(toasts.at(-1)?.message || '', /choose Phone, then scan the QR shown there/, 'read-only control attempts should point directly to the single PC pairing flow');
+    assert.match(toasts.at(-1)?.message || '', /open Phone setup[\s\S]*Scan the QR[\s\S]*approve the matching code/, 'read-only control attempts should explain both secure PC pairing paths');
 
     authorizationScope = 'aircraft-control';
     controller.updateAvailability();

@@ -178,7 +178,8 @@ export function buildTimelineEventRowState(event, index, startMs, {
             : verdict.stability.verdict === 'stable' ? 'positive' : '',
       ));
     }
-    if (presentation.approachScoreText) parts.push(presentation.approachScoreText);
+    if (presentation.recoveredCautions) parts.push(presentation.approachFindingsText);
+    else if (presentation.approachScoreText) parts.push(presentation.approachScoreText);
 
     if (presentation.bounceKnown) {
       parts.push(`Bounce ${presentation.bounceText}`);

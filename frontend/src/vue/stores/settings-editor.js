@@ -80,7 +80,7 @@ export const useSettingsEditorStore = defineStore('settingsEditor', {
           wsPort: this.wsPort,
           httpPort: this.httpPort,
           remoteAccess: this.remoteAccess === true,
-          remoteAircraftControl: this.remoteAccess === true && this.remoteAircraftControl === true,
+          remoteAircraftControl: this.remoteAircraftControl === true,
           updateChecks: this.updateChecks === true,
           onlineMapTiles: this.onlineMapTiles === true,
         },

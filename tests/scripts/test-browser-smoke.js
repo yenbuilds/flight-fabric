@@ -17,7 +17,6 @@ const ELECTRON_MODULE_PATH = path.join(ROOT, 'electron', 'node_modules', 'electr
 const ELECTRON_SMOKE_TIMEOUT_MS = 30000;
 const ELECTRON_PARENT_TIMEOUT_MS = ELECTRON_SMOKE_TIMEOUT_MS + 15000;
 const headerOnly = process.env.FF_BROWSER_SMOKE_HEADER_ONLY === '1';
-const workbenchRequests = [];
 const sharedSettings = require(path.join(ROOT, 'shared', 'app-settings-shared.js'));
 
 const MIME_TYPES = Object.freeze({
@@ -119,7 +118,6 @@ function contentTypeFor(filePath) {
 function createStaticFrontendServer(rootDir, { bootstrapPayload = null } = {}) {
   return http.createServer((request, response) => {
     const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
-    if (requestUrl.pathname.startsWith('/api/aircraft-support')) workbenchRequests.push(requestUrl.pathname);
     if (requestUrl.pathname === '/api/bootstrap' && bootstrapPayload) {
       const body = Buffer.from(JSON.stringify(bootstrapPayload));
       response.writeHead(200, {
@@ -875,8 +873,6 @@ async function main() {
       userDataDir,
       onDisconnectRequested: () => fixtureBackend.disconnectAllClients(),
     });
-    assert.deepEqual(workbenchRequests, [], 'the release UI must not initialize or poll the disabled workbench');
-
     if (headerOnly) {
       return;
     }

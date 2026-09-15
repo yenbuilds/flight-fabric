@@ -643,7 +643,6 @@ test('durable close waits for close after an earlier stream error', async () => 
 test('inline CSV close waits for an in-progress periodic fdatasync', async () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-inline-periodic-sync-'));
   const startMs = Date.parse('2026-07-20T01:30:00.000Z');
-  const clock = timeSource.createFixedSource(startMs);
   const writer = new FlightCSVWriter({
     flightId: 'inline-periodic-sync',
     recordingSessionId: crypto.randomUUID(),

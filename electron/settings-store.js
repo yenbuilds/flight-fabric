@@ -88,6 +88,7 @@ function mapUserSettingsToLauncherSettings(userSettings) {
 
 function applyLauncherSettingsToUserSettings(userSettings, launcherSettings) {
   const next = { ...(userSettings || {}) };
+  const isLegacySettings = Object.hasOwn(next, '_version') && Number(next._version) < 4;
 
   // The backend telemetry cadence is fixed at 100 ms. Remove the retired key
   // whenever the legacy launcher writes settings so stale files are not
@@ -115,8 +116,14 @@ function applyLauncherSettingsToUserSettings(userSettings, launcherSettings) {
   next.network.wsPort = launcherSettings.wsPort;
   next.network.httpPort = launcherSettings.httpPort;
   next.network.remoteAccess = launcherSettings.remoteAccess;
+  if (isLegacySettings && !Object.hasOwn(next.network, 'remoteAircraftControl')) {
+    // Settings saved before v4 intentionally left aircraft commands off when
+    // LAN access was enabled. Do not reinterpret that preference merely
+    // because the launcher updates another network field.
+    next.network.remoteAircraftControl = false;
+  }
 
-  next._version = 3;
+  next._version = 4;
   next._description = 'Flight Fabric user settings. Edit values below and restart the app.';
   next._lastUpdated = new Date().toISOString();
 

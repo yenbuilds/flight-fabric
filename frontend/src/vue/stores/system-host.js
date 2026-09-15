@@ -204,6 +204,16 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     const querySeparator = remoteViewerUrl.value.includes('?') ? '&' : '?';
     return `${remoteViewerUrl.value}${querySeparator}aircraftControlToken=${encodeURIComponent(shareAircraftControlToken.value)}`;
   });
+  const remotePhoneEntryUrl = computed(() => {
+    if (remoteAccessEnabled.value !== true) return '';
+    const host = phoneHosts.value[0];
+    if (!host) return '';
+    const port = normalizePort(networkInfo.value?.httpPort)
+      || backendHttpPort.value
+      || getBrowserBackendPortFallback()
+      || 8100;
+    return `http://${host}:${port}/phone`;
+  });
   // Present one best phone URL to the user. A local desktop host includes the
   // current backend-session control token; a remote browser never redistributes
   // a token it received and therefore falls back to the read-only viewer URL.
@@ -420,6 +430,7 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     remoteAccessEnabled,
     remoteBrowserUrl,
     remoteControlPairingUrl,
+    remotePhoneEntryUrl,
     remoteViewerUrl,
     shareAircraftControlPaired,
     restartBackend,

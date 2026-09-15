@@ -660,7 +660,7 @@ export const useFlightStore = defineStore('flight', {
       const baseStatus = rawLanding.final
         ? 'Latest touchdown report is ready.'
         : 'Preview from selected Logbook timeline event.';
-      const stabilityText = presentation.approachVerdict
+      const stabilityText = presentation.approachText
         || (presentation.stabilityScore != null ? 'NO VERDICT' : '--');
       const touchdownDistance = rawLanding.touchdownDistance;
       const touchdownDistanceFt = Number(touchdownDistance?.distanceFt);
@@ -676,7 +676,7 @@ export const useFlightStore = defineStore('flight', {
           ? `${rawLanding.icao} ${rawLanding.runway}`
           : (rawLanding.icao || '--'),
         stability: stabilityText,
-        stabilityScore: presentation.approachScoreText || '',
+        stabilityScore: presentation.approachFindingsText || presentation.approachScoreText || '',
         stabilityTone: presentation.stabilityVerdict === 'unstable'
           ? 'text-red-400'
           : presentation.stabilityVerdict === 'marginal'

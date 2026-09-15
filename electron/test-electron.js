@@ -225,6 +225,7 @@ test(
 section('External URL Policy');
 
 for (const [label, url] of [
+  ['Flight Fabric donation', 'https://ko-fi.com/yenbuilds'],
   ['Flight Fabric corresponding source', 'https://github.com/yenbuilds/flight-fabric/releases'],
   ['Flight Fabric latest release', 'https://github.com/yenbuilds/flight-fabric/releases/latest'],
   ['Flight Fabric tagged release', 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.2.1'],
@@ -245,6 +246,8 @@ for (const [label, url] of [
   ['data URL', 'data:text/html,hello'],
   ['custom protocol', 'ms-settings:privacy'],
   ['arbitrary HTTPS host', 'https://example.com/'],
+  ['other Ko-fi creator', 'https://ko-fi.com/someone-else'],
+  ['lookalike Ko-fi host', 'https://ko-fi.com.attacker.example/yenbuilds'],
   ['lookalike GitHub host', 'https://github.com.attacker.example/yenbuilds/flight-fabric/releases/latest'],
   ['credential-confused GitHub URL', 'https://github.com@attacker.example/yenbuilds/flight-fabric/releases/latest'],
   ['other GitHub repository', 'https://github.com/attacker/flight-fabric/releases/latest'],

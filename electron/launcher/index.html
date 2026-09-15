@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'sha256-2Au4P0e5u+/QRurBYiWAgRTf7arYLDTEvmOCN2b7zWQ='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; font-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'sha256-h0cTHVms9mv1f/VOSU9yU8W8/sc7ihD/nhAtQ2dZM4I='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; font-src 'self' data:">
   <link rel="icon" type="image/png" href="icon.png">
   <title>Flight Fabric</title>
   <link rel="stylesheet" href="style.css" id="main-css">
@@ -153,7 +153,7 @@
     </section>
 
     <footer>
-      <p>Flight Fabric / <span id="version">v0.9.8</span></p>
+      <p>Flight Fabric / <span id="version">v0.9.9</span></p>
     </footer>
   </div>
 
@@ -192,7 +192,7 @@
           <div id="remote-url" style="display:none;"></div>
           <div id="remote-browser-url" style="display:none;"></div>
           <div id="remote-warning" style="display:none;margin-top:1rem;padding:0.75rem;background:rgba(210,153,34,0.15);border:1px solid var(--warning);border-radius:6px;font-size:0.85rem;color:var(--warning);text-align:left;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Trusted LAN access is <b>disabled</b> in settings. Open Dashboard Settings, enable <b>Allow trusted LAN access</b>, save, then restart the backend.
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Phone &amp; tablet access is <b>disabled</b> in settings. Open Dashboard Settings, enable <b>Use Flight Fabric on phones and tablets</b>, save, then restart the backend.
           </div>
         </div>
       </div>
@@ -516,7 +516,7 @@
         }
       }
 
-      document.getElementById('remote-ip').textContent = browserUrl || (remoteAccessEnabled ? 'LAN IP unavailable' : 'Enable Allow trusted LAN access, save, then restart the backend');
+      document.getElementById('remote-ip').textContent = browserUrl || (remoteAccessEnabled ? 'LAN IP unavailable' : 'Enable phone & tablet access, save, then restart the backend');
       document.getElementById('remote-url').textContent = browserUrl;
       const pairingNote = document.getElementById('remote-pairing-note');
       if (pairingNote) {

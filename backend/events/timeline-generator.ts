@@ -4584,7 +4584,7 @@ function findNearestAirport(lat: number, lon: number): AirportSummary | null {
       limit: 1
     });
     return results.length > 0 ? results[0] : null;
-  } catch (err) {
+  } catch {
     // Airport search not available (data not loaded)
     return null;
   }

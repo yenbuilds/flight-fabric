@@ -1659,11 +1659,11 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   const aircraftControlSource = readRepoFile('frontend/src/aircraft/control-controller.js');
 
   assert.equal(sharedSettings.APP_SETTINGS_DEFAULTS.remoteAccess, false);
-  assert.equal(sharedSettings.APP_SETTINGS_DEFAULTS.remoteAircraftControl, false);
+  assert.equal(sharedSettings.APP_SETTINGS_DEFAULTS.remoteAircraftControl, true);
   assert(/remoteAccess:\s*false/.test(backendSettings), 'backend user settings should default remote access to false');
-  assert(/remoteAircraftControl:\s*false/.test(backendSettings), 'backend user settings should default LAN aircraft control to false');
+  assert(/remoteAircraftControl:\s*true/.test(backendSettings), 'backend user settings should default paired LAN aircraft control to true');
   assert(configSource.includes("getSetting(userSettings, 'network.remoteAccess', 'REMOTE_ACCESS_ENABLE', false)"));
-  assert(configSource.includes("getSetting(userSettings, 'network.remoteAircraftControl', 'REMOTE_AIRCRAFT_CONTROL_ENABLE', false)"));
+  assert(configSource.includes("getSetting(userSettings, 'network.remoteAircraftControl', 'REMOTE_AIRCRAFT_CONTROL_ENABLE', true)"));
   assert(wsBootstrap.includes("const wsBindAddress = remoteAccessEnable ? '0.0.0.0' : '127.0.0.1'"));
   assert(wsBootstrap.includes('host: wsBindAddress'));
   assert(httpServerSource.includes('function buildBootstrapPayload'), 'HTTP bootstrap should centralize token exposure policy');
@@ -1701,21 +1701,22 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(systemTabSource.includes(':value="systemHost.remoteBrowserUrl"'), 'the single phone QR must use the best available phone URL');
   assert.equal((systemTabSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
   assert(!systemTabSource.includes(':value="systemHost.remoteViewerUrl"') && !systemTabSource.includes(':value="systemHost.remoteControlPairingUrl"'), 'PC setup should not expose separate viewer and control choices');
-  assert(systemTabSource.includes('Starting a new flight does not require another scan'), 'PC setup should explain that new flights do not rotate the backend token');
+  assert(systemTabSource.includes('Starting a new flight does not require pairing again'), 'PC setup should explain that new flights do not rotate the backend token');
   assert(secondScreenGuideSource.includes('New flights appear automatically'), 'phone onboarding should explain repeat-flight behavior');
-  assert(secondScreenGuideSource.includes('only after the Flight Fabric backend restarts'), 'phone onboarding should explain when control re-pairing is required');
+  assert(secondScreenGuideSource.includes('Pair again only after the Flight Fabric backend restarts'), 'phone onboarding should explain when control re-pairing is required');
   assert(appHeaderSource.includes('id="header-mobile-access-btn"'), 'desktop header should expose an obvious Phone setup action');
-  assert(aircraftControlSource.includes('choose Phone, then scan the QR shown there'), 'read-only control attempts should point directly to the single phone QR');
+  assert(aircraftControlSource.includes('open Phone setup. Scan the QR, or request controls here and approve the matching code'), 'read-only control attempts should explain both secure phone pairing paths');
 });
 
 test('remote access UI warns users to stay on trusted private networks', () => {
   const settingsPanelsSource = readRepoFile('frontend/src/vue/components/SettingsFormPanels.vue');
   const httpServerSource = readRepoFile('backend/core/http-server.js');
 
-  assert(settingsPanelsSource.includes('Allow trusted LAN access'), 'settings toggle should frame remote access as trusted-LAN access');
+  assert(settingsPanelsSource.includes('Use Flight Fabric on phones and tablets'), 'settings should make the phone and tablet access path explicit');
   assert(settingsPanelsSource.includes('id="setting-remote-access-warning"'), 'settings panel should render a trusted-LAN warning when enabled');
   assert(settingsPanelsSource.includes('public/shared networks'), 'settings panel should warn against public/shared networks');
-  assert(settingsPanelsSource.includes("http://localhost:{{ settings.httpPort || '8100' }}/setup"), 'settings panel should reveal the setup URL only in the enabled warning');
+  assert(settingsPanelsSource.includes('Open <span class="font-medium text-fg">Phone setup</span> on this PC')
+    && settingsPanelsSource.includes('save and restart first'), 'settings should point directly to Phone setup and explain the required restart');
   assert(httpServerSource.includes('Trusted LAN only.'), 'mobile setup page should warn that LAN access is trusted-network only');
   assert(httpServerSource.includes('public/shared networks'), 'mobile setup page should warn against public/shared networks');
 });

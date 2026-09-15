@@ -85,19 +85,19 @@ function dismissGuide() {
           </span>
         </div>
         <p class="mt-1 text-xs leading-5 text-gray-300">
-          Bookmark this page after scanning the QR shown under <strong>Phone</strong> on your Flight Fabric PC. New flights appear automatically—there is no new-flight scan.
+          Bookmark this page after connecting it from <strong>Phone setup</strong> on your Flight Fabric PC. New flights appear automatically—there is no new-flight scan.
         </p>
         <p v-if="controlsPaired" class="mt-2 text-xs leading-5 text-muted-fg">
-          Aircraft controls stay paired for this backend session. Scan the Phone QR again only after the Flight Fabric backend restarts.
+          Aircraft controls stay paired for this backend session. Pair again only after the Flight Fabric backend restarts, using matching-code approval or the current Phone QR.
         </p>
         <p v-else-if="pairingProblem === 'expired'" id="second-screen-pairing-expired" class="mt-2 text-xs leading-5 text-rose-200">
-          This saved Phone link uses an expired pairing token. On the Flight Fabric PC, choose <strong>Phone</strong> and scan the current QR. The token changes whenever the backend restarts.
+          This device's control approval has expired. Request approval again below, or use the current QR from <strong>Phone setup</strong> on the Flight Fabric PC. Pairing changes whenever the backend restarts.
         </p>
         <p v-else-if="pairingProblem === 'disabled'" id="second-screen-pairing-disabled" class="mt-2 text-xs leading-5 text-rose-200">
           LAN viewing is connected, but aircraft controls are not active in this backend session. Enable LAN aircraft controls on the PC, save, restart, then scan the current Phone QR.
         </p>
         <p v-else class="mt-2 text-xs leading-5 text-muted-fg">
-          To use aircraft controls, choose <strong>Phone</strong> on the Flight Fabric PC and scan the QR shown there. Scan again after backend restarts, not for each new flight.
+          To use aircraft controls, request approval below and match its code on the Flight Fabric PC. The QR in <strong>Phone setup</strong> remains a faster alternative. Pairing is needed again only after the backend restarts.
         </p>
       </div>
       <button

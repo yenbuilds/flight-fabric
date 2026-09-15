@@ -104,6 +104,82 @@ test('v4 debrief confidence uses time coverage, not telemetry frame count', () =
   assert.match(legacy.approachExplanation, /soft\/proxy/);
 });
 
+function recoveredSinkResult() {
+  const result = v4Result();
+  result.scoringContext.assessment.episodes = [3800, 5600].map(exceedanceMs => ({
+    ruleId: 'approach_vertical_profile', severity: 'caution', reasons: [VIOLATION_RULE.HIGH_SINK_RATE],
+    exceedanceMs, durationMs: exceedanceMs + 3000, endReason: 'recovered',
+  }));
+  return result;
+}
+
+test('recovered sink cautions lead with score and measured findings across shared surfaces without rescoring', () => {
+  setActivePinia(createPinia());
+  const result = recoveredSinkResult();
+  const before = JSON.stringify(result);
+  const event = { type: 'landing', final: true, vs: -169, grade: 'GOOD', ultimateStability: result,
+    touchdownDistance: { distanceFt: 2065, runwayLengthFt: 11289, grade: 'Good', score: 100, tdzAchieved: true } };
+  const presentation = buildLandingPresentation(event);
+  const findings = '2 sink-rate exceedances · Recovered';
+  assert.equal(presentation.approachText, '98%');
+  assert.equal(presentation.approachDetailText, findings);
+  assert.equal(presentation.approachVerdict, 'MARGINAL', 'retain the recorded assessment for detailed review');
+  assert.equal(presentation.touchdownPositionText, 'Within touchdown zone');
+  assert.equal(presentation.verdict.touchdown.data.score, 100);
+  const landing = useLandingStore();
+  landing.applyLandingCardMessage(event);
+  assert.equal(landing.landingCard.approach.stabilityText, '98%');
+  assert.equal(landing.landingCard.approach.stabilityNoteText, findings);
+  assert.equal(landing.landingCard.touchdown.distanceGradeText, 'Within touchdown zone');
+  assert.equal(landing.landingCard.touchdown.distanceGradeTone, 'text-gray-500');
+  const flight = useFlightStore();
+  flight.updateLandingPreview(event);
+  assert.equal(flight.lastLanding.stability, '98%');
+  assert.equal(flight.lastLanding.stabilityScore, findings);
+  const reasons = buildDebriefReasons(event, { ultimateStability: result, touchdownDistance: event.touchdownDistance });
+  assert.ok(reasons.some(reason => reason.text === findings && reason.tone === 'warning'));
+  assert.ok(!reasons.some(reason => /Marginal|1,000 ft target/.test(reason.text)));
+  const row = buildTimelineEventRowState(event, 0, 0);
+  assert.match(JSON.stringify(row), /APP 98%/);
+  assert.match(JSON.stringify(row), /sink-rate exceedances/);
+  const sections = buildLandingDetailSections(event);
+  assert.ok(sections.some(section => section.rows.some(row => row.key === 'approach-findings' && row.value === findings)));
+  assert.ok(sections.some(section => section.rows.some(row => row.key === 'gate-stable' && row.value === 'MARGINAL')));
+  assert.equal(JSON.stringify(result), before, 'presentation must not alter saved scores, episodes or verdicts');
+});
+
+test('score-led recovery presentation never hides warnings, quality failures or unknown recovery', () => {
+  for (const endReason of ['window_ended', 'data_gap', 'paused', undefined]) {
+    const result = recoveredSinkResult();
+    result.scoringContext.assessment.episodes[1].endReason = endReason;
+    assert.equal(buildLandingPresentation({ ultimateStability: result }).approachText, 'MARGINAL');
+  }
+  const qualityFailure = recoveredSinkResult();
+  qualityFailure.gateFailures.push('glidepath_proxy_unstable_after_gate');
+  assert.equal(buildLandingPresentation({ ultimateStability: qualityFailure }).approachText, 'MARGINAL');
+  const warning = recoveredSinkResult();
+  warning.verdict = 'unstable';
+  warning.gateFailures = ['approach_warning'];
+  warning.scoringContext.assessment.episodes[1].severity = 'warning';
+  assert.equal(buildLandingPresentation({ ultimateStability: warning }).approachText, 'UNSTABLE');
+  const unknown = { ...recoveredSinkResult(), score: null, verdict: 'no_verdict' };
+  assert.equal(buildLandingPresentation({ ultimateStability: unknown }).approachText, 'NO VERDICT');
+  const mixed = recoveredSinkResult();
+  mixed.scoringContext.assessment.episodes[1].reasons.push('glideslope_deviation');
+  assert.equal(buildLandingPresentation({ ultimateStability: mixed }).approachFindingsText, '2 cautions · Recovered');
+});
+
+test('touchdown position distinguishes short, beyond-zone, past-end and unavailable results', () => {
+  for (const [distanceFt, runwayLengthFt, expected] of [
+    [999, 11000, 'Within touchdown zone'], [1001, 11000, 'Within touchdown zone'],
+    [3000, 11000, 'Within touchdown zone'], [3001, 11000, 'Beyond touchdown zone'],
+    [-10, 11000, 'Short of threshold'], [900, 800, 'Past runway end'],
+    [null, 11000, 'Position unavailable'],
+  ]) {
+    assert.equal(buildLandingPresentation({ touchdownDistance: { distanceFt, runwayLengthFt } }).touchdownPositionText, expected);
+  }
+});
+
 test('landing card and Last Landing summary retain v4 verdicts even with a high score, and clear missing scores', () => {
   setActivePinia(createPinia());
   const landing = useLandingStore();

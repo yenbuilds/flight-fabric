@@ -465,7 +465,8 @@ function buildSvg(profile, landing, opts) {
   const rwyW      = rwyEndX - rwyStartX;
   const threshX   = rwyStartX;                         // threshold at runway left edge
 
-  // Ideal touchdown target. The backend's formal TDZ flag extends to 3,000 ft.
+  // Schematic runway scale; 1,000 ft is an aiming-point reference, not a
+  // maximum acceptable touchdown distance.
   const RUNWAY_REPR_FT = 8000;
   const tdzFraction = 1000 / RUNWAY_REPR_FT;          // 1000 / 8000 = 0.125
   const tdzX = threshX + 14;
@@ -591,11 +592,10 @@ function buildSvg(profile, landing, opts) {
   svg += `<rect x="${threshX + 9}" y="${rwyY + 2}" width="3" height="${rwyH - 4}" fill="#94a3b8" rx="0.5" />`;
   svg += `<text x="${threshX + 6}" y="${rwyY + rwyH + 11}" text-anchor="middle" fill="#64748b" font-size="9" font-family="system-ui, sans-serif">THR</text>`;
 
-  // First-1,000-ft target highlight
-  svg += `<rect x="${tdzX}" y="${rwyY + 1}" width="${tdzW}" height="${rwyH - 2}" fill="#4ade80" fill-opacity="0.12" rx="1" />`;
-  // Label matches the app's scoring definition (≤1000 ft = Outstanding / "Within first 1,000 ft").
-  // The aviation TDZ is 3,000 ft; this narrower green box is the app's target zone, not the full TDZ.
-  svg += `<text x="${tdzX + tdzW / 2}" y="${rwyY + rwyH + 11}" text-anchor="middle" fill="#4ade80" fill-opacity="0.6" font-size="8" font-family="system-ui, sans-serif">\u22641000 ft</text>`;
+  // Neutral aiming-point marker: do not depict the first 1,000 ft as a graded zone.
+  const aimingPointX = threshX + 14 + (rwyW - 18) * tdzFraction;
+  svg += `<rect x="${aimingPointX}" y="${rwyY + 1}" width="2" height="${rwyH - 2}" fill="#94a3b8"><title>1,000 ft aiming-point reference; not a touchdown limit</title></rect>`;
+  svg += `<text x="${aimingPointX}" y="${rwyY + rwyH + 11}" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="system-ui, sans-serif">1,000 ft</text>`;
 
   // --- Flight path filled area ---
   let areaPath = `M ${xScale(0)} ${yScale(altOf(points[0]))}`;
@@ -670,8 +670,9 @@ function buildSvg(profile, landing, opts) {
     svg += `<text x="${tdX + 14}" y="${annotationY}" fill="#94a3b8" font-size="8" font-weight="500" font-family="system-ui, sans-serif">${escapeSvgText(peerFacts.join(' · '))}</text>`;
     annotationY += 10;
   }
-  if (presentation.approachScoreText) {
-    svg += `<text x="${tdX + 14}" y="${annotationY}" fill="#64748b" font-size="7" font-family="system-ui, sans-serif">${escapeSvgText(presentation.approachScoreText)}</text>`;
+  const approachContextText = presentation.approachFindingsText || presentation.approachScoreText;
+  if (approachContextText) {
+    svg += `<text x="${tdX + 14}" y="${annotationY}" fill="#64748b" font-size="7" font-family="system-ui, sans-serif">${escapeSvgText(approachContextText)}</text>`;
     annotationY += 10;
   }
   if (presentation.verdict.flags.runwayExcursion) {

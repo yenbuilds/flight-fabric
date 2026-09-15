@@ -3306,7 +3306,7 @@ async function main() {
     assert.equal(landing.landingCard.runwayText, 'RWY 34L', 'runway label should be stored');
     assert.equal(landing.landingCard.vsText, '-467', 'vertical-speed label should be rounded and stored');
     assert.equal(landing.landingCard.touchdown.distanceText, '305 ft', 'touchdown distance should be formatted');
-    assert.equal(landing.landingCard.touchdown.achievedText, 'YES', 'first-1,000-ft target achievement should be stored');
+    assert.equal(landing.landingCard.touchdown.distanceGradeText, 'Within touchdown zone', 'touchdown position should describe the zone');
     assert.equal(landing.landingCard.approach.stabilityText, 'NO VERDICT', 'an approach score should not invent a gate verdict');
     assert.equal(landing.landingCard.approach.stabilityNoteText, 'Approach score 91%', 'the approach score should remain labelled and secondary');
     assert.equal(landing.landingCard.approach.speedText, '136 kt', 'speed label should be stored');
@@ -3355,7 +3355,7 @@ async function main() {
       },
     });
     assert.equal(landing.landingCard.touchdown.distanceText, '2,966 ft', 'late touchdown distance should remain visible');
-    assert.equal(landing.landingCard.touchdown.achievedText, 'NO', 'formal TDZ status must not make a 2,966-ft touchdown pass the first-1,000-ft target');
+    assert.equal(landing.landingCard.touchdown.distanceGradeText, 'Within touchdown zone', '2,966 ft should describe the zone without a first-1,000-ft failure');
 
     landing.applyLandingCardMessage({
       final: true,
@@ -3713,7 +3713,7 @@ async function main() {
     assert.equal(landing.landingCard.debrief.visible, true, 'landing card debrief should become visible when reasons are derived');
     assert.equal(reasons.includes('Firm touchdown rate'), true, 'firm touchdown reason should use the resolved touchdown-rate grade');
     assert.equal(reasons.includes('Stabilized approach'), true, 'stabilized approach reason should be derived from ultimate stability');
-    assert.equal(reasons.includes('First 1,000 ft target'), true, 'first-1,000-ft reason should be derived from touchdown distance');
+    assert.equal(reasons.includes('Inside formal 3,000 ft TDZ'), true, 'touchdown feedback should describe the zone');
     assert.equal(reasons.includes('Nose-down touchdown'), false, 'positive touchdown pitch should not be marked nose-down');
     assert.equal(landing.landingCard.debrief.confidenceText, 'High', 'complete data should keep high confidence');
     assert.equal(landing.landingCard.approach.stabilityText, 'STABLE', 'confirmed gate result should lead the stability tile');
@@ -4046,7 +4046,7 @@ async function main() {
     assert.equal(store.wsPort, '65535', 'ws port should clamp to the supported max');
     assert.equal(store.httpPort, '1024', 'http port should clamp to the supported min');
     assert.equal(store.remoteAccess, false, 'explicit booleans should survive normalization');
-    assert.equal(store.remoteAircraftControl, false, 'aircraft control should fail closed when remote access is disabled');
+    assert.equal(store.remoteAircraftControl, true, 'the control preference should survive while LAN access is disabled');
     assert.equal(store.updateChecks, true, 'update-check preference should hydrate into editor state');
     assert.equal(store.onlineMapTiles, true, 'online map tile preference should hydrate into editor state');
     assert.equal(store.recordingAutoStart, false, 'recording auto-start setting should hydrate into editor state');
@@ -4070,7 +4070,7 @@ async function main() {
     assert.equal(serialized.debrief.stabilityCriteria.gateRaFt, 1500, 'serialized settings should include stability gate criteria');
     assert.equal(serialized.debrief.stabilityCriteria.speedPlusKts, 50, 'serialized settings should include clamped stability speed criteria');
     assert.equal(serialized.network.wsPort, 65535, 'serialized settings should carry normalized numeric ports');
-    assert.equal(serialized.network.remoteAircraftControl, false, 'serialized settings should keep remote aircraft control off without LAN access');
+    assert.equal(serialized.network.remoteAircraftControl, true, 'serialized settings should preserve the control preference without LAN access');
     assert.equal(serialized.network.updateChecks, true, 'serialized settings should carry update-check preference');
     assert.equal(serialized.network.onlineMapTiles, true, 'serialized settings should carry online map tile preference');
     assert.equal(serialized.recording.autoStart, false, 'serialized settings should keep recording auto-start disabled');
@@ -4087,6 +4087,32 @@ async function main() {
     assert.equal(store.remoteAccess, true);
     assert.equal(store.remoteAircraftControl, true);
     assert.equal(store.serializeSettings().network.remoteAircraftControl, true);
+  });
+
+  await test('settings editor store enables aircraft controls by default for a new trusted-LAN setup', () => {
+    resetStoreTestContext();
+    const store = useSettingsEditorStore();
+
+    store.applySettings({
+      network: { remoteAccess: true },
+    });
+
+    assert.equal(store.remoteAircraftControl, true, 'new LAN setups should default to paired aircraft controls');
+    assert.equal(store.serializeSettings().network.remoteAircraftControl, true);
+  });
+
+  await test('settings editor keeps the fresh default and an explicit opt-out when LAN access is toggled', () => {
+    resetStoreTestContext();
+    const store = useSettingsEditorStore();
+    store.applySettings({ network: { remoteAccess: false } });
+    assert.equal(store.remoteAircraftControl, true, 'fresh local-only settings should retain the paired-control default');
+    store.remoteAccess = true;
+    assert.equal(store.serializeSettings().network.remoteAircraftControl, true, 'enabling LAN should retain the default');
+
+    store.applySettings({ network: { remoteAccess: false, remoteAircraftControl: false } });
+    assert.equal(store.remoteAircraftControl, false, 'an explicit opt-out should survive while LAN is off');
+    store.remoteAccess = true;
+    assert.equal(store.serializeSettings().network.remoteAircraftControl, false, 'enabling LAN must not override an opt-out');
   });
 
   await test('settings editor store replaces stale X-Plane selections with MSFS', () => {

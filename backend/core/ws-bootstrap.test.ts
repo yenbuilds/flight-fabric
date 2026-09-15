@@ -7,6 +7,7 @@ const {
   createWsServer,
   isPrivateOrLoopbackRemoteAddress,
 } = require('./ws-bootstrap') as typeof import('./ws-bootstrap');
+const { createDevicePairingManager } = require('./device-pairing') as typeof import('./device-pairing');
 const { createBroadcast } = require('./ws-broadcaster') as typeof import('./ws-broadcaster');
 const {
   UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES,
@@ -25,6 +26,55 @@ async function closeServer(wss: {
       if (error) reject(error);
       else resolve();
     });
+  });
+}
+
+for (const invalidFrame of [
+  { name: 'oversized payload', payload: Buffer.alloc(512 * 1024 + 1, 120), closeCode: 1009, errorCode: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' },
+  { name: 'invalid UTF-8', payload: Buffer.from([0xff]), closeCode: 1007, errorCode: 'WS_ERR_INVALID_UTF8' },
+]) {
+  test(`read-only client ${invalidFrame.name} closes only that connection`, { timeout: 5000 }, async (t) => {
+    const errors: unknown[] = [];
+    let resolveHandled: (() => void) | undefined;
+    const handled = new Promise<void>((resolve) => { resolveHandled = resolve; });
+    const wss = createWsServer({
+      wsPort: 0,
+      Debug: { log(_scope, message, metadata) {
+        if (message === 'WebSocket client error') errors.push(metadata);
+      } },
+      tlog() {},
+      onClientConnected(socket) { assert.equal(socket.__ffPrivilegedClient, false); },
+      onClientMessage(_socket, message) {
+        assert.equal(message.type, 'requestState');
+        resolveHandled?.();
+      },
+    }) as {
+      on: (eventName: string, handler: (...args: unknown[]) => void) => void;
+      address: () => { port: number };
+      clients: Set<{ terminate: () => void }>;
+      close: (cb?: (error?: Error) => void) => void;
+    };
+    t.after(async () => {
+      for (const socket of wss.clients) socket.terminate();
+      await closeServer(wss);
+    });
+    await once(wss, 'listening');
+    const url = `ws://127.0.0.1:${wss.address().port}`;
+    const options = { origin: 'http://127.0.0.1:8100' };
+    const healthy = new WebSocket(url, options);
+    await once(healthy, 'open');
+    const offender = new WebSocket(url, options);
+    await once(offender, 'open');
+    const closed = once(offender, 'close');
+    offender.send(invalidFrame.payload, { binary: false });
+    assert.equal((await closed)[0], invalidFrame.closeCode);
+    assert.deepEqual(errors, [{ code: invalidFrame.errorCode }]);
+    healthy.send(JSON.stringify({ type: 'requestState' }));
+    await handled;
+    assert.equal(healthy.readyState, WebSocket.OPEN);
+    const next = new WebSocket(url, options);
+    await once(next, 'open');
+    assert.equal(next.readyState, WebSocket.OPEN, 'the server still accepts new clients');
   });
 }
 
@@ -193,6 +243,14 @@ test('outbound projection keeps privileged payloads intact and sanitizes Trusted
     },
   );
   assert.equal(projectServerMessageForClient({}, { type: 'debug', entry: { data: 'private' } }), null);
+  assert.equal(projectServerMessageForClient({}, {
+    type: MSG.DEVICE_PAIRING_REQUESTS,
+    requests: [{ confirmationCode: '123456', remoteAddress: '192.168.1.44' }],
+  }), null, 'read-only clients must not receive the desktop pairing queue');
+  assert.equal(projectServerMessageForClient({ __ffAircraftControlClient: true }, {
+    type: MSG.DEVICE_PAIRING_APPROVAL_RESULT,
+    ok: true,
+  }), null, 'paired phones must not receive desktop pairing-management results');
   assert.deepEqual(projectServerMessageForClient({}, {
     type: 'deleteFlightCsvResult',
     success: true,
@@ -888,6 +946,53 @@ test('createWsServer rejects a DNS-rebound public hostname even when Origin and 
     });
     client.on('error', () => {});
   });
+});
+
+test('createWsServer accepts an approved device cookie without placing a control token in the URL', async (t) => {
+  const pairing = createDevicePairingManager();
+  const request = pairing.createRequest('127.0.0.1');
+  assert.equal(request.ok, true);
+  if (!request.ok) return;
+  assert.equal(pairing.approveRequest(request.request.id, request.request.confirmationCode), true);
+  const sessionId = pairing.claimApprovedRequest(request.request.id, '127.0.0.1');
+  assert.ok(sessionId);
+
+  const wss = createWsServer({
+    wsPort: 0,
+    remoteAccessEnable: true,
+    remoteAircraftControlEnable: true,
+    devicePairing: pairing,
+    Debug: { log() {} },
+    tlog() {},
+    onClientConnected() {},
+    onClientMessage() {},
+  }) as {
+    on: (eventName: string, handler: (...args: unknown[]) => void) => void;
+    address: () => { port: number };
+    close: (cb?: (error?: Error) => void) => void;
+  };
+  t.after(async () => { await closeServer(wss); });
+  await once(wss, 'listening');
+
+  const scope = await new Promise<string>((resolve, reject) => {
+    const client = new WebSocket(`ws://127.0.0.1:${wss.address().port}`, {
+      headers: {
+        Cookie: `ff_aircraft_pair=${sessionId}`,
+        Origin: `http://127.0.0.1:8100`,
+      },
+    });
+    client.once('message', (payload) => {
+      try {
+        resolve(JSON.parse(payload.toString()).scope);
+      } catch (error) {
+        reject(error);
+      } finally {
+        client.close();
+      }
+    });
+    client.once('error', reject);
+  });
+  assert.equal(scope, 'aircraft-control');
 });
 
 test('createWsServer rejects a loopback origin aimed at a LAN host without a session token', async (t) => {

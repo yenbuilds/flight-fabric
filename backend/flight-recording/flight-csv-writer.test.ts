@@ -926,7 +926,7 @@ async function runTests() {
   // Cleanup
   try {
     fs.rmSync(testDir, { recursive: true });
-  } catch (e) {
+  } catch {
     console.log('Note: Could not clean up test directory');
   }
   restoreEnvironment();

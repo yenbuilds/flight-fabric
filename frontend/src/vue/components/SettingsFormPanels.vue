@@ -6,6 +6,50 @@ const settings = useSettingsEditorStore();
 
 <template>
   <div class="settings-panel-grid">
+    <section id="settings-phone-tablet-access" class="settings-panel settings-panel--wide">
+      <div class="settings-panel-header">
+        <div class="settings-panel-kicker">Second screen</div>
+        <div class="settings-panel-title-row">
+          <div class="settings-panel-title">Phone &amp; tablet access</div>
+          <HelpTooltip label="Phone and tablet access help">Use this on a private home network to open Flight Fabric on a phone or tablet. Save and restart after enabling it, then open Phone setup to scan the QR code or type the short address.</HelpTooltip>
+        </div>
+      </div>
+
+      <div class="flex items-start gap-3">
+        <input id="setting-remote-access" v-model="settings.remoteAccess" type="checkbox" class="mt-0.5 h-5 w-5 shrink-0 rounded border-surface-300 bg-surface-100 text-primary focus:ring-primary/30" />
+        <div class="min-w-0 flex-1">
+          <span class="settings-toggle-head">
+            <label for="setting-remote-access" class="block cursor-pointer text-sm font-medium text-fg">Use Flight Fabric on phones and tablets</label>
+            <HelpTooltip label="Trusted LAN access help">Enable devices on your private home network to reach Flight Fabric after restart. Keep this off on public or shared networks. That includes hotel, airport, school, workplace, and hotspot Wi-Fi.</HelpTooltip>
+          </span>
+          <p v-if="settings.remoteAccess" class="mt-1 text-xs leading-relaxed text-muted-fg">Use this only on a private home network you trust.</p>
+          <p v-else class="mt-1 text-xs leading-relaxed text-muted-fg">Off by default. Turn on only for a private home network you trust.</p>
+        </div>
+      </div>
+
+      <p v-if="!settings.remoteAccess" id="setting-phone-tablet-next-step" class="mt-4 border-t border-border/40 pt-3 text-xs leading-relaxed text-muted-fg">Turn this on, save, and restart Flight Fabric. Then open <span class="font-medium text-fg">Phone setup</span> to scan the QR or type the short address.</p>
+
+      <template v-else>
+        <div id="setting-remote-access-warning" class="mt-5 rounded-r-lg border-l-2 border-warning/70 bg-warning/5 px-4 py-3">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-warning">Trusted LAN only</div>
+          <p class="mt-1.5 text-xs leading-relaxed text-muted-fg">Do not use this on hotel, airport, school, workplace, hotspot, or other public/shared networks.</p>
+        </div>
+
+        <div class="mt-4 flex items-start gap-3 border-t border-border/50 pt-4">
+          <input id="setting-remote-aircraft-control" v-model="settings.remoteAircraftControl" type="checkbox" class="mt-0.5 h-5 w-5 shrink-0 rounded border-surface-300 bg-surface-100 text-primary focus:ring-primary/30" />
+          <div class="min-w-0 flex-1">
+            <span class="settings-toggle-head">
+              <label for="setting-remote-aircraft-control" class="block cursor-pointer text-sm font-medium text-fg">Allow aircraft controls on paired devices</label>
+              <HelpTooltip label="Remote aircraft control help">This is enabled by default for new phone and tablet setups. A browser must still be paired from Phone setup, using the private QR or matching-code approval, before it can operate aircraft-specific controls for the current backend session. It does not grant settings, recordings, history, file deletion, or profile management.</HelpTooltip>
+            </span>
+            <p v-if="settings.remoteAircraftControl" id="setting-remote-aircraft-control-warning" class="mt-1 text-xs leading-relaxed text-muted-fg">Viewer devices cannot send aircraft commands. Pair with the private QR or approve a matching code in Phone setup; access expires when the backend restarts.</p>
+          </div>
+        </div>
+
+        <p class="mt-4 text-xs leading-relaxed text-muted-fg">Open <span class="font-medium text-fg">Phone setup</span> on this PC to connect your device. If you just enabled access, save and restart first.</p>
+      </template>
+    </section>
+
     <section class="settings-panel">
       <div class="settings-panel-header">
         <div class="settings-panel-kicker">Flying</div>
@@ -136,11 +180,11 @@ const settings = useSettingsEditorStore();
       </div>
     </section>
 
-    <details class="settings-panel settings-advanced">
+    <details class="settings-panel settings-advanced settings-panel--wide">
       <summary>
         <span>
-          <span class="settings-panel-title">Advanced connections</span>
-          <span class="settings-advanced-copy">Network ports and access from phones, tablets, and other devices.</span>
+          <span class="settings-panel-title">Advanced network ports</span>
+          <span class="settings-advanced-copy">Change these only if another application is already using a Flight Fabric port.</span>
         </span>
       </summary>
       <div class="settings-grid-2">
@@ -171,34 +215,6 @@ const settings = useSettingsEditorStore();
             style="font-family: 'B612 Mono', monospace;"
           />
         </div>
-      </div>
-
-      <div class="mt-4 settings-option-row flex items-center gap-3">
-        <input id="setting-remote-access" v-model="settings.remoteAccess" type="checkbox" class="h-4 w-4 rounded border-surface-300 bg-surface-100 text-cyan-400 focus:ring-cyan-500/30" />
-        <div class="min-w-0 flex-1">
-          <span class="settings-toggle-head">
-            <label for="setting-remote-access" class="block text-sm font-medium text-gray-200 cursor-pointer">Allow trusted LAN access</label>
-            <HelpTooltip label="Remote access help">Enable phones, tablets, and other devices on your private LAN to reach the local dashboard after restart. Keep this off on public or shared networks.</HelpTooltip>
-          </span>
-        </div>
-      </div>
-
-      <div v-if="settings.remoteAccess" id="setting-remote-access-warning" class="settings-warning-card mt-4 rounded-lg px-4 py-3">
-        <div class="settings-warning-title text-[11px] font-semibold uppercase tracking-[0.14em]" style="font-family: 'B612 Mono', monospace;">Trusted LAN Only</div>
-        <p class="settings-warning-copy mt-1.5 text-xs leading-relaxed">Use this only on a private home network you trust. Do not enable it on hotel, airport, school, workplace, hotspot, or other public/shared networks.</p>
-        <p class="settings-warning-copy mt-2 text-xs leading-relaxed">After saving and restarting, open <span class="font-mono text-gray-300">http://localhost:{{ settings.httpPort || '8100' }}/setup</span> on this PC to view the LAN address for phones and tablets.</p>
-
-        <div class="mt-3 flex items-center gap-3 rounded-lg border border-amber-400/25 bg-surface-200/50 px-3 py-3">
-          <input id="setting-remote-aircraft-control" v-model="settings.remoteAircraftControl" type="checkbox" class="h-4 w-4 rounded border-surface-300 bg-surface-100 text-cyan-400 focus:ring-cyan-500/30" />
-          <div class="min-w-0 flex-1">
-            <span class="settings-toggle-head">
-              <label for="setting-remote-aircraft-control" class="block text-sm font-medium text-gray-200 cursor-pointer">Allow aircraft controls from trusted LAN</label>
-              <HelpTooltip label="Remote aircraft control help">Enable this on the Flight Fabric PC to let a browser paired from Phone setup operate aircraft-specific controls for the current backend session. This does not grant settings, recordings, history, file deletion, or profile management.</HelpTooltip>
-            </span>
-          </div>
-        </div>
-
-        <p v-if="settings.remoteAircraftControl" id="setting-remote-aircraft-control-warning" class="settings-warning-copy mt-2 text-xs leading-relaxed">Only browsers opened from the private QR under Phone setup can command the connected aircraft. Treat that URL and QR code as private; the pairing expires when the backend restarts, not when a new flight starts.</p>
       </div>
 
     </details>

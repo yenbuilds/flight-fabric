@@ -1,6 +1,6 @@
-# Flight Fabric 0.9.8 · Public Alpha
+# Flight Fabric 0.9.9 · Public Alpha
 
-## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.8/Flight.Fabric.Setup.0.9.8.exe)
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.9.9/Flight.Fabric.Setup.0.9.9.exe)
 
 **Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
 
@@ -12,47 +12,53 @@ running.
 
 ## What's new
 
-- **Clearer aircraft pages:** presets now have one dedicated section with a
-  subtle aviation watermark. Individual cockpit controls are organized into
-  related sections, with the full searchable catalogue available in Control library.
-- **More reliable NAV voice commands:** say either "set nav radios one zero nine
-  decimal five" or "set nav radios one zero nine point five" to request 109.50
-  on aircraft that support setting both NAV radios.
-- **Landing-light fixes:** PMDG 737 fixed landing lights now move fully ON,
-  and switching all landing lights OFF also retracts the retractable lights.
-- **Easier-to-read maps:** stronger track, route and aircraft-marker contrast
-  helps you follow flights in Live Map and Timeline.
+- **Easier phone and tablet pairing:** request aircraft-control access on your
+  device, then approve the matching code in Phone setup on your simulator PC.
+- **Clearer flight debriefs:** see the approach score alongside recovered cautions,
+  and review touchdown distance without a pass/fail label for the optional
+  first-1,000-ft target.
+- **Strobe and APU fixes:** more consistent strobe voice commands and more reliable
+  PMDG 737/777 APU start-switch timing.
+- **A simple way to donate:** a small Donate button in the desktop footer opens
+  Ko-fi. Website Donate buttons no longer display a fixed amount.
 
 <details>
 <summary><strong>Full release notes</strong></summary>
 
-### Aircraft controls and presets
+### Phone and tablet setup
 
-PMDG 737/777, Fenix A32X, FlyByWire A32NX/A380X and iniBuilds A350 pages have
-clearer grouping and fewer repeated controls. Presets are visually distinct
-from individual switches and settings. Radios and approach settings sit near
-flight guidance where supported, and section navigation follows the page order.
-The A350 layout also fits narrow phone screens more reliably.
+Phone setup supports device requests with matching approval codes. On a trusted
+private home network, enable phone and tablet access in Settings, save and
+restart Flight Fabric, then scan the QR code or enter the short address.
+Request aircraft-control access on the device and approve its code on the PC.
+Settings also provides clearer guidance for enabling second-screen access.
 
-Control library keeps the complete advertised command set searchable without
-adding another long section to the aircraft page. Controls retain their
-availability checks and explanations when live aircraft data is missing.
+### Flight debriefs
 
-### Voice and exterior lighting
+Landing summaries, Timeline and Logbook show the approach score together with
+specific recovered cautions. The recorded assessment remains available in the
+details, and serious warnings and insufficient-data results remain explicit.
+Touchdown distance and its zone description replace the first-1,000-ft pass/fail
+tile. The chart's 1,000 ft aiming-point reference is shown neutrally. Scoring
+thresholds, deductions and saved flight results are unchanged.
 
-NAV command recognition better preserves the complete spoken command when
-frequencies are read digit by digit. Both "decimal" and "point" are accepted;
-the aircraft's frequency limits still apply. Recognition can vary with the
-microphone, background noise and pronunciation.
+### Aircraft controls
 
-PMDG 737 landing-light commands use the full switch positions. Supported fixed
-exterior-light commands on the iniBuilds L-1011 are reapplied when lamp output
-alone cannot confirm all cockpit switch positions.
+Voice commands such as "set strobe lights on" and "set strobe lights off" are
+recognized consistently across supported aircraft. On the PMDG 737, switching
+strobes off keeps steady navigation lights on and leaves an already-OFF switch
+alone. PMDG 737 and 777 APU start-switch movements have more time to register
+before START is released.
 
-### Maps and performance
+### Donations and maintenance
 
-Live Map and Timeline use outlined tracks and clearer route and aircraft
-markers. Nearby-airport searches also do less repeated work during a flight.
+The desktop footer includes a compact heart-icon Donate button beside
+Diagnostics, linking to Yen's Ko-fi page. Both website donation buttons now say
+Donate without a fixed amount.
+
+This update also includes connection and recording reliability fixes, dependency
+updates and refreshed third-party notices. The previously disabled aircraft
+support workbench has been removed; existing saved workbench files are retained.
 
 </details>
 
@@ -71,9 +77,6 @@ cockpit window or engage an autopilot mode.
 Voice recognition works only in the Windows desktop app. Push to talk is off
 by default and accepts only commands advertised for the active aircraft.
 
-The experimental aircraft support workbench is temporarily unavailable while it
-undergoes further review. Previously saved workbench sessions are retained.
-
 Runway data availability depends on the simulator and airport. Unavailable
 target, runway or approach-guidance data remains unscored where required;
 a high score does not imply that every criterion was measured.
@@ -87,7 +90,7 @@ Settings. MSFS 2020 and X-Plane are not currently supported.
 <details>
 <summary><strong>Installation help and optional file verification</strong></summary>
 
-The installer is `Flight.Fabric.Setup.0.9.8.exe`. The **Source code** archives
+The installer is `Flight.Fabric.Setup.0.9.9.exe`. The **Source code** archives
 in GitHub's Assets section are for developers; you only need the installer to
 use Flight Fabric.
 
@@ -100,5 +103,5 @@ the installer in **Assets**. This is an optional file-integrity check.
 </details>
 
 [Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
-[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.8/LICENSE.md) ·
-[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.8/THIRD_PARTY_NOTICES.md)
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.9.9/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.9.9/THIRD_PARTY_NOTICES.md)

@@ -5,6 +5,7 @@ const RELEASE_HOSTNAME = 'github.com';
 const RELEASE_PATH_PREFIX = '/yenbuilds/flight-fabric/releases';
 
 const FIXED_EXTERNAL_URLS = new Set([
+  'https://ko-fi.com/yenbuilds',
   'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/',
   'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/',
   'https://leafletjs.com/',

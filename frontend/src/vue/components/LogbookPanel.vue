@@ -542,6 +542,14 @@ function stabilityBadge(entry) {
   const presentation = landingPresentation(entry);
   const approachVerdict = presentation.approachVerdict;
   const gateText = `${presentation.stabilityGateLabel} gate`;
+  if (presentation.recoveredCautions) {
+    return {
+      tone: 'marginal',
+      label: presentation.approachText,
+      shortLabel: `${presentation.approachText} · Cautions`,
+      tooltipLead: presentation.approachFindingsText,
+    };
+  }
   if (approachVerdict === 'STABLE') {
     return {
       tone: 'stable',
@@ -617,6 +625,8 @@ function stabilityBreakdownReasons(entry) {
 }
 
 function stabilityCauseText(entry) {
+  const presentation = landingPresentation(entry);
+  if (presentation.approachFindingsText) return presentation.approachFindingsText;
   if (!['marginal', 'unstable'].includes(stabilityBadge(entry).tone)) return '';
   const breakdownReasons = stabilityBreakdownReasons(entry).slice(0, 2);
   if (breakdownReasons.length > 0) return breakdownReasons.join(' · ');
@@ -870,6 +880,9 @@ function trendStabilityText(row) {
       <summary>How approach verdicts work</summary>
       <p>
       Verdicts use each flight's recorded rules. With current scoring, amber cautions or quality checks below target make an approach Marginal. Red violations, configuration failures or substantial quality losses make it Unstable. The percentage describes average approach quality; a high score can still accompany an Unstable verdict. Older flights retain their original checks until rescored.
+      </p>
+      <p>
+        When all cautions recovered and no other quality check failed, the summary shows the score and the recorded findings. The detailed assessment keeps the original verdict; recovered cautions do not mean every stabilized-approach criterion was met.
       </p>
     </details>
 

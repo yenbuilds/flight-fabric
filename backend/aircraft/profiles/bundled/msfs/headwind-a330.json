@@ -118,7 +118,7 @@
     ],
     "updated": "2026-07-24",
     "status": "experimental",
-    "notes": "Headwind A330-900neo (A330-941, Trent 7000) identity profile. Headwind documents its FBW A32NX heritage but does not publish a complete external-interface compatibility contract. Custom readbacks and writes remain unmapped; standard SimConnect is the live path pending A339X-specific verification."
+    "notes": "Headwind A330-900neo (A330-941, Trent 7000). Independently reviewed cockpit lighting, indexed exterior lamps and strobe OFF/AUTO/ON routes use the installed A339X interfaces recorded in provenance. Broader inherited A32NX telemetry and custom FCU writes remain unmapped pending A339X-specific verification."
   },
   "provenance": {
     "sources": [
@@ -186,6 +186,16 @@
         "url": "https://github.com/headwindsim/aircraft",
         "retrievedAt": "2026-09-10",
         "notes": "A330_NEO_INTERIOR.xml: paired landing lamps LIGHT LANDING:2 and LIGHT LANDING:3. Both aircraft use LIGHT TAXI:1 for nose taxi lighting, LIGHT TAXI:2 and LIGHT TAXI:3 for runway turnoff lamps. Bounded LANDING_LIGHTS_SET and TAXI_LIGHTS_SET events use state first, fixed light index second, matching the shipped switch templates. All changed indexed outputs require independent newer readback. Existing takeoff preset actions are retained. See docs/EXTERIOR-LIGHTS-VALIDATION.md."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "Installed Headwind A339X strobe preset procedures",
+        "url": "https://github.com/headwindsim/aircraft",
+        "retrievedAt": "2026-09-14",
+        "notes": "Installed 0.8.1-09203ddc9ccb1003b739e264b9613a16981e0628 config/a339x/a330-941/aircraft_preset_procedures.xml specifies STROBE_0_AUTO plus STROBES_OFF, a 50 ms reset interval, then STROBES_ON for ON/AUTO. LIGHTING_STROBE_0 reports ON=0, AUTO=1, OFF=2 and is never written. ON/OFF require both selector and LIGHT STROBE output confirmation; AUTO requires selector confirmation because output may be off on the ground. No broader A32NX compatibility is inferred. Live verification is pending; see docs/EXTERIOR-LIGHTS-VALIDATION.md."
       }
     ],
     "verification": {

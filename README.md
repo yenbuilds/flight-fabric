@@ -106,16 +106,23 @@ The supported Windows and SimConnect target is **Microsoft Flight Simulator
 You can open the dashboard on another device on the same trusted private
 network as the simulator PC.
 
-1. In Flight Fabric, open **Settings**, then **Network**.
-2. Enable **Allow trusted LAN access**.
-3. To use aircraft controls from the other device, also enable **Allow aircraft
-   controls from trusted LAN**.
+1. In Flight Fabric, open **Settings**.
+2. In **Phone & tablet access**, enable **Use Flight Fabric on phones and
+   tablets** on your private home network.
+3. Aircraft controls are enabled by default for paired devices; turn them off
+   there if you only want a read-only second screen.
 4. Save the settings and restart Flight Fabric.
-5. On the simulator PC, open `http://localhost:8100/setup`.
-6. Scan the QR code or use the complete URL shown there.
+5. On the simulator PC, choose **Phone setup** in the header.
+6. Scan the private QR code, or type the short address shown there.
 
-Treat the paired URL as a temporary password. Its token expires when the backend
-restarts. LAN traffic is unencrypted, so use this only on a private network.
+No camera? Type the short **No camera?** address shown in Phone setup on the
+device. It opens a read-only dashboard. Choose **Request aircraft controls**
+there, then approve the matching six-digit code on the simulator PC.
+
+Treat the QR code as a temporary password. Its token expires when the backend
+restarts. The typed address contains no pairing credential and requires approval
+of a matching code on the simulator PC. LAN traffic is unencrypted, so use this
+only on a private network.
 
 ### OBS overlays
 
@@ -278,7 +285,6 @@ Packaged output is written to `dist/electron`.
 <details>
 <summary><strong>Develop aircraft support</strong></summary>
 
-The aircraft support workbench is disabled in this release pending further review.
 Its interface, API, and command-line operations are unavailable. Existing saved
 sessions are preserved. The implementation is retained for a later review.
 

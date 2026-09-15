@@ -3,7 +3,7 @@ import test = require('node:test');
 
 const loader = require('./aircraft-profile-loader');
 const { defaultAircraftIntegrationRegistry: registry } = require('./aircraft-integrations');
-const { executeAircraftCommand, resolveAircraftCommand, buildAircraftControlCapabilities } = require('./aircraft-control-service');
+const { executeAircraftCommand, resolveAircraftCommand } = require('./aircraft-control-service');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event'],
   integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };
@@ -13,6 +13,106 @@ const profiles = [
   'pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f',
   'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'fbw-a380x', 'headwind-a330',
 ];
+
+for (const id of ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900']) {
+  test(`${id}: strobe voice targets preserve the combined position switch and require confirmation`, async () => {
+    for (const transport of ['sdk', 'simconnect-sequence']) {
+      for (const initial of ['off', 'steady', 'strobe-steady']) {
+        for (const value of [false, true]) {
+          loader.setActiveProfile(id);
+          const config = loader.getLvarConfig().aircraftSpecific;
+          const profile = loader.loadProfile(`bundled/msfs/${id}`);
+          const provider = new SimConnectTelemetryProvider();
+          provider._getActiveAircraftIntegrationConfig = () => config;
+          provider._getAircraftIntegrationTransportCapabilities = () => ({ [transport]: true });
+          const snapshot = { adapterId: 'clientdata-manifest', status: 'running', snapshotSequence: 1,
+            updatedAt: new Date().toISOString(), normalized: { lights: { position: initial } } };
+          provider._sdkBridge = { getSnapshot: () => snapshot, isDataConnected: () => true };
+          const positions = ['steady', 'off', 'strobe-steady'];
+          const writes = [];
+          const bridge = {
+            setNamedVar: async () => { throw new Error('Strobes must use the position switch'); },
+            sendSdkEvent: async (event, rawValue) => {
+              assert.equal(event, '#69755');
+              writes.push([event, rawValue]);
+              snapshot.normalized.lights.position = positions[rawValue];
+              snapshot.snapshotSequence++;
+              return { ok: true };
+            },
+            sendEvent: async (event, rawValue) => {
+              assert.equal(event, 'ROTOR_BRAKE');
+              assert.ok([12301, 12302].includes(rawValue));
+              writes.push([event, rawValue]);
+              const position = positions.indexOf(snapshot.normalized.lights.position);
+              setTimeout(() => {
+                snapshot.normalized.lights.position = positions[Math.max(0, Math.min(2, position + (rawValue === 12301 ? -1 : 1)))];
+                snapshot.snapshotSequence++;
+              }, 20);
+              return { ok: true };
+            },
+          };
+          const runner = { aircraftControlCapabilities: capabilities, executeAircraftControlAction: (_action, options) =>
+            provider._executeAircraftIntegrationAction(bridge, { name: 'pmdg-737' }, 'test', options) };
+          const result = await executeAircraftCommand(runner, request('strobe', value),
+            { profile, capabilities, profileRevision: config.profileRevision });
+          assert.equal(result.ok, true, JSON.stringify(result));
+          assert.equal(snapshot.normalized.lights.position, value ? 'strobe-steady' : initial === 'off' ? 'off' : 'steady');
+          if ((!value && initial !== 'strobe-steady') || (value && initial === 'strobe-steady')) {
+            assert.equal(writes.length, 0, 'a satisfied strobe request must not move the position switch');
+          } else assert.ok(writes.length > 0);
+        }
+      }
+    }
+  });
+}
+
+test('Headwind strobe mode uses the documented reset and confirms mode plus lamp output', async () => {
+  loader.setActiveProfile('headwind-a330');
+  const profileKey = 'bundled/msfs/headwind-a330';
+  const config = loader.getLvarConfig().aircraftSpecific;
+  const integration = registry.resolveForProfile(profileKey);
+  for (const initial of ['off', 'auto', 'on']) for (const mode of ['off', 'auto', 'on']) {
+    const provider = new SimConnectTelemetryProvider();
+    provider._connected = true; provider._simRunning = true;
+    provider._getActiveAircraftIntegrationConfig = () => config;
+    provider._getAircraftIntegrationTransportCapabilities = () => ({ 'simconnect-sequence': true });
+    const values = { 'L:LIGHTING_STROBE_0': initial === 'on' ? 0 : initial === 'auto' ? 1 : 2,
+      'L:STROBE_0_AUTO': initial === 'auto' ? 1 : 0, 'A:LIGHT STROBE': initial === 'on' ? 1 : 0 };
+    const snapshot: any = { profileId: profileKey, status: 'running', snapshotSequence: 1,
+      updatedAt: new Date().toISOString(), values: {}, valueUpdatedAt: {} };
+    const refresh = () => {
+      for (const field of config.confirmationFields.filter(field => field.id.startsWith('lights.strobe'))) {
+        snapshot.values[field.source.key] = values[integration.fields[field.id].sources[0].route.name];
+        snapshot.valueUpdatedAt[field.source.key] = new Date().toISOString();
+      }
+      snapshot.updatedAt = new Date().toISOString(); snapshot.snapshotSequence++;
+    };
+    refresh();
+    const writes = [];
+    const bridge = { getSnapshot: () => snapshot,
+      setNamedVar: async ({ name, value }) => {
+        assert.equal(name, 'L:STROBE_0_AUTO', 'never write the selector animation');
+        values[name] = value; writes.push([name, value]); return { ok: true };
+      },
+      sendEvent: async (name) => {
+        assert.ok(['STROBES_OFF', 'STROBES_ON'].includes(name));
+        writes.push([name]);
+        values['L:LIGHTING_STROBE_0'] = name === 'STROBES_OFF' ? 2 : values['L:STROBE_0_AUTO'] ? 1 : 0;
+        values['A:LIGHT STROBE'] = name === 'STROBES_ON' && !values['L:STROBE_0_AUTO'] ? 1 : 0;
+        await new Promise(resolve => setTimeout(resolve, 2)); refresh(); return { ok: true };
+      },
+    };
+    const result = await provider._executeAircraftIntegrationAction(bridge, { name: 'headwind-a330' }, 'test', {
+      profileKey, profileRevision: config.profileRevision, request: { actionId: `lights.strobe.${mode}` },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(values['L:LIGHTING_STROBE_0'], mode === 'on' ? 0 : mode === 'auto' ? 1 : 2);
+    assert.equal(values['A:LIGHT STROBE'], mode === 'on' ? 1 : 0, 'AUTO may leave lamps off on the ground');
+    if (initial === mode) assert.equal(writes.length, 0);
+    else assert.deepEqual(writes.filter(([name]) => name.startsWith('STROBES_')),
+      mode === 'off' ? [['STROBES_OFF']] : [['STROBES_OFF'], ['STROBES_ON']]);
+  }
+});
 
 test('individual commands preserve every established takeoff preset recipe', () => {
   const expected = {

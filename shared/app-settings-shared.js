@@ -18,7 +18,9 @@
     wsPort: 8099,
     httpPort: 8100,
     remoteAccess: false,
-    remoteAircraftControl: false,
+    // LAN access remains opt-in. When it is enabled, paired phone/tablet
+    // browsers should be ready for the primary second-screen use case.
+    remoteAircraftControl: true,
     updateChecks: true,
     onlineMapTiles: true,
     recordingAutoStart: true,
@@ -138,8 +140,10 @@
         wsPort: sanitizeClampedInt(network.wsPort, defaults.wsPort, 1024, 65535),
         httpPort: sanitizeClampedInt(network.httpPort, defaults.httpPort, 1024, 65535),
         remoteAccess,
-        remoteAircraftControl: remoteAccess
-          && sanitizeBool(network.remoteAircraftControl, defaults.remoteAircraftControl),
+        // Keep the user's control preference even while LAN access is off.
+        // The backend still requires both settings before exposing controls;
+        // this lets a new user enable the second screen without an extra step.
+        remoteAircraftControl: sanitizeBool(network.remoteAircraftControl, defaults.remoteAircraftControl),
         updateChecks: sanitizeBool(network.updateChecks, defaults.updateChecks),
         onlineMapTiles: sanitizeBool(network.onlineMapTiles, defaults.onlineMapTiles),
       },

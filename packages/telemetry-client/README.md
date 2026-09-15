@@ -104,6 +104,11 @@ class TelemetryClient {
 
 ### TelemetryClientOptions
 
+`disconnect()` stops automatic retries until you call `connect()` again.
+Unexpected connection loss still retries when `autoReconnect` is enabled.
+Repeated `connect()` calls share an existing open or pending connection;
+`destroy()` permanently releases the client.
+
 ```typescript
 interface TelemetryClientOptions {
   url?: string;           // Default: 'ws://localhost:8099'

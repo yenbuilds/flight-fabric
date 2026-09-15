@@ -3,6 +3,7 @@
 import type { AircraftIntegrationDefinition } from './types.js';
 import { cockpitLightingIntegration } from './cockpit-lighting.js';
 import { indexedExteriorLights } from './indexed-exterior-lights.js';
+import { headwindStrobeLights } from './headwind-strobe-lights.js';
 
 const {
   createAircraftIntegrationRegistry,
@@ -193,8 +194,8 @@ const HEADWIND_A330_INTEGRATION = defineAircraftIntegration({
   aircraft: { vendor: 'Headwind Simulations', family: 'Airbus A330-900neo' },
   trustedProfileKeys: ['bundled/msfs/headwind-a330'],
   presentation: { templateId: 'generic' },
-  fields: { ...headwindLighting.fields, ...indexedExteriorLights('headwind-a330').fields },
-  actions: { ...headwindLighting.actions, ...indexedExteriorLights('headwind-a330').actions },
+  fields: { ...headwindLighting.fields, ...indexedExteriorLights('headwind-a330').fields, ...headwindStrobeLights().fields },
+  actions: { ...headwindLighting.actions, ...indexedExteriorLights('headwind-a330').actions, ...headwindStrobeLights().actions },
 });
 
 const defaultAircraftIntegrationRegistry = createAircraftIntegrationRegistry([

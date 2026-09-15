@@ -112,7 +112,6 @@ const detailedAttention = computed(() => {
   const { touchdown, approach, attitude } = landing.landingCard;
   const levels = [
     detailedMetricAttentionLevel(touchdown.distanceGradeTone),
-    detailedMetricAttentionLevel(touchdown.achievedTone),
     detailedMetricAttentionLevel(touchdown.lateralTone, touchdown.lateralGradeTone),
     detailedMetricAttentionLevel(touchdown.bounceTone, touchdown.bounceGradeTone),
     detailedMetricAttentionLevel(approach.stabilityTone),
@@ -330,7 +329,7 @@ const bounceDetailVisible = computed(() => {
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="zone" />
           <div class="relative z-10">
-            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown zone</div>
+            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Touchdown position</div>
             <div
               id="landing-summary-tdz"
               class="text-2xl font-semibold tabular text-gray-200"
@@ -652,30 +651,16 @@ const bounceDetailVisible = computed(() => {
       >
         <div class="px-6 pt-4 pb-2">
           <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Touchdown</div>
-          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div
               :class="[detailedMetricClass, detailedMetricAttentionClass(landing.landingCard.touchdown.distanceGradeTone)]"
               data-detail-metric="touchdown-distance"
               :data-attention="detailedMetricAttentionLevel(landing.landingCard.touchdown.distanceGradeTone)"
             >
-              <div class="text-[11px] text-gray-500 mb-0.5">Distance</div>
+              <div class="text-[11px] text-gray-500 mb-0.5">Touchdown position</div>
               <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">From threshold</div>
               <div id="landing-tdz-value" class="text-xl font-semibold tabular text-gray-100">{{ landing.landingCard.touchdown.distanceText }}</div>
               <div id="landing-tdz-grade" class="text-xs mt-0.5" :class="landing.landingCard.touchdown.distanceGradeTone">{{ landing.landingCard.touchdown.distanceGradeText }}</div>
-            </div>
-            <div
-              :class="[detailedMetricClass, detailedMetricAttentionClass(landing.landingCard.touchdown.achievedTone)]"
-              data-detail-metric="touchdown-target"
-              :data-attention="detailedMetricAttentionLevel(landing.landingCard.touchdown.achievedTone)"
-            >
-              <div class="text-[11px] text-gray-500 mb-0.5">1,000 ft target</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">From landing threshold</div>
-              <div
-                id="landing-tdz-achieved"
-                class="text-xl font-semibold"
-                :class="landing.landingCard.touchdown.achievedTone"
-                style="font-family:'B612 Mono', monospace;"
-              >{{ landing.landingCard.touchdown.achievedText }}</div>
             </div>
             <div
               :class="[detailedMetricClass, detailedMetricAttentionClass(landing.landingCard.touchdown.lateralTone, landing.landingCard.touchdown.lateralGradeTone)]"
@@ -708,7 +693,7 @@ const bounceDetailVisible = computed(() => {
               data-detail-metric="approach-verdict"
               :data-attention="detailedMetricAttentionLevel(landing.landingCard.approach.stabilityTone)"
             >
-              <div class="text-[11px] text-gray-500 mb-0.5">Approach verdict</div>
+              <div class="text-[11px] text-gray-500 mb-0.5">Approach</div>
               <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">{{ landing.landingCard.approach.stabilityNoteText }}</div>
               <div
                 id="landing-stability-score"

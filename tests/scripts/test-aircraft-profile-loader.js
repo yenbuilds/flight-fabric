@@ -2884,11 +2884,13 @@ loader.setActiveProfile('headwind-a330');
 const headwindLvars = loader.getLvarConfig();
 test(
   'Headwind A330 enables its reviewed cockpit and exterior lighting readbacks',
-  headwindLvars?.enabled === true && headwindLvars?.subscriptions?.length === 19
+  headwindLvars?.enabled === true && headwindLvars?.subscriptions?.length === 21
 );
 test(
   'Headwind A330 does not assume inherited A32NX_* compatibility',
-  headwindLvars?.subscriptions?.every(subscription => /^\(A:LIGHT (?:POTENTIOMETER|LANDING|TAXI):\d+\)$/.test(subscription.expression))
+  headwindLvars?.subscriptions?.every(subscription =>
+    /^\(A:LIGHT (?:POTENTIOMETER|LANDING|TAXI):\d+\)$/.test(subscription.expression)
+    || ['(L:LIGHTING_STROBE_0)', '(A:LIGHT STROBE)'].includes(subscription.expression))
 );
 
 loader.setActiveProfile('fbw-a380x');

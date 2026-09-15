@@ -1199,7 +1199,6 @@ async function main() {
     }
 
     assert.match(html, /Preferences/, 'settings form title should render');
-    assert.doesNotMatch(html, /data-aircraft-workbench|Open workbench|Aircraft support workbench/, 'the release must not render a workbench entry point');
     assert.match(html, /settings file/, 'settings explanatory copy should render');
     assert.doesNotMatch(html, /id="setting-aircraft-profile"/, 'settings should not duplicate the compact profile correction selector');
     assert.doesNotMatch(html, /id="settings-aircraft-profile-tools"/, 'settings should not expose profile file mutation tools');
@@ -1212,7 +1211,9 @@ async function main() {
       'settings should show X-Plane as unavailable and prevent users from selecting it'
     );
     assert.doesNotMatch(html, /Storage Layout/, 'settings shell should not render the storage-layout reference panel');
-    assert.match(html, /Allow trusted LAN access/, 'settings panel should frame remote access as trusted LAN access');
+    assert.match(html, /id="settings-phone-tablet-access"/, 'settings should give phone and tablet access a prominent dedicated section');
+    assert.match(html, /Use Flight Fabric on phones and tablets/, 'settings should frame remote access around the second-screen use case');
+    assert.match(html, /Advanced network ports/, 'advanced settings should retain only the uncommon port controls');
     assert.doesNotMatch(html, /id="setting-remote-aircraft-control"/, 'aircraft-control opt-in should stay hidden until trusted LAN access is enabled');
     assert.match(html, /Check for app updates/, 'settings panel should expose update checks');
     assert.match(html, /Use online map tiles/, 'settings panel should expose online map tile control');
@@ -1241,7 +1242,7 @@ async function main() {
     assert.match(html, /SAFETY-NOTICE\.md/, 'about panel should open the bundled safety notice file');
   });
 
-  await test('SettingsFormPanels exposes the narrow trusted-LAN aircraft-control opt-in', async () => {
+  await test('SettingsFormPanels explains that aircraft controls require pairing', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'SettingsFormPanels.vue'),
       ({ useSettingsEditorStore }) => {
@@ -1252,7 +1253,7 @@ async function main() {
     );
 
     assert.match(html, /id="setting-remote-aircraft-control"/, 'trusted LAN settings should expose aircraft control separately');
-    assert.match(html, /Allow aircraft controls from trusted LAN/);
+    assert.match(html, /Allow aircraft controls on paired devices/);
     assert.match(html, /does not grant settings, recordings, history, file deletion, or profile management/);
     assert.match(html, /id="setting-remote-aircraft-control-warning"/);
   });
@@ -1454,7 +1455,7 @@ async function main() {
       assert.match(html, /Keep this second screen for every flight/, 'guide should make repeat-flight behavior explicit');
       assert.match(html, /New flights appear automatically/, 'guide should tell users a new flight needs no scan');
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Viewer mode\s*</, 'guide should expose the current read-only state');
-      assert.match(html, /choose <strong>Phone<\/strong> on the Flight Fabric PC/, 'read-only guidance should point to the discoverable PC action');
+      assert.match(html, /request approval below and match its code on the Flight Fabric PC/, 'read-only guidance should explain the camera-less approval path');
     } finally {
       delete globalThis.location;
     }
@@ -1475,7 +1476,8 @@ async function main() {
 
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Controls paired\s*</, 'paired phone should expose its acknowledged control state');
       assert.match(html, /stay paired for this backend session/, 'paired guidance should retain the backend-session security lifetime');
-      assert.match(html, /only after the Flight Fabric backend restarts/, 'paired guidance should say when another scan is required');
+      assert.match(html, /Pair again only after the Flight Fabric backend restarts/, 'paired guidance should say when another approval is required');
+      assert.match(html, /matching-code approval or the current Phone QR/, 'paired guidance should retain both secure recovery paths');
     } finally {
       delete globalThis.location;
     }
@@ -1495,8 +1497,32 @@ async function main() {
       );
 
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Pairing expired\s*</, 'stale paired URL should not be described as generic viewer mode');
-      assert.match(html, /id="second-screen-pairing-expired"[^>]*>[\s\S]*scan the current QR/, 'stale pairing guidance should point to the current PC Phone QR');
-      assert.match(html, /token changes whenever the backend restarts/, 'stale pairing guidance should explain why the saved token expired');
+      assert.match(html, /id="second-screen-pairing-expired"[^>]*>[\s\S]*Request approval again below/, 'stale pairing guidance should offer the camera-less recovery path');
+      assert.match(html, /Pairing changes whenever the backend restarts/, 'stale pairing guidance should explain why the saved token expired');
+    } finally {
+      delete globalThis.location;
+    }
+  });
+
+  await test('DevicePairingRequest gives a remote viewer one clear matching-code action', async () => {
+    globalThis.location = {
+      pathname: '/remote',
+      search: '?wsPort=9199',
+    };
+    try {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'DevicePairingRequest.vue'),
+        ({ useProfilesStore, useStatusStore }) => {
+          useProfilesStore().setAuthorizationScope('read-only');
+          useStatusStore().setWebsocket('ready');
+        },
+      );
+
+      assert.match(html, /id="device-pairing-request"/, 'remote viewer should render the pairing action');
+      assert.match(html, /This device is connected in viewer mode/, 'pairing action should explain the safe initial state');
+      assert.match(html, /approve the matching code/, 'pairing action should explain the PC verification step');
+      assert.match(html, /id="device-pairing-request-btn"/, 'pairing action should expose one clear request button');
+      assert.doesNotMatch(html, /aircraftControlToken=/, 'camera-free pairing UI must not render a bearer token');
     } finally {
       delete globalThis.location;
     }
@@ -1523,9 +1549,9 @@ async function main() {
 
     assert.doesNotMatch(html, /id="system-host-mode"/, 'system tab should not repeat the Electron host mode beside Refresh');
     assert.match(html, /Native service controls are only available in the Electron app/, 'browser fallback copy should render outside Electron');
-    assert.match(html, /LAN IP unavailable/, 'system tab should not render localhost as a phone URL before a LAN IP is known');
+    assert.match(html, /LAN address unavailable/, 'system tab should not render localhost as a phone URL before a LAN IP is known');
     assert.doesNotMatch(html, /id="system-mobile-qr"/, 'system tab should not render a stale phone QR before a LAN URL is known');
-    assert.match(html, /Scan to connect/, 'system tab should present one clear phone setup action');
+    assert.match(html, /Scan the QR or type the address/, 'system tab should present both phone setup paths clearly');
     assert.doesNotMatch(html, /Settings And Recovery/, 'settings and recovery controls should not be duplicated in the system tab');
     assert.doesNotMatch(html, /Recovery Launcher/, 'recovery launcher should remain outside the dashboard in the tray menu');
     assert.match(html, /never edits or deletes a flight CSV/, 'history rebuild safety boundary should be explicit');
@@ -1554,13 +1580,16 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="system-remote-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199&amp;aircraftControlToken=fixture-aircraft-token\s*</, 'system tab should render one current-session phone URL');
-    assert.match(html, /id="system-mobile-pairing-note"[^>]*>[\s\S]*scan again only after the Flight Fabric backend restarts/, 'system tab should label the pairing lifetime accurately');
-    assert.match(html, /Starting a new flight does not require another scan/, 'system tab should distinguish a new flight from a backend restart');
-    assert.match(html, /id="system-alt-ips"[^>]*>\s*Other IPs: 10\.0\.0\.5\s*</, 'system tab should keep alternate IP fallback copy');
+    assert.match(html, /id="system-remote-url"[^>]*>[\s\S]*http:\/\/192\.168\.1\.42:8100\/phone/, 'system tab should make the short camera-free address the readable phone URL');
+    assert.match(html, /id="system-camera-free-setup"/, 'system tab should offer a camera-free setup path');
+    assert.match(html, /id="system-phone-entry-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/phone\s*</, 'camera-free setup should show the short server-routed phone address');
+    assert.match(html, /id="system-mobile-pairing-note"[^>]*>[\s\S]*QR privately pairs aircraft controls for this backend session/, 'system tab should label the private QR accurately');
+    assert.match(html, /Starting a new flight does not require pairing again/, 'system tab should distinguish a new flight from a backend restart');
+    assert.match(html, /Other network addresses[\s\S]*id="system-alt-ips"[^>]*>\s*10\.0\.0\.5\s*</, 'system tab should keep alternate IP fallback copy behind progressive disclosure');
     assert.match(html, /id="system-mobile-qr"/, 'system tab should render one phone QR');
     assert.doesNotMatch(html, /id="system-viewer-qr"|id="system-control-pairing-qr"/, 'system tab should not split phone setup into viewer and control choices');
-    assert.match(html, /role="img"[^>]*aria-label="QR code for http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199&amp;aircraftControlToken=fixture-aircraft-token"/, 'QR should describe the paired encoded URL and custom WebSocket port');
+    assert.match(html, /role="img"[^>]*aria-label="Private QR code for Flight Fabric phone setup"/, 'QR should have a useful label without reading its private credential aloud');
+    assert.doesNotMatch(html, /fixture-aircraft-token/, 'the private QR credential should not be printed or exposed in accessible text');
     assert.equal((html.match(/role="img"/g) || []).length, 1, 'system tab should render exactly one phone QR');
     assert.match(html, /<path[^>]+d="M/, 'QR should render dark modules as an SVG path');
   });
@@ -1596,9 +1625,9 @@ async function main() {
         },
       );
 
-      assert.match(html, /id="system-remote-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/remote\?wsPort=9199\s*</, 'paired phone should display a token-free share URL that retains the working custom WebSocket port');
+      assert.match(html, /id="system-remote-url"[^>]*>[\s\S]*http:\/\/192\.168\.1\.42:8100\/phone/, 'paired phone should display the short token-free setup address');
       assert.doesNotMatch(html, /received-phone-token/, 'paired phone should not render its received token into copy or QR markup');
-      assert.match(html, /This browser is paired for aircraft controls in the current backend session/, 'paired phone should describe its actual current control state');
+      assert.match(html, /This browser is already paired for aircraft controls/, 'paired phone should describe its actual current control state');
       assert.match(html, /id="system-mobile-qr"/, 'paired phone may show its safe token-free viewer URL as the single phone link');
       assert.doesNotMatch(html, /id="system-control-pairing-qr"/, 'paired phone should never receive a redistributable pairing QR');
     } finally {
@@ -1629,8 +1658,9 @@ async function main() {
       },
     );
 
-    assert.match(html, /LAN access is off/, 'phone card should explain why pairing is unavailable');
+    assert.match(html, /Phone &amp; tablet access is off/, 'phone card should explain why pairing is unavailable');
     assert.match(html, /id="system-mobile-disabled-note"[^>]*>[\s\S]*restart the backend before pairing/, 'phone card should explain how to activate LAN access');
+    assert.match(html, /id="system-mobile-settings-btn"[\s\S]*Enable phone &amp; tablet access/, 'phone card should link directly to the access setting when pairing is unavailable');
     assert.doesNotMatch(html, /id="system-mobile-qr"/, 'inactive LAN access must not render a QR code');
     assert.doesNotMatch(html, /id="system-mobile-copy-btn"/, 'inactive LAN access must not expose a copy action');
     assert.doesNotMatch(html, /fixture-aircraft-token/, 'inactive LAN access must not render the pairing token');
@@ -7100,8 +7130,8 @@ async function main() {
     );
 
     assert.match(html, /Touchdown[\s\S]*id="landing-grade"[^>]*>FIRM</, 'landing summary should explicitly scope the raw touchdown-rate grade');
-    assert.match(html, /Touchdown zone[\s\S]*id="landing-summary-tdz"[^>]*>305 ft</, 'landing summary should present touchdown distance as a peer metric');
-    assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Outstanding</, 'landing summary should subordinate the touchdown-zone quality to its distance');
+    assert.match(html, /Touchdown position[\s\S]*id="landing-summary-tdz"[^>]*>305 ft</, 'landing summary should present touchdown distance as a peer metric');
+    assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Within touchdown zone</, 'landing summary should describe the touchdown position');
     assert.match(html, /id="landing-summary-approach"[^>]*>STABLE</, 'landing summary should show the approach verdict as a peer fact');
     assert.match(html, /id="landing-summary-approach-score"[^>]*>\s*Approach score 91%\s*</, 'landing summary should label the subordinate approach percentage');
     assert.match(html, /id="landing-summary-bounce"[^>]*>Clean</, 'landing summary should show bounce as a peer fact');
@@ -7111,8 +7141,7 @@ async function main() {
     assert.match(html, /id="landing-airport"[^>]*>YSSY</, 'landing airport should render from store state');
     assert.match(html, /id="landing-runway"[^>]*>RWY 34L</, 'landing runway should render from store state');
     assert.match(html, /id="landing-tdz-value"[^>]*>305 ft</, 'landing touchdown distance should render from store state');
-    assert.match(html, /1,000 ft target/, 'landing card should label the ideal target separately from the formal TDZ');
-    assert.match(html, /id="landing-tdz-achieved"[^>]*>YES</, 'landing first-1,000-ft target should render from store state');
+    assert.doesNotMatch(html, /1,000 ft target|id="landing-tdz-achieved"/, 'landing card should not grade a first-1,000-ft target');
     assert.match(html, /id="landing-stability-score"[^>]*>STABLE</, 'landing approach verdict should render from store state');
     assert.match(html, /id="landing-ias"[^>]*>136 kt</, 'landing IAS should render from store state');
     assert.match(html, /id="landing-gs"[^>]*>GS: 142</, 'landing GS should render from store state');
@@ -7176,7 +7205,7 @@ async function main() {
     assert.match(html, /Approach[\s\S]*id="landing-summary-approach"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>UNSTABLE</, 'card should give the failed approach verdict equal visual weight');
     assert.match(html, /Bounce[\s\S]*id="landing-summary-bounce"[^>]*class="[^"]*text-2xl[^"]*"[^>]*>1x</, 'card should give the bounce result equal visual weight');
     assert.match(html, /id="landing-summary-tdz"[^>]*>600 ft</, 'TDZ distance should remain a separate touchdown-position fact');
-    assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Outstanding</, 'TDZ quality should remain secondary to the touchdown distance');
+    assert.match(html, /id="landing-summary-tdz-detail"[^>]*>Within touchdown zone</, 'the touchdown zone should remain secondary to the measured distance');
     assert.match(html, /id="landing-summary-bounce-detail"[^>]*>Single Bounce</, 'a non-redundant bounce classification should remain visible');
     for (const kind of ['grade', 'rate', 'zone', 'approach', 'bounce']) {
       assert.match(
@@ -7217,8 +7246,8 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="detailed-metrics-attention-count"[^>]*>2 items need attention</, 'detailed metrics should summarize the number of flagged tiles');
-    assert.match(html, /<div(?=[^>]*data-detail-metric="touchdown-target")(?=[^>]*data-attention="warning")(?=[^>]*class="[^"]*landing-detail-metric--warning)[^>]*>/, 'a missed touchdown target should render as a warning callout');
+    assert.match(html, /id="detailed-metrics-attention-count"[^>]*>1 item needs attention</, 'only the unstable approach should need attention');
+    assert.doesNotMatch(html, /data-detail-metric="touchdown-target"/, 'a missed optional target should not create a warning');
     assert.match(html, /<div(?=[^>]*data-detail-metric="approach-verdict")(?=[^>]*data-attention="danger")(?=[^>]*class="[^"]*landing-detail-metric--danger)[^>]*>/, 'an unstable approach should render as a danger callout');
     assert.match(html, /<div(?=[^>]*data-detail-metric="approach-speed")(?![^>]*data-attention)[^>]*>/, 'neutral metrics should remain visually quiet');
   });
@@ -7764,6 +7793,31 @@ async function main() {
       /logbook-mobile-card__stat-label">TDZ<\/span>[\s\S]*RUNWAY EXCURSION/,
       'mobile history should name an excursion even when no TDZ geometry is available',
     );
+  });
+
+  await test('LogbookPanel describes recovered cautions without changing the recorded assessment', async () => {
+    for (const desktop of [true, false]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+        ({ useLogbookStore }) => {
+          useLogbookStore().ingestMessage({ type: 'logbook', stats: { total: 1 }, entries: [{
+            id: 'recovered-sink', timestamp: '2026-09-14T08:14:53Z', aircraft: '737-800',
+            icao: 'YPPH', runway: '21', vsFpm: -169, grade: 'GOOD',
+            stabilityScore: 98, stabilityVerdict: 'marginal', gateStable: false,
+            stabilityGateFailures: ['approach_caution'], stabilityContext: { assessment: {
+              version: 4, episodes: [3800, 5600].map(exceedanceMs => ({
+                ruleId: 'approach_vertical_profile', severity: 'caution', reasons: ['high_sink_rate'],
+                exceedanceMs, endReason: 'recovered',
+              })),
+            } },
+          }] });
+        },
+        { matchMedia: () => ({ matches: desktop }) },
+      );
+      assert.match(html, desktop ? />98% · Cautions</ : />98%</, 'badge should lead with the score');
+      assert.match(html, /2 sink-rate exceedances · Recovered/, 'the recorded cause and recovery should be visible');
+      assert.doesNotMatch(html, />MARGINAL<|>STABLE</, 'recovered cautions should not be presented as a blanket verdict or full compliance');
+    }
   });
 
   await test('LogbookPanel distinguishes marginal and unstable approaches with visible desktop causes', async () => {

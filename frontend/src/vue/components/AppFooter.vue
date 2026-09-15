@@ -50,6 +50,18 @@ useDocumentEvent('focusin', (event) => {
         </div>
         <div class="flex items-center gap-4">
           <span id="runway-context" :class="{ hidden: !status.runwayContextVisible }">{{ status.runwayContextLabel }}</span>
+          <a
+            id="footer-donate-link"
+            class="ff-button-secondary shrink-0 px-3 py-1 text-xs"
+            href="https://ko-fi.com/yenbuilds"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg class="h-3.5 w-3.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true" focusable="false">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" />
+            </svg>
+            Donate
+          </a>
           <details ref="diagnostics" class="footer-diagnostics" @keydown.esc.stop.prevent="closeDiagnostics(true)">
             <summary>Diagnostics</summary>
             <div class="footer-diagnostics-panel" @click="handleDiagnosticAction">

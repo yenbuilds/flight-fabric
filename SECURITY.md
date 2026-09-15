@@ -27,20 +27,6 @@ Current protections:
   recording identity before staging that one bundle for removal. It never
   recursively deletes the flight-log root.
 
-## Developer workbench observations
-
-The source-repository aircraft support workbench is explicitly run developer
-tooling. Report loading uses isolated temporary settings. Optional captures
-connect only to the local backend, request read-only state, and send no aircraft
-control commands. No background customer recording or automatic upload is added.
-
-Workbench output uses new files at paths selected by the developer. These files
-are separate from the app's guarded flight-recording bundles and contain readable
-test data, source references, and operator notes. The workbench does not encrypt,
-redact, or expire them. Choose an appropriate local output folder and review the
-contents before sharing or committing them. Git-ignored scratch directories can
-still be copied by backup/sync software.
-
 ## Automated security checks
 
 The `Security scans` GitHub Actions workflow runs on pull requests, pushes to
@@ -64,6 +50,13 @@ The `Security scans` GitHub Actions workflow runs on pull requests, pushes to
 Dependabot checks the npm, Cargo, and GitHub Actions dependency roots monthly
 and opens grouped pull requests for review. It does not merge changes
 automatically.
+
+The separate `Regression checks` workflow runs the full simulator-free test
+suite on Windows, including the backend/frontend builds, Electron browser
+checks, and Rust tests. It also enforces warning-free backend lint, backend
+and public-package type checks, and mobile type, Expo compatibility, and
+Android/iOS bundle checks. The dependency scan includes the optional mobile
+app's lockfile alongside the desktop and public packages.
 
 Useful commands for local investigation:
 

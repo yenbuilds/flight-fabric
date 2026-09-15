@@ -136,6 +136,8 @@ export const MSG = {
   AIRCRAFT_COMMAND_RESULT: 'aircraftCommandResult',
   AIRCRAFT_CONTROL_RESULT: 'aircraftControlResult',
   AUTHORIZATION_SCOPE: 'authorizationScope',
+  DEVICE_PAIRING_REQUESTS: 'devicePairingRequests',
+  DEVICE_PAIRING_APPROVAL_RESULT: 'devicePairingApprovalResult',
 
   // UI display preferences (relayed to all clients so overlays stay in sync)
   FUEL_UNIT: 'fuelUnit',

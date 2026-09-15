@@ -167,7 +167,7 @@ test('Update checks should default enabled', () => {
   assertTrue(devConfig.updates.enabled, 'updates.enabled');
 });
 
-test('Trusted-LAN aircraft control should default disabled', () => {
+test('Trusted-LAN aircraft control should remain inactive while LAN access is disabled', () => {
   assertFalse(devConfig.http.remoteAircraftControlEnable, 'http.remoteAircraftControlEnable');
 });
 
@@ -337,7 +337,7 @@ delete require.cache[require.resolve('./config')];
 process.env.REMOTE_ACCESS_ENABLE = 'true';
 const devConfigAircraftControlEnabled = require('./config');
 
-test('Trusted-LAN aircraft control should enable only with both explicit settings', () => {
+test('Trusted-LAN aircraft control should enable with LAN access by default', () => {
   assertTrue(devConfigAircraftControlEnabled.http.remoteAircraftControlEnable, 'http.remoteAircraftControlEnable');
 });
 

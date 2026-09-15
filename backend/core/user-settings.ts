@@ -59,7 +59,7 @@ type JsonArray = JsonValue[];
 type SettingsObject = Record<string, any>;
 
 // App data directory (same as where user-owned app data lives)
-const CURRENT_SETTINGS_VERSION = 3;
+const CURRENT_SETTINGS_VERSION = 4;
 const APP_DATA_DIR = getAppDataRoot();
 const CABIN_ANNOUNCEMENTS_DIR = getCabinAnnouncementAudioDir();
 const THEMES_DIR = getThemesDir();
@@ -101,9 +101,10 @@ const DEFAULT_SETTINGS: SettingsObject = {
     // When true, tablets/phones on same WiFi can view overlays.
     remoteAccess: false,
 
-    // Allow trusted-LAN browsers to send aircraft control commands (default: false).
-    // This never grants settings, recording, history, or profile-management access.
-    remoteAircraftControl: false,
+    // Allow paired trusted-LAN browsers to send aircraft control commands
+    // (default: true when trusted-LAN access is enabled). This never grants
+    // settings, recording, history, or profile-management access.
+    remoteAircraftControl: true,
 
     // Check for app updates by fetching the public update manifest
     // (default: true). Checks use a low cadence and can be disabled for a
@@ -271,6 +272,25 @@ function hasRetiredLocalAircraftProfile(settings: SettingsObject): boolean {
   return parseProfileLocator(settings.aircraft?.profile)?.namespace === 'local';
 }
 
+function preserveLegacyRemoteAircraftControlPreference(settings: SettingsObject): void {
+  const currentVersion = Number(settings._version);
+  const network = settings.network;
+  if (
+    (Number.isFinite(currentVersion) && currentVersion >= 4)
+    || network === null
+    || typeof network !== 'object'
+    || Array.isArray(network)
+    || Object.hasOwn(network, 'remoteAircraftControl')
+  ) {
+    return;
+  }
+
+  // Before settings v4, enabling trusted LAN access did not enable aircraft
+  // controls. Keep that preference for existing files when adding the new
+  // default, while fresh installs get the streamlined paired-control setup.
+  network.remoteAircraftControl = false;
+}
+
 function migrateUserSettings(settings: SettingsObject): SettingsObject {
   const currentVersion = Number(settings._version);
   if (!Number.isFinite(currentVersion) || currentVersion < CURRENT_SETTINGS_VERSION) {
@@ -390,6 +410,7 @@ function loadUserSettings(): SettingsObject {
   }
 
   // Deep merge: defaults + user overrides
+  preserveLegacyRemoteAircraftControlPreference(userSettings);
   const merged = migrateUserSettings(deepMerge(DEFAULT_SETTINGS, userSettings));
   if (
     removeRetiredRecordingLimitsFromDisk
@@ -421,7 +442,9 @@ function loadUserSettings(): SettingsObject {
  */
 function saveUserSettings(nextSettings: SettingsObject | null | undefined): SettingsObject {
   ensureAppDataDir();
-  const merged = migrateUserSettings(deepMerge(DEFAULT_SETTINGS, nextSettings || {}));
+  const candidate = nextSettings || {};
+  preserveLegacyRemoteAircraftControlPreference(candidate);
+  const merged = migrateUserSettings(deepMerge(DEFAULT_SETTINGS, candidate));
   safeReplaceTextFileSync({
     allowedBasenames: [SETTINGS_FILE_NAME],
     allowedExtensions: ['.json'],

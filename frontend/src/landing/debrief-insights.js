@@ -90,15 +90,13 @@ export function buildDebriefReasons(data, {
   if (verdict.stability.verdict === 'unstable') {
     addReason(reasons, 'Unstable approach', DANGER_COLOR, 'danger');
   } else if (verdict.stability.verdict === 'marginal') {
-    addReason(reasons, verdict.stability.data?.scoringContext?.assessment?.version === 4
+    addReason(reasons, presentation.approachFindingsText || (verdict.stability.data?.scoringContext?.assessment?.version === 4
       ? 'Marginal approach - caution or quality target missed'
-      : 'Marginal approach - soft/proxy miss', WARNING_COLOR, 'warning');
+      : 'Marginal approach - soft/proxy miss'), WARNING_COLOR, 'warning');
   } else if (verdict.stability.verdict === 'stable') {
     addReason(reasons, 'Stabilized approach', GOOD_COLOR, 'good');
   }
-  if ((normalized.touchdownTargetAchieved ?? verdict.flags.touchdownTargetAchieved) && !shortLanding) {
-    addReason(reasons, 'First 1,000 ft target', GOOD_COLOR, 'good');
-  } else if ((normalized.tdzAchievedEffective ?? verdict.flags.tdzAchieved) && !shortLanding) {
+  if ((normalized.tdzAchievedEffective ?? verdict.flags.tdzAchieved) && !shortLanding) {
     addReason(reasons, 'Inside formal 3,000 ft TDZ', GOOD_COLOR, 'good');
   }
   if (data.bankDeg != null && Math.abs(Number(data.bankDeg)) <= 3) addReason(reasons, 'Wings level', GOOD_COLOR, 'good');

@@ -105,7 +105,11 @@ export function buildLandingDetailSections(event) {
       : null,
     presentation.bounceCount > 0 ? presentation.verdict.bounce.textClass : 'text-green-400 font-semibold',
   );
-  pushMetricRow(snapshotRows, 'approach-score', 'Approach Score', presentation.stabilityScore != null ? `${presentation.stabilityScore}%` : null);
+  if (presentation.recoveredCautions) {
+    pushMetricRow(snapshotRows, 'approach-findings', 'Approach Findings', presentation.approachFindingsText);
+  } else {
+    pushMetricRow(snapshotRows, 'approach-score', 'Approach Score', presentation.stabilityScore != null ? `${presentation.stabilityScore}%` : null);
+  }
   pushMetricRow(snapshotRows, 'ias', 'IAS', event.ias_kts != null ? `${Math.round(event.ias_kts)} kts` : null);
   pushMetricRow(snapshotRows, 'vs', 'Touchdown Rate', event.vs_fpm != null ? `${Math.round(event.vs_fpm)} fpm` : null);
   pushMetricRow(snapshotRows, 'pitch', 'Pitch', event.pitch_deg != null ? `${event.pitch_deg.toFixed(1)} deg` : null);
@@ -297,7 +301,7 @@ export function buildLandingDetailSections(event) {
       stabilityRows,
       'gate-stable',
       'Approach Verdict',
-      presentation.approachText,
+      presentation.approachVerdict,
       getStabilityVerdictClass(presentation.stabilityVerdict),
     );
     if (Array.isArray(stability.gateFailures) && stability.gateFailures.length > 0) {

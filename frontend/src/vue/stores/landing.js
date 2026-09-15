@@ -33,8 +33,6 @@ function createDefaultLandingCardState() {
       distanceText: '-- ft',
       distanceGradeText: '--',
       distanceGradeTone: 'text-gray-500',
-      achievedText: '--',
-      achievedTone: 'text-gray-100',
       lateralText: '-- ft',
       lateralTone: 'text-gray-100',
       lateralGradeText: '--',
@@ -617,7 +615,7 @@ export const useLandingStore = defineStore('landing', {
         landingCard.touchdown.distanceText = Math.abs(tdz.distanceFt) <= 15000
           ? `${Math.round(tdz.distanceFt).toLocaleString()} ft`
           : 'Off Airport';
-        landingCard.touchdown.distanceGradeText = tdz.grade || '--';
+        landingCard.touchdown.distanceGradeText = summaryPresentation.touchdownPositionText;
         landingCard.touchdown.distanceGradeTone = tdz.grade === 'Outstanding'
           ? 'text-green-500'
           : tdz.grade === 'Good'
@@ -627,8 +625,6 @@ export const useLandingStore = defineStore('landing', {
               : verdict.touchdown.severity >= 2
                 ? 'text-red-400'
                 : 'text-gray-500';
-        landingCard.touchdown.achievedText = verdict.flags.touchdownTargetAchieved ? 'YES' : 'NO';
-        landingCard.touchdown.achievedTone = verdict.flags.touchdownTargetAchieved ? 'text-gray-100' : 'text-amber-400';
       }
 
       if (summaryPresentation.approachText) {

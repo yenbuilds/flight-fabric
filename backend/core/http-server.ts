@@ -5,8 +5,6 @@ const os = require('os') as typeof import('os');
 const path = require('path') as typeof import('path');
 const fs = require('fs') as typeof import('fs');
 const crypto = require('crypto') as typeof import('crypto');
-import type { createWorkbenchService } from '../aircraft/support/service';
-import { AIRCRAFT_SUPPORT_ENABLED, AIRCRAFT_SUPPORT_DISABLED_MESSAGE } from '../../shared/aircraft-support-release';
 const {
   getCabinAnnouncementAudioDir,
   getThemesDir,
@@ -656,6 +654,7 @@ export function startHttpServer({
   remoteAccessEnable,
   wsAuthToken = '',
   aircraftControlToken = '',
+  devicePairing = null,
   Debug,
   onFatalError,
 }: {
@@ -664,6 +663,11 @@ export function startHttpServer({
   remoteAccessEnable: boolean;
   wsAuthToken?: string;
   aircraftControlToken?: string;
+  devicePairing?: {
+    claimApprovedRequest: (id: unknown, remoteAddress: string | null | undefined) => string | null;
+    createRequest: (remoteAddress: string | null | undefined) => { ok: boolean; request?: { confirmationCode: string; createdAt: number; expiresAt: number; id: string }; error?: string };
+    getRequestStatus: (id: unknown, remoteAddress: string | null | undefined) => { status: 'pending' | 'approved'; expiresAt: number } | { status: 'expired' };
+  } | null;
   Debug: DebugLike;
   onFatalError?: (error: Error) => void;
 }): {
@@ -676,16 +680,6 @@ export function startHttpServer({
     : (wsPort + HTTP_PORT_OFFSET);
   const httpBindAddress = remoteAccessEnable ? '0.0.0.0' : '127.0.0.1';
   const simbriefRequestLimiter = createSimbriefRequestLimiter();
-  let aircraftWorkbench: ReturnType<typeof createWorkbenchService> | null = null;
-  const getAircraftWorkbench = () => {
-    if (!aircraftWorkbench) {
-      const { createWorkbenchService } = require('../aircraft/support/service') as typeof import('../aircraft/support/service');
-      const { getAppDataRoot } = require('../utils/storage-paths');
-      aircraftWorkbench = createWorkbenchService({ root: path.join(getAppDataRoot(), 'Aircraft Support'), wsPort });
-    }
-    return aircraftWorkbench;
-  };
-
   const httpServer = http.createServer((req: RequestLike, res: ResponseLike) => {
     if (!isTrustedHttpRequest(req, remoteAccessEnable)) {
       res.writeHead(403, {
@@ -724,26 +718,11 @@ export function startHttpServer({
       // apply when there is no Origin, so this is safe.
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Flight-Fabric-Pairing');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
-      return;
-    }
-
-    if (requestPathname === '/api/aircraft-support' || requestPathname.startsWith('/api/aircraft-support/')) {
-      // Reject before authentication, body parsing, service initialization, or
-      // storage access. Cached clients and direct API calls stay disabled too.
-      if (!AIRCRAFT_SUPPORT_ENABLED) {
-        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ error: AIRCRAFT_SUPPORT_DISABLED_MESSAGE }));
-        return;
-      }
-      const { handleWorkbenchRequest } = require('../aircraft/support/http') as typeof import('../aircraft/support/http');
-      void handleWorkbenchRequest(req, res, { token: wsAuthToken,
-        local: isLoopbackRequest(req) && (!origin || resolveCorsAllowOrigin(origin, req, false) === origin),
-        service: getAircraftWorkbench });
       return;
     }
 
@@ -763,6 +742,64 @@ export function startHttpServer({
         },
         remoteAccessEnable,
       )));
+      return;
+    }
+
+    // Camera-less device setup: the phone first opens the short /phone URL in
+    // read-only mode, then asks the local PC to approve aircraft controls.
+    // Approval creates a host-only HttpOnly cookie; the bearer credential is
+    // never placed in a URL, copied to a clipboard, or exposed to JavaScript.
+    if (req.method === 'POST' && requestPathname === '/api/device-pairing/request') {
+      // A custom header makes browser requests preflight when they originate
+      // from another site. The server grants CORS only to its own trusted
+      // origin, preventing a random webpage from filling the pairing queue.
+      if (req.headers['x-flight-fabric-pairing'] !== '1') {
+        res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+        res.end(JSON.stringify({ ok: false, error: 'pairing_request_not_allowed' }));
+        return;
+      }
+      if (!devicePairing) {
+        res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+        res.end(JSON.stringify({ ok: false, error: 'aircraft_controls_disabled' }));
+        return;
+      }
+      const result = devicePairing.createRequest(req.socket?.remoteAddress || null);
+      if (!result.ok || !result.request) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0', 'Retry-After': '120' });
+        res.end(JSON.stringify({ ok: false, error: 'too_many_requests' }));
+        return;
+      }
+      res.writeHead(201, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+      res.end(JSON.stringify({
+        ok: true,
+        requestId: result.request.id,
+        confirmationCode: result.request.confirmationCode,
+        expiresAt: result.request.expiresAt,
+      }));
+      return;
+    }
+
+    if (req.method === 'GET' && requestPathname === '/api/device-pairing/status') {
+      const requestId = new URL(requestUrl, 'http://localhost').searchParams.get('requestId') || '';
+      if (!devicePairing) {
+        res.writeHead(409, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+        res.end(JSON.stringify({ ok: false, status: 'disabled' }));
+        return;
+      }
+      const sessionId = devicePairing && requestId.length <= 128
+        ? devicePairing.claimApprovedRequest(requestId, req.socket?.remoteAddress || null)
+        : null;
+      if (sessionId) {
+        res.setHeader('Set-Cookie', `ff_aircraft_pair=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+        res.end(JSON.stringify({ ok: true, status: 'approved' }));
+        return;
+      }
+      const pairingStatus = requestId.length <= 128
+        ? devicePairing.getRequestStatus(requestId, req.socket?.remoteAddress || null)
+        : { status: 'expired' as const };
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+      res.end(JSON.stringify({ ok: true, ...pairingStatus }));
       return;
     }
 
@@ -907,6 +944,17 @@ export function startHttpServer({
         const err = error as { message?: string };
         finish(502, { ok: false, error: 'Failed to reach SimBrief: ' + (err.message || 'unknown error') });
       }
+      return;
+    }
+
+    if (req.method === 'GET' && requestPathname === '/phone') {
+      const query = new URLSearchParams();
+      if (Number.isInteger(wsPort) && wsPort > 0) query.set('wsPort', String(wsPort));
+      res.writeHead(302, {
+        'Cache-Control': 'no-store, max-age=0',
+        Location: `/remote?${query.toString()}`,
+      });
+      res.end();
       return;
     }
 
@@ -1109,7 +1157,6 @@ export function startHttpServer({
 </html>`);
   });
 
-  httpServer.on('close', () => { void aircraftWorkbench?.close(); });
   httpServer.on('error', (error) => {
     const err = error as { message?: string };
     try {

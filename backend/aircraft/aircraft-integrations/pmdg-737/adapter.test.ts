@@ -29,7 +29,7 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   }
 
   assert.equal(Object.keys(PMDG_737_INTEGRATION.fields).length, 130);
-  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 186);
+  assert.equal(Object.keys(PMDG_737_INTEGRATION.actions).length, 187);
   assert.equal(
     PMDG_737_INTEGRATION.fields['aircraft.model'].sources[0].decode.values['737-800 BBJ BW'],
     '737-800 BBJ BW',
@@ -141,7 +141,9 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   assert.equal(apuStart.routes[0].requiredSdkAdapter, 'clientdata-manifest');
   assert.deepEqual(apuStart.routes[0].operations, [
     { type: 'event', name: 'ROTOR_BRAKE', value: 11802 },
+    { type: 'delay', milliseconds: 500 },
     { type: 'event', name: 'ROTOR_BRAKE', value: 11802 },
+    { type: 'delay', milliseconds: 500 },
     { type: 'event', name: 'ROTOR_BRAKE', value: 11804 },
   ]);
   assert.equal(apuStart.routes[0].confirmation, 'transport-acknowledged');
@@ -393,9 +395,10 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
       actionId,
     });
     assert.equal(action.routes[0].transport, 'simconnect-sequence');
-    assert.deepEqual(action.routes[0].operations, rotorBrakeValues.map((value) => ({
-      type: 'event', name: 'ROTOR_BRAKE', value,
-    })));
+    assert.deepEqual(action.routes[0].operations.filter(operation => operation.type === 'event'),
+      rotorBrakeValues.map((value) => ({ type: 'event', name: 'ROTOR_BRAKE', value })));
+    assert.deepEqual(action.routes[0].operations.filter(operation => operation.type === 'delay'),
+      rotorBrakeValues.slice(1).map(() => ({ type: 'delay', milliseconds: 100 })));
     assert.equal(action.routes[0].readback.fieldId, 'lights.positionMode');
     assert.equal(action.routes[0].readback.expectedValue, expectedValue);
     assert.equal(action.routes[1].command, '#69755');

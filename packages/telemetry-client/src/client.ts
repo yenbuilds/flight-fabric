@@ -44,6 +44,7 @@ export class TelemetryClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private options: Required<TelemetryClientOptions>;
   private isDestroyed = false;
+  private connectionRequested = false;
 
   constructor(options: TelemetryClientOptions = {}) {
     this.options = {
@@ -59,32 +60,41 @@ export class TelemetryClient {
    * Connect to the telemetry WebSocket.
    */
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.log('Already connected');
+    if (this.isDestroyed) return;
+    this.connectionRequested = true;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      this.log('Already connected or connecting');
       return;
     }
 
+    this.cancelReconnect();
     this.log(`Connecting to ${this.options.url}`);
 
     try {
-      this.ws = new WebSocket(this.options.url);
+      const socket = new WebSocket(this.options.url);
+      this.ws = socket;
 
-      this.ws.onopen = () => {
+      socket.onopen = () => {
+        if (this.ws !== socket) return;
         this.log('Connected');
         this.updateState({ connected: true });
       };
 
-      this.ws.onclose = () => {
+      socket.onclose = () => {
+        if (this.ws !== socket) return;
+        this.ws = null;
         this.log('Disconnected');
         this.updateState({ connected: false });
         this.scheduleReconnect();
       };
 
-      this.ws.onerror = (error) => {
+      socket.onerror = (error) => {
+        if (this.ws !== socket) return;
         this.log('WebSocket error', error);
       };
 
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket) return;
         this.handleMessage(event.data);
       };
     } catch (error) {
@@ -97,10 +107,16 @@ export class TelemetryClient {
    * Disconnect from the WebSocket.
    */
   disconnect(): void {
+    this.connectionRequested = false;
     this.cancelReconnect();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    const socket = this.ws;
+    this.ws = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.onmessage = null;
+      socket.close();
     }
     this.updateState({ connected: false });
   }
@@ -340,7 +356,7 @@ export class TelemetryClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.isDestroyed || !this.options.autoReconnect) {
+    if (this.isDestroyed || !this.connectionRequested || !this.options.autoReconnect) {
       return;
     }
 

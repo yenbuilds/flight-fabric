@@ -27,6 +27,7 @@ function setSdkPositionAction(params: {
   groupId: string;
   rawValue: number;
   rotorBrakeValues?: readonly number[];
+  rotorBrakeIntervalMs?: number;
 }): AircraftIntegrationAction {
   const readback = {
     fieldId: params.fieldId,
@@ -53,11 +54,11 @@ function setSdkPositionAction(params: {
         {
           id: `pmdg737.${params.actionId}.rotorBrake`,
           transport: 'simconnect-sequence',
-          operations: params.rotorBrakeValues.map((value) => ({
-            type: 'event' as const,
-            name: ROTOR_BRAKE_EVENT,
-            value,
-          })),
+          operations: params.rotorBrakeValues.flatMap((value, index, values) => [
+            { type: 'event' as const, name: ROTOR_BRAKE_EVENT, value },
+            ...(params.rotorBrakeIntervalMs && index < values.length - 1
+              ? [{ type: 'delay' as const, milliseconds: params.rotorBrakeIntervalMs }] : []),
+          ]),
           readback,
         },
         sdkRoute,
@@ -449,6 +450,7 @@ function addDetentActions(params: {
   eventId: number;
   fieldId: string;
   groupId: string;
+  rotorBrakeIntervalMs?: number;
   positions: ReadonlyArray<Readonly<{
     id: string;
     rawValue: number;
@@ -660,6 +662,7 @@ addDetentActions({
   fieldId: 'lights.positionMode',
   groupId: 'pmdg737.lights.position',
   eventId: 69755,
+  rotorBrakeIntervalMs: 100,
   positions: [
     // The installed PMDG behavior drives this three-detent switch through
     // control 123. Values 12301 and 12302 move one detent toward the named
@@ -669,6 +672,26 @@ addDetentActions({
     { id: 'strobeSteady', rawValue: 2, value: 'strobe-steady', rotorBrakeValues: [12302, 12302] },
   ],
 });
+
+// Strobe OFF selects STEADY when strobes are on. An already-OFF position
+// switch stays OFF, so this command cannot unnecessarily turn navigation on.
+const strobeOffAction = setSdkPositionAction({
+  actionId: 'lights.strobe.off',
+  fieldId: 'lights.positionMode',
+  groupId: 'pmdg737.lights.position',
+  eventId: 69755,
+  rotorBrakeIntervalMs: 100,
+  rawValue: 0,
+  expectedValue: 'steady',
+  rotorBrakeValues: [12301, 12301],
+});
+actions[strobeOffAction.id] = {
+  ...strobeOffAction,
+  guard: {
+    ...strobeOffAction.guard,
+    skipWhen: [{ fieldId: 'lights.positionMode', expectedValue: 'off' }],
+  },
+};
 
 addDetentActions({
   prefix: 'lights.emergency',
@@ -801,8 +824,8 @@ for (const [suffix, rawValue, expectedValue] of [
 }
 
 // Installed 737-800 4.0.63 cockpit behavior: control 118, downward press=2,
-// release=4. Two downward movements reach START from OFF or ON; release once
-// at the endpoint. The SDK's APU_Selector=2 is readback, not a start interaction.
+// release=4. Allow each downward movement to settle before the next input,
+// then release at START. A transport ACK does not mean the switch has moved.
 actions['systems.apu.start'] = {
   id: 'systems.apu.start',
   guard: {
@@ -814,7 +837,9 @@ actions['systems.apu.start'] = {
     requiredSdkAdapter: SDK_ADAPTER_ID,
     operations: [
       { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11802 },
+      { type: 'delay', milliseconds: 500 },
       { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11802 },
+      { type: 'delay', milliseconds: 500 },
       { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11804 },
     ],
     confirmation: 'transport-acknowledged',

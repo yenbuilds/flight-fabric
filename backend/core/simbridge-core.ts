@@ -132,6 +132,7 @@ const { handleClientMessage: handleClientMessageImpl } = require('./client-messa
 const { isClientMessageAuthorized } = require('./client-message-authorization');
 const { buildClientMessageContext } = require('./client-message-context');
 const { createWsServer } = require('./ws-bootstrap');
+const { createDevicePairingManager } = require('./device-pairing');
 const { createBroadcast } = require('./ws-broadcaster');
 const { startHttpServer } = require('./http-server');
 const {
@@ -721,6 +722,9 @@ async function runSimbridgeCore({
   let broadcast: (_message?: AnyRecord) => void = () => {};
   const wsAuthToken = crypto.randomBytes(32).toString('hex');
   const aircraftControlToken = crypto.randomBytes(32).toString('hex');
+  const devicePairing = config.http?.remoteAircraftControlEnable === true
+    ? createDevicePairingManager()
+    : null;
 
   const wss = createWsServer({
     wsPort,
@@ -728,6 +732,7 @@ async function runSimbridgeCore({
     remoteAircraftControlEnable: config.http?.remoteAircraftControlEnable === true,
     wsAuthToken,
     aircraftControlToken,
+    devicePairing,
     Debug,
     tlog,
     onFatalError: typeof onFatalError === 'function'
@@ -834,6 +839,28 @@ async function runSimbridgeCore({
         // Preserve the standard command-specific denial envelopes without
         // constructing replay/storage/provider context for a denied command.
         await handleClientMessageImpl(ws, msg, { Debug });
+        return;
+      }
+      if (msg.type === 'requestDevicePairingRequests') {
+        ws.send(JSON.stringify({
+          type: MSG.DEVICE_PAIRING_REQUESTS,
+          enabled: Boolean(devicePairing),
+          requests: devicePairing?.listPendingRequests?.() || [],
+        }));
+        return;
+      }
+      if (msg.type === 'approveDevicePairingRequest') {
+        const approved = devicePairing?.approveRequest?.(msg.requestId, msg.confirmationCode) === true;
+        ws.send(JSON.stringify({
+          type: MSG.DEVICE_PAIRING_APPROVAL_RESULT,
+          ok: approved,
+          requestId: typeof msg.requestId === 'string' ? msg.requestId : '',
+        }));
+        ws.send(JSON.stringify({
+          type: MSG.DEVICE_PAIRING_REQUESTS,
+          enabled: Boolean(devicePairing),
+          requests: devicePairing?.listPendingRequests?.() || [],
+        }));
         return;
       }
       const context = buildClientMessageContext({
@@ -1007,6 +1034,7 @@ async function runSimbridgeCore({
     remoteAccessEnable: config.http?.remoteAccessEnable,
     wsAuthToken,
     aircraftControlToken,
+    devicePairing,
     Debug,
     onFatalError: typeof onFatalError === 'function'
       ? (error) => onFatalError('http_server', error)
@@ -2515,7 +2543,7 @@ async function runSimbridgeCore({
     let bundleBaseName = '';
     try {
       bundleBaseName = recordingBundleLifecycle.allocateBundleBaseName(outputDir, preferredBaseName);
-    } catch (error) {
+    } catch {
       return {
         success: false,
         error: 'Could not allocate a unique flight recording bundle',
@@ -2543,7 +2571,7 @@ async function runSimbridgeCore({
         baseName: bundleBaseName,
         csvPath: recordingBundleLayout.getBundlePaths(outputDir, bundleBaseName).csv,
       });
-    } catch (error) {
+    } catch {
       return {
         success: false,
         error: 'Failed to reserve flight recording bundle startup ownership',
@@ -3566,7 +3594,7 @@ async function runSimbridgeCore({
         broadcast({ type: MSG.ENGINES, data: enginesData });
       }
 
-    } catch (e) {
+    } catch {
       // Preserve non-fatal behavior
     }
   }
@@ -4554,7 +4582,7 @@ async function runSimbridgeCore({
       } else if (shouldSuppressForSlew) {
         slewSamplesSuppressed++;
       }
-    } catch (e) {
+    } catch {
       /* non-fatal */
     }
   }

@@ -962,6 +962,7 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
   assert.equal(inventory.get('flightGuidance.heading.set').supported, true);
 
   assert.deepEqual([...commands.keys()], [
+    'lights.strobe.set',
     'configuration.apu.start',
     'flightGuidance.heading.set',
     'flightGuidance.course.setBoth',

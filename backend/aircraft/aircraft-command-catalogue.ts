@@ -651,7 +651,10 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       group: 'lights',
       input: { kind: 'enum', values: ['off', 'auto', 'on'] },
       speech: {
-        patterns: ['strobe lights {value}', 'strobe light {value}'],
+        patterns: ['strobe lights', 'strobe light'].flatMap(phrase => [
+          `${phrase} {value}`, `set ${phrase} {value}`,
+          `turn {value} ${phrase}`, `switch ${phrase} {value}`,
+        ]),
         hints: ['STROBE LIGHTS'],
       },
     },
@@ -929,6 +932,10 @@ const FBW_A380X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = O
 const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'pmdg-737',
   bindings: Object.freeze([
+    choice('lights.strobe.set', {
+      false: aircraftAction('lights.strobe.off'),
+      true: aircraftAction('lights.position.strobeSteady'),
+    }, BOOLEAN_INPUT),
     apuStartPreset('systems.apu.start', undefined, [
       { fieldId: 'systems.apuFault', expectedValue: true, label: 'APU fault' },
       { fieldId: 'systems.apuMode', expectedValue: 'start', label: 'APU starting', inhibitsRequest: true },
@@ -1636,6 +1643,13 @@ function individualLightBindings(adapterId: string): AircraftCommandBinding[] {
   if (['fbw-a380x', 'headwind-a330'].includes(adapterId)) {
     for (const light of ['landing', 'taxi', 'runwayTurnoff']) pair(light, [`lights.individual.${light}`],
       light === 'taxi' ? 'Nose taxi light only; runway turnoff lights are controlled separately.' : '');
+  }
+  if (adapterId === 'headwind-a330') {
+    bindings.push(choice('lights.strobeMode.set', {
+      off: aircraftAction('lights.strobe.off'),
+      auto: aircraftAction('lights.strobe.auto'),
+      on: aircraftAction('lights.strobe.on'),
+    }));
   }
   return bindings;
 }

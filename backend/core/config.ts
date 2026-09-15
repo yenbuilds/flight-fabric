@@ -134,7 +134,7 @@ const remoteAccessEnable = bool(
 );
 const remoteAircraftControlEnable = remoteAccessEnable && bool(
   'REMOTE_AIRCRAFT_CONTROL_ENABLE',
-  getSetting(userSettings, 'network.remoteAircraftControl', 'REMOTE_AIRCRAFT_CONTROL_ENABLE', false),
+  getSetting(userSettings, 'network.remoteAircraftControl', 'REMOTE_AIRCRAFT_CONTROL_ENABLE', true),
 );
 
 // -----------------------------------------------------------------------------

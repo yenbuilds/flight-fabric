@@ -158,6 +158,42 @@ for (const [adapter, start, selectorField, advanceValue, releaseValue] of [
   ['pmdg-737', 'systems.apu.start', 'systems.apuMode', 11802, 11804],
   ['pmdg-777', 'systems.apuSelector.start', 'systems.apuSelectorMode', 302, 304],
 ] as const) {
+  test(`${adapter} START gives asynchronous cockpit updates time to reach START before release`, async () => {
+    for (const initialPosition of [0, 1]) {
+      const h = harness(adapter, adapter, start);
+      let position = initialPosition;
+      let started = false;
+      let pendingMovement = false;
+      let updateTimer;
+      h.observed[selectorField] = initialPosition === 0 ? 'off' : 'on';
+      h.bridge.sendEvent = async (_name, value) => {
+        if (value === advanceValue) {
+          // A transport ACK precedes the aircraft's next system update. A
+          // second movement while the first is pending cannot advance twice.
+          if (!pendingMovement) {
+            pendingMovement = true;
+            updateTimer = setTimeout(() => {
+              position = Math.min(2, position + 1);
+              pendingMovement = false;
+            }, 50);
+          }
+        } else if (value === releaseValue) {
+          started = position === 2 && !pendingMovement;
+          clearTimeout(updateTimer);
+          position = Math.min(position, 1);
+        }
+        return { ok: true, error: '' };
+      };
+      try {
+        assert.equal((await h.run()).transportAcknowledged, true);
+        assert.equal(started, true, 'START must be processed before its spring release');
+        assert.equal(position, 1);
+      } finally {
+        clearTimeout(updateTimer);
+      }
+    }
+  });
+
   test(`${adapter} START reaches the spring-loaded endpoint from OFF or ON and releases it once`, async () => {
     for (const initialPosition of [0, 1]) {
       const h = harness(adapter, adapter, start);

@@ -133,6 +133,8 @@ const MSG = Object.freeze({
   AIRCRAFT_COMMAND_RESULT: 'aircraftCommandResult',
   AIRCRAFT_CONTROL_RESULT: 'aircraftControlResult',
   AUTHORIZATION_SCOPE: 'authorizationScope',
+  DEVICE_PAIRING_REQUESTS: 'devicePairingRequests',
+  DEVICE_PAIRING_APPROVAL_RESULT: 'devicePairingApprovalResult',
 
   // UI display preferences (client->server relay; replayed on requestState)
   // Relayed to all connected clients so OBS strip overlays stay in sync.

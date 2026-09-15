@@ -136,7 +136,7 @@ export function createAircraftControlController({
       return {
         enabled: false,
         reason: 'This browser has read-only access.',
-        toast: 'On the Flight Fabric PC, choose Phone, then scan the QR shown there.',
+        toast: 'On the Flight Fabric PC, open Phone setup. Scan the QR, or request controls here and approve the matching code.',
       };
     }
 

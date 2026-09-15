@@ -33,10 +33,11 @@ function handleEndFlightManual() {
 }
 
 async function openMobileAccess() {
-  if (!tabs.requestTabChange('system')) return;
+  const targetTab = systemHost.remoteAccessEnabled === false ? 'settings' : 'system';
+  if (tabs.activeTabId !== targetTab && !tabs.requestTabChange(targetTab)) return;
   await nextTick();
   const scrollToSetup = () => {
-    document.getElementById('system-mobile-access')?.scrollIntoView({
+    document.getElementById(targetTab === 'settings' ? 'settings-phone-tablet-access' : 'system-mobile-access')?.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
     });
@@ -87,7 +88,7 @@ async function openMobileAccess() {
                 <path d="M9 6h6" />
                 <path d="M11.5 18h1" />
               </svg>
-              <span>Phone</span>
+              <span>Phone setup</span>
             </button>
           </div>
 

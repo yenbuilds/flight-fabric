@@ -1851,6 +1851,8 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
     'rebuildHistoryIndex',
     'lvarDebugWatch',
     'testShake',
+    'requestDevicePairingRequests',
+    'approveDevicePairingRequest',
     'futureCommandNotYetClassified',
   ];
   assert.deepEqual(

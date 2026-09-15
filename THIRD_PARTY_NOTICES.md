@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Last reviewed: 2026-08-22.
+Last reviewed: 2026-09-14 (Flight Fabric 0.9.8 and current source).
 
 The GNU Affero General Public License version 3 in `LICENSE.md` applies to
 Flight Fabric source code and its AGPL-covered modifications. Other third-party
@@ -16,10 +16,12 @@ governed by the committed `package-lock.json` and `Cargo.lock` files. This is a
 human-maintained attribution and distribution notice, not a machine-generated
 software bill of materials for every development-only transitive package.
 
-The 2026-08-01 review checked the root, backend, frontend, Electron, mobile, and
+The 2026-09-14 review checked the root, backend, frontend, Electron, mobile, and
 publishable-package manifests and lockfiles; the Windows Rust sidecar dependency
 tree; Electron packaging inputs; tracked vendored/binary/audio assets; and
-runtime external URLs. Sections explicitly marked "not bundled" document an
+runtime external URLs. The recent preset artwork and debrief presentation changes
+introduce no additional external packages or downloaded artwork. Sections
+explicitly marked "not bundled" document an
 integration or hosted service and do not claim that its software or data is
 redistributed by Flight Fabric.
 
@@ -138,9 +140,11 @@ source as third-party code.
   the downloadable release.
 - Not redistributed: Flight Fabric does not include PMDG aircraft packages,
   SDK headers, manuals, EULA PDFs, artwork, or other PMDG binaries or content.
-- User authorization: PMDG SDK access stays disabled until the desktop user
-  opens and explicitly accepts the SDK EULA installed with the matching PMDG
-  aircraft. The installed EULA and the user's PMDG licence control that use.
+- Setup: Flight Fabric starts the matching SDK connector without an in-app
+  agreement step. The separately installed aircraft must have data broadcasting
+  enabled with `EnableDataBroadcast=1`. The installed PMDG SDK EULA and the
+  user's PMDG aircraft licence continue to govern their use; Flight Fabric does
+  not grant rights in PMDG software or SDK material.
 - Trademarks: PMDG and the referenced aircraft/product names belong to their
   respective owners. No affiliation or endorsement is implied.
 
@@ -153,6 +157,10 @@ source as third-party code.
 - Used for: optional user-installed MSFS event/LVar transport for supported
   aircraft integrations. Flight Fabric detects and interoperates with the
   module over SimConnect but does not copy, install, modify, or redistribute it.
+- HubHop reference: https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc
+  is credited in the A350 profile for its ND range interface names and detent
+  mappings. The HubHop preset database and local research caches are not bundled
+  in desktop releases or the public source mirror.
 
 ## Fenix A32X compatibility (not bundled)
 
@@ -175,6 +183,64 @@ source as third-party code.
   or endorsed by FenixSim." FenixSim and A319/A320/A321 product names identify
   compatibility only.
 
+## FlyByWire A32NX, A380X and SimBridge (not bundled)
+
+- Projects: FlyByWire Simulations' A32NX and A380X aircraft and the optional
+  local SimBridge service.
+- Sources: https://github.com/flybywiresim/aircraft and
+  https://github.com/flybywiresim/simbridge
+- Interface documentation: https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/
+  and https://docs.flybywiresim.com/aircraft/a380x/a380x-api/a380x-flight-deck-api/
+- Used for: aircraft telemetry and controls through documented simulator
+  variables/events. A32NX minimums entry can also use a separately installed
+  local SimBridge MCDU interface.
+- Bundling: Flight Fabric includes its own adapters, control mappings and
+  interface metadata. It does not bundle FlyByWire aircraft, SimBridge, aircraft
+  artwork, or the upstream source trees. The aircraft repository carries GNU
+  GPL version 3; separately installed products retain their own licences and
+  notices. FlyByWire names identify compatibility, not affiliation or endorsement.
+
+## Headwind A330 Compatibility (not bundled)
+
+- Project: Headwind Simulations A330-900neo (A339X).
+- Source: https://github.com/headwindsim/aircraft
+- Used for: independently written cockpit-lighting, indexed exterior-light and
+  strobe-control mappings based on the installed aircraft's published interface
+  behavior. The profile records the reviewed aircraft revision and sources.
+- Bundling: Flight Fabric does not include the Headwind aircraft, its upstream
+  source tree, preset XML, models, textures or sounds. The separately installed
+  aircraft retains its own licences and notices. The Headwind name identifies
+  compatibility only; no affiliation or endorsement is implied.
+
+## Microsoft and iniBuilds Aircraft Compatibility (not bundled)
+
+- Products: supported Microsoft Flight Simulator aircraft and iniBuilds
+  aircraft, including the A320neo V2/A321LR, A330, A350 and TriStar families.
+- Interface references include the Microsoft Flight Simulator SDK documentation
+  and iniBuilds' published external-control information, including its A350
+  LVAR list: https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/
+- Used for: independently written profiles and adapters with simulator event
+  names, variable names and value mappings needed for supported controls and
+  telemetry. Individual profile sources record the relevant references.
+- Bundling: no aircraft packages, vendor headers, manuals, behavior XML, models,
+  textures or vendor audio are distributed by these integrations. The user
+  obtains the aircraft separately under the applicable vendor terms. This entry
+  does not cover the separately listed Microsoft SimConnect client runtime.
+- Microsoft, iniBuilds and aircraft/product names belong to their respective
+  owners and identify compatibility only; no affiliation or endorsement is implied.
+
+## X-Plane Web API Compatibility (not bundled)
+
+- Product: X-Plane by Laminar Research.
+- Interface documentation: https://developer.x-plane.com/article/x-plane-web-api/
+- Used for: the experimental telemetry provider connects to the user's configured
+  X-Plane local Web API. Its profiles include simulator dataref names and aircraft
+  identification metadata, including Laminar, Zibo and ToLiss profiles.
+- Bundling: Flight Fabric does not include X-Plane, an X-Plane SDK/plugin binary,
+  or those aircraft packages. The simulator and aircraft remain separately
+  installed products subject to their own licences and notices. Product names
+  identify compatibility only.
+
 ## Packaged Rust SimConnect Sidecar
 
 - Project: `backend/telemetry-provider/rust-simconnect-sidecar/`
@@ -193,6 +259,8 @@ source as third-party code.
   the other listed crates are MIT OR Apache-2.0. Flight Fabric relies on the
   MIT option where an OR choice is offered. The required Unicode-3.0 terms for
   `unicode-ident` still apply.
+- Additional build-only crate: `autocfg` 1.5.0 (Apache-2.0 OR MIT), used by
+  `num-traits` to detect compiler capabilities; it is not a runtime library.
 - Packaging: the compiled sidecar executable is included in official desktop
   releases for SimConnect telemetry, facilities, LVar, and supported SDK
   ClientData/event transport. Procedural-macro crates are build inputs whose
@@ -226,12 +294,16 @@ source as third-party code.
 - The Windows push-to-talk helper is Flight Fabric code compiled with the Rust
   standard library and has no third-party crate dependencies. Rust standard
   library components are available under Apache-2.0 OR MIT terms.
+- Spoken command readbacks use Windows' locally installed SAPI speech engine
+  and voices. Windows speech components and voice packs are not bundled with
+  Flight Fabric and retain their installed licence terms.
 
 ## Packaged Backend Node.js Runtime
 
-- Direct packages: `ajv`, `ajv-formats`, `dotenv`, `ws`
-- Packaged transitive packages: `fast-deep-equal`, `fast-uri`,
-  `json-schema-traverse`, `require-from-string`
+- Direct packages: `ajv` 8.20.0, `ajv-formats` 3.0.1, `dotenv` 16.6.1,
+  `ws` 8.21.0.
+- Packaged transitive packages: `fast-deep-equal` 3.1.3, `fast-uri` 3.1.7,
+  `json-schema-traverse` 1.0.0, `require-from-string` 2.0.2.
 - Declared in: root `package.json` and `backend/package.json`
 - Licenses: `ajv`, `ajv-formats`, `fast-deep-equal`,
   `json-schema-traverse`, `require-from-string`, and `ws` are MIT;
@@ -239,7 +311,9 @@ source as third-party code.
 - Used for: JSON schema validation, environment-variable loading, and WebSocket transport in backend and desktop runtime paths.
 - Packaging: these eight packages are the current production dependency closure
   copied into `resources/backend/node_modules`.
-- Note: exact resolved versions are governed by the relevant lockfile(s).
+- These versions come from `backend/package-lock.json`; the root development
+  environment resolves its own `dotenv` and `ws` versions. Desktop packaging
+  copies the backend lockfile closure, not the root development installation.
 
 ## Frontend Vue Runtime and Build Packages
 
@@ -259,6 +333,8 @@ source as third-party code.
   can tree-shake packages or code paths that are not used.
 - Build packages: `vite`, `@vitejs/plugin-vue`
 - Declared in: `frontend/package.json`
+- Reviewed direct runtime versions: `vue` 3.5.41, `pinia` 3.0.4,
+  `@floating-ui/vue` 2.0.1, and `leaflet` 1.9.4 (separate notice below).
 - Licences: MIT except `entities` (BSD-2-Clause), `picocolors` (ISC), and
   `source-map-js` and `speakingurl` (BSD-3-Clause).
 - Used for: the Vue 3 frontend application, Pinia stores, accessible
@@ -270,6 +346,7 @@ source as third-party code.
 - Packages: `electron`, `electron-builder`, `@electron/asar`,
   `@electron/fuses`, `@electron/rebuild`, `rcedit`, `tailwindcss`
 - Declared in: `electron/package.json`
+- Reviewed Electron runtime: 41.10.4, as resolved by `electron/package-lock.json`.
 - Licenses: MIT (`rcedit` uses Apache-2.0-licensed process-launch helpers)
 - Used for: desktop runtime shell, Electron runtime fuse hardening, Windows NSIS/portable package generation, native dependency rebuild support, executable icon stamping, and packaged stylesheet generation.
 - Electron packages also carry `LICENSE.electron.txt` and
@@ -286,9 +363,23 @@ source as third-party code.
 - Declared in: root `package.json`, `packages/telemetry-client/package.json`, and `packages/telemetry-types/package.json`
 - Licences: `typescript` is Apache-2.0, `knip` and `rimraf` are ISC, `dotenv` is
   BSD-2-Clause, and the other listed external packages are MIT. In particular,
-  the currently resolved `@typescript-eslint/parser` 8.59.2 is MIT, not
-  BSD-2-Clause.
+  the currently resolved `@typescript-eslint/parser` 8.66.0 is MIT.
 - Used for: TypeScript typechecking/builds, linting and dead-code analysis, package builds, release tooling, repository hygiene checks, and Git hook integration. These packages are development/build dependencies and are not Flight Fabric application data.
+
+## Mobile Prototype Packages (not bundled in desktop releases)
+
+- Scope: the private Expo/React Native prototype in `apps/mobile/`; it is not
+  part of the Windows desktop package or the public desktop source mirror.
+- Direct runtime packages: `@expo/metro-runtime`,
+  `@react-native-async-storage/async-storage`, `expo`, `expo-asset`,
+  `expo-build-properties`, `expo-constants`, `expo-font`, `expo-linking`,
+  `expo-router`, `expo-status-bar`, `react`, `react-dom`, `react-native`,
+  `react-native-safe-area-context`, `react-native-screens`, `react-native-web`,
+  and `react-native-webview`.
+- Licences: the direct runtime packages above are MIT. Prototype build tooling
+  also includes `@babel/core` and `@types/react` (MIT) and `typescript`
+  (Apache-2.0). Exact versions and transitive packages are recorded in
+  `apps/mobile/package-lock.json`; their upstream licence files remain applicable.
 
 ## Tailwind CSS
 
@@ -321,11 +412,27 @@ source as third-party code.
 - Vendored into: `site/flightfabric/vendor/splide/` as minified JavaScript and
   core CSS, with its upstream `LICENSE` file.
 - Licence: MIT (Copyright (c) 2022 Naotoshi Fujita)
-- Used for: the screenshot carousel on the private/static product-site source.
-  It is not included in Electron desktop packages or the sanitized public
-  desktop source mirror.
+- Used by earlier versions of the product-site screenshot carousel. The vendored
+  files remain in the private/static site source, but the current landing pages
+  do not load Splide. It is not included in Electron desktop packages or the
+  sanitized public desktop source mirror.
 
-## Font Awesome Free (externally hosted product-site resource)
+## Google Fonts (externally hosted product-site resources)
+
+- Families: Barlow Semi Condensed, IBM Plex Sans and IBM Plex Mono.
+- Barlow copyright: Copyright 2017 The Barlow Project Authors
+  (https://github.com/jpt/barlow).
+- IBM Plex copyright: Copyright 2017 IBM Corp., with Reserved Font Name "Plex".
+- Licence: SIL Open Font License 1.1. Upstream copyright and licence texts:
+  [Barlow Semi Condensed](https://github.com/google/fonts/blob/main/ofl/barlowsemicondensed/OFL.txt),
+  [IBM Plex Sans](https://github.com/google/fonts/blob/main/ofl/ibmplexsans/OFL.txt),
+  [IBM Plex Mono](https://github.com/google/fonts/blob/main/ofl/ibmplexmono/OFL.txt).
+- Used for: typography on the product-site landing pages in `site/flightfabric/`.
+  Browsers request the stylesheets and font files from the Google Fonts service.
+  Those font files are not committed to the repository or bundled in the desktop
+  application.
+
+## Historical Font Awesome Free References (not bundled)
 
 - Source: https://fontawesome.com and https://github.com/FortAwesome/Font-Awesome
 - Version: 7.3.1
@@ -334,11 +441,17 @@ source as third-party code.
 - Upstream licence summary: icons are CC BY 4.0, fonts are SIL OFL 1.1, and
   non-font/non-icon code is MIT.
 - Upstream licence text: https://github.com/FortAwesome/Font-Awesome/blob/7.3.1/LICENSE.txt
-- Used for: solid and brand icons on `site/flightfabric/`.
-- Bundling: the repository contains only stylesheet references. Browsers fetch
-  the CSS and referenced webfonts from jsDelivr; Font Awesome files are not
-  committed to this repository or included in desktop packages. Upstream files
-  retain their embedded attribution comments.
+- Previously used for solid and brand icons on `site/flightfabric/`. Current
+  product-site pages no longer reference Font Awesome or request its files from
+  jsDelivr. This entry preserves the attribution for the earlier hosted-resource
+  usage; Font Awesome files are not bundled in desktop packages.
+
+## Flight Fabric Cabin Audio
+
+The files in `frontend/audio/cabin/standard/` are original audio created by the
+Flight Fabric project owner and authorized for distribution with the project.
+They are first-party assets, not recordings redistributed from an aircraft vendor
+or another simulator add-on.
 
 ## OpenStreetMap Standard Tiles and Data
 

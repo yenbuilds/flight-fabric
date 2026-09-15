@@ -568,21 +568,20 @@ async function runSecondScreenSetupSmoke(windowRef) {
     qrLabel: document.querySelector('#system-mobile-qr svg')?.getAttribute('aria-label') || '',
     qrCount: document.querySelectorAll('#system-mobile-access [role="img"]').length,
   }))();`);
-  assert.ok(setup.phoneUrl.includes('/remote?wsPort='), 'Phone setup should render the phone URL');
-  assert.ok(setup.phoneUrl.includes('aircraftControlToken=browser-smoke-aircraft-control'), 'phone URL should carry only the current test-session token');
+  assert.ok(setup.phoneUrl.includes('/phone'), 'Phone setup should render the short camera-free address');
+  assert.ok(!setup.phoneUrl.includes('aircraftControlToken='), 'readable phone address should not expose the current-session token');
   assert.equal(setup.qrCount, 1, 'Phone setup should offer exactly one QR choice');
-  assert.ok(setup.instructions.includes('Starting a new flight does not require another scan'), 'Phone setup should distinguish new flights from backend restarts');
-  assert.ok(setup.instructions.includes('scan again only after the Flight Fabric backend restarts'), 'Phone setup should explain when the single QR must be scanned again');
-  assert.ok(setup.qrLabel.includes(setup.phoneUrl), 'phone QR should encode the current-session phone URL');
+  assert.ok(setup.instructions.includes('Starting a new flight does not require pairing again'), 'Phone setup should distinguish new flights from backend restarts');
+  assert.equal(setup.qrLabel, 'Private QR code for Flight Fabric phone setup', 'phone QR should have a useful label without exposing its credential');
 
   await click(windowRef, "document.getElementById('system-mobile-copy-btn')", 'Copy phone link button');
   await waitFor(
     windowRef,
-    "document.getElementById('system-mobile-copy-btn')?.textContent.includes('Copied') && window.__ffClipboardWrites?.length === 1",
+    "document.getElementById('system-mobile-copy-btn')?.textContent.includes('Address copied') && window.__ffClipboardWrites?.length === 1",
     'phone link clipboard confirmation',
   );
   const copied = await evaluate(windowRef, 'window.__ffClipboardWrites[0]');
-  assert.equal(copied, setup.phoneUrl, 'Copy phone link should copy the same URL encoded by the QR');
+  assert.equal(copied, setup.phoneUrl, 'Copy phone link should copy the short camera-free address');
   await evaluate(windowRef, 'window.__ffClipboardWrites = []; true;');
 
   await assertUsableLayout(windowRef, 'Phone setup', [
@@ -758,8 +757,6 @@ async function runSettingsSmoke(windowRef) {
     "document.getElementById('tab-settings')?.classList.contains('active')",
     'Settings tab activation',
   );
-  assert.equal(await evaluate(windowRef, "document.querySelector('[data-aircraft-workbench]') === null"), true,
-    'the production Settings screen must not expose the disabled workbench');
   await waitFor(
     windowRef,
     "document.getElementById('setting-cabin-announcements-enabled')?.checked === true",
@@ -938,9 +935,9 @@ async function runAircraftSearchSmoke(windowRef) {
     const tools = document.querySelector('.aircraft-page-tools');
     const actions = document.querySelector('.aircraft-page-tool-actions');
     const search = document.querySelector('.aircraft-find--expanded');
-    const preset = document.querySelector('[data-aircraft-quick-actions]');
+    const presetsSection = document.querySelector('[data-aircraft-presets-section]');
     const cards = [...document.querySelectorAll('[data-aircraft-preset]')];
-    if (!tools || !actions || !search || !preset || cards.length === 0) return { missing: true };
+    if (!tools || !actions || !search || !presetsSection || cards.length === 0) return { missing: true };
     const rect = (element) => {
       const value = element.getBoundingClientRect();
       return {
@@ -959,7 +956,12 @@ async function runAircraftSearchSmoke(windowRef) {
       tools: rect(tools),
       actions: rect(actions),
       search: rect(search),
-      preset: rect(preset),
+      presetsSection: rect(presetsSection),
+      presetsAvailableWidth: (() => {
+        const container = presetsSection.parentElement;
+        const style = getComputedStyle(container);
+        return container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      })(),
       parameterizedPresetVisible: Boolean(document.querySelector('[data-aircraft-preset="configuration.lighting.cockpit"]')),
       cards: cards.map((card) => ({
         card: rect(card),
@@ -970,11 +972,11 @@ async function runAircraftSearchSmoke(windowRef) {
   })();`);
   assert.equal(expandedToolsLayout.missing, false, 'expanded Aircraft tools should render every layout region');
   assert.ok(
-    expandedToolsLayout.preset.width >= expandedToolsLayout.tools.width * 0.98,
+    expandedToolsLayout.presetsSection.width >= expandedToolsLayout.presetsAvailableWidth * 0.98,
     'Aircraft presets should own a full row instead of collapsing beside expanded search',
   );
   assert.ok(
-    expandedToolsLayout.preset.top >= expandedToolsLayout.actions.bottom + 6,
+    expandedToolsLayout.presetsSection.top >= expandedToolsLayout.actions.bottom + 6,
     'Aircraft presets should render below the utility toolbar',
   );
   assert.ok(expandedToolsLayout.search.width >= 360, 'expanded desktop Aircraft search should retain useful input width');
@@ -1093,7 +1095,7 @@ async function runAircraftSearchSmoke(windowRef) {
   assert.equal(mobileNavigation.ribbonDisplay, 'grid', 'PMDG 777 section ribbon should be visible on mobile');
   assert.equal(mobileNavigation.ribbonPosition, 'sticky', 'PMDG 777 section ribbon should remain reachable while scrolling');
   assert.equal(mobileNavigation.destinationCount, 10, 'PMDG 777 ribbon should map to ten stable destinations');
-  assert.equal(mobileNavigation.currentLabel, 'MCP', 'PMDG 777 ribbon should initialize at the first permanent section');
+  assert.equal(mobileNavigation.currentLabel, 'Presets', 'PMDG 777 ribbon should initialize at the first visible section');
   assert.ok(mobileNavigation.headerHeight > 0 && mobileNavigation.headerHeight <= 112, 'phone header should remain compact');
   assert.equal(mobileNavigation.footerDisplay, 'none', 'desktop status footer should not consume phone viewport space');
   assert.equal(mobileNavigation.destinationProgressDisplay, 'none', 'phone header should omit the tall destination progress row');
@@ -1176,7 +1178,7 @@ async function runAircraftSearchSmoke(windowRef) {
       undersizedChoices: choices.filter((choice) => choice.getBoundingClientRect().height < 44).length,
     };
   })();`);
-  assert.equal(mobileChooser.choiceCount, 10, 'PMDG 777 chooser should expose every ribbon destination');
+  assert.equal(mobileChooser.choiceCount, 11, 'PMDG 777 chooser should expose Presets and every aircraft section');
   assert.equal(mobileChooser.undersizedChoices, 0, 'PMDG 777 chooser rows should remain touch friendly');
   assert.ok(mobileChooser.top >= -2 && mobileChooser.bottom <= 846, 'PMDG 777 chooser should fit the phone viewport');
   await click(
@@ -1258,7 +1260,7 @@ async function runAircraftSearchSmoke(windowRef) {
     await click(windowRef, "document.querySelector('.aircraft-section-ribbon__current')", `${fixture.templateId} section chooser`);
     await waitFor(
       windowRef,
-      `document.querySelectorAll('[data-aircraft-section-choice]').length === ${fixture.sectionCount}`,
+      `document.querySelectorAll('[data-aircraft-section-choice]').length === ${fixture.sectionCount + 1}`,
       `${fixture.templateId} complete section chooser`,
     );
     await click(windowRef, "document.querySelector('.aircraft-section-menu__close')", `${fixture.templateId} section chooser close`);
@@ -1321,7 +1323,7 @@ async function runAircraftSearchSmoke(windowRef) {
     const guide = document.querySelector('[data-aircraft-integration-guide-trigger]');
     const voice = document.querySelector('[data-aircraft-voice-control-trigger]');
     const launcher = document.querySelector('.aircraft-find__launcher');
-    const preset = document.querySelector('[data-aircraft-quick-actions]');
+    const preset = document.querySelector('[data-aircraft-presets-section]');
     const cards = [...document.querySelectorAll('[data-aircraft-preset]')];
     if (!tools || !guide || !voice || !launcher || !preset || cards.length === 0) return { missing: true };
     const rect = (element) => {
@@ -1364,7 +1366,7 @@ async function runAircraftSearchSmoke(windowRef) {
     const search = document.querySelector('.aircraft-find--expanded');
     const panel = document.getElementById('aircraft-find-panel');
     const guide = document.querySelector('[data-aircraft-integration-guide-trigger]');
-    const preset = document.querySelector('[data-aircraft-quick-actions]');
+    const preset = document.querySelector('[data-aircraft-presets-section]');
     if (!tools || !actions || !search || !panel || !guide || !preset) return { missing: true };
     const rect = (element) => {
       const value = element.getBoundingClientRect();

@@ -66,6 +66,36 @@ for (const entry of loader.listProfiles()) {
     };
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
     const mainLights = entry.simulator === 'msfs' && (takeoffLightsProfiles.has(entry.id) || entry.id === 'headwind-a330');
+    const strobeMode = ['fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'headwind-a330',
+      'inibuilds-a350-900', 'inibuilds-a350-1000'].includes(entry.id);
+    for (const state of ['on', 'off']) {
+      for (const phrase of [`set strobe lights ${state}`, `set strobe light ${state}`,
+        `strobe lights ${state}`, `turn ${state} strobe lights`, `switch strobe lights ${state}`]) {
+        const voice = interpret(phrase, catalogue);
+        assert.equal(voice.ok, mainLights, `${profileKey}: ${phrase}`);
+        if (mainLights) {
+          const commandId = strobeMode ? 'lights.strobeMode.set' : 'lights.strobe.set';
+          const input = { value: strobeMode ? state : state === 'on' };
+          assert.equal(voice.commandId, commandId, `${profileKey}: ${phrase} route`);
+          assert.deepEqual(voice.input, input);
+          assert.equal(resolveAircraftCommand({ commandId, input }, options).ok, true);
+        }
+      }
+    }
+    assert.equal(interpret('set strobe lights auto', catalogue).ok, strobeMode, `${profileKey}: strobe AUTO coverage`);
+    for (const phrase of ['set strobe lights', 'strobe lights maybe on', 'do not set strobe lights off',
+      'set strobe lights on and start apu']) assert.equal(interpret(phrase, catalogue).ok, false, phrase);
+    const supportsApuStart = entry.simulator === 'msfs' &&
+      /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|inibuilds-a350-(?:900|1000))$/.test(entry.id);
+    for (const phrase of ['start apu', 'start the A P U', 'start auxiliary power unit']) {
+      const voice = interpret(phrase, catalogue);
+      assert.equal(voice.ok, supportsApuStart, `${profileKey}: ${phrase}`);
+      if (supportsApuStart) {
+        assert.equal(voice.commandId, 'configuration.apu.start');
+        assert.deepEqual(voice.input, {});
+        assert.equal(resolveAircraftCommand({ commandId: voice.commandId, input: voice.input }, options).ok, true);
+      }
+    }
     const turnoffLights = entry.simulator === 'msfs'
       && /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330)$/.test(entry.id);
     for (const [target, names] of [['landing', ['landing']], ['taxi', ['taxi']],

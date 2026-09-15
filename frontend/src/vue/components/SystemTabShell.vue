@@ -1,16 +1,25 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { sendWs } from '../../../app-shared.js';
+import { subscribeWsMessage } from '../../app/runtime-signals.js';
 import RemoteBrowserQr from './RemoteBrowserQr.vue';
 import { useLogbookStore } from '../stores/logbook.js';
 import { useSystemHostStore } from '../stores/system-host.js';
+import { useTabsStore } from '../stores/tabs.js';
 
 const systemHost = useSystemHostStore();
 const logbook = useLogbookStore();
+const tabs = useTabsStore();
 let refreshTimer = null;
 let cleanupBackendStatus = null;
 let copyResetTimer = null;
 const copiedMobileLink = ref(false);
+const pairingRequests = ref([]);
+const pairingRequestsEnabled = ref(false);
+const approvingPairingRequestId = ref('');
+const pairingNotice = ref(null);
+const pairingNowMs = ref(Date.now());
+let cleanupPairingMessages = null;
 
 const statusDotClass = {
   success: 'bg-success shadow-[0_0_12px_rgba(16,185,129,0.35)]',
@@ -31,8 +40,38 @@ function toneClass(map, tone) {
 }
 
 function refreshNow() {
+  pairingNowMs.value = Date.now();
   systemHost.refresh();
   sendWs({ type: 'requestHistoryIndexStatus' });
+  sendWs({ type: 'requestDevicePairingRequests' });
+}
+
+function openPhoneTabletSettings() {
+  tabs.requestTabChange('settings');
+}
+
+function approvePairingRequest(request) {
+  if (!request?.id || !request?.confirmationCode) return;
+  pairingNotice.value = null;
+  approvingPairingRequestId.value = request.id;
+  const sent = sendWs({
+    type: 'approveDevicePairingRequest',
+    requestId: request.id,
+    confirmationCode: request.confirmationCode,
+  });
+  if (!sent) {
+    approvingPairingRequestId.value = '';
+    pairingNotice.value = {
+      tone: 'danger',
+      message: 'Could not contact the backend. Check the connection and try again.',
+    };
+  }
+}
+
+function pairingExpiryLabel(expiresAt) {
+  const seconds = Math.max(0, Math.ceil((Number(expiresAt) - pairingNowMs.value) / 1000));
+  if (seconds <= 0) return 'Expiring now';
+  return `Expires in ${seconds}s`;
 }
 
 const historyIndex = computed(() => logbook.historyIndexStatus || {});
@@ -81,6 +120,32 @@ async function copyMobileLink(url) {
 }
 
 onMounted(() => {
+  cleanupPairingMessages = subscribeWsMessage((message = {}) => {
+    if (message.type === 'devicePairingRequests') {
+      const hadPendingRequest = pairingRequests.value.length > 0;
+      pairingRequestsEnabled.value = message.enabled === true;
+      pairingRequests.value = Array.isArray(message.requests) ? message.requests : [];
+      if (!hadPendingRequest && pairingRequests.value.length > 0) {
+        pairingNotice.value = null;
+        if (tabs.activeTabId === 'system') {
+          void nextTick(() => {
+            document.getElementById('system-device-pairing-requests')?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'nearest',
+            });
+          });
+        }
+      }
+      return;
+    }
+    if (message.type !== 'devicePairingApprovalResult') return;
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    if (requestId && approvingPairingRequestId.value && requestId !== approvingPairingRequestId.value) return;
+    approvingPairingRequestId.value = '';
+    pairingNotice.value = message.ok === true
+      ? { tone: 'success', message: 'Controls approved. The device will connect automatically.' }
+      : { tone: 'warning', message: 'That request expired or changed. Ask the device to request a new code.' };
+  });
   cleanupBackendStatus = systemHost.bindBackendStatusEvents();
   refreshNow();
   refreshTimer = window.setInterval(() => {
@@ -101,6 +166,8 @@ onUnmounted(() => {
     cleanupBackendStatus();
   }
   cleanupBackendStatus = null;
+  if (typeof cleanupPairingMessages === 'function') cleanupPairingMessages();
+  cleanupPairingMessages = null;
 });
 </script>
 
@@ -281,43 +348,96 @@ onUnmounted(() => {
           <div class="mt-4 grid gap-4 rounded-2xl border border-cyan-400/25 bg-cyan-400/10 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div class="min-w-0">
               <div class="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300" style="font-family: var(--ff-font-mono);">
-                Phone link
+                Connect a device
               </div>
               <div class="mt-1 text-sm font-semibold text-gray-100">
-                {{ systemHost.remoteAccessEnabled === false ? 'LAN access is off' : 'Scan to connect' }}
+                {{ systemHost.remoteAccessEnabled === false ? 'Phone & tablet access is off' : 'Scan the QR or type the address' }}
               </div>
               <div id="system-remote-url" class="mt-2 break-all font-mono text-sm text-cyan-100">
-                {{ systemHost.remoteAccessEnabled === false
-                  ? 'Enable Allow trusted LAN access in Settings'
-                  : (systemHost.remoteBrowserUrl || 'LAN IP unavailable') }}
+                <template v-if="systemHost.remoteAccessEnabled === false">Enable phone &amp; tablet access in Settings</template>
+                <span v-else-if="systemHost.remotePhoneEntryUrl" id="system-phone-entry-url">{{ systemHost.remotePhoneEntryUrl }}</span>
+                <template v-else>LAN address unavailable</template>
               </div>
               <div v-if="systemHost.remoteAccessEnabled === false" id="system-mobile-disabled-note" class="mt-2 text-xs leading-5 text-muted-fg">
                 Save the setting, then restart the backend before pairing a phone or tablet.
               </div>
+              <button
+                v-if="systemHost.remoteAccessEnabled === false"
+                id="system-mobile-settings-btn"
+                type="button"
+                class="ff-button-primary mt-3 px-3 py-2 text-xs"
+                @click="openPhoneTabletSettings"
+              >
+                Enable phone &amp; tablet access
+              </button>
               <div v-if="systemHost.remoteBrowserUrl" id="system-mobile-pairing-note" class="mt-2 text-xs leading-5 text-muted-fg">
-                <template v-if="systemHost.shareAircraftControlPaired">Private link. It opens the dashboard and pairs aircraft controls for this backend session. Starting a new flight does not require another scan; scan again only after the Flight Fabric backend restarts. Aircraft commands still require the LAN control setting.</template>
-                <template v-else-if="systemHost.currentBrowserAircraftControlPaired">This browser is paired for aircraft controls in the current backend session. The displayed link remains read-only and does not expose its pairing token.</template>
-                <template v-else>Read-only link. Open this page on the simulator PC after the backend starts to generate the current-session paired link.</template>
+                <template v-if="systemHost.shareAircraftControlPaired">The QR privately pairs aircraft controls for this backend session. The typed address opens safely in viewer mode, then asks you to approve a matching code. Starting a new flight does not require pairing again.</template>
+                <template v-else-if="systemHost.currentBrowserAircraftControlPaired">This browser is already paired for aircraft controls. The typed address stays safe to share because it contains no pairing credential.</template>
+                <template v-else>The QR and typed address open in viewer mode. To use aircraft controls, request them on the device and approve the matching code below.</template>
               </div>
               <button
-                v-if="systemHost.remoteBrowserUrl"
+                v-if="systemHost.remotePhoneEntryUrl"
                 id="system-mobile-copy-btn"
                 type="button"
                 class="ff-button-secondary mt-3 px-3 py-2 text-xs"
-                @click="copyMobileLink(systemHost.remoteBrowserUrl)"
+                @click="copyMobileLink(systemHost.remotePhoneEntryUrl)"
               >
-                {{ copiedMobileLink ? 'Copied' : 'Copy phone link' }}
+                {{ copiedMobileLink ? 'Address copied' : 'Copy short address' }}
               </button>
-              <div v-if="systemHost.remoteAccessEnabled === true && systemHost.alternateIpsLabel" id="system-alt-ips" class="mt-2 text-xs text-muted-fg">
-                Other IPs: {{ systemHost.alternateIpsLabel }}
-              </div>
+              <details v-if="systemHost.remoteAccessEnabled === true && systemHost.alternateIpsLabel" class="mt-2 text-xs text-muted-fg">
+                <summary class="w-fit cursor-pointer select-none hover:text-gray-200">Other network addresses</summary>
+                <div id="system-alt-ips" class="mt-1 break-all font-mono text-[11px]">{{ systemHost.alternateIpsLabel }}</div>
+              </details>
             </div>
             <RemoteBrowserQr
               v-if="systemHost.remoteBrowserUrl"
               id="system-mobile-qr"
               class="justify-self-start sm:justify-self-end"
+              label="Private QR code for Flight Fabric phone setup"
               :value="systemHost.remoteBrowserUrl"
             />
+          </div>
+
+          <div v-if="systemHost.remoteAccessEnabled === true && systemHost.remotePhoneEntryUrl" id="system-camera-free-setup" class="mt-3 flex items-start gap-2 text-xs leading-5 text-muted-fg">
+            <svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+            <p><strong class="font-medium text-gray-200">No camera?</strong> Type the short address shown above. On the device, choose <strong class="font-medium text-gray-200">Request aircraft controls</strong>, then approve the matching code here.</p>
+          </div>
+
+          <div v-if="systemHost.remoteAccessEnabled === true && pairingRequestsEnabled" id="system-device-pairing-requests" class="mt-4 rounded-2xl border border-border bg-surface-100/80 p-4">
+            <div class="text-sm font-semibold text-gray-100">Device approval</div>
+            <p class="mt-1 text-xs leading-5 text-muted-fg">Approve only when the same six-digit code is visible on your phone or tablet.</p>
+            <div
+              v-if="pairingNotice"
+              id="system-device-pairing-notice"
+              class="mt-3 rounded-xl border px-3 py-2 text-xs leading-5"
+              :class="pairingNotice.tone === 'success'
+                ? 'border-success/30 bg-success/10 text-success'
+                : (pairingNotice.tone === 'danger'
+                  ? 'border-danger/30 bg-danger/10 text-danger'
+                  : 'border-warning/30 bg-warning/10 text-warning')"
+              aria-live="polite"
+            >
+              {{ pairingNotice.message }}
+            </div>
+            <p v-if="pairingRequests.length === 0" class="mt-3 text-xs leading-5 text-muted-fg">No device is waiting for approval.</p>
+            <div v-for="request in pairingRequests" :key="request.id" class="mt-3 flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0">
+                <div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-fg">Code shown on device</div>
+                <div class="mt-1 font-mono text-2xl font-semibold tracking-[0.18em] text-primary">{{ request.confirmationCode }}</div>
+                <div class="mt-1 text-xs text-muted-fg">{{ pairingExpiryLabel(request.expiresAt) }} · Network address {{ request.remoteAddress }}</div>
+              </div>
+              <button
+                type="button"
+                class="ff-button-primary w-full justify-center px-4 py-2 text-xs sm:w-auto"
+                :disabled="Boolean(approvingPairingRequestId)"
+                @click="approvePairingRequest(request)"
+              >
+                {{ approvingPairingRequestId === request.id ? 'Approving...' : 'Approve controls' }}
+              </button>
+            </div>
           </div>
         </section>
 

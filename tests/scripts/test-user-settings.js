@@ -81,7 +81,7 @@ function run() {
     assertTrue(!fs.existsSync(retiredProfilesRootDir), 'first load should not create the retired Profiles folder');
     assertTrue(!settingsPath.includes('.msfs-telemetry'), 'settings.json should use the new Flight Fabric path');
     assertEqual(mod.settings.network.remoteAccess, false, 'network.remoteAccess default');
-    assertEqual(mod.settings.network.remoteAircraftControl, false, 'network.remoteAircraftControl default');
+    assertEqual(mod.settings.network.remoteAircraftControl, true, 'network.remoteAircraftControl default');
     assertEqual(Object.hasOwn(mod.settings, 'performance'), false, 'performance poll-rate setting is retired');
     assertEqual(Object.hasOwn(mod.settings, 'advanced'), false, 'backend debug setting is not user-configurable');
     assertEqual(mod.settings.recording.autoStart, true, 'recording.autoStart default');
@@ -111,7 +111,7 @@ function run() {
 
     const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     assertEqual(saved.network.remoteAccess, false, 'saved template network.remoteAccess default');
-    assertEqual(saved.network.remoteAircraftControl, false, 'saved template network.remoteAircraftControl default');
+    assertEqual(saved.network.remoteAircraftControl, true, 'saved template network.remoteAircraftControl default');
     assertEqual(Object.hasOwn(saved, 'performance'), false, 'saved template omits retired poll-rate setting');
     assertEqual(Object.hasOwn(saved, 'advanced'), false, 'saved template omits backend debug settings');
     assertEqual(saved.recording.autoStart, true, 'saved template recording.autoStart default');
@@ -241,7 +241,7 @@ function run() {
     );
 
     const migrated = loadFreshUserSettingsModule();
-    assertEqual(migrated.settings._version, 3, 'migration bumps legacy settings version');
+    assertEqual(migrated.settings._version, 4, 'migration bumps legacy settings version');
     assertEqual(migrated.settings.network.remoteAccess, true, 'migration preserves network.remoteAccess');
     assertEqual(migrated.settings.network.remoteAircraftControl, false, 'migration keeps trusted-LAN aircraft control opt-in');
     assertEqual(Object.hasOwn(migrated.settings, 'liveSharing'), false, 'migration removes retired live-sharing settings');
@@ -251,7 +251,7 @@ function run() {
 
     migrated.saveUserSettings(migrated.settings);
     const persistedMigration = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    assertEqual(persistedMigration._version, 3, 'persisted migration writes current settings version');
+    assertEqual(persistedMigration._version, 4, 'persisted migration writes current settings version');
     assertEqual(Object.hasOwn(persistedMigration, 'liveSharing'), false, 'persisted migration omits retired live-sharing settings');
     assertEqual(Object.hasOwn(persistedMigration, 'obs'), false, 'persisted migration omits retired OBS settings');
     assertEqual(Object.hasOwn(persistedMigration, 'performance'), false, 'persisted migration omits retired poll-rate settings');

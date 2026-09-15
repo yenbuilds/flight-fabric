@@ -418,7 +418,6 @@ export async function initAppRuntime({
   });
 
   setAppServices({
-    requestAircraftSupport: connection.requestAircraftSupport,
     getWs: connection.getWs,
     getWsSend: () => connection.send,
     getAuthorizationScope: connection.getAuthorizationScope,

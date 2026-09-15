@@ -363,7 +363,7 @@ test('restore is revision guarded, removes the whole snapshot, and cleans ignore
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-analysis-revert-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const bundle = await makeBundle(root, 'revert');
-  const source = getFlightAnalysisRescoreSource(bundle.paths.csv, { flightLogsDir: root });
+  getFlightAnalysisRescoreSource(bundle.paths.csv, { flightLogsDir: root });
   const payload = buildSnapshot(bundle.identity.flightId);
   const saved = saveFlightAnalysisRescore({
     csvPath: bundle.paths.csv,

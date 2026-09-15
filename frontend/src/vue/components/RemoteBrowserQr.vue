@@ -7,6 +7,10 @@ const props = defineProps({
     type: String,
     default: 'system-remote-qr',
   },
+  label: {
+    type: String,
+    default: 'Flight Fabric phone setup QR code',
+  },
   value: {
     type: String,
     default: '',
@@ -26,7 +30,7 @@ const qrData = computed(() => createQrSvgData(props.value));
       class="h-full w-full"
       :viewBox="qrData.viewBox"
       role="img"
-      :aria-label="`QR code for ${qrData.value}`"
+      :aria-label="label"
       shape-rendering="crispEdges"
     >
       <rect :width="qrData.viewBoxSize" :height="qrData.viewBoxSize" fill="#ffffff" />

@@ -1,3 +1,7 @@
+import '../../../shared/violation-rules.js';
+
+const { VIOLATION_RULE } = globalThis.FlightFabricViolationRules;
+
 // Severity ranks across the two grading axes the backend produces:
 // - Touchdown VS grade ('PERFECT'..'VERY HARD' from backend/landing/landing.js)
 // - Touchdown distance grade ('Outstanding'..'Dangerous' plus legacy labels)
@@ -343,8 +347,8 @@ export function buildLandingVerdict(data = {}, {
   const touchdownZone = touchdownDistance?.zone ?? touchdownDistance?.touchdown_distance_zone ?? null;
   const pastRunwayEnd = touchdownZone === 'Past Runway End'
     || (hasTouchdownDistanceFt && hasRunwayLengthFt && touchdownDistanceFt >= runwayLengthFt);
-  // Keep the ideal first-1,000-ft target distinct from the formal 3,000-ft TDZ.
-  // The backend's tdzAchieved field intentionally represents the latter.
+  // Preserve the historical optional-target flag for compatibility. It is not
+  // a pass/fail criterion; the backend's tdzAchieved represents the 3,000-ft TDZ.
   const touchdownTargetAchieved = touchdownDistance != null && !shortLanding && !pastRunwayEnd
     && hasTouchdownDistanceFt
     && touchdownDistanceFt >= 0
@@ -378,6 +382,7 @@ export function buildLandingVerdict(data = {}, {
     flags: {
       runwayExcursion,
       shortLanding,
+      pastRunwayEnd,
       touchdownTargetAchieved,
       tdzAchieved: tdzAchievedEffective,
       gateStable,
@@ -476,17 +481,34 @@ export function buildLandingPresentation(data = {}, options = {}) {
   // Compatibility alias for older consumers. This is now the four-state
   // presentation verdict, not a rewrite of the strict gateStable audit flag.
   const gateVerdict = approachVerdict;
-  const approachText = approachVerdict;
   const approachScoreText = stabilityScore != null ? `Approach score ${stabilityScore}%` : null;
   const stabilityPassPct = getStabilityPassPct(ultimateStability);
   const stabilityGateAltitudeFt = getStabilityGateAltitudeFt(ultimateStability);
   const approachDetailParts = [];
   const assessment = ultimateStability?.scoringContext?.assessment;
+  const episodes = Array.isArray(assessment?.episodes) ? assessment.episodes : [];
+  // Lead with the score only when the recorded marginal result is fully
+  // explained by recovered cautions. Preserve the verdict as an audit fact;
+  // missing recovery evidence, failed quality checks and warnings stay explicit.
+  const recoveredCautions = assessment?.version === 4 && stabilityVerdict === 'marginal'
+    && stabilityScore !== null && stabilityScore >= 80 && episodes.length > 0
+    && gateFailures.includes('approach_caution')
+    && gateFailures.every(failure => failure === 'approach_caution')
+    && episodes.every(episode => episode.severity === 'caution' && episode.endReason === 'recovered');
+  const sinkOnly = episodes.length > 0 && episodes.every(episode =>
+    episode.ruleId === 'approach_vertical_profile' && Array.isArray(episode.reasons)
+    && episode.reasons.length === 1 && episode.reasons[0] === VIOLATION_RULE.HIGH_SINK_RATE);
+  const approachFindingsText = recoveredCautions
+    ? `${episodes.length} ${sinkOnly
+      ? (episodes.length === 1 ? 'sink-rate exceedance' : 'sink-rate exceedances')
+      : (episodes.length === 1 ? 'caution' : 'cautions')} · Recovered`
+    : null;
+  const approachText = recoveredCautions ? `${stabilityScore}%` : approachVerdict;
   if (assessment?.version === 4) {
-    const episodes = Array.isArray(assessment.episodes) ? assessment.episodes : [];
     const cautions = episodes.filter(episode => episode.severity === 'caution').length;
     const violations = episodes.filter(episode => episode.severity === 'warning').length;
-    if (cautions) approachDetailParts.push(`${cautions} ${cautions === 1 ? 'caution' : 'cautions'}`);
+    if (approachFindingsText) approachDetailParts.push(approachFindingsText);
+    else if (cautions) approachDetailParts.push(`${cautions} ${cautions === 1 ? 'caution' : 'cautions'}`);
     if (violations) approachDetailParts.push(`${violations} ${violations === 1 ? 'violation' : 'violations'}`);
     if (stabilityVerdict === 'no_verdict') approachDetailParts.push('Insufficient approach data');
     else if (!episodes.length && gateFailures.length) approachDetailParts.push('Approach quality below target');
@@ -499,7 +521,7 @@ export function buildLandingPresentation(data = {}, options = {}) {
       approachDetailParts.push('Insufficient stability data');
     }
   }
-  if (approachScoreText) approachDetailParts.push(approachScoreText);
+  if (approachScoreText && !recoveredCautions) approachDetailParts.push(approachScoreText);
 
   const bounceKnown = hasExplicitBounceResult(touchdownDistance);
   const bounceText = bounceKnown
@@ -520,6 +542,11 @@ export function buildLandingPresentation(data = {}, options = {}) {
         : 'Off Airport')
     : null;
   const distanceGrade = touchdownDistance?.grade || null;
+  const touchdownPositionText = !distanceText ? 'Position unavailable'
+    : verdict.flags.shortLanding ? 'Short of threshold'
+      : verdict.flags.pastRunwayEnd ? 'Past runway end'
+        : verdict.flags.tdzAchieved ? 'Within touchdown zone'
+          : 'Beyond touchdown zone';
   const distanceDetail = [distanceText, distanceGrade].filter(Boolean).join(' · ');
   if (distanceDetail) touchdownDetailParts.push(`TDZ: ${distanceDetail}`);
   if (verdict.flags.runwayExcursion) touchdownDetailParts.push('Runway excursion');
@@ -528,7 +555,8 @@ export function buildLandingPresentation(data = {}, options = {}) {
   if (rawTouchdownGrade) breakdownParts.push(`Touchdown rate grade: ${rawTouchdownGrade}`);
   if (distanceGrade) breakdownParts.push(`TDZ: ${distanceGrade}`);
   if (approachText) breakdownParts.push(`Approach: ${approachText}`);
-  if (approachScoreText) breakdownParts.push(approachScoreText);
+  if (recoveredCautions) breakdownParts.push(approachFindingsText);
+  else if (approachScoreText) breakdownParts.push(approachScoreText);
   if (bounceText) breakdownParts.push(`Bounce: ${bounceText}`);
 
   return {
@@ -540,6 +568,7 @@ export function buildLandingPresentation(data = {}, options = {}) {
     touchdownTextClass: textClassForSeverity(touchdownSeverity),
     touchdownDetailParts,
     touchdownDetailText: touchdownDetailParts.join(' - ') || '--',
+    touchdownPositionText,
     gateVerdict,
     approachVerdict,
     stabilityVerdict,
@@ -549,6 +578,8 @@ export function buildLandingPresentation(data = {}, options = {}) {
     stabilityScore,
     failedCheckCount: gateFailures.length,
     approachText,
+    recoveredCautions,
+    approachFindingsText,
     approachScoreText,
     approachExplanation: approachVerdictExplanation(ultimateStability, stabilityVerdict),
     approachDetailParts,

@@ -50,6 +50,8 @@ export const PRIVILEGED_CLIENT_MESSAGE_TYPES = Object.freeze([
   'rebuildHistoryIndex',
   'lvarDebugWatch',
   'testShake',
+  'requestDevicePairingRequests',
+  'approveDevicePairingRequest',
 ] as const);
 
 const TRUSTED_LAN_SAFE_READ_MESSAGE_TYPE_SET: ReadonlySet<string> = new Set(

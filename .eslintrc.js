@@ -5,6 +5,7 @@
 
 module.exports = {
   root: true,
+  ignorePatterns: ['backend/types/generated/**'],
   env: {
     node: true,
     es2022: true,
@@ -57,9 +58,19 @@ module.exports = {
     {
       files: ['**/*.ts'],
       parser: '@typescript-eslint/parser',
+      plugins: ['@typescript-eslint'],
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'script',
+      },
+      rules: {
+        'no-unused-vars': 'off',
+        '@typescript-eslint/no-unused-vars': ['warn', {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        }],
       },
     },
     // Allow process.env in config/user-settings boundary files.

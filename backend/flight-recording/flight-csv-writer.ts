@@ -1019,7 +1019,7 @@ class FlightCSVWriter {
       if (fs.existsSync(this.filePath)) {
         fileSizeBytes = fs.statSync(this.filePath).size;
       }
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
     
     return {
       flightId: this.flightId,

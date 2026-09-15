@@ -9,6 +9,7 @@ const {
   createSimbriefRequestLimiter,
   startHttpServer,
 } = require('./http-server') as typeof import('./http-server');
+const { createDevicePairingManager } = require('./device-pairing') as typeof import('./device-pairing');
 
 class FakeOutgoingRequest extends EventEmitter {
   destroyed = false;
@@ -175,6 +176,105 @@ async function closeServer(server: import('node:http').Server): Promise<void> {
     });
   });
 }
+
+function requestPairingEndpoint(port: number, method: 'GET' | 'POST', pathname: string, includePairingHeader = true): Promise<{
+  body: Record<string, unknown>;
+  headers: import('node:http').IncomingHttpHeaders;
+  statusCode: number | undefined;
+}> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname: '127.0.0.1',
+      headers: method === 'POST' && includePairingHeader
+        ? { 'X-Flight-Fabric-Pairing': '1' }
+        : {},
+      method,
+      path: pathname,
+      port,
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { body += chunk; });
+      response.once('end', () => {
+        resolve({
+          body: JSON.parse(body || '{}'),
+          headers: response.headers,
+          statusCode: response.statusCode,
+        });
+      });
+    });
+    request.once('error', reject);
+    request.end();
+  });
+}
+
+test('camera-less device pairing requires PC approval and returns only an HttpOnly session cookie', async () => {
+  const pairing = createDevicePairingManager();
+  const { httpServer: server } = startHttpServer({
+    wsPort: 9199,
+    httpPort: 0,
+    remoteAccessEnable: true,
+    devicePairing: pairing,
+    Debug: { log() {} },
+  });
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test HTTP server did not bind a TCP port');
+
+  try {
+    const shortEntry = await requestText(address.port, '/phone');
+    assert.equal(shortEntry.statusCode, 302);
+    assert.equal(shortEntry.headers.location, '/remote?wsPort=9199');
+
+    const crossSiteCompatiblePost = await requestPairingEndpoint(
+      address.port,
+      'POST',
+      '/api/device-pairing/request',
+      false,
+    );
+    assert.equal(crossSiteCompatiblePost.statusCode, 403);
+    assert.equal(crossSiteCompatiblePost.body.error, 'pairing_request_not_allowed');
+
+    const requested = await requestPairingEndpoint(address.port, 'POST', '/api/device-pairing/request');
+    assert.equal(requested.statusCode, 201);
+    assert.equal(typeof requested.body.requestId, 'string');
+    assert.equal(typeof requested.body.confirmationCode, 'string');
+    const pending = await requestPairingEndpoint(
+      address.port,
+      'GET',
+      `/api/device-pairing/status?requestId=${encodeURIComponent(String(requested.body.requestId))}`,
+    );
+    assert.equal(pending.statusCode, 200);
+    assert.equal(pending.body.status, 'pending');
+    assert.equal(typeof pending.body.expiresAt, 'number');
+    assert.equal(pending.headers['set-cookie'], undefined);
+    assert.equal(pairing.claimApprovedRequest(requested.body.requestId, '127.0.0.1'), null);
+    assert.equal(pairing.approveRequest(requested.body.requestId, requested.body.confirmationCode), true);
+
+    const approved = await requestPairingEndpoint(
+      address.port,
+      'GET',
+      `/api/device-pairing/status?requestId=${encodeURIComponent(String(requested.body.requestId))}`,
+    );
+    assert.equal(approved.statusCode, 200);
+    assert.equal(approved.body.status, 'approved');
+    const cookie = Array.isArray(approved.headers['set-cookie']) ? approved.headers['set-cookie'][0] : '';
+    assert.match(cookie, /^ff_aircraft_pair=/);
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /SameSite=Strict/);
+    assert.match(cookie, /Max-Age=43200/);
+    assert.deepEqual(approved.body, { ok: true, status: 'approved' });
+
+    const consumed = await requestPairingEndpoint(
+      address.port,
+      'GET',
+      `/api/device-pairing/status?requestId=${encodeURIComponent(String(requested.body.requestId))}`,
+    );
+    assert.equal(consumed.body.status, 'expired');
+  } finally {
+    await closeServer(server);
+  }
+});
 
 test('SimBrief limiter reserves usernames before I/O and cooldowns failed attempts', () => {
   let now = 1_000;

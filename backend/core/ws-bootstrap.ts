@@ -7,6 +7,7 @@ const { MSG } = require('./message-types');
 const {
   projectSerializedServerMessageForClient,
 } = require('./server-message-projection');
+const { parseCookieHeader } = require('./device-pairing');
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
@@ -136,6 +137,7 @@ export function createWsServer({
   remoteAircraftControlEnable = false,
   wsAuthToken = '',
   aircraftControlToken = '',
+  devicePairing = null,
   Debug,
   tlog,
   onClientConnected,
@@ -147,6 +149,9 @@ export function createWsServer({
   remoteAircraftControlEnable?: boolean;
   wsAuthToken?: string;
   aircraftControlToken?: string;
+  devicePairing?: {
+    hasApprovedSession: (sessionId: unknown, remoteAddress: string | null | undefined) => boolean;
+  } | null;
   Debug: DebugLike;
   tlog: LoggerFn;
   onClientConnected: ClientConnectedHandler;
@@ -163,17 +168,25 @@ export function createWsServer({
       const origin = typeof info.origin === 'string' ? info.origin : '';
       const token = extractTokenFromRequestUrl(info.req?.url, 'token');
       const requestedAircraftControlToken = extractTokenFromRequestUrl(info.req?.url, 'aircraftControlToken');
+      const devicePairingSessionId = parseCookieHeader(info.req?.headers?.cookie).ff_aircraft_pair || '';
       const hasValidToken = Boolean(wsAuthToken) && token === wsAuthToken;
       const remoteAddress = info.req?.socket?.remoteAddress || null;
       const trustedOrigin = isPrivateOrLoopbackRemoteAddress(remoteAddress)
         && isTrustedWsOrigin(origin, requestHost, remoteAccessEnable);
+      const hasPairedDeviceSession = remoteAccessEnable
+        && remoteAircraftControlEnable
+        && trustedOrigin
+        && Boolean(devicePairingSessionId)
+        && devicePairing?.hasApprovedSession(devicePairingSessionId, remoteAddress) === true;
       const hasAircraftControlScope = remoteAccessEnable
         && remoteAircraftControlEnable
         && trustedOrigin
         && isPrivateOrLoopbackRemoteAddress(remoteAddress)
-        && Boolean(aircraftControlToken)
-        && requestedAircraftControlToken === aircraftControlToken;
-      const aircraftControlPairingStatus: AircraftControlPairingStatus = !requestedAircraftControlToken
+        && (
+          hasPairedDeviceSession
+          || (Boolean(aircraftControlToken) && requestedAircraftControlToken === aircraftControlToken)
+        );
+      const aircraftControlPairingStatus: AircraftControlPairingStatus = !requestedAircraftControlToken && !devicePairingSessionId
         ? 'not-requested'
         : (hasAircraftControlScope
           ? 'accepted'
@@ -224,6 +237,18 @@ export function createWsServer({
 
   // Handle incoming WebSocket messages (for client requests)
   wss.on('connection', (ws: WsSocketLike, req: RequestLike) => {
+    // Receiver errors (oversized frames, invalid UTF-8, protocol violations)
+    // are emitted by the individual socket, not the server. Install this
+    // before sending any state so a rejected frame cannot crash the backend.
+    // ws closes the offending connection with the appropriate protocol code.
+    ws.on('error', (error: { code?: unknown }) => {
+      try {
+        Debug.log('ws', 'WebSocket client error', {
+          code: typeof error?.code === 'string' ? error.code.slice(0, 128) : null,
+        });
+      } catch {}
+    });
+
     ws.__ffPrivilegedClient = req?.__ffWsMeta?.isPrivilegedClient === true;
     ws.__ffAircraftControlClient = req?.__ffWsMeta?.isAircraftControlClient === true;
     ws.__ffAircraftControlPairingStatus = req?.__ffWsMeta?.aircraftControlPairingStatus || 'not-requested';

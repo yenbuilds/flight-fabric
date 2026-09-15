@@ -115,7 +115,7 @@ function pressSdkAction(params: {
 const actions: Record<string, AircraftIntegrationAction> = {};
 
 // Installed 777-300ER 2.4.146 cockpit behavior: control 3, clockwise press=2,
-// release=4. Reach START from OFF or ON, then release once at the endpoint.
+// release=4. Allow each movement to settle, then release once at START.
 // The SDK's ELEC_APU_Selector=2 is telemetry, not evidence of a START interaction.
 actions['systems.apuSelector.start'] = {
   id: 'systems.apuSelector.start',
@@ -131,7 +131,9 @@ actions['systems.apuSelector.start'] = {
     requiredSdkAdapter: SDK_ADAPTER_ID,
     operations: [
       { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+      { type: 'delay', milliseconds: 500 },
       { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+      { type: 'delay', milliseconds: 500 },
       { type: 'event', name: 'ROTOR_BRAKE', value: 304 },
     ],
     confirmation: 'transport-acknowledged',
