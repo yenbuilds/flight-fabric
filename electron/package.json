@@ -1,9 +1,9 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.9.9",
-  "description": "Flight Fabric - airline flying telemetry and debrief app",
+  "version": "0.10.0",
+  "description": "FlightFabric - airline flying telemetry and debrief app",
   "main": "main.js",
-  "author": "Flight Fabric",
+  "author": "FlightFabric",
   "license": "AGPL-3.0-only",
   "scripts": {
     "build:voice-ptt": "cargo build --manifest-path voice-native/ptt-hook/Cargo.toml --release",
@@ -37,8 +37,8 @@
   },
   "build": {
     "appId": "com.flightfabric.app",
-    "productName": "Flight Fabric",
-    "copyright": "Copyright (c) 2026 Flight Fabric",
+    "productName": "FlightFabric",
+    "copyright": "Copyright (c) 2026 FlightFabric",
     "npmRebuild": false,
     "icon": "taskbar-icon.ico",
     "afterPack": "./after-pack.js",
@@ -48,6 +48,8 @@
     "files": [
       "main.js",
       "main-window-bounds.js",
+      "main-window-state.js",
+      "desktop-menu.js",
       "preload.js",
       "backend-cleanup-policy.js",
       "backend-lifecycle.js",
@@ -60,6 +62,9 @@
       "process-liveness.js",
       "runtime-owner-lock.js",
       "msfs-detect.js",
+      "msfs-toolbar-panel-installer.js",
+      "msfs-toolbar-panel-package.js",
+      "safe-directory-removal.js",
       "voice-model-integrity.js",
       "voice-model-manifest.js",
       "voice-push-to-talk-hook.js",
@@ -159,6 +164,13 @@
         ]
       },
       {
+        "from": "../msfs-toolbar-panel/package",
+        "to": "msfs-toolbar-panel",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "../dist/shared",
         "to": "shared",
         "filter": [
@@ -247,7 +259,7 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Flight Fabric"
+      "shortcutName": "FlightFabric"
     }
   }
 }

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AircraftArtwork from './AircraftArtwork.vue';
+import CountryFlag from './CountryFlag.vue';
 import { getAuthorizationScope, sendWs } from '../../../app-shared.js';
 import {
   subscribeLandingReceived,
@@ -40,6 +41,7 @@ const GRADE_COLORS = {
   Good: '#22c55e',
   Acceptable: '#facc15',
   Marginal: '#f59e0b',
+  'Near Threshold': '#f59e0b',
   'Long Landing': '#f97316',
   Poor: '#f97316',
   Dangerous: '#ef4444',
@@ -59,6 +61,7 @@ const GRADE_PILL_BG = {
   Good: 'rgba(34,197,94,0.10)',
   Acceptable: 'rgba(250,204,21,0.10)',
   Marginal: 'rgba(245,158,11,0.12)',
+  'Near Threshold': 'rgba(245,158,11,0.12)',
   'Long Landing': 'rgba(249,115,22,0.12)',
   Poor: 'rgba(249,115,22,0.12)',
   Dangerous: 'rgba(239,68,68,0.12)',
@@ -78,6 +81,7 @@ const GRADE_BORDER = {
   Good: '#22c55e',
   Acceptable: '#facc15',
   Marginal: '#f59e0b',
+  'Near Threshold': '#f59e0b',
   'Long Landing': '#f97316',
   Poor: '#f97316',
   Dangerous: '#ef4444',
@@ -393,6 +397,7 @@ function entryTouchdownDistance(entry) {
     grade: entry.touchdownDistanceGrade,
     score: entry.touchdownDistanceScore,
     zone: entry.touchdownDistanceZone,
+    tdzEndFt: entry.tdzEndFt,
     lateralOffsetFt: entry.lateralOffsetFt,
     lateralOffsetGrade: entry.lateralOffsetGrade,
     lateralOffsetScore: entry.lateralOffsetScore,
@@ -903,8 +908,9 @@ function trendStabilityText(row) {
             <div class="min-w-0">
               <div class="logbook-mobile-card__date">{{ formatDate(entry.timestamp) }}</div>
               <div class="logbook-mobile-card__title" :title="entry.aircraft">{{ shortAircraft(entry.aircraft) }}</div>
-              <div class="logbook-mobile-card__meta">
-                {{ entry.icao || '--' }}
+              <div class="logbook-mobile-card__meta logbook-airport">
+                <CountryFlag :country="entry.country" />
+                <span>{{ entry.icao || '--' }}</span>
                 <span v-if="entry.runway" style="color:#64748b">{{ entry.runway }}</span>
               </div>
             </div>
@@ -977,8 +983,9 @@ function trendStabilityText(row) {
                 <AppTooltip :content="entry.aircraft || ''" :disabled="!entry.aircraft" anchor-class="min-w-0 flex-1" anchor-tag="div">
                   <div class="min-w-0">
                     <div class="truncate text-gray-200">{{ shortAircraft(entry.aircraft) }}</div>
-                    <div class="mt-0.5 text-[10px] text-gray-500 font-mono">
-                      {{ entry.icao || '--' }}
+                    <div class="mt-0.5 text-[10px] text-gray-500 font-mono logbook-airport">
+                      <CountryFlag :country="entry.country" />
+                      <span>{{ entry.icao || '--' }}</span>
                       <span v-if="entry.runway" class="text-gray-600">{{ entry.runway }}</span>
                     </div>
                   </div>

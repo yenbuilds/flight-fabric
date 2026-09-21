@@ -64,7 +64,7 @@ test('packaged debug logging redacts cyclic objects without throwing', () => {
     });
 
     const cyclic: Record<string, unknown> = {
-      filePath: path.join(tempRoot, 'Flight Fabric', 'flight.csv'),
+      filePath: path.join(tempRoot, 'FlightFabric', 'flight.csv'),
     };
     cyclic.self = cyclic;
 

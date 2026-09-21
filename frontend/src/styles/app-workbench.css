@@ -1,0 +1,223 @@
+/* Application geometry. This owns the shell; task surfaces own their contents. */
+.app-workbench {
+  --sidebar-width: 12.75rem;
+  display: grid;
+  grid-template: 'banners banners' auto 'sidebar header' auto 'sidebar main' minmax(0, 1fr) 'sidebar footer' auto / var(--sidebar-width) minmax(0, 1fr);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: rgb(var(--background));
+}
+.app-workbench.sidebar-collapsed { --sidebar-width: 4.5rem; }
+#vue-system-banners-root { grid-area: banners; min-width: 0; }
+#vue-header-root { grid-area: header; min-width: 0; z-index: 30; }
+#vue-main-root { grid-area: main; min-width: 0; min-height: 0; }
+#vue-footer-root { grid-area: footer; min-width: 0; z-index: 20; }
+#vue-mobile-tabs-root { display: contents; }
+.app-shell-container { width: 100%; max-width: none; padding-inline: 1.25rem; margin: 0; }
+.app-main { position: relative; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: rgb(var(--border)) transparent; scrollbar-width: thin; }
+.app-main:focus { outline: none; }
+.mobile-menu-open .app-main { overflow: hidden; }
+.dashboard-shell { min-height: 100%; padding-block: 1.1rem 1.5rem; }
+.app-workbench[data-active-view='livemap'] .dashboard-shell { height: 100%; display: flex; flex-direction: column; }
+.app-workbench[data-active-view='livemap'] #tab-livemap { flex: 1; min-height: 22rem; }
+.app-workbench[data-active-view='livemap'] #vue-live-map-tab-root { height: 100%; }
+
+.app-sidebar { grid-area: sidebar; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: rgb(var(--panel)); border-right: 1px solid rgb(var(--border) / .7); padding: 0 .65rem .65rem; z-index: 35; }
+.sidebar-brand { min-height: 3.65rem; display: flex; align-items: center; gap: .5rem; font-size: .9rem; font-weight: 650; padding-inline: .35rem; }
+.sidebar-brand img { width: 1.75rem; height: 1.75rem; flex: none; }
+.sidebar-collapse { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; margin-left: auto; border-radius: .3rem; color: rgb(var(--muted-foreground)); }
+.sidebar-collapse svg { width: 1.1rem; height: 1.1rem; }
+.sidebar-collapse:hover { background: rgb(var(--muted)); color: rgb(var(--foreground)); }
+.sidebar-search, .sidebar-help { display: flex; align-items: center; gap: .6rem; width: 100%; min-height: 2.3rem; padding: .5rem .65rem; text-align: left; border-radius: .4rem; font-size: .78rem; color: rgb(var(--muted-foreground)); }
+.sidebar-search { border: 1px solid rgb(var(--border) / .65); margin-bottom: .75rem; background: rgb(var(--background) / .3); }
+.sidebar-search:hover, .sidebar-help:hover { color: rgb(var(--foreground)); background: rgb(var(--muted) / .7); }
+.sidebar-search svg, .sidebar-help svg { width: 1.05rem; height: 1.05rem; flex: none; }
+.sidebar-search kbd { font-size: .6rem; margin-left: auto; color: rgb(var(--muted-foreground)); }
+.desktop-tab-bar.sidebar-navigation { display: flex; flex-direction: column; flex: 1; gap: 1rem; min-height: 0; overflow-y: auto; overflow-x: hidden; border: 0; background: transparent; padding: 0; box-shadow: none; scrollbar-width: thin; }
+.sidebar-nav-group { display: flex; flex-direction: column; gap: .2rem; }
+.sidebar-group-label { margin: 0; padding: .4rem .65rem; color: rgb(var(--muted-foreground)); font-size: .66rem; font-weight: 600; }
+.sidebar-nav-utilities { margin-top: auto; padding-top: .5rem; }
+.desktop-tab { position: relative; display: flex; align-items: center; flex: none; gap: .65rem; min-width: 0; width: 100%; min-height: 2.5rem; padding: .5rem .65rem; border: 1px solid transparent; border-radius: .4rem; background: transparent; color: rgb(var(--muted-foreground)); font-family: var(--ff-font-ui); font-size: .8125rem; font-weight: 500; text-transform: none; letter-spacing: 0; text-align: left; box-shadow: none; }
+.desktop-tab svg { width: 1.1rem; height: 1.1rem; flex: none; }
+.desktop-tab:hover { color: rgb(var(--foreground)); background: rgb(var(--muted) / .55); }
+.desktop-tab.active { color: rgb(var(--foreground)); background: rgb(var(--selection) / .13); border-color: rgb(var(--selection) / .18); box-shadow: none; }
+.desktop-tab.active::before { content: ''; position: absolute; top: .65rem; bottom: .65rem; left: -.1rem; width: 2px; border-radius: 2px; background: rgb(var(--selection)); }
+.desktop-tab.active svg { color: rgb(var(--selection)); }
+.desktop-tab-keycap { margin-left: auto; color: rgb(var(--muted-foreground)); font-family: var(--ff-font-ui); font-size: .65rem; opacity: .65; }
+.sidebar-attention { width: .35rem; height: .35rem; border-radius: 50%; background: rgb(var(--warning)); flex: none; }
+.sidebar-bottom { flex: none; padding-top: .75rem; border-top: 1px solid rgb(var(--border) / .6); margin-top: .65rem; }
+.app-support-link { display: flex; align-items: center; gap: .6rem; min-height: 2.75rem; padding: .5rem .6rem; border: 1px solid rgb(var(--selection) / .3); border-radius: .4rem; color: rgb(var(--foreground)); background: rgb(var(--selection) / .07); }
+.app-support-link:hover { background: rgb(var(--selection) / .16); border-color: rgb(var(--selection) / .55); }
+.app-support-link svg { width: 1rem; height: 1rem; flex: none; color: rgb(var(--selection)); }
+.app-support-link-copy { min-width: 0; }
+.app-support-link strong { display: block; font-size: .72rem; font-weight: 600; }
+.app-support-link small { display: block; font-size: .65rem; color: rgb(var(--muted-foreground)); margin-top: .1rem; }
+.sidebar-bottom .app-support-link { margin-bottom: .4rem; }
+.sidebar-collapsed .app-support-link { justify-content: center; padding-inline: .4rem; }
+.sidebar-collapsed .app-support-link-copy { display: none; }
+.mobile-support-link { margin: 0 1rem .6rem; }
+.mobile-support-link strong { font-size: .8rem; }
+.mobile-support-link small { font-size: .7rem; }
+.sidebar-collapsed .sidebar-label, .sidebar-collapsed .sidebar-group-label { display: none; }
+.sidebar-collapsed .sidebar-brand { flex-direction: column; justify-content: center; padding-block: .6rem; gap: .6rem; }
+.sidebar-collapsed .sidebar-collapse { margin-left: 0; }
+.sidebar-collapsed .desktop-tab, .sidebar-collapsed .sidebar-search, .sidebar-collapsed .sidebar-help { justify-content: center; padding-inline: .5rem; }
+.sidebar-collapsed .sidebar-attention { position: absolute; right: .25rem; top: .4rem; }
+
+#app-header { padding-top: env(safe-area-inset-top, 0px); background: rgb(var(--background)); border-bottom: 1px solid rgb(var(--border) / .7); box-shadow: none; backdrop-filter: none; overflow: visible; }
+.app-header-shell { position: relative; }
+.app-header-row { display: flex; align-items: center; justify-content: space-between; min-height: 3.65rem; gap: 1rem; min-width: 0; }
+.app-brand-block { display: flex; gap: .65rem; align-items: center; min-width: 0; }
+.app-brand-mark, .app-brand-copy { display: none; }
+.header-desktop-status { display: flex; gap: .5rem; align-items: center; margin-left: auto; }
+.header-controls, .header-activity-controls, .header-flight-meta { display: flex; align-items: center; gap: .85rem; min-width: 0; }
+.header-controls { flex-direction: row-reverse; }
+.header-flight-meta { flex-direction: row-reverse; }
+.header-aircraft-summary, .header-aircraft-copy { min-width: 0; }
+#aircraft-name { font-size: .8rem; font-weight: 600; max-width: 14rem; }
+#flight-time { font-size: .7rem; color: rgb(var(--muted-foreground)); white-space: nowrap; }
+.header-mobile-access .ff-button-secondary { min-height: 1.9rem; font-size: .7rem; padding: .3rem .5rem; border-color: transparent; background: transparent; }
+.header-mobile-access .ff-button-secondary:hover { background: rgb(var(--muted)); }
+.header-status-trigger { border-radius: .3rem; text-align: left; }
+.header-status-trigger:hover { background: rgb(var(--muted) / .4); }
+#dest-progress-wrap { padding-bottom: .5rem; }
+#dest-progress-wrap .text-gray-500 { color: rgb(var(--muted-foreground)); font-size: .64rem; }
+#dest-progress-wrap .h-1\.5 { height: 2px; }
+.dest-progress-fill { background: rgb(var(--primary)); transition: width var(--ff-motion-medium) var(--ff-motion-ease); }
+.header-nav-search { display: none; }
+.header-mobile-phase { display: none; }
+.app-header .ff-status-chip, .app-header .ff-status-chip-primary { min-height: 1.65rem; padding: .25rem .45rem; font-size: .6rem; letter-spacing: .04em; }
+.app-header .recording-details-trigger { min-height: 2rem; }
+.recording-details-trigger:hover { outline: 1px solid rgb(var(--border-strong)); }
+
+.ff-app-footer { border-top: 1px solid rgb(var(--border) / .55); background: rgb(var(--panel)); }
+.ff-app-footer .app-shell-container { padding-block: .3rem; }
+.footer-meta { display: flex; justify-content: space-between; align-items: center; min-height: 1.35rem; gap: .75rem; font: .67rem var(--ff-font-ui); color: rgb(var(--muted-foreground)); }
+.footer-session { display: flex; gap: 1rem; align-items: center; min-width: 0; }
+.footer-meta #app-version { font-size: .65rem; color: rgb(var(--muted-foreground)); }
+.footer-voice { display: inline-flex; align-items: center; gap: .35rem; }
+.footer-voice svg { width: .85rem; height: .85rem; }
+.footer-voice[data-listening='true'] { color: rgb(var(--primary)); }
+.footer-diagnostics > summary { font-size: .67rem; padding: .2rem .35rem; }
+.footer-diagnostics-panel { bottom: calc(100% + .6rem); }
+.footer-meta #runway-context { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; }
+
+.flight-workspace-toolbar { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-bottom: 1rem; flex: none; }
+.workspace-heading { display: flex; align-items: baseline; gap: .65rem; min-width: 0; }
+.workspace-heading h1 { font-size: 1.2rem; line-height: 1.35; font-weight: 650; margin: 0; letter-spacing: -.02em; }
+.workspace-heading > span { font-size: .75rem; color: rgb(var(--muted-foreground)); }
+.workspace-view-switch { display: flex; gap: .2rem; background: rgb(var(--panel)); border: 1px solid rgb(var(--border) / .75); border-radius: .4rem; padding: .2rem; }
+.workspace-view-switch button { min-height: 1.9rem; padding: .35rem .8rem; border-radius: .25rem; font-size: .75rem; color: rgb(var(--muted-foreground)); }
+.workspace-view-switch button.active { background: rgb(var(--panel-elevated)); color: rgb(var(--foreground)); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
+.workspace-view-switch button:hover { color: rgb(var(--foreground)); }
+.live-map-workspace, .live-map-card-shell { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.live-map-card-shell { border: 1px solid rgb(var(--border) / .7); border-radius: .5rem; background: rgb(var(--panel)); }
+.live-map-panel-head { flex: none; padding: .7rem 1rem; }
+.live-map-canvas { flex: 1; min-height: 20rem; padding: 0; position: relative; }
+.app-workbench .live-map-wrap { height: 100%; min-height: 20rem; border: 0; border-radius: 0 0 .5rem .5rem; }
+.live-map-title { font-size: .8rem; font-weight: 600; }
+.live-map-subtitle { font-size: .7rem; }
+.live-map-route-details { border-top: 1px solid rgb(var(--border) / .6); padding-top: .35rem; }
+.live-map-route-details > summary { cursor: pointer; font-size: .73rem; color: rgb(var(--muted-foreground)); padding: .2rem 0; }
+.live-map-route-details .live-map-inline-meta { margin-top: .7rem; }
+.live-map-readings { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; margin: 0; padding: .65rem 1rem; border-top: 1px solid rgb(var(--border) / .6); }
+.live-map-readings > div { display: flex; gap: .5rem; align-items: baseline; }
+.live-map-readings dt { font-size: .65rem; color: rgb(var(--muted-foreground)); }
+.live-map-readings dd { font: 500 .85rem var(--ff-font-mono); margin: 0; }
+.live-map-readings small { font: .6rem var(--ff-font-ui); color: rgb(var(--muted-foreground)); }
+
+.app-navigator-backdrop { z-index: 1000; background: rgb(0 0 0 / .55); display: flex; align-items: flex-start; justify-content: center; padding: min(12vh, 6rem) 1rem 1rem; }
+.app-navigator { width: min(100%, 35rem); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; background: rgb(var(--panel)); border: 1px solid rgb(var(--border-strong) / .65); border-radius: .75rem; box-shadow: 0 24px 80px rgb(0 0 0 / .5); }
+.app-navigator-header { display: flex; justify-content: space-between; align-items: center; padding: .8rem 1rem; border-bottom: 1px solid rgb(var(--border) / .7); }
+.app-navigator-header h2 { margin: 0; font-size: .95rem; font-weight: 600; }
+.app-navigator-header svg { width: 1rem; height: 1rem; }
+.app-navigator-search { padding: .75rem; }
+.app-navigator-search input { width: 100%; padding: .75rem; background: rgb(var(--background)); border: 1px solid rgb(var(--border)); border-radius: .4rem; color: rgb(var(--foreground)); font-size: .9rem; }
+.app-navigator-results { overflow: auto; padding: 0 .5rem .5rem; min-height: 0; }
+.app-navigator-result { border-radius: .4rem; }
+.app-navigator-result.selected { background: rgb(var(--selection) / .12); }
+.app-navigator-result > button { display: flex; align-items: center; gap: .75rem; width: 100%; min-height: 3.25rem; padding: .6rem .75rem; text-align: left; }
+.app-navigator-result svg { width: 1.2rem; height: 1.2rem; flex: none; color: rgb(var(--muted-foreground)); }
+.app-navigator-result strong { display: block; font-size: .8rem; font-weight: 600; }
+.app-navigator-result small { display: block; font-size: .7rem; color: rgb(var(--muted-foreground)); }
+.app-navigator-result kbd { margin-left: auto; font-size: .7rem; color: rgb(var(--muted-foreground)); }
+.app-navigator-empty { padding: 1.5rem; color: rgb(var(--muted-foreground)); font-size: .85rem; }
+.app-navigator-hint { display: flex; justify-content: space-between; gap: .5rem; border-top: 1px solid rgb(var(--border)); padding: .65rem 1rem; color: rgb(var(--muted-foreground)); font-size: .65rem; }
+.app-help-content { overflow: auto; padding: 1.1rem; font-size: .85rem; line-height: 1.65; }
+.app-shortcuts { margin: 1rem 0; }
+.app-shortcuts > div { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid rgb(var(--border) / .6); padding: .6rem 0; }
+.app-help-content kbd { background: rgb(var(--muted)); padding: .1rem .3rem; border-radius: .2rem; font-size: .72rem; }
+.app-help-actions, .app-help-links { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.1rem; }
+.app-help-links { border-top: 1px solid rgb(var(--border)); padding-top: .85rem; color: rgb(var(--muted-foreground)); font-size: .75rem; }
+.app-help-links a:hover { color: rgb(var(--foreground)); text-decoration: underline; }
+
+@media (min-width: 761px) and (max-width: 1200px) {
+  .app-workbench { --sidebar-width: 11rem; }
+  .app-shell-container { padding-inline: 1rem; }
+  .header-mobile-access span, .header-flight-time { display: none; }
+  .header-controls { gap: .5rem; }
+  .header-desktop-status { gap: .35rem; }
+  .app-header #menu-state-top { display: none; }
+  #aircraft-name { max-width: 10rem; }
+}
+@media (pointer: coarse) {
+  .app-header .recording-details-trigger { min-width: 2.75rem; min-height: 2.75rem; }
+  .desktop-tab, .sidebar-search, .sidebar-help, .sidebar-collapse { min-height: 2.75rem; }
+  .sidebar-collapse { min-width: 2.75rem; }
+  .workspace-view-switch button { min-height: 2.75rem; }
+  .live-map-route-details > summary { min-height: 2.75rem; display: list-item; align-content: center; }
+}
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .app-workbench { grid-template: 'banners' auto 'header' auto 'main' minmax(0, 1fr) 'mobile' auto / minmax(0, 1fr); }
+  .app-sidebar, #vue-footer-root { display: none; }
+  #vue-mobile-tabs-root { grid-area: mobile; display: block; min-width: 0; z-index: 45; }
+  .app-workbench .mobile-tab-bar { position: relative; }
+  .app-shell-container { padding-inline: .85rem; }
+  .app-main { scrollbar-gutter: auto; }
+  .dashboard-shell { padding-block: .85rem 1rem; }
+  .app-workbench[data-active-view='livemap'] .dashboard-shell { height: 100%; }
+  .app-workbench[data-active-view='livemap'] #tab-livemap { flex: 1; min-height: 24rem; }
+  .app-workbench .live-map-wrap { height: 100%; min-height: 16rem; }
+  .live-map-canvas { flex: 1; min-height: 16rem; }
+  .live-map-workspace:has(.live-map-route-details[open]), .live-map-workspace:has(.map-view-3d-active) { height: auto; min-height: 100%; }
+  .live-map-workspace:has(.live-map-route-details[open]) .live-map-wrap, .live-map-workspace:has(.map-view-3d-active) .live-map-wrap { height: 50dvh; }
+  .app-header-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .35rem .75rem; padding-block: .6rem; min-height: 0; }
+  .app-brand-block { justify-content: flex-start; gap: .5rem; }
+  .app-brand-mark { display: block; width: 1.45rem; height: 1.45rem; }
+  .app-brand-copy { display: block; }
+  .app-brand-title { font-size: .85rem; font-weight: 650; }
+  #vue-status-root { margin-left: auto; }
+  .app-brand-block { grid-column: 1 / -1; }
+  .header-desktop-status { display: none; }
+  .header-controls { grid-column: 1 / -1; display: flex; flex-direction: row-reverse; justify-content: space-between; gap: .5rem; }
+  .header-flight-meta { flex: 1; flex-direction: row; justify-content: space-between; gap: .5rem; }
+  .header-aircraft-summary { order: -1; flex: 1; }
+  .header-mobile-phase { display: flex; flex: none; }
+  .header-flight-time { display: none; }
+  #aircraft-name { font-size: .75rem; max-width: min(14rem, calc(100vw - 8rem)); }
+  .header-aircraft-copy { max-width: 100%; }
+  .header-nav-search { display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: .35rem; color: rgb(var(--muted-foreground)); }
+  .header-nav-search svg { width: 1.1rem; height: 1.1rem; }
+  #dest-progress-wrap { padding-bottom: .45rem; }
+  .workspace-heading h1 { font-size: 1.05rem; }
+  .workspace-heading > span { display: none; }
+  .flight-workspace-toolbar { margin-bottom: .75rem; }
+  .workspace-view-switch button { min-height: 2.75rem; }
+  .live-map-panel-head { padding: .75rem; }
+  .live-map-readings { gap: .5rem 1rem; padding: .6rem .75rem; }
+  .live-map-readings dd { font-size: .75rem; }
+  .live-map-readings > div { gap: .35rem; }
+  .app-navigator-backdrop { padding: .65rem; }
+  .app-navigator { align-self: flex-start; }
+  .app-navigator-header .ff-icon-button { min-width: 2.75rem; min-height: 2.75rem; }
+  .app-navigator-hint { display: none; }
+}
+@media (max-height: 500px) and (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .app-workbench .live-map-wrap, .live-map-canvas { min-height: 14rem; }
+}
+@media (forced-colors: active) {
+  .desktop-tab.active, .workspace-view-switch button.active, .app-navigator-result.selected { outline: 1px solid Highlight; }
+  .desktop-tab.active::before { background: Highlight; }
+}

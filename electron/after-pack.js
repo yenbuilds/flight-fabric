@@ -348,7 +348,7 @@ async function finalizeWindowsExecutables(context) {
   }
 
   const appInfo = context.packager?.appInfo || {};
-  const productName = appInfo.productName || 'Flight Fabric';
+  const productName = appInfo.productName || 'FlightFabric';
   const version = appInfo.version || '0.0.0';
   const originalFilename = `${productFilename}.exe`;
 
@@ -357,7 +357,7 @@ async function finalizeWindowsExecutables(context) {
     'file-version': version,
     'product-version': version,
     'version-string': {
-      CompanyName: 'Flight Fabric',
+      CompanyName: 'FlightFabric',
       FileDescription: productName,
       InternalName: productFilename,
       OriginalFilename: originalFilename,

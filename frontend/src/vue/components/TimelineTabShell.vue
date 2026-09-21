@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { containDialogFocus } from '../../ui/dialog-focus.js';
+import { readStorageValue, writeStorageValue } from '../../app/browser-environment.js';
 import { getAuthorizationScope, getCoordValidator } from '../../../app-shared.js';
 import {
   subscribeLandingReceived,
@@ -30,12 +31,32 @@ let cleanupTimelinePage = null;
 const viewer = ref(null);
 const viewerClose = ref(null);
 let viewerReturnFocus = null;
+const isCompactReview = ref(typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(max-width: 1100px)').matches : false);
+const reviewViewStorageKey = 'flightFabric.logbookReviewView.v1';
+const reviewView = ref(readStorageValue(reviewViewStorageKey) === 'map' ? 'map' : 'events');
+let reviewMediaQuery = null;
+const hasReview = computed(() => Boolean(timeline.timelineLoading || timeline.timelineLoadError || timeline.timelineMobileViewerOpen || timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId));
+const isReviewModal = computed(() => isCompactReview.value && timeline.timelineMobileViewerOpen && timeline.listStatus !== 'restricted');
+
+function syncReviewLayout(event) {
+  isCompactReview.value = event.matches;
+  notifyTimelineViewerResize();
+}
+
+function setReviewView(value) {
+  reviewView.value = value;
+  writeStorageValue(reviewViewStorageKey, value);
+  timeline.clearDetail();
+  nextTick(notifyTimelineViewerResize);
+}
 
 const timelineViewerClass = computed(() => [
   'timeline-split',
   timeline.timelineMobileViewerOpen ? 'timeline-mobile-viewer-open' : 'timeline-mobile-viewer-closed',
 ]);
 const timelineViewerTitle = computed(() => {
+  if (timeline.timelineLoadError) return timeline.timelineRetryRequest?.options?.flightLabel || 'Recording unavailable';
   if (timeline.timelineLoading) {
     return timeline.timelineLoadingFlightLabel || 'Loading timeline';
   }
@@ -66,7 +87,7 @@ const timelineViewerUtcDateTime = computed(() => (
   timeline.timelineLoading ? '' : formatFlightDateTime(timeline.loadedTimelineSimDateTimeUtc)
 ));
 const timelineViewerDocumentLockActive = computed(() => (
-  tabs.activeTabId === 'timeline' && timeline.timelineMobileViewerOpen
+  tabs.activeTabId === 'timeline' && isReviewModal.value
 ));
 
 function notifyTimelineViewerResize() {
@@ -94,13 +115,13 @@ function handleTimelineViewerKeydown(event) {
   if (event.defaultPrevented || tabs.activeTabId !== 'timeline') return;
   if (landing.landingModalOpen || landing.stabilityMetricModal.open) return;
   if (timeline.analysisRescoreModalOpen) return;
-  if (timeline.timelineMobileViewerOpen) containDialogFocus(event, viewer.value);
+  if (isReviewModal.value) containDialogFocus(event, viewer.value);
   if (event?.key !== 'Escape') return;
   if (timeline.detailVisible) {
     timeline.clearDetail();
     return;
   }
-  if (timeline.timelineMobileViewerOpen) closeTimelineMobileViewer();
+  if (isReviewModal.value) closeTimelineMobileViewer();
 }
 
 watch(
@@ -111,13 +132,20 @@ watch(
       const target = viewerReturnFocus;
       viewerReturnFocus = null;
       await nextTick();
+      // A wider window changes presentation, not the task. Keep focus in an
+      // open event detail instead of restoring it to a now-hidden event row.
+      if (!isCompactReview.value && timeline.timelineMobileViewerOpen && tabs.activeTabId === 'timeline') {
+        if (timeline.detailVisible) document.getElementById('timeline-detail-close')?.focus?.({ preventScroll: true });
+        return;
+      }
       if (target?.isConnected && tabs.activeTabId === 'timeline') target.focus?.({ preventScroll: true });
       return;
     }
     viewerReturnFocus = document.activeElement;
     await nextTick();
     if (!timelineViewerDocumentLockActive.value) return;
-    viewerClose.value?.focus?.({ preventScroll: true });
+    const initialFocus = timeline.detailVisible ? document.getElementById('timeline-detail-close') : viewerClose.value;
+    initialFocus?.focus?.({ preventScroll: true });
     notifyTimelineViewerResize();
   },
 );
@@ -125,9 +153,6 @@ watch(
 watch(
   () => tabs.activeTabId,
   (tabId) => {
-    if (tabId !== 'timeline' && timeline.timelineMobileViewerOpen) {
-      timeline.closeTimelineMobileViewer();
-    }
     if (tabId !== 'timeline') {
       setTimelineViewerDocumentState(false);
     }
@@ -135,6 +160,8 @@ watch(
 );
 
 onMounted(() => {
+  reviewMediaQuery = window.matchMedia?.('(max-width: 1100px)');
+  reviewMediaQuery?.addEventListener?.('change', syncReviewLayout);
   document.addEventListener('keydown', handleTimelineViewerKeydown);
   setTimelineViewerDocumentState(timelineViewerDocumentLockActive.value);
 
@@ -154,6 +181,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  reviewMediaQuery?.removeEventListener?.('change', syncReviewLayout);
   document.removeEventListener('keydown', handleTimelineViewerKeydown);
   setTimelineViewerDocumentState(false);
   cleanupTimelinePage?.();
@@ -162,11 +190,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="timeline-section-stack">
-    <div id="vue-logbook-root">
-      <LogbookPanel />
-    </div>
-
+  <div class="timeline-section-stack logbook-page" :class="{ 'is-restricted': timeline.listStatus === 'restricted' }">
+    <div class="logbook-workspace">
     <div id="vue-timeline-flights-root">
       <TimelineFlightsPanel />
     </div>
@@ -174,13 +199,15 @@ onUnmounted(() => {
     <div
       ref="viewer"
       :class="timelineViewerClass"
+      :data-review-view="reviewView"
+      :data-has-review="hasReview"
+      :data-detail-open="timeline.detailVisible"
       tabindex="-1"
-      :role="timeline.timelineMobileViewerOpen ? 'dialog' : undefined"
-      :aria-modal="timeline.timelineMobileViewerOpen ? 'true' : undefined"
-      :aria-labelledby="timeline.timelineMobileViewerOpen ? 'timeline-mobile-viewer-title' : undefined"
+      :role="isReviewModal ? 'dialog' : 'region'"
+      :aria-modal="isReviewModal ? 'true' : undefined"
+      aria-labelledby="timeline-mobile-viewer-title"
     >
       <div
-        v-if="timeline.timelineMobileViewerOpen"
         id="timeline-mobile-viewer-header"
         class="timeline-mobile-viewer-header"
       >
@@ -192,9 +219,9 @@ onUnmounted(() => {
             :aircraft-name="timelineViewerAircraft"
           />
           <div class="min-w-0">
-            <div class="text-[10px] uppercase tracking-widest text-gray-500">Timeline replay</div>
+            <div class="logbook-recorded-context">{{ hasReview ? 'Recorded flight' : 'Flight review' }}</div>
             <div class="flex min-w-0 items-baseline gap-2">
-              <div id="timeline-mobile-viewer-title" class="min-w-0 truncate text-sm font-semibold text-gray-200">{{ timelineViewerTitle }}</div>
+              <div id="timeline-mobile-viewer-title" class="min-w-0 truncate text-sm font-semibold text-gray-200">{{ hasReview ? timelineViewerTitle : 'Select a flight' }}</div>
               <span
                 v-if="timelineViewerAircraft"
                 aria-hidden="true"
@@ -244,37 +271,62 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <button
             v-if="timeline.latestLandingInspectorRow"
             id="timeline-mobile-viewer-landing-shortcut"
             type="button"
-            class="rounded border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold tracking-wide text-emerald-300 transition-colors hover:border-emerald-400/70 hover:bg-emerald-500/20 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-            aria-label="Show landing event"
+            class="ff-button-primary logbook-landing-shortcut"
             @click="timeline.selectLatestLandingRow()"
           >
-            LANDING DEBRIEF
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M2 22h20M2 9.5l7 2-1-7 3 1 4 8 5 1.5a2 2 0 0 1-1 4L5 15 2 9.5Z" />
+            </svg>
+            Landing debrief
           </button>
           <button
             ref="viewerClose"
+            v-if="isCompactReview"
             id="timeline-mobile-viewer-close"
             type="button"
-            class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded border border-surface-300 text-gray-200 hover:bg-surface-300/50 transition-colors"
-            aria-label="Close timeline replay"
+            class="ff-button-secondary logbook-back-button"
+            aria-label="Back to flights"
             @click="closeTimelineMobileViewer"
           >
-            Close
+            Back to flights
           </button>
         </div>
       </div>
 
+      <div class="logbook-review-content">
+      <div v-if="timeline.timelineLoadError" class="logbook-load-error" role="alert">
+        <h3>Could not open this recording</h3>
+        <p>{{ timeline.timelineLoadError }}</p>
+        <button v-if="timeline.timelineRetryRequest" type="button" class="ff-button-secondary" :disabled="!timeline.canRetryTimeline" @click="timeline.retryTimeline()">Try again</button>
+      </div>
+      <div v-if="!hasReview" class="logbook-review-empty ff-empty-state">
+        <svg class="ff-empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21V5.5Z M9 3v15.5M15 5.5V21" /></svg>
+        <h3>Your flight, in context</h3>
+        <p>Choose a saved flight to follow its route, inspect events, and review its landing.</p>
+      </div>
+
+      <div v-show="hasReview && !timeline.timelineLoadError" class="logbook-review-toolbar" role="group" aria-label="Recorded flight views">
+        <div class="logbook-review-views">
+          <button type="button" :aria-pressed="reviewView === 'events' && !timeline.detailVisible" @click="setReviewView('events')">Events</button>
+          <button type="button" :aria-pressed="reviewView === 'map' && !timeline.detailVisible" @click="setReviewView('map')">Replay map</button>
+        </div>
+        <span class="logbook-history-label">Historical measurements</span>
+      </div>
+
+      <div v-show="hasReview && !timeline.timelineLoadError" id="vue-timeline-summary-root">
+        <TimelineSummaryBar />
+      </div>
+
+      <div v-show="hasReview && !timeline.timelineLoadError" class="logbook-review-body">
+
       <div id="timeline-card" class="ff-card overflow-hidden">
         <div id="vue-timeline-inspector-shell-root">
           <TimelineInspectorShell />
-        </div>
-
-        <div id="vue-timeline-summary-root">
-          <TimelineSummaryBar />
         </div>
 
       </div>
@@ -284,10 +336,19 @@ onUnmounted(() => {
       </div>
 
       <div id="vue-timeline-detail-root">
-        <TimelineDetailPanel />
+        <TimelineDetailPanel :embedded="!isCompactReview" />
       </div>
+      </div>
+      </div>
+    </div>
+    </div>
+
+    <div id="vue-logbook-root" class="logbook-history-summary">
+      <LogbookPanel />
     </div>
 
     <TimelineAnalysisRescoreModal />
   </div>
 </template>
+
+<style src="../../styles/logbook-workspace.css"></style>

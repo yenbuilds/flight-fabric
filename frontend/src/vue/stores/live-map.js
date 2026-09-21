@@ -1,11 +1,38 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+import {
+  readStorageJson,
+  readStorageValue,
+  writeStorageJson,
+  writeStorageValue,
+} from '../../app/browser-environment.js';
+import {
+  defaultMap3dOptions,
+  normalizeMap3dOptions,
+  normalizeMapViewMode,
+} from '../../maps/three-d/view-mode.js';
 
 function sanitizeIcao(value) {
   return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
 }
 
 const DEFAULT_MAP_EMPTY_MESSAGE = 'No live GPS position yet';
+const VIEW_MODE_STORAGE_KEY = 'ff.liveMap.viewMode.v1';
+const MAP_3D_OPTIONS_STORAGE_KEY = 'ff.liveMap.map3d.v1';
+const DEFAULT_SCENE_3D_HUD = Object.freeze({
+  lighting: null,
+  altitudeFt: null,
+  aglFt: null,
+  terrainElevationFt: null,
+  terrainActive: false,
+  groundSpeedKts: null,
+  verticalSpeedFpm: null,
+  iasKts: null,
+  headingDeg: null,
+  groundPlaneFt: null,
+  verticalScale: null,
+  pointCount: 0,
+});
 
 export const useLiveMapStore = defineStore('liveMap', () => {
   const followStatusKind = ref('following');
@@ -24,8 +51,14 @@ export const useLiveMapStore = defineStore('liveMap', () => {
   const overlaySecondary = ref('--');
   const destinationProgressVisible = ref(false);
   const destinationProgressLabel = ref('Destination');
+  const destinationProgressTitle = ref('');
   const destinationProgressText = ref('--');
   const destinationProgressPercent = ref(0);
+  const viewMode = ref(normalizeMapViewMode(readStorageValue(VIEW_MODE_STORAGE_KEY)));
+  const map3dOptions = ref(normalizeMap3dOptions(readStorageJson(MAP_3D_OPTIONS_STORAGE_KEY), defaultMap3dOptions()));
+  const scene3dStatus = ref('');
+  const scene3dHud = ref({ ...DEFAULT_SCENE_3D_HUD });
+  const scene3dLegend = ref(null);
   let onCenterRequest = null;
   let onSetTargetRequest = null;
   let onClearTargetRequest = null;
@@ -70,6 +103,32 @@ export const useLiveMapStore = defineStore('liveMap', () => {
   const destinationProgressWidthStyle = computed(() => ({
     width: `${destinationProgressPercent.value.toFixed(1)}%`,
   }));
+  const is3dView = computed(() => viewMode.value === '3d');
+
+  function setViewMode(mode) {
+    const next = normalizeMapViewMode(mode, viewMode.value);
+    if (next === viewMode.value) return;
+    viewMode.value = next;
+    writeStorageValue(VIEW_MODE_STORAGE_KEY, next);
+  }
+
+  function setMap3dOption(key, value) {
+    const next = normalizeMap3dOptions({ ...map3dOptions.value, [key]: value }, map3dOptions.value);
+    map3dOptions.value = next;
+    writeStorageJson(MAP_3D_OPTIONS_STORAGE_KEY, next);
+  }
+
+  function setScene3dStatus(message) {
+    scene3dStatus.value = message ? String(message) : '';
+  }
+
+  function setScene3dHud(nextState = {}) {
+    scene3dHud.value = { ...DEFAULT_SCENE_3D_HUD, ...(nextState || {}) };
+  }
+
+  function setScene3dLegend(nextState) {
+    scene3dLegend.value = nextState && typeof nextState === 'object' ? { ...nextState } : null;
+  }
 
   function setFollowStatus(kind) {
     followStatusKind.value = kind === 'paused' || kind === 'no-data' ? kind : 'following';
@@ -125,6 +184,7 @@ export const useLiveMapStore = defineStore('liveMap', () => {
   function setDestinationProgress(nextState = {}) {
     destinationProgressVisible.value = nextState.visible === true;
     destinationProgressLabel.value = nextState.label || 'Destination';
+    destinationProgressTitle.value = nextState.title || '';
     destinationProgressText.value = nextState.text || '--';
     destinationProgressPercent.value = Number.isFinite(nextState.percent)
       ? Math.max(0, Math.min(100, Number(nextState.percent)))
@@ -184,6 +244,7 @@ export const useLiveMapStore = defineStore('liveMap', () => {
     centerButtonClass,
     centerButtonLabel,
     destinationProgressLabel,
+    destinationProgressTitle,
     destinationProgressPercent,
     destinationProgressText,
     destinationProgressVisible,
@@ -193,6 +254,8 @@ export const useLiveMapStore = defineStore('liveMap', () => {
     followStatusLabel,
     hideDestinationProgress,
     hideOverlay,
+    is3dView,
+    map3dOptions,
     mapEmptyMessage,
     mapEmptyVisible,
     metaText,
@@ -213,16 +276,25 @@ export const useLiveMapStore = defineStore('liveMap', () => {
     resetMapEmptyState,
     setDestinationProgress,
     setFollowStatus,
+    setMap3dOption,
     setMapEmptyState,
     setMeta,
     setOriginInput,
     setOriginStatus,
     setOverlay,
+    setScene3dHud,
+    setScene3dLegend,
+    setScene3dStatus,
     setTargetInput,
     setTargetStatus,
+    setViewMode,
+    scene3dHud,
+    scene3dLegend,
+    scene3dStatus,
     targetInput,
     targetStatusClass,
     targetStatusMessage,
     targetStatusTone,
+    viewMode,
   };
 });

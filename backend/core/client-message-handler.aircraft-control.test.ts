@@ -206,6 +206,126 @@ function setActiveAircraftSpecificControlProfile(profileLoader) {
   return profile;
 }
 
+test('autotaxi messages enforce aircraft-control scope and preserve correlated errors', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const calls = [];
+    const provider = { async requestAutotaxi(message, client) {
+      calls.push({ message, client });
+      if (message.operation === 'start') throw new Error('No holding point found.');
+      return { type: 'autotaxiState', status: 'idle' };
+    } };
+    const denied = buildWs();
+    await handleClientMessage(denied, { type: 'autotaxi', operation: 'start', requestId: 'denied' }, buildContext(provider));
+    assert.equal(calls.length, 0);
+    assert.equal(denied.messages[0].type, 'autotaxiState');
+    assert.equal(denied.messages[0].ok, false);
+    const allowed = buildWs({ aircraftControl: true });
+    await handleClientMessage(allowed, { type: 'autotaxi', operation: 'status', requestId: 'status' }, buildContext(provider));
+    assert.equal(calls[0].client, allowed);
+    assert.equal(allowed.messages[0].ok, true);
+    await handleClientMessage(allowed, { type: 'autotaxi', operation: 'start', requestId: 'start' }, buildContext(provider));
+    assert.equal(allowed.messages.at(-1).requestId, 'start');
+    assert.equal(allowed.messages.at(-1).error, 'No holding point found.');
+  });
+});
+
+test('queued autotaxi starts reject closed, revoked and expired request owners', async () => {
+  for (const interruption of ['closed', 'revoked', 'expired']) await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    let finish!: () => void;
+    let now = 1000;
+    const calls = [];
+    const provider = { async requestAutotaxi(message) {
+      calls.push(message.requestId);
+      if (message.requestId === 'blocker') await new Promise<void>(resolve => { finish = resolve; });
+      return { type: 'autotaxiState', status: 'idle' };
+    } };
+    const context = buildContext(provider, { timeNow: () => now });
+    const blocker = handleClientMessage(buildWs({ privileged: true }), { type: 'autotaxi', operation: 'preview', requestId: 'blocker' }, context);
+    await Promise.resolve();
+    const client = { ...buildWs({ aircraftControl: true }), readyState: 1 };
+    const start = handleClientMessage(client, { type: 'autotaxi', operation: 'start', requestId: 'start' }, context);
+    if (interruption === 'closed') client.readyState = 3;
+    if (interruption === 'revoked') client.__ffAircraftControlClient = false;
+    if (interruption === 'expired') now += 3001;
+    finish();
+    await Promise.all([blocker, start]);
+    assert.deepEqual(calls, ['blocker'], interruption);
+    assert.equal(client.messages.at(-1).ok, false);
+    assert.equal(client.messages.at(-1).requestId, 'start');
+  });
+});
+
+test('autotaxi carries socket liveness through a fixture provider and asynchronous airport loading', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const { createTaxiSession } = require(resolveBackendPath('autotaxi', 'session.js'));
+    let finish!: (value: any) => void;
+    const inputs = [];
+    const session = createTaxiSession({ now: () => 1000,
+      capture: () => ({ x: 0, z: 10, lat: 10 / 6371000 * 180 / Math.PI, lon: 0, headingDeg: 0, speedKts: 0,
+        timeMs: 1000, ready: true, profileKey: 'test', profileRevision: 1, generation: 1 }),
+      airport: () => new Promise(resolve => { finish = resolve; }),
+      write: async input => { inputs.push(input); } });
+    // Exercise owner liveness independently of simulator readiness, which is
+    // exercised through the real provider below.
+    const provider = { requestAutotaxi: (message, client, ownerConnected) => session.request(message, client, ownerConnected) };
+    const client = { ...buildWs({ aircraftControl: true }), readyState: 1 };
+    try {
+      const start = handleClientMessage(client, { type: 'autotaxi', operation: 'start', requestId: 'loading',
+        icao: 'TEST', runway: '09', profileKey: 'test', profileRevision: 1 }, buildContext(provider));
+      await Promise.resolve();
+      assert.equal(session.state().status, 'planning');
+      client.readyState = 3;
+      finish({ origin: { lat: 0, lon: 0 }, threshold: { lat: 260 / 6371000 * 180 / Math.PI, lon: 0 }, reciprocal: '27',
+        graph: { complete: true,
+          points: [[0, 0, 0, 1], [1, 0, 100, 1], [2, 0, 200, 2], [3, 0, 260, 1], [4, 1000, 260, 1]]
+            .map(([id, x, z, type]) => ({ id, x, z, type, orientation: 0 })),
+          paths: [[0, 1], [1, 2], [2, 3], [3, 4]].map(([start, end], id) => ({ id, start, end, type: id === 3 ? 2 : 1, runway: id === 3 ? '09' : null, widthM: 45 })),
+        } });
+      await start;
+      assert.equal(session.state().status, 'idle');
+      assert.deepEqual(inputs, []);
+      assert.equal(client.messages.at(-1).ok, false);
+      assert.match(client.messages.at(-1).error, /connection lost/i);
+    } finally { await session.dispose(); }
+  });
+});
+
+test('enabled autotaxi handler preserves correlated real-provider readiness denials without control writes', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const { SimConnectTelemetryProvider } = require(resolveBackendPath('telemetry-provider', 'simconnect-telemetry-provider.js'));
+    const provider = Object.create(SimConnectTelemetryProvider.prototype);
+    Object.assign(provider, {
+      _rustSimvarBridge: { getSnapshot: () => ({ status: 'disconnected', values: {}, valueUpdatedAt: {} }) },
+      _msfsFacilitiesGeometryProvider: { probeAirport: () => assert.fail('readiness precedes taxi facilities') },
+      _lvarBridge: { sendEvent: () => assert.fail('unready aircraft must not receive control writes') },
+    });
+    try {
+      for (const operation of ['start', 'preview']) {
+        const client = buildWs({ aircraftControl: true });
+        const requestId = `unready-${operation}`;
+        await handleClientMessage(client, { type: 'autotaxi', operation, requestId, icao: 'TEST', runway: '09',
+          profileKey: 'bundled/msfs/pmdg-737', profileRevision: 1, LIVE_AUTOTAXI_ENABLED: true }, buildContext(provider));
+        assert.equal(client.messages.length, 1);
+        assert.equal(client.messages[0].type, 'autotaxiState');
+        assert.equal(client.messages[0].requestId, requestId);
+        assert.equal(client.messages[0].ok, false);
+        assert.match(client.messages[0].error, /engine configuration|disconnected/i);
+      }
+      assert.ok(provider._autotaxi, 'the enabled provider creates a guarded session');
+      const client = buildWs({ aircraftControl: true });
+      await handleClientMessage(client, { type: 'autotaxi', operation: 'status', requestId: 'readiness-status' }, buildContext(provider));
+      assert.equal(client.messages[0].requestId, 'readiness-status');
+      assert.equal(client.messages[0].ok, true);
+      assert.equal(client.messages[0].canStart, false);
+      assert.equal(client.messages[0].active, false);
+    } finally { await provider._autotaxi?.dispose(); }
+  });
+});
+
 test('executeAircraftControl WebSocket message returns normalized success envelope', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
@@ -514,6 +634,34 @@ test('requestState replays latest live telemetry snapshot without duplicate life
   });
 });
 
+test('requestState sends toolbar history after its aircraft only to explicit history subscribers', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const { createSimbridgeRuntimeState, rememberReplayMessage, getReplayMessages } = require(resolveBackendPath('core', 'simbridge-runtime-state.js'));
+    const state = createSimbridgeRuntimeState();
+    rememberReplayMessage(state, { type: 'aircraftProfile', profile: { _profileKey: 'bundled/msfs/pmdg-737', aircraftTitle: '737' } });
+    rememberReplayMessage(state, { type: 'landing', final: true, grade: 'HARD' });
+    const subscriptions = new Set(['toolbarFlightHistory']);
+    for (const subscribed of [false, true]) {
+      const ws = Object.assign(buildWs(), { __ffSubscribedTypes: subscribed ? subscriptions : null });
+      await handleClientMessage(ws, { type: 'requestState' }, buildContext(null, {
+        // Deliberately include history even for the ordinary client to check
+        // the handler's independent opt-in guard as well as core selection.
+        replayMessages: getReplayMessages(state, subscriptions),
+        getPhase() { return null; },
+        flightCsvWriter: buildFlightCsvWriter('', { isRecording() { return false; } }),
+      }));
+      const history = ws.messages.find(message => message.type === 'toolbarFlightHistory');
+      assert.equal(Boolean(history), subscribed);
+      assert.ok(!ws.messages.some(message => ['landing', 'flightViolation', 'ultimateStabilityScore'].includes(message.type)));
+      if (subscribed) {
+        assert.equal(history.landing.grade, 'HARD');
+        assert.ok(ws.messages.findIndex(message => message.type === 'aircraftProfile') < ws.messages.indexOf(history));
+      }
+    }
+  });
+});
+
 test('requestState clears stale recording indicators when no flight is recording', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
@@ -762,7 +910,7 @@ test('requestAppSettings redacts local paths from unprivileged websocket snapsho
 
     assert.equal(ws.messages.length, 1);
     assert.equal(ws.messages[0].type, 'appSettings');
-    assert.equal(ws.messages[0].settingsFile, 'Stored locally in your Flight Fabric settings directory');
+    assert.equal(ws.messages[0].settingsFile, 'Stored locally in your FlightFabric settings directory');
     assert.match(ws.messages[0].storage.settingsFile, /Stored locally/i);
     assert.doesNotMatch(ws.messages[0].storage.flightLogsDir, /AppData|Users|FlightLogs/);
   });
@@ -1000,6 +1148,7 @@ test('saveAppSettings ignores retired user debug settings', async () => {
       ws,
       {
         type: 'saveAppSettings',
+        requestId: 'settings-save-1',
         settings: {
           advanced: {
             debugMode: true,
@@ -1011,10 +1160,35 @@ test('saveAppSettings ignores retired user debug settings', async () => {
 
     assert.equal(ws.messages.length, 1);
     assert.equal(ws.messages[0].type, 'appSettingsSaved');
+    assert.equal(ws.messages[0].requestId, 'settings-save-1');
     assert.equal(ws.messages[0].ok, true);
     assert.equal(Object.hasOwn(ws.messages[0].settings, 'advanced'), false);
     assert.equal(ws.messages[0].restartRequired, false);
     assert.deepEqual(ws.messages[0].restartReasons, []);
+  });
+});
+
+test('saveAppSettings correlates failed and denied acknowledgements with bounded request IDs', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const { projectServerMessageForClient } = require(resolveBackendPath('core', 'server-message-projection.js'));
+    const privileged = buildWs({ privileged: true });
+    await handleClientMessage(privileged, {
+      type: 'saveAppSettings', requestId: 's'.repeat(150),
+      get settings() { throw new Error('fixture invalid settings'); },
+    }, buildContext(null));
+    assert.equal(privileged.messages[0].ok, false);
+    assert.equal(privileged.messages[0].requestId, 's'.repeat(128));
+
+    const viewer = buildWs();
+    await handleClientMessage(viewer, {
+      type: 'saveAppSettings', requestId: 'settings-save-2', settings: {},
+    }, buildContext(null));
+    assert.equal(viewer.messages[0].ok, false);
+    assert.equal(viewer.messages[0].requestId, 'settings-save-2');
+    const projected = projectServerMessageForClient(viewer, viewer.messages[0]);
+    assert.equal(projected.requestId, 'settings-save-2');
+    assert.equal(projected.ok, false);
   });
 });
 
@@ -1808,6 +1982,7 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
 
   assert.deepEqual([...TRUSTED_LAN_SAFE_READ_MESSAGE_TYPES], [
     'requestState',
+    'requestCduState',
     'requestAppSettings',
     'getRecordingState',
     'getFlightStatus',
@@ -1831,6 +2006,9 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
     'fuelUnit',
     'showBranding',
     'flightPlan',
+    // Desktop voice status relay: only the privileged desktop session runs
+    // voice control, so only it may publish the status in-sim views show.
+    'voiceStatus',
     'startRecording',
     'stopRecording',
     'endFlightManual',
@@ -1857,7 +2035,7 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
   ];
   assert.deepEqual(
     [...AIRCRAFT_CONTROL_MESSAGE_TYPES],
-    ['executeAircraftCommand', 'executeAircraftControl'],
+    ['autotaxi', 'sendCduKey', 'executeAircraftCommand', 'executeAircraftControl'],
   );
   assert.deepEqual(
     [...PRIVILEGED_CLIENT_MESSAGE_TYPES],
@@ -2058,6 +2236,30 @@ test('requestLogbook flushes active CSV and bypasses cached active file data', a
     assert.equal(ws.messages[0].entries.length, 1);
     assert.equal(ws.messages[0].entries[0].icao, 'YSSY');
     assert.equal(ws.messages[0].stats.total, 1);
+  });
+});
+
+test('CDU handler keeps screen reads separate from paired, live, serialized key writes', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    let calls = 0;
+    const provider = { async requestCdu(message, canWrite) {
+      if (message.type === 'sendCduKey') assert.equal(canWrite(), true);
+      calls++; return { screen: null };
+    } };
+    const context = buildContext(provider, { getSimState: () => ({ simconnectConnected: true, inMenu: false }) });
+    const readOnly = buildWs();
+    await handleClientMessage(readOnly, { type: 'requestCduState', requestId: 'read' }, context);
+    assert.equal(readOnly.messages[0].ok, true);
+    await handleClientMessage(readOnly, { type: 'sendCduKey', requestId: 'denied' }, context);
+    assert.equal(readOnly.messages[1].type, 'cduState');
+    assert.equal(readOnly.messages[1].ok, false); assert.equal(calls, 1);
+    const paired = buildWs({ aircraftControl: true });
+    await handleClientMessage(paired, { type: 'sendCduKey', requestId: 'key' }, context);
+    assert.equal(paired.messages[0].ok, true); assert.equal(calls, 2);
+    await handleClientMessage(paired, { type: 'sendCduKey', requestId: 'menu' },
+      { ...context, getSimState: () => ({ simconnectConnected: true, inMenu: true }) });
+    assert.equal(paired.messages[1].ok, false); assert.equal(calls, 2);
   });
 });
 

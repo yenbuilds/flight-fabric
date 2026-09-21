@@ -120,7 +120,7 @@ export function createLandingCardRenderer({
     getLandingStore()?.setInflightSummary?.(flightSummary || null);
   }
 
-  function renderLandingCard(msg) {
+  function renderLandingCard(msg, { source = 'live' } = {}) {
     const landingStore = getLandingStore();
     if (!landingStore) return null;
 
@@ -134,6 +134,7 @@ export function createLandingCardRenderer({
     });
 
     emitLandingReceived({
+      source,
       final: cardMsg?.final === true,
       grade: cardMsg?.grade || '',
       vsFpm: cardMsg?.vs_fpm ?? null,

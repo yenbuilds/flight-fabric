@@ -1,12 +1,19 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import AircraftArtwork from './AircraftArtwork.vue';
 import LandingSummaryWatermark from './LandingSummaryWatermark.vue';
 import LandingGradeCard from './LandingGradeCard.vue';
 import { useLandingStore } from '../stores/landing.js';
+import { useSettingsUiStore } from '../stores/settings-ui.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTimelineStore } from '../stores/timeline.js';
+import {
+  buildLandingShareModel,
+  canCopyLandingShareImage,
+  copyLandingShareImage,
+  saveLandingShareImage,
+} from '../../landing/share-image.js';
 
 const props = defineProps({
   debriefMode: {
@@ -20,6 +27,7 @@ const approachProfileExpanded = ref(true);
 const topdownProfileExpanded = ref(true);
 const detailedMetricsExpanded = ref(true);
 const landing = useLandingStore();
+const settingsUi = useSettingsUiStore();
 const status = useStatusStore();
 const timeline = useTimelineStore();
 
@@ -90,6 +98,73 @@ const landingAircraftContext = computed(() => {
   }
   const profileName = String(status.aircraftProfile.profileName || '').trim();
   return profileName && profileName !== landingAircraftName.value ? profileName : 'Current aircraft';
+});
+
+// Share image: painted from the same card state, so it shows exactly what
+// the screen shows. Copy is for pasting straight into a chat; Save is the
+// fallback everywhere the clipboard cannot take an image.
+const shareCopySupported = typeof navigator !== 'undefined'
+  && canCopyLandingShareImage({ navigatorRef: navigator, windowRef: window });
+const shareBusy = ref('');
+const shareResult = ref('');
+let shareResultTimer = null;
+const shareCapturedAtMs = computed(() => {
+  if (props.debriefMode) {
+    const eventMs = Number(landingAircraftEvent.value?.timestampMs);
+    return Number.isFinite(eventMs) && eventMs > 0 ? eventMs : null;
+  }
+  return landing.landingCard.capturedAtMs;
+});
+const shareVersionText = computed(() => {
+  const version = String(settingsUi.aboutVersion || '').trim();
+  return version && version !== '--' ? version : '';
+});
+function buildShareModel() {
+  return buildLandingShareModel({
+    landingCard: landing.landingCard,
+    aircraftName: landingAircraftName.value,
+    profileName: props.debriefMode ? '' : String(status.aircraftProfile.profileName || '').trim(),
+    capturedAtMs: shareCapturedAtMs.value,
+    versionText: shareVersionText.value,
+  });
+}
+function announceShareResult(text) {
+  shareResult.value = text;
+  if (shareResultTimer) window.clearTimeout(shareResultTimer);
+  shareResultTimer = window.setTimeout(() => {
+    shareResult.value = '';
+    shareResultTimer = null;
+  }, 2400);
+}
+async function runShareAction(kind, action) {
+  if (shareBusy.value || !landing.cardVisible) return;
+  const model = buildShareModel();
+  if (!model) return;
+  shareBusy.value = kind;
+  try {
+    const done = await action(model);
+    announceShareResult(done
+      ? (kind === 'copy' ? 'Copied. Paste it anywhere.' : 'Saved.')
+      : 'Not available here.');
+  } catch (error) {
+    announceShareResult(`Could not ${kind === 'copy' ? 'copy' : 'save'}: ${error?.message || 'unknown error'}`);
+  } finally {
+    shareBusy.value = '';
+  }
+}
+function copyShareImage() {
+  return runShareAction('copy', (model) => copyLandingShareImage(model, {
+    documentRef: document, navigatorRef: navigator, windowRef: window,
+  }));
+}
+function saveShareImage() {
+  return runShareAction('save', (model) => saveLandingShareImage(model, {
+    documentRef: document, windowRef: window,
+  }));
+}
+onBeforeUnmount(() => {
+  if (shareResultTimer) window.clearTimeout(shareResultTimer);
+  shareResultTimer = null;
 });
 
 const accordionButtonClass = 'group flex w-full cursor-pointer items-center justify-between gap-3 bg-surface-200/60 px-4 py-3.5 text-sm font-medium text-gray-200 transition-colors hover:bg-surface-300 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
@@ -212,6 +287,42 @@ const bounceDetailVisible = computed(() => {
             <span id="landing-runway">{{ landing.landingCard.runwayText }}</span>
           </div>
         </div>
+      </div>
+      <div id="landing-share-actions" class="landing-share-actions mb-3" data-landing-share-actions>
+        <span class="landing-share-actions__label">Share this landing</span>
+        <span
+          v-if="shareResult"
+          id="landing-share-result"
+          class="landing-share-actions__result"
+          role="status"
+          aria-live="polite"
+        >{{ shareResult }}</span>
+        <button
+          v-if="shareCopySupported"
+          id="landing-share-copy"
+          type="button"
+          class="ff-button-secondary landing-share-actions__button"
+          :disabled="Boolean(shareBusy)"
+          @click="copyShareImage"
+        >
+          <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+          </svg>
+          {{ shareBusy === 'copy' ? 'Copying…' : 'Copy image' }}
+        </button>
+        <button
+          id="landing-share-save"
+          type="button"
+          class="ff-button-secondary landing-share-actions__button"
+          :disabled="Boolean(shareBusy)"
+          @click="saveShareImage"
+        >
+          <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14" />
+          </svg>
+          {{ shareBusy === 'save' ? 'Saving…' : 'Save PNG' }}
+        </button>
       </div>
       <section
         v-if="landing.landingCard.wind.available"
@@ -854,5 +965,44 @@ const bounceDetailVisible = computed(() => {
 .landing-detail-metric--danger::after {
   background: rgb(248 113 113);
   box-shadow: 0 0 0.65rem rgb(239 68 68 / 0.58);
+}
+
+.landing-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.landing-share-actions__label {
+  margin-right: auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--muted-foreground));
+}
+
+.landing-share-actions__result {
+  font-size: 0.72rem;
+  color: rgb(var(--muted-foreground));
+}
+
+.landing-share-actions__button {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+@media (max-width: 420px) {
+  .landing-share-actions__label {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
 }
 </style>

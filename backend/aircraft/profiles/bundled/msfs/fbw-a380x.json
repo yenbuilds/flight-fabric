@@ -116,7 +116,7 @@
         "autopilot": "A32NX_AUTOPILOT_1_ACTIVE",
         "autothrottle": "A32NX_AUTOTHRUST_STATUS",
         "flaps": "A32NX_FLAPS_HANDLE_INDEX",
-        "_commentFlaps": "A32NX_FLAPS_HANDLE_INDEX is documented for A380X as a read-only custom LVAR with 0=UP and 4=FULL. Flight Fabric uses profile flap LVARs before SimConnect flap mapping.",
+        "_commentFlaps": "A32NX_FLAPS_HANDLE_INDEX is documented for A380X as a read-only custom LVAR with 0=UP and 4=FULL. FlightFabric uses profile flap LVARs before SimConnect flap mapping.",
         "spoilers": {
           "_comment": "The cited FlyByWire interface supplies the intended armed state through A32NX_SPOILERS_ARMED and a 0-1 handle fraction through A32NX_SPOILERS_HANDLE_POSITION; the standard SimConnect armed field is not used for this profile.",
           "armed": "A32NX_SPOILERS_ARMED",
@@ -125,7 +125,7 @@
         "parkingBrake": "A32NX_PARK_BRAKE_LEVER_POS",
         "_commentParkingBrake": "The cited FlyByWire interface supplies the intended parking-brake lever state through A32NX_PARK_BRAKE_LEVER_POS (0=released, 1=set); the standard SimConnect field is not used for this profile.",
         "mcp": {
-          "_comment": "A380X documents selected speed, heading, and V/S as custom FCU LVAR readbacks. Selected altitude is documented as AUTOPILOT ALTITUDE LOCK VAR:3, so Flight Fabric keeps altitude on the existing SimConnect target path.",
+          "_comment": "A380X documents selected speed, heading, and V/S as custom FCU LVAR readbacks. Selected altitude is documented as AUTOPILOT ALTITUDE LOCK VAR:3, so FlightFabric keeps altitude on the existing SimConnect target path.",
           "speed": "A32NX_AUTOPILOT_SPEED_SELECTED",
           "heading": "A32NX_AUTOPILOT_HEADING_SELECTED",
           "vs": "A32NX_AUTOPILOT_VS_SELECTED",
@@ -270,7 +270,7 @@
         "name": "Microsoft Flight Simulator 2020 SDK - Aircraft Miscellaneous Events",
         "url": "https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Misc_Events.htm",
         "retrievedAt": "2026-08-13",
-        "notes": "MSFS 2020 source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. Flight Fabric exposes fixed semantic targets and requires a newer A380X or standard handle-state readback."
+        "notes": "MSFS 2020 source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. FlightFabric exposes fixed semantic targets and requires a newer A380X or standard handle-state readback."
       },
       {
         "type": "official-sdk",
@@ -310,7 +310,7 @@
         "name": "Microsoft Flight Simulator 2024 SDK - Aircraft General Systems Events",
         "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
         "retrievedAt": "2026-08-13",
-        "notes": "Source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. Flight Fabric exposes fixed semantic targets and requires a newer A380X or standard handle-state readback."
+        "notes": "Source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. FlightFabric exposes fixed semantic targets and requires a newer A380X or standard handle-state readback."
       },
       {
         "type": "official-docs",

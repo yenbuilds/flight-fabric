@@ -86,7 +86,12 @@ function fenixHarness(target, initial, mode, options: any = {}) {
     if (options.reject) return { ok: false, code: 'write_failed' };
     sequence++;
     if (code === route.prepareCode) { if (!options.noPrepare) modeValue = 'hundred'; }
-    else value = Number((value + (code === route.increaseCode ? 1 : -1) * control.input.step).toFixed(8));
+    else if (code === route.primeCode) { /* a primed encoder does not move */ }
+    else {
+      const batch = /\) (\d+) ([+-]) \(>/.exec(code);
+      const detents = batch ? Number(batch[1]) * (batch[2] === '+' ? 1 : -1) : (code === route.increaseCode ? 1 : -1);
+      value = Number((value + detents * control.input.step).toFixed(8));
+    }
     if (options.modeChange && calls.length === 1) modeValue = !modeValue;
     return { ok: true };
   } };

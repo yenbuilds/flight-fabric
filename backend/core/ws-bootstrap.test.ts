@@ -87,6 +87,28 @@ test('aircraft-control pairing accepts only private or loopback peer addresses',
   }
 });
 
+test('toolbar history projection bounds nested data and removes paths and arbitrary fields', () => {
+  const message = { type: 'toolbarFlightHistory', aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: '737', configPath: 'C:\\private\\aircraft.cfg' },
+    flightId: '2026-09-21T01:00:00Z', sessionToken: 'secret',
+    landing: { final: true, grade: 'HARD', vs: -650, icao: 'YSSY', runwayExcursion: true,
+      approachType: 'C:\\private\\source', approachProfile: Array(10000).fill({ secret: 'private' }),
+      ultimateStability: { score: 45, verdict: 'unstable', secret: 'private' }, touchdownDistance: { bounceCount: 2, shortLanding: true } },
+    cautions: Array.from({ length: 50 }, (_, i) => ({ label: i === 0 ? 'C:\\private\\file' : 'x'.repeat(5000), severity: 'critical', at: 1234, secret: 'private' })) };
+  const projected = projectServerMessageForClient({}, message)!;
+  assert.deepEqual(projected.aircraft, { profileKey: 'bundled/msfs/pmdg-737', title: '737' });
+  assert.equal(projected.flightId, message.flightId);
+  assert.equal(projected.landing.ultimateStability.score, 45);
+  assert.equal(projected.landing.touchdownDistance.shortLanding, true);
+  assert.equal(projected.cautions.length, 6);
+  assert.ok(projected.cautions.every(caution => !caution.label || caution.label.length <= 160));
+  const serialized = JSON.stringify(projected);
+  for (const field of ['private', 'approachProfile', 'sessionToken', 'secret', 'configPath']) assert.ok(!serialized.includes(field), field);
+  assert.ok(serialized.length < 3000);
+  assert.deepEqual(projectServerMessageForClient({}, { type: 'toolbarFlightHistory', landing: [], cautions: 'invalid' }), {
+    type: 'toolbarFlightHistory', aircraft: null, flightId: '', landing: null, cautions: [],
+  });
+});
+
 test('every server message type has one explicit unpaired-client policy', () => {
   const groups = [
     UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES,
@@ -104,6 +126,68 @@ test('every server message type has one explicit unpaired-client policy', () => 
     [...new Set(Object.values(MSG) as string[])].sort(),
     'new MSG values must fail this test until their unpaired-client policy is reviewed',
   );
+});
+
+test('autotaxi replies require aircraft-control scope and preserve full route previews', () => {
+  const message = { type: 'autotaxiState', requestId: 'taxi-1', ok: true, status: 'taxiing', canStart: false, active: true,
+    preview: { runway: '16', points: Array.from({ length: 150 }, (_, x) => ({ x, z: 10 })), lengthM: 149, holdShort: { x: 180, z: 10 } },
+    route: { runway: '16', points: Array.from({ length: 150 }, (_, x) => ({ x, z: 10 })), lengthM: 149, holdShort: { x: 180, z: 10 } },
+    aircraft: { x: 12.5, z: 10, headingDeg: 271, speedKts: 8 },
+    sceneKey: 7,
+    scene: { key: 7, origin: { lat: -33.9, lon: 151.2 }, marginM: 300, bounds: { minX: -300, maxX: 480, minZ: -290, maxZ: 310 },
+      runways: [{ id: '16', reciprocal: '34', corners: [{ x: 0, z: 0 }, { x: 45, z: 0 }, { x: 45, z: 2500 }, { x: 0, z: 2500 }], ends: [{ x: 22, z: 0 }, { x: 22, z: 2500 }] }],
+      links: Array.from({ length: 400 }, (_, i) => ({ a: { x: i, z: 10 }, b: { x: i + 1, z: 10 }, widthM: 23, runway: false })) },
+    filePath: 'C:\\private\\taxi.log' };
+  assert.equal(projectServerMessageForClient({}, message), null);
+  const projected = projectServerMessageForClient({ __ffAircraftControlClient: true }, message);
+  assert.deepEqual(projected?.preview, message.preview);
+  // The taxi map on a paired phone needs the live route, the aircraft marker and the whole scene.
+  assert.deepEqual(projected?.route, message.route, 'the active route reaches aircraft-control clients');
+  assert.deepEqual(projected?.aircraft, message.aircraft, 'the aircraft marker reaches aircraft-control clients');
+  assert.equal(projected?.sceneKey, 7);
+  assert.deepEqual(projected?.scene, message.scene, 'the full scene reaches aircraft-control clients, beyond the 100-entry metadata limit');
+  assert.equal(projected?.filePath, undefined);
+  assert.equal(projected?.requestId, 'taxi-1');
+  const denied = projectServerMessageForClient({}, { ...message, ok: false, error: 'C:\\private\\failure.txt' });
+  assert.equal(denied?.ok, false); assert.equal(denied?.preview, undefined);
+  assert.match(denied?.error, /permission/);
+  const failure = projectServerMessageForClient({ __ffAircraftControlClient: true }, { ...message, ok: false, error: 'Failed at C:\\private\\failure.txt' });
+  assert.equal(failure?.error, 'Autotaxi request failed.');
+});
+
+test('paired Autotaxi replies retain aircraft support, current identity and typed stand choices', () => {
+  const support = { family: 'fenix-a32x', aircraftLabel: 'Fenix A319 / A320 / A321', qualificationStatus: 'candidate',
+    setupInstructions: ['Disengage autothrust.', 'Release PED DISC.'], reason: null };
+  const handling = { id: 'fenix-a32x-test', label: 'Fenix A319 / A320 / A321' };
+  const message = { type: 'autotaxiState', requestId: 'autotaxi-current-1', ok: true,
+    currentProfileKey: 'bundled/msfs/fenix-a321', currentProfileRevision: 7,
+    profileKey: 'bundled/msfs/fenix-a320', profileRevision: 6,
+    support: { ...support, debug: 'private context', sourceFiles: ['C:\\private\\aircraft.cfg'] },
+    handling: { ...handling, identity: 'C:\\private\\aircraft.cfg' },
+    standOptions: Array.from({ length: 150 }, (_, i) => ({ label: `Gate ${i + 1}`, typeLabel: 'Heavy gate' })) };
+  const projected = projectServerMessageForClient({ __ffAircraftControlClient: true }, message);
+  assert.deepEqual(projected?.support, support);
+  assert.deepEqual(projected?.handling, handling);
+  assert.equal(projected?.currentProfileKey, message.currentProfileKey);
+  assert.equal(projected?.currentProfileRevision, 7);
+  assert.equal(projected?.profileKey, message.profileKey, 'current aircraft and previous session identity remain distinct');
+  assert.deepEqual(projected?.standOptions, message.standOptions, 'large airports retain stand type descriptions');
+  assert.equal(projectServerMessageForClient({}, message), null);
+  assert.equal(projectServerMessageForClient({}, { ...message, ok: false })?.support, undefined);
+});
+
+test('CDU replies allow read-only viewing without leaking diagnostics or removing display slashes', () => {
+  const message = { type: 'cduState', requestId: 'cdu-1', ok: true, side: 'left', sessionId: 'display-session',
+    screen: { powered: true, rows: [[{ text: '/', color: 'cyan', filePath: 'C:\\private\\sdk.dll' }]] },
+    externalPort: 9999, filePath: 'C:\\private\\sdk.dll' };
+  const projected = projectServerMessageForClient({}, message);
+  assert.equal(projected?.sessionId, 'display-session');
+  assert.equal(projected?.screen.rows[0][0].text, '/');
+  assert.equal(projected?.screen.rows[0][0].color, 'cyan');
+  assert.equal(projected?.screen.rows[0][0].filePath, undefined);
+  assert.equal(projected?.filePath, undefined); assert.equal(projected?.externalPort, undefined);
+  assert.equal(projectServerMessageForClient({}, { ...message, externalPort: 8083 })?.externalPort, 8083);
+  assert.equal(projectServerMessageForClient({}, { ...message, ok: false, error: 'Failed at C:\\private\\sdk.dll' })?.error, 'CDU request failed.');
 });
 
 test('outbound projection keeps privileged payloads intact and sanitizes Trusted-LAN payloads', () => {
@@ -521,11 +605,11 @@ test('outbound projection narrows app settings and aircraft-control responses by
   assert.equal(projectedSettings?.settings.aircraft.profile, 'auto');
   assert.equal(
     projectedSettings?.settingsFile,
-    'Stored locally in your Flight Fabric settings directory',
+    'Stored locally in your FlightFabric settings directory',
   );
   assert.equal(
     projectedSettings?.storage.appDataDir,
-    'Stored locally in your Flight Fabric app-data directory',
+    'Stored locally in your FlightFabric app-data directory',
   );
   assert.equal(JSON.stringify(projectedSettings).includes('C:\\Users\\pilot'), false);
 
@@ -1361,4 +1445,64 @@ test('createWsServer rejects malformed JSON without logging payload content', as
   const closed = once(client, 'close');
   client.close();
   await closed;
+});
+
+test('subscribed read-only client receives only the requested low-rate types', { timeout: 5000 }, async (t) => {
+  const { SUBSCRIBABLE_MESSAGE_TYPES, parseSubscriptionParameter, isSubscribedMessage } = require('./ws-bootstrap') as typeof import('./ws-bootstrap');
+  assert.equal(parseSubscriptionParameter('/?subscribe=flightPlan,landing') instanceof Set, true);
+  assert.equal(parseSubscriptionParameter('/?token=abc'), null);
+  assert.equal(parseSubscriptionParameter('/?subscribe='), 'invalid');
+  assert.equal(parseSubscriptionParameter('/?subscribe=ias'), 'invalid', 'per-tick telemetry is never subscribable');
+  assert.equal(parseSubscriptionParameter('/?subscribe=flightPlan,timeline'), 'invalid');
+  for (const streamed of [MSG.IAS, MSG.ATTITUDE, MSG.POSITION, MSG.AIRCRAFT_SPECIFIC_STATE, MSG.DEBUG, MSG.TIMELINE]) {
+    assert.equal(SUBSCRIBABLE_MESSAGE_TYPES.includes(streamed), false, `${streamed} not subscribable`);
+  }
+  const subscription = parseSubscriptionParameter('/?subscribe=flightPlan,landing') as ReadonlySet<string>;
+  assert.equal(isSubscribedMessage(subscription, JSON.stringify({ type: MSG.LANDING, vs_fpm: -120 })), true);
+  assert.equal(isSubscribedMessage(subscription, JSON.stringify({ type: MSG.AUTHORIZATION_SCOPE, scope: 'read-only' })), true);
+  assert.equal(isSubscribedMessage(subscription, JSON.stringify({ type: MSG.IAS, value: 130 })), false);
+  assert.equal(isSubscribedMessage(subscription, JSON.stringify({ value: 130, type: MSG.LANDING })), true, 'type position in the payload does not matter');
+  assert.equal(isSubscribedMessage(subscription, 'not json'), false);
+  assert.equal(isSubscribedMessage(null, JSON.stringify({ type: MSG.IAS })), true, 'unsubscribed sockets keep the full stream');
+
+  const wss = createWsServer({
+    wsPort: 0,
+    Debug: { log() {} },
+    tlog() {},
+    onClientConnected(socket) {
+      // Connection-time state goes through the same filter as broadcasts.
+      socket.send?.(JSON.stringify({ type: MSG.IAS, value: 250 }));
+      socket.send?.(JSON.stringify({ type: MSG.FLIGHT_PLAN, origin: 'YSSY', destination: 'YMML' }));
+    },
+    onClientMessage() {},
+  }) as {
+    address: () => { port: number };
+    clients: Set<{ terminate: () => void }>;
+    close: (cb?: (error?: Error) => void) => void;
+  };
+  t.after(async () => {
+    for (const socket of wss.clients) socket.terminate();
+    await closeServer(wss);
+  });
+  await once(wss as unknown as import('node:events').EventEmitter, 'listening');
+  const port = wss.address().port;
+
+  const rejected = new WebSocket(`ws://127.0.0.1:${port}/?subscribe=ias`, { headers: { Origin: `http://127.0.0.1:${port}` } });
+  const rejectionStatus = await new Promise<number>((resolve) => {
+    rejected.on('unexpected-response', (_req, res) => { resolve(res.statusCode || 0); res.resume(); });
+    rejected.on('error', () => {});
+  });
+  assert.equal(rejectionStatus, 400);
+
+  const client = new WebSocket(`ws://127.0.0.1:${port}/?subscribe=flightPlan,landing`, { headers: { Origin: `http://127.0.0.1:${port}` } });
+  const received: Record<string, unknown>[] = [];
+  client.on('message', (data) => { received.push(JSON.parse(data.toString())); });
+  await once(client, 'open');
+  const broadcast = createBroadcast({ wss: wss as any, eventBus: { emit() {} }, Debug: { log() {} } });
+  broadcast({ type: MSG.VS, value: -700 });
+  broadcast({ type: MSG.LANDING, vs_fpm: -150, grade: 'GOOD' });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(received.map((message) => message.type), [MSG.AUTHORIZATION_SCOPE, MSG.FLIGHT_PLAN, MSG.LANDING]);
+  assert.equal(received[0].scope, 'read-only');
+  client.close();
 });

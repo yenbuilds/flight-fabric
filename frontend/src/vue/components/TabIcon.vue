@@ -14,6 +14,10 @@ defineProps({
   <svg v-else-if="kind === 'flight'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
   </svg>
+  <svg v-else-if="kind === 'cues'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 5.5h16v11H9l-5 3v-14Z" stroke-linejoin="round" stroke-width="1.8" />
+    <path d="M7.5 10h9m-9 3h6" stroke-linecap="round" stroke-width="1.6" />
+  </svg>
   <svg v-else-if="kind === 'autopilot'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h5m6 0h5M4 12h8m3 0h5M4 18h10m5 0h1" />
     <circle cx="12" cy="6" r="2" stroke-width="2" />

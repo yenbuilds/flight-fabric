@@ -1,6 +1,6 @@
 # @flight-fabric/telemetry-types
 
-TypeScript type definitions for Flight Fabric telemetry WebSocket messages.
+TypeScript type definitions for FlightFabric telemetry WebSocket messages.
 
 ## Installation
 

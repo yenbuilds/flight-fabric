@@ -1940,9 +1940,9 @@ test(
   fenixA320Lvars?.aircraftSpecific?.templateId === 'fenix-a32x' &&
     fenixA320Lvars?.aircraftSpecific?.integrationId === 'fenix-a32x' &&
     fenixA320Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/fenix-a320' &&
-    fenixA320Lvars?.aircraftSpecific?.fields?.length === 157 &&
-    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 157 &&
-    fenixA320Lvars?.subscriptions?.length === 154 &&
+    fenixA320Lvars?.aircraftSpecific?.fields?.length === 161 &&
+    fenixA320Lvars?.aircraftSpecific?.confirmationFields?.length === 159 &&
+    fenixA320Lvars?.subscriptions?.length === 158 &&
     Object.keys(defaultAircraftIntegrationRegistry.resolveIntegration('fenix-a32x', {
       profileKey: 'bundled/msfs/fenix-a320',
     })?.actions || {}).length === 327 &&
@@ -1991,9 +1991,9 @@ test(
 const fenixFamilyContractMatches = ['a319', 'a320', 'a321'].every((variant) => {
   loader.setActiveProfile(`fenix-${variant}`);
   const config = loader.getLvarConfig();
-  return config?.aircraftSpecific?.fields?.length === 157 &&
-    config?.aircraftSpecific?.confirmationFields?.length === 157 &&
-    config?.subscriptions?.length === 154;
+  return config?.aircraftSpecific?.fields?.length === 161 &&
+    config?.aircraftSpecific?.confirmationFields?.length === 159 &&
+    config?.subscriptions?.length === 158;
 });
 loader.setActiveProfile('fenix-a320');
 test('All exact Fenix family profiles compile the same fields and confirmations', fenixFamilyContractMatches);

@@ -292,17 +292,6 @@ export const useStatusStore = defineStore('status', {
     connectionInfoLabel: (state) => state.connectionInfo || 'ws://localhost:8099',
     aircraftNameLabel: (state) => state.aircraftProfile.aircraftName || '--',
     aircraftProfileNameLabel: (state) => state.aircraftProfile.profileName || '',
-    aircraftProfileVerificationLabel: (state) => {
-      const verificationStatus = String(state.aircraftProfile.verificationStatus || '').toLowerCase();
-      if (!verificationStatus) return 'verification unavailable';
-      return verificationStatus === 'verified'
-        ? 'verified profile'
-        : verificationStatus === 'certified'
-          ? 'certified profile'
-          : verificationStatus === 'partial'
-            ? 'partially verified profile'
-            : 'unverified profile';
-    },
     aircraftProfileNameVisible: (state) => {
       const profileName = String(state.aircraftProfile.profileName || '').trim();
       return Boolean(profileName && profileName !== '--');
@@ -501,6 +490,7 @@ export const useStatusStore = defineStore('status', {
     },
     requestEndFlightManual() {
       if (typeof this._onEndFlightManual !== 'function') return false;
+      if (this.recordingFinalizing) return false;
       return this._onEndFlightManual() !== false;
     },
     showDiskWarning(message = {}) {

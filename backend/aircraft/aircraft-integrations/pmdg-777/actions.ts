@@ -114,8 +114,11 @@ function pressSdkAction(params: {
 
 const actions: Record<string, AircraftIntegrationAction> = {};
 
-// Installed 777-300ER 2.4.146 cockpit behavior: control 3, clockwise press=2,
-// release=4. Allow each movement to settle, then release once at START.
+// Installed 777-300ER 2.4.146 cockpit behavior: control 3, press=1/2 by click
+// half, wheel up=7, wheel down=8, release=4. The XML does not name which click
+// half advances; community presets against L:switch_03_a (0 OFF, 50 ON,
+// 100 START) show 307 advances toward START and 308 retreats, so use the
+// wheel action. Allow each advance to settle, then release once at START.
 // The SDK's ELEC_APU_Selector=2 is telemetry, not evidence of a START interaction.
 actions['systems.apuSelector.start'] = {
   id: 'systems.apuSelector.start',
@@ -130,9 +133,9 @@ actions['systems.apuSelector.start'] = {
     id: 'pmdg777.systems.apuSelector.start.rotorBrake', transport: 'simconnect-sequence',
     requiredSdkAdapter: SDK_ADAPTER_ID,
     operations: [
-      { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+      { type: 'event', name: 'ROTOR_BRAKE', value: 307 },
       { type: 'delay', milliseconds: 500 },
-      { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+      { type: 'event', name: 'ROTOR_BRAKE', value: 307 },
       { type: 'delay', milliseconds: 500 },
       { type: 'event', name: 'ROTOR_BRAKE', value: 304 },
     ],

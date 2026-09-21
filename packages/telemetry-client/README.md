@@ -1,6 +1,6 @@
 # @flight-fabric/telemetry-client
 
-WebSocket client and React hooks for Flight Fabric telemetry.
+WebSocket client and React hooks for FlightFabric telemetry.
 
 ## Installation
 

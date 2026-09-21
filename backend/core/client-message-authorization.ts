@@ -12,6 +12,7 @@ type ClientAuthorizationFlags = {
 
 export const TRUSTED_LAN_SAFE_READ_MESSAGE_TYPES = Object.freeze([
   'requestState',
+  'requestCduState',
   'requestAppSettings',
   'getRecordingState',
   'getFlightStatus',
@@ -21,6 +22,8 @@ export const TRUSTED_LAN_SAFE_READ_MESSAGE_TYPES = Object.freeze([
 ] as const);
 
 export const AIRCRAFT_CONTROL_MESSAGE_TYPES = Object.freeze([
+  'autotaxi',
+  'sendCduKey',
   'executeAircraftCommand',
   'executeAircraftControl',
 ] as const);
@@ -30,6 +33,7 @@ export const PRIVILEGED_CLIENT_MESSAGE_TYPES = Object.freeze([
   'fuelUnit',
   'showBranding',
   'flightPlan',
+  'voiceStatus',
   'startRecording',
   'stopRecording',
   'endFlightManual',

@@ -1,18 +1,18 @@
-Flight Fabric Installer Notice
+FlightFabric Installer Notice
 
-Flight Fabric is unsigned experimental alpha software designed for use with
+FlightFabric is unsigned experimental alpha software designed for use with
 consumer flight simulators. It is not certified, approved, or intended for
 real-world aviation or any other safety-critical use.
 
-Do not rely on Flight Fabric or any data, analysis, score, alert,
+Do not rely on FlightFabric or any data, analysis, score, alert,
 recommendation, or other output it produces for real-world flight operations,
 navigation, dispatch, pilot training, certification, or decisions affecting
 the safety of any person or property.
 
-Flight Fabric is free software licensed under the GNU Affero General Public
+FlightFabric is free software licensed under the GNU Affero General Public
 License version 3. The full license text is included with the application as
 LICENSE.md, and corresponding source code for each released version is
-available from the Flight Fabric releases page. Select the release matching
+available from the FlightFabric releases page. Select the release matching
 the version shown in the application:
 
 https://github.com/yenbuilds/flight-fabric/releases

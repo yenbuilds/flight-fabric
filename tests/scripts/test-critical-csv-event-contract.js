@@ -477,6 +477,7 @@ const landingPayload = {
   touchdown_distance_score: 0,
   touchdown_distance_grade: 'Short Landing',
   touchdown_distance_zone: 'Before Threshold',
+  touchdown_zone_end_ft: 2667,
   short_landing: true,
   runway_condition: 'wet',
   runway_condition_source: 'inferred',

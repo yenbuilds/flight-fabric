@@ -433,3 +433,63 @@ test('SimBrief HTTP proxy releases capacity across failures and disconnects', { 
     await closeServer(server);
   }
 });
+
+test('MSFS toolbar page is served under a frameable CSP with an allowlisted file set', async () => {
+  const { httpServer: server } = startHttpServer({
+    wsPort: 9199,
+    httpPort: 0,
+    remoteAccessEnable: false,
+    wsAuthToken: 'top-secret-ws-token',
+    aircraftControlToken: 'top-secret-control-token',
+    Debug: { log() {} },
+  });
+  if (!server.listening) await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test HTTP server did not bind a TCP port');
+  const port = address.port;
+  try {
+    for (const pathname of ['/toolbar', '/toolbar/', '/toolbar/index.html']) {
+      const page = await requestText(port, pathname);
+      assert.equal(page.statusCode, 200, pathname);
+      assert.match(String(page.headers['content-type']), /text\/html/);
+      assert.match(String(page.headers['content-security-policy']), /frame-ancestors 'self' coui: coui:\/\/html_ui/);
+      assert.match(String(page.headers['content-security-policy']), /script-src 'self' 'nonce-/);
+      assert.match(page.body, /<script src="\/toolbar\/toolbar\.js"><\/script>/);
+    }
+
+    const script = await requestText(port, '/toolbar/toolbar.js');
+    assert.equal(script.statusCode, 200);
+    assert.match(String(script.headers['content-type']), /javascript/);
+    const reference = await requestText(port, '/toolbar/voice-reference.json');
+    assert.equal(reference.statusCode, 200);
+    assert.match(String(reference.headers['content-type']), /json/);
+
+    for (const pathname of ['/toolbar/index.html.bak', '/toolbar/nested/toolbar.js', '/toolbar/main.js', '/toolbar/..%2Findex.html']) {
+      const blocked = await requestText(port, pathname);
+      assert.equal(blocked.statusCode, 404, pathname);
+    }
+    // A dot-segment normalizes away from the toolbar route entirely, so the
+    // dashboard is served under its own strict policy rather than the
+    // frameable one.
+    const escaped = await requestText(port, '/toolbar/../index.html');
+    assert.match(String(escaped.headers['content-security-policy']), /frame-ancestors 'none'/);
+
+    // Other pages keep the strict frame-ancestors policy.
+    const dashboard = await requestText(port, '/');
+    assert.match(String(dashboard.headers['content-security-policy']), /frame-ancestors 'none'/);
+
+    const bootstrap = await requestText(port, '/api/toolbar/bootstrap');
+    assert.equal(bootstrap.statusCode, 200);
+    assert.equal(bootstrap.headers['cache-control'], 'no-store, max-age=0');
+    const payload = JSON.parse(bootstrap.body) as Record<string, unknown>;
+    assert.equal(payload.ok, true);
+    assert.equal(payload.wsPort, 9199);
+    assert.equal(payload.httpPort, port);
+    assert.equal(typeof payload.appVersion, 'string');
+    assert.equal(bootstrap.body.includes('top-secret'), false, 'toolbar bootstrap never carries session tokens');
+    assert.equal('wsAuthToken' in payload, false);
+    assert.equal('aircraftControlToken' in payload, false);
+  } finally {
+    await closeServer(server);
+  }
+});

@@ -14,7 +14,11 @@ module.
 4. Keep validation with the runtime code. Types do not replace sanitizers,
    schema validation, or input and output guards.
 5. Put generated declarations in `backend/types/generated/`. Build them with
-   `npm run build:backend:types`.
+   `npm run build:backend:types`. That is a `tsc -b` build: it first emits
+   `packages/telemetry-types` declarations through the project reference in
+   `tsconfig.backend.declarations.json`, so backend type-only imports from that
+   package resolve to declarations rather than source outside `rootDir`.
+   Commit the regenerated output with the source change that caused it.
 6. Build runnable JavaScript in `dist/backend/` with
    `npm run build:backend:runtime`.
 7. Stage related runtime assets beside the compiled backend. The current roots

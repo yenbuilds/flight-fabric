@@ -13,9 +13,22 @@ const actions: Record<string, AircraftIntegrationAction> = {};
 // Fenix 2.4.0.4720 Cockpit_Behavior.xml APU + FNX32X momentary template:
 // increment S_OH_ELEC_APU_START on press AND release. Reuse the bounded
 // 100 ms pulse contract; this counter is not a fixed 0/1 switch or AVAIL.
+// START is accepted on transport like every other family's START: the APU
+// controller decides what follows, and the preset's observations on the
+// START ON and AVAIL lamps (I_OH_ELEC_APU_START_L / _U, watched live on
+// 2026-09-19) report starting and available honestly. A running or
+// available APU makes the request a no-op.
 actions['systems.apuStart.start'] = {
   id: 'systems.apuStart.start',
-  guard: { groupId: 'fenixA32x.systems.apuStart', cooldownMs: 3000, retry: 'never' },
+  guard: {
+    groupId: 'fenixA32x.systems.apuStart',
+    cooldownMs: 3000,
+    retry: 'never',
+    skipWhen: [
+      { fieldId: 'systems.apuAvailable', expectedValue: true },
+      { fieldId: 'systems.apuStart', expectedValue: true },
+    ],
+  },
   routes: [{
     id: 'fenixA32x.systems.apuStart.start.mobiflightPulse',
     transport: 'mobiflight-calculator',
@@ -195,6 +208,22 @@ function calculatorCode(lvar: string, operator: '++' | '--'): string {
   return `(L:${lvar}, Number) ${operator} (>L:${lvar}, Number)`;
 }
 
+// Fenix E_FCU_* encoders are counters: adding N moves N detents in one
+// write (verified live 2026-09-18: 30 heading, 50 speed and 10 altitude
+// detents each landed exactly within about half a second). Fifty per batch
+// keeps any unconfirmed movement small while a 300-detent target takes a
+// few seconds instead of minutes.
+const FENIX_ENCODER_BATCH_STEPS = 50;
+function batchCode(lvar: string, operator: '+' | '-'): string {
+  return `(L:${lvar}, Number) {steps} ${operator} (>L:${lvar}, Number)`;
+}
+// A fresh encoder's first touch from MobiFlight is unpredictable (live: the
+// first heading click moved 89 degrees, the first speed click nothing).
+// Writing its current value back once settles it.
+function primeCode(lvar: string): string {
+  return `(L:${lvar}, Number) (>L:${lvar}, Number)`;
+}
+
 function addMomentaryTargetActions(params: {
   fieldId: string;
   lvar: string;
@@ -292,6 +321,10 @@ function addSteppedTargetAction(params: {
       mode: 'step-to-target',
       decreaseCode: calculatorCode(params.lvar, '--'),
       increaseCode: calculatorCode(params.lvar, '++'),
+      batchDecreaseCode: batchCode(params.lvar, '-'),
+      batchIncreaseCode: batchCode(params.lvar, '+'),
+      maxBatchSteps: FENIX_ENCODER_BATCH_STEPS,
+      primeCode: primeCode(params.lvar),
       ...(params.prepareCode ? { prepareCode: params.prepareCode } : {}),
       maxSteps: 500,
       ...(params.circular ? { circular: true as const } : {}),
@@ -327,7 +360,10 @@ for (const [
 
   ['systems.apuBleed', 'systems.apuBleed', 'S_OH_PNEUMATIC_APU_BLEED', 'off', 'on'],
   ['systems.apuGenerator', 'systems.apuGenerator', 'S_OH_ELEC_APU_GENERATOR', 'off', 'on'],
-  ['systems.apuMaster', 'systems.apuMaster', 'S_OH_ELEC_APU_MASTER', 'off', 'on'],
+  // Confirmed on the MASTER SW ON lamp, not on the switch input just written:
+  // live on 2026-09-19 the input read 1 while the lamp read 0 on an unpowered
+  // aircraft, and the app had reported the master as on.
+  ['systems.apuMaster', 'systems.apuMasterOn', 'S_OH_ELEC_APU_MASTER', 'off', 'on'],
   ['systems.battery1', 'systems.battery1', 'S_OH_ELEC_BAT1', 'off', 'auto'],
   ['systems.battery2', 'systems.battery2', 'S_OH_ELEC_BAT2', 'off', 'auto'],
   ['systems.commercial', 'systems.commercial', 'S_OH_ELEC_COMMERCIAL', 'off', 'on'],
@@ -596,8 +632,8 @@ addDetentActions({
   groupId: 'flightGuidance.altitude',
   lvar: 'S_FCU_ALTITUDE_SCALE',
   positions: [
-    ['hundred', 1, 'hundred'],
-    ['thousand', 0, 'thousand'],
+    ['hundred', 0, 'hundred'],
+    ['thousand', 1, 'thousand'],
   ],
 });
 
@@ -696,7 +732,7 @@ addSteppedTargetAction({
   groupId: 'flightGuidance.altitude',
   input: { type: 'number', min: 0, max: 49000, step: 100 },
   lvar: 'E_FCU_ALTITUDE',
-  prepareCode: '1 (>L:S_FCU_ALTITUDE_SCALE, Number) ',
+  prepareCode: '0 (>L:S_FCU_ALTITUDE_SCALE, Number) ',
   precondition: { fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'hundred' },
 });
 

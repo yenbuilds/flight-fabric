@@ -5,10 +5,14 @@
     "emitDeclarationOnly": true,
     "noEmit": false,
     "outDir": "backend/types/generated",
-    "rootDir": "backend"
+    "rootDir": "backend",
+    "tsBuildInfoFile": "dist/tsconfig.backend.declarations.tsbuildinfo"
   },
   "include": [
     "backend/**/*.ts",
     "backend/types/**/*.d.ts"
+  ],
+  "references": [
+    { "path": "packages/telemetry-types/tsconfig.build.json" }
   ]
 }

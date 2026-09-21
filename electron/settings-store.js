@@ -124,7 +124,7 @@ function applyLauncherSettingsToUserSettings(userSettings, launcherSettings) {
   }
 
   next._version = 4;
-  next._description = 'Flight Fabric user settings. Edit values below and restart the app.';
+  next._description = 'FlightFabric user settings. Edit values below and restart the app.';
   next._lastUpdated = new Date().toISOString();
 
   return next;
@@ -222,6 +222,40 @@ function createSettingsStore({ settingsFile = USER_SETTINGS_FILE, logger = () =>
   };
 }
 
+// Placement belongs to the Electron profile, not the backend settings document.
+// Reuse the same contained, atomic write policy without rewriting user settings.
+function createDesktopWindowStateStore({ stateFile, logger = () => {} }) {
+  return {
+    read() {
+      try {
+        const stat = fs.lstatSync(stateFile);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16 * 1024) return null;
+        return JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      } catch (error) {
+        if (error.code !== 'ENOENT') logger('[window-state] Could not read placement:', error.message);
+        return null;
+      }
+    },
+    save(state) {
+      try {
+        safeReplaceTextFileSync({
+          allowedExtensions: ['.json'],
+          allowedBasenames: [path.basename(stateFile)],
+          data: JSON.stringify(state),
+          operation: 'saveDesktopWindowState',
+          rootDir: path.dirname(stateFile),
+          targetPath: stateFile,
+        });
+        return true;
+      } catch (error) {
+        logger('[window-state] Could not save placement:', error.message);
+        return false;
+      }
+    },
+  };
+}
+
 module.exports = {
   createSettingsStore,
+  createDesktopWindowStateStore,
 };

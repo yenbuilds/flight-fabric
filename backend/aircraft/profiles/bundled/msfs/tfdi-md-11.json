@@ -129,7 +129,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "The dedicated page is monitoring-only. TFDi documents an event-driven CEVENT contract and warns against direct state/control LVAR writes, so only Flight Fabric's narrow standard gear/flaps surface fallback remains available."
+      "_comment": "The dedicated page is monitoring-only. TFDi documents an event-driven CEVENT contract and warns against direct state/control LVAR writes, so only FlightFabric's narrow standard gear/flaps surface fallback remains available."
     },
     "presentation": {
       "visualSupport": "basic",

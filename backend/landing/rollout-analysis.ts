@@ -56,6 +56,12 @@ const MAX_ROLLOUT_WINDOW_MS = 60_000;
 const MAX_ROLLOUT_SAMPLES = 2_000;
 const MIN_BANK_RATE_INTERVAL_S = 0.05;
 const MAX_BANK_RATE_INTERVAL_S = 2;
+// On-ground roll hazards (nacelle/wingtip contact, gear side-load, PIO) are
+// amplitude-driven. Below this bank the roll rate is oleo settling during
+// derotation or a crosswind gear bump, not a control event, so rate flags
+// require the same bank amplitude that already earns a "noticeable bank".
+const NOTICEABLE_ROLLOUT_BANK_DEG = 3;
+const EXCESSIVE_ROLLOUT_BANK_DEG = 8;
 const FT_PER_DEG_LAT = 364_567;
 
 const SEVERITY_RANK: Record<RolloutSeverity, number> = {
@@ -395,10 +401,11 @@ export function analyzeRollout(
     addFlag(flags, 'runway_excursion', 'Runway excursion', 'critical');
   }
   if (maxBankDeg != null) {
-    if (maxBankDeg >= 8) addFlag(flags, 'rollout_bank', 'Excessive bank during rollout', 'warning');
-    else if (maxBankDeg >= 3) addFlag(flags, 'rollout_bank', 'Noticeable bank during rollout', 'caution');
+    if (maxBankDeg >= EXCESSIVE_ROLLOUT_BANK_DEG) addFlag(flags, 'rollout_bank', 'Excessive bank during rollout', 'warning');
+    else if (maxBankDeg >= NOTICEABLE_ROLLOUT_BANK_DEG) addFlag(flags, 'rollout_bank', 'Noticeable bank during rollout', 'caution');
   }
-  if (peakBankRateDegS != null) {
+  const bankAmplitudeNoticeable = maxBankDeg != null && maxBankDeg >= NOTICEABLE_ROLLOUT_BANK_DEG;
+  if (peakBankRateDegS != null && bankAmplitudeNoticeable) {
     if (peakBankRateDegS >= 8) addFlag(flags, 'rapid_bank_change', 'Rapid bank change during rollout', 'warning');
     else if (peakBankRateDegS >= 4) addFlag(flags, 'rapid_bank_change', 'Abrupt bank correction during rollout', 'caution');
   }

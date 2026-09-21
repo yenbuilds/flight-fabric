@@ -349,7 +349,7 @@ test('rad2deg: negative radians', () => {
 test('resolveExistingDirectory: uses the nearest existing parent for a future flight logs path', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-disk-check-'));
   try {
-    const futureLogsDir = path.join(root, 'redirected-documents', 'Flight Fabric', 'Flight Logs');
+    const futureLogsDir = path.join(root, 'redirected-documents', 'FlightFabric', 'Flight Logs');
     assertEqual(helpers.resolveExistingDirectory(futureLogsDir), root, 'Nearest existing parent');
 
     const redirectedDocuments = path.join(root, 'redirected-documents');

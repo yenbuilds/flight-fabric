@@ -91,7 +91,7 @@
     "telemetry": {
       "preferred": "simconnect",
       "lvars": {
-        "_comment": "This profile uses standard Microsoft A-vars only. A bounded gauge-subscription path supplies supplemental engine values that are not present in Flight Fabric's shared frame; no iniBuilds-private LVAR telemetry is enabled."
+        "_comment": "This profile uses standard Microsoft A-vars only. A bounded gauge-subscription path supplies supplemental engine values that are not present in FlightFabric's shared frame; no iniBuilds-private LVAR telemetry is enabled."
       },
       "autopilot": {
         "_comment": "The documented AFCS key events use SimConnect, but this profile does not use generic AUTOPILOT MASTER or mode SimVars as AFCS-state readbacks. Keep those fields unavailable until a vendor-documented and independently verified source is available.",
@@ -247,7 +247,7 @@
         "name": "iniBuilds TriStar FAQ - How to: Autopilot Keybinds",
         "url": "https://forum.inibuilds.com/topic/36848-how-to-autopilot-keybinds/",
         "retrievedAt": "2026-06-04",
-        "notes": "Source for active AFCS pulse and selector mappings: AP_AIRSPEED_HOLD, AP_SPD_VAR_INC, AP_SPD_VAR_DEC, AP_VS_HOLD, AP_VS_VAR_INC, AP_VS_VAR_DEC, AP_ALT_HOLD, AP_ALT_VAR_INC, AP_ALT_VAR_DEC, AP_MACH_HOLD, AP_HDG_HOLD, HEADING_BUG_INC, HEADING_BUG_DEC, TOGGLE_FLIGHT_DIRECTOR, AP_MASTER, AUTOPILOT_OFF, AP_APR_HOLD, AP_LOC_HOLD, AP_NAV1_HOLD, VOR1_OBI_INC, VOR1_OBI_DEC, VOR2_OBI_INC, VOR2_OBI_DEC, TOGGLE_WATER_RUDDER, and AP_BC_HOLD. The FAQ identifies AP_AIRSPEED_HOLD as the AT button and TOGGLE_WATER_RUDDER as INS course capture/tracking. Flight Fabric uses the standard events recommended by iniBuilds and does not invoke the alternative INI_* action LVARs."
+        "notes": "Source for active AFCS pulse and selector mappings: AP_AIRSPEED_HOLD, AP_SPD_VAR_INC, AP_SPD_VAR_DEC, AP_VS_HOLD, AP_VS_VAR_INC, AP_VS_VAR_DEC, AP_ALT_HOLD, AP_ALT_VAR_INC, AP_ALT_VAR_DEC, AP_MACH_HOLD, AP_HDG_HOLD, HEADING_BUG_INC, HEADING_BUG_DEC, TOGGLE_FLIGHT_DIRECTOR, AP_MASTER, AUTOPILOT_OFF, AP_APR_HOLD, AP_LOC_HOLD, AP_NAV1_HOLD, VOR1_OBI_INC, VOR1_OBI_DEC, VOR2_OBI_INC, VOR2_OBI_DEC, TOGGLE_WATER_RUDDER, and AP_BC_HOLD. The FAQ identifies AP_AIRSPEED_HOLD as the AT button and TOGGLE_WATER_RUDDER as INS course capture/tracking. FlightFabric uses the standard events recommended by iniBuilds and does not invoke the alternative INI_* action LVARs."
       },
       {
         "type": "official-docs",
@@ -275,7 +275,7 @@
       "knownIssues": [
         "Flap and gear speed values are provisional and need redistributable public-source or vendor verification before promotion.",
         "TriStar spoiler telemetry is suppressed because DLC uses spoiler panels during normal approach and generic SimConnect spoiler state can report DLC/roll spoiler deflection rather than actual speedbrake handle deployment.",
-        "The 41 bounded standard-SimVar reads require live L-1011-500 validation. Twelve supplemental engine fields use the gauge-subscription bridge because those standard A-vars are not part of Flight Fabric's shared frame.",
+        "The 41 bounded standard-SimVar reads require live L-1011-500 validation. Twelve supplemental engine fields use the gauge-subscription bridge because those standard A-vars are not part of FlightFabric's shared frame.",
         "The 26 aircraft-specific light and selector actions use official iniBuilds event IDs and remain untested pending in-sim verification. Light intents require fresh readback; selector steps report delivery acknowledgement only.",
         "Logo OFF/ON uses the vendor-published toggle event only after a fresh preflight readback; stale or unavailable logo state blocks the write instead of guessing.",
         "AFCS and course selector controls expose only the decrement/increment events documented by iniBuilds. The cockpit windows remain the source of truth because the vendor does not publish reliable remote selector readbacks or direct target events.",

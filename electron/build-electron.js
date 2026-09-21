@@ -436,30 +436,35 @@ function assertSafeDependencyTree(rootDir, label) {
  * package, including transitive and nested packages, must be installed at the
  * exact locked version before release packaging starts.
  */
-function copyLockedBackendNodeModules(destModules) {
+function copyLockedBackendNodeModules(destModules, {
+  packageJsonPath = BACKEND_PACKAGE_JSON,
+  stagedPackageJsonPath = path.join(BACKEND_BUILD, 'package.json'),
+  lockfilePath = BACKEND_PACKAGE_LOCK,
+  sourceModulesDir = BACKEND_NODE_MODULES,
+} = {}) {
   log('  Validating backend runtime dependencies against backend/package-lock.json...');
-  const backendPkgSrc = path.join(BACKEND_RUNTIME, 'package.json');
-  const backendPkgDest = path.join(BACKEND_BUILD, 'package.json');
-  const sourcePackage = readRequiredJsonFile(BACKEND_PACKAGE_JSON, 'backend package.json');
-  const runtimePackage = readRequiredJsonFile(backendPkgSrc, 'backend runtime package.json');
-  const lockfile = readRequiredJsonFile(BACKEND_PACKAGE_LOCK, 'backend package-lock.json');
+  const sourcePackage = readRequiredJsonFile(packageJsonPath, 'backend package.json');
+  // The runtime has already been staged and checked. A subsequent runtime build
+  // can replace dist/backend while Rust compiles; use the manifest we will ship.
+  const stagedPackage = readRequiredJsonFile(stagedPackageJsonPath, 'staged backend package.json');
+  const lockfile = readRequiredJsonFile(lockfilePath, 'backend package-lock.json');
 
   if (![2, 3].includes(lockfile.lockfileVersion) || !lockfile.packages) {
     throw new Error(
-      `Unsupported backend package-lock format at ${BACKEND_PACKAGE_LOCK}; `
+      `Unsupported backend package-lock format at ${lockfilePath}; `
       + 'lockfileVersion 2 or 3 with a packages inventory is required'
     );
   }
   const lockRoot = lockfile.packages[''];
   if (!lockRoot) {
-    throw new Error(`Backend package-lock is missing its root package entry: ${BACKEND_PACKAGE_LOCK}`);
+    throw new Error(`Backend package-lock is missing its root package entry: ${lockfilePath}`);
   }
 
   assertDependencyMetadataMatches(
     sourcePackage,
-    runtimePackage,
+    stagedPackage,
     'backend/package.json',
-    'dist/backend/package.json'
+    'backend-build/package.json'
   );
   assertDependencyMetadataMatches(
     sourcePackage,
@@ -468,24 +473,20 @@ function copyLockedBackendNodeModules(destModules) {
     'backend/package-lock.json'
   );
 
-  if (!fs.existsSync(BACKEND_NODE_MODULES)) {
+  if (!fs.existsSync(sourceModulesDir)) {
     throw new Error(
-      `Missing locked backend dependencies at ${BACKEND_NODE_MODULES}; `
+      `Missing locked backend dependencies at ${sourceModulesDir}; `
       + 'run npm ci --prefix backend before packaging'
     );
   }
-  const realModulesRoot = fs.realpathSync(BACKEND_NODE_MODULES);
+  const realModulesRoot = fs.realpathSync(sourceModulesDir);
   if (
     normalizedAbsolutePathKey(realModulesRoot)
-    !== normalizedAbsolutePathKey(BACKEND_NODE_MODULES)
+    !== normalizedAbsolutePathKey(sourceModulesDir)
   ) {
     throw new Error(
-      `backend/node_modules must not be a symlink or junction: ${BACKEND_NODE_MODULES}`
+      `backend/node_modules must not be a symlink or junction: ${sourceModulesDir}`
     );
-  }
-
-  if (!fs.existsSync(backendPkgDest)) {
-    copyPackagedBackendPackageJson(backendPkgSrc, backendPkgDest);
   }
 
   const rootDependencies = {
@@ -518,7 +519,7 @@ function copyLockedBackendNodeModules(destModules) {
 
     const { packageDir, relativePackagePath } = resolveLockedPackageDirectory(
       lockPath,
-      BACKEND_NODE_MODULES
+      sourceModulesDir
     );
     if (!fs.existsSync(packageDir)) {
       if (lockedPackage.optional === true || lockedPackage.devOptional === true) {
@@ -1387,7 +1388,7 @@ function buildTailwindCss() {
 
 /**
  * Electron Builder expects to start from a clean output directory.
- * If a prior Flight Fabric instance is still running (or AV has a handle open),
+ * If a prior FlightFabric instance is still running (or AV has a handle open),
  * electron-builder can fail to clear win-unpacked and you silently ship stale UI assets.
  *
  * Also pre-delete previous portable/installer EXEs to avoid virus-scanner file locks
@@ -1460,7 +1461,7 @@ function ensureCleanElectronOutput() {
     fs.rmSync(unpackedDir, { recursive: true, force: true });
   } catch (err) {
     error(`Failed to remove ${unpackedDir}: ${err.message}`);
-    error('Close any running Flight Fabric EXE and retry. If this persists, delete dist/electron/win-unpacked manually.');
+    error('Close any running FlightFabric EXE and retry. If this persists, delete dist/electron/win-unpacked manually.');
     process.exit(1);
   }
 }
@@ -1587,10 +1588,18 @@ function syncElectronVersion() {
  */
 function buildElectron() {
   log('Building Electron app...');
-  
+
   try {
     runNpm(['run', 'build:win'], {
       cwd: ELECTRON_DIR,
+      env: {
+        ...process.env,
+        // With DEBUG unset, the `debug` package reports `enabled` as undefined
+        // and electron-builder's DebugLogger falls back to its enabled default,
+        // dropping builder-debug.yml into the release output. An empty value
+        // is read as "no namespaces" and keeps the output directory clean.
+        DEBUG: process.env.DEBUG ?? '',
+      },
       stdio: 'inherit',
     });
     log('Electron build complete!');
@@ -1644,7 +1653,7 @@ function logSigningMode() {
  * Main
  */
 async function main() {
-  log('=== Flight Fabric Electron Build ===');
+  log('=== FlightFabric Electron Build ===');
   log(`Root: ${ROOT}`);
   log(`Profile: ${profileName}`);
   log(`Options: ${withDashboard ? '--with-dashboard' : ''}`);
@@ -1693,6 +1702,7 @@ if (require.main === module) {
 
 module.exports = {
   assertBackendRuntimeInventoriesMatch,
+  copyLockedBackendNodeModules,
   getSimConnectDllCandidates,
   normalizeSimConnectDllCandidate,
   selectSimConnectDllSource,

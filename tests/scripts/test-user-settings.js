@@ -79,7 +79,7 @@ function run() {
     assertTrue(fs.existsSync(cabinDir), 'cabin announcement audio directory should be created on first load');
     assertTrue(fs.existsSync(themesDir), 'themes directory should be created on first load');
     assertTrue(!fs.existsSync(retiredProfilesRootDir), 'first load should not create the retired Profiles folder');
-    assertTrue(!settingsPath.includes('.msfs-telemetry'), 'settings.json should use the new Flight Fabric path');
+    assertTrue(!settingsPath.includes('.msfs-telemetry'), 'settings.json should use the new FlightFabric path');
     assertEqual(mod.settings.network.remoteAccess, false, 'network.remoteAccess default');
     assertEqual(mod.settings.network.remoteAircraftControl, true, 'network.remoteAircraftControl default');
     assertEqual(Object.hasOwn(mod.settings, 'performance'), false, 'performance poll-rate setting is retired');
@@ -120,7 +120,7 @@ function run() {
     assertEqual(saved.cabinAnnouncements.startupGraceMs, 5000, 'saved template cabinAnnouncements.startupGraceMs default');
     assertEqual(saved.debrief.stabilityCriteria.passPct, 80, 'saved template debrief.stabilityCriteria.passPct default');
     const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
-    assertEqual(marker.app, 'Flight Fabric', 'app-data marker app name');
+    assertEqual(marker.app, 'FlightFabric', 'app-data marker app name');
     assertEqual(marker.version, 1, 'app-data marker version');
 
     // Retired local profile overrides must be repaired without touching any

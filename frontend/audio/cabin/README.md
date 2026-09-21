@@ -55,9 +55,9 @@ frontend/audio/cabin/standard/
 
 ## Provenance And Licensing
 
-The bundled `standard` pack is original first-party audio for Flight Fabric
+The bundled `standard` pack is original first-party audio for FlightFabric
 with no third-party recordings. The project owner authorizes
-these files to be distributed with Flight Fabric source and binary releases
+these files to be distributed with FlightFabric source and binary releases
 under the project's release terms.
 
 Only bundle audio the project may redistribute. Before adding third-party audio,
@@ -68,7 +68,7 @@ libraries, or other sources without that review.
 ## Timing and suppression
 
 The first phase sample establishes a baseline and plays nothing. This avoids
-stale audio when Flight Fabric connects mid-flight.
+stale audio when FlightFabric connects mid-flight.
 
 Phase dwell timers:
 

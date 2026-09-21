@@ -123,7 +123,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "Only standard gear/flaps surface fallback is allowed. The CJ4 guide references binding AUTO THROTTLE TO GA for the TOGA button, but Flight Fabric does not expose a semantic TOGA control here, and FGP/autopilot writes remain unavailable without a documented and independently verified route."
+      "_comment": "Only standard gear/flaps surface fallback is allowed. The CJ4 guide references binding AUTO THROTTLE TO GA for the TOGA button, but FlightFabric does not expose a semantic TOGA control here, and FGP/autopilot writes remain unavailable without a documented and independently verified route."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -195,7 +195,7 @@
         "Exact MSFS 2024 CJ4 title strings remain unverified in-sim.",
         "Flap detent labels and VFE are manual-backed, but their runtime handle-index order still needs in-sim verification.",
         "The cited sources do not define a CJ4 external LVAR, B-var, or input-event map.",
-        "Autopilot/FGP and TOGA controls are intentionally not mapped until Flight Fabric has verified semantic writes for this aircraft."
+        "Autopilot/FGP and TOGA controls are intentionally not mapped until FlightFabric has verified semantic writes for this aircraft."
       ]
     }
   }

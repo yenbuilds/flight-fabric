@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { isRemoteView } from '../../app/remote-view.js';
 import { useProfilesStore } from '../stores/profiles.js';
 import { useStatusStore } from '../stores/status.js';
 
@@ -30,10 +31,7 @@ const controlsPaired = computed(() => (
   profiles.authorizationScope === 'aircraft-control' || profiles.authorizationScope === 'full-control'
 ));
 const backendReady = computed(() => appStatus.websocket === 'ready');
-const isRemoteSecondScreen = computed(() => {
-  const pathname = String(typeof window !== 'undefined' ? window.location?.pathname : globalThis.location?.pathname || '').toLowerCase();
-  return pathname === '/remote' || pathname === '/remote.html';
-});
+const isRemoteSecondScreen = computed(() => isRemoteView(typeof window !== 'undefined' ? window.location : globalThis.location));
 
 function storage() {
   try {
@@ -116,10 +114,10 @@ async function requestControls() {
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload?.requestId || !payload?.confirmationCode) {
       error.value = payload?.error === 'aircraft_controls_disabled'
-        ? 'Aircraft controls are not enabled on this Flight Fabric PC.'
+        ? 'Aircraft controls are not enabled on this FlightFabric PC.'
         : (payload?.error === 'too_many_requests'
           ? 'Two requests from this device are already waiting. Wait for them to expire, then try again.'
-          : 'Flight Fabric could not start pairing. Reload this page and try again.');
+          : 'FlightFabric could not start pairing. Reload this page and try again.');
       status.value = 'idle';
       return;
     }
@@ -132,7 +130,7 @@ async function requestControls() {
     pollInterrupted.value = false;
     await checkRequest();
   } catch {
-    error.value = 'Could not request aircraft controls. Check that this is the Flight Fabric address shown on your PC.';
+    error.value = 'Could not request aircraft controls. Check that this is the FlightFabric address shown on your PC.';
     status.value = 'idle';
   }
 }
@@ -178,8 +176,8 @@ onUnmounted(() => {
       </div>
       <div class="min-w-0 flex-1" aria-live="polite">
         <h2 id="device-pairing-title" class="text-sm font-semibold text-fg">Enable aircraft controls</h2>
-        <p v-if="(status === 'idle' || status === 'requesting') && backendReady" id="device-pairing-intro" class="mt-1 text-xs leading-5 text-muted-fg">This device is connected in viewer mode. Request access, then approve the matching code in <strong class="font-medium text-gray-200">Phone setup</strong> on the Flight Fabric PC.</p>
-        <p v-else-if="(status === 'idle' || status === 'requesting') && !backendReady" id="device-pairing-connecting" class="mt-1 text-xs leading-5 text-muted-fg">Waiting for the Flight Fabric PC. Pairing will be available when this dashboard connects.</p>
+        <p v-if="(status === 'idle' || status === 'requesting') && backendReady" id="device-pairing-intro" class="mt-1 text-xs leading-5 text-muted-fg">This device is connected in viewer mode. Request access, then approve the matching code in <strong class="font-medium text-gray-200">Phone setup</strong> on the FlightFabric PC.</p>
+        <p v-else-if="(status === 'idle' || status === 'requesting') && !backendReady" id="device-pairing-connecting" class="mt-1 text-xs leading-5 text-muted-fg">Waiting for the FlightFabric PC. Pairing will be available when this dashboard connects.</p>
         <template v-if="isPending">
           <div class="mt-3 rounded-xl border border-primary/30 bg-panel/70 p-3">
             <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-fg">Match this code on the PC</div>
@@ -187,11 +185,11 @@ onUnmounted(() => {
           </div>
           <p class="mt-2 text-xs leading-5 text-gray-200">In <strong class="font-medium">Phone setup</strong> on the PC, find the same code and choose <strong class="font-medium">Approve controls</strong>.</p>
           <p class="mt-1 text-xs leading-5 text-muted-fg">Waiting for approval · expires in {{ remainingLabel }}</p>
-          <p v-if="pollInterrupted" id="device-pairing-poll-warning" class="mt-2 text-xs leading-5 text-warning">Connection interrupted. Flight Fabric will keep checking.</p>
+          <p v-if="pollInterrupted" id="device-pairing-poll-warning" class="mt-2 text-xs leading-5 text-warning">Connection interrupted. FlightFabric will keep checking.</p>
         </template>
         <p v-else-if="status === 'approved'" id="device-pairing-approved" class="mt-2 text-xs leading-5 text-success">Controls approved. Connecting this device...</p>
         <p v-else-if="status === 'expired'" class="mt-2 text-xs leading-5 text-warning">That request expired. Request a new code when you are ready.</p>
-        <p v-else-if="status === 'disabled'" class="mt-2 text-xs leading-5 text-warning">Aircraft controls are not enabled on the Flight Fabric PC. Enable them in Settings and restart Flight Fabric.</p>
+        <p v-else-if="status === 'disabled'" class="mt-2 text-xs leading-5 text-warning">Aircraft controls are not enabled on the FlightFabric PC. Enable them in Settings and restart FlightFabric.</p>
         <p v-if="error" id="device-pairing-error" class="mt-2 text-xs leading-5 text-danger" role="alert">{{ error }}</p>
         <button
           v-if="!isPending && status !== 'approved'"

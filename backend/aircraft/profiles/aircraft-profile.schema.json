@@ -45,7 +45,7 @@
         "local",
         "community"
       ],
-      "description": "Storage/distribution namespace. Bundled means Flight Fabric-maintained and shipped with the app, not vendor-official. Fully-qualified identity = namespace/simulator/id."
+      "description": "Storage/distribution namespace. Bundled means FlightFabric-maintained and shipped with the app, not vendor-official. Fully-qualified identity = namespace/simulator/id."
     },
     "author": {
       "type": [

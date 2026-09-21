@@ -1,12 +1,12 @@
 # Third-Party Notices
 
-Last reviewed: 2026-09-14 (Flight Fabric 0.9.8 and current source).
+Last reviewed: 2026-09-19 (FlightFabric 0.9.9 and current source).
 
 The GNU Affero General Public License version 3 in `LICENSE.md` applies to
-Flight Fabric source code and its AGPL-covered modifications. Other third-party
+FlightFabric source code and its AGPL-covered modifications. Other third-party
 data, software, fonts, and hosted services listed here retain their own
 licenses or terms and are not re-licensed merely by being used or distributed
-with Flight Fabric.
+with FlightFabric.
 
 This notice covers direct third-party components referenced by committed source,
 vendored assets, runtime manifests, externally hosted runtime resources, and the
@@ -23,7 +23,7 @@ runtime external URLs. The recent preset artwork and debrief presentation change
 introduce no additional external packages or downloaded artwork. Sections
 explicitly marked "not bundled" document an
 integration or hosted service and do not claim that its software or data is
-redistributed by Flight Fabric.
+redistributed by FlightFabric.
 
 ## OurAirports Data
 
@@ -37,7 +37,7 @@ redistributed by Flight Fabric.
 
 ### Notes
 
-- Flight Fabric uses these datasets for airport/runway lookup, nearest-airport search, and timeline enrichment.
+- FlightFabric uses these datasets for airport/runway lookup, nearest-airport search, and timeline enrichment.
 - OurAirports appreciates credit for the data source, but does not require it.
 - Data is downloaded locally via `npm run data:sync` and is not embedded in this repository by default.
 - Electron release packages (NSIS installer and portable) bundle required airport datasets (`airports.csv`, `runways.csv`) and ship legal notices under `resources/legal`.
@@ -69,17 +69,17 @@ redistributed by Flight Fabric.
   SimBrief username or pilot ID to SimBrief's documented latest-OFP endpoint
   and displays selected flight-plan data.
 - Bundling: no SimBrief or Navigraph software, charts, navigation database, or
-  account credentials are bundled with Flight Fabric.
+  account credentials are bundled with FlightFabric.
 - Static-site screenshot: `site/flightfabric/assets/simbrief-flight-plan.png`
-  shows Flight Fabric's rendering of selected OFP fields; it does not reproduce
+  shows FlightFabric's rendering of selected OFP fields; it does not reproduce
   a Navigraph chart, SDK, or website interface.
 - Restrictions: SimBrief/Navigraph content and services retain their own terms.
   They are for personal flight-simulator use and must not be used for real-world
-  navigation. Flight Fabric does not grant any rights in the returned OFP data.
+  navigation. FlightFabric does not grant any rights in the returned OFP data.
 
 ## Historical SimConnect Components (not bundled)
 
-During development, Flight Fabric used the following third-party SimConnect
+During development, FlightFabric used the following third-party SimConnect
 components:
 
 - `node-simconnect` 4.0.0 by Even Arneberg Rognlien and contributors.
@@ -98,7 +98,7 @@ components:
 
 These historical implementations are not declared, bundled, or loaded by the
 current release. The current Rust sidecar loads Microsoft's `SimConnect.dll`
-and calls the SimConnect C ABI. Flight Fabric distributes the Rust sidecar and
+and calls the SimConnect C ABI. FlightFabric distributes the Rust sidecar and
 its other project code under GNU AGPL version 3 only (`AGPL-3.0-only`). This
 entry preserves historical attribution and does not identify any current Rust
 source as third-party code.
@@ -107,7 +107,7 @@ source as third-party code.
 
 - Source: Microsoft Flight Simulator SDK / SimConnect SDK.
 - Public source distribution: does not include `SimConnect.dll` because it is
-  proprietary Microsoft runtime material and is not part of Flight Fabric's
+  proprietary Microsoft runtime material and is not part of FlightFabric's
   AGPL-licensed source. Public-source builders must obtain the runtime from an
   SDK installation they are entitled to use, as described in `README.md`.
 - Official Windows binary distribution: bundles the SimConnect client runtime
@@ -122,7 +122,7 @@ source as third-party code.
   public source mirror so proprietary binary material is not copied into the
   public source history or re-licensed under the project AGPL. The private
   maintainer repository retains the build input.
-- Used for: The local MSFS telemetry sidecar dynamically loads the SimConnect client runtime so Flight Fabric can connect to the SimConnect server built into Microsoft Flight Simulator.
+- Used for: The local MSFS telemetry sidecar dynamically loads the SimConnect client runtime so FlightFabric can connect to the SimConnect server built into Microsoft Flight Simulator.
 - Notes: The packaged app loads the bundled DLL from a trusted app resource path. Advanced users can override the DLL path with `FF_SIMCONNECT_DLL_PATH` or the app setting `simulator.simConnectDllPath`.
 
 ## PMDG Aircraft SDK Interoperability
@@ -138,12 +138,12 @@ source as third-party code.
   This includes event and field mappings plus declarative connector definitions,
   allowing public-source builders to build the same PMDG-capable application as
   the downloadable release.
-- Not redistributed: Flight Fabric does not include PMDG aircraft packages,
+- Not redistributed: FlightFabric does not include PMDG aircraft packages,
   SDK headers, manuals, EULA PDFs, artwork, or other PMDG binaries or content.
-- Setup: Flight Fabric starts the matching SDK connector without an in-app
+- Setup: FlightFabric starts the matching SDK connector without an in-app
   agreement step. The separately installed aircraft must have data broadcasting
   enabled with `EnableDataBroadcast=1`. The installed PMDG SDK EULA and the
-  user's PMDG aircraft licence continue to govern their use; Flight Fabric does
+  user's PMDG aircraft licence continue to govern their use; FlightFabric does
   not grant rights in PMDG software or SDK material.
 - Trademarks: PMDG and the referenced aircraft/product names belong to their
   respective owners. No affiliation or endorsement is implied.
@@ -155,7 +155,7 @@ source as third-party code.
 - License: MIT for the MobiFlight WASM Module repository; any installed release
   remains subject to the licence and notices shipped by MobiFlight.
 - Used for: optional user-installed MSFS event/LVar transport for supported
-  aircraft integrations. Flight Fabric detects and interoperates with the
+  aircraft integrations. FlightFabric detects and interoperates with the
   module over SimConnect but does not copy, install, modify, or redistribute it.
 - HubHop reference: https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc
   is credited in the A350 profile for its ND range interface names and detent
@@ -175,7 +175,7 @@ source as third-party code.
 - Transport boundary: the integration uses the local simulator's named-variable
   interface and the optional documented MobiFlight transport. It uses no Fenix
   network endpoint or private internal protocol.
-- Bundling: Flight Fabric includes only independently written integration code
+- Bundling: FlightFabric includes only independently written integration code
   and the minimum interface names, value meanings, and mappings needed for
   interoperability. It does not copy, install, modify, or redistribute Fenix
   aircraft software, behavior XML, scripts, documentation, or visual assets.
@@ -194,7 +194,7 @@ source as third-party code.
 - Used for: aircraft telemetry and controls through documented simulator
   variables/events. A32NX minimums entry can also use a separately installed
   local SimBridge MCDU interface.
-- Bundling: Flight Fabric includes its own adapters, control mappings and
+- Bundling: FlightFabric includes its own adapters, control mappings and
   interface metadata. It does not bundle FlyByWire aircraft, SimBridge, aircraft
   artwork, or the upstream source trees. The aircraft repository carries GNU
   GPL version 3; separately installed products retain their own licences and
@@ -207,7 +207,7 @@ source as third-party code.
 - Used for: independently written cockpit-lighting, indexed exterior-light and
   strobe-control mappings based on the installed aircraft's published interface
   behavior. The profile records the reviewed aircraft revision and sources.
-- Bundling: Flight Fabric does not include the Headwind aircraft, its upstream
+- Bundling: FlightFabric does not include the Headwind aircraft, its upstream
   source tree, preset XML, models, textures or sounds. The separately installed
   aircraft retains its own licences and notices. The Headwind name identifies
   compatibility only; no affiliation or endorsement is implied.
@@ -236,7 +236,7 @@ source as third-party code.
 - Used for: the experimental telemetry provider connects to the user's configured
   X-Plane local Web API. Its profiles include simulator dataref names and aircraft
   identification metadata, including Laminar, Zibo and ToLiss profiles.
-- Bundling: Flight Fabric does not include X-Plane, an X-Plane SDK/plugin binary,
+- Bundling: FlightFabric does not include X-Plane, an X-Plane SDK/plugin binary,
   or those aircraft packages. The simulator and aircraft remain separately
   installed products subject to their own licences and notices. Product names
   identify compatibility only.
@@ -244,7 +244,7 @@ source as third-party code.
 ## Packaged Rust SimConnect Sidecar
 
 - Project: `backend/telemetry-provider/rust-simconnect-sidecar/`
-- Flight Fabric licence and provenance: GNU AGPL version 3
+- FlightFabric licence and provenance: GNU AGPL version 3
   (`AGPL-3.0-only`); see the sidecar `README.md` and the historical-provenance
   notice above.
 - Direct crates: `chrono`, `libloading`, `serde`, and `serde_json`.
@@ -256,7 +256,7 @@ source as third-party code.
   `memchr` 2.8.0, and `zmij` 1.0.21.
 - Licences: `libloading` is ISC; `memchr` is Unlicense OR MIT;
   `zmij` is MIT; `unicode-ident` is (MIT OR Apache-2.0) AND Unicode-3.0;
-  the other listed crates are MIT OR Apache-2.0. Flight Fabric relies on the
+  the other listed crates are MIT OR Apache-2.0. FlightFabric relies on the
   MIT option where an OR choice is offered. The required Unicode-3.0 terms for
   `unicode-ident` still apply.
 - Additional build-only crate: `autocfg` 1.5.0 (Apache-2.0 OR MIT), used by
@@ -291,12 +291,14 @@ source as third-party code.
   Attribution 4.0 licences, the ONNX Runtime MIT licence, and ONNX Runtime
   upstream third-party notices under
   `resources/legal/voice`.
-- The Windows push-to-talk helper is Flight Fabric code compiled with the Rust
-  standard library and has no third-party crate dependencies. Rust standard
-  library components are available under Apache-2.0 OR MIT terms.
+- The Windows push-to-talk helper is FlightFabric code compiled with the Rust
+  standard library and has no third-party crate dependencies; it reads
+  keyboard and joystick input through the Windows APIs that ship with the
+  operating system. Rust standard library components are available under
+  Apache-2.0 OR MIT terms.
 - Spoken command readbacks use Windows' locally installed SAPI speech engine
   and voices. Windows speech components and voice packs are not bundled with
-  Flight Fabric and retain their installed licence terms.
+  FlightFabric and retain their installed licence terms.
 
 ## Packaged Backend Node.js Runtime
 
@@ -334,7 +336,8 @@ source as third-party code.
 - Build packages: `vite`, `@vitejs/plugin-vue`
 - Declared in: `frontend/package.json`
 - Reviewed direct runtime versions: `vue` 3.5.41, `pinia` 3.0.4,
-  `@floating-ui/vue` 2.0.1, and `leaflet` 1.9.4 (separate notice below).
+  `@floating-ui/vue` 2.0.1, `leaflet` 1.9.4 and `three` 0.186.0 (separate
+  notices below).
 - Licences: MIT except `entities` (BSD-2-Clause), `picocolors` (ISC), and
   `source-map-js` and `speakingurl` (BSD-3-Clause).
 - Used for: the Vue 3 frontend application, Pinia stores, accessible
@@ -364,7 +367,7 @@ source as third-party code.
 - Licences: `typescript` is Apache-2.0, `knip` and `rimraf` are ISC, `dotenv` is
   BSD-2-Clause, and the other listed external packages are MIT. In particular,
   the currently resolved `@typescript-eslint/parser` 8.66.0 is MIT.
-- Used for: TypeScript typechecking/builds, linting and dead-code analysis, package builds, release tooling, repository hygiene checks, and Git hook integration. These packages are development/build dependencies and are not Flight Fabric application data.
+- Used for: TypeScript typechecking/builds, linting and dead-code analysis, package builds, release tooling, repository hygiene checks, and Git hook integration. These packages are development/build dependencies and are not FlightFabric application data.
 
 ## Mobile Prototype Packages (not bundled in desktop releases)
 
@@ -404,6 +407,45 @@ source as third-party code.
 - License: BSD-2-Clause (Copyright (c) 2010-2023, Volodymyr Agafonkin; Copyright (c) 2010-2011, CloudMade)
 - License text: https://github.com/Leaflet/Leaflet/blob/v1.9.4/LICENSE
 - Used for: interactive flight-track map in the live-map and timeline tabs.
+
+## three.js
+
+- Source: https://threejs.org - by mrdoob and three.js authors
+- Version: 0.186.0
+- Bundled from the `three` npm package into the main frontend as a separate
+  chunk that loads only when a 3D map view is opened. Uses the core library
+  plus the `OrbitControls` and fat-line (`LineSegments2`,
+  `LineSegmentsGeometry`, `LineMaterial`) add-ons.
+- License: MIT (Copyright (c) 2010-2025 three.js authors)
+- License text: https://github.com/mrdoob/three.js/blob/r186/LICENSE
+- Used for: the 3D live map and 3D timeline replay (WebGL flight track with
+  altitude, draped map tiles, terrain and the aircraft model).
+
+## NoSleep.js
+
+- Source: https://github.com/richtr/NoSleep.js - by Rich Tibbett
+- Version: 0.12.0
+- Bundled from the `nosleep.js` npm package into the main frontend.
+- License: MIT (Copyright (c) Rich Tibbett)
+- License text: https://github.com/richtr/NoSleep.js/blob/v0.12.0/LICENSE
+- Used for: keeping a phone or tablet screen awake while the paired second
+  screen (`/remote`) is open. Uses the browser's Screen Wake Lock API where
+  available and otherwise plays an embedded silent inline video; no network
+  calls.
+
+## country-flag-icons (vendored flag artwork)
+
+- Source: https://gitlab.com/catamphetamine/country-flag-icons (npm package `country-flag-icons`)
+- Version: 1.6.20
+- Vendored into: `frontend/assets/flags/` as the package's `3x2/*.svg` files for
+  ISO 3166-1 alpha-2 codes, with its upstream `LICENSE` file. Sub-national
+  flags from the package are not included.
+- Licence: MIT (Copyright (c) 2020 @catamphetamine)
+- Licence text: https://gitlab.com/catamphetamine/country-flag-icons/-/blob/master/LICENSE
+- Used for: the country flag shown beside logged airports in the Logbook and
+  Recent flights lists. The country itself comes from the OurAirports
+  `iso_country` field (see OurAirports Data above). Files are served from the
+  bundled frontend; no network calls.
 
 ## Splide (vendored static-site carousel)
 
@@ -446,10 +488,10 @@ source as third-party code.
   jsDelivr. This entry preserves the attribution for the earlier hosted-resource
   usage; Font Awesome files are not bundled in desktop packages.
 
-## Flight Fabric Cabin Audio
+## FlightFabric Cabin Audio
 
 The files in `frontend/audio/cabin/standard/` are original audio created by the
-Flight Fabric project owner and authorized for distribution with the project.
+FlightFabric project owner and authorized for distribution with the project.
 They are first-party assets, not recordings redistributed from an aircraft vendor
 or another simulator add-on.
 
@@ -461,25 +503,46 @@ or another simulator add-on.
   https://operations.osmfoundation.org/policies/tiles/
 - Used for: the standard labeled raster basemap in live-map and timeline views.
   Tiles are fetched interactively from `https://tile.openstreetmap.org` and are
-  not bundled with Flight Fabric.
+  not bundled with FlightFabric.
 - Attribution: displayed in-app as `OpenStreetMap contributors` through the
   Leaflet attribution control.
-- Service note: Flight Fabric does not prefetch tiles or offer offline tile
+- Service note: FlightFabric does not prefetch tiles or offer offline tile
   downloads. The community-operated service is best effort and can be disabled
-  in Settings. Desktop tile requests use a Flight Fabric-specific user agent;
+  in Settings. Desktop tile requests use a FlightFabric-specific user agent;
   LAN browsers use their normal browser identification, origin referrer, and
   cache.
 
+## Terrarium Elevation Tiles (AWS Open Data)
+
+- Source: https://registry.opendata.aws/terrain-tiles/ (Mapzen / Tilezen
+  "Terrain Tiles", `s3.amazonaws.com/elevation-tiles-prod`)
+- Data sources and attribution requirements:
+  https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+  (SRTM and ASTER GDEM from NASA/METI, NED and GMTED2010 from USGS, ETOPO1
+  from NOAA, EU-DEM from Copernicus, Canada CDEM, Norway Kartverket, Mexico
+  INEGI and others; public domain or attribution-only terms)
+- Used for: ground elevation in the 3D live map and 3D timeline replay. Map
+  tiles are displaced by the Terrarium PNG at the same z/x/y so the flight
+  track is drawn above real terrain, and the height above terrain under the
+  aircraft is derived from it. Tiles are fetched interactively (zoom 15 at
+  most) and are not bundled with FlightFabric; no key is required.
+- Attribution: displayed in-app in the 3D view legend as `Elevation: Mapzen
+  terrain tiles (AWS Open Data)`.
+- Service note: the same Settings switch that disables online map tiles
+  disables elevation tiles, and the 3D "Terrain" option turns displacement
+  off independently. Requests carry no identification beyond the browser's
+  own headers.
+
 ## Historical CARTO Screenshot
 
-- `site/flightfabric/assets/live-map.png` depicts an older Flight Fabric build
+- `site/flightfabric/assets/live-map.png` depicts an older FlightFabric build
   and retains its visible OpenStreetMap and CARTO attribution.
 - Current application builds do not request CARTO basemap tiles.
 
 ## GitHub Release and Update Hosting (hosted service only)
 
 - Service: GitHub Releases and `raw.githubusercontent.com`.
-- Used for: the backend fetches the Flight Fabric project's public update
+- Used for: the backend fetches the FlightFabric project's public update
   manifest at startup and at most once per day, then accepts download links only
   under the project's GitHub Releases path.
 - Bundling: no GitHub software or third-party repository content is bundled by
@@ -490,9 +553,9 @@ or another simulator add-on.
 
 ## Licence Texts For Bundled Software
 
-The notices below are reproduced for software included in Flight Fabric source
+The notices below are reproduced for software included in FlightFabric source
 or compiled distributions. Build-only packages retain their licence files in
-their installed npm packages and are not copied into the Flight Fabric runtime,
+their installed npm packages and are not copied into the FlightFabric runtime,
 unless another section above states otherwise.
 
 ### MIT-Licensed Components

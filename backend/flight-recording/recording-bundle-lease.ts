@@ -8,7 +8,7 @@
  *
  * Lease existence is the mutex. The owning process keeps the descriptor open
  * and refreshes its mtime. Crash recovery is deliberately conservative: a
- * lease is reclaimed only when it is a valid Flight Fabric lease, its owner is
+ * lease is reclaimed only when it is a valid FlightFabric lease, its owner is
  * definitely dead, and a grace period has elapsed. Malformed, symlinked, or
  * otherwise unprovable files are blockers and are never removed.
  */
@@ -537,7 +537,7 @@ function acquireCatalogLease(options: LeaseOptions): LeaseResult {
  * starting while the direct-child lease scan runs. Any existing bundle lease
  * means a writer or reader may still own files, so maintenance fails closed.
  * Stale markers are deliberately not reclaimed here: one-off maintenance is
- * only safe after Flight Fabric has been fully stopped.
+ * only safe after FlightFabric has been fully stopped.
  */
 function acquireExclusiveFlightLogsMutationLease(options: LeaseOptions): LeaseResult {
   const outputDir = path.resolve(options.outputDir);

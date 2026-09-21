@@ -186,6 +186,52 @@ async function main() {
   }
   assert(totalBytes <= 4 * 1024 * 1024, 'aircraft visual catalog exceeds the 4 MiB PNG budget');
 
+  // Every render fills its canvas edge to edge, so thumbnails restore the real
+  // size difference from the catalog's fuselage lengths.
+  const longestLength = Math.max(...assetKeys.map((assetKey) => AIRCRAFT_VISUAL_ASSETS[assetKey].lengthMeters));
+  for (const assetKey of assetKeys) {
+    const { lengthMeters } = AIRCRAFT_VISUAL_ASSETS[assetKey];
+    assert(Number.isFinite(lengthMeters) && lengthMeters > 0, `${assetKey} needs a real fuselage length in metres`);
+    const profileId = Object.entries(AIRCRAFT_PROFILE_VISUALS).find(([, mapping]) => mapping.assetKey === assetKey)?.[0];
+    if (!profileId) continue;
+    const visual = resolveAircraftVisual({ profileId });
+    assert.strictEqual(visual.lengthMeters, lengthMeters, `${assetKey} must expose its fuselage length`);
+    assert(visual.scale > 0 && visual.scale <= 1, `${assetKey} display scale must stay within (0, 1]`);
+    assert.strictEqual(
+      visual.scale === 1,
+      lengthMeters === longestLength,
+      `${assetKey} must fill the frame only when it is the longest aircraft in the catalog`,
+    );
+  }
+  const scaleOf = (profileId) => resolveAircraftVisual({ profileId }).scale;
+  const scaleOrder = [
+    'bundled/msfs/workingtitle-cj4',
+    'bundled/msfs/microsoft-atr-72-600',
+    'bundled/msfs/fss-e175',
+    'bundled/msfs/fbw-a32nx',
+    'bundled/msfs/pmdg-737',
+    'bundled/msfs/fenix-a321',
+    'bundled/msfs/kuro-787-8',
+    'bundled/msfs/horizon-787-9',
+    'bundled/msfs/asobo-787',
+    'bundled/msfs/fbw-a380x',
+    'bundled/msfs/pmdg-777',
+    'bundled/msfs/workingtitle-747-8',
+  ];
+  for (let index = 1; index < scaleOrder.length; index += 1) {
+    assert(
+      scaleOf(scaleOrder[index - 1]) < scaleOf(scaleOrder[index]),
+      `${scaleOrder[index - 1]} must draw smaller than ${scaleOrder[index]}`,
+    );
+  }
+  // The complaint that started this: a 737 and a 777 thumbnail were the same white tube.
+  assert(scaleOf('bundled/msfs/pmdg-737') <= 0.75 * scaleOf('bundled/msfs/pmdg-777'),
+    'a 737 thumbnail must be visibly shorter than a 777 thumbnail');
+  assert(scaleOf('bundled/msfs/workingtitle-cj4') >= 0.35,
+    'the smallest bizjet must stay legible in a 60px thumbnail');
+  assert.strictEqual(scaleOf('bundled/msfs/pmdg-737-900'), scaleOf('bundled/msfs/pmdg-737'),
+    'family art keeps the drawn airframe length rather than pretending to be the variant');
+
   assert.strictEqual(
     resolveAircraftVisual({ profileId: 'bundled/msfs/fbw-a32nx' }).assetKey,
     'airbus-a320neo',

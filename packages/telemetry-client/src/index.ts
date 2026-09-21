@@ -1,7 +1,7 @@
 /**
  * @flight-fabric/telemetry-client
  *
- * WebSocket client for Flight Fabric telemetry.
+ * WebSocket client for FlightFabric telemetry.
  */
 
 export { TelemetryClient } from './client';

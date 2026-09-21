@@ -123,7 +123,7 @@
         "name": "MSFS 2024 Avionics Framework - SimVars",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/",
         "retrievedAt": "2026-07-15",
-        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted A330 adapter exposes only an explicit allowlist already normalized by Flight Fabric and activates no aircraft-specific L: or B: variables."
+        "notes": "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted A330 adapter exposes only an explicit allowlist already normalized by FlightFabric and activates no aircraft-specific L: or B: variables."
       },
       {
         "type": "official-sdk",
@@ -170,7 +170,7 @@
         "name": "Microsoft Flight Simulator 2024 SDK - Aircraft General Systems Events",
         "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
         "retrievedAt": "2026-08-12",
-        "notes": "Source for every active gear and parking-brake event: GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET. Flight Fabric exposes fixed semantic targets only and confirms the newer standard handle/state readback."
+        "notes": "Source for every active gear and parking-brake event: GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET. FlightFabric exposes fixed semantic targets only and confirms the newer standard handle/state readback."
       }
     ],
     "verification": {

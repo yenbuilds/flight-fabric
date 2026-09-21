@@ -609,6 +609,25 @@ const FIELD_MAP: FieldDef[] = [
     extract: (f) => f.rudderPedalPct ?? f.fdm?.rudderPedalPct ?? null,
     format: fmt.real1,
   },
+  // Ground handling (MSFS: GEAR STEER ANGLE PCT:0, BRAKE LEFT/RIGHT POSITION).
+  // nose_steer_pct is signed, right positive, as a percentage of full travel;
+  // the brake columns are toe-brake application per side, unlike brake_pct
+  // which is the parking brake on MSFS.
+  {
+    name: "nose_steer_pct",
+    extract: (f) => f.noseSteerPct ?? f.fdm?.noseSteerPct ?? null,
+    format: fmt.real1,
+  },
+  {
+    name: "brake_left_pct",
+    extract: (f) => f.brakeLeftPct ?? f.fdm?.brakeLeftPct ?? null,
+    format: fmt.real1,
+  },
+  {
+    name: "brake_right_pct",
+    extract: (f) => f.brakeRightPct ?? f.fdm?.brakeRightPct ?? null,
+    format: fmt.real1,
+  },
   {
     name: "elev_trim_pct",
     extract: (f) => f.elevTrimPct ?? f.trim?.elevator ?? f.fdm?.elevTrimPct,
@@ -1233,6 +1252,11 @@ const FIELD_MAP: FieldDef[] = [
     name: "touchdown_distance_zone",
     extract: (f) => f.touchdownDistanceZone ?? f.touchdown_distance_zone,
     format: fmt.str,
+  },
+  {
+    name: "touchdown_zone_end_ft",
+    extract: (f) => f.tdzEndFt ?? f.touchdown_zone_end_ft,
+    format: fmt.int,
   },
   {
     name: "runway_geometry_source",

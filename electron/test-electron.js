@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { canStopBackendPortOwner } = require('./backend-cleanup-policy');
 const {
@@ -49,6 +50,7 @@ const {
 } = require('./after-pack');
 const {
   assertBackendRuntimeInventoriesMatch,
+  copyLockedBackendNodeModules,
   selectSimConnectDllSource,
   snapshotBackendRuntimeProfile,
 } = require('./build-electron');
@@ -113,6 +115,12 @@ test(
 );
 
 section('Main Window Bounds');
+
+const windowStateTests = spawnSync(process.execPath, ['--test', path.join(__dirname, 'main-window-state.test.js')], {
+  encoding: 'utf8', windowsHide: true,
+});
+if (windowStateTests.status !== 0) console.error(windowStateTests.stdout, windowStateTests.stderr);
+test('desktop placement, persistence, tray activation and native menu behavioral checks', windowStateTests.status === 0);
 
 const desktopBounds = getMainWindowBounds({ x: 0, y: 0, width: 1920, height: 1040 });
 test('desktop default provides more vertical room while retaining a smaller resize minimum',
@@ -225,28 +233,55 @@ test(
 section('External URL Policy');
 
 for (const [label, url] of [
-  ['Flight Fabric donation', 'https://ko-fi.com/yenbuilds'],
-  ['Flight Fabric corresponding source', 'https://github.com/yenbuilds/flight-fabric/releases'],
-  ['Flight Fabric latest release', 'https://github.com/yenbuilds/flight-fabric/releases/latest'],
-  ['Flight Fabric tagged release', 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.2.1'],
-  ['Flight Fabric release asset', 'https://github.com/yenbuilds/flight-fabric/releases/download/v0.2.1/Flight.Fabric.exe'],
+  ['FlightFabric stable support page', 'https://www.flightfabric.com/support/'],
+  ['FlightFabric corresponding source', 'https://github.com/yenbuilds/flight-fabric/releases'],
+  ['FlightFabric latest release', 'https://github.com/yenbuilds/flight-fabric/releases/latest'],
+  ['FlightFabric tagged release', 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.2.1'],
+  ['FlightFabric release asset', 'https://github.com/yenbuilds/flight-fabric/releases/download/v0.2.1/Flight.Fabric.exe'],
   ['MobiFlight install guide', 'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/'],
   ['MobiFlight enable guide', 'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/'],
   ['OpenStreetMap copyright', 'https://www.openstreetmap.org/copyright'],
   ['Leaflet attribution', 'https://leafletjs.com/'],
+  ['Fenix local web MCDU', 'http://localhost:8083/'],
+  ['Fenix IPv4 web MCDU', 'http://127.0.0.1:8083/'],
+  ['Fenix IPv6 web MCDU', 'http://[::1]:8083/'],
 ]) {
   test(`external URL policy allows ${label}`, resolveAllowedExternalUrl(url) === url);
 }
 
 for (const [label, url] of [
   ['plain HTTP', 'http://github.com/yenbuilds/flight-fabric/releases/latest'],
+  ['Fenix wrong port', 'http://127.0.0.1:8084/'],
+  ['Fenix arbitrary path', 'http://localhost:8083/settings'],
+  ['Fenix query credentials', 'http://localhost:8083/?token=secret'],
+  ['Fenix URL credentials', 'http://user:password@localhost:8083/'],
+  ['Fenix lookalike host', 'http://localhost.attacker.example:8083/'],
+  ['Fenix arbitrary remote host', 'http://example.com:8083/'],
   ['mailto', 'mailto:support@example.com'],
   ['local file', 'file:///C:/Windows/System32/calc.exe'],
   ['JavaScript', 'javascript:alert(1)'],
   ['data URL', 'data:text/html,hello'],
   ['custom protocol', 'ms-settings:privacy'],
   ['arbitrary HTTPS host', 'https://example.com/'],
+  ['direct donation provider', 'https://ko-fi.com/yenbuilds'],
+  ['support redirect target parameter', 'https://www.flightfabric.com/support/?url=https://example.com/'],
+  ['support tracking parameter', 'https://www.flightfabric.com/support/?src=app-sidebar'],
+  ['support fragment', 'https://www.flightfabric.com/support/#top'],
+  ['support lookalike host', 'https://www.flightfabric.com.attacker.example/support/'],
+  ['arbitrary first-party path', 'https://www.flightfabric.com/other/'],
   ['other Ko-fi creator', 'https://ko-fi.com/someone-else'],
+  ['Ko-fi support page with a source tag', 'https://ko-fi.com/yenbuilds?src=app-footer'],
+  ['Ko-fi support page with a numeric source tag', 'https://ko-fi.com/yenbuilds?src=whats-new-2'],
+  ['other Ko-fi creator with a source tag', 'https://ko-fi.com/someone-else?src=app-footer'],
+  ['Ko-fi source tag with a second parameter', 'https://ko-fi.com/yenbuilds?src=app-footer&ref=x'],
+  ['Ko-fi unknown parameter', 'https://ko-fi.com/yenbuilds?ref=app-footer'],
+  ['Ko-fi repeated source tag', 'https://ko-fi.com/yenbuilds?src=a&src=b'],
+  ['Ko-fi empty source tag', 'https://ko-fi.com/yenbuilds?src='],
+  ['Ko-fi malformed source tag', 'https://ko-fi.com/yenbuilds?src=App%20Footer'],
+  ['Ko-fi oversized source tag', `https://ko-fi.com/yenbuilds?src=${'a'.repeat(33)}`],
+  ['Ko-fi source tag with a fragment', 'https://ko-fi.com/yenbuilds?src=app-footer#top'],
+  ['Ko-fi source tag on a trailing-slash path', 'https://ko-fi.com/yenbuilds/?src=app-footer'],
+  ['source tag on an approved MobiFlight page', 'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/?src=app-footer'],
   ['lookalike Ko-fi host', 'https://ko-fi.com.attacker.example/yenbuilds'],
   ['lookalike GitHub host', 'https://github.com.attacker.example/yenbuilds/flight-fabric/releases/latest'],
   ['credential-confused GitHub URL', 'https://github.com@attacker.example/yenbuilds/flight-fabric/releases/latest'],
@@ -660,7 +695,7 @@ test(
     && electronMainSource.includes('voiceRuntime?.cancelActiveSession();'),
 );
 test(
-  'Windows taskbar metadata names the packaged Flight Fabric icon explicitly',
+  'Windows taskbar metadata names the packaged FlightFabric icon explicitly',
   electronMainSource.includes('mainWindow.setAppDetails({')
     && electronMainSource.includes('appId: APP_USER_MODEL_ID,')
     && electronMainSource.includes('appIconPath: TASKBAR_ICON_PATH,')
@@ -949,6 +984,8 @@ test('build bundles managed process liveness helper', electronPkg.build.files.in
 test('build bundles backend cleanup policy', electronPkg.build.files.includes('backend-cleanup-policy.js'));
 test('build bundles backend lifecycle helper', electronPkg.build.files.includes('backend-lifecycle.js'));
 test('build bundles main window sizing helper', electronPkg.build.files.includes('main-window-bounds.js'));
+test('build bundles desktop placement controller', electronPkg.build.files.includes('main-window-state.js'));
+test('build bundles native application menu', electronPkg.build.files.includes('desktop-menu.js'));
 test('build bundles Windows process identity helper', electronPkg.build.files.includes('backend-process-identity.js'));
 test(
   'build pins and unpacks the offline voice runtime',
@@ -1007,7 +1044,7 @@ test(
   'installer notice covers alpha status, AGPL, no warranty, safety, storage, and source access',
   installerNotice.includes('unsigned experimental alpha software') &&
     installerNotice.includes('not certified, approved, or intended for') &&
-    installerNotice.includes('Do not rely on Flight Fabric') &&
+    installerNotice.includes('Do not rely on FlightFabric') &&
     /GNU Affero General Public\s+License/.test(installerNotice) &&
     installerNotice.includes('provided "as is" and "as available."') &&
     installerNotice.includes('maximum extent') &&
@@ -1043,7 +1080,7 @@ test(
 );
 test(
   'sets distinct production and development Windows app identities',
-  mainSource.includes("const APP_PRODUCT_NAME = 'Flight Fabric'") &&
+  mainSource.includes("const APP_PRODUCT_NAME = 'FlightFabric'") &&
     mainSource.includes("const APP_ID = 'com.flightfabric.app'") &&
     mainSource.includes("const APP_USER_MODEL_ID = app.isPackaged ? APP_ID : `${APP_ID}.dev`") &&
     mainSource.includes('app.setName(APP_PRODUCT_NAME)') &&
@@ -1282,7 +1319,7 @@ test(
     mainSource.includes('Renderer send failed for ${channel}:'),
 );
 test('window close hides to tray instead of quitting when tray is available', mainSource.includes("mainWindow.on('close', hideWindowToTrayOnClose)") && mainSource.includes('mainWindow.hide();'));
-test('tray close notice tells users Flight Fabric is still running', mainSource.includes('Flight Fabric is still running') && mainSource.includes('Right-click the tray icon and choose Quit to exit.'));
+test('tray close notice tells users FlightFabric is still running', mainSource.includes('FlightFabric is still running') && mainSource.includes('Right-click the tray icon and choose Quit to exit.'));
 test(
   'recording badge loads generated artwork for taskbar and tray and can be reapplied',
   mainSource.includes('setOverlayIcon(') &&
@@ -1297,12 +1334,12 @@ test(
 test('uses execFileSync for stale port cleanup', mainSource.includes('execFileSync('));
 test('does not use shell-string execSync in main process', !mainSource.includes('execSync('));
 test('normalizes TCP ports before process cleanup', mainSource.includes('function normalizeTcpPort'));
-test('stale port cleanup verifies Flight Fabric backend identity before taskkill', (
+test('stale port cleanup verifies FlightFabric backend identity before taskkill', (
   mainSource.includes('function readWindowsProcessIdentity') &&
     mainSource.includes('classifyFlightFabricBackendIdentity(initialIdentity)') &&
     mainSource.includes('isSameWindowsProcessIdentity(initialIdentity, currentIdentity)') &&
-    mainSource.includes('not a verified Flight Fabric backend') &&
-    mainSource.includes('Stop Verified Flight Fabric Backend')
+    mainSource.includes('not a verified FlightFabric backend') &&
+    mainSource.includes('Stop Verified FlightFabric Backend')
 ));
 test(
   'stale Electron cleanup is same-user, prompt-confirmed, and requires both active ownership locks',
@@ -1427,7 +1464,7 @@ test(
 );
 test('legal allowlist includes safety notice', mainSource.includes("'SAFETY-NOTICE.md'"));
 test('has Desktop UI URL helper', mainSource.includes('function getFrontendUrl'));
-test('loads Desktop UI into the main BrowserWindow', mainSource.includes('loadDesktopApp(mainWindow)'));
+test('loads Desktop UI into the main BrowserWindow', mainSource.includes('loadInitialWindowContent(mainWindow)'));
 test('keeps legacy launcher as fallback', mainSource.includes('function loadLegacyLauncher') && mainSource.includes('Legacy launcher loaded as fallback'));
 test('intercepts same-app popup navigation', mainSource.includes('setWindowOpenHandler') && mainSource.includes('isFrontendAppUrl(url)'));
 test(
@@ -1468,7 +1505,7 @@ const openOverlayHandler = openOverlayHandlerMatch ? openOverlayHandlerMatch[0] 
 test('open-overlay navigates the existing Electron window', openOverlayHandler.includes('loadDesktopApp(getWindowFromEvent(event)') && !openOverlayHandler.includes('shell.openExternal'));
 const revealInExplorerHandlerMatch = mainSource.match(/registerTrustedIpcHandler\('reveal-in-explorer'[\s\S]*?\n\}\);/);
 const revealInExplorerHandler = revealInExplorerHandlerMatch ? revealInExplorerHandlerMatch[0] : '';
-test('reveal-in-explorer is limited to Flight Fabric-owned roots', (
+test('reveal-in-explorer is limited to FlightFabric-owned roots', (
   revealInExplorerHandler.includes('docsAppDir') &&
   revealInExplorerHandler.includes('flightLogsAppDir') &&
   revealInExplorerHandler.includes('appDataDir') &&
@@ -1477,7 +1514,7 @@ test('reveal-in-explorer is limited to Flight Fabric-owned roots', (
 
 // Check for single instance lock
 test('uses requestSingleInstanceLock', mainSource.includes('requestSingleInstanceLock'));
-test('pins Electron userData under the stable Flight Fabric app-data root', mainSource.includes("path.join(getAppDataRoot(), 'Electron')") && mainSource.includes("app.setPath('userData', ELECTRON_USER_DATA_DIR)"));
+test('pins Electron userData under the stable FlightFabric app-data root', mainSource.includes("path.join(getAppDataRoot(), 'Electron')") && mainSource.includes("app.setPath('userData', ELECTRON_USER_DATA_DIR)"));
 test('prefers dist/backend in dev mode', mainSource.includes("path.resolve(__dirname, '..', 'dist', 'backend'"));
 test('does not fall back to source backend in dev mode', !mainSource.includes("path.resolve(__dirname, '..', 'backend'"));
 test('main process registers backend bootstrap fallback IPC', mainSource.includes("registerTrustedIpcHandler('backend-bootstrap'") && mainSource.includes('fetchBackendBootstrapViaBackend'));
@@ -1486,7 +1523,8 @@ const trustedIpcChannels = [...mainSource.matchAll(/registerTrustedIpcHandler\('
   .map((match) => match[1]);
 test(
   'every incoming Electron IPC channel uses the trusted sender registrar',
-  trustedIpcChannels.length === 23
+  trustedIpcChannels.length === 27
+    && trustedIpcChannels.includes('autotaxi-background-set')
     && new Set(trustedIpcChannels).size === trustedIpcChannels.length
     && (mainSource.match(/ipcMain\.handle\(/g) || []).length === 1
     && (mainSource.match(/ipcMain\.on\(/g) || []).length === 1
@@ -1494,6 +1532,14 @@ test(
     && voiceRuntimeSource.includes('registerTrustedIpcHandler(AUDIO_CHANNEL,')
     && voiceRuntimeSource.includes('{ listener: true }')
     && !voiceRuntimeSource.includes('ipcMain.on('),
+);
+test(
+  'MSFS toolbar package IPC exposes only id-based status, install and uninstall through the trusted registrar',
+  ['toolbar-panel-status', 'toolbar-panel-install', 'toolbar-panel-uninstall'].every((channel) => trustedIpcChannels.includes(channel))
+    && mainSource.includes('createToolbarPanelInstaller({')
+    && mainSource.includes('detectInstalls: () => detectMsfsInstalls()')
+    && !mainSource.includes('toolbar-panel-install-to')
+    && fs.readFileSync(path.join(electronDir, 'preload.js'), 'utf8').includes('requireInstallId(installId)'),
 );
 test(
   'default Electron session installs deny-by-default request and check handlers before creating the UI',
@@ -1695,6 +1741,77 @@ try {
     missingRequiredFileError?.code === 'FF_BACKEND_STAGING_UNSTABLE'
       && missingRequiredFileError.message.includes('missing-entry.js')
   );
+
+  const dependencySource = path.join(backendStagingFixture, 'backend');
+  const dependencyModules = path.join(dependencySource, 'node_modules');
+  const dependencyDir = path.join(dependencyModules, 'fixture-runtime');
+  fs.mkdirSync(dependencyDir, { recursive: true });
+  const manifest = { name: 'fixture-backend', dependencies: { 'fixture-runtime': '^1.2.0' } };
+  const manifestJson = JSON.stringify(manifest);
+  const stagedManifestPath = path.join(stagedRoot, 'package.json');
+  fs.writeFileSync(path.join(dependencySource, 'package.json'), manifestJson);
+  fs.writeFileSync(path.join(sourceRoot, 'package.json'), manifestJson);
+  fs.copyFileSync(path.join(sourceRoot, 'package.json'), stagedManifestPath);
+  fs.writeFileSync(path.join(dependencySource, 'package-lock.json'), JSON.stringify({
+    lockfileVersion: 3,
+    packages: {
+      '': manifest,
+      'node_modules/fixture-runtime': { version: '1.2.3' },
+    },
+  }));
+  fs.writeFileSync(path.join(dependencyDir, 'package.json'), JSON.stringify({
+    name: 'fixture-runtime', version: '1.2.3',
+  }));
+  fs.writeFileSync(path.join(dependencyDir, 'index.js'), 'module.exports = 42;\n');
+  const dependencyOptions = {
+    packageJsonPath: path.join(dependencySource, 'package.json'),
+    stagedPackageJsonPath: stagedManifestPath,
+    lockfilePath: path.join(dependencySource, 'package-lock.json'),
+    sourceModulesDir: dependencyModules,
+  };
+  const stagedModules = path.join(stagedRoot, 'node_modules');
+
+  // Simulate a runtime rebuild removing its manifest after staging completed.
+  fs.unlinkSync(path.join(sourceRoot, 'package.json'));
+  let dependencyStagingError = null;
+  try {
+    copyLockedBackendNodeModules(stagedModules, dependencyOptions);
+  } catch (err) {
+    dependencyStagingError = err;
+  }
+  test(
+    'locked dependencies use the staged manifest after the compiled manifest disappears',
+    dependencyStagingError === null
+      && fs.existsSync(path.join(stagedModules, 'fixture-runtime', 'index.js'))
+      && fs.readFileSync(stagedManifestPath, 'utf8') === manifestJson,
+  );
+
+  fs.writeFileSync(stagedManifestPath, JSON.stringify({
+    ...manifest, dependencies: { 'fixture-runtime': '^2.0.0' },
+  }));
+  let stagedManifestMismatch = null;
+  try {
+    copyLockedBackendNodeModules(stagedModules, dependencyOptions);
+  } catch (err) {
+    stagedManifestMismatch = err;
+  }
+  test(
+    'locked dependencies reject staged manifest drift against the source and lockfile',
+    stagedManifestMismatch?.message.includes('dependencies mismatch')
+      && stagedManifestMismatch.message.includes('backend-build/package.json'),
+  );
+
+  fs.unlinkSync(stagedManifestPath);
+  let missingStagedManifest = null;
+  try {
+    copyLockedBackendNodeModules(stagedModules, dependencyOptions);
+  } catch (err) {
+    missingStagedManifest = err;
+  }
+  test(
+    'locked dependencies reject a missing staged manifest without falling back to source',
+    missingStagedManifest?.message.includes('Missing staged backend package.json'),
+  );
 } finally {
   fs.rmSync(backendStagingFixture, { recursive: true, force: true });
 }
@@ -1795,7 +1912,7 @@ test(
   'release summary generates and verifies checksums for exact versioned artifacts',
   releaseSummaryScript.includes("crypto.createHash('sha256')") &&
     releaseSummaryScript.includes("'SHA256SUMS.txt'") &&
-    releaseSummaryScript.includes('`Flight.Fabric.Setup.${version}.exe`') &&
+    releaseSummaryScript.includes('publishedInstallerAssetName(version)') &&
     releaseSummaryScript.includes('writeChecksums([publishedInstaller], checksumPath)') &&
     releaseSummaryScript.includes('verifyChecksumFile(checksumPath, [publishedInstaller])') &&
     releaseSummaryScript.includes('Expected exactly'),
@@ -1805,7 +1922,7 @@ test(
   releaseSummaryScript.includes('allowedTopLevelNames') &&
     releaseSummaryScript.includes('Unexpected top-level release output') &&
     releaseSummaryScript.includes('expectedBlockmapName') &&
-    releaseSummaryScript.includes("const WIN_UNPACKED_EXECUTABLE_NAME = 'Flight Fabric.exe'") &&
+    releaseSummaryScript.includes("require('./release-names.js')") && releaseSummaryScript.includes("buildExecutableFileName()") &&
     releaseSummaryScript.includes('Required unpacked executable is missing'),
 );
 test(
@@ -1978,11 +2095,11 @@ test(
     afterPackScript.includes('icon: iconPath')
 );
 test(
-  'afterPack stamps Flight Fabric metadata on the packaged Windows executable',
+  'afterPack stamps FlightFabric metadata on the packaged Windows executable',
   afterPackScript.includes("'file-version': version") &&
     afterPackScript.includes("'product-version': version") &&
     afterPackScript.includes("'version-string'") &&
-    afterPackScript.includes("CompanyName: 'Flight Fabric'") &&
+    afterPackScript.includes("CompanyName: 'FlightFabric'") &&
     afterPackScript.includes('FileDescription: productName') &&
     afterPackScript.includes('ProductName: productName')
 );

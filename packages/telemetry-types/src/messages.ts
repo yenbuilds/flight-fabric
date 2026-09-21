@@ -2,7 +2,7 @@
  * messages.ts
  *
  * TypeScript interfaces for every WebSocket message payload broadcast by the
- * Flight Fabric backend. This is the canonical type contract for external
+ * FlightFabric backend. This is the canonical type contract for external
  * consumers of the API: the mobile app, telemetry-client, OBS strip overlays,
  * and external integrations.
  *
@@ -453,6 +453,21 @@ export interface FlightStartedMessage extends BaseMessage {
   timestamp: string;
 }
 
+/**
+ * The simulator's own clock. `zuluIso` is the simulator UTC date-time
+ * (`YYYY-MM-DDTHH:MM:SSZ`), `localIso` the simulator local civil time
+ * without an offset; both are null while the simulator reports no clock.
+ * `timeOfDay` is the simulator's TIME OF DAY enum (1 dawn, 2 day, 3 dusk,
+ * 4 night) or null. Sent every few seconds, not per tick.
+ */
+export interface SimTimeMessage extends BaseMessage {
+  type: 'simTime';
+  zuluIso: string | null;
+  localIso: string | null;
+  timeOfDay: number | null;
+  valid: boolean;
+}
+
 export interface FlightEndedMessage extends BaseMessage {
   type: 'flightEnded';
   timestamp: string;
@@ -659,12 +674,17 @@ export interface GSMessage extends BaseMessage {
   value: number;
 }
 
-/** Pilot control input positions (yoke/sidestick + rudder) */
+/** Pilot control input positions (yoke/sidestick + rudder) and ground handling */
 export interface ControlsMessage extends BaseMessage {
   type: 'controls';
   yokeX: number | null;
   yokeY: number | null;
   rudderPedalPct: number | null;
+  /** Nose-gear steer angle as a percentage of full travel, right positive. */
+  noseSteerPct: number | null;
+  /** Toe-brake application per side, 0-100. */
+  brakeLeftPct: number | null;
+  brakeRightPct: number | null;
 }
 
 /** Cabin pressurization and outside air temperature */
@@ -826,6 +846,108 @@ export interface RatesMessage extends BaseMessage {
 }
 
 // ============================================================================
+// Relays (client -> server, stored and re-broadcast)
+// ============================================================================
+
+/** One navlog fix of the relayed SimBrief plan. */
+export interface FlightPlanNavlogFix {
+  ident: string;
+  type?: string | null;
+  altitude?: number | null;
+  windDirection?: number | null;
+  windSpeed?: number | null;
+  temperature?: number | null;
+  distance?: number | null;
+  legTime?: number | null;
+  fuelRemaining?: number | null;
+}
+
+/**
+ * Active SimBrief OFP, relayed by the desktop UI and replayed on
+ * `requestState`. Every field but `type` is optional; absent fields were not
+ * in the OFP, null fields were present but unusable. `username` reaches
+ * privileged clients only. Weights use `weightUnit`.
+ */
+export interface FlightPlanMessage extends BaseMessage {
+  type: 'flightPlan';
+  cleared?: boolean;
+  username?: string;
+  fetchedAt?: number | null;
+  origin?: string | null;
+  originName?: string | null;
+  departureRunway?: string | null;
+  destination?: string | null;
+  destinationName?: string | null;
+  arrivalRunway?: string | null;
+  alternate?: string | null;
+  aircraft?: string | null;
+  aircraftName?: string | null;
+  callsign?: string | null;
+  flightNumber?: string | null;
+  route?: string | null;
+  cruiseAltFl?: string | null;
+  cruiseMach?: string | null;
+  eteSeconds?: number | null;
+  fuelLbs?: number | null;
+  costIndex?: number | null;
+  weightUnit?: 'kg' | 'lbs' | null;
+  registration?: string | null;
+  airac?: string | null;
+  generatedAt?: number | null;
+  scheduledOut?: number | null;
+  scheduledOff?: number | null;
+  scheduledOn?: number | null;
+  scheduledIn?: number | null;
+  estimatedOut?: number | null;
+  estimatedOff?: number | null;
+  estimatedOn?: number | null;
+  estimatedIn?: number | null;
+  blockSeconds?: number | null;
+  taxiOutSeconds?: number | null;
+  taxiInSeconds?: number | null;
+  enduranceSeconds?: number | null;
+  icaoFlightPlan?: string | null;
+  procedures?: { sid?: string | null; sidTransition?: string | null; star?: string | null; starTransition?: string | null } | null;
+  fuel?: Partial<Record<'taxi' | 'trip' | 'contingency' | 'alternate' | 'reserve' | 'extra' | 'takeoff' | 'landing', number | null>> | null;
+  weights?: Partial<Record<'passengers' | 'cargo' | 'payload' | 'zeroFuel' | 'ramp' | 'takeoff' | 'landing' | 'maxTakeoff' | 'maxLanding', number | null>> | null;
+  performance?: {
+    averageWindComponent?: number | null;
+    averageWindDirection?: number | null;
+    averageWindSpeed?: number | null;
+    routeDistance?: number | null;
+    airDistance?: number | null;
+    greatCircleDistance?: number | null;
+    cruiseTas?: number | null;
+    stepClimbs?: string | null;
+  } | null;
+  weather?: Partial<Record<'originMetar' | 'originTaf' | 'destinationMetar' | 'destinationTaf' | 'alternateMetar' | 'alternateTaf' | 'etopsMetar' | 'etopsTaf', string | null>> | null;
+  navlog?: FlightPlanNavlogFix[] | null;
+}
+
+export type VoiceStatusValue =
+  | 'initializing' | 'unavailable' | 'disabled' | 'blocked' | 'ready' | 'starting' | 'listening'
+  | 'finishing' | 'transcribed' | 'sending' | 'sent' | 'failed' | 'error' | 'unmatched' | 'unknown';
+
+/**
+ * Desktop voice-control status, relayed by the desktop app whenever the
+ * push-to-talk state, transcript or outcome changes and replayed on
+ * `requestState`. Strings are bounded; `updatedAt` is backend time.
+ */
+export interface VoiceStatusMessage extends BaseMessage {
+  type: 'voiceStatus';
+  updatedAt?: number;
+  status: VoiceStatusValue;
+  statusText: string;
+  transcript: string;
+  lastCommand: string;
+  shortcut: string;
+  joystick: string;
+  enabled: boolean;
+  available: boolean;
+  profileKey: string;
+}
+
+// ============================================================================
 // System
 // ============================================================================
 
@@ -839,6 +961,8 @@ export interface ConnectedMessage extends BaseMessage {
 // ============================================================================
 
 export type TelemetryMessage =
+  | import('./cdu.js').CduState
+  | AutotaxiStateMessage
   | IASMessage
   | VSMessage
   | AltitudeMessage
@@ -865,6 +989,7 @@ export type TelemetryMessage =
   | FlightTimeMessage
   | FlightStartedMessage
   | FlightEndedMessage
+  | SimTimeMessage
   | AircraftProfileMessage
   | AircraftSpecificStateMessage
   | SignalReliabilityMessage
@@ -887,4 +1012,39 @@ export type TelemetryMessage =
   | CabinAltitudeWarningMessage
   | DiskWarningMessage
   | FlightViolationMessage
-  | CabinAnnouncementMessage;
+  | CabinAnnouncementMessage
+  | FlightPlanMessage
+  | VoiceStatusMessage;
+
+export interface AutotaxiStateMessage extends BaseMessage {
+  type: 'autotaxiState';
+  stands?: string[];
+  standOptions?: { label: string; typeLabel: string }[];
+  requestId?: string | null;
+  ok: boolean;
+  error?: string | null;
+  status?: 'idle' | 'planning' | 'taxiing' | 'stopping' | 'holding' | 'stopped' | 'fault';
+  reason?: string;
+  active?: boolean;
+  canStart?: boolean;
+  unavailableReason?: string | null;
+  remainingM?: number;
+  runwayTravelM?: number;
+  runway?: string;
+  observedSpeedKts?: number | null;
+  commanded?: { throttle: number; brake: number; steering: number } | null;
+  preview?: { points: { x: number; z: number }[]; runway: string; lengthM: number; runwayTravelM: number; holdShort: { x: number; z: number } };
+  profileKey?: string | null;
+  profileRevision?: number | null;
+  /** Currently loaded aircraft; profileKey/profileRevision above describe the active session. */
+  currentProfileKey?: string;
+  currentProfileRevision?: number;
+  handling?: { id: string; label: string } | null;
+  support?: {
+    family: 'generic' | 'pmdg-737' | 'pmdg-777' | 'fenix-a32x' | null;
+    aircraftLabel: string;
+    qualificationStatus: 'candidate' | 'unsupported';
+    setupInstructions: readonly string[];
+    reason: string | null;
+  };
+}

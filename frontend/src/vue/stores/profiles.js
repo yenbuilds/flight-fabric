@@ -21,6 +21,7 @@ function normalizeAircraftControlPairingStatus(value) {
 export const useProfilesStore = defineStore('profiles', () => {
   const appSettings = useAppSettingsStore();
   const authorizationScope = ref('read-only');
+  const authorizationAcknowledged = ref(false);
   const aircraftControlPairingStatus = ref('not-requested');
   const installedProfiles = ref([]);
   const messageActionBound = ref(false);
@@ -53,8 +54,9 @@ export const useProfilesStore = defineStore('profiles', () => {
     }
   }
 
-  function setAuthorizationScope(scope, pairingStatus) {
+  function setAuthorizationScope(scope, pairingStatus, acknowledged = true) {
     authorizationScope.value = normalizeAuthorizationScope(scope);
+    authorizationAcknowledged.value = acknowledged === true && AUTHORIZATION_SCOPES.has(scope);
     if (pairingStatus !== undefined) {
       aircraftControlPairingStatus.value = normalizeAircraftControlPairingStatus(pairingStatus);
     } else if (authorizationScope.value === 'aircraft-control') {
@@ -68,7 +70,7 @@ export const useProfilesStore = defineStore('profiles', () => {
 
   function resetAuthorizationScope() {
     aircraftControlPairingStatus.value = 'not-requested';
-    return setAuthorizationScope('read-only');
+    return setAuthorizationScope('read-only', undefined, false);
   }
 
   function requestProfiles() {
@@ -108,7 +110,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     if (!profileKey) return false;
     const ok = appSettings.saveSettings({ aircraft: { profile: profileKey } });
     if (ok) {
-      notify('warning', 'Profile override saved', `Restart Flight Fabric to use ${profileKey}.`);
+      notify('warning', 'Profile override saved', `Restart FlightFabric to use ${profileKey}.`);
     } else {
       notify('error', 'Profile override failed', 'Unable to save the aircraft profile override.');
     }
@@ -119,7 +121,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     if (!profileSelectionAvailable.value) return false;
     const ok = appSettings.saveSettings({ aircraft: { profile: 'auto' } });
     if (ok) {
-      notify('warning', 'Auto-detect restored', 'Restart Flight Fabric to resume automatic aircraft matching.');
+      notify('warning', 'Auto-detect restored', 'Restart FlightFabric to resume automatic aircraft matching.');
     } else {
       notify('error', 'Profile override failed', 'Unable to restore automatic aircraft matching.');
     }
@@ -152,6 +154,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     aircraftProfileOverrideActive,
     aircraftControlPairingStatus,
     authorizationScope,
+    authorizationAcknowledged,
     bindRuntime,
     builtInProfiles,
     clearAircraftProfileOverride,

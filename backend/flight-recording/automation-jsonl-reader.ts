@@ -353,7 +353,7 @@ async function readAutomationRowsForCsv(
         || currentBytes - parseStartBytes > MAX_TIMELINE_PARSE_MEMORY_GROWTH_BYTES
       ) {
         fail(
-          'Automation sidecar expands beyond Timeline\'s safe memory budget. Archive or inspect this recording outside Flight Fabric.',
+          'Automation sidecar expands beyond Timeline\'s safe memory budget. Archive or inspect this recording outside FlightFabric.',
         );
       }
     };
@@ -406,7 +406,7 @@ async function readAutomationRowsForCsv(
         const rowBytes = Buffer.byteLength(line, 'utf8');
         if (rows.length >= maxRows || retainedBytes + rowBytes > maxRetainedBytes) {
           fail(
-            'Automation sidecar exceeds Timeline\'s safe retained-data limit. Archive or inspect this recording outside Flight Fabric.',
+            'Automation sidecar exceeds Timeline\'s safe retained-data limit. Archive or inspect this recording outside FlightFabric.',
           );
         }
         retainedBytes += rowBytes;

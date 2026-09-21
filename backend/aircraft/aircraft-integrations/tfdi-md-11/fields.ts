@@ -70,7 +70,7 @@ function simvarBoolean(id: string, name: string): AircraftIntegrationField {
 
 // TFDi publishes the MD11_AFS_*, AP/ATS, mode-flag, V-speed, and APU rows as
 // read/integration variables. The remaining fields are conservative standard
-// MSFS readbacks already normalized into Flight Fabric. Exterior-light switch
+// MSFS readbacks already normalized into FlightFabric. Exterior-light switch
 // LVAR value semantics are not asserted here: standard light readbacks fail
 // closed if a particular build does not mirror them. Speedbrake telemetry is
 // deliberately absent because the MD-11's Direct Lift Control can move spoiler

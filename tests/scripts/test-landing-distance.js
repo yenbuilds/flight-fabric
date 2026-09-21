@@ -6,11 +6,11 @@
  * Tests:
  * - calculateDistanceFt: Haversine formula accuracy
  * - scoreTouchdownDistance: TDZ scoring bands
- * - getAdjustedBands: Short runway multiplier, surface conditions
+ * - getAdjustedBands: runway-length zone end (3,000 ft or one third)
  *
-// Band names: PERFECT, GOOD, ACCEPTABLE, POOR, DANGEROUS
-// Default thresholds: PERFECT ≤1000, GOOD ≤2500, ACCEPTABLE ≤3500, POOR ≤5000, DANGEROUS >5000
-// Grades: Outstanding, Good, Acceptable, Long Landing, Dangerous
+// Band names: NEAR_THRESHOLD, PERFECT, GOOD, ACCEPTABLE, POOR, DANGEROUS
+// Long/unknown runway limits: NEAR_THRESHOLD <500, PERFECT ≤1500, GOOD ≤2333, ACCEPTABLE ≤3000, POOR ≤5000, DANGEROUS >5000
+// Grades: Near Threshold, Outstanding, Good, Acceptable, Long Landing, Dangerous
  *
  * Run: node tests/scripts/test-landing-distance.js
  */
@@ -184,8 +184,8 @@ test('buildTouchdownRunwayAnalysis: uses explicit true-heading field without leg
 });
 
 // scoreTouchdownDistance tests
-// The generic scoring band through 1000 ft is Outstanding. The regulatory TDZ
-// extends through 3000 ft; a narrower target requires aircraft/SOP-specific data.
+// The zone ends at 3,000 ft or one third of the landing length, whichever is
+// less. Inner bands are anchored between the 1,000 ft aiming point and that end.
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('scoreTouchdownDistance: 500 ft = Outstanding grade', () => {
@@ -194,49 +194,75 @@ test('scoreTouchdownDistance: 500 ft = Outstanding grade', () => {
   assertEqual(result.score, 100, '500 ft score');
 });
 
-test('scoreTouchdownDistance: 1000 ft = PERFECT boundary', () => {
-  const result = landingDist.scoreTouchdownDistance(1000);
-  assertEqual(result.grade, 'Outstanding', '1000 ft boundary');
+test('scoreTouchdownDistance: 1500 ft = Ideal boundary on a long or unknown runway', () => {
+  const result = landingDist.scoreTouchdownDistance(1500);
+  assertEqual(result.grade, 'Outstanding', '1500 ft boundary');
+  assertEqual(result.zoneEndFt, 3000, 'unknown runway length falls back to the 3,000 ft zone');
 });
 
-test('scoreTouchdownDistance: 1001 ft = Good grade', () => {
-  const result = landingDist.scoreTouchdownDistance(1001);
-  assertEqual(result.grade, 'Good', '1001 ft');
+test('scoreTouchdownDistance: 1501 ft = Good grade', () => {
+  const result = landingDist.scoreTouchdownDistance(1501);
+  assertEqual(result.grade, 'Good', '1501 ft');
+  assertEqual(result.score, 95, '1501 ft score');
 });
 
-test('scoreTouchdownDistance: 2000 ft = GOOD boundary', () => {
-  const result = landingDist.scoreTouchdownDistance(2000);
-  assertEqual(result.grade, 'Good', '2000 ft');
+test('scoreTouchdownDistance: 2333 ft = Good boundary', () => {
+  const result = landingDist.scoreTouchdownDistance(2333);
+  assertEqual(result.grade, 'Good', '2333 ft');
 });
 
-test('scoreTouchdownDistance: 2001 ft = Good grade', () => {
-  const result = landingDist.scoreTouchdownDistance(2001);
-  assertEqual(result.grade, 'Good', '2001 ft');
+test('scoreTouchdownDistance: 2334 ft = late in the zone', () => {
+  const result = landingDist.scoreTouchdownDistance(2334);
+  assertEqual(result.grade, 'Acceptable', '2334 ft');
+  assertEqual(result.zone, 'Late TDZ', '2334 ft zone');
+  assertEqual(result.score, 80, '2334 ft score');
 });
 
 test('scoreTouchdownDistance: 3000 ft remains within TDZ', () => {
   const result = landingDist.scoreTouchdownDistance(3000);
-  assertEqual(result.grade, 'Good', '3000 ft');
+  assertEqual(result.grade, 'Acceptable', '3000 ft');
 });
 
-test('scoreTouchdownDistance: 3001 ft = Acceptable grade', () => {
+test('scoreTouchdownDistance: 3001 ft = Long Landing', () => {
   const result = landingDist.scoreTouchdownDistance(3001);
-  assertEqual(result.grade, 'Acceptable', '3001 ft');
+  assertEqual(result.grade, 'Long Landing', '3001 ft');
+  assertEqual(result.score, 60, '3001 ft score');
 });
 
-test('scoreTouchdownDistance: 4000 ft = POOR boundary', () => {
-  const result = landingDist.scoreTouchdownDistance(4000);
-  assertEqual(result.grade, 'Long Landing', '4000 ft');
-});
-
-test('scoreTouchdownDistance: 4001 ft = Long Landing grade', () => {
-  const result = landingDist.scoreTouchdownDistance(4001);
-  assertEqual(result.grade, 'Long Landing', '4001 ft');
-});
-
-test('scoreTouchdownDistance: 5000 ft = Long Landing', () => {
+test('scoreTouchdownDistance: 5000 ft = Long Landing boundary', () => {
   const result = landingDist.scoreTouchdownDistance(5000);
   assertEqual(result.grade, 'Long Landing', '5000 ft');
+});
+
+test('scoreTouchdownDistance: 5001 ft = Dangerous', () => {
+  const result = landingDist.scoreTouchdownDistance(5001);
+  assertEqual(result.grade, 'Dangerous', '5001 ft');
+});
+
+test('scoreTouchdownDistance: the zone is the first third of a short runway', () => {
+  // 6,000 ft landing length: zone ends at 2,000 ft, Ideal to 1,250, Good to 1,667.
+  assertEqual(landingDist.scoreTouchdownDistance(1250, { runwayLengthFt: 6000 }).grade, 'Outstanding', '1250 ft on 6000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(1251, { runwayLengthFt: 6000 }).grade, 'Good', '1251 ft on 6000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(1668, { runwayLengthFt: 6000 }).grade, 'Acceptable', '1668 ft on 6000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(2000, { runwayLengthFt: 6000 }).grade, 'Acceptable', '2000 ft on 6000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(2001, { runwayLengthFt: 6000 }).grade, 'Long Landing', '2001 ft on 6000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(3001, { runwayLengthFt: 6000 }).grade, 'Dangerous', 'past half of 6000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(2000, { runwayLengthFt: 6000 }).zoneEndFt, 2000, 'zone end on 6000 ft');
+});
+
+test('scoreTouchdownDistance: the aiming point never moves toward the threshold', () => {
+  assertEqual(landingDist.scoreTouchdownDistance(1000, { runwayLengthFt: 3000 }).grade, 'Outstanding', '1000 ft on 3000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(1001, { runwayLengthFt: 3000 }).grade, 'Long Landing', '1001 ft on 3000 ft');
+  assertEqual(landingDist.scoreTouchdownDistance(1501, { runwayLengthFt: 3000 }).grade, 'Dangerous', 'past half of 3000 ft');
+});
+
+test('isTouchdownZoneAchieved: uses the runway-length zone end', () => {
+  assertEqual(landingDist.isTouchdownZoneAchieved(2500), true, '2500 ft with unknown length');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2500, 12000), true, '2500 ft on 12000 ft');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2500, 6000), false, '2500 ft on 6000 ft is beyond the first third');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2000, 6000), true, '2000 ft on 6000 ft');
+  assertEqual(landingDist.touchdownZoneEndFt(9000), 3000, 'one third of 9000 ft caps at 3000 ft');
+  assertEqual(landingDist.touchdownZoneEndFt(4500), 1500, 'one third of 4500 ft');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,14 +348,15 @@ test('scoreLateralOffset: invalid runway widths use the safe 150 ft default', ()
   }
 });
 
-test('scoreTouchdownDistance: 0 ft remains Outstanding without aircraft-specific target data', () => {
+test('scoreTouchdownDistance: 0 ft is a near-threshold caution', () => {
   const result = landingDist.scoreTouchdownDistance(0);
-  assertEqual(result.grade, 'Outstanding', 'Zero distance');
-  assertEqual(result.score, 100, 'Zero distance score');
+  assertEqual(result.grade, 'Near Threshold', 'Zero distance');
+  assertEqual(result.zone, 'Before Aiming Point', 'Zero distance zone');
+  assertEqual(result.score, 85, 'Zero distance score');
 });
 
-test('scoreTouchdownDistance: touchdown within the first 1000 ft is outstanding by default', () => {
-  assertEqual(landingDist.scoreTouchdownDistance(499).grade, 'Outstanding', '499 ft should be outstanding');
+test('scoreTouchdownDistance: the ideal band starts 500 ft from the threshold', () => {
+  assertEqual(landingDist.scoreTouchdownDistance(499).grade, 'Near Threshold', '499 ft should be a near-threshold caution');
   assertEqual(landingDist.scoreTouchdownDistance(500).grade, 'Outstanding', '500 ft should be outstanding');
 });
 
@@ -364,7 +391,9 @@ test('scoreTouchdownDistance: touchdown at or beyond runway end is an overrun', 
 
 test('isTouchdownZoneAchieved: rejects overruns and pre-threshold contacts', () => {
   assertEqual(landingDist.isTouchdownZoneAchieved(900, 800), false, 'Past-end touchdown');
-  assertEqual(landingDist.isTouchdownZoneAchieved(2966, 6000), true, 'Formal TDZ touchdown');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2966, 12000), true, 'Inside the 3,000 ft zone on a long runway');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2966, 6000), false, 'Beyond the first third of a 6,000 ft runway');
+  assertEqual(landingDist.isTouchdownZoneAchieved(2000, 6000), true, 'At the first-third zone end');
   assertEqual(landingDist.isTouchdownZoneAchieved(3000, 3000), false, 'Runway-end touchdown');
   assertEqual(landingDist.isTouchdownZoneAchieved(-1, 6000), false, 'Pre-threshold touchdown');
 });
@@ -373,21 +402,30 @@ test('isTouchdownZoneAchieved: rejects overruns and pre-threshold contacts', () 
 // getAdjustedBands tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('getAdjustedBands: default returns standard bands', () => {
+test('getAdjustedBands: unknown runway length uses the 3,000 ft zone', () => {
   const bands = landingDist.getAdjustedBands();
-  if (!bands.PERFECT || !bands.GOOD || !bands.ACCEPTABLE) {
+  if (!bands.NEAR_THRESHOLD || !bands.PERFECT || !bands.GOOD || !bands.ACCEPTABLE || !bands.POOR) {
     throw new Error('Expected standard bands');
   }
-  assertEqual(bands.PERFECT.max, 1000, 'PERFECT max');
-  assertEqual(bands.GOOD.max, 3000, 'GOOD max');
+  assertEqual(bands.NEAR_THRESHOLD.max, 499, 'NEAR_THRESHOLD max (the ideal band starts at 500 ft)');
+  assertEqual(bands.PERFECT.max, 1500, 'PERFECT max');
+  assertEqual(bands.GOOD.max, 2333, 'GOOD max');
+  assertEqual(bands.ACCEPTABLE.max, 3000, 'ACCEPTABLE max is the zone end');
+  assertEqual(bands.POOR.max, 5000, 'POOR max');
 });
 
-test('getAdjustedBands: short runway and contamination do not move the TDZ boundary', () => {
+test('getAdjustedBands: runway length sets the zone end and weather never moves it', () => {
   for (const surface of ['dry', 'wet', 'ice', 'snow', 'unknown', null]) {
     const bands = landingDist.getAdjustedBands(4000, surface);
-    assertEqual(bands.GOOD.max, 3000, 'TDZ ends at 3000ft');
-    assertEqual(bands.PERFECT.max, 1000, 'Ideal marker retained');
+    assertEqual(bands.ACCEPTABLE.max, 1333, 'zone ends at one third of 4000 ft');
+    assertEqual(bands.PERFECT.max, 1083, 'Ideal band anchored on the 1,000 ft aiming point');
+    assertEqual(bands.GOOD.max, 1222, 'Good band ends two thirds of the way to the zone end');
+    assertEqual(bands.POOR.max, 2000, 'Long Landing ends at half the runway');
+    assertEqual(bands.NEAR_THRESHOLD.max, 499, 'near-threshold limit is fixed');
   }
+  const long = landingDist.getAdjustedBands(12000, 'wet');
+  assertEqual(long.ACCEPTABLE.max, 3000, 'zone caps at 3000 ft');
+  assertEqual(long.POOR.max, 5000, 'Long Landing caps at 5000 ft');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

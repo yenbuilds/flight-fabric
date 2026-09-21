@@ -1,7 +1,7 @@
 {
   "name": "@flight-fabric/telemetry-client",
   "version": "0.1.0",
-  "description": "WebSocket client and React hooks for Flight Fabric telemetry",
+  "description": "WebSocket client and React hooks for FlightFabric telemetry",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -34,7 +34,7 @@
     "hooks",
     "msfs"
   ],
-  "author": "Flight Fabric",
+  "author": "FlightFabric",
   "license": "AGPL-3.0-only",
   "dependencies": {
     "@flight-fabric/telemetry-types": "file:../telemetry-types"

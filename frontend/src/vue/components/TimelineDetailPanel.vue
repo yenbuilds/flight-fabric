@@ -4,6 +4,7 @@ import { containDialogFocus } from '../../ui/dialog-focus.js';
 import { useLandingStore } from '../stores/landing.js';
 import { useTimelineStore } from '../stores/timeline.js';
 
+const props = defineProps({ embedded: { type: Boolean, default: false } });
 const landing = useLandingStore();
 const timeline = useTimelineStore();
 const dialog = ref(null);
@@ -18,7 +19,7 @@ function handleKeydown(event) {
     timeline.clearDetail();
     return;
   }
-  containDialogFocus(event, dialog.value);
+  if (!props.embedded) containDialogFocus(event, dialog.value);
 }
 
 watch(() => timeline.detailVisible, async (isOpen) => {
@@ -76,14 +77,15 @@ const landingEssentialRows = computed(() => {
   <div
     v-if="timeline.detailVisible"
     class="timeline-detail-backdrop"
+    :class="{ 'is-embedded': embedded }"
     @click.self="timeline.clearDetail()"
   >
     <section
       ref="dialog"
       id="timeline-detail"
       class="timeline-detail-drawer"
-      role="dialog"
-      aria-modal="true"
+      :role="embedded ? 'region' : 'dialog'"
+      :aria-modal="embedded ? undefined : 'true'"
       aria-labelledby="timeline-detail-title"
       tabindex="-1"
       @keydown="handleKeydown"

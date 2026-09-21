@@ -403,6 +403,7 @@ export function createTimelineMapController({
   let currentFitPositioned = [];
   let timelineMapInitErrorMessage = '';
   let timelineLongitudeReference = null;
+  let lastCursorState = null;
 
   function setMapEmptyState(state = {}) {
     timelineStore.setMapEmptyState(state);
@@ -616,6 +617,19 @@ export function createTimelineMapController({
       Number.isFinite(iasKts) ? iasKts : null,
       Number.isFinite(altFt) ? altFt : null,
     );
+
+    if (pos) {
+      lastCursorState = {
+        pos: { lat: pos.lat, lon: pos.lon, timestampMs: Number.isFinite(Number(pos.timestampMs)) ? Number(pos.timestampMs) : null },
+        attitude: {
+          headingDeg: Number.isFinite(headingDeg) ? headingDeg : null,
+          pitchDeg: Number.isFinite(pitchDeg) ? pitchDeg : null,
+          rollDeg: Number.isFinite(rollDeg) ? rollDeg : null,
+          iasKts: Number.isFinite(iasKts) ? iasKts : null,
+          altFt: Number.isFinite(altFt) ? altFt : null,
+        },
+      };
+    }
 
     if (!timelineMap || typeof windowRef.L === 'undefined' || !pos) return;
 
@@ -850,6 +864,7 @@ export function createTimelineMapController({
     currentFitPositioned = [];
     resetTimelineMapDataLayers();
     resetTimelineCursor();
+    lastCursorState = null;
     updateOrientationWidget(null, null, null);
   }
 
@@ -881,6 +896,7 @@ export function createTimelineMapController({
   return {
     destroy,
     focusEvent,
+    getLastCursor: () => lastCursorState,
     hasMap: () => Boolean(timelineMap),
     invalidateSizeStaggered: invalidateTimelineMapSizeStaggered,
     render,

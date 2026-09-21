@@ -823,9 +823,12 @@ for (const [suffix, rawValue, expectedValue] of [
   });
 }
 
-// Installed 737-800 4.0.63 cockpit behavior: control 118, downward press=2,
-// release=4. Allow each downward movement to settle before the next input,
-// then release at START. A transport ACK does not mean the switch has moved.
+// Installed 737-800 4.0.63 cockpit behavior: control 118, press=1/2 by click
+// half, release=4. The XML does not name the direction; community presets
+// against L:switch_118_73X (0 OFF, 50 ON, 100 START) show 11801 advances
+// toward START and 11802 retreats toward OFF. Allow each advance to settle
+// before the next input, then release at START. A transport ACK does not mean
+// the switch has moved.
 actions['systems.apu.start'] = {
   id: 'systems.apu.start',
   guard: {
@@ -836,9 +839,9 @@ actions['systems.apu.start'] = {
     id: 'pmdg737.systems.apu.start.rotorBrake', transport: 'simconnect-sequence',
     requiredSdkAdapter: SDK_ADAPTER_ID,
     operations: [
-      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11802 },
+      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11801 },
       { type: 'delay', milliseconds: 500 },
-      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11802 },
+      { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11801 },
       { type: 'delay', milliseconds: 500 },
       { type: 'event', name: ROTOR_BRAKE_EVENT, value: 11804 },
     ],

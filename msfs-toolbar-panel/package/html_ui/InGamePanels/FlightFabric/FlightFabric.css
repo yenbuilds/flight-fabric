@@ -1,0 +1,98 @@
+/* FlightFabric toolbar panel loader styles (Coherent GT). */
+
+#flightfabric-panel ingame-ui#flightfabric-panel-frame {
+  background: #0b1220;
+  border: 1px solid #1f2b3d;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#flightfabric-panel ui-element {
+  position: relative;
+}
+
+/* MSFS 2024 leaves an invisible panel in the layout unless it is removed. */
+body[data-simulator="MSFS2024"] .panelInvisible {
+  display: none !important;
+}
+
+#flightfabric-panel .ff-loader-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#flightfabric-panel .ff-loader-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #0b1220;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease;
+}
+
+#flightfabric-panel .ff-loader-frame.ff-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+#flightfabric-panel .ff-loader-fallback {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  text-align: center;
+  color: #d6e2f0;
+  font-family: "Roboto", "Segoe UI", sans-serif;
+}
+
+#flightfabric-panel .ff-loader-fallback.ff-hidden {
+  display: none;
+}
+
+#flightfabric-panel .ff-loader-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+#flightfabric-panel .ff-loader-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-bottom: 8px;
+}
+
+#flightfabric-panel .ff-loader-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #9fb3c8;
+  max-width: 420px;
+}
+
+#flightfabric-panel .ff-loader-detail {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #6b7f95;
+  font-family: "Consolas", "Roboto Mono", monospace;
+}

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">Flight Fabric</title>
+  <title id="title">FlightFabric</title>
   <desc id="desc">Navigation-display-inspired flight path and aircraft mark</desc>
   <defs>
     <linearGradient id="orbit" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">

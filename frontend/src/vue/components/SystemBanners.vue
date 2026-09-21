@@ -14,7 +14,9 @@ const restartButtonClass = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded
 
 function confirmRestartRequiredAction() {
   if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
-  return window.confirm('Restart Flight Fabric now to apply the pending changes?');
+  return window.confirm(settingsUi.restartActionSaveRequired
+    ? 'Save your settings changes, then restart FlightFabric? The app will restart only after saving succeeds.'
+    : 'Restart FlightFabric now to apply the pending changes?');
 }
 
 async function requestRestartFromBanner() {
@@ -79,7 +81,7 @@ useBodyStyle(
             :class="restartButtonClass"
             :disabled="settingsUi.restartActionDisabled"
             :title="settingsUi.restartActionTitle"
-            aria-label="Restart app to apply changes"
+            :aria-label="settingsUi.restartActionLabel"
             @click="requestRestartFromBanner()"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

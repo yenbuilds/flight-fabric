@@ -180,7 +180,7 @@ function compileJavaScriptModule(filename) {
 
 function createMountedTestRenderer(createRenderer) {
   const nodes = [], makeNode = (kind, text = '') => {
-    const node = { kind, text, children: [], props: {}, parent: null,
+    const node = { kind, text, children: [], props: {}, parent: null, style: {},
       get options() { return this.children.filter(child => child.kind === 'option'); },
       get value() { return this.props.value; }, set value(value) { this.props.value = value; },
       addEventListener() {}, removeEventListener() {}, getRootNode: () => globalThis.document }; nodes.push(node); return node;
@@ -228,10 +228,16 @@ async function main() {
     { useProfilesStore },
     { useSystemHostStore },
     { useDataSourcesUiStore },
+    { usePromptsStore },
+    { useSupportStore },
+    { useWhatsNewStore },
+    { useVoiceFirstCommandStore },
+    { useToolbarPanelStore },
     { resolveAircraftSpecificTemplate },
     { mcpDraftKey, submitMcpDraft },
     { buildPmdg777CommandInput },
     { triggerFenixThrottleHaptic },
+    { buildThrottleQuadrantAnchors, throttleQuadrantTravelPercent, throttleKnobGlyph },
   ] = await Promise.all([
     import(toFrontendUrl('src', 'vue', 'stores', 'settings-form.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'settings-ui.js')),
@@ -255,10 +261,16 @@ async function main() {
     import(toFrontendUrl('src', 'vue', 'stores', 'profiles.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'system-host.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'data-sources-ui.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'prompts.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'support.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'whats-new.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'voice-first-command.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'toolbar-panel.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'template-registry.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'pmdg777-command-routing.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'paired-throttle-detents.js')),
+    import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'throttle-quadrant-geometry.js')),
   ]);
 
   let passed = 0;
@@ -289,6 +301,11 @@ async function main() {
       useProfilesStore,
       useSystemHostStore,
       useDataSourcesUiStore,
+      usePromptsStore,
+      useSupportStore,
+      useWhatsNewStore,
+      useVoiceFirstCommandStore,
+      useToolbarPanelStore,
       useFeedbackStore,
       useDebugStore,
       useLandingStore,
@@ -321,6 +338,174 @@ async function main() {
   }
 
   console.log('\n=== Vue Component SSR Tests ===\n');
+
+  await test('mounted autotaxi panel displays correlated failures and cancels planning on navigation', async () => {
+    clearBrowserGlobals();
+    installBrowserGlobals();
+    const savedDocument = globalThis.Document, savedShadowRoot = globalThis.ShadowRoot;
+    globalThis.Document = class {}; globalThis.ShadowRoot = class {};
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const { setAppService } = await import(toFrontendUrl('app-shared.js'));
+    const { emitWsMessage, emitWsClose, emitWsOpen } = await import(toFrontendUrl('src', 'app', 'runtime-signals.js'));
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'aircraft-specific', 'AutotaxiPanel.vue'))).href)).default;
+    const { makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    useAircraftControlsStore().setAvailability({ enabled: true });
+    const sent = [];
+    const backgroundActivity = [];
+    globalThis.electronAPI = { setAutotaxiBackgroundActive: active => { backgroundActivity.push(active); return Promise.resolve({ ok: true }); } };
+    setAppService('sendWs', message => { sent.push(message); return true; });
+    const app = renderer.createApp(component); app.use(pinia);
+    const root = makeNode('root');
+    const descendants = node => [node, ...node.children.flatMap(descendants)];
+    const visibleText = () => descendants(root).map(node => node.text).join(' ');
+    const click = label => {
+      const button = descendants(root).find(node => node.kind === 'button' && node.text === label);
+      assert.equal(Boolean(button.props.disabled), false, `${label} must be available`);
+      button.props.onClick();
+    };
+    let mounted = false;
+    try {
+      app.mount(root); mounted = true;
+      descendants(root).find(node => node.props.placeholder === 'YMML').props['onUpdate:modelValue']('TEST');
+      descendants(root).find(node => node.props.placeholder === '16').props['onUpdate:modelValue']('09');
+      for (const [aircraftLabel, setup] of [['Generic aircraft', 'Use standard simulator controls.'], ['PMDG 777', 'Select Tiller + Rudder in PMDG setup.'], ['Fenix A32X', 'Prepare Fenix ground controls.']]) {
+        emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: false,
+          reason: 'Live acceptance pending.', support: { aircraftLabel, qualificationStatus: 'candidate', setupInstructions: [setup] } });
+        await nextTick();
+        assert.ok(visibleText().includes(aircraftLabel), 'support names the backend-selected aircraft');
+        assert.ok(visibleText().includes(setup), 'setup uses backend instructions');
+        assert.ok(visibleText().includes('Live acceptance is still pending.'), 'a candidate never appears qualified');
+        assert.equal(descendants(root).find(node => node.kind === 'button' && node.text === 'Start taxi').props.disabled, true);
+      }
+      const catalogue = useAircraftControlsStore();
+      catalogue.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/generic', profileRevision: 1, commands: [], inventory: [] } });
+      await nextTick();
+      const oldStatusRequest = sent.findLast(message => message.operation === 'status');
+      emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true,
+        currentProfileKey: 'bundled/msfs/generic', currentProfileRevision: 1 });
+      await nextTick();
+      catalogue.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/generic', profileRevision: 2, commands: [], inventory: [] } });
+      await nextTick();
+      emitWsMessage({ type: 'autotaxiState', requestId: oldStatusRequest.requestId, status: 'idle', active: false, canStart: true });
+      emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true,
+        currentProfileKey: 'bundled/msfs/generic', currentProfileRevision: 1 });
+      await nextTick();
+      assert.equal(descendants(root).find(node => node.kind === 'button' && node.text === 'Start taxi').props.disabled, true, 'old profile readiness cannot enable the shared panel');
+      emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true,
+        currentProfileKey: 'bundled/msfs/generic', currentProfileRevision: 2 });
+      await nextTick();
+      assert.equal(descendants(root).find(node => node.kind === 'button' && node.text === 'Start taxi').props.disabled, false, 'fresh current-profile readiness restores the controls');
+      emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true });
+      await nextTick();
+      await new Promise(resolve => setTimeout(resolve, 620));
+      assert.equal(sent.at(-1).operation, 'parkings');
+      const originalLookup = sent.at(-1).requestId;
+      emitWsMessage({ type: 'autotaxiState', requestId: sent.at(-1).requestId, ok: false, error: 'Stand lookup failed' });
+      await nextTick();
+      assert.ok(!visibleText().includes('Stand lookup failed'));
+      descendants(root).find(node => node.kind === 'input' && node.props.value === 'stand').props['onUpdate:modelValue']('stand');
+      emitWsMessage({ type: 'autotaxiState', requestId: originalLookup, stands: ['Gate D 12'] });
+      await nextTick();
+      assert.equal(descendants(root).find(node => node.kind === 'option').props.value, 'Gate D 12', 'older name-only replies still work');
+      emitWsMessage({ type: 'autotaxiState', requestId: originalLookup, stands: ['Gate D 12'], standOptions: [{ label: 'Gate D 12', typeLabel: 'Medium gate' }] });
+      await nextTick();
+      const suggestion = descendants(root).find(node => node.kind === 'option');
+      assert.equal(suggestion.props.label, 'Gate D 12 — Medium gate');
+      descendants(root).find(node => node.props.placeholder === 'D12').props['onUpdate:modelValue'](suggestion.props.value);
+      await nextTick();
+      assert.ok(visibleText().includes('Medium gate'), 'selected type stays visible');
+      const setAirport = value => descendants(root).find(node => node.props.placeholder === 'YMML').props['onUpdate:modelValue'](value);
+      const reply = (requestId, typeLabel) => emitWsMessage({ type: 'autotaxiState', requestId, stands: ['Gate D 12'], standOptions: [{ label: 'Gate D 12', typeLabel }] });
+      setAirport('EGCC'); await nextTick();
+      reply(originalLookup, 'Heavy gate'); await nextTick();
+      assert.equal(descendants(root).filter(node => node.kind === 'option').length, 0, 'previous airport reply must stay out during debounce');
+      await new Promise(resolve => setTimeout(resolve, 620));
+      const currentLookup = sent.findLast(message => message.operation === 'parkings').requestId;
+      reply(currentLookup, 'Small gate'); await nextTick();
+      reply(originalLookup, 'Heavy gate'); await nextTick();
+      assert.ok(visibleText().includes('Small gate'), 'late previous airport reply cannot overwrite current stand type');
+      assert.ok(!visibleText().includes('Heavy gate'));
+      setAirport('EG'); await nextTick();
+      reply(currentLookup, 'Small gate'); await nextTick();
+      assert.equal(descendants(root).filter(node => node.kind === 'option').length, 0, 'clearing the ICAO invalidates pending suggestions');
+      setAirport('EGCC'); await nextTick();
+      await new Promise(resolve => setTimeout(resolve, 620));
+      const disconnectedLookup = sent.findLast(message => message.operation === 'parkings').requestId;
+      emitWsClose(); await nextTick();
+      reply(disconnectedLookup, 'Heavy gate'); await nextTick();
+      assert.equal(descendants(root).filter(node => node.kind === 'option').length, 0, 'connection loss invalidates pending suggestions');
+      emitWsOpen();
+      await new Promise(resolve => setTimeout(resolve, 620));
+      const reconnectedLookup = sent.findLast(message => message.operation === 'parkings').requestId;
+      assert.notEqual(reconnectedLookup, disconnectedLookup, 'reconnection reloads stand data');
+      reply(reconnectedLookup, 'Medium gate'); await nextTick();
+      emitWsMessage({ type: 'autotaxiState', requestId: reconnectedLookup, stands: [], standOptions: [] });
+      await nextTick();
+      assert.equal(descendants(root).filter(node => node.kind === 'option').length, 0, 'an airport with no stands clears the suggestions');
+      assert.ok(!visibleText().includes('Medium gate'), 'empty suggestions clear the selected type');
+      emitWsMessage({ type: 'autotaxiState', requestId: reconnectedLookup, stands: ['Gate D 12'] });
+      await nextTick();
+      assert.ok(!visibleText().includes('Medium gate'), 'name-only replies never retain a previous type');
+      reply(reconnectedLookup, 'Medium gate'); await nextTick();
+      emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true });
+      await nextTick();
+      for (const [operation, label] of [['start', 'Start taxi'], ['preview', 'Check route'], ['stop', 'Stop'], ['release', 'Release controls']]) {
+        if (['stop', 'release'].includes(operation)) {
+          emitWsMessage({ type: 'autotaxiState', status: 'taxiing', active: true, canStart: false });
+          await nextTick();
+        }
+        click(label); await nextTick();
+        assert.equal(backgroundActivity.at(-1), true, 'planning and active controls keep the desktop heartbeat awake');
+        const request = sent.at(-1);
+        assert.equal(request.operation, operation);
+        assert.equal(request.parking, 'Gate D 12', 'routing receives only the stand name');
+        emitWsMessage({ type: 'autotaxiState', requestId: request.requestId, ok: false, error: `${operation} rejected` });
+        await nextTick();
+        assert.ok(visibleText().includes(`${operation} rejected`), operation);
+        if (['start', 'preview'].includes(operation)) assert.equal(backgroundActivity.at(-1), false, 'failed planning releases background activity');
+      }
+      emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true });
+      await nextTick();
+      click('Start taxi'); await nextTick();
+      const start = sent.at(-1);
+      emitWsMessage({ type: 'autotaxiState', requestId: 'autotaxi-old', ok: false, error: 'Obsolete error' });
+      await nextTick();
+      assert.ok(!visibleText().includes('Obsolete error'));
+      emitWsMessage({ type: 'autotaxiState', requestId: start.requestId, ok: true, status: 'idle', active: false, canStart: true });
+      await nextTick();
+      assert.ok(visibleText().includes('Start taxi'));
+      click('Start taxi'); await nextTick();
+      app.unmount(); mounted = false;
+      assert.equal(backgroundActivity.at(-1), false, 'unmount restores normal background throttling');
+      assert.equal(sent.at(-1).operation, 'stop', 'navigation cancels Start before the server has returned a controller');
+      const countAtUnmount = sent.length;
+      emitWsOpen();
+      await new Promise(resolve => setTimeout(resolve, 620));
+      assert.equal(sent.length, countAtUnmount, 'unmount removes reconnect listeners and lookup timers');
+      const nextApp = renderer.createApp(component); nextApp.use(pinia);
+      const nextRoot = makeNode('root');
+      try {
+        nextApp.mount(nextRoot);
+        descendants(nextRoot).find(node => node.props.placeholder === 'YMML').props['onUpdate:modelValue']('TEST');
+        await nextTick();
+        await new Promise(resolve => setTimeout(resolve, 620));
+        const nextLookup = sent.findLast(message => message.operation === 'parkings').requestId;
+        assert.notEqual(nextLookup, originalLookup, 'remounting cannot reuse a stand lookup ID');
+        descendants(nextRoot).find(node => node.kind === 'input' && node.props.value === 'stand').props['onUpdate:modelValue']('stand');
+        reply(originalLookup, 'Heavy gate'); await nextTick();
+        assert.equal(descendants(nextRoot).filter(node => node.kind === 'option').length, 0, 'old panel replies cannot populate a new picker');
+        reply(nextLookup, 'Small gate'); await nextTick();
+        assert.equal(descendants(nextRoot).find(node => node.kind === 'option').props.label, 'Gate D 12 — Small gate');
+      } finally { nextApp.unmount(); }
+    } finally {
+      if (mounted) app.unmount();
+      setAppService('sendWs', null);
+      delete globalThis.electronAPI;
+      globalThis.Document = savedDocument; globalThis.ShadowRoot = savedShadowRoot;
+    }
+  });
 
   const lightingRuntime = require('./backend-runtime-paths').resolveBackendRuntimeFile;
   const lightingLoader = require(lightingRuntime('aircraft/aircraft-profile-loader.js'));
@@ -591,6 +776,46 @@ async function main() {
     assert.deepEqual(pulses, [12], 'a detent tap should produce one subtle 12 ms pulse');
     assert.equal(triggerFenixThrottleHaptic({}), false, 'desktop Electron should safely do nothing');
     assert.equal(triggerFenixThrottleHaptic({ vibrate() { throw new Error('blocked'); } }), false, 'browser refusal must never break the throttle command');
+  });
+
+  await test('Throttle quadrant geometry lands each lever on its gate and clamps inside the quadrant', () => {
+    const detents = [
+      { id: 'toga', angle: 45 },
+      { id: 'flexMct', angle: 35 },
+      { id: 'climb', angle: 25 },
+      { id: 'idle', angle: 0 },
+    ];
+    const anchors = buildThrottleQuadrantAnchors(detents, { rawKey: 'angle', reverse: { idle: -6, full: -20 } });
+    assert.deepEqual(anchors.map((anchor) => anchor.raw), [-20, -6, 0, 25, 35, 45], 'anchors should be sorted along the raw axis');
+    const total = 4 + 2 / 3;
+    const rowCentre = (index) => Number(((index + 0.5) / total * 100).toFixed(3));
+    assert.equal(throttleQuadrantTravelPercent(45, anchors, 4), rowCentre(0), 'TOGA should sit on the top gate');
+    assert.equal(throttleQuadrantTravelPercent(35, anchors, 4), rowCentre(1), 'FLX/MCT should sit on the second gate');
+    assert.equal(throttleQuadrantTravelPercent(25, anchors, 4), rowCentre(2), 'CLB should sit on the third gate');
+    assert.equal(throttleQuadrantTravelPercent(0, anchors, 4), rowCentre(3), 'IDLE should sit on the bottom forward gate');
+    const between = throttleQuadrantTravelPercent(30, anchors, 4);
+    assert.ok(between > rowCentre(1) && between < rowCentre(2), 'an off-detent reading should be drawn between its neighbouring gates');
+    assert.equal(throttleQuadrantTravelPercent(30, anchors, 4), Number(((rowCentre(1) + rowCentre(2)) / 2).toFixed(3)), 'interpolation between gates should be linear');
+    const reverseIdle = throttleQuadrantTravelPercent(-6, anchors, 4);
+    const fullReverse = throttleQuadrantTravelPercent(-20, anchors, 4);
+    assert.ok(reverseIdle > rowCentre(3) && fullReverse > reverseIdle && fullReverse < 100, 'reverse readings should be drawn in the locked zone below IDLE');
+    assert.equal(throttleQuadrantTravelPercent(90, anchors, 4), rowCentre(0), 'readings beyond TOGA should clamp to the top gate');
+    assert.equal(throttleQuadrantTravelPercent(-40, anchors, 4), fullReverse, 'readings beyond full reverse should clamp to the bottom of the reverse zone');
+    assert.equal(throttleQuadrantTravelPercent(null, anchors, 4), null, 'a missing readback should not place a lever');
+    assert.equal(throttleQuadrantTravelPercent('abc', anchors, 4), null, 'a garbage readback should not place a lever');
+
+    const fenixAnchors = buildThrottleQuadrantAnchors([
+      { id: 'toga', value: 5 },
+      { id: 'flexMct', value: 4 },
+      { id: 'climb', value: 3 },
+      { id: 'idle', value: 2 },
+    ], { rawKey: 'value', reverse: { idle: 1, full: 0 } });
+    assert.equal(throttleQuadrantTravelPercent(3, fenixAnchors, 4), rowCentre(2), 'Fenix detent positions should map onto the same gate rows');
+    assert.equal(throttleQuadrantTravelPercent('2', fenixAnchors, 4), rowCentre(3), 'string readbacks should be accepted');
+
+    assert.equal(throttleKnobGlyph('ENG 1', 0), '1');
+    assert.equal(throttleKnobGlyph('L', 0), 'L');
+    assert.equal(throttleKnobGlyph('Left engine', 0), '1', 'long labels fall back to the lever number');
   });
 
   await test('MCP draft submission rejects empty values without dispatching zero', async () => {
@@ -1009,7 +1234,8 @@ async function main() {
 
   console.log('--- overlay layering ---\n');
   await test('Header chrome no longer carries theme switcher overlay CSS', async () => {
-    const css = fs.readFileSync(path.join(frontendRoot, 'index.css'), 'utf8');
+    const css = fs.readFileSync(path.join(frontendRoot, 'index.css'), 'utf8')
+      + fs.readFileSync(path.join(frontendRoot, 'src', 'styles', 'app-workbench.css'), 'utf8');
 
     assert.match(
       css,
@@ -1177,7 +1403,11 @@ async function main() {
   });
 
   await test('SettingsTabShell renders settings runtime form and embedded panels', async () => {
-    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SettingsTabShell.vue'));
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SettingsTabShell.vue'), ({ useProfilesStore }) => {
+      useProfilesStore().setAuthorizationScope('full-control');
+    });
+    assert.doesNotMatch(html, /id="settings-desktop-preferences"[^>]*inert/, 'authorized settings should be interactive');
+    assert.doesNotMatch(html, /id="settings-pc-managed-note"/, 'authorized settings should show the actual form');
     const ids = [
       'settings-form',
       'vue-settings-form-root',
@@ -1198,7 +1428,7 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render for settings runtime`);
     }
 
-    assert.match(html, /Preferences/, 'settings form title should render');
+    assert.match(html, /App preferences/, 'settings form title should distinguish PC preferences from device workspace choices');
     assert.match(html, /settings file/, 'settings explanatory copy should render');
     assert.doesNotMatch(html, /id="setting-aircraft-profile"/, 'settings should not duplicate the compact profile correction selector');
     assert.doesNotMatch(html, /id="settings-aircraft-profile-tools"/, 'settings should not expose profile file mutation tools');
@@ -1212,7 +1442,7 @@ async function main() {
     );
     assert.doesNotMatch(html, /Storage Layout/, 'settings shell should not render the storage-layout reference panel');
     assert.match(html, /id="settings-phone-tablet-access"/, 'settings should give phone and tablet access a prominent dedicated section');
-    assert.match(html, /Use Flight Fabric on phones and tablets/, 'settings should frame remote access around the second-screen use case');
+    assert.match(html, /Use FlightFabric on phones and tablets/, 'settings should frame remote access around the second-screen use case');
     assert.match(html, /Advanced network ports/, 'advanced settings should retain only the uncommon port controls');
     assert.doesNotMatch(html, /id="setting-remote-aircraft-control"/, 'aircraft-control opt-in should stay hidden until trusted LAN access is enabled');
     assert.match(html, /Check for app updates/, 'settings panel should expose update checks');
@@ -1231,15 +1461,28 @@ async function main() {
     assert.match(html, /OpenStreetMap/, 'online map help should identify the basemap provider');
     assert.match(html, /standard labeled basemap/, 'online map help should identify the labeled map style');
     assert.match(html, /Turn this off to avoid third-party map traffic/, 'online map help should describe third-party map traffic');
-    assert.match(html, /About Flight Fabric/, 'about panel should render inside shell');
+    assert.match(html, /About FlightFabric/, 'about panel should render inside shell');
     assert.match(html, /AGPL-3\.0-only/, 'about panel should render the project AGPL license identifier');
     assert.match(html, /License \(AGPLv3\)/, 'about panel license button should describe the bundled AGPL license');
     assert.match(html, /id="about-source-offer"[\s\S]*complete corresponding source code/i, 'about panel should prominently offer corresponding source');
     assert.match(html, /id="about-source-link"[\s\S]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases"[\s\S]*View Corresponding Source/, 'about panel should link to matching release source archives');
     assert.match(html, /not certified,[\s\S]*approved,[\s\S]*or intended for real-world aviation/, 'about panel should render the intended-use boundary');
-    assert.match(html, /Do not rely on Flight Fabric/, 'about panel should render the non-reliance warning');
+    assert.match(html, /Do not rely on FlightFabric/, 'about panel should render the non-reliance warning');
     assert.match(html, /non-excludable-rights,[\s\S]*and GNU AGPL qualifiers/, 'about panel should point to the complete bundled qualifiers');
     assert.match(html, /SAFETY-NOTICE\.md/, 'about panel should open the bundled safety notice file');
+  });
+
+  await test('SettingsTabShell explains PC management while desktop settings await full control', async () => {
+    for (const scope of ['read-only', 'aircraft-control', 'unknown']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SettingsTabShell.vue'), ({ useProfilesStore }) => {
+        useProfilesStore().setAuthorizationScope(scope);
+      });
+      assert.match(html, /id="settings-pc-managed-note"[\s\S]*App settings are managed on your PC/);
+      assert.match(html, /id="settings-desktop-preferences"(?=[^>]*style="display:none;")(?=[^>]*inert)/, `${scope} must hide and deactivate desktop settings`);
+      assert.match(html, /<fieldset disabled/, `${scope} must disable desktop form controls`);
+      assert.match(html, /id="settings-form"/, 'the runtime must still find the form on its first mount');
+      assert.doesNotMatch(html, /id="settings-workspace"|id="setting-workspace"/, 'retired workspace preferences cannot be re-enabled from Settings');
+    }
   });
 
   await test('SettingsFormPanels explains that aircraft controls require pairing', async () => {
@@ -1298,15 +1541,15 @@ async function main() {
 
     assert.doesNotMatch(html, /role="tablist"/, 'desktop nav should use regular navigation semantics instead of partial tab ARIA');
     assert.match(html, /data-tab="livemap"/, 'live tab should render');
-    assert.match(html, /data-tab="flight"/, 'flight tab should render');
+    assert.doesNotMatch(html, /data-tab="flight"/, 'Overview belongs to the single Flight destination');
     assert.doesNotMatch(html, /data-tab="lvars"/, 'LVARs should stay out of the primary desktop nav');
     assert.match(html, />Settings</, 'settings tab should render');
     assert.match(html, />System</, 'system tab should render as a first-class desktop tab');
     assert.doesNotMatch(html, /role="tooltip"|app-tooltip/, 'desktop navigation should not render redundant tooltips');
-    assert.match(html, /class="desktop-tab active"[^>]*data-tab="flight"|data-tab="flight"[^>]*class="desktop-tab active"/, 'active tab should carry the active class');
-    assert.match(html, /data-tab="flight"[^>]*aria-current="page"|aria-current="page"[^>]*data-tab="flight"/, 'active desktop nav item should expose aria-current');
-    assert.match(html, /data-tab="flight"[^>]*aria-controls="tab-flight"|aria-controls="tab-flight"[^>]*data-tab="flight"/, 'desktop nav items should point to their sections');
-    assert.match(html, /data-tab="flight"[\s\S]*?>Overview</, 'flight tab should render the Overview label');
+    assert.match(html, /class="desktop-tab active"[^>]*data-tab="livemap"/, 'Overview selects the parent Flight destination');
+    assert.match(html, /data-tab="livemap"[^>]*aria-current="page"/, 'active desktop nav item should expose aria-current');
+    assert.match(html, /data-tab="livemap"[^>]*aria-controls="tab-livemap tab-flight"/, 'Flight navigation owns both views');
+    assert.match(html, /data-tab="livemap"[\s\S]*?>Flight</, 'Flight has a consistent navigation label');
     assert.match(html, /data-tab="autopilot"[\s\S]*?>Aircraft</, 'controls tab should render the Aircraft label');
     assert.doesNotMatch(html, /Command Deck|Telemetry, control, and debrief/, 'desktop tabs should not render decorative copy');
   });
@@ -1334,7 +1577,7 @@ async function main() {
     assert.match(html, /data-aircraft-setup-indicator/, 'the Aircraft nav item should show a compact amber indicator');
   });
 
-  await test('MobileTabs keeps Aircraft primary and moves Overview under More', async () => {
+  await test('MobileTabs keeps Aircraft primary and groups Overview inside Flight', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'MobileTabs.vue'),
       ({ useTabsStore }) => {
@@ -1347,9 +1590,9 @@ async function main() {
     const aircraftIndex = html.indexOf('data-tab="autopilot"');
     const overviewIndex = html.indexOf('data-tab="flight"');
     assert.ok(aircraftIndex >= 0 && aircraftIndex < moreButtonIndex, 'Aircraft should remain in the primary mobile navigation');
-    assert.ok(overviewIndex > moreButtonIndex, 'Overview should render in the mobile More sheet');
+    assert.equal(overviewIndex, -1, 'Overview should not duplicate Flight in More');
     assert.match(html, /data-tab="autopilot"[\s\S]*?>Aircraft</, 'primary mobile navigation should label the control surface Aircraft');
-    assert.match(html, /data-tab="flight"[\s\S]*?>Overview</, 'mobile More should label the monitoring surface Overview');
+    assert.match(html, /data-tab="livemap"[\s\S]*?>Flight</, 'the mobile entry owns both monitoring views');
   });
 
   await test('MobileTabs marks Aircraft when control setup is required', async () => {
@@ -1392,14 +1635,272 @@ async function main() {
     assert.doesNotMatch(html, /id="profiles-update-badge"/, 'retired profile administration badges should remain absent');
   });
 
+  await test('DesktopTabs keeps the experimental Flight cues surface out of primary navigation', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'DesktopTabs.vue'));
+    assert.doesNotMatch(html, /data-tab="cues"/, 'Flight cues should not render as a primary workspace tab while experimental');
+  });
+
+  await test('MobileTabs lists Flight cues under Experimental in the More sheet only', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'MobileTabs.vue'),
+      ({ useTabsStore }) => {
+        useTabsStore().setActiveTab('cues');
+      },
+    );
+
+    const moreButtonIndex = html.indexOf('id="mobile-more-btn"');
+    const cuesIndex = html.indexOf('data-tab="cues"');
+    assert.ok(cuesIndex > moreButtonIndex, 'Flight cues should render inside the mobile More sheet, not the primary bar');
+    assert.match(html, /Experimental[\s\S]*data-tab="cues"[^>]*aria-current="page"[\s\S]*?>Flight cues</, 'Flight cues should sit under the Experimental heading and reflect the active tab');
+    assert.match(html, /id="mobile-more-btn"[^>]*class="mobile-tab active"/, 'the More button should light up while an experimental tab is active');
+  });
+
+  console.log('\n--- fixed navigation ---\n');
+  await test('DesktopTabs keeps four task destinations and a fixed Manage group', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'DesktopTabs.vue'),
+      ({ useTabsStore }) => useTabsStore().setActiveTab('settings'));
+    const order = ['livemap', 'autopilot', 'dispatch', 'timeline', 'settings', 'system'].map(id => html.indexOf(`data-tab="${id}"`));
+    assert.ok(order.every(index => index >= 0));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+    const utilities = html.indexOf('sidebar-nav-utilities');
+    assert.ok(utilities > order[3] && utilities < order[4]);
+    assert.doesNotMatch(html, /data-workspace|workspace-switcher|sidebar-nav-secondary/);
+    assert.match(html, /data-tab="settings"[^>]*aria-current="page"/);
+    assert.match(html, /data-tab="settings"[^>]*aria-controls="tab-settings"/);
+    const keycaps = [...html.matchAll(/data-tab="([a-z]+)"[^>]*aria-keyshortcuts="([1-9 ]+)"/g)].map(match => [match[1], match[2]]);
+    assert.deepEqual(keycaps, [['livemap', '1 2'], ['autopilot', '3'], ['dispatch', '4'], ['timeline', '5'], ['settings', '6'], ['system', '7']]);
+  });
+
+  await test('MobileTabs keeps Flight, Aircraft, SimBrief and Logbook ahead of More', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'MobileTabs.vue'),
+      ({ useTabsStore }) => useTabsStore().setActiveTab('flight'));
+    const more = html.indexOf('id="mobile-more-btn"');
+    const order = ['livemap', 'autopilot', 'dispatch', 'timeline'].map(id => html.indexOf(`data-tab="${id}"`));
+    assert.ok(order.every(index => index >= 0 && index < more));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+    assert.ok(html.indexOf('data-tab="settings"') > more);
+    assert.ok(html.indexOf('data-tab="system"') > more);
+    assert.doesNotMatch(html, /data-tab="flight"|data-workspace|workspace-switcher/);
+    assert.match(html, /class="mobile-tab relative active"[^>]*data-tab="livemap"/);
+    assert.match(html, /Experimental/);
+  });
+
+  console.log('\n--- support ---\n');
+  await test('AppFooter exposes Help without mixing support actions into operational state', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AppFooter.vue'));
+    assert.match(html, /Help &amp; shortcuts/, 'Help must remain reachable from the operational footer');
+    assert.doesNotMatch(html, /id="footer-support-link"/, 'the support link now belongs to the Help dialog');
+  });
+
+  await test('SupportPrompt shows the value delivered, then a thank-you stage after the coffee link', async () => {
+    const idle = await renderComponent(path.join('src', 'vue', 'components', 'SupportPrompt.vue'));
+    assert.doesNotMatch(idle.html, /id="support-prompt"/, 'no card without a pending prompt');
+
+    const DAY = 24 * 60 * 60 * 1000;
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'SupportPrompt.vue'),
+      ({ useSupportStore }) => {
+        const support = useSupportStore();
+        support.hydrate({ firstSeenAt: Date.now() - 10 * DAY }, Date.now());
+        support.applyGoal({ period: new Date().toISOString().slice(0, 7), supporters: 14, goal: 25 });
+        support.considerMilestone({ total: 50, airports: 8, now: Date.now() });
+      },
+    );
+    assert.match(html, /id="support-prompt"[^>]*role="status"/, 'the card is a polite status region');
+    assert.doesNotMatch(html, /aria-modal|role="dialog"/, 'the card must never be modal');
+    assert.match(html, /data-support-stage="ask"/);
+    assert.match(html, /app-prompt-reason">50 flights recorded</, 'the eyebrow names the milestone');
+    assert.match(html, /FlightFabric has recorded 50 flights across 8 airports for you\./, 'the title states the value delivered from local data');
+    assert.doesNotMatch(html, /supporters this month/, 'the ask card carries no supporter goal; that is social pressure and belongs in About only');
+    assert.match(html, /app-prompt-intent">I(?:&#39;|\u2019|')m Yen, /, 'the note is first person and starts with who is asking');
+    assert.match(html, /id="support-prompt-coffee"[^>]*href="https:\/\/www\.flightfabric\.com\/support\/"/, 'the milestone coffee link uses the stable first-party support URL');
+    assert.match(html, /id="support-prompt-dismiss"[^>]*>\s*Not now\s*</);
+    assert.match(html, /id="support-prompt-mute"[^>]*>\s*Don(?:'|&#39;)t ask again\s*</);
+
+    const thanks = await renderComponent(
+      path.join('src', 'vue', 'components', 'SupportPrompt.vue'),
+      ({ useSupportStore }) => {
+        const support = useSupportStore();
+        support.hydrate({ firstSeenAt: Date.now() - 10 * DAY }, Date.now());
+        support.considerMilestone({ total: 10, airports: 1, now: Date.now() });
+        support.coffeeClicked();
+      },
+    );
+    assert.match(thanks.html, /data-support-stage="thanks"/);
+    assert.match(thanks.html, /The support page opened in your browser\./);
+    assert.match(thanks.html, /id="support-prompt-supported"[^>]*>\s*I(?:'|&#39;)ve supported\s*</, 'the user can say they supported so it never asks again');
+    assert.match(thanks.html, /id="support-prompt-close"[^>]*>\s*Close\s*</, 'closing costs nothing');
+    assert.doesNotMatch(thanks.html, /id="support-prompt-coffee"/, 'the coffee link is not repeated after it was used');
+  });
+
+  await test('SupportPrompt yields the corner to another card that holds the slot', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'SupportPrompt.vue'),
+      ({ usePromptsStore, useSupportStore }) => {
+        usePromptsStore().request('whats-new');
+        const support = useSupportStore();
+        support.hydrate({ firstSeenAt: Date.now() - 10 * DAY }, Date.now());
+        support.considerMilestone({ total: 10, now: Date.now() });
+      },
+    );
+    assert.doesNotMatch(html, /id="support-prompt"/, 'two cards never stack');
+  });
+
+  await test('WhatsNewCard lists release highlights without an unrestricted support ask', async () => {
+    const idle = await renderComponent(path.join('src', 'vue', 'components', 'WhatsNewCard.vue'));
+    assert.doesNotMatch(idle.html, /id="whats-new-card"/);
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'WhatsNewCard.vue'),
+      ({ useWhatsNewStore }) => {
+        useWhatsNewStore().show({
+          version: '0.9.9',
+          releaseNotesUrl: 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.9.9',
+          highlights: [{ label: 'Easier pairing', text: 'approve the matching code.' }, { label: '', text: 'Strobe fixes.' }],
+        });
+      },
+    );
+    assert.match(html, /id="whats-new-card"[^>]*role="status"/);
+    assert.match(html, /app-prompt-reason">Updated to 0\.9\.9</);
+    assert.match(html, /app-prompt-list-label">Easier pairing<\/span>\s*approve the matching code\./, 'labelled highlights render label then text');
+    assert.match(html, /<li>\s*Strobe fixes\.\s*<\/li>/, 'unlabelled highlights render plainly');
+    assert.match(html, /Built in evenings by one person\./);
+    assert.doesNotMatch(html, /whats-new-coffee|Buy Yen a coffee|ko-fi/, 'updates must not bypass support opt-outs, cooldowns or the lifetime limit');
+    assert.match(html, /id="whats-new-dismiss"[^>]*>\s*Got it\s*</);
+    assert.match(html, /id="whats-new-release-notes"[^>]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases\/tag\/v0\.9\.9"/);
+  });
+
+  await test('VoiceFirstCommandCard quotes one phrase, turns voice on in place, then hands over the button', async () => {
+    const idle = await renderComponent(path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'));
+    assert.doesNotMatch(idle.html, /id="voice-first-command-card"/, 'no card without an open prompt');
+
+    const off = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+      ({ useVoiceFirstCommandStore }) => {
+        useVoiceFirstCommandStore().open({ example: 'Set heading 270', aircraftName: 'PMDG 737-800' });
+      },
+    );
+    assert.match(off.html, /id="voice-first-command-card"[^>]*role="status"/, 'the card is a polite status region');
+    assert.doesNotMatch(off.html, /aria-modal|role="dialog"/, 'the card must never be modal');
+    assert.match(off.html, /data-voice-first-command-stage="try"/);
+    assert.match(off.html, /app-prompt-reason">Voice control · PMDG 737-800</, 'the eyebrow names the aircraft');
+    assert.match(off.html, /app-prompt-title">Try one voice command</);
+    assert.match(off.html, /id="voice-first-command-example"[^>]*>“Set heading 270”</, 'the phrase to say is quoted verbatim');
+    assert.match(off.html, /audio never leaves it/, 'the privacy promise travels with the first ask');
+    assert.match(off.html, /id="voice-first-command-enable"[^>]*>\s*Turn on voice\s*</, 'voice off means one button to turn it on');
+    assert.doesNotMatch(off.html, /id="voice-first-command-talk"/, 'no hold-to-talk button while voice is off');
+    assert.match(off.html, /id="voice-first-command-dismiss"[^>]*>\s*Not now\s*</);
+    assert.match(off.html, /id="voice-first-command-mute"[^>]*>\s*Don(?:'|&#39;)t show again\s*</);
+
+    const on = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+      ({ useVoiceFirstCommandStore, useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({ available: true, enabled: true, engine: { modelId: 'test' }, pushToTalk: { accelerator: 'Control+Alt+Space', registered: true } });
+        voice.setState('ready', 'Hold Control+Alt+Space or the button, speak the complete command, then release.');
+        useVoiceFirstCommandStore().open({ example: 'Set heading 270', aircraftName: 'PMDG 737-800' });
+      },
+    );
+    assert.match(on.html, /id="voice-first-command-talk"[^>]*>[\s\S]*?Hold to talk/, 'voice on means the hold-to-talk button is on the card');
+    assert.doesNotMatch(on.html, /id="voice-first-command-talk"[^>]*\bdisabled\b/, 'a ready runtime leaves the button enabled');
+    assert.doesNotMatch(on.html, /id="voice-first-command-enable"/);
+    assert.doesNotMatch(on.html, /id="voice-first-command-note"/, 'the ready hint is not repeated under the button');
+
+    const blocked = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+      ({ useVoiceFirstCommandStore, useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({ available: true, enabled: true, engine: { modelId: 'test' }, pushToTalk: { accelerator: '', registered: false } });
+        voice.setState('unmatched', 'No command matched. Try the full phrase.');
+        voice.setTranscript('set the thing');
+        useVoiceFirstCommandStore().open({ example: 'Set heading 270' });
+      },
+    );
+    assert.match(blocked.html, /id="voice-first-command-note"[^>]*>Heard: “set the thing” · No command matched\. Try the full phrase\.</, 'what was heard and why it missed are shown together so it can be corrected');
+    assert.match(blocked.html, /app-prompt-reason">Voice control</, 'no aircraft name, no dangling separator');
+
+    const done = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+      ({ useVoiceFirstCommandStore, useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({ available: true, enabled: true, engine: { modelId: 'test' }, pushToTalk: { accelerator: 'Control+Alt+Space', registered: true } });
+        voice.setState('sent', 'Sent selected heading.');
+        voice.setLastCommand('Selected heading: 270');
+        const card = useVoiceFirstCommandStore();
+        card.open({ example: 'Set heading 270' });
+        card.markCompleted();
+      },
+    );
+    assert.match(done.html, /data-voice-first-command-stage="done"/);
+    assert.match(done.html, /id="voice-first-command-result"[^>]*>Selected heading: 270</, 'the done stage names what was sent');
+    assert.match(done.html, /Control\+Alt\+Space/, 'the done stage hands over the global shortcut');
+    assert.match(done.html, /id="voice-first-command-done"[^>]*>\s*Done\s*</);
+    assert.doesNotMatch(done.html, /id="voice-first-command-talk"|id="voice-first-command-mute"/, 'nothing left to try or mute');
+
+    const noShortcut = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+      ({ useVoiceFirstCommandStore, useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({ available: true, enabled: true, engine: { modelId: 'test' }, pushToTalk: { accelerator: '', registered: false } });
+        const card = useVoiceFirstCommandStore();
+        card.open({ example: 'Set heading 270' });
+        card.markCompleted();
+      },
+    );
+    assert.match(noShortcut.html, /Set a push-to-talk shortcut under Aircraft › Voice control/, 'without a shortcut the done stage says where to set one');
+  });
+
+  await test('VoiceFirstCommandCard yields the corner to another card that holds the slot', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+      ({ usePromptsStore, useVoiceFirstCommandStore }) => {
+        usePromptsStore().request('whats-new');
+        useVoiceFirstCommandStore().open({ example: 'Set heading 270' });
+      },
+    );
+    assert.doesNotMatch(html, /id="voice-first-command-card"/, 'two cards never stack');
+  });
+
+  await test('About carries a Support section with the note, the goal, and reversible preferences', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'SettingsAboutLegal.vue'),
+      ({ useSupportStore }) => {
+        const support = useSupportStore();
+        const now = new Date();
+        support.applyGoal({ period: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`, supporters: 14, goal: 25 });
+      },
+    );
+    assert.match(html, /id="about-support"/, 'About should include the Support section');
+    assert.match(html, /id="about-support-note"[^>]*>I(?:&#39;|\u2019|')m Yen, /, 'the note is first person and starts with who is asking');
+    assert.match(html, /id="about-support-coffee"[^>]*href="https:\/\/www\.flightfabric\.com\/support\/"/, 'the About link uses the stable first-party support URL');
+    assert.match(html, /id="about-support-goal"[\s\S]*?14 of 25 supporters this month/, 'a current-month goal is shown');
+    assert.match(html, /style="width:\s*56%;?"/, 'the goal bar reflects progress');
+    assert.match(html, /id="about-support-thanks"[^>]*>Thank you to everyone who has bought a coffee\./);
+    assert.match(html, /id="about-support-mark"[^>]*>\s*I(?:'|&#39;)ve supported\s*</);
+    assert.match(html, /id="about-support-prompts"[^>]*checked/, 'prompts default on');
+    assert.match(html, /At most five times ever, after a landing at 10, 50, 100, 250 and 500 recorded flights; never in your first week/, 'the rules are spelled out beside the toggle');
+
+    const supporter = await renderComponent(
+      path.join('src', 'vue', 'components', 'SettingsAboutLegal.vue'),
+      ({ useSupportStore }) => {
+        useSupportStore().setSupported(true);
+      },
+    );
+    assert.match(supporter.html, /id="about-support-supporter"[\s\S]*?You(?:'|&#39;)re a supporter\. Thank you\./, 'a supporter sees the heart line');
+    assert.match(supporter.html, /id="about-support-undo"/, 'and can undo a mis-tap');
+    assert.doesNotMatch(supporter.html, /id="about-support-goal"/, 'no goal is shown without a manifest');
+    assert.match(supporter.html, /id="about-support-prompts"[^>]*disabled/, 'the prompt toggle is moot for a supporter');
+    assert.doesNotMatch(supporter.html, /id="about-support-prompts"[^>]*checked/, 'the toggle shows that automatic asks are off for a supporter');
+  });
+
   console.log('\n--- main content shell ---\n');
   await test('MainContentShell renders the tab scaffold and embedded Vue panels', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'MainContentShell.vue'));
     const ids = [
-      'vue-phase-mobile-root',
-      'vue-desktop-tabs-root',
       'tab-flight',
       'vue-flight-tab-root',
+      'tab-cues',
+      'vue-flight-cues-tab-root',
       'tab-autopilot',
       'vue-autopilot-root',
       'tab-landing',
@@ -1441,7 +1942,8 @@ async function main() {
     try {
       const { html } = await renderComponent(
         path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'),
-        ({ useProfilesStore }) => {
+        ({ useProfilesStore, useStatusStore }) => {
+          useStatusStore().setWebsocket('ready');
           globalThis.location = {
             pathname: '/remote',
             search: '?wsPort=9199',
@@ -1455,7 +1957,7 @@ async function main() {
       assert.match(html, /Keep this second screen for every flight/, 'guide should make repeat-flight behavior explicit');
       assert.match(html, /New flights appear automatically/, 'guide should tell users a new flight needs no scan');
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Viewer mode\s*</, 'guide should expose the current read-only state');
-      assert.match(html, /request approval below and match its code on the Flight Fabric PC/, 'read-only guidance should explain the camera-less approval path');
+      assert.match(html, /request approval below and match its code on the FlightFabric PC/, 'read-only guidance should explain the camera-less approval path');
     } finally {
       delete globalThis.location;
     }
@@ -1465,7 +1967,8 @@ async function main() {
     try {
       const { html } = await renderComponent(
         path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'),
-        ({ useProfilesStore }) => {
+        ({ useProfilesStore, useStatusStore }) => {
+          useStatusStore().setWebsocket('ready');
           globalThis.location = {
             pathname: '/remote',
             search: '?wsPort=9199&aircraftControlToken=fixture-token',
@@ -1476,7 +1979,7 @@ async function main() {
 
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Controls paired\s*</, 'paired phone should expose its acknowledged control state');
       assert.match(html, /stay paired for this backend session/, 'paired guidance should retain the backend-session security lifetime');
-      assert.match(html, /Pair again only after the Flight Fabric backend restarts/, 'paired guidance should say when another approval is required');
+      assert.match(html, /Pair again only after the FlightFabric backend restarts/, 'paired guidance should say when another approval is required');
       assert.match(html, /matching-code approval or the current Phone QR/, 'paired guidance should retain both secure recovery paths');
     } finally {
       delete globalThis.location;
@@ -1487,7 +1990,8 @@ async function main() {
     try {
       const { html } = await renderComponent(
         path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'),
-        ({ useProfilesStore }) => {
+        ({ useProfilesStore, useStatusStore }) => {
+          useStatusStore().setWebsocket('ready');
           globalThis.location = {
             pathname: '/remote',
             search: '?wsPort=9199&aircraftControlToken=expired-token',
@@ -1501,6 +2005,97 @@ async function main() {
       assert.match(html, /Pairing changes whenever the backend restarts/, 'stale pairing guidance should explain why the saved token expired');
     } finally {
       delete globalThis.location;
+    }
+  });
+
+  await test('SecondScreenGuide never diagnoses expiry from a token or an interrupted handshake', async () => {
+    try {
+      for (const connection of ['connecting', 'disconnected', 'error', 'ready']) {
+        const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SecondScreenGuide.vue'), ({ useProfilesStore, useStatusStore }) => {
+          globalThis.location = { pathname: '/remote', search: '?aircraftControlToken=still-valid' };
+          useProfilesStore().setAuthorizationScope('aircraft-control', 'accepted');
+          useProfilesStore().resetAuthorizationScope();
+          useStatusStore().setWebsocket(connection);
+        });
+        assert.match(html, /id="second-screen-connecting"/, `${connection}: wait for acknowledged access`);
+        assert.doesNotMatch(html, /Pairing expired|approval has expired|id="second-screen-pairing-expired"/, `${connection}: a stored token does not prove expiry`);
+        assert.doesNotMatch(html, /Controls paired/, 'a stored token must not imply authorization either');
+      }
+    } finally { delete globalThis.location; }
+  });
+
+  await test('FlightCuesTabShell renders a quiet state without an orb or unsupported command', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'));
+    assert.match(html, /Flight cues/);
+    assert.match(html, /Waiting for simulator data/);
+    assert.doesNotMatch(html, /data-flight-voice-cue/);
+    assert.doesNotMatch(html, /zen-orb|zen-page/);
+  });
+
+  await test('FlightCuesTabShell presents takeoff lights before TAKEOFF and withholds them once underway', async () => {
+    const configure = ({ useStatusStore, useFlightStore, useAircraftControlsStore }) => {
+      const status = useStatusStore();
+      const flight = useFlightStore();
+      const controls = useAircraftControlsStore();
+      status.websocket = 'ready';
+      status.simConnected = true;
+      status.phase = 'TAXI';
+      status.aircraftProfile.profileKey = 'fixture-aircraft';
+      flight.mode = 'live';
+      flight.lastLiveTelemetryAt = Date.now();
+      controls.setAvailability({ enabled: true });
+      controls.applyControlCapabilities({ aircraftCommands: {
+        configurationId: 'fixture', profileKey: 'fixture-aircraft', profileRevision: 1,
+        commands: [{
+          id: 'configuration.lights.takeoff', kind: 'preset', label: 'Takeoff lights',
+          input: { kind: 'none' }, speech: { patterns: ['set lights for takeoff'] },
+        }],
+      } });
+    };
+    const taxi = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'), configure);
+    assert.match(taxi.html, /data-flight-voice-cue/);
+    assert.match(taxi.html, /Before takeoff/);
+    assert.match(taxi.html, /set lights for takeoff/);
+
+    const takeoff = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'), (stores) => {
+      configure(stores);
+      stores.useStatusStore().phase = 'TAKEOFF';
+    });
+    assert.doesNotMatch(takeoff.html, /data-flight-voice-cue/);
+    assert.match(takeoff.html, /Takeoff underway/);
+  });
+
+  await test('FlightCuesTabShell renders Fenix phase choices and explains LS without offering an execute action', async () => {
+    const profileKey = 'bundled/msfs/fenix-a320';
+    const profile = lightingLoader.loadProfile(profileKey);
+    const capabilities = lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 1,
+      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration'],
+        integrationTransports: ['simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
+    for (const [phase, commandId, phrase, hint] of [
+      ['TAXI', 'surfaces.flaps.set', 'set flaps [planned takeoff detent]', 'Choose the appropriate setting: 1, 2, 3.'],
+      ['TAXI', 'surfaces.autobrake.set', 'set autobrake max', 'rejected-takeoff setting'],
+      ['APPROACH', 'surfaces.autobrake.set', 'set autobrake [planned landing setting]', 'Choose the appropriate setting: off, low, medium.'],
+      ['DESCENT', 'navigation.captain.ls', 'captain ls on', 'does not arm LOC or APPR'],
+    ]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'),
+        ({ useStatusStore, useFlightStore, useAircraftControlsStore, useAircraftSpecificStore }) => {
+          const status = useStatusStore(), flight = useFlightStore(), controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
+          status.websocket = 'ready'; status.simConnected = true; status.phase = phase;
+          status.aircraftProfile.profileKey = profileKey;
+          flight.mode = 'live'; flight.lastLiveTelemetryAt = Date.now();
+          controls.setAvailability({ enabled: true });
+          controls.applyControlCapabilities({ ...capabilities, aircraftCommands: { ...capabilities.aircraftCommands,
+            commands: capabilities.aircraftCommands.commands.filter(c => c.id === commandId) } });
+          specific.applyProfile({ _profileKey: profileKey, profileRevision: 1, aircraftSpecificTemplateId: 'fenix-a32x' });
+          const updatedAt = new Date().toISOString();
+          specific.ingestState({ profileKey, profileRevision: 1, templateId: 'fenix-a32x', available: true,
+            sourceStatus: { overall: 'connected' }, updatedAt, values: { 'navigation.captain.ls': false },
+            valueUpdatedAt: { 'navigation.captain.ls': updatedAt }, unavailable: [] });
+        });
+      assert.ok(html.includes(phrase), `${phase}: ${phrase}`);
+      assert.ok(html.includes(hint), `${phase}: ${hint}`);
+      assert.match(html, /Nothing is sent automatically/);
+      assert.doesNotMatch(html, /data-aircraft-command=|>\s*(?:Execute|Apply|Send)\s*</);
     }
   });
 
@@ -1529,7 +2124,9 @@ async function main() {
   });
 
   await test('SystemTabShell renders Electron service controls with browser-safe fallback copy', async () => {
-    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemTabShell.vue'));
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemTabShell.vue'), ({ useProfilesStore }) => {
+      useProfilesStore().setAuthorizationScope('full-control');
+    });
 
     const ids = [
       'system-tab-shell',
@@ -1548,7 +2145,7 @@ async function main() {
     }
 
     assert.doesNotMatch(html, /id="system-host-mode"/, 'system tab should not repeat the Electron host mode beside Refresh');
-    assert.match(html, /Native service controls are only available in the Electron app/, 'browser fallback copy should render outside Electron');
+    assert.match(html, /Service controls are available in the FlightFabric desktop app on your simulator PC/, 'browser fallback copy should render outside Electron');
     assert.match(html, /LAN address unavailable/, 'system tab should not render localhost as a phone URL before a LAN IP is known');
     assert.doesNotMatch(html, /id="system-mobile-qr"/, 'system tab should not render a stale phone QR before a LAN URL is known');
     assert.match(html, /Scan the QR or type the address/, 'system tab should present both phone setup paths clearly');
@@ -1560,7 +2157,8 @@ async function main() {
   await test('SystemTabShell renders a QR code for the mobile browser URL', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'SystemTabShell.vue'),
-      async ({ useSystemHostStore }) => {
+      async ({ useSystemHostStore, useProfilesStore }) => {
+        useProfilesStore().setAuthorizationScope('full-control');
         globalThis.electronAPI = {
           getBackendStatus: async () => ({ status: 'running' }),
           getHttpStatus: async () => ({ status: 'running', port: 8123 }),
@@ -1588,7 +2186,7 @@ async function main() {
     assert.match(html, /Other network addresses[\s\S]*id="system-alt-ips"[^>]*>\s*10\.0\.0\.5\s*</, 'system tab should keep alternate IP fallback copy behind progressive disclosure');
     assert.match(html, /id="system-mobile-qr"/, 'system tab should render one phone QR');
     assert.doesNotMatch(html, /id="system-viewer-qr"|id="system-control-pairing-qr"/, 'system tab should not split phone setup into viewer and control choices');
-    assert.match(html, /role="img"[^>]*aria-label="Private QR code for Flight Fabric phone setup"/, 'QR should have a useful label without reading its private credential aloud');
+    assert.match(html, /role="img"[^>]*aria-label="Private QR code for FlightFabric phone setup"/, 'QR should have a useful label without reading its private credential aloud');
     assert.doesNotMatch(html, /fixture-aircraft-token/, 'the private QR credential should not be printed or exposed in accessible text');
     assert.equal((html.match(/role="img"/g) || []).length, 1, 'system tab should render exactly one phone QR');
     assert.match(html, /<path[^>]+d="M/, 'QR should render dark modules as an SVG path');
@@ -1619,7 +2217,8 @@ async function main() {
     try {
       const { html } = await renderComponent(
         path.join('src', 'vue', 'components', 'SystemTabShell.vue'),
-        async ({ useSystemHostStore }) => {
+        async ({ useSystemHostStore, useProfilesStore }) => {
+          useProfilesStore().setAuthorizationScope('aircraft-control');
           const store = useSystemHostStore();
           await store.refresh();
         },
@@ -1639,7 +2238,8 @@ async function main() {
   await test('SystemTabShell hides phone pairing while trusted-LAN access is inactive', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'SystemTabShell.vue'),
-      async ({ useSystemHostStore }) => {
+      async ({ useSystemHostStore, useProfilesStore }) => {
+        useProfilesStore().setAuthorizationScope('full-control');
         globalThis.electronAPI = {
           getBackendStatus: async () => ({ status: 'running' }),
           getHttpStatus: async () => ({ status: 'running', port: 8123 }),
@@ -1664,6 +2264,99 @@ async function main() {
     assert.doesNotMatch(html, /id="system-mobile-qr"/, 'inactive LAN access must not render a QR code');
     assert.doesNotMatch(html, /id="system-mobile-copy-btn"/, 'inactive LAN access must not expose a copy action');
     assert.doesNotMatch(html, /fixture-aircraft-token/, 'inactive LAN access must not render the pairing token');
+  });
+
+  await test('SystemTabShell gives remote devices connection information without PC maintenance actions', async () => {
+    for (const scope of ['read-only', 'aircraft-control', 'unknown']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemTabShell.vue'), ({ useProfilesStore, useStatusStore, useSystemHostStore, useLogbookStore }) => {
+        useProfilesStore().setAuthorizationScope(scope);
+        useStatusStore().setWebsocket('ready');
+        useSystemHostStore().remoteAccessEnabled = false;
+        useLogbookStore().historyIndexActionError = 'private-history-error';
+      });
+      assert.match(html, /id="system-pc-managed-note"/);
+      assert.match(html, /id="system-connection-status"[^>]*>Connected to FlightFabric</);
+      assert.match(html, /Services, recordings, and flight-history maintenance are managed in FlightFabric on your simulator PC/);
+      assert.doesNotMatch(html, /id="system-(?:history-index|backend-service|frontend-service|start-all-btn|mobile-settings-btn|device-pairing-requests)"/, `${scope} must not expose PC administration`);
+      assert.doesNotMatch(html, /private-history-error|127\.0\.0\.1/, 'cached history and PC localhost links must not appear remotely');
+      assert.match(html, /Enable phone &amp; tablet access in Settings on your simulator PC/, 'disabled LAN access must direct the user to the actual manager');
+    }
+  });
+
+  await test('SystemTabShell guards privileged requests through authorization changes and stale handlers', async () => {
+    clearBrowserGlobals();
+    installBrowserGlobals();
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const { setAppService } = await import(toFrontendUrl('app-shared.js'));
+    const { emitWsMessage } = await import(toFrontendUrl('src', 'app', 'runtime-signals.js'));
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot, 'src', 'vue', 'components', 'SystemTabShell.vue'))).href)).default;
+    const { makeNode } = createMountedTestRenderer(createRenderer);
+    const insert = (node, parent) => { node.parent = parent; parent.children.push(node); };
+    const renderer = createRenderer({
+      createElement: makeNode, createText: text => makeNode('text', text), createComment: text => makeNode('comment', text),
+      setText: (node, text) => { node.text = text; }, setElementText: (node, text) => { node.text = text; },
+      patchProp: (node, key, _previous, value) => { node.props[key] = value; }, insert,
+      remove: node => { node.parent.children = node.parent.children.filter(child => child !== node); },
+      parentNode: node => node.parent, nextSibling: () => null,
+      insertStaticContent: (text, parent) => { const node = makeNode('static', text); insert(node, parent); return [node, node]; },
+    });
+    const pinia = createPinia(); setActivePinia(pinia);
+    const profiles = useProfilesStore();
+    const host = useSystemHostStore();
+    let refreshes = 0;
+    host.refresh = () => { refreshes += 1; };
+    host.bindBackendStatusEvents = () => () => {};
+    host.remoteAccessEnabled = true;
+    const sent = [];
+    setAppService('sendWs', message => { sent.push(message); return true; });
+    const app = renderer.createApp(component); app.use(pinia);
+    const root = makeNode('root');
+    const descendants = node => [node, ...node.children.flatMap(descendants)];
+    const node = id => descendants(root).find(entry => entry.props.id === id);
+    try {
+      app.mount(root);
+      assert.equal(refreshes, 1, 'remote mount should refresh safe connection information');
+      assert.deepEqual(sent, [], 'remote mount must not request history or other devices');
+      profiles.setAuthorizationScope('full-control'); await nextTick();
+      assert.deepEqual(sent.map(message => message.type), ['requestHistoryIndexStatus', 'requestDevicePairingRequests']);
+      const check = node('system-history-index-check-btn').props.onClick;
+      const rebuild = node('system-history-index-rebuild-btn').props.onClick;
+      check();
+      assert.equal(sent.at(-1).type, 'checkHistoryIndex');
+      emitWsMessage({ type: 'devicePairingRequests', enabled: true, requests: [{ id: 'device-1', confirmationCode: '654321', expiresAt: Date.now() + 60000, remoteAddress: '192.168.1.24' }] });
+      await nextTick();
+      const approve = descendants(node('system-device-pairing-requests')).find(entry => entry.kind === 'button').props.onClick;
+      profiles.setAuthorizationScope('aircraft-control'); await nextTick();
+      const count = sent.length;
+      let confirmations = 0;
+      globalThis.confirm = () => { confirmations += 1; return true; };
+      check(); rebuild(); approve(); node('system-refresh-btn').props.onClick();
+      assert.equal(sent.length, count, 'revocation must block stale action callbacks and privileged refresh');
+      assert.equal(confirmations, 0, 'remote devices must not be asked to confirm unavailable maintenance');
+      assert.equal(node('system-history-index'), undefined);
+      assert.equal(node('system-device-pairing-requests'), undefined);
+      emitWsMessage({ type: 'devicePairingRequests', enabled: true, requests: [{ id: 'stale', confirmationCode: '999999' }] });
+      profiles.setAuthorizationScope('full-control'); await nextTick();
+      assert.equal(node('system-device-pairing-requests'), undefined, 'reauthorization must not reveal stale approval codes');
+    } finally {
+      app.unmount();
+      setAppService('sendWs', null);
+    }
+  });
+
+  await test('SystemTabShell exposes native recovery without backend authorization', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemTabShell.vue'), ({ useSystemHostStore, useStatusStore }) => {
+      globalThis.electronAPI = { startBackend() {}, restartBackend() {}, stopBackend() {} };
+      useStatusStore().setWebsocket('disconnected');
+      useSystemHostStore().lastError = 'Backend could not start';
+    });
+    assert.match(html, /id="system-desktop-recovery-note"/);
+    assert.match(html, /id="system-host-error"[^>]*>\s*Backend could not start/);
+    assert.doesNotMatch(html, /id="system-(?:pc-managed-note|history-index|device-pairing-requests)"/);
+    for (const id of ['system-start-backend-btn', 'system-restart-backend-btn', 'system-stop-backend-btn']) {
+      assert.match(html, new RegExp(`id="${id}"`));
+      assert.doesNotMatch(html, new RegExp(`id="${id}"[^>]*disabled`), 'trusted native recovery remains usable without a backend acknowledgement');
+    }
   });
 
   console.log('\n--- app shell ---\n');
@@ -1838,7 +2531,7 @@ async function main() {
     );
 
     assert.match(html, /id="app-version"/, 'footer should expose app version target');
-    assert.match(html, /id="footer-source-link"[\s\S]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*Source \(AGPL\)/, 'footer should prominently link to corresponding release source');
+    assert.match(html, /Help &amp; shortcuts/, 'footer should give access to Help and its release/source links');
     assert.match(html, /id="msfs-installs-btn"/, 'footer should expose MSFS installs button target');
     assert.match(html, /id="vue-datasources-button-root"/, 'footer should keep data sources wrapper id');
     assert.match(html, /SimConnect \+ LVAR/, 'embedded data sources button should render from status store');
@@ -1851,7 +2544,8 @@ async function main() {
     assert.doesNotMatch(html, /Open telemetry debug panel/, 'footer debug toggle should not render tooltip copy');
     assert.match(html, /id="connection-info"[^>]*>ws:\/\/127\.0\.0\.1:8123</, 'footer connection info should render from status state');
     assert.match(html, /id="footer-open-lvars-btn"/, 'footer should expose the compact LVARs shortcut');
-    assert.match(html, /id="footer-open-lvars-btn"[\s\S]*LVARs/, 'footer LVARs shortcut should render its label');
+    assert.match(html, /footer-experimental-label"[^>]*>Experimental<[\s\S]*id="footer-open-cues-btn"[^>]*data-tab="cues"[\s\S]*?>\s*Flight cues\s*</, 'footer diagnostics should expose Flight cues under an Experimental label');
+    assert.match(html, /id="footer-open-lvars-btn"[\s\S]*LVAR inspector/, 'footer LVAR shortcut should render its label');
     assert.doesNotMatch(html, /data-tab="lvars"/, 'footer should not expose hidden tab-routing hooks');
   });
 
@@ -1942,15 +2636,6 @@ async function main() {
       'assists-indicator',
       'assists-count',
       'assists-list',
-      'sampling-indicator',
-      'sampling-pill',
-      'sampling-dot',
-      'sampling-band',
-      'sampling-rate',
-      'sampling-reason',
-      'sampling-decision',
-      'sampling-last',
-      'sampling-safety',
       'recording-indicator',
       'recording-path',
       'end-flight-btn',
@@ -1976,12 +2661,7 @@ async function main() {
     assert.doesNotMatch(html, /id="theme-switcher"/, 'theme switcher should not render inside header shell');
     assert.match(html, /id="dest-progress-wrap"/, 'destination progress shell should render inside header shell');
     assert.match(html, /To KBOS/, 'destination progress should render live map store state');
-    assert.doesNotMatch(html, /id="sampling-indicator"[^>]*class="hidden"/, 'sampling indicator visibility should render from status state');
-    assert.match(html, /VRE ULTRA 10 Hz/, 'sampling summary should render the achievable rate from the status store');
-    assert.match(html, /ULTRA at 10 Hz \(100 ms\)/, 'sampling detail should render the hard-capped Ultra cadence');
-    assert.match(html, /ground proximity, vs magnitude/, 'sampling reasons should render from the status store');
-    assert.match(html, /waiting 40 ms/, 'sampling decision should render from the status store');
-    assert.match(html, /APPROACH RA 240 ft VS -720 fpm/, 'sampling frame should render from the status store');
+    assert.doesNotMatch(html, /id="sampling-indicator"|VRE ULTRA/, 'sampling diagnostics belong in Debug, not the header');
     assert.doesNotMatch(html, /id="recording-indicator"[^>]*class="hidden"/, 'recording indicator visibility should render from status state');
     assert.match(html, />REC</, 'recording badge should render from status state');
     assert.match(html, /Saving to:/, 'recording detail label should render from status state');
@@ -1992,7 +2672,8 @@ async function main() {
     assert.match(html, /id="flight-time"[^>]*>01:23:45</, 'flight time should render from status state');
     assert.doesNotMatch(html, /id="comp-sw-toggle"/, 'retired stopwatch toggle should not render in the header');
     assert.match(html, /id="aircraft-name"[^>]*>Fenix A320 CFM</, 'aircraft name should render the live sim title from status state');
-    assert.match(html, /id="aircraft-profile-name"[^>]*>[\s\S]*Fenix A320 Profile[\s\S]*Auto match[\s\S]*verified profile</, 'profile name, automatic selection mode, and verification should render separately from the live sim title');
+    assert.match(html, /id="aircraft-profile-name"[^>]*>[\s\S]*Fenix A320 Profile · Auto match</, 'profile name and automatic selection mode should render separately from the live sim title');
+    assert.doesNotMatch(html, /verified profile|verification unavailable/, 'header summary should not surface profile verification wording');
     assert.match(html, /id="aircraft-profile-correction-btn"/, 'header should expose a compact mismatch correction control');
     assert.match(html, /Wrong aircraft\?/, 'mismatch correction control should use concise user-facing copy');
     assert.match(html, /id="aircraft-profile-correction-select"/, 'mismatch correction should default to a compact profile selector');
@@ -2026,7 +2707,8 @@ async function main() {
   await test('AppHeader renders the manual start-recording action only when it is actionable', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AppHeader.vue'),
-      ({ useStatusStore }) => {
+      ({ useStatusStore, useProfilesStore }) => {
+        useProfilesStore().setAuthorizationScope('full-control');
         const status = useStatusStore();
         status.bindHeaderActions({ onStartRecordingManual: () => true });
         status.setWebsocket('ready');
@@ -2057,6 +2739,23 @@ async function main() {
     );
 
     assert.doesNotMatch(html, /id="start-recording-btn"/, 'manual start-recording action should stay hidden while SimConnect is offline');
+  });
+
+  await test('AppHeader keeps recording management unavailable to paired and viewer clients', async () => {
+    for (const scope of ['read-only', 'paired-control']) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'AppHeader.vue'),
+        ({ useStatusStore, useProfilesStore }) => {
+          useProfilesStore().setAuthorizationScope(scope);
+          const status = useStatusStore();
+          status.bindHeaderActions({ onStartRecordingManual: () => true });
+          status.setWebsocket('ready');
+          status.ingestMessage({ type: 'simState', simconnectConnected: true, inMenu: false, lifecycleState: 'flying', inFlightContext: true });
+          status.ingestMessage({ type: 'flightRecording', status: 'stopped' });
+        },
+      );
+      assert.doesNotMatch(html, /id="(?:start-recording-btn|end-flight-btn)"/, `${scope} must not offer recording management`);
+    }
   });
 
   await test('FlightStatusBadges hides the phase badge until a real phase is available', async () => {
@@ -2347,7 +3046,27 @@ async function main() {
 
   console.log('\n--- debug telemetry modal ---\n');
   await test('DebugTelemetryModal renders the debug runtime targets', async () => {
-    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'DebugTelemetryModal.vue'));
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'DebugTelemetryModal.vue'), ({ useStatusStore }) => {
+      const status = useStatusStore();
+      status.ingestMessage({
+        type: 'vreSampling',
+        active: true,
+        band: 'ULTRA_FIDELITY',
+        targetRateHz: 10,
+        effectiveRateHz: 10,
+        rateHz: 10,
+        shouldSample: false,
+        reason: 'ground_proximity,vs_magnitude',
+        phase: 'APPROACH',
+        raFt: 240,
+        vsFpm: -720,
+        intervalMs: 100,
+        nextSampleInMs: 40,
+        ultraFidelityDisabled: false,
+        ultraFidelityTimeRemaining: 59000,
+        ultraFidelitySamplesRemaining: 590,
+      });
+    });
     const modalClass = html.match(/id="debug-modal"[^>]*class="([^"]*)"/)?.[1] || '';
     const ids = [
       'debug-modal',
@@ -2358,29 +3077,45 @@ async function main() {
       'debug-show-stale',
       'debug-pause',
       'debug-close',
+      'sampling-indicator',
+      'sampling-pill',
+      'sampling-dot',
+      'sampling-band',
+      'sampling-rate',
+      'sampling-reason',
+      'sampling-decision',
+      'sampling-last',
+      'sampling-safety',
       'debug-poll-rate',
       'debug-total-vars',
       'debug-active-vars',
       'debug-phase',
       'debug-frame-count',
       'debug-menu-indicator',
-      'debug-shake-vs',
-      'debug-test-shake',
-      'debug-shake-status',
       'debug-content',
     ];
 
     for (const id of ids) {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render for the debug runtime`);
     }
+    for (const id of ['debug-shake-vs', 'debug-shake-method', 'debug-test-shake', 'debug-shake-status']) {
+      assert.doesNotMatch(html, new RegExp(`id="${id}"`), `${id} must stay out of the debug modal while the touchdown shake is disabled`);
+    }
 
     assert.equal(modalClass.split(/\s+/).includes('hidden'), true, 'debug modal should start hidden');
     assert.match(html, /Telemetry Debug/, 'debug modal title should render');
+    assert.doesNotMatch(html, /id="sampling-indicator"[^>]*class="hidden"/, 'sampling indicator visibility should render from status state');
+    assert.match(html, /VRE ULTRA 10 Hz/, 'sampling summary should render the achievable rate from the status store');
+    assert.match(html, /ULTRA at 10 Hz \(100 ms\)/, 'sampling detail should render the hard-capped Ultra cadence');
+    assert.match(html, /ground proximity, vs magnitude/, 'sampling reasons should render from the status store');
+    assert.match(html, /waiting 40 ms/, 'sampling decision should render from the status store');
+    assert.match(html, /APPROACH RA 240 ft VS -720 fpm/, 'sampling frame should render from the status store');
+
     assert.match(html, /Press Ctrl\+Shift\+D to close/, 'debug shortcut copy should render');
     assert.match(html, /Rate:/, 'debug message-rate label should render');
     assert.match(html, /msg\/s/, 'debug rate should identify websocket message units');
     assert.match(html, /Messages:/, 'debug count should identify websocket messages rather than telemetry frames');
-    assert.match(html, /-400 fpm \(normal\)/, 'normal test-shake option should remain available');
+    assert.doesNotMatch(html, /-400 fpm \(normal\)/, 'the test-shake selector must stay out of the modal while the touchdown shake is disabled');
     assert.match(html, /Waiting for data\.\.\./, 'debug content empty state should render');
   });
 
@@ -2456,8 +3191,7 @@ async function main() {
     assert.match(html, /id="debug-active-vars"[^>]*>5</, 'active variable count should render from the store');
     assert.match(html, /id="debug-phase"[^>]*>APPROACH</, 'phase should render from the store');
     assert.match(html, /id="debug-frame-count"[^>]*>2</, 'frame count should render from the store');
-    assert.match(html, /id="debug-shake-status"[^>]*>Sent \(-700 fpm\)</, 'shake-test status text should render');
-    assert.match(html, /-700 fpm \(firm\)/, 'firm shake-test option should render');
+    assert.doesNotMatch(html, /id="debug-shake-status"/, 'no shake-test status is rendered while the touchdown shake is disabled');
     assert.match(html, /data-source="simconnect"/, 'simconnect section should render');
     assert.match(html, /data-source="lvar"/, 'LVAR section should render');
     assert.match(html, /data-source="derived"/, 'derived section should render');
@@ -2520,7 +3254,7 @@ async function main() {
         settingsUi.setRestartActionState({
           available: true,
           busy: false,
-          title: 'Restart Flight Fabric.',
+          title: 'Restart FlightFabric.',
         });
       },
     );
@@ -2538,6 +3272,18 @@ async function main() {
     assert.match(html, /id="update-version"[^>]*>v0\.2\.0 Alpha</, 'update version should render formatted label');
     assert.match(html, /Critical recorder fix available/, 'update message should render store copy');
     assert.match(html, /id="update-download-link"[^>]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases\/latest"|href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases\/latest"[^>]*id="update-download-link"/, 'download link should render the approved store URL');
+  });
+
+  await test('SystemBanners names the save-and-restart action accurately and blocks it during save', async () => {
+    for (const saving of [false, true]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemBanners.vue'), ({ useSettingsUiStore }) => {
+        useSettingsUiStore().setRestartActionState({ available: true, saveRequired: true, saving, blocked: saving });
+      });
+      assert.match(html, saving
+        ? /id="restart-required-restart-btn"[^>]*aria-label="Saving before restart\.\.\."/
+        : /id="restart-required-restart-btn"[^>]*aria-label="Save &amp; Restart"/, 'the accessible name must describe the same operation as the button');
+      if (saving) assert.match(html, /id="restart-required-restart-btn"[^>]*disabled/, 'the global banner cannot compete with an outstanding save');
+    }
   });
 
   console.log('\n--- app feedback toast ---\n');
@@ -2570,6 +3316,69 @@ async function main() {
     assert.doesNotMatch(html, /id="app-feedback-toast"[^>]*hidden/, 'visible toast should not render hidden');
     assert.match(html, /id="app-feedback-toast-title"[^>]*>Action failed</, 'toast title should render from store state');
     assert.match(html, /id="app-feedback-toast-copy"[^>]*>Unable to save the profile\.</, 'toast copy should render from store state');
+  });
+
+  console.log('\n--- msfs toolbar panel settings ---\n');
+  await test('ToolbarPanelSettingsPanel explains desktop-only installation in browser mode', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'ToolbarPanelSettingsPanel.vue'));
+    assert.match(html, /id="settings-toolbar-panel"/, 'toolbar settings section should render');
+    assert.match(html, /MSFS 2024 toolbar panel/, 'section title should render');
+    assert.match(html, /id="toolbar-panel-desktop-only"/, 'browser sessions should be told to use the desktop app');
+    assert.doesNotMatch(html, /data-toolbar-action="install"/, 'no install action without the desktop bridge');
+    assert.match(html, /read-only/i, 'copy should state that the panel is read-only');
+  });
+
+  await test('ToolbarPanelSettingsPanel renders installer rows, actions and restart notice from the store', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'ToolbarPanelSettingsPanel.vue'),
+      async ({ useToolbarPanelStore }) => {
+        const toolbarPanel = useToolbarPanelStore();
+        toolbarPanel.bindDesktopActions({
+          async getStatus() {
+            return {
+              ok: true,
+              packageVersion: '0.9.9',
+              ports: { httpPort: 8101, wsPort: 8100 },
+              installs: [
+                { installId: 'msfs2024-store', label: 'MSFS 2024 - Microsoft Store', found: false, status: 'not_installed', canInstall: false },
+                {
+                  installId: 'msfs2024-steam',
+                  label: 'MSFS 2024 - Steam',
+                  found: true,
+                  status: 'update_available',
+                  installedVersion: '0.9.8',
+                  communityFolder: 'D:/MSFS/Packages/Community',
+                  canInstall: true,
+                  problems: [],
+                  strayCopies: [],
+                },
+              ],
+            };
+          },
+          async install() { return { ok: true, status: 'installed', restartRequired: true }; },
+          async uninstall() { return { ok: true, removed: true, restartRequired: true }; },
+        });
+        await toolbarPanel.refresh();
+        toolbarPanel.result = { installId: 'msfs2024-steam', action: 'install', restartRequired: true, message: 'Toolbar package installed.' };
+      },
+    );
+    assert.doesNotMatch(html, /id="toolbar-panel-desktop-only"/, 'desktop sessions should not see the browser hint');
+    assert.match(html, /data-toolbar-install="msfs2024-steam"/, 'found installs should render as rows');
+    assert.match(html, /Update available/, 'installer status labels should render');
+    assert.match(html, /Installed 0\.9\.8; this FlightFabric ships a newer package\./, 'status detail should render');
+    assert.match(html, /D:\/MSFS\/Packages\/Community/, 'the resolved Community folder should be shown');
+    assert.match(html, /data-toolbar-action="install"[^>]*>\s*Update\s*</, 'update action label should render');
+    assert.match(html, /data-toolbar-action="uninstall"[^>]*>\s*Remove\s*</, 'remove action should render');
+    assert.match(html, /id="toolbar-panel-result"/, 'action result should render');
+    assert.match(html, /Restart Microsoft Flight Simulator 2024/, 'restart notice should render after an install');
+    assert.match(html, /Package 0\.9\.9/, 'bundled package version should render');
+  });
+
+  await test('SettingsFormPanels mounts the toolbar panel section beside the second-screen section', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SettingsFormPanels.vue'));
+    assert.match(html, /id="settings-phone-tablet-access"/);
+    assert.match(html, /id="settings-toolbar-panel"/, 'toolbar section should be part of the settings form panels');
+    assert.ok(html.indexOf('id="settings-phone-tablet-access"') < html.indexOf('id="settings-toolbar-panel"'), 'toolbar section follows the second-screen section');
   });
 
   console.log('\n--- msfs installs modal ---\n');
@@ -2715,29 +3524,22 @@ async function main() {
     );
     assert.match(
       shellSource,
-      /aircraft-page-tool-actions--search-expanded[\s\S]*?flex-basis:\s*100%;/,
-      'expanded Aircraft search should wrap to a full tablet and mobile row',
+      /aircraft-page-tool-actions--search-expanded > \.aircraft-find\s*\{[\s\S]*?flex:\s*1;/,
+      'expanded Aircraft search should own the available phone toolbar row',
     );
     assert.match(
       shellSource,
       /@media \(max-width: 760px\), \(max-height: 500px\) and \(pointer: coarse\)/,
-      'the voice launcher should stay out of portrait and landscape mobile button workflows',
+      'portrait and landscape phones should share the compact task toolbar',
     );
-    assert.match(
-      searchSource,
-      /MOBILE_SEARCH_HIDDEN_QUERY[\s\S]*?mobileRibbonSearchHidden\.value/,
-      'mobile ribbon pages should synchronize search state with the breakpoint that hides the search UI',
-    );
+    assert.match(html, /aria-controls="aircraft-secondary-tools-panel"/, 'secondary tools should have one discoverable disclosure on phones');
+    assert.doesNotMatch(searchSource, /mobileRibbonSearchHidden|hideOnMobile/, 'Find controls should remain available alongside every family section navigator');
     assert.match(
       searchSource,
       /event\.defaultPrevented[\s\S]*?modalDialogIsOpen\(\)/,
       'the page-level search shortcut should yield to an open modal and an already-handled key event',
     );
-    assert.match(
-      searchSource,
-      /searchHadFocus[\s\S]*?focusMobileRibbon\(\)/,
-      'hiding Aircraft search for a mobile ribbon should move search focus to visible section navigation',
-    );
+    assert.match(searchSource, /collapseSearch\(\{ focusLauncher: searchOwnsFocus\(\) \}\)/, 'changing aircraft should clear search without stealing focus from another control');
     assert.match(
       searchSource,
       /\.aircraft-find__clear\s*\{[\s\S]*?min-width:\s*2\.75rem;[\s\S]*?min-height:\s*2\.75rem;/,
@@ -2765,6 +3567,44 @@ async function main() {
     );
     assert.doesNotMatch(html, /id="voice-input-device"/, 'the closed voice modal should not add its full settings surface to the Aircraft page');
     assert.doesNotMatch(html, /id="aircraft-specific-section"/, 'generic mode should not mount the aircraft-specific section');
+  });
+
+  await test('Aircraft search shortcut respects modal, active-page and handled-event boundaries', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'AircraftPageSearch.vue'))).href)).default;
+    for (const scenario of ['active-page', 'meta-key', 'tab-left', 'modal-open', 'already-handled', 'alt-key']) {
+      const saved = { window: globalThis.window, document: globalThis.document };
+      const listeners = new Map(); let focused = 0, prevented = 0;
+      const body = {}, documentElement = {};
+      const doc = { body, documentElement, activeElement: body,
+        querySelectorAll: () => scenario === 'modal-open' ? [{ getClientRects: () => [{}] }] : [],
+        addEventListener(type, handler) { listeners.set(`document:${type}`, handler); },
+        removeEventListener(type) { listeners.delete(`document:${type}`); } };
+      globalThis.document = doc;
+      globalThis.window = {};
+      const target = { querySelectorAll: () => [],
+        closest: () => ({ classList: { contains: () => scenario !== 'tab-left' } }) };
+      const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+      const app = renderer.createApp(component, { target });
+      try {
+        app.mount(makeNode('root'));
+        const input = nodes.find(node => node.kind === 'input');
+        input.focus = () => { focused++; doc.activeElement = input; };
+        input.select = () => {};
+        listeners.get('document:keydown')({ key: 'f', ctrlKey: scenario !== 'meta-key', metaKey: scenario === 'meta-key',
+          altKey: scenario === 'alt-key', defaultPrevented: scenario === 'already-handled', preventDefault() { prevented++; } });
+        await nextTick(); await nextTick();
+        const accepted = ['active-page', 'meta-key'].includes(scenario);
+        assert.equal(prevented, accepted ? 1 : 0, scenario);
+        assert.equal(focused, accepted ? 1 : 0, scenario);
+        assert.equal(nodes.find(node => node.props['aria-controls'] === 'aircraft-find-panel').props['aria-expanded'], accepted, scenario);
+      } finally {
+        app.unmount();
+        assert.equal(listeners.size, 0, 'unmount removes the document shortcut listener');
+        globalThis.window = saved.window; globalThis.document = saved.document;
+      }
+    }
   });
 
   await test('AircraftTabShell reports compact voice states without presenting failures as ready', async () => {
@@ -2859,6 +3699,36 @@ async function main() {
     }
   });
 
+  await test('VoiceControlPanel offers SimBrief flight plan questions whenever voice can dispatch', async () => {
+    const panel = path.join('src', 'vue', 'components', 'VoiceControlPanel.vue');
+    const queryOnly = await renderComponent(panel, ({ useAircraftSpecificStore }) => {
+      const specific = useAircraftSpecificStore();
+      specific.activeProfileKey = 'bundled/msfs/pmdg-777'; specific.activeProfileRevision = 1;
+      specific.sourceStatus = 'connected';
+    });
+    assert.match(queryOnly.html, /data-flight-plan-query-guide/, 'query-capable aircraft should list flight plan questions');
+    assert.match(queryOnly.html, /what is the simbrief flight plan/);
+    assert.match(queryOnly.html, /what is the departure · what is the arrival · what is the planned altitude/);
+
+    const commandsOnly = await renderComponent(panel, ({ useAircraftControlsStore }) => {
+      useAircraftControlsStore().applyControlCapabilities({
+        aircraftCommands: {
+          profileKey: 'test/generic', profileRevision: 1, configurationId: 'generic',
+          commands: [{ id: 'flightGuidance.heading.set', label: 'Selected heading',
+            input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+            speech: { patterns: ['set heading {value}'] } }],
+        },
+      });
+      useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+    });
+    assert.match(commandsOnly.html, /data-flight-plan-query-guide/, 'aircraft with voice commands but no state queries should still list flight plan questions');
+
+    const blocked = await renderComponent(panel, ({ useAircraftControlsStore }) => {
+      useAircraftControlsStore().setAvailability({ enabled: false, reason: 'Simulator is in a menu or loading state.' });
+    });
+    assert.doesNotMatch(blocked.html, /data-flight-plan-query-guide/, 'flight plan questions must not be offered when nothing can dispatch');
+  });
+
   await test('VoiceControlPanel keeps an available altitude target in the three visible examples', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
@@ -2936,6 +3806,92 @@ async function main() {
     assert.match(html, /Set shortcut/, 'an unassigned shortcut should expose a clear setup action');
     assert.match(html, /No global shortcut is active\. Click to record one\./, 'the recorder should explain that no global shortcut is active');
     assert.match(html, /On-screen only/, 'the main control should explain that its on-screen action remains available');
+    assert.doesNotMatch(html, /data-voice-joystick-binding|Set joystick button/, 'joystick setup is absent unless the desktop explicitly supports it');
+    assert.doesNotMatch(html, /data-voice-joystick-remove/, 'nothing to remove while no joystick button is bound');
+  });
+
+  await test('VoiceControlPanel hides disabled joystick controls and stale bindings while retaining keyboard setup', async () => {
+    for (const joystickAvailable of [false, undefined]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+        ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
+          available: true, enabled: true,
+          pushToTalk: {
+            accelerator: 'Control+Alt+Space', registered: true,
+            joystickAvailable, joystickConnected: true,
+            joystick: { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' },
+          },
+        }),
+        { props: { presentation: 'modal' } },
+      );
+      assert.doesNotMatch(html, /data-voice-joystick|T\.16000M|Set joystick button/);
+      assert.match(html, /data-voice-shortcut-recorder/);
+      assert.match(html, /Control\+Alt\+Space/);
+    }
+  });
+
+  await test('VoiceControlPanel names the bound joystick button and says when its stick is missing', async () => {
+    const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' };
+    const renderWith = async (joystickConnected) => renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
+        available: true,
+        enabled: true,
+        engine: { modelId: 'test-model' },
+        pushToTalk: { accelerator: 'Control+Alt+Space', joystickAvailable: true, joystick, joystickConnected, registered: true },
+      }),
+      { props: { presentation: 'modal' } },
+    );
+
+    const connected = await renderWith(true);
+    assert.match(connected.html, /Control\+Alt\+Space · T\.16000M button 5/, 'the main control should list both global holds');
+    assert.match(connected.html, /data-voice-joystick-connection[^>]*>\s*Connected/, 'a present stick should read as connected');
+    assert.match(connected.html, /data-voice-joystick-remove/, 'a bound button should be removable');
+    assert.match(connected.html, /The simulator sees this button too/, 'the panel should warn that the simulator also receives the button');
+    assert.doesNotMatch(connected.html, /Set push-to-talk/, 'a joystick binding satisfies the settings summary');
+
+    const missing = await renderWith(false);
+    assert.match(missing.html, /data-voice-joystick-connection[^>]*>\s*Not connected/);
+    assert.match(missing.html, /T\.16000M is not connected\. The binding stays and works again once it is plugged in\./);
+  });
+
+  await test('VoiceControlPanel shows which sticks it is listening on while a joystick button is being chosen', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.applyRuntimeInfo({
+          available: true,
+          enabled: true,
+          engine: { modelId: 'test-model' },
+          pushToTalk: { accelerator: '', joystickAvailable: true, joystick: null, joystickConnected: false, registered: false },
+        });
+        voice.setJoystickLearn({ active: true });
+        voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p1', buttons: 16, connected: true });
+        voice.applyJoystickLearnEvent({ type: 'device', vendorId: '294B', productId: '1900', name: 'Alpha Flight Controls', path: 'p2', buttons: 35, connected: true });
+      },
+      { props: { presentation: 'modal' } },
+    );
+
+    assert.match(html, /Press a joystick button…/, 'the recorder should ask for a press while listening');
+    assert.match(html, /Listening on T\.16000M, Alpha Flight Controls\. Press the button to use; Escape cancels\./);
+    assert.match(html, /data-voice-joystick-binding[\s\S]*Cancel/, 'listening should be cancellable');
+  });
+
+  await test('VoiceControlPanel explains a failed spoken readback beside the feedback toggle', async () => {
+    const render = (readback) => renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
+        available: true, enabled: true, engine: { modelId: 'zipformer' },
+        pushToTalk: { accelerator: 'Control+Alt+Space', registered: true }, readback,
+      }),
+    );
+    const failed = await render({ available: true, lastError: 'Readback exited with code 1: Audio device unavailable', local: true });
+    assert.match(failed.html, /data-voice-readback-error/);
+    assert.match(failed.html, /Audio device unavailable/);
+    assert.match(failed.html, /default output device/);
+    const healthy = await render({ available: true, lastError: '', local: true });
+    assert.doesNotMatch(healthy.html, /data-voice-readback-error/);
   });
 
   await test('VoiceControlPanel keeps push-to-talk disabled while simulator control is unavailable', async () => {
@@ -3034,7 +3990,7 @@ async function main() {
     assert.match(html, /data-aircraft-quick-actions/, 'the Aircraft page should render its quick-action region');
     assert.match(html, /data-aircraft-preset="configuration.lights.takeoff"/, 'the active takeoff-light preset should be visible');
     assert.match(html, /data-aircraft-preset="configuration.lights.cruise"/, 'a second one-tap preset should render in the shared quick-action grid');
-    assert.equal((html.match(/data-aircraft-preset=/g) || []).length, 2, 'only no-input presets should render as one-tap actions');
+    assert.equal((html.match(/data-aircraft-preset=/g) || []).length, 2, 'brightness presets keep their slider component instead of a quick-action card');
     assert.doesNotMatch(html, /data-aircraft-preset="configuration.lighting.cockpit"/, 'parameterized presets should not render a button that can only submit empty input');
     assert.match(html, />Takeoff lights</, 'the preset should retain its catalogue label');
     assert.match(html, /Runway turnoffs ON/, 'the UI should show the aircraft-specific recipe before execution');
@@ -3050,8 +4006,13 @@ async function main() {
     );
     assert.match(
       quickActionsSource,
-      /command\?\.input\?\.kind === 'none'/,
-      'shared one-tap presets should fail closed for parameterized commands',
+      /\['none', 'number'\]\.includes\(command\?\.input\?\.kind\)/,
+      'shared presets should render only no-input and single-number commands',
+    );
+    assert.match(
+      quickActionsSource,
+      /takesNumber\(command\) && draftValue\(command\) === null/,
+      'a number preset must fail closed until a valid value is typed',
     );
     assert.match(
       quickActionsSource,
@@ -3121,10 +4082,17 @@ async function main() {
           specific.valueUpdatedAt = Object.fromEntries(Object.keys(specific.values).map(id => [id, specific.updatedAt]));
         });
       assert.equal(html.includes('data-aircraft-preset="configuration.lights.takeoff"'), supported, profileKey);
+      for (const preset of ['afterTakeoff', 'landing', 'afterLanding']) {
+        assert.equal(html.includes(`data-aircraft-preset="configuration.lights.${preset}"`), supported,
+          `${profileKey}: the ${preset} light preset is available exactly where the takeoff preset is`);
+      }
       if (supported) {
         supportedCount++;
         assert.match(html, /aria-label="Apply Takeoff lights"/, profileKey);
         assert.match(html, /set lights for takeoff/, profileKey);
+        assert.match(html, /aria-label="Apply After-takeoff lights"/, profileKey);
+        assert.match(html, /aria-label="Apply Lights for landing"/, profileKey);
+        assert.match(html, /aria-label="Apply After-landing lights"/, profileKey);
       }
     }
     assert.equal(supportedCount, 24, 'all 24 writable takeoff recipes must reach the shared UI');
@@ -3162,6 +4130,66 @@ async function main() {
       assert.match(html, running && !stale ? /disabled/ : />Start<\/button>/);
       assert.doesNotMatch(html, /APU start requested/, 'rendering a button cannot imply dispatch');
     }
+  });
+
+  await test('PMDG 737 paired course and NAV setters render as value presets with the shared card gates', async () => {
+    const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
+    const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
+    const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
+    const profileKey = 'bundled/msfs/pmdg-737';
+    const capability = buildAircraftControlCapabilities(loader.loadProfile(profileKey), { profileRevision: 1,
+      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar'],
+        integrationTransports: ['simconnect-sequence', 'sdk', 'lvar', 'mobiflight-calculator'] } });
+    for (const id of ['flightGuidance.course.setBoth', 'radios.nav.setBothActive']) {
+      const command = capability.aircraftCommands.commands.find(entry => entry.id === id);
+      assert.equal(command?.kind, 'preset', `${id} must be classified as a preset in the real catalogue`);
+      assert.equal(command?.group, 'presets', `${id} must be listed with the presets`);
+      assert.equal(command?.input?.kind, 'number', `${id} keeps its single numeric input`);
+    }
+    const render = (values) => renderComponent(path.join('src', 'vue', 'components', 'AircraftQuickActions.vue'),
+      ({ useAircraftControlsStore, useAircraftSpecificStore }) => {
+        const controls = useAircraftControlsStore();
+        controls.applyControlCapabilities(capability);
+        controls.setAvailability({ enabled: true, reason: 'Ready.' });
+        const specific = useAircraftSpecificStore();
+        specific.templateId = 'pmdg-737';
+        specific.available = true;
+        specific.sourceStatus = 'connected';
+        specific.sourceStatuses = { sdk: 'connected' };
+        specific.activeProfileKey = profileKey;
+        specific.activeProfileRevision = 1;
+        specific.receivedAt = Date.now();
+        specific.updatedAt = new Date().toISOString();
+        specific.values = values;
+        specific.valueUpdatedAt = Object.fromEntries(Object.keys(values).map(field => [field, specific.updatedAt]));
+      });
+
+    const ready = await render({ 'mcp.courseCaptainDeg': 90, 'mcp.courseFirstOfficerDeg': 90,
+      'radios.nav1ActiveMhz': 110.3, 'radios.nav2ActiveMhz': 110.3 });
+    assert.match(ready.html, /<form[^>]*data-aircraft-preset="flightGuidance.course.setBoth"/, 'the course preset should render as a submittable card');
+    assert.match(ready.html, /<form[^>]*data-aircraft-preset="radios.nav.setBothActive"/, 'the NAV preset should render as a submittable card');
+    assert.match(ready.html, /data-aircraft-preset-input="flightGuidance.course.setBoth"[^>]*/, 'the course preset should take a typed value');
+    assert.match(ready.html, /type="number"[^>]*min="0"[^>]*max="359"[^>]*step="1"/, 'the course field should carry the catalogue bounds');
+    assert.match(ready.html, /type="number"[^>]*min="108"[^>]*max="117.95"[^>]*step="0.05"/, 'the NAV field should carry the catalogue bounds');
+    assert.match(ready.html, /Say “set courses two seven zero”/, 'the course preset should advertise its spoken example');
+    assert.match(ready.html, /Say “set nav radios one one zero decimal three”/, 'the NAV preset should advertise its spoken example');
+    assert.match(ready.html, /data-aircraft-command="flightGuidance.course.setBoth"[^>]*>\s*Set both\s*<\/button>/, 'the course submit should use the canonical command path');
+    assert.match(ready.html, /<button[^>]*disabled[^>]*data-aircraft-command="flightGuidance.course.setBoth"/, 'an empty value must not be submittable');
+    assert.match(ready.html, /aria-label="Enter a value for Captain \+ FO course windows"/, 'an empty field reads as awaiting input, not as unavailable');
+    assert.doesNotMatch(ready.html, /Enter a value from/, 'no range hint until something is typed');
+    assert.doesNotMatch(ready.html, /Waiting for live/, 'present readings should not block the presets');
+    assert.equal((ready.html.match(/data-aircraft-preset-group="lights"/g) || []).length, 1, 'phase light presets share one grouped card');
+    const groupStart = ready.html.indexOf('data-aircraft-preset-group="lights"');
+    const groupMarkup = ready.html.slice(groupStart, ready.html.indexOf('</article>', groupStart));
+    assert.deepEqual([...groupMarkup.matchAll(/data-aircraft-preset="([^"]+)"/g)].map(match => match[1]),
+      ['configuration.lights.takeoff', 'configuration.lights.afterTakeoff', 'configuration.lights.landing', 'configuration.lights.afterLanding'],
+      'light presets render as rows inside the group in flight-phase order');
+    assert.doesNotMatch(ready.html.slice(0, groupStart), /data-aircraft-preset="configuration\.lights\./, 'no light preset renders as a standalone card');
+    assert.match(groupMarkup, /Landing L\/R ON · Runway turnoffs ON/, 'each row still shows what the preset changes');
+
+    const waiting = await render({ 'mcp.courseCaptainDeg': 90 });
+    assert.match(waiting.html, /Waiting for live course-window readings\./, 'a missing first-officer course must block the paired course preset');
+    assert.match(waiting.html, /Waiting for live NAV frequency readings\./, 'missing NAV readings must block the paired NAV preset');
   });
 
   await test('APU status stays current when telemetry arrives between freshness timer ticks', async () => {
@@ -3291,7 +4319,7 @@ async function main() {
 
     assert.match(html, /id="aircraft-voice-control-modal"/, 'voice controls should render in a dedicated modal');
     assert.match(html, /role="dialog"[\s\S]*aria-modal="true"/, 'the voice surface should expose modal semantics');
-    assert.match(html, /Keep Flight Fabric in the background/, 'the modal should explain the simulator-first workflow');
+    assert.match(html, /Keep FlightFabric in the background/, 'the modal should explain the simulator-first workflow');
     assert.match(html, /Browse 1 voice command/, 'the modal should route command discovery into the shared integration guide');
     assert.match(html, /aria-haspopup="dialog"/, 'the command browser should announce that it opens a dialog');
     assert.match(html, /aria-controls="aircraft-integration-cheatsheet-modal"/, 'the command browser should identify the integration guide it opens');
@@ -3497,8 +4525,20 @@ async function main() {
     assert.match(html, /id="aircraft-specific-section"/, 'specific mode should mount the trusted aircraft section');
     assert.match(html, /data-aircraft-integration-guide-trigger/, 'trusted aircraft templates should expose the same shared integration guide');
     assert.match(html, /data-aircraft-template="ifly-737-max-8"/, 'the registered iFly template should render');
-    assert.match(html, />stale</, 'transient source health should render inside the selected template');
+    assert.match(html, /Aircraft data is stale/, 'transient source health should retain its readable warning inside the selected template');
     assert.doesNotMatch(html, /id="controls-diagnostics"/, 'specific mode should not mount the generic controls beneath it');
+  });
+
+  await test('AircraftTabShell exposes one Experimental Autotaxi panel across Generic, PMDG and Fenix aircraft', async () => {
+    assert.equal(sharedSettings.LIVE_AUTOTAXI_ENABLED, true);
+    for (const [profile, template] of [['generic', 'generic'], ['pmdg-737', 'pmdg-737'], ['pmdg-777', 'pmdg-777'], ['fenix-a320', 'fenix-a32x']]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'), ({ useAircraftSpecificStore }) => {
+        useAircraftSpecificStore().applyProfile({ _profileKey: `bundled/msfs/${profile}`, profileRevision: 1, aircraftSpecificTemplateId: template });
+      });
+      assert.equal((html.match(/data-aircraft-autotaxi-section/g) || []).length, 1, `${profile}: one shared Autotaxi panel`);
+      assert.equal((html.match(/id="aircraft-page-autotaxi"/g) || []).length, 1, `${profile}: one navigation destination`);
+      assert.match(html, /Experimental[^<]*MSFS 2024/, `${profile}: Experimental status is visible`);
+    }
   });
 
   await test('AircraftTabShell keeps the PMDG 737 mobile section ribbon and hot-group behavior', async () => {
@@ -3541,11 +4581,11 @@ async function main() {
 
     assert.match(html, /data-aircraft-template="pmdg-737"/, 'the PMDG 737 template should render');
     assert.match(html, /aircraft-specific-section--mobile-ribbon/, 'the PMDG 737 card should release mobile overflow for its sticky ribbon');
-    assert.match(html, /class="pmdg-mobile-section-ribbon-anchor"/, 'the PMDG section ribbon should have a dedicated sticky sub-navigation row');
+    assert.match(html, /class="[^"]*\bpmdg-mobile-section-ribbon-anchor\b[^"]*"/, 'the PMDG section navigator should retain its sticky anchor across desktop and phone layouts');
     assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, 'the PMDG 737 page should select the mobile ribbon experiment');
-    assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 737 search should be hidden at the mobile breakpoint');
-    assert.match(searchSource, /@media \(max-width: 760px\)[\s\S]*?\.aircraft-find--mobile-hidden\s*\{\s*display:\s*none;/, 'PMDG search should disappear at the viewport breakpoint without depending on pointer detection');
-    assert.match(pmdgSource, /@media \(max-width: 760px\)[\s\S]*?\.pmdg-mobile-section-ribbon\s*\{\s*display:\s*grid;/, 'PMDG section navigation should replace search at the same viewport breakpoint');
+    assert.match(html, /class="aircraft-find"/, 'PMDG 737 search should remain available at every viewport');
+    assert.doesNotMatch(searchSource, /aircraft-find--mobile-hidden/, 'section navigation should not remove phone Find controls');
+    assert.match(pmdgSource, /@media \(max-width: 760px\)[\s\S]*?\.pmdg-mobile-section-ribbon\s*\{\s*display:\s*grid;/, 'PMDG section navigation should remain available alongside phone search');
     assert.match(pmdgSource, /\.pmdg-mobile-section-ribbon-anchor\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?height:\s*2\.75rem;/, 'the mobile ribbon should remain reachable while reserving only its visible control height');
     assert.match(pmdgSource, /Number\.isFinite\(endX\)[\s\S]*Number\.isFinite\(endY\)/, 'coordinate-free pointer activation must not be misread as a swipe to another section');
     assert.match(pmdgSource, /target\?\.closest\?\.\('\.pmdg-mobile-section-ribbon__neighbor'\)/, 'arrow taps should bypass ribbon swipe detection so they always advance one section');
@@ -3555,14 +4595,18 @@ async function main() {
     assert.match(pmdgSource, /useAircraftSectionMemory/, 'PMDG 737 should use the guarded shared section-memory behavior');
     assert.match(pmdgSource, /memoryKey:\s*\(\) => props\.profileKey/, 'PMDG 737 section memory should be isolated by exact profile key');
     assert.match(pmdgSource, /focus:\s*false,\s*remember:\s*false/, 'restoring a section must not steal focus or rewrite memory');
-    assert.match(html, /class="pmdg-mobile-section-ribbon"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'the ribbon should own its gesture surface without triggering app tab swipes');
+    assert.match(html, /class="[^"]*\bpmdg-mobile-section-ribbon\b[^"]*"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'desktop section choices and the phone ribbon should share navigation and keep gestures inside the aircraft task');
     assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
-    assert.match(html, />1 of 7 · All sections</, 'the ribbon should communicate position across only the permanent aircraft sections');
-    assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'the next large target should name its permanent-section destination');
+    const expectedSections = ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'];
+    assert.equal(sharedSettings.LIVE_AUTOTAXI_ENABLED, true);
+    assert.doesNotMatch(html, /pmdg-737-section-autotaxi/, 'Autotaxi belongs to the shared page, without a duplicate PMDG panel');
+    assert.match(html, /id="aircraft-page-autotaxi"/, 'Autotaxi has a shared navigation destination');
+    assert.ok(html.includes(`>1 of ${expectedSections.length + 1} · All sections<`), 'the ribbon should count the shared Taxi destination and cockpit sections');
+    assert.match(html, /aria-label="Open next section: Mode Control Panel"/, 'navigation should follow the shared Taxi section with MCP');
     assert.deepEqual(
       [...html.matchAll(/data-pmdg-737-section="([^"]+)"/g)].map((match) => match[1]),
-      ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'],
-      'the ribbon should retain the seven permanent cockpit sections',
+      expectedSections,
+      'the ribbon should retain the seven available cockpit sections in page order',
     );
     assert.match(html, /data-pmdg-hot-group-launcher="initial-power"/, 'Initial power should be exposed as a compact hot-group launcher');
     const launcherStart = html.indexOf('data-pmdg-hot-group-launcher="initial-power"');
@@ -3570,7 +4614,7 @@ async function main() {
     assert.match(launcherMarkup, /Initial power[\s\S]*PMDG readback unavailable[\s\S]*OPEN/, 'the launcher should retain only its title, useful live summary, and open affordance');
     assert.doesNotMatch(launcherMarkup, /PWR|Quick group|>LIVE</, 'the launcher should not accumulate explanatory labels or status pills');
     assert.ok(
-      pmdgSource.indexOf('class="pmdg-mobile-section-ribbon-anchor"') < pmdgSource.indexOf('data-pmdg-hot-group-launcher="initial-power"'),
+      pmdgSource.indexOf('class="pmdg-mobile-section-ribbon-anchor') < pmdgSource.indexOf('data-pmdg-hot-group-launcher="initial-power"'),
       'the permanent section navigation should appear before the separate Initial power quick group',
     );
     assert.match(html, /data-aircraft-hot-group-modal/, 'Initial power should render through the reusable hot-group modal shell');
@@ -3580,14 +4624,13 @@ async function main() {
     assert.match(hotGroupModalSource, /role="dialog"[\s\S]*?aria-modal="true"/, 'the reusable hot-group surface should expose modal semantics');
     assert.match(hotGroupModalSource, /@media \(max-width: 760px\)[\s\S]*?height:\s*var\(--ff-visual-viewport-height, 100dvh\)/, 'hot groups should become full-screen sheets on mobile');
     assert.match(html, /data-pmdg-location="glareshield">GLARESHIELD</, 'MCP should expose its real cockpit location as secondary metadata');
-    assert.match(html, /data-pmdg-course-both-control/, 'the PMDG MCP should expose coordinated course-window setting');
-    assert.match(html, /data-aircraft-command="flightGuidance\.course\.setBoth"/, 'the paired course control should use the canonical command path');
-    assert.match(html, /set courses two seven zero/, 'the paired course control should advertise its exact voice form');
-    assert.match(pmdgSource, /function mcpControlGroup[\s\S]*bothCourseControlGroup/, 'individual and paired course writes should share one UI pending group');
+    assert.doesNotMatch(html, /data-pmdg-course-both-control|SET BOTH COURSE WINDOWS/, 'the paired course setter belongs to the shared Presets section, not the MCP block');
+    assert.doesNotMatch(html, /data-aircraft-command="flightGuidance\.course\.setBoth"/, 'the template must not duplicate the paired course preset');
+    assert.match(pmdgSource, /function mcpControlGroup[\s\S]*bothCourseControlGroup/, 'individual course writes should keep their shared pending group');
+    assert.match(pmdgSource, /props\.isCommandPending\(bothCourseCommandId\)/, 'individual course writes should stay blocked while the paired preset is applying');
     assert.match(html, /data-pmdg-location="pedestal">PEDESTAL</, 'navigation radios should expose their pedestal location');
-    assert.match(html, /data-pmdg-nav-both-control/, 'the PMDG radio section should expose coordinated active-frequency tuning');
-    assert.match(html, /data-aircraft-command="radios\.nav\.setBothActive"/, 'the paired radio control should use the canonical command path');
-    assert.match(html, /set nav radios one one zero decimal three/, 'the paired radio control should advertise its exact voice form');
+    assert.doesNotMatch(html, /data-pmdg-nav-both-control|SET BOTH ACTIVE/, 'the paired NAV setter belongs to the shared Presets section, not the radio block');
+    assert.doesNotMatch(html, /data-aircraft-command="radios\.nav\.setBothActive"/, 'the template must not duplicate the paired NAV preset');
     assert.doesNotMatch(html, /data-pmdg-cockpit-lighting-control/, "The template must not repeat the shared brightness presets");
     assert.match(html, /data-pmdg-location="aft-overhead">AFT OVERHEAD</, 'IRS should expose its aft-overhead location');
     assert.doesNotMatch(html, /data-pmdg-location="main-panel-overhead"/, 'mixed flight-control locations should not be presented as one cockpit panel');
@@ -3645,13 +4688,13 @@ async function main() {
 
     assert.match(html, /data-aircraft-template="pmdg-777"/, 'the PMDG 777 template should render');
     assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, 'PMDG 777 should select section navigation on mobile');
-    assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, 'PMDG 777 should retain desktop search while hiding it at the mobile breakpoint');
+    assert.match(html, /class="aircraft-find"/, 'PMDG 777 should retain Find controls on desktop and phone');
     assert.match(html, /aircraft-specific-section--mobile-ribbon/, 'the PMDG 777 card should release overflow for sticky navigation');
     assert.match(html, /data-aircraft-section-ribbon/, 'the reusable mobile section ribbon should render');
     assert.match(html, /aria-label="PMDG 777 page sections"/, 'the ribbon should have aircraft-specific navigation semantics');
     assert.match(html, /aria-label="Open all PMDG 777 sections"/, 'the center target should open the complete 777 section chooser');
-    assert.match(html, />1 of 10 /, 'the ribbon should communicate its position across the ten practical 777 groups');
-    assert.match(html, /aria-label="Open next section: Lights &amp; Cabin"/, 'the next target should identify the lights and cabin group');
+    assert.match(html, />1 of 11 /, 'the ribbon should count shared Taxi alongside the ten practical 777 groups');
+    assert.match(html, /aria-label="Open next section: Mode Control Panel"/, 'the shared Taxi section should lead into MCP');
     assert.deepEqual(
       [...html.matchAll(/id="pmdg-777-section-([^" ]+)"/g)].map((match) => match[1]),
       ['mcp', 'lights', 'electrical', 'hydraulics-ice', 'fuel-engines', 'air', 'gear-high-lift', 'displays', 'utilities', 'outcomes'],
@@ -3809,8 +4852,6 @@ async function main() {
         file: 'Pmdg737AircraftPanel.vue',
         resets: [
           /mcpDrafts\.value = \{\}/,
-          /bothCourseDraft\.value = ''/,
-          /bothNavFrequencyDraft\.value = ''/,
         ],
       },
       {
@@ -4044,7 +5085,7 @@ async function main() {
 
       assert.match(html, new RegExp(`data-aircraft-template="${fixture.templateId}"`), `${fixture.aircraftLabel} should render its trusted template`);
       assert.match(html, /data-mobile-aircraft-navigation="section-ribbon"/, `${fixture.aircraftLabel} should use section navigation on mobile`);
-      assert.match(html, /class="aircraft-find aircraft-find--mobile-hidden"/, `${fixture.aircraftLabel} should retain compact search on desktop and hide it on mobile`);
+      assert.match(html, /class="aircraft-find"/, `${fixture.aircraftLabel} should retain compact search on desktop and phone`);
       assert.match(html, />Find controls</, `${fixture.aircraftLabel} should retain the compact desktop search launcher`);
       assert.match(html, /aircraft-specific-section--mobile-ribbon/, `${fixture.aircraftLabel} should release overflow for sticky navigation`);
       assert.match(html, /data-aircraft-section-ribbon/, `${fixture.aircraftLabel} should render the shared section ribbon`);
@@ -4335,7 +5376,8 @@ async function main() {
   await test('LiveMapHeader renders paused follow state and route inputs', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LiveMapHeader.vue'),
-      ({ useLiveMapStore }) => {
+      ({ useLiveMapStore, useProfilesStore }) => {
+        useProfilesStore().setAuthorizationScope('full-control');
         const store = useLiveMapStore();
         store.setFollowStatus('paused');
         store.setMeta('Tracking live telemetry');
@@ -4347,9 +5389,9 @@ async function main() {
     );
 
     assert.match(html, />Paused</, 'paused follow badge should render');
-    assert.match(html, />Resume Follow</, 'center button should switch to resume label');
+    assert.doesNotMatch(html, /id="live-map-center-btn"/, 'center action belongs on the map, outside the header');
     assert.match(html, /Tracking live telemetry/, 'meta text should render');
-    assert.doesNotMatch(html, /live-map-route-details/, 'route disclosure button should not render');
+    assert.match(html, /<details class="live-map-route-details"><summary>Route &amp; position<\/summary>/, 'secondary route tools should be available in a labelled disclosure');
     assert.match(
       html,
       /class="live-map-inline-meta"[\s\S]*id="live-map-meta"[\s\S]*id="live-map-route-inputs"/,
@@ -4373,6 +5415,7 @@ async function main() {
       ({ useLiveMapStore }) => {
         const liveMap = useLiveMapStore();
         liveMap.setMeta('Lat 39.87440 Lon -75.24230');
+        liveMap.setFollowStatus('paused');
         liveMap.setOverlay({ visible: true, rotationDeg: 12, primary: 'KBOS', secondary: '120 NM' });
       },
     );
@@ -4381,10 +5424,23 @@ async function main() {
     assert.match(html, /id="vue-live-map-header-root"/, 'live map header wrapper should render');
     assert.match(html, /id="live-map-meta"[^>]*>Lat 39\.87440 Lon -75\.24230</, 'embedded header should render store metadata');
     assert.match(html, /id="live-map"/, 'Leaflet live map target should render');
+    assert.match(html, /id="live-map-center-btn"[^>]*>\s*Resume Follow\s*</, 'map action should render the paused follow label');
     assert.match(html, /id="vue-live-map-overlay-root"/, 'target overlay wrapper should render');
     assert.match(html, /id="live-map-target-overlay"/, 'embedded target overlay should render');
     assert.match(html, /id="live-map-target-primary"[^>]*>KBOS</, 'target overlay should render primary text');
     assert.match(html, /id="live-map-empty"[^>]*>No live GPS position yet</, 'live map empty state target should render');
+  });
+
+  await test('LiveMapHeader explains remote route restrictions without presenting unusable setters', async () => {
+    for (const scope of ['read-only', 'paired-control']) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LiveMapHeader.vue'),
+        ({ useProfilesStore }) => useProfilesStore().setAuthorizationScope(scope),
+      );
+      assert.match(html, /Route targets are managed on your FlightFabric PC/);
+      assert.doesNotMatch(html, /id="live-map-(?:origin|target)-(?:icao|set-btn)"/);
+      assert.match(html, /id="live-map-meta"/, 'remote viewers retain live position information');
+    }
   });
 
   await test('aircraft-specific template registry rejects inherited object keys', async () => {
@@ -4621,6 +5677,8 @@ async function main() {
     assert.match(throttleHtml, /ENG 1 FLX \/ MCT/);
     assert.match(throttleHtml, /ENG 4 FLX \/ MCT/);
     assert.match(throttleHtml, /data-fbw-throttle-detent="flexMct"[^>]*aria-pressed="true"/);
+    assert.equal((throttleHtml.match(/class="airbus-throttle-knob"/g) || []).length, 4, 'the A380X quadrant should draw four lever knobs');
+    assert.match(throttleHtml, /data-throttle-lever-count="4"/);
     assert.doesNotMatch(throttleHtml, /type="range"|drag|slide/i, 'the A380X throttle must remain a one-tap detent control');
     assert.deepEqual(
       [...html.matchAll(/data-a380-section="([^"]+)"/g)].map((match) => match[1]),
@@ -6656,6 +7714,10 @@ async function main() {
     assert.match(throttleHtml, /min-h-\[84px\]/, 'fat-finger throttle targets should remain substantially larger than ordinary controls');
     assert.doesNotMatch(throttleHtml, /type="range"|drag|slide/i, 'the detent control must stay one-tap rather than pretending to be a sliding axis');
     assert.doesNotMatch(throttleHtml, /reverse[^<]*data-aircraft-action/i, 'reverse thrust must not be actionable');
+    assert.equal((throttleHtml.match(/class="airbus-throttle-knob"/g) || []).length, 2, 'the quadrant should draw one lever knob per engine');
+    assert.match(throttleHtml, /data-fenix-throttle-lever="1"[^>]*data-lever-state="detent"/, 'a lever on a gate should report the detent state');
+    assert.match(throttleHtml, /class="airbus-throttle-reverse"[^>]*aria-hidden="true"/, 'the reverse zone should be decorative only');
+    assert.doesNotMatch(throttleHtml, /<button[^>]*airbus-throttle-reverse/, 'the reverse zone must never be a button');
     const throttleComponentSource = fs.readFileSync(path.join(
       frontendRoot,
       'src',
@@ -6663,11 +7725,12 @@ async function main() {
       'components',
       'aircraft-specific',
       'templates',
-      'FenixThrottleControl.vue',
+      'AirbusThrottleQuadrant.vue',
     ), 'utf8');
     assert.match(throttleComponentSource, /@click="commit\(detent\)"/, 'each detent should be a direct one-tap action');
-    assert.match(throttleComponentSource, /\.fenix-throttle-button\s*\{\s*touch-action:\s*none;/, 'a touch started on a detent must not scroll the page');
-    assert.doesNotMatch(throttleComponentSource, /@pointermove|type="range"/, 'the virtual throttle must not grow hidden drag or slider behavior');
+    assert.match(throttleComponentSource, /\.airbus-throttle-detent\s*\{\s*touch-action:\s*none;/, 'a touch started on a detent must not scroll the page');
+    assert.doesNotMatch(throttleComponentSource, /@pointermove|@pointerdown|@touchmove|type="range"/, 'the virtual throttle must not grow hidden drag or slider behavior');
+    assert.match(throttleComponentSource, /pointer-events:\s*none;/, 'lever knobs must let taps pass through to the gate buttons');
     assert.ok(
       html.indexOf('data-fenix-section="flight-guidance-fcu"') < html.indexOf('data-aircraft-control-section="exterior-lights"'),
       'the high-value FCU controls should precede secondary aircraft systems',
@@ -6699,7 +7762,7 @@ async function main() {
     assert.match(html, /data-aircraft-action="lights\.nose\.taxi"[^>]*aria-pressed="true"/);
     assert.match(html, /data-aircraft-action="systems\.engineMode\.start"[^>]*aria-pressed="true"/);
     assert.match(html, /data-aircraft-action="lighting\.overhead\.half"[^>]*aria-pressed="true"/);
-    assert.match(html, /Unofficial Fenix A32X compatibility\. Flight Fabric is not affiliated with FenixSim\./);
+    assert.match(html, /Unofficial Fenix A32X compatibility\. FlightFabric is not affiliated with FenixSim\./);
     assert.match(html, /Most expanded controls still need live testing across every A319, A320, and A321 release\./);
     assert.doesNotMatch(html, /S_OH_|I_FCU_|MF\.SimVars|MobiFlight/);
   });
@@ -7049,6 +8112,171 @@ async function main() {
     assert.match(html, /id="live-map-empty"[^>]*>Waiting for GPS lock</, 'live-map empty-state copy should render from the store');
   });
 
+  console.log('\n--- 3D map views ---\n');
+  await test('MapViewModeToggle renders a pressed 2D/3D pair', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'MapViewModeToggle.vue'),
+      () => {},
+      { props: { modelValue: '3d', idPrefix: 'probe-view' } },
+    );
+    assert.match(html, /id="probe-view-toggle"[^>]*role="group"/, 'toggle should be a labelled group');
+    assert.match(html, /id="probe-view-2d"[^>]*aria-pressed="false"/, '2D option should read unpressed');
+    assert.match(html, /id="probe-view-3d"[^>]*aria-pressed="true"/, '3D option should read pressed');
+    assert.match(html, /data-map-view="3d"[^>]*>\s*3D\s*</, '3D option label should render');
+  });
+
+  await test('LiveMapHeader shows the view toggle and 3D options only in 3D mode', async () => {
+    const flat = await renderComponent(
+      path.join('src', 'vue', 'components', 'LiveMapHeader.vue'),
+      ({ useLiveMapStore }) => {
+        useLiveMapStore().setViewMode('2d');
+      },
+    );
+    assert.match(flat.html, /id="live-map-view-toggle"/, 'view toggle should render in 2D mode');
+    assert.doesNotMatch(flat.html, /id="live-map-3d-options"/, '3D options should stay hidden in 2D mode');
+    assert.match(flat.html, /Real-time aircraft position from current telemetry/, '2D subtitle should render');
+
+    const solid = await renderComponent(
+      path.join('src', 'vue', 'components', 'LiveMapHeader.vue'),
+      ({ useLiveMapStore }) => {
+        const store = useLiveMapStore();
+        store.setViewMode('3d');
+        store.setMap3dOption('cameraMode', 'orbit');
+        store.setMap3dOption('colorMode', 'verticalSpeed');
+        store.setMap3dOption('verticalScale', 5);
+        store.setMap3dOption('showTerrain', false);
+      },
+    );
+    assert.match(solid.html, /id="live-map-view-3d"[^>]*aria-pressed="true"/, '3D option should be pressed');
+    assert.match(solid.html, /id="live-map-3d-options"/, '3D options should render in 3D mode');
+    assert.match(solid.html, /id="live-map-3d-camera-mode"/, 'live view should offer the camera mode');
+    assert.match(solid.html, /id="live-map-3d-color-mode"/, 'colour mode select should render');
+    assert.match(solid.html, /id="live-map-3d-vertical-scale"/, 'vertical scale select should render');
+    assert.match(solid.html, /id="live-map-3d-curtain"[^>]*checked/, 'curtain should default on');
+    assert.match(solid.html, /id="live-map-3d-terrain"(?![^>]*checked)/, 'terrain checkbox should reflect the stored option');
+    assert.match(solid.html, /id="live-map-3d-lighting"/, 'lighting select should render');
+    assert.match(solid.html, /Time of day[\s\S]*Daylight/, 'lighting select should offer time of day and fixed daylight');
+    assert.match(solid.html, /Altitude, track and camera view from current telemetry/, '3D subtitle should render');
+  });
+
+  await test('LiveMapTabShell renders the 3D surface, HUD, legend and status in 3D mode', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LiveMapTabShell.vue'),
+      ({ useLiveMapStore, useFlightStore }) => {
+        useFlightStore().setFlightState('live');
+        const store = useLiveMapStore();
+        store.setViewMode('3d');
+        store.setScene3dStatus('Loading 3D view...');
+        store.setScene3dHud({
+          lighting: { phase: 'night', phaseLabel: 'Night', source: 'sim', timeText: '21:30Z', sunElevationDeg: -25 },
+          altitudeFt: 12345,
+          aglFt: 6789,
+          terrainElevationFt: 5556,
+          terrainActive: true,
+          groundSpeedKts: 251,
+          verticalSpeedFpm: -900,
+          iasKts: 220,
+          headingDeg: 7,
+          groundPlaneFt: 0,
+          verticalScale: 2,
+        });
+        store.setScene3dLegend({
+          mode: 'verticalSpeed',
+          label: 'Vertical speed',
+          unit: 'fpm',
+          kind: 'diverging',
+          gradientCss: 'linear-gradient(90deg, #d99e4d, #c2cad4, #51b8cf)',
+          lower: -2500,
+          upper: 2500,
+          hasData: true,
+          poleLabels: { low: 'Descent', mid: 'Level', high: 'Climb' },
+        });
+      },
+    );
+    assert.match(html, /class="live-map-wrap map-view-3d-active"/, 'wrapper should mark the 3D view active');
+    assert.match(html, /id="live-map"(?![^>]*class)/, 'the Leaflet container must keep its own class attribute');
+    assert.match(html, /id="live-map-3d"[^>]*class="flight-scene-surface"/, '3D surface should be visible');
+    assert.match(html, /id="live-map-3d"[^>]*data-no-swipe/, 'orbiting the 3D view by touch must not swipe tabs or pull to reconnect');
+    assert.match(html, /id="live-map-3d-hud"/, 'HUD should render');
+    assert.match(html, /data-hud-key="alt"[\s\S]*?12,345/, 'HUD should show altitude');
+    assert.match(html, /data-hud-key="agl"[\s\S]*?6,789/, 'HUD should show height above ground');
+    assert.match(html, /data-hud-key="vs"[\s\S]*?-900/, 'HUD should show signed vertical speed');
+    assert.match(html, /data-hud-key="hdg"[\s\S]*?007/, 'HUD should pad the heading');
+    assert.match(html, /id="live-map-3d-legend"/, 'legend should render');
+    assert.match(html, /Descent -2,500/, 'diverging legend should label the descent pole');
+    assert.match(html, /Climb \+2,500/, 'diverging legend should label the climb pole');
+    assert.match(html, /Terrain below 5,556 ft/, 'legend should state the terrain height under the aircraft');
+    assert.match(html, /6,789 ft above/, 'legend should state the height above terrain');
+    assert.match(html, /Vertical x2/, 'legend should state the vertical exaggeration');
+    assert.match(html, /Night · 21:30Z sim time · moonlight added so terrain stays visible/, 'legend should state the lighting, its clock and the added moonlight');
+    assert.match(html, /Mapzen terrain tiles/, 'legend should attribute the elevation source');
+    assert.match(html, /OpenStreetMap contributors/, 'legend should attribute the basemap');
+    assert.match(html, /id="live-map-3d-status"[^>]*role="status"[^>]*>\s*Loading 3D view\.\.\./, 'status message should render');
+  });
+
+  await test('LiveMapTabShell blanks retained 3D HUD readings whenever live telemetry is unavailable', async () => {
+    for (const mode of ['disconnected', 'error', 'waiting', 'inMenu', 'live']) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LiveMapTabShell.vue'),
+        ({ useLiveMapStore, useFlightStore }) => {
+          const store = useLiveMapStore();
+          const flight = useFlightStore();
+          store.setViewMode('3d');
+          store.setScene3dHud({ altitudeFt: 14000, aglFt: 13000, groundSpeedKts: 240,
+            verticalSpeedFpm: 1000, headingDeg: 180, iasKts: 210 });
+          flight.setFlightState('live');
+          if (mode === 'waiting') flight.resetLiveTelemetry();
+          flight.setFlightState(mode);
+        },
+      );
+      const values = [...html.matchAll(/class="map-3d-hud-value">([^<]+)</g)].map(match => match[1]);
+      assert.deepEqual(values, mode === 'live'
+        ? ['14,000', '13,000', '240', '+1,000', '180', '210']
+        : ['--', '--', '--', '--', '---', '--'], `${mode}: HUD availability follows the live flight state`);
+    }
+  });
+
+  await test('TimelineMapShell renders the replay view toggle, Fit flight and the 3D surface', async () => {
+    const flat = await renderComponent(path.join('src', 'vue', 'components', 'TimelineMapShell.vue'));
+    assert.match(flat.html, /id="timeline-map-view-toggle"/, 'replay view toggle should render');
+    assert.doesNotMatch(flat.html, /id="timeline-map-3d-fit-btn"/, 'Fit flight should stay hidden in 2D mode');
+    assert.match(flat.html, /id="timeline-map-3d"[^>]*class="timeline-map-surface flight-scene-surface map-view-hidden"/, '3D surface should be hidden in 2D mode');
+
+    const solid = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineMapShell.vue'),
+      ({ useTimelineStore }) => {
+        const store = useTimelineStore();
+        store.setMapViewMode('3d');
+        store.setScene3dLegend({
+          mode: 'altitude',
+          label: 'Altitude',
+          unit: 'ft',
+          kind: 'sequential',
+          gradientCss: 'linear-gradient(90deg, #008096, #8befff)',
+          lower: 18,
+          upper: 34000,
+          hasData: true,
+          groundPlaneFt: 0,
+          verticalScale: 3,
+          terrainActive: true,
+          terrainElevationFt: 1200,
+          aboveTerrainFt: 8800,
+          lighting: { phase: 'golden', phaseLabel: 'Low sun', source: 'recording', timeText: '19:40Z', sunElevationDeg: 4 },
+        });
+      },
+    );
+    assert.match(solid.html, /aria-controls="timeline-map-settings"/, 'replay settings should have an accessible disclosure');
+    assert.match(solid.html, /id="timeline-map-3d-fit-btn"/, 'Fit flight should render in 3D mode');
+    assert.match(solid.html, /id="timeline-map-3d-options"/, '3D options should render');
+    assert.doesNotMatch(solid.html, /id="timeline-map-3d-camera-mode"/, 'replay view has no follow camera mode');
+    assert.match(solid.html, /class="timeline-map-wrap map-view-3d-active"/, 'wrapper should mark the 3D view active');
+    assert.match(solid.html, /id="timeline-map" class="timeline-map-surface"/, 'the Leaflet container keeps only its static class');
+    assert.match(solid.html, /id="timeline-map-3d-legend"[\s\S]*34,000/, 'legend should show the altitude range');
+    assert.match(solid.html, /Terrain below 1,200 ft · 8,800 ft above/, 'legend should show terrain under the cursor');
+    assert.match(solid.html, /Low sun · 19:40Z recording clock/, 'legend should say when the recording clock stands in for the simulator clock');
+    assert.match(solid.html, /Vertical x3/, 'legend should state the vertical exaggeration');
+  });
+
   console.log('\n--- landing panel ---\n');
   await test('LandingPanel does not render a live approach monitor', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'LandingPanel.vue'));
@@ -7072,6 +8300,22 @@ async function main() {
     assert.equal(landingCardClass.split(/\s+/).includes('hidden'), false, 'landing card should be visible when the landing store enables it');
     assert.equal(waitingClass.split(/\s+/).includes('hidden'), true, 'waiting state should hide when the landing card is visible');
     assert.equal(emptyClass.split(/\s+/).includes('hidden'), true, 'mobile landing empty-state should hide when the landing card is visible');
+  });
+
+  await test('LandingPanel offers the landing as a shareable image beside the airport and runway', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LandingPanel.vue'),
+      ({ useLandingStore }) => {
+        useLandingStore().applyLandingCardMessage({ final: true, vs: -180, grade: 'Smooth', color: '#00e070', icao: 'YSSY', runway: '34L' });
+      },
+    );
+    assert.match(html, /id="landing-share-actions"[\s\S]*?Share this landing/, 'the share row sits inside the landing card');
+    assert.ok(html.indexOf('id="landing-share-actions"') > html.indexOf('id="landing-runway"'), 'it follows the airport and runway hero');
+    assert.ok(html.indexOf('id="landing-share-actions"') < html.indexOf('id="landing-grade"'), 'and comes before the grade facts');
+    assert.match(html, /id="landing-share-save"[^>]*>[\s\S]*?Save PNG/, 'Save PNG is always offered');
+    assert.doesNotMatch(html, /id="landing-share-copy"/, 'Copy image is offered only where the clipboard can take an image');
+    assert.doesNotMatch(html, /id="landing-share-result"/, 'no result line before an action');
+    assert.doesNotMatch(html, /id="landing-share-save"[^>]*\bdisabled\b/, 'the button is live when a card is shown');
   });
 
   await test('LandingPanel renders landing-card summary and in-flight detail from the landing store', async () => {
@@ -7538,7 +8782,7 @@ async function main() {
     assert.match(html, /id="logbook-trends"[\s\S]*Airports[\s\S]*YSSY[\s\S]*100% strict stable/, 'airport trend rows should identify the legacy strict rate');
     assert.match(html, /LFPG 27R[\s\S]*0% strict stable/, 'trend rows without a VS comparison should still show the strict stability rate');
     assert.doesNotMatch(html, /VS\s*--/, 'trend rows without a VS comparison should not render a broken-looking VS placeholder');
-    assert.match(html, /YPAD[^<]*<span[^>]*>23<\/span>/, 'numeric runway identifier should render as text');
+    assert.match(html, /<span>YPAD<\/span>\s*<span[^>]*>23<\/span>/, 'numeric runway identifier should render as text');
     assert.match(html, /RUNWAY EXCURSION/, 'runway excursion grade should render as a first-class logbook row');
     assert.match(html, />UNSTABLE<\/span>/, 'unstable approach verdict should render');
     assert.doesNotMatch(html, /logbook-mobile-card__top/, 'desktop logbook render should not include hidden mobile row DOM');
@@ -7967,6 +9211,38 @@ async function main() {
     assert.match(html, /logbook-mobile-card__stat-label">Approach<\/span>[\s\S]*Marginal[\s\S]*Throttle movement 79%/, 'mobile rows should show the verdict and cause directly');
   });
 
+  for (const [layout, options, cellPattern] of [
+    ['desktop', {}, 'logbook-airport">'],
+    ['mobile', { matchMedia: () => ({ matches: false }) }, 'logbook-mobile-card__meta logbook-airport">'],
+  ]) {
+    await test(`LogbookPanel shows the landing airport's country flag on ${layout}`, async () => {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+        ({ useLogbookStore }) => {
+          useLogbookStore().ingestMessage({
+            type: 'logbook',
+            stats: { total: 3, grades: { GOOD: 3 }, airports: 3, aircraft: 1 },
+            entries: [
+              { id: 'flagged', timestamp: '2026-05-21T17:16:50.465Z', aircraft: '737-800', icao: 'YSCB', country: 'AU', runway: '35', vsFpm: -177, grade: 'GOOD' },
+              { id: 'unknown-country', timestamp: '2026-05-20T17:16:50.465Z', aircraft: '737-800', icao: 'ZZZZ', country: null, runway: '17', vsFpm: -190, grade: 'GOOD' },
+              { id: 'placeholder-region', timestamp: '2026-05-19T17:16:50.465Z', aircraft: '737-800', icao: 'NZSP', country: 'ZZ', runway: '18', vsFpm: -210, grade: 'GOOD' },
+            ],
+          });
+        },
+        options,
+      );
+
+      assert.match(
+        html,
+        new RegExp(`${cellPattern}<img[^>]*class="country-flag"[^>]*src="/assets/flags/AU\\.svg"[^>]*alt="Australia"[^>]*data-country-flag="AU"[^>]*>\\s*<span>YSCB</span>`),
+        `${layout}: the flag sits inside the airport cell, before the ICAO, and names its country`,
+      );
+      assert.match(html, new RegExp(`${cellPattern}<span>ZZZZ</span>`), `${layout}: an airport without a country renders no flag element`);
+      assert.match(html, new RegExp(`${cellPattern}<span>NZSP</span>`), `${layout}: an OurAirports placeholder region renders no flag element`);
+      assert.equal((html.match(/class="country-flag"/g) || []).length, 1, `${layout}: exactly one flag for the one attributed landing`);
+    });
+  }
+
   await test('LogbookPanel hides breakdown causes when stability has no verdict', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
@@ -8079,7 +9355,7 @@ async function main() {
       },
     );
 
-    assert.match(html, /FlightSim Studio Embraer E170\/175 · Manual override · verified profile/, 'header summary should distinguish manual selection from profile verification');
+    assert.match(html, /FlightSim Studio Embraer E170\/175 · Manual override</, 'header summary should show the manual selection without verification wording');
     assert.match(html, /id="aircraft-profile-correction-select"[^>]*>[\s\S]*Automatic detection \(recommended\)/, 'correction selector should keep automatic detection as the recommended option');
     assert.match(html, /<option[^>]*value="bundled\/msfs\/fss-e175"[^>]*>/, 'the current qualified manual override should remain available in the selector');
     assert.doesNotMatch(html, /Advanced profile tools|Local overrides/, 'selector should expose bundled choices without file administration');
@@ -8127,11 +9403,28 @@ async function main() {
       assert.match(html, new RegExp(`role="img" aria-label="${label}"`));
       assert.match(html, /aircraft-artwork__placeholder-icon/);
       assert.doesNotMatch(html, /<img/, 'a missing picture must not load a representative aircraft image');
+      assert.doesNotMatch(html, /--aircraft-artwork-scale/, 'the placeholder is not an aircraft and must not be size-scaled');
     }
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftArtwork.vue'), undefined,
       { props: { profileId: 'pmdg-737', aircraftName: 'PMDG 737-800' } });
     assert.match(html, /src="\/assets\/aircraft\/boeing-737-800.png"/);
     assert.doesNotMatch(html, /aircraft-artwork__placeholder-icon/);
+    assert.match(html, /style="--aircraft-artwork-scale:0\.6\d+;"/, 'a 737 thumbnail must be drawn at its relative length');
+  });
+
+  await test('AircraftArtwork draws a 777 longer than a 737 so the two are not the same white tube', async () => {
+    const scaleFrom = (html) => Number(html.match(/--aircraft-artwork-scale:([\d.]+);/)?.[1]);
+    const render = async (props) => scaleFrom((await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftArtwork.vue'), undefined, { props },
+    )).html);
+    const scale737 = await render({ profileId: 'pmdg-737', aircraftName: 'PMDG 737-800' });
+    const scale777 = await render({ profileId: 'pmdg-777', aircraftName: 'PMDG 777-300ER' });
+    const scale747 = await render({ profileId: 'workingtitle-747-8', aircraftName: 'Boeing 747-8i' });
+    assert(scale737 > 0 && scale737 < scale777, `a 737 (${scale737}) must draw shorter than a 777 (${scale777})`);
+    assert.strictEqual(scale747, 1, 'the longest catalog airframe fills its thumbnail');
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftArtwork.vue'), undefined,
+      { props: { profileId: 'pmdg-777', aircraftName: 'PMDG 777-300ER', variant: 'hero' } });
+    assert.match(html, /aircraft-artwork--hero[^>]*--aircraft-artwork-scale/, 'the hero still carries the scale for CSS to opt out of');
   });
 
   await test('Timeline replay keeps the question-mark artwork for loaded flights with unknown aircraft', async () => {
@@ -8181,7 +9474,7 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render for the timeline controller`);
     }
 
-    assert.match(html, /Timeline Inspector/, 'timeline inspector title should render');
+    assert.match(html, /Flight events/, 'timeline inspector title should explain the working surface');
     assert.match(html, /Select a saved flight to view timeline/, 'timeline selection fallback should render');
     assert.doesNotMatch(html, /id="timeline-worst-btn"/, 'worst-jump button should not render');
     assert.doesNotMatch(html, /Jump to Worst/, 'worst-jump copy should stay removed from the inspector');
@@ -8446,8 +9739,10 @@ async function main() {
 
     assert.match(html, /class="timeline-split timeline-mobile-viewer-open"/, 'timeline viewer should carry the fullscreen mobile-open class');
     assert.match(html, /id="timeline-mobile-viewer-header"/, 'mobile timeline viewer should render a fullscreen header');
-    assert.match(html, /id="timeline-mobile-viewer-landing-shortcut"[^>]*>\s*LANDING DEBRIEF\s*</, 'replay header should provide a shortcut to the loaded flight landing');
-    assert.match(html, /id="timeline-mobile-viewer-close"[^>]*>\s*Close\s*</, 'mobile timeline viewer should provide a close button');
+    assert.match(html, /id="timeline-mobile-viewer-landing-shortcut"[^>]*>[\s\S]*?Landing debrief\s*<\/button>/, 'replay header should provide a shortcut to the loaded flight landing');
+    assert.match(html, /id="timeline-mobile-viewer-close"[^>]*>\s*Back to flights\s*</, 'compact review should provide an explicit return to the retained flight list');
+    assert.match(html, /data-review-view="events"[^>]*role="dialog"[^>]*aria-modal="true"/, 'compact review should begin with events and use modal focus semantics');
+    assert.match(html, /Recorded flight/, 'historical measurements should be clearly identified');
     assert.match(html, /id="timeline-mobile-viewer-title"[^>]*>YSSY-KJFK</, 'mobile timeline viewer should title itself from the loaded flight');
     assert.match(html, /id="timeline-mobile-viewer-aircraft"[^>]*[\s\S]*?Standard Cabin\s*</, 'mobile timeline viewer should show the saved aircraft type beside the route');
     assert.equal((html.match(/data-aircraft-visual-key="lockheed-l1011-500"/g) || []).length, 2, 'both replay headers should receive the recorded aircraft profile id');
@@ -8459,6 +9754,24 @@ async function main() {
     assert.match(html, /id="timeline-card"/, 'mobile fullscreen viewer should include the inspector card');
     assert.match(html, /id="timeline-map-card"/, 'mobile fullscreen viewer should include the replay map');
     assert.doesNotMatch(html, /id="timeline-detail-score"/, 'mobile fullscreen viewer should omit the unused detail score block');
+  });
+
+  await test('TimelineTabShell keeps a desktop review beside the flight list without modal semantics', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineTabShell.vue'),
+      ({ useTimelineStore }) => {
+        const timeline = useTimelineStore();
+        timeline.setLoadedTimelineIdentity({ flightId: 'REVIEW', route: 'YSSY-YMML' });
+        timeline.openTimelineMobileViewer();
+        timeline.setDetail({ visible: true, type: 'configuration_event', title: 'Gear down', metricSections: [] });
+      },
+      { matchMedia: () => ({ matches: false }) },
+    );
+    assert.match(html, /class="logbook-workspace"[\s\S]*id="vue-timeline-flights-root"[\s\S]*data-has-review="true"/, 'desktop review should keep the flight list mounted alongside the selected flight');
+    assert.match(html, /data-review-view="events"[^>]*role="region"/, 'desktop review must not trap focus or cover application navigation');
+    assert.match(html, /id="timeline-detail"[^>]*role="region"/, 'desktop event detail should be a contextual region, not a second modal');
+    assert.doesNotMatch(html, /aria-modal="true"|id="timeline-mobile-viewer-close"/, 'desktop review stays open without modal close controls');
+    assert.match(html, /Recorded flight[\s\S]*YSSY-YMML/, 'selected-flight context survives event inspection');
   });
 
   await test('TimelineTabShell still shows recording time when an older flight has no simulator clock', async () => {
@@ -8739,7 +10052,7 @@ async function main() {
     assert.match(html, /Flight In Progress/, 'recent flights panel should explain that a recording is still active');
     assert.match(html, /id="history-index-progress"/, 'recent flights should expose first-time index progress');
     assert.match(html, /Indexing 30 of 120 flights/, 'history progress should show bounded file counts');
-    assert.match(html, /Choose a flight to explore its route, events, and landing/, 'helper copy should explain how to open a replay');
+    assert.match(html, /aria-label="Replay YSSY-KJFK/, 'each flight should expose an accessible, route-specific replay action');
     assert.match(html, /Showing all 2 saved flights/, 'meta summary should reflect loaded flights');
     assert.match(html, /C:\/Flights/, 'storage path should render');
     assert.match(html, /2 CSV files - 12\.0 KB on disk/, 'storage summary should render');
@@ -8755,6 +10068,38 @@ async function main() {
     assert.match(html, /Loading timeline/, 'flight list should render timeline loading feedback');
     assert.match(html, /Please wait while YSSY-KJFK opens/, 'timeline loading feedback should include the selected flight label');
     assert.match(html, />Copied!</, 'copy-path button label should render from the timeline store');
+  });
+
+  await test('TimelineFlightsPanel shows a country flag beside each known end of the route', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineFlightsPanel.vue'),
+      ({ useTimelineStore }) => {
+        useTimelineStore().ingestMessage({
+          type: 'timelineList',
+          flights: [
+            { flightId: 'F3', displayRouteLabel: 'YSSY → KJFK', departureCountry: 'AU', arrivalCountry: 'US', aircraft: 'B738', timestamp: '2026-05-26T10:00:00' },
+            { flightId: 'F2', displayRouteLabel: 'NEAR YMML', departureCountry: null, arrivalCountry: 'AU', aircraft: 'B738', timestamp: '2026-05-25T10:00:00' },
+            { flightId: 'F1', displayRouteLabel: 'Location Unknown', departureCountry: null, arrivalCountry: null, aircraft: 'B738', timestamp: '2026-05-24T10:00:00' },
+            { flightId: 'F0', displayRouteLabel: 'YSSY → KJFK', departureCountry: 'ZZ', arrivalCountry: 'OC', aircraft: 'B738', timestamp: '2026-05-23T10:00:00' },
+          ],
+          storage: { dir: 'C:/Flights', exists: true, fileCount: 4, totalBytes: 4096 },
+        });
+      },
+    );
+
+    assert.match(
+      html,
+      /<img[^>]*class="country-flag"[^>]*src="\/assets\/flags\/AU\.svg"[^>]*alt="Australia"[^>]*title="Australia"[^>]*data-country-flag="AU"[^>]*>\s*<span>YSSY<\/span>/,
+      'the departure end should carry its country flag, named for assistive tech, before the ICAO',
+    );
+    assert.match(html, /data-country-flag="US"[^>]*>\s*<span>KJFK<\/span>/, 'the arrival end should carry its own flag');
+    assert.match(html, /class="timeline-flight-route-arrow" aria-hidden="true">→</, 'the route arrow stays visual only; the row already has a spoken label');
+    assert.match(html, /aria-label="Replay YSSY → KJFK, B738, 2026-05-26 10:00"/, 'the spoken row label is unchanged by the flags');
+    assert.match(html, /data-country-flag="AU"[^>]*>\s*<span>NEAR YMML<\/span>/, 'a single NEAR label takes whichever end is known');
+    assert.match(html, /<span class="timeline-flight-route-end"><span>Location Unknown<\/span>/, 'an unknown route renders no flag element at all');
+    assert.doesNotMatch(html, /flags\/(ZZ|OC)\.svg/, 'OurAirports placeholder regions never request a flag image');
+    assert.equal((html.match(/class="country-flag"/g) || []).length, 3, 'exactly one flag per known airport end');
+    assert.match(html, /<img[^>]*class="country-flag"[^>]*loading="lazy"/, 'flags load lazily in long lists');
   });
 
   await test('TimelineSummaryBar wraps responsively without horizontal scrolling and omits score impact', async () => {
@@ -8812,6 +10157,89 @@ async function main() {
       }
       if (scenario === 'unsupported') assert.doesNotMatch(html, /Navigation radios/);
     }
+  });
+
+  await test('AircraftTabShell keeps CDU beside Find controls and groups secondary tools once', async () => {
+    const withCdu = await renderComponent(
+      path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+      ({ useAircraftSpecificStore }) => {
+        useAircraftSpecificStore().applyProfile({
+          _profileKey: 'bundled/msfs/pmdg-737-800',
+          profileRevision: 4,
+          aircraftSpecificTemplateId: 'pmdg-737',
+        });
+      },
+    );
+    const triggerIndex = withCdu.html.indexOf('data-cdu-trigger');
+    assert.ok(triggerIndex >= 0, 'a CDU-capable aircraft should expose the CDU launcher');
+    const launcher = withCdu.html.slice(withCdu.html.lastIndexOf('<button', triggerIndex), withCdu.html.indexOf('</button>', triggerIndex));
+    assert.match(launcher, /class="aircraft-integration-guide-button ff-touch-target"/, 'the CDU launcher should share the compact styling of its neighbours');
+    assert.doesNotMatch(launcher, /ff-toolbar-button/, 'the CDU launcher must not fall back to the dark toolbar style that broke the row');
+    assert.match(launcher, /<svg[^>]*aria-hidden="true"[\s\S]*<\/svg>\s*<span[^>]*>MCDU \/ CDU<\/span>/, 'the CDU launcher should carry a decorative CDU icon before its label');
+    assert.match(launcher, /aria-label="Open MCDU \/ CDU"/, 'the abbreviated phone launcher should retain the complete accessible label');
+    assert.match(launcher, /aria-haspopup="dialog"/, 'the CDU launcher should announce its dialog');
+    const order = ['aria-label="Find on Aircraft page"', 'data-cdu-trigger', 'aria-controls="aircraft-secondary-tools-panel"', 'data-aircraft-integration-guide-trigger', 'data-aircraft-voice-control-trigger', 'data-aircraft-controls-trigger']
+      .map((marker) => withCdu.html.indexOf(marker));
+    assert.ok(order.every((index) => index >= 0), 'every page tool should render for the PMDG 737');
+    assert.deepEqual([...order].sort((a, b) => a - b), order, 'Find and CDU should precede the shared secondary tools disclosure');
+    assert.equal((withCdu.html.match(/data-aircraft-controls-trigger/g) || []).length, 1, 'Control library should have one primary home');
+
+    const generic = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'));
+    assert.doesNotMatch(generic.html, /data-cdu-trigger/, 'aircraft without a CDU integration should not offer the launcher');
+  });
+
+  await test('AircraftCduModal offers persisted skins that keep the display colour semantics', async () => {
+    const { CDU_SKINS, DEFAULT_CDU_SKIN, CDU_SKIN_STORAGE_KEY } = await import(pathToFileURL(path.join(frontendRoot, 'src', 'aircraft', 'cdu-skins.js')).href);
+    const modalSource = fs.readFileSync(path.join(frontendRoot, 'src', 'vue', 'components', 'AircraftCduModal.vue'), 'utf8');
+    const modalPath = path.join('src', 'vue', 'components', 'AircraftCduModal.vue');
+
+    const { html } = await renderComponent(modalPath, () => {}, { props: { open: true } });
+    assert.match(html, new RegExp(`class="cdu-dialog cdu-integrated" data-cdu-skin="${DEFAULT_CDU_SKIN}"`), 'the CDU should open in the default skin when nothing is stored');
+    assert.match(html, /<select[^>]*aria-label="CDU skin"[^>]*data-cdu-skin-select/, 'the toolbar should expose an accessible skin selector');
+    for (const skin of CDU_SKINS) {
+      assert.match(html, new RegExp(`<option[^>]*value="${skin.id}"[^>]*>${skin.label.replace('&', '&amp;')}</option>`), `the selector should list the ${skin.label} skin`);
+    }
+    assert.match(html, /aria-label="CDU unit"[\s\S]*aria-label="CDU skin"[\s\S]*Keyboard off/, 'the skin selector should sit between the unit selector and the keyboard toggle');
+
+    const stored = await renderComponent(modalPath, () => {}, { props: { open: true }, storage: createStorage({ [CDU_SKIN_STORAGE_KEY]: 'neon' }) });
+    assert.match(stored.html, /data-cdu-skin="neon"/, 'a previously chosen skin should be restored from browser storage');
+    const bogus = await renderComponent(modalPath, () => {}, { props: { open: true }, storage: createStorage({ [CDU_SKIN_STORAGE_KEY]: 'not-a-skin' }) });
+    assert.match(bogus.html, new RegExp(`data-cdu-skin="${DEFAULT_CDU_SKIN}"`), 'an unknown stored skin should fall back to the default instead of an unstyled dialog');
+
+    const inks = ['white', 'cyan', 'green', 'magenta', 'amber', 'yellow', 'red'];
+    const defaultBlock = modalSource.slice(modalSource.indexOf('.cdu-dialog {'), modalSource.indexOf('.cdu-integrated {'));
+    for (const ink of inks) {
+      assert.match(defaultBlock, new RegExp(`--cdu-ink-${ink}:`), `the default skin should define the ${ink} display colour`);
+      assert.match(modalSource, new RegExp(`\\.cdu-cell\\[data-color='${ink}'\\] \\{ --cdu-ink: var\\(--cdu-ink-${ink}\\); \\}`), `${ink} cells should read their colour from the skin`);
+    }
+    for (const skin of CDU_SKINS) {
+      if (skin.id === DEFAULT_CDU_SKIN) continue;
+      const marker = `.cdu-dialog[data-cdu-skin='${skin.id}'] {`;
+      const blockStart = modalSource.indexOf(marker);
+      assert.ok(blockStart >= 0, `the ${skin.label} skin should have a style block`);
+      const block = modalSource.slice(blockStart, modalSource.indexOf('\n}', blockStart));
+      const colours = inks.map((ink) => block.match(new RegExp(`--cdu-ink-${ink}: (#[0-9a-f]{3,8})`))?.[1]);
+      assert.ok(colours.every(Boolean), `the ${skin.label} skin should restyle every display colour`);
+      assert.equal(new Set(colours).size, inks.length, `the ${skin.label} skin must keep the aircraft's display colours distinguishable`);
+      assert.match(block, /--cdu-key-font:/, `the ${skin.label} skin should set its own key lettering`);
+    }
+    assert.match(modalSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.cdu-screen::after \{ animation: none; \}/, 'skin animations should respect reduced motion');
+    assert.match(modalSource, /\.cdu-cell\.reverse \{ background: var\(--cdu-ink\); color: var\(--cdu-screen-solid\)/, 'inverse-video cells should contrast against the skin display, not the app background');
+  });
+
+  await test('AircraftCduModal explains physical keyboard input', async () => {
+    const modalSource = fs.readFileSync(path.join(frontendRoot, 'src', 'vue', 'components', 'AircraftCduModal.vue'), 'utf8');
+    const modalPath = path.join('src', 'vue', 'components', 'AircraftCduModal.vue');
+    const { html } = await renderComponent(modalPath, () => {}, { props: { open: true } });
+
+    // Layout and type-ahead are exercised in the browser runner, including
+    // actual target sizes and key delivery rather than matching CSS source.
+    // The toggle listens for physical key events only; the help must not promise the phone's own keyboard.
+    assert.match(modalSource, /matchesMedia\('\(hover: none\) and \(pointer: coarse\)'\)|TOUCH_ONLY_QUERY = '\(hover: none\) and \(pointer: coarse\)'/, 'touch-only devices are detected for the keyboard hint');
+    assert.match(html, /Keyboard off/, 'the keyboard toggle still renders for tablets with a physical keyboard');
+    assert.doesNotMatch(modalSource, /Enable Keyboard to enter/, 'the old help copy implied the phone keyboard would work');
+    assert.match(modalSource, /from a physical keyboard/, 'the desktop help names the physical keyboard');
+    assert.match(modalSource, /The phone's own keyboard is not used here\./, 'the touch help says the soft keyboard is not used');
   });
 
   console.log(`\n${'-'.repeat(50)}`);

@@ -160,7 +160,7 @@
         "Exact runtime titles remain unverified in-sim; matching requires clear Just Flight/JF/JFA or 146 Professional identity to avoid misclassifying other BAe 146 add-ons.",
         "The cited vendor material does not define a complete 146 external telemetry and control contract.",
         "Vendor-published examples remain inactive because they do not provide the complete read/write semantics and independent readbacks required by this profile.",
-        "Gear and flap controls use Flight Fabric's narrow standard MSFS surface fallback and must be tested in the Just Flight 146 before promotion beyond experimental.",
+        "Gear and flap controls use FlightFabric's narrow standard MSFS surface fallback and must be tested in the Just Flight 146 before promotion beyond experimental.",
         "Autopilot, TMS, airbrake/spoiler set/arm commands, and selector writes remain blocked until aircraft-specific behavior is verified.",
         "The documented flap gates need cross-checking against FLAPS HANDLE INDEX in the target add-on."
       ]

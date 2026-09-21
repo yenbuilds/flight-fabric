@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="readme-assets/flight-fabric-icon.png" width="112" alt="Flight Fabric logo">
-  <h1>Flight Fabric for MSFS 2024</h1>
+  <img src="readme-assets/flight-fabric-icon.png" width="112" alt="FlightFabric logo">
+  <h1>FlightFabric for MSFS 2024</h1>
   <p><strong>Control your airliner by voice or from another screen.</strong></p>
   <p>Live flight data, automatic recording, and landing reviews for Microsoft Flight Simulator 2024.</p>
   <p>
@@ -14,16 +14,16 @@
   <p data-release-note>Still in development. Expect bugs and incomplete aircraft support.</p>
 </div>
 
-![Flight Fabric tour showing live flight data, aircraft controls, a full timeline replay, and a detailed landing review](readme-assets/flight-fabric-tour.gif)
+![FlightFabric tour showing live flight data, aircraft controls, a full timeline replay, and a detailed landing review](readme-assets/flight-fabric-tour.gif)
 
-Flight Fabric puts supported aircraft controls where you can reach them. Use
+FlightFabric puts supported aircraft controls where you can reach them. Use
 voice control, open the same controls on a phone or tablet, or keep them beside
-the simulator on your PC. While you fly, Flight Fabric follows the aircraft and
+the simulator on your PC. While you fly, FlightFabric follows the aircraft and
 records the flight. After landing, it shows what happened during the approach,
 touchdown, and rollout.
 
 > [!IMPORTANT]
-> Flight Fabric is free, experimental alpha software for consumer flight
+> FlightFabric is free, experimental alpha software for consumer flight
 > simulators. It is not certified, approved, or intended for real-world aviation.
 > Do not rely on it for real-world operations, navigation, training, or safety
 > decisions.
@@ -32,9 +32,9 @@ touchdown, and rollout.
 
 | Live overview | Aircraft controls |
 | --- | --- |
-| ![Flight Fabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![Flight Fabric Fenix A320 page showing searchable flight guidance controls](readme-assets/aircraft-controls-20260815.png) |
+| ![FlightFabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![FlightFabric Fenix A320 page showing searchable flight guidance controls](readme-assets/aircraft-controls-20260815.png) |
 | **Timeline replay** | **Landing debrief** |
-| ![Flight Fabric timeline inspector with events, replay map, and altitude profile](readme-assets/timeline-replay-20260815.png) | ![Flight Fabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
+| ![FlightFabric timeline inspector with events, replay map, and altitude profile](readme-assets/timeline-replay-20260815.png) | ![FlightFabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
 
 ## One app for the whole flight
 
@@ -44,9 +44,9 @@ touchdown, and rollout.
 
 ## Get flying
 
-1. [Download Flight Fabric for Windows](https://www.flightfabric.com/download/windows/).
+1. [Download FlightFabric for Windows](https://www.flightfabric.com/download/windows/).
 2. Open the downloaded installer and follow the setup steps.
-3. Start MSFS 2024 and open Flight Fabric.
+3. Start MSFS 2024 and open FlightFabric.
 
 The download is the complete Windows 64-bit installer. You do not need the
 **Source code** archives on GitHub.
@@ -65,20 +65,21 @@ This is optional and is not required to install the app.
 </details>
 
 Voice control is off until you enable it. Open **Aircraft** > **Voice control**,
-then set a shortcut in **Voice settings** or use the talk button on screen.
-When voice control is off, Flight Fabric does not listen for commands or check
+then set a keyboard shortcut in **Voice settings**, or use
+the talk button on screen.
+When voice control is off, FlightFabric does not listen for commands or check
 for microphones.
 
 When you hold the talk button, your microphone audio is processed in memory on
 your PC. After release, the microphone remains active briefly to preserve the
 end of your speech, then closes after buffered audio is flushed. Audio is not
-saved, logged, or sent over the network. Flight Fabric can also read command
+saved, logged, or sent over the network. FlightFabric can also read command
 results aloud using a voice already installed in Windows.
 
 Voice commands are available for FlyByWire A32NX, iniBuilds A350-900 and
 A350-1000, PMDG 737, PMDG 777, and Fenix A319, A320, and A321 aircraft. Depending
 on the aircraft, you can set flight guidance values and modes, operate common
-surfaces and lights, and use useful presets. Flight Fabric checks which aircraft
+surfaces and lights, and use useful presets. FlightFabric checks which aircraft
 is loaded and shows the commands that work with it.
 
 ## Aircraft support
@@ -99,19 +100,19 @@ values and checks the result against fresh aircraft data.
 The supported Windows and SimConnect target is **Microsoft Flight Simulator
 2024**. MSFS 2020 is untested and unsupported; any compatibility is incidental.
 
-## Put Flight Fabric on another screen
+## Put FlightFabric on another screen
 
 ### Phone, tablet, or second computer
 
 You can open the dashboard on another device on the same trusted private
 network as the simulator PC.
 
-1. In Flight Fabric, open **Settings**.
-2. In **Phone & tablet access**, enable **Use Flight Fabric on phones and
+1. In FlightFabric, open **Settings**.
+2. In **Phone & tablet access**, enable **Use FlightFabric on phones and
    tablets** on your private home network.
 3. Aircraft controls are enabled by default for paired devices; turn them off
    there if you only want a read-only second screen.
-4. Save the settings and restart Flight Fabric.
+4. Save the settings and restart FlightFabric.
 5. On the simulator PC, choose **Phone setup** in the header.
 6. Scan the private QR code, or type the short address shown there.
 
@@ -119,15 +120,29 @@ No camera? Type the short **No camera?** address shown in Phone setup on the
 device. It opens a read-only dashboard. Choose **Request aircraft controls**
 there, then approve the matching six-digit code on the simulator PC.
 
+The page keeps the phone's screen awake after your first tap, for as long as
+it stays open in front, so it works as a second screen for the whole flight.
+
 Treat the QR code as a temporary password. Its token expires when the backend
 restarts. The typed address contains no pairing credential and requires approval
 of a matching code on the simulator PC. LAN traffic is unencrypted, so use this
 only on a private network.
 
+### Inside MSFS 2024
+
+Open **Settings > MSFS 2024 toolbar panel** and choose **Install** for your
+MSFS 2024 installation (close the simulator first, then restart it). A
+**FlightFabric** button appears in the in-flight toolbar with your SimBrief
+plan, the voice commands and questions for the current aircraft, live
+push-to-talk status, your last landing and the flight phase. The panel is
+read-only and talks only to FlightFabric on the same PC. Use the same
+settings section to update or remove it, and reinstall if you change the
+FlightFabric network ports.
+
 ### OBS overlays
 
 Add an OBS **Browser Source**, leave **Local file** unchecked, and point it at
-one of Flight Fabric's local widgets:
+one of FlightFabric's local widgets:
 
 ```text
 http://localhost:8100/widgets-compact/widget-top.html
@@ -292,10 +307,10 @@ sessions are preserved. The implementation is retained for a later review.
 
 ## License and Corresponding Source
 
-Flight Fabric is free software, licensed under the
+FlightFabric is free software, licensed under the
 [GNU Affero General Public License version 3](LICENSE.md),
 `AGPL-3.0-only`. Complete corresponding source for each released version is
-available from the [Flight Fabric releases page](https://github.com/yenbuilds/flight-fabric/releases).
+available from the [FlightFabric releases page](https://github.com/yenbuilds/flight-fabric/releases).
 
 Notices, source links, and licence terms for third party components are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
@@ -304,5 +319,5 @@ Notices, source links, and licence terms for third party components are in
 
 - [Release notes](RELEASE_NOTES.md)
 - [Safety notice](SAFETY-NOTICE.md)
-- [How Flight Fabric uses AI](AI_POLICY.md)
+- [How FlightFabric uses AI](AI_POLICY.md)
 - [Security policy](SECURITY.md)

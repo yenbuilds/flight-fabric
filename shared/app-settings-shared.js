@@ -11,6 +11,9 @@
   // Production telemetry acquisition is intentionally fixed at 10 Hz. Keep
   // this outside user settings so stale files and save payloads cannot alter it.
   const FIXED_TELEMETRY_POLL_RATE_MS = 100;
+  // Experimental Autotaxi is enabled for 0.10.0. This source-only release gate
+  // is not configurable through environment, saved settings or request payloads.
+  const LIVE_AUTOTAXI_ENABLED = true;
 
   const APP_SETTINGS_DEFAULTS = Object.freeze({
     aircraftProfile: 'auto',
@@ -187,6 +190,7 @@
   return Object.freeze({
     APP_SETTINGS_DEFAULTS,
     FIXED_TELEMETRY_POLL_RATE_MS,
+    LIVE_AUTOTAXI_ENABLED,
     normalizeAppSettings,
     sanitizeAppSettingsPatch,
     sanitizeBool,

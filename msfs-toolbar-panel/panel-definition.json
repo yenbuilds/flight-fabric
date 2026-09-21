@@ -1,0 +1,11 @@
+{
+  "comment": "Toolbar panel geometry for the compiled InGamePanels definition. Identifiers come from electron/msfs-toolbar-panel-package.js. Sizes and offsets use the simulator's toolbar-panel units, matching the ranges used by shipping MSFS 2024 panels.",
+  "resizeDirections": "Both",
+  "minWidth": 22,
+  "minHeight": 28,
+  "defaultWidth": 27,
+  "defaultHeight": 64,
+  "defaultTop": 8,
+  "defaultRight": 2,
+  "buttonVisible": true
+}

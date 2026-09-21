@@ -402,6 +402,20 @@
       "conversion": "none"
     },
     {
+      "name": "NUMBER OF ENGINES",
+      "sdkNativeUnit": "number",
+      "ourRequestedUnit": "number",
+      "conversion": "none",
+      "notes": "Engine count for loaded-aircraft ground-control readiness; verified against the MSFS 2024 engine-variable reference on 2026-09-21."
+    },
+    {
+      "name": "ENGINE TYPE",
+      "sdkNativeUnit": "enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none",
+      "notes": "Loaded aircraft engine kind; verified against the MSFS 2024 engine-variable reference on 2026-09-21."
+    },
+    {
       "name": "TURB ENG N2",
       "sdkNativeUnit": "percent",
       "ourRequestedUnit": "percent",
@@ -899,6 +913,27 @@
       "sdkNativeUnit": "MHz",
       "ourRequestedUnit": "MHz",
       "conversion": "none"
+    },
+    {
+      "name": "GEAR STEER ANGLE PCT",
+      "sdkNativeUnit": "percent over 100",
+      "ourRequestedUnit": "percent over 100",
+      "conversion": "manual",
+      "notes": "Requested for the centre gear (index 0). Fraction of full steer travel, right positive; scaled to +/-100 as fdm.noseSteerPct by simconnect-frame-builder. Normal telemetry and flight-recording readback only."
+    },
+    {
+      "name": "BRAKE LEFT POSITION",
+      "sdkNativeUnit": "position",
+      "ourRequestedUnit": "position",
+      "conversion": "manual",
+      "notes": "SDK raw gauge is 0 to 32K; requested as 'position' so SimConnect returns 0..1 (same convention as RUDDER PEDAL POSITION), then scaled to 0..100 as fdm.brakeLeftPct by simconnect-frame-builder. Normal telemetry and flight-recording readback only."
+    },
+    {
+      "name": "BRAKE RIGHT POSITION",
+      "sdkNativeUnit": "position",
+      "ourRequestedUnit": "position",
+      "conversion": "manual",
+      "notes": "SDK raw gauge is 0 to 32K; requested as 'position' so SimConnect returns 0..1 (same convention as RUDDER PEDAL POSITION), then scaled to 0..100 as fdm.brakeRightPct by simconnect-frame-builder. Normal telemetry and flight-recording readback only."
     }
   ]
 }

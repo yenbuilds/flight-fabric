@@ -114,6 +114,14 @@ function normalizeRunwayValue(value) {
   return /^[A-Z0-9-]{1,12}$/.test(normalized) ? normalized : null;
 }
 
+/** SimBrief writes an empty ident when no SID, STAR or transition is planned. */
+function normalizeProcedureValue(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim().toUpperCase();
+  if (!normalized || ['0', 'NONE', 'N/A', '--', 'DCT'].includes(normalized)) return null;
+  return /^[A-Z0-9]{1,10}$/.test(normalized) ? normalized : null;
+}
+
 function firstRunwayValue(...values) {
   for (const value of values) {
     const runway = normalizeRunwayValue(value);
@@ -177,6 +185,12 @@ function normalizeOfp(ofp, username) {
       atc.arr_runway,
       atc.arr_rwy,
     ),
+    procedures: {
+      sid: normalizeProcedureValue(general.sid_ident),
+      sidTransition: normalizeProcedureValue(general.sid_trans),
+      star: normalizeProcedureValue(general.star_ident),
+      starTransition: normalizeProcedureValue(general.star_trans),
+    },
     alternate: (alternate.icao_code || '').toUpperCase() || null,
     aircraft: (aircraft.icaocode || '').toUpperCase() || null,
     aircraftName: aircraft.name || null,
@@ -338,7 +352,7 @@ export const useSimbriefStore = defineStore('simbrief', () => {
       };
     } catch (fetchError) {
       if (typeof fetchSimbriefAction !== 'function') {
-        throw new Error(`Could not reach Flight Fabric backend at ${httpBase || 'the configured HTTP server'}: ${fetchError.message}`);
+        throw new Error(`Could not reach FlightFabric backend at ${httpBase || 'the configured HTTP server'}: ${fetchError.message}`);
       }
       const result = await fetchSimbriefAction(sanitizedUsername);
       const body = result?.body && typeof result.body === 'object'

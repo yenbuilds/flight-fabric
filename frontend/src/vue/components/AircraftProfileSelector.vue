@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
-import { getAuthorizationScope, getUiHelpers, sendWs } from '../../../app-shared.js';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { getAuthorizationScope, isAuthorizationAcknowledged, getUiHelpers, sendWs } from '../../../app-shared.js';
 import {
   subscribeWsClose,
   subscribeWsConnecting,
@@ -9,12 +9,39 @@ import {
   subscribeWsOpen,
 } from '../../app/runtime-signals.js';
 import { initProfilesRuntime } from '../../profiles/runtime.js';
+import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useProfilesStore } from '../stores/profiles.js';
 import { useStatusStore } from '../stores/status.js';
 
 const profiles = useProfilesStore();
 const status = useStatusStore();
+const correction = ref(null);
+const correctionTrigger = ref(null);
 let cleanupProfilesRuntime = null;
+
+function closeCorrection(restoreFocus = false) {
+  if (!correction.value?.open) return;
+  correction.value.open = false;
+  if (restoreFocus) nextTick(() => correctionTrigger.value?.focus({ preventScroll: true }));
+}
+
+function handleCorrectionFocusOut(event) {
+  // Clicking explanatory text or opening a native select can temporarily blur
+  // to no element. Outside pointers are handled separately; only a move to
+  // another focus target should dismiss the disclosure here.
+  if (!event.relatedTarget || correction.value?.contains(event.relatedTarget)) return;
+  closeCorrection();
+}
+
+useDocumentEvent('pointerdown', event => {
+  if (!correction.value?.contains(event.target)) closeCorrection();
+}, true);
+useDocumentEvent('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented || !correction.value?.open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeCorrection(true);
+});
 
 const selectableBuiltInProfiles = computed(() => profiles.builtInProfiles.filter((profile) => (
   profile?.abstract !== true && profile?.id !== 'generic'
@@ -40,7 +67,6 @@ const profileSummaryLabel = computed(() => {
   return [
     profileName && profileName !== aircraftName ? profileName : '',
     profileSelectionLabel.value,
-    status.aircraftProfileVerificationLabel,
   ].filter(Boolean).join(' · ');
 });
 
@@ -68,6 +94,7 @@ onMounted(() => {
   cleanupProfilesRuntime = initProfilesRuntime({
     profilesStore: profiles,
     getAuthorizationScope,
+    isAuthorizationAcknowledged,
     sendMessage: (payload) => sendWs(payload),
     showToast: showProfileToast,
     subscribeWsCloseSignal: subscribeWsClose,
@@ -88,21 +115,25 @@ onUnmounted(() => {
   <div v-if="status.aircraftProfileNameVisible" class="relative flex w-full min-w-0 max-w-[190px] items-center sm:max-w-[200px]">
     <span
       id="aircraft-profile-name"
-      class="min-w-0 flex-1 truncate text-[10px] text-muted-fg"
+      class="min-w-0 flex-1 truncate text-[10px] leading-4 text-muted-fg"
       :title="profileSummaryLabel"
     >
       {{ profileSummaryLabel }}
     </span>
     <details
       v-if="profiles.profileSelectionAvailable"
+      ref="correction"
       id="aircraft-profile-correction"
       class="group ml-1 shrink-0"
       data-no-swipe
+      @focusout="handleCorrectionFocusOut"
     >
       <summary
+        ref="correctionTrigger"
         id="aircraft-profile-correction-btn"
-        class="inline-flex min-h-11 cursor-pointer list-none items-center rounded px-1.5 text-[10px] text-cyan-400 transition-colors hover:bg-cyan-500/10 hover:text-cyan-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 [&::-webkit-details-marker]:hidden"
+        class="-my-3.5 inline-flex min-h-11 cursor-pointer list-none items-center rounded px-1.5 text-[10px] leading-4 text-cyan-400 transition-colors hover:bg-cyan-500/10 md:my-0 md:min-h-0 md:py-0.5 hover:text-cyan-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 [&::-webkit-details-marker]:hidden"
         aria-label="Correct aircraft profile match"
+        aria-controls="aircraft-profile-correction-panel"
       >
         Wrong aircraft?
       </summary>
@@ -111,7 +142,18 @@ onUnmounted(() => {
         id="aircraft-profile-correction-panel"
         class="aircraft-profile-correction-panel absolute right-0 top-full z-[70] mt-2 rounded-lg border border-surface-300 bg-surface-100 p-3 text-left shadow-2xl"
       >
-        <div class="text-xs font-semibold text-gray-200">Aircraft match</div>
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xs font-semibold text-gray-200">Aircraft match</div>
+          <button
+            id="aircraft-profile-correction-close"
+            type="button"
+            class="ff-toolbar-button min-h-11 min-w-11 shrink-0 justify-center"
+            aria-label="Close aircraft match"
+            @click="closeCorrection(true)"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
         <p class="mt-1 text-[10px] leading-relaxed text-gray-400">
           Automatic matching is recommended. Choose a profile only when the detected aircraft is wrong.
         </p>
@@ -141,7 +183,7 @@ onUnmounted(() => {
         </select>
 
         <p class="mt-2 text-[10px] leading-relaxed text-amber-300/80">
-          A manual override applies after Flight Fabric restarts.
+          A manual override applies after FlightFabric restarts.
         </p>
       </div>
     </details>

@@ -17,12 +17,14 @@ import { createStatusIndicatorsController } from '../ui/status-indicators.js';
 import { createLvarInspectorController } from '../data-sources/lvar-inspector-controller.js';
 import { createConnection } from '../ws/connection.js';
 import { createVoiceControlController } from '../voice/voice-controller.js';
+import { createVoiceStatusRelay } from '../voice/voice-status-relay.js';
 import { getCabinAnnouncements, setAppServices } from '../../app-shared.js';
 import {
   emitTelemetryReset,
   emitWsClose,
   emitWsConnecting,
   emitWsError,
+  emitWsMessageReceived,
   emitWsOpen,
 } from './runtime-signals.js';
 
@@ -48,6 +50,9 @@ export const FRAME_COALESCED_MESSAGE_TYPES = new Set([
 // bypass the render-frame queue; all display-oriented telemetry remains
 // coalesced above.
 export const IMMEDIATE_MESSAGE_TYPES = new Set(['authorizationScope', 'position']);
+
+const MESSAGE_FLUSH_FALLBACK_MS = 100;
+const MESSAGE_BATCH_LIMIT = 256;
 
 function requireRuntimeStore(stores, storeName) {
   const store = stores?.[storeName] || null;
@@ -161,6 +166,7 @@ export function bindTelemetryResumeSync({
 export function createMessageFrameBatcher({
   windowRef = window,
   handleMessage = () => {},
+  onMessageReceived = () => {},
   coalescedMessageTypes = null,
   immediateMessageTypes = null,
 } = {}) {
@@ -172,7 +178,8 @@ export function createMessageFrameBatcher({
     : new Set(Array.isArray(immediateMessageTypes) ? immediateMessageTypes : []);
   let queuedMessages = [];
   let coalescedIndexes = new Map();
-  let flushScheduled = false;
+  let scheduledFlush = null;
+  let flushing = false;
 
   function getCoalescedKey(message) {
     const type = typeof message?.type === 'string' ? message.type : '';
@@ -180,27 +187,46 @@ export function createMessageFrameBatcher({
   }
 
   function flush() {
-    flushScheduled = false;
+    if (flushing) return;
+    const scheduled = scheduledFlush;
+    scheduledFlush = null;
+    if (scheduled?.frameId != null) windowRef?.cancelAnimationFrame?.(scheduled.frameId);
+    if (scheduled?.timerId != null) windowRef?.clearTimeout?.(scheduled.timerId);
     if (queuedMessages.length === 0) return;
-    const batch = queuedMessages;
-    queuedMessages = [];
-    coalescedIndexes = new Map();
-    for (const message of batch) {
-      handleMessage(message);
+    flushing = true;
+    try {
+      // A handler can enqueue another message. Finish the current batch first
+      // so a size-triggered nested flush cannot overtake its remaining replies.
+      while (queuedMessages.length > 0) {
+        const batch = queuedMessages;
+        queuedMessages = [];
+        coalescedIndexes = new Map();
+        for (const message of batch) handleMessage(message);
+      }
+    } finally {
+      flushing = false;
+      if (queuedMessages.length > 0) scheduleFlush();
     }
   }
 
   function scheduleFlush() {
-    if (flushScheduled) return;
-    flushScheduled = true;
-    const requestFrame = typeof windowRef?.requestAnimationFrame === 'function'
-      ? windowRef.requestAnimationFrame.bind(windowRef)
-      : (callback) => windowRef?.setTimeout?.(callback, 16);
-    requestFrame(flush);
+    if (flushing || scheduledFlush) return;
+    const scheduled = { frameId: null, timerId: null };
+    scheduledFlush = scheduled;
+    const run = () => { if (scheduledFlush === scheduled) flush(); };
+    const hasAnimationFrames = typeof windowRef?.requestAnimationFrame === 'function';
+    if (hasAnimationFrames) scheduled.frameId = windowRef.requestAnimationFrame(run);
+    // Chromium can suspend animation frames while status and control replies
+    // still arrive. Keep their ordering and request IDs, but do not retain them
+    // until the next visible frame. Browsers may throttle this timer as well.
+    if (scheduledFlush === scheduled && typeof windowRef?.setTimeout === 'function') {
+      scheduled.timerId = windowRef.setTimeout(run, hasAnimationFrames ? MESSAGE_FLUSH_FALLBACK_MS : 16);
+    }
   }
 
   return {
     enqueue(message) {
+      onMessageReceived(message);
       const messageType = typeof message?.type === 'string' ? message.type : '';
       if (messageType && immediateTypes.has(messageType)) {
         handleMessage(message);
@@ -224,7 +250,10 @@ export function createMessageFrameBatcher({
         coalescedIndexes = new Map();
       }
       queuedMessages.push(message);
-      scheduleFlush();
+      // A packet-count bound also covers throttled timers. Drain in order;
+      // request/acknowledgement payloads must never be coalesced or discarded.
+      if (queuedMessages.length >= MESSAGE_BATCH_LIMIT) flush();
+      else scheduleFlush();
     },
     flush,
     queuedCount() {
@@ -257,6 +286,7 @@ export async function initAppRuntime({
   const voiceStore = requireRuntimeStore(runtimeStores, 'voiceControl');
   const lvarInspectorStore = requireRuntimeStore(runtimeStores, 'lvarInspector');
   const logbookStore = requireRuntimeStore(runtimeStores, 'logbook');
+  const supportStore = requireRuntimeStore(runtimeStores, 'support');
   const simbriefStore = requireRuntimeStore(runtimeStores, 'simbrief');
   const tabsStore = requireRuntimeStore(runtimeStores, 'tabs');
   const landingStore = requireRuntimeStore(runtimeStores, 'landing');
@@ -340,6 +370,7 @@ export async function initAppRuntime({
     aircraftControl,
     aircraftControlsStore,
     aircraftSpecificStore,
+    simbriefStore,
     voiceStore,
     globalRef: window,
   });
@@ -357,10 +388,12 @@ export async function initAppRuntime({
   const messageBatcher = createMessageFrameBatcher({
     windowRef: window,
     handleMessage: (message) => handleMessage(message),
+    onMessageReceived: emitWsMessageReceived,
     coalescedMessageTypes: FRAME_COALESCED_MESSAGE_TYPES,
     immediateMessageTypes: IMMEDIATE_MESSAGE_TYPES,
   });
 
+  let voiceStatusRelay = null;
   const connection = createConnection({
     windowRef: window,
     WebSocketRef: WebSocket,
@@ -403,8 +436,18 @@ export async function initAppRuntime({
     },
     onMessage: (msg) => {
       lastMessageAt = Date.now();
+      voiceStatusRelay?.handleServerMessage(msg);
       messageBatcher.enqueue(msg);
     },
+  });
+
+  // Relay desktop voice status (push-to-talk state, last phrase, outcome) so
+  // in-sim views such as the MSFS toolbar panel can show it. Only the
+  // privileged desktop session may relay; browsers have no voice bridge.
+  voiceStatusRelay = createVoiceStatusRelay({
+    voiceStore,
+    aircraftControlsStore,
+    send: (payload) => (connection.getAuthorizationScope() === 'full-control' ? connection.send(payload) : false),
   });
 
   bindTelemetryResumeSync({
@@ -421,6 +464,7 @@ export async function initAppRuntime({
     getWs: connection.getWs,
     getWsSend: () => connection.send,
     getAuthorizationScope: connection.getAuthorizationScope,
+    isAuthorizationAcknowledged: connection.isAuthorizationAcknowledged,
     sendWs: connection.send,
     ui: uiHelpers,
   });
@@ -669,6 +713,7 @@ export async function initAppRuntime({
     statusStore,
     logbookStore,
     timelineStore,
+    supportStore,
     desktopIntegration,
     getCabinAnnouncements,
   });

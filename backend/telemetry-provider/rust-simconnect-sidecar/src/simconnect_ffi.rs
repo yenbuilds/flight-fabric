@@ -1,4 +1,4 @@
-//! Minimal raw FFI surface for the SimConnect APIs used by Flight Fabric.
+//! Minimal raw FFI surface for the SimConnect APIs used by FlightFabric.
 //!
 //! This is an ABI description, not application logic. Function signatures,
 //! numeric constants, and `repr(C)` receive layouts must stay aligned with the

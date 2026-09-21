@@ -1,6 +1,10 @@
 import { encodeSquawkBco16 } from '../utils/transponder-code.js';
 import { StallWarningFilter } from './stall-warning-filter';
 import { executeA32nxMinimums } from './a32nx-minimums-control.js';
+import { createProviderCdu } from './cdu/provider.js';
+import { createAutotaxi } from './aircraft-autotaxi.js';
+import { computeMenuState } from './simconnect-menu-state.js';
+const { LIVE_AUTOTAXI_ENABLED } = require('../../shared/app-settings-shared.js') as { LIVE_AUTOTAXI_ENABLED: boolean };
 // telemetry-provider/simconnect-telemetry-provider.js
 // SimConnect-only telemetry provider (generic, vendor-agnostic)
 //
@@ -62,6 +66,14 @@ const { getProfileEngineCount } = require('../core/simbridge-core-utils') as {
   getProfileEngineCount: (profile: any) => number | null;
 };
 const { LvarSidecarBridge } = require('./lvar-sidecar-bridge');
+const {
+  MIN_TOUCHDOWN_SHAKE_VS_FPM,
+  TOUCHDOWN_SHAKE_DISABLED,
+  buildTouchdownShakeProfile,
+  normalizeTouchdownShakeIntensity,
+  normalizeTouchdownShakeMethod,
+  runTouchdownShake,
+} = require('./touchdown-shake.js') as typeof import('./touchdown-shake.js');
 const { RustSimvarBridge } = require('./rust-simvar-bridge.js') as {
   RustSimvarBridge: new (options?: any) => any;
 };
@@ -153,6 +165,10 @@ const AIRCRAFT_INTEGRATION_CALCULATOR_DELAY_POLL_MS = 25;
 const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_PULSE_DELAY_MS = 1_000;
 const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_DURATION_MS = 180_000;
 const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS = 500;
+// Extra readback time allowed per detent in a batched rotary write.
+const AIRCRAFT_INTEGRATION_BATCH_STEP_MS = 40;
+// How long a primed encoder is watched for movement before the target is re-read.
+const AIRCRAFT_INTEGRATION_PRIME_SETTLE_MS = 300;
 const INIBUILDS_TRISTAR_PROFILE_KEY = 'bundled/msfs/inibuilds-tristar';
 const INIBUILDS_TRISTAR_AFCS_PULSE_COOLDOWN_MS = 600;
 const INIBUILDS_TRISTAR_AFCS_PULSE_GROUPS: Readonly<Record<string, string>> = Object.freeze({
@@ -439,6 +455,9 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   { name: 'touchdownNormalVelocityFps', simvar: 'PLANE TOUCHDOWN NORMAL VELOCITY', unit: 'feet per second', isolated: true },
   { name: 'touchdownPitchDeg', simvar: 'PLANE TOUCHDOWN PITCH DEGREES', unit: 'degrees', isolated: true },
   
+  // Ground control needs live configuration, not a fallback profile engine count.
+  { name: 'engineCount', simvar: 'NUMBER OF ENGINES', unit: 'number' },
+  { name: 'engineType', simvar: 'ENGINE TYPE', unit: 'enum' },
   // Engines (primary - N1, throttle)
   { name: 'eng1N1', simvar: 'TURB ENG N1:1', unit: 'percent' },
   { name: 'eng2N1', simvar: 'TURB ENG N1:2', unit: 'percent' },
@@ -607,6 +626,15 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   { name: 'apMachTarget', simvar: 'AUTOPILOT MACH HOLD VAR', unit: 'mach' },
   // Note: This is the SimVar name in the SDK (not "AUTOTHROTTLE ARM")
   { name: 'athrArmed', simvar: 'AUTOPILOT THROTTLE ARM', unit: 'bool' },
+
+  // Ground-handling readbacks for normal telemetry and flight CSV recording:
+  // observed steering and brake positions. Not used by scoring,
+  // detection or the taxi controller itself.
+  // SDK: "GEAR STEER ANGLE PCT:index - Alternative gear steer angle percent. Unit: Percent Over 100"; index 0 is the centre (nose) gear.
+  { name: 'noseSteer', simvar: 'GEAR STEER ANGLE PCT:0', unit: 'percent over 100' },
+  // SDK: "BRAKE LEFT POSITION / BRAKE RIGHT POSITION - Percent brake. Unit: Position" (0 to 1).
+  { name: 'brakeLeftPos', simvar: 'BRAKE LEFT POSITION', unit: 'position' },
+  { name: 'brakeRightPos', simvar: 'BRAKE RIGHT POSITION', unit: 'position' },
   
   // ═══════════════════════════════════════════════════════════════════════════
   // STILL OMITTED FROM THE BASE LIST:
@@ -766,6 +794,7 @@ class SimConnectTelemetryProvider {
 
     // Optional LVAR sidecar bridge (disabled by default via config)
     this._lvarBridge = null;
+    this._activeShake = null; // TouchdownShakeRunner while a landing shake is playing
     this._lvarConfig = { enabled: false, profileId: 'generic', subscriptions: [] };
     this._debugLvarSubscriptions = [];
     this._lvarAircraftListener = null;
@@ -853,7 +882,33 @@ class SimConnectTelemetryProvider {
     };
   }
 
+  async requestAutotaxi(message, client, ownerConnected: () => boolean) {
+    if (LIVE_AUTOTAXI_ENABLED !== true) {
+      const reason = 'Autotaxi is unavailable in this release pending live aircraft validation.';
+      const operation = message?.operation;
+      // Do not construct a session or acquire facilities while release-gated.
+      // If a session already exists, every request first stops it; explicitly
+      // requested Release still uses the normal ownership-safe axis cleanup.
+      const state = this._autotaxi
+        ? await this._autotaxi.request({ operation: operation === 'release' ? 'release' : 'stop' }, client, ownerConnected)
+        : { type: 'autotaxiState', status: 'idle', active: false, reason };
+      if (!['status', 'stop', 'release'].includes(operation)) throw new Error(reason);
+      return { ...state, canStart: false, unavailableReason: reason };
+    }
+    this._autotaxi ??= createAutotaxi(this, profileLoader, Date.now);
+    return this._autotaxi.request(message, client, ownerConnected);
+  }
+
+  async requestCdu(message, canWrite) {
+    this._cdu ??= createProviderCdu(this, profileLoader);
+    return this._cdu.request(message, () => canWrite() && !this._autotaxi?.isActive()
+      && this._data?.userInput !== false);
+  }
+
   async executeAircraftControlAction(action, options = {}) {
+    if (this._autotaxi?.isActive()) {
+      return { ok: false, code: 'autotaxi_active', error: 'Release autotaxi controls before sending another aircraft command.' };
+    }
     if (!action || typeof action !== 'object') {
       return {
         ok: false,
@@ -1089,12 +1144,10 @@ class SimConnectTelemetryProvider {
       this._reloadLvarSubscriptions('provider-start');
     }
 
-    // NOTE: No warmup heartbeat for CameraSetRelative6DOF.
-    // Sending pitch=0 periodically (even as a "keep-alive") permanently holds MSFS
-    // in camera override mode, which locks the user's camera until the SimConnect
-    // session ends. The shake animation sends a final pitch=0 itself at the end of
-    // each animation, after which MSFS naturally releases the override when no
-    // further updates arrive. Cold-path calls work without a warmup.
+    // NOTE: Never send camera writes outside a shake. For CameraSetRelative6DOF
+    // even a pitch=0 "keep-alive" holds MSFS in camera override mode, which locks
+    // the user's camera until the SimConnect session ends. Every shake ends with
+    // explicit zero writes (see touchdown-shake.ts) and then goes quiet.
 
     if (!this._lvarAircraftListener) {
       this._lvarAircraftListener = () => {
@@ -1260,6 +1313,10 @@ class SimConnectTelemetryProvider {
     const status = snapshot?.status || 'unknown';
     if (status === 'connected' || status === 'running') {
       if (!this._connected) {
+        this._autotaxiConnectionEpoch = (this._autotaxiConnectionEpoch || 0) + 1;
+        this._autotaxiConnectionStartedAtMs = Date.now();
+        // A new simulator session means every rotary encoder is fresh again.
+        this._primedCalculatorEncoders = new Set();
         console.log('[SimConnectTelemetry] Rust SimConnect session connected');
       }
       this._connected = true;
@@ -2563,7 +2620,16 @@ class SimConnectTelemetryProvider {
       ? Math.round((input.max - input.min) / input.step) + 1
       : null;
     const requestedPosition = Math.round(targetPosition);
-    const resolveMovement = (observedValue: unknown) => {
+    // Batched routes move several detents per write, each batch landing on an
+    // exact readback before the next; single-step routes keep one per write.
+    const batchLimit = isCalculatorCode(route.batchIncreaseCode) && isCalculatorCode(route.batchDecreaseCode)
+      && Number.isSafeInteger(route.maxBatchSteps) && Number(route.maxBatchSteps) >= 1
+      ? Math.min(Number(route.maxBatchSteps), MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS)
+      : 1;
+    const stepCode = (increasing: boolean, steps: number) => (steps > 1
+      ? String(increasing ? route.batchIncreaseCode : route.batchDecreaseCode).replace('{steps}', String(steps))
+      : (increasing ? route.increaseCode : route.decreaseCode));
+    const resolveMovement = (observedValue: unknown, limit = 1) => {
       const numericValue = Number(observedValue);
       const position = (numericValue - input.min) / input.step;
       if (
@@ -2585,23 +2651,27 @@ class SimConnectTelemetryProvider {
         ) % positionCount;
         const increasing = increaseSteps <= decreaseSteps;
         const remainingSteps = increasing ? increaseSteps : decreaseSteps;
+        const steps = Math.max(1, Math.min(remainingSteps, limit));
         const nextPosition = increasing
-          ? (currentPosition + 1) % positionCount
-          : (currentPosition - 1 + positionCount) % positionCount;
+          ? (currentPosition + steps) % positionCount
+          : (currentPosition - steps + positionCount) % positionCount;
         return {
-          code: increasing ? route.increaseCode : route.decreaseCode,
+          code: stepCode(increasing, steps),
           expectedValue: Number((input.min + (nextPosition * input.step)).toFixed(8)),
           remainingSteps,
+          steps,
         };
       }
 
       const signedSteps = requestedPosition - currentPosition;
+      const steps = Math.max(1, Math.min(Math.abs(signedSteps), limit));
       return {
-        code: signedSteps >= 0 ? route.increaseCode : route.decreaseCode,
+        code: stepCode(signedSteps >= 0, steps),
         expectedValue: Number((input.min + (
-          (currentPosition + (signedSteps >= 0 ? 1 : -1)) * input.step
+          (currentPosition + (signedSteps >= 0 ? steps : -steps)) * input.step
         )).toFixed(8)),
         remainingSteps: Math.abs(signedSteps),
+        steps,
       };
     };
 
@@ -2651,9 +2721,34 @@ class SimConnectTelemetryProvider {
           code: 'aircraft_integration_precondition_failed', error: 'The altitude increment setting did not confirm; no rotary steps were sent.' });
       }
     }
+    // Prime a fresh encoder once per aircraft and session before its first
+    // movement, then continue from wherever the readback settles.
+    if (isCalculatorCode(route.primeCode) && initialMovement.remainingSteps > 0) {
+      const primed = this._primedCalculatorEncoders ??= new Set();
+      const primeKey = `${generationContext?.profileKey ?? ''}|${generationContext?.profileRevision ?? ''}|${route.primeCode}`;
+      if (!primed.has(primeKey)) {
+        const precondition = capturePrecondition();
+        if (!precondition.ok) return withDispatchedState(precondition);
+        if (!generationIsActive()) return withDispatchedState(staleProfileResult());
+        prepared = true;
+        const ack = await bridge.executeMobiFlightCode(route.primeCode);
+        if (!ack || ack.ok !== true) return withDispatchedState(ack || { ok: false });
+        if (!generationIsActive()) return withDispatchedState(staleProfileResult());
+        primed.add(primeKey);
+        await this._waitForAircraftIntegrationReadback(
+          bridge,
+          { ...route.readback, confirmation: 'changed', timeoutMs: AIRCRAFT_INTEGRATION_PRIME_SETTLE_MS },
+          generationContext,
+          currentReadback,
+        );
+        if (!generationIsActive()) return withDispatchedState(staleProfileResult());
+        const settled = this._captureAircraftIntegrationReadback(bridge, route.readback, generationContext);
+        if (settled.fresh && settled.observed != null) currentReadback = settled;
+      }
+    }
     const targetDeadline = Date.now() + MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_DURATION_MS;
     while (true) {
-      const movement = resolveMovement(currentReadback?.observed);
+      const movement = resolveMovement(currentReadback?.observed, batchLimit);
       if (!movement) {
         return withDispatchedState({
           ok: false,
@@ -2683,7 +2778,7 @@ class SimConnectTelemetryProvider {
       const precondition = capturePrecondition();
       if (!precondition.ok) return withDispatchedState(precondition);
       const ack = await bridge.executeMobiFlightCode(movement.code);
-      dispatchedSteps += 1;
+      dispatchedSteps += movement.steps;
       if (!ack || ack.ok !== true) return withDispatchedState(ack || { ok: false });
       if (!generationIsActive()) return withDispatchedState(staleProfileResult());
 
@@ -2699,12 +2794,14 @@ class SimConnectTelemetryProvider {
         ? Math.max(0, Number(route.readback.timeoutMs))
         : 1500;
 
+      // A batch is confirmed only on the exact landing value; a single step on
+      // any change, so drift after one detent is caught at once.
       const progress = await this._waitForAircraftIntegrationReadback(
         bridge,
         {
           ...route.readback,
-          confirmation: 'changed',
-          timeoutMs: Math.min(perStepTimeoutMs, remainingDurationMs),
+          ...(movement.steps > 1 ? { expectedValue: movement.expectedValue } : { confirmation: 'changed' }),
+          timeoutMs: Math.min(perStepTimeoutMs + (movement.steps - 1) * AIRCRAFT_INTEGRATION_BATCH_STEP_MS, remainingDurationMs),
         },
         generationContext,
         currentReadback,
@@ -2718,6 +2815,13 @@ class SimConnectTelemetryProvider {
         });
       }
       if (!progress.confirmed) {
+        if (movement.steps > 1 && progress.observed != null && !Object.is(progress.observed, currentReadback.observed)) {
+          return withDispatchedState({
+            ok: false,
+            code: 'aircraft_integration_selector_drift',
+            error: `${movement.steps} rotary steps should have moved the selector to ${formatAircraftControlReadbackValue(movement.expectedValue)}, but the aircraft reported ${formatAircraftControlReadbackValue(progress.observed)}; no further steps were sent.`,
+          });
+        }
         return withDispatchedState({
           ok: false,
           code: 'aircraft_integration_selector_readback_timeout',
@@ -4757,6 +4861,7 @@ class SimConnectTelemetryProvider {
   }
 
   async _stopOnce() {
+    await this._autotaxi?.dispose();
     if (this._lvarAircraftListener) {
       eventBus.off('simconnect:aircraftChanged', this._lvarAircraftListener);
       this._lvarAircraftListener = null;
@@ -4771,8 +4876,7 @@ class SimConnectTelemetryProvider {
     this._stopMsfsFacilitiesProbe();
     this._msfsFacilitiesGeometryProvider = null;
 
-    if (this._shakeTimers) { this._shakeTimers.forEach(t => clearTimeout(t)); this._shakeTimers = []; }
-    if (this._cameraHeartbeatTimer) { clearInterval(this._cameraHeartbeatTimer); this._cameraHeartbeatTimer = null; }
+    this._cancelActiveShake();
     if (this._rustAircraftChangedTimer) { clearTimeout(this._rustAircraftChangedTimer); this._rustAircraftChangedTimer = null; }
     this._rustIgnoredAircraftLoadedDisplayName = null;
     this._clearRustTitleFallbackTimer();
@@ -4780,6 +4884,7 @@ class SimConnectTelemetryProvider {
     this._connected = false;
 
     const collectBridges = () => [
+      this._cdu ? { field: '_cdu', label: 'CDU adapters', bridge: this._cdu } : null,
       this._lvarBridge && typeof this._lvarBridge.stop === 'function'
         ? { field: '_lvarBridge', label: 'LVAR sidecar', bridge: this._lvarBridge }
         : null,
@@ -4882,79 +4987,111 @@ class SimConnectTelemetryProvider {
   }
 
   // ─── Touchdown camera shake ───────────────────────────────────────────────
-  // Uses CameraSetRelative6DOF via the SimConnect DLL path (lvar-sidecar).
-  // Sets an absolute pitch offset from the default eyepoint — pitch=0 is neutral.
-  // Sine-based damped oscillation: smooth onset (no first-frame snap), peaks at
-  // ~125 ms, then decays. Amplitude scales with V/S; ~700 ms total duration.
+  // Plays a V/S-scaled landing profile (strut compression, rumble, roll wobble;
+  // see touchdown-shake.ts) through the SimConnect DLL path (lvar-sidecar).
+  //
+  // Transports:
+  //   'eyepoint'   STRUCT EYEPOINT DYNAMIC OFFSET/ANGLE. Additive on top of the
+  //                user's own camera, never takes camera ownership. Default.
+  //   'camera6dof' SimConnect_CameraSetRelative6DOF. Positions relative to the
+  //                DEFAULT eyepoint, so it snaps user camera adjustments and holds
+  //                an override until MSFS releases it. Fallback only.
   //
   // @param {number} vsFpm  Vertical speed at touchdown in fpm (negative = descent)
-  triggerTouchdownShake(vsFpm) {
-    console.log(`[TouchdownShake] triggerTouchdownShake called: vsFpm=${vsFpm}, connected=${this._connected}`);
-
-    const lvarBridgeAvailable = this._lvarBridge &&
-      typeof this._lvarBridge.sendEvent === 'function' &&
-      this._lvarBridge._started &&
-      this._lvarBridge._proc &&
-      !this._lvarBridge._proc.killed;
+  // @param {object} [options]  { method?: 'eyepoint'|'camera6dof', intensity?: number, seed?: number }
+  // @returns {object} { ok, reason?, method, durationMs, severity, peakDropMeters, peakPitchDegrees }
+  triggerTouchdownShake(vsFpm: unknown, options: { method?: unknown; intensity?: unknown; seed?: unknown } = {}) {
+    if (TOUCHDOWN_SHAKE_DISABLED) {
+      console.warn('[TouchdownShake] Skipped: feature disabled (see touchdown-shake.ts)');
+      return { ok: false, reason: 'disabled', method: normalizeTouchdownShakeMethod(options?.method, 'eyepoint') };
+    }
+    const bridge = this._lvarBridge;
+    const lvarBridgeAvailable = Boolean(
+      bridge
+      && typeof bridge.sendEyepointOffset === 'function'
+      && typeof bridge.sendCameraShake === 'function'
+      && bridge._started
+      && bridge._proc
+      && !bridge._proc.killed,
+    );
+    const shakeConfig = config.touchdownShake || {};
+    const method = normalizeTouchdownShakeMethod(options?.method, normalizeTouchdownShakeMethod(shakeConfig.method));
+    const intensity = normalizeTouchdownShakeIntensity(options?.intensity, normalizeTouchdownShakeIntensity(shakeConfig.intensity));
 
     if (!lvarBridgeAvailable) {
-      console.warn('[TouchdownShake] Aborting: LVAR sidecar path unavailable');
-      return;
+      console.warn('[TouchdownShake] Skipped: LVAR sidecar path unavailable');
+      return { ok: false, reason: 'sidecar_unavailable', method };
     }
-    if (typeof vsFpm !== 'number' || vsFpm > -100) {
-      console.warn(`[TouchdownShake] Aborting: vsFpm guard failed (vsFpm=${vsFpm}, must be number <= -100)`);
-      return;
+    if (typeof vsFpm !== 'number' || !Number.isFinite(vsFpm) || vsFpm > -MIN_TOUCHDOWN_SHAKE_VS_FPM) {
+      console.warn(`[TouchdownShake] Skipped: vsFpm=${vsFpm} (needs a number <= -${MIN_TOUCHDOWN_SHAKE_VS_FPM})`);
+      return { ok: false, reason: 'vs_guard', method };
     }
 
-    console.log(`[TouchdownShake] lvarBridge available=${lvarBridgeAvailable}`);
+    const profile = buildTouchdownShakeProfile(vsFpm, {
+      intensity,
+      seed: Number.isFinite(options?.seed) ? Number(options.seed) : undefined,
+    });
 
-    // Scale to V/S severity: N = 1–5
-    const N  = Math.max(1, Math.min(5, Math.round(Math.abs(vsFpm) / 200)));
+    // One shake at a time: a bounce re-triggers, and the old one must leave
+    // the camera neutral before the new profile starts.
+    this._cancelActiveShake();
 
-    console.log(`[TouchdownShake] Shake: N=${N} vsFpm=${vsFpm}`);
+    const isAlive = () => bridge._started && bridge._proc && !bridge._proc.killed;
+    const send = method === 'camera6dof'
+      ? (sample) => {
+        if (!isAlive()) return;
+        bridge.sendCameraShake(sample);
+      }
+      : (sample) => {
+        if (!isAlive()) return;
+        bridge.sendEyepointOffset({
+          x: metersToFeet(sample.dx),
+          y: metersToFeet(sample.dy),
+          z: metersToFeet(sample.dz),
+          units: 'Feet',
+        });
+        bridge.sendEyepointAngle({ pitch: sample.pitch, bank: sample.bank, heading: sample.heading });
+      };
 
-    // Cancel any in-progress shake
-    if (this._shakeTimers) this._shakeTimers.forEach(t => { clearTimeout(t); clearInterval(t); });
-    this._shakeTimers = [];
+    let runner = null;
+    runner = runTouchdownShake(profile, { send }, {
+      onComplete: () => {
+        if (this._activeShake === runner) this._activeShake = null;
+      },
+    });
+    this._activeShake = runner;
 
-    if (lvarBridgeAvailable) {
-      // ── TOUCHDOWN SHAKE via CameraSetRelative6DOF ──────────────────────────────
-      // CameraSetRelative6DOF sets an absolute offset from the default eyepoint.
-      //
-      // Sine-based damped oscillation — pitch(t) = -A · e^(−decay·t) · sin(2π·freq·t)
-      // Starts at 0 (no first-frame snap), peaks at t=1/(4·freq)≈125ms, decays to zero.
-      // Timing uses Date.now() so setInterval jitter doesn't corrupt the curve shape.
-      // -300 fpm → ~0.5°  -600 fpm → ~1°  -900 fpm → ~1.5°  -1200+ fpm → ~2° (max)
-      const amplitude  = Math.min(2.0, Math.max(0.3, Math.abs(vsFpm) / 600));
-      const decay      = 5.0;   // settle speed (higher = faster)
-      const freq       = 2.0;   // bounces per second
-      const TICK_MS    = 33;    // ~30 fps
-      const DURATION_MS = 700;
+    console.log(
+      `[TouchdownShake] ${method} vsFpm=${vsFpm} severity=${profile.severity.toFixed(2)} `
+      + `intensity=${intensity} drop=${(profile.peakDropMeters * 100).toFixed(1)}cm `
+      + `nod=${profile.peakPitchDegrees.toFixed(2)}deg duration=${profile.durationMs}ms`,
+    );
 
-      const shake = (pitch) =>
-        this._lvarBridge.sendCameraShake({ pitch, bank: 0, heading: 0, dx: 0, dy: 0, dz: 0 });
+    return {
+      ok: true,
+      method,
+      intensity,
+      durationMs: profile.durationMs,
+      severity: profile.severity,
+      peakDropMeters: profile.peakDropMeters,
+      peakPitchDegrees: profile.peakPitchDegrees,
+      seed: profile.seed,
+    };
+  }
 
-      // Reset any residual offset from a cancelled shake
-      shake(0);
-
-      const shakeStart = Date.now();
-      const iv = setInterval(() => {
-        const t = (Date.now() - shakeStart) / 1000;
-        const pitch = -amplitude * Math.exp(-decay * t) * Math.sin(2 * Math.PI * freq * t);
-        shake(pitch);
-        if (Date.now() - shakeStart >= DURATION_MS) {
-          clearInterval(iv);
-          shake(0);
-          this._shakeTimers = this._shakeTimers.filter(x => x !== iv);
-        }
-      }, TICK_MS);
-      this._shakeTimers.push(iv);
-      console.log(`[TouchdownShake] shake amplitude=${amplitude.toFixed(2)}° vsFpm=${vsFpm}`);
-    } else {
-      // lvar-sidecar not available — camera shake requires the DLL path, no fallback
-      console.warn('[TouchdownShake] lvarBridge not available — camera shake skipped');
+  _cancelActiveShake() {
+    const runner = this._activeShake;
+    this._activeShake = null;
+    // cancel() is safe in every state: it stops a playing shake, drops a
+    // finished shake's pending settle write, and is a no-op once settled.
+    if (runner) {
+      try { runner.cancel(); } catch {}
     }
   }
+}
+
+function metersToFeet(meters) {
+  return meters / 0.3048;
 }
 
 /**
@@ -4988,38 +5125,6 @@ function classifyOverspeedType(barberPoleKts, flapsPercent) {
   if (flapsPct > 20) return 'vfe';
 
   return 'vmo';
-}
-
-/**
- * Compute effective menu state from raw SimConnect signals.
- * Pure function — all inputs explicit, no side effects.
- *
- * @param {Object} params
- * @param {number|null|undefined} params.systemSim - SystemState('Sim'): 0=menu, 1=flying
- * @param {boolean|null|undefined} params.simRunningRaw - SimStart/SimStop event state
- * @param {number|null|undefined} params.cameraState - CAMERA STATE simvar (<=6 = user-controlled)
- * @param {boolean|number|null|undefined} params.crashFlag - CRASH FLAG enum; any non-zero code means active crash
- * @param {number|null|undefined} params.crashSequence - CRASH SEQUENCE simvar
- * @param {boolean|null|undefined} params.userInput - USER INPUT ENABLED simvar
- * @param {boolean|null|undefined} params.paused - SIM DISABLED simvar
- * @returns {{ effectiveInMenu: boolean, inFlightContext: boolean, simRunning: boolean|null }}
- */
-function computeMenuState({ systemSim, simRunningRaw, cameraState, crashFlag, crashSequence, userInput, paused }) {
-  const hasSystemSimState = systemSim === 0 || systemSim === 1;
-  const simRunning = (typeof simRunningRaw === 'boolean') ? simRunningRaw : (hasSystemSimState ? systemSim === 1 : null);
-  const camState = Number.isFinite(cameraState) ? cameraState : null;
-  const cameraUserControl = camState == null ? true : camState <= 6;
-  const crashFlagCode = typeof crashFlag === 'number' && Number.isFinite(crashFlag) ? crashFlag : null;
-  const crashFlagActive = crashFlag === true || (crashFlagCode !== null && crashFlagCode > 0);
-  const crashSequenceValue = Number.isFinite(crashSequence) ? crashSequence : 0;
-  const crashActive = crashFlagActive || crashSequenceValue > 0;
-  const inMenuBySystemState = systemSim === 0;
-  const inFlightBySystemState = systemSim === 1;
-  const fallbackInMenu = userInput === false;
-  const baseInMenu = hasSystemSimState ? inMenuBySystemState : fallbackInMenu;
-  const effectiveInMenu = baseInMenu || cameraUserControl === false || crashActive || simRunning === false;
-  const inFlightContext = !paused && userInput !== false && cameraUserControl === true && crashActive === false && simRunning !== false && (hasSystemSimState ? inFlightBySystemState : true);
-  return { effectiveInMenu, inFlightContext, simRunning, systemSim, hasSystemSimState, cameraState: camState, cameraUserControl, crashFlagActive, crashSequenceValue, crashActive };
 }
 
 module.exports = {

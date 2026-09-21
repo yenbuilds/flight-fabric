@@ -1,5 +1,5 @@
 /*!
- * QRCode for JavaScript - frontend ES module bundle for Flight Fabric
+ * QRCode for JavaScript - frontend ES module bundle for FlightFabric
  * Copyright (c) 2009 Kazuhiko Arase - MIT License
  * Source: http://www.d-project.com/  (re-bundled from qrcode-terminal vendor files)
  */

@@ -267,13 +267,15 @@ async function assertSimbriefLayout(windowRef) {
   );
 }
 
+async function selectFlightView(windowRef, view) {
+  const selector = await evaluate(windowRef, "getComputedStyle(document.querySelector('.app-sidebar')).display === 'none' ? '.mobile-tab[data-tab=\"livemap\"]' : '.desktop-tab[data-tab=\"livemap\"]'");
+  await click(windowRef, `document.querySelector(${JSON.stringify(selector)})`, 'Flight navigation');
+  await click(windowRef, `document.querySelector('.workspace-view-switch [aria-controls="tab-${view}"]')`, `Flight ${view} view`);
+  await waitFor(windowRef, `document.getElementById('tab-${view}')?.classList.contains('active')`, `Flight ${view} selected`);
+}
+
 async function assertCompactFlightLayout(windowRef) {
-  await waitFor(
-    windowRef,
-    "document.querySelector('.desktop-tab[data-tab=\"flight\"]')",
-    'desktop flight tab button',
-  );
-  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"flight\"]')", 'Flight tab for compact layout');
+  await selectFlightView(windowRef, 'flight');
   await waitFor(
     windowRef,
     "document.getElementById('tab-flight')?.classList.contains('active') && document.getElementById('flight-primary-grid')",
@@ -330,7 +332,7 @@ async function assertMobileShellLayout(windowRef) {
 
     const result = await evaluate(windowRef, `(() => {
       const mobileBar = document.querySelector('.mobile-tab-bar');
-      const desktopBar = document.querySelector('.desktop-tab-stage');
+      const desktopBar = document.querySelector('.app-sidebar');
       const header = document.getElementById('app-header');
       const desktopHeaderStatus = document.querySelector('.header-desktop-status');
       const phoneSetupButton = document.getElementById('header-mobile-access-btn');
@@ -427,6 +429,7 @@ async function assertHeaderLayout(windowRef) {
   assert.deepEqual(profileOptions, [
     { value: 'auto', label: 'Automatic detection (recommended)' },
     { value: 'bundled/msfs/asobo-a320neo', label: 'Asobo A320neo' },
+    { value: 'bundled/msfs/pmdg-737', label: 'PMDG 737' },
     { value: 'bundled/msfs/pmdg-777', label: 'PMDG 777' },
     { value: 'bundled/msfs/fenix-a320', label: 'Fenix A320' },
     { value: 'bundled/msfs/fbw-a32nx', label: 'FlyByWire A32NX' },
@@ -572,7 +575,7 @@ async function runSecondScreenSetupSmoke(windowRef) {
   assert.ok(!setup.phoneUrl.includes('aircraftControlToken='), 'readable phone address should not expose the current-session token');
   assert.equal(setup.qrCount, 1, 'Phone setup should offer exactly one QR choice');
   assert.ok(setup.instructions.includes('Starting a new flight does not require pairing again'), 'Phone setup should distinguish new flights from backend restarts');
-  assert.equal(setup.qrLabel, 'Private QR code for Flight Fabric phone setup', 'phone QR should have a useful label without exposing its credential');
+  assert.equal(setup.qrLabel, 'Private QR code for FlightFabric phone setup', 'phone QR should have a useful label without exposing its credential');
 
   await click(windowRef, "document.getElementById('system-mobile-copy-btn')", 'Copy phone link button');
   await waitFor(
@@ -778,7 +781,7 @@ async function runSettingsSmoke(windowRef) {
     windowRef,
     'window.__confirmCalls = 0; window.confirm = () => { window.__confirmCalls += 1; return true; }; true;',
   );
-  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"livemap\"]')", 'Live tab from clean Settings');
+  await selectFlightView(windowRef, 'livemap');
   await waitFor(
     windowRef,
     "document.getElementById('tab-livemap')?.classList.contains('active')",
@@ -818,6 +821,20 @@ async function runSettingsSmoke(windowRef) {
 }
 
 async function runAircraftSearchSmoke(windowRef) {
+  // A hidden Electron window does not reliably dispatch focus events on resize.
+  // Exercise the same focused-window behavior users get during the handoff.
+  const attachedDebugger = !windowRef.webContents.debugger.isAttached();
+  if (attachedDebugger) windowRef.webContents.debugger.attach('1.3');
+  await windowRef.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+  try {
+    await assertAircraftSearchSmoke(windowRef);
+  } finally {
+    await windowRef.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
+    if (attachedDebugger) windowRef.webContents.debugger.detach();
+  }
+}
+
+async function assertAircraftSearchSmoke(windowRef) {
   await waitFor(
     windowRef,
     "document.querySelector('.desktop-tab[data-tab=\"autopilot\"]')",
@@ -834,6 +851,18 @@ async function runAircraftSearchSmoke(windowRef) {
     "document.querySelector('[data-aircraft-template=\"pmdg-777\"]') && document.getElementById('aircraft-find-input')",
     'PMDG 777 page and Aircraft search input',
   );
+
+  // Earlier phone checks resize this hidden window back to desktop. A settings
+  // acknowledgement can arrive before Chromium delivers the media-query change
+  // that exposes secondary tools, so wait for that handoff before measuring.
+  await waitFor(windowRef, `(() => {
+    const guide = document.querySelector('[data-aircraft-integration-guide-trigger]');
+    const voice = document.querySelector('[data-aircraft-voice-control-trigger]');
+    return [guide, voice].every(element => {
+      const rect = element?.getBoundingClientRect();
+      return rect?.width > 0 && rect.height > 0;
+    });
+  })()`, 'desktop Aircraft tools after responsive handoff');
 
   const collapsedSearch = await evaluate(windowRef, `(() => {
     const bar = document.querySelector('.aircraft-find');
@@ -1037,29 +1066,25 @@ async function runAircraftSearchSmoke(windowRef) {
     'PMDG 777 landing-light control search match',
   );
 
+  await waitFor(windowRef, "document.activeElement?.id === 'aircraft-find-input'", 'focused search before resizing to phone');
   await setContentSizeAndWait(windowRef, 390, 844, 'Aircraft phone');
   await waitFor(
     windowRef,
-    "document.getElementById('aircraft-find-input')?.value === '' && !document.querySelector('.aircraft-find--expanded') && !document.querySelector('[data-aircraft-find-match]')",
-    'mobile ribbon search state cleanup',
+    "document.getElementById('aircraft-find-input')?.value === 'landing' && document.querySelector('.aircraft-find--expanded') && document.querySelector('[data-aircraft-find-match]') && document.activeElement?.id === 'aircraft-find-input'",
+    'phone search preserves the current query, matches and input focus',
   );
+  await click(windowRef, "document.querySelector('.aircraft-find__collapse')", 'close phone Aircraft search');
+  await waitFor(windowRef, "document.activeElement?.classList.contains('aircraft-find__launcher')", 'close phone search returns to its visible launcher');
   const mobileNavigation = await evaluate(windowRef, `(() => {
     const bar = document.querySelector('.aircraft-find');
     const ribbon = document.querySelector('.aircraft-section-ribbon');
-    const buttons = [...(ribbon?.querySelectorAll('button') || [])];
+    const buttons = [...(ribbon?.querySelectorAll(':scope > button') || [])];
     const header = document.getElementById('app-header');
     const footer = document.querySelector('.ff-app-footer');
     const destinationProgress = document.getElementById('vue-destination-progress-root');
     if (!bar || !ribbon || buttons.length !== 3) return { missing: true };
     const ribbonRect = ribbon.getBoundingClientRect();
     const headerRect = header?.getBoundingClientRect();
-    const shortcutEvent = new KeyboardEvent('keydown', {
-      key: 'f',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    document.dispatchEvent(shortcutEvent);
     return {
       missing: false,
       viewportWidth: window.innerWidth,
@@ -1069,6 +1094,7 @@ async function runAircraftSearchSmoke(windowRef) {
       ribbonLeft: ribbonRect.left,
       ribbonRight: ribbonRect.right,
       ribbonPosition: getComputedStyle(ribbon.parentElement).position,
+      desktopChoicesDisplay: getComputedStyle(ribbon.querySelector('.aircraft-desktop-section-choices')).display,
       buttonSizes: buttons.map((button) => {
         const rect = button.getBoundingClientRect();
         return { width: rect.width, height: rect.height };
@@ -1076,28 +1102,27 @@ async function runAircraftSearchSmoke(windowRef) {
       destinationCount: document.querySelectorAll('[id^="pmdg-777-section-"]:not([id$="menu"]):not([id$="menu-title"])').length,
       currentLabel: ribbon.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() || '',
       headerHeight: headerRect?.height || 0,
-      footerDisplay: footer ? getComputedStyle(footer).display : 'missing',
+      footerHeight: footer?.getBoundingClientRect().height || 0,
       destinationProgressDisplay: destinationProgress ? getComputedStyle(destinationProgress).display : 'missing',
       searchQuery: document.getElementById('aircraft-find-input')?.value || '',
       searchMatchCount: document.querySelectorAll('[data-aircraft-find-match]').length,
       searchStillFocused: document.activeElement?.id === 'aircraft-find-input',
-      focusMovedToRibbon: document.activeElement === ribbon.querySelector('.aircraft-section-ribbon__current'),
-      hiddenShortcutPrevented: shortcutEvent.defaultPrevented,
+      focusReturnedToLauncher: document.activeElement === bar.querySelector('.aircraft-find__launcher'),
     };
   })();`);
   assert.equal(mobileNavigation.missing, false, 'PMDG 777 mobile section navigation should render');
-  assert.equal(mobileNavigation.searchDisplay, 'none', 'PMDG 777 search should yield to section navigation on mobile');
-  assert.equal(mobileNavigation.searchQuery, '', 'mobile ribbon transition should clear the hidden search query');
-  assert.equal(mobileNavigation.searchMatchCount, 0, 'mobile ribbon transition should clear hidden search highlighting');
-  assert.equal(mobileNavigation.searchStillFocused, false, 'mobile ribbon transition should release focus from the hidden search');
-  assert.equal(mobileNavigation.focusMovedToRibbon, true, 'mobile ribbon transition should move hidden search focus to visible section navigation');
-  assert.equal(mobileNavigation.hiddenShortcutPrevented, false, 'mobile ribbon pages should not intercept Ctrl+F for a hidden search');
+  assert.notEqual(mobileNavigation.searchDisplay, 'none', 'PMDG 777 Find controls should remain available alongside mobile sections');
+  assert.equal(mobileNavigation.searchQuery, '', 'closing search should clear its query');
+  assert.equal(mobileNavigation.searchMatchCount, 0, 'closing search should clear highlighting');
+  assert.equal(mobileNavigation.searchStillFocused, false, 'closing search should release its hidden input');
+  assert.equal(mobileNavigation.focusReturnedToLauncher, true, 'closing search should focus its visible launcher');
   assert.equal(mobileNavigation.ribbonDisplay, 'grid', 'PMDG 777 section ribbon should be visible on mobile');
+  assert.equal(mobileNavigation.desktopChoicesDisplay, 'none', 'desktop section choices should yield to the three phone ribbon controls');
   assert.equal(mobileNavigation.ribbonPosition, 'sticky', 'PMDG 777 section ribbon should remain reachable while scrolling');
   assert.equal(mobileNavigation.destinationCount, 10, 'PMDG 777 ribbon should map to ten stable destinations');
   assert.equal(mobileNavigation.currentLabel, 'Presets', 'PMDG 777 ribbon should initialize at the first visible section');
   assert.ok(mobileNavigation.headerHeight > 0 && mobileNavigation.headerHeight <= 112, 'phone header should remain compact');
-  assert.equal(mobileNavigation.footerDisplay, 'none', 'desktop status footer should not consume phone viewport space');
+  assert.equal(mobileNavigation.footerHeight, 0, 'desktop status footer should not consume phone viewport space');
   assert.equal(mobileNavigation.destinationProgressDisplay, 'none', 'phone header should omit the tall destination progress row');
   assert.deepEqual(
     mobileNavigation.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
@@ -1159,11 +1184,15 @@ async function runAircraftSearchSmoke(windowRef) {
     searchDisplay: getComputedStyle(document.querySelector('.aircraft-find')).display,
     ribbonDisplay: getComputedStyle(document.querySelector('.aircraft-section-ribbon')).display,
   }))();`);
-  assert.equal(
-    collapsedSearchFocusTransfer.focusedRibbon,
-    true,
-    `focused collapsed search should hand focus to the visible ribbon: ${JSON.stringify(collapsedSearchFocusTransfer)}`,
-  );
+  assert.equal(collapsedSearchFocusTransfer.focusedRibbon, false, 'resizing should not move focus away from the still-visible search launcher');
+  assert.equal(await evaluate(windowRef, "document.activeElement?.classList.contains('aircraft-find__launcher')"), true, 'Find controls should preserve focus across the phone breakpoint');
+  const phoneShortcutPrevented = await evaluate(windowRef, `(() => {
+    const event = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(event); return event.defaultPrevented;
+  })()`);
+  assert.equal(phoneShortcutPrevented, true, 'an active phone Aircraft page should accept Ctrl+F');
+  await waitFor(windowRef, "document.activeElement?.id === 'aircraft-find-input'", 'phone search shortcut focuses its input');
+  await click(windowRef, "document.querySelector('.aircraft-find__collapse')", 'close shortcut search before section navigation');
 
   await click(windowRef, "document.querySelector('.aircraft-section-ribbon__current')", 'PMDG 777 section chooser');
   await waitFor(windowRef, "document.querySelector('[data-aircraft-section-menu]')", 'PMDG 777 section chooser dialog');
@@ -1173,12 +1202,18 @@ async function runAircraftSearchSmoke(windowRef) {
     const rect = dialog?.getBoundingClientRect();
     return {
       choiceCount: choices.length,
+      taxiChoices: choices.filter(choice => choice.textContent.includes('Autotaxi')).length,
+      taxiPanels: document.querySelectorAll('[data-aircraft-autotaxi-section]').length,
+      taxiExperimental: /Experimental/.test(document.querySelector('[data-aircraft-autotaxi-section]')?.textContent || ''),
       top: rect?.top || 0,
       bottom: rect?.bottom || 0,
       undersizedChoices: choices.filter((choice) => choice.getBoundingClientRect().height < 44).length,
     };
   })();`);
-  assert.equal(mobileChooser.choiceCount, 11, 'PMDG 777 chooser should expose Presets and every aircraft section');
+  assert.equal(mobileChooser.choiceCount, 12, 'PMDG 777 chooser should expose Presets, Taxi and every aircraft section');
+  assert.equal(mobileChooser.taxiChoices, 1, 'Taxi has one chooser entry');
+  assert.equal(mobileChooser.taxiPanels, 1, 'the production build exposes one shared Autotaxi panel');
+  assert.equal(mobileChooser.taxiExperimental, true, 'the production build keeps the Experimental label');
   assert.equal(mobileChooser.undersizedChoices, 0, 'PMDG 777 chooser rows should remain touch friendly');
   assert.ok(mobileChooser.top >= -2 && mobileChooser.bottom <= 846, 'PMDG 777 chooser should fit the phone viewport');
   await click(
@@ -1221,18 +1256,19 @@ async function runAircraftSearchSmoke(windowRef) {
     await setInputValue(windowRef, 'aircraft-profile-correction-select', fixture.profileKey);
     await waitFor(
       windowRef,
-      `document.querySelector('[data-aircraft-template="${fixture.templateId}"]') && document.querySelector('.aircraft-find--mobile-hidden') && document.querySelector('[data-mobile-aircraft-navigation="section-ribbon"]')`,
+      `document.querySelector('[data-aircraft-template="${fixture.templateId}"]') && document.querySelector('.aircraft-find') && document.querySelector('[data-mobile-aircraft-navigation="section-ribbon"]')`,
       `${fixture.templateId} Aircraft page and shared mobile navigation state`,
     );
     const mobileAirbus = await evaluate(windowRef, `(() => {
       const search = document.querySelector('.aircraft-find');
       const ribbon = document.querySelector('.aircraft-section-ribbon');
-      const buttons = [...(ribbon?.querySelectorAll('button') || [])];
+      const buttons = [...(ribbon?.querySelectorAll(':scope > button') || [])];
       const rect = ribbon?.getBoundingClientRect();
       return {
         searchClass: search?.className || '',
         searchDisplay: search ? getComputedStyle(search).display : 'missing',
         ribbonDisplay: ribbon ? getComputedStyle(ribbon).display : 'missing',
+        desktopChoicesDisplay: ribbon ? getComputedStyle(ribbon.querySelector('.aircraft-desktop-section-choices')).display : 'missing',
         mobileMediaMatches: window.matchMedia('(max-width: 760px)').matches,
         buttonSizes: buttons.map((button) => {
           const buttonRect = button.getBoundingClientRect();
@@ -1246,8 +1282,9 @@ async function runAircraftSearchSmoke(windowRef) {
       };
     })();`);
     assert.ok(mobileAirbus.viewportWidth <= 760 && mobileAirbus.mobileMediaMatches, `${fixture.templateId} browser fixture should be at the mobile breakpoint: ${JSON.stringify(mobileAirbus)}`);
-    assert.equal(mobileAirbus.searchDisplay, 'none', `${fixture.templateId} should hide Aircraft search on mobile`);
+    assert.notEqual(mobileAirbus.searchDisplay, 'none', `${fixture.templateId} should keep Find controls available on mobile`);
     assert.equal(mobileAirbus.ribbonDisplay, 'grid', `${fixture.templateId} should show the shared section ribbon on mobile`);
+    assert.equal(mobileAirbus.desktopChoicesDisplay, 'none', `${fixture.templateId} should hide desktop section choices on mobile`);
     assert.equal(mobileAirbus.destinationCount, fixture.sectionCount, `${fixture.templateId} should expose every mapped section destination`);
     assert.deepEqual(
       mobileAirbus.buttonSizes.filter((size) => size.width < 44 || size.height < 44),
@@ -1260,7 +1297,7 @@ async function runAircraftSearchSmoke(windowRef) {
     await click(windowRef, "document.querySelector('.aircraft-section-ribbon__current')", `${fixture.templateId} section chooser`);
     await waitFor(
       windowRef,
-      `document.querySelectorAll('[data-aircraft-section-choice]').length === ${fixture.sectionCount + 1}`,
+      `document.querySelectorAll('[data-aircraft-section-choice]').length === ${fixture.sectionCount + 2}`,
       `${fixture.templateId} complete section chooser`,
     );
     await click(windowRef, "document.querySelector('.aircraft-section-menu__close')", `${fixture.templateId} section chooser close`);
@@ -1322,6 +1359,7 @@ async function runAircraftSearchSmoke(windowRef) {
     const tools = document.querySelector('.aircraft-page-tools');
     const guide = document.querySelector('[data-aircraft-integration-guide-trigger]');
     const voice = document.querySelector('[data-aircraft-voice-control-trigger]');
+    const secondary = document.querySelector('.aircraft-tools-toggle');
     const launcher = document.querySelector('.aircraft-find__launcher');
     const preset = document.querySelector('[data-aircraft-presets-section]');
     const cards = [...document.querySelectorAll('[data-aircraft-preset]')];
@@ -1334,7 +1372,8 @@ async function runAircraftSearchSmoke(windowRef) {
       missing: false,
       viewportWidth: window.innerWidth,
       pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
-      voiceDisplay: getComputedStyle(voice).display,
+      voiceHeight: voice.getBoundingClientRect().height,
+      secondary: rect(secondary),
       tools: rect(tools),
       guide: rect(guide),
       launcher: rect(launcher),
@@ -1346,8 +1385,10 @@ async function runAircraftSearchSmoke(windowRef) {
     };
   })();`);
   assert.equal(mobileToolsCollapsed.missing, false, 'generic Aircraft mobile tools should render');
-  assert.equal(mobileToolsCollapsed.voiceDisplay, 'none', 'voice control should stay out of the mobile toolbar');
-  assert.ok(mobileToolsCollapsed.guide.width >= 44 && mobileToolsCollapsed.guide.height >= 44, 'mobile integration guide should remain touch sized');
+  assert.equal(mobileToolsCollapsed.voiceHeight, 0, 'voice control should be disclosed from Tools on phone');
+  assert.equal(mobileToolsCollapsed.guide.height, 0, 'the secondary integration guide should share the closed Tools disclosure');
+  assert.ok(mobileToolsCollapsed.secondary.width >= 44 && mobileToolsCollapsed.secondary.height >= 44, 'phone Tools should have a discoverable touch-sized launcher');
+  assert.ok(mobileToolsCollapsed.tools.height <= 60, 'phone tools should fit in one compact touch row');
   assert.ok(mobileToolsCollapsed.launcher.width >= 44 && mobileToolsCollapsed.launcher.height >= 44, 'mobile Aircraft search launcher should remain touch sized');
   assert.ok(mobileToolsCollapsed.preset.width >= mobileToolsCollapsed.tools.width * 0.98, 'mobile Aircraft preset should own a full row');
   assert.equal(mobileToolsCollapsed.cards.length, 2, 'mobile fixture should retain both one-tap presets');
@@ -1360,6 +1401,10 @@ async function runAircraftSearchSmoke(windowRef) {
 
   await click(windowRef, "document.querySelector('.aircraft-find__launcher')", 'generic mobile Aircraft search launcher');
   await waitFor(windowRef, "document.activeElement?.id === 'aircraft-find-input'", 'generic mobile Aircraft search focus');
+  // Search becomes sticky after expansion. Return to the task start before
+  // comparing flow order; a retained scroll position may put presets behind it.
+  await evaluate(windowRef, "document.querySelector('.aircraft-tab-search-content').scrollIntoView({ block: 'start', behavior: 'instant' })");
+  await wait(100);
   const mobileToolsExpanded = await evaluate(windowRef, `(() => {
     const tools = document.querySelector('.aircraft-page-tools');
     const actions = document.querySelector('.aircraft-page-tool-actions');
@@ -1376,7 +1421,7 @@ async function runAircraftSearchSmoke(windowRef) {
       missing: false,
       viewportWidth: window.innerWidth,
       pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
-      guideDisplay: getComputedStyle(guide).display,
+      guideHeight: guide.getBoundingClientRect().height,
       tools: rect(tools),
       actions: rect(actions),
       search: rect(search),
@@ -1385,10 +1430,10 @@ async function runAircraftSearchSmoke(windowRef) {
     };
   })();`);
   assert.equal(mobileToolsExpanded.missing, false, 'expanded generic Aircraft mobile search should render');
-  assert.equal(mobileToolsExpanded.guideDisplay, 'none', 'expanded mobile search should temporarily own the toolbar row');
+  assert.equal(mobileToolsExpanded.guideHeight, 0, 'expanded mobile search should temporarily own the toolbar row');
   assert.ok(mobileToolsExpanded.search.width >= mobileToolsExpanded.tools.width - 6, 'expanded mobile search should use the full tools width');
   assert.ok(mobileToolsExpanded.panel.width >= mobileToolsExpanded.search.width - 2, 'expanded mobile search panel should fill its search region');
-  assert.ok(mobileToolsExpanded.preset.top >= mobileToolsExpanded.actions.bottom + 6, 'mobile preset should remain below expanded search');
+  assert.ok(mobileToolsExpanded.preset.top >= mobileToolsExpanded.actions.bottom + 6, `mobile preset should remain below expanded search at the task start: ${JSON.stringify(mobileToolsExpanded)}`);
   assert.ok(mobileToolsExpanded.pageWidth <= mobileToolsExpanded.viewportWidth + 2, 'expanded mobile Aircraft tools should not overflow horizontally');
   await setInputValue(windowRef, 'aircraft-find-input', 'light');
   await waitFor(windowRef, "document.querySelector('.aircraft-find__clear')", 'generic mobile Aircraft clear action');
@@ -1483,13 +1528,126 @@ async function runAircraftSearchSmoke(windowRef) {
   );
 }
 
+async function assertLiveMapFollowControl(windowRef) {
+  const backgroundThrottling = windowRef.webContents.getBackgroundThrottling();
+  windowRef.webContents.setBackgroundThrottling(false);
+  const attachedDebugger = !windowRef.webContents.debugger.isAttached();
+  if (attachedDebugger) windowRef.webContents.debugger.attach('1.3');
+  await windowRef.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+  for (const [width, height] of [[viewportWidth, viewportHeight], [390, 844], [320, 700], [700, 390]]) {
+    await setContentSizeAndWait(windowRef, width, height, 'Live Map follow control');
+    // Initial centering briefly suppresses zoomstart from pausing follow. This
+    // checks the on-map recovery action, so retry a real enabled zoom until the
+    // controller accepts user interaction instead of racing its initialization.
+    await waitFor(windowRef, `(() => {
+      if (document.getElementById('live-map-center-btn')?.textContent.trim() === 'Resume Follow') return true;
+      const zoom = document.querySelector('#live-map .leaflet-control-zoom-in');
+      if (document.getElementById('live-map-view-2d')?.getAttribute('aria-pressed') === 'true'
+        && zoom?.getClientRects().length && zoom.getAttribute('aria-disabled') !== 'true') zoom.click();
+      return false;
+    })()`, `on-map Resume Follow action at ${width}px`, 2000);
+    for (const mode of ['2d', '3d']) {
+      await click(windowRef, `document.getElementById('live-map-view-${mode}')`, `Live Map ${mode} view`);
+      await waitFor(windowRef, `document.getElementById('live-map-view-${mode}')?.getAttribute('aria-pressed') === 'true'`, `${mode} live map selected`);
+      await evaluate(windowRef, "document.querySelector('.live-map-wrap').scrollIntoView({ block: 'center' })");
+      await wait(200);
+      if (mode === '3d') {
+        await waitFor(windowRef, "document.querySelector('#live-map-3d canvas') && !document.getElementById('live-map-3d-status')", '3D map ready');
+        const point = await evaluate(windowRef, `(() => {
+          const rect = document.getElementById('live-map-3d').getBoundingClientRect();
+          return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+        })()`);
+        windowRef.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'right', clickCount: 1 });
+        windowRef.webContents.sendInputEvent({ type: 'mouseMove', x: point.x + 30, y: point.y, button: 'right' });
+        windowRef.webContents.sendInputEvent({ type: 'mouseUp', x: point.x + 30, y: point.y, button: 'right', clickCount: 1 });
+        await waitFor(windowRef, "document.getElementById('live-map-center-btn')?.textContent.trim() === 'Resume Follow'", '3D pan pauses follow', 3000);
+      }
+      const layout = await evaluate(windowRef, `(() => {
+        const button = document.getElementById('live-map-center-btn');
+        const map = document.querySelector('.live-map-wrap');
+        const hud = map.querySelector('.map-3d-hud');
+        const legend = map.querySelector('.map-3d-legend');
+        // Exercise the longest legend, not only its compact default state.
+        const legendDetails = legend?.querySelector('details');
+        if (legendDetails) legendDetails.open = true;
+        const rect = button.getBoundingClientRect();
+        const mapRect = map.getBoundingClientRect();
+        const hudRect = hud?.getBoundingClientRect();
+        const legendRect = legend?.getBoundingClientRect();
+        let legendReachable = true;
+        if (legend) {
+          legend.scrollTop = legend.scrollHeight;
+          const lastNote = legend.lastElementChild?.getBoundingClientRect();
+          legendReachable = legend.tabIndex === 0 && legendRect.top >= mapRect.top
+            && legendRect.bottom <= mapRect.bottom + 1 && legend.scrollWidth <= legend.clientWidth + 1
+            && (!lastNote || lastNote.bottom <= legendRect.bottom + 1);
+          legend.scrollTop = 0;
+        }
+        const overlaps = [...map.querySelectorAll('.leaflet-control, .live-map-target-overlay, .map-3d-hud, .map-3d-legend')]
+          .filter((element) => element.getClientRects().length > 0)
+          .filter((element) => {
+            const other = element.getBoundingClientRect();
+            return rect.left < other.right && rect.right > other.left && rect.top < other.bottom && rect.bottom > other.top;
+          }).map((element) => element.className);
+        return {
+          onMap: map.contains(button) && rect.left >= mapRect.left && rect.right <= mapRect.right
+            && rect.top >= mapRect.top && rect.bottom <= mapRect.bottom,
+          reachable: button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+          touchSize: rect.width >= 44 && rect.height >= 44,
+          count: document.querySelectorAll('#live-map-center-btn').length,
+          overlaps,
+          legendReachable,
+          legendOverlapsHud: Boolean(hudRect && legendRect && legendRect.left < hudRect.right
+            && legendRect.right > hudRect.left && legendRect.top < hudRect.bottom && legendRect.bottom > hudRect.top),
+          geometry: { button: rect.toJSON(), map: mapRect.toJSON(), hud: hudRect?.toJSON(), legend: legendRect?.toJSON() },
+        };
+      })()`);
+      if (process.env.FF_BROWSER_SMOKE_LIVE_MAP_SCREENSHOT) {
+        await evaluate(windowRef, 'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        const screenshot = await windowRef.webContents.capturePage();
+        fs.writeFileSync(`${process.env.FF_BROWSER_SMOKE_LIVE_MAP_SCREENSHOT}-${mode}-${width}.png`, screenshot.toPNG());
+      }
+      assert.ok(layout.onMap && layout.reachable && layout.touchSize, `Follow control should be reachable on the ${mode} map at ${width}px: ${JSON.stringify(layout)}`);
+      assert.equal(layout.count, 1, 'the map should own the only center action');
+      assert.deepEqual(layout.overlaps, [], `Follow control should avoid map overlays at ${width}px in ${mode}: ${JSON.stringify(layout.geometry)}`);
+      assert.equal(layout.legendOverlapsHud, false, `3D map details should not cover readouts at ${width}px: ${JSON.stringify(layout.geometry)}`);
+      assert.equal(layout.legendReachable, true, `3D map details should stay legible and scroll to every note at ${width}px: ${JSON.stringify(layout.geometry)}`);
+      if (mode === '3d') {
+        const point = await evaluate(windowRef, `(() => {
+          const rect = document.getElementById('live-map-center-btn').getBoundingClientRect();
+          return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+        })()`);
+        if (width <= 760) {
+          await windowRef.webContents.debugger.sendCommand('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...point, id: 1 }] });
+          await windowRef.webContents.debugger.sendCommand('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else {
+          windowRef.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
+          windowRef.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 });
+        }
+        await waitFor(windowRef, "document.getElementById('live-map-center-btn')?.textContent.trim() === 'Center'", 'pointer activation resumes 3D follow', 3000);
+      }
+    }
+    await click(windowRef, "document.getElementById('live-map-view-2d')", 'Restore 2D live map');
+    await waitFor(windowRef, "document.getElementById('live-map-center-btn')?.textContent.trim() === 'Resume Follow'", 'retained paused 2D state');
+    await evaluate(windowRef, "document.getElementById('live-map-center-btn').focus()");
+    assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'live-map-center-btn', 'the on-map button should accept keyboard focus');
+    windowRef.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' });
+    windowRef.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
+    await waitFor(windowRef, "document.getElementById('live-map-follow-status')?.textContent.trim() === 'Following' && document.getElementById('live-map-center-btn')?.textContent.trim() === 'Center'", 'keyboard activation resumes follow', 3000);
+  }
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'Live Map desktop restore');
+  await windowRef.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
+  if (attachedDebugger) windowRef.webContents.debugger.detach();
+  windowRef.webContents.setBackgroundThrottling(backgroundThrottling);
+}
+
 async function runLiveMapSmoke(windowRef) {
   await waitFor(
     windowRef,
-    "document.querySelector('#vue-status-root .text-sm')?.textContent.includes('WS Ready')",
+    "document.querySelector('#vue-status-root [role=\"status\"]')?.dataset.connection === 'ready'",
     'ready websocket before Live Map route actions',
   );
-  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"livemap\"]')", 'Live Map tab');
+  await selectFlightView(windowRef, 'livemap');
   await waitFor(
     windowRef,
     "document.getElementById('tab-livemap')?.classList.contains('active')",
@@ -1513,9 +1671,11 @@ async function runLiveMapSmoke(windowRef) {
   ]);
   await assertRoundedContainer(windowRef, '#tab-livemap .live-map-card-shell', 'Live Map');
 
+  await click(windowRef, "document.querySelector('.live-map-route-details > summary')", 'Route and position disclosure');
+
   await waitFor(
     windowRef,
-    "document.getElementById('live-map-route-inputs') && !document.getElementById('live-map-route-inputs')?.classList.contains('hidden')",
+    "document.querySelector('.live-map-route-details')?.open && document.getElementById('live-map-route-inputs')?.getClientRects().length > 0",
     'Live Map route inputs visibility',
   );
 
@@ -1549,6 +1709,8 @@ async function runLiveMapSmoke(windowRef) {
     "document.getElementById('dest-progress-label')?.textContent.includes('From KPHL -> To KBOS')",
     'Live Map route progress label',
   );
+
+  await assertLiveMapFollowControl(windowRef);
 
   await click(windowRef, "document.getElementById('live-map-target-clear-btn')", 'Live Map Clear Target button');
   await waitFor(
@@ -1592,6 +1754,16 @@ async function runTimelineSmoke(windowRef) {
     "document.querySelectorAll('#timeline-event-list .timeline-event').length >= 4",
     'loaded Timeline events',
   );
+  const workspaceLayout = await evaluate(windowRef, `(() => {
+    const list = document.getElementById('vue-timeline-flights-root').getBoundingClientRect();
+    const review = document.querySelector('#tab-timeline .timeline-split');
+    return { listRight: list.right, reviewLeft: review.getBoundingClientRect().left,
+      modal: review.getAttribute('aria-modal'), context: document.querySelector('.logbook-recorded-context')?.textContent };
+  })()`);
+  assert.equal(workspaceLayout.modal, null, 'desktop Logbook review should preserve access to application navigation');
+  assert.ok(workspaceLayout.reviewLeft >= workspaceLayout.listRight - 2, 'desktop flight selection should remain beside review');
+  assert.equal(workspaceLayout.context, 'Recorded flight', 'historical measurements should be identified before users inspect them');
+  await click(windowRef, "Array.from(document.querySelectorAll('.logbook-review-views button')).find(button => button.textContent === 'Replay map')", 'Timeline replay view');
   const replayColumnLayout = await evaluate(
     windowRef,
     `(() => {
@@ -1609,22 +1781,19 @@ async function runTimelineSmoke(windowRef) {
   assert.ok(
     replayColumnLayout.shellHeight > 0
       && replayColumnLayout.cardBottom >= replayColumnLayout.shellBottom - 2,
-    'Timeline replay card should fill the available modal row height',
+    'Timeline replay card should fill the available review pane height',
   );
   assert.ok(
     replayColumnLayout.mapHeight >= Math.min(360, replayColumnLayout.shellHeight * 0.45),
     'Timeline replay map should receive a useful share of the available vertical space',
   );
+  await click(windowRef, "document.querySelector('.logbook-review-views button')", 'Timeline event view');
   await waitFor(
     windowRef,
     "(() => { const row = Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at')); return row?.textContent.includes('TD RATE PERFECT') && row.textContent.includes('APP MARGINAL') && row.textContent.includes('BNC 1x'); })()",
     'Timeline landing row shows scoped touchdown-rate grade, failed approach, and bounce',
   );
   await assertTimelineEventLayout(windowRef);
-  const eventListHeightBeforeOverlays = await evaluate(
-    windowRef,
-    "document.getElementById('timeline-events')?.getBoundingClientRect().height || 0",
-  );
   await click(windowRef, "document.getElementById('timeline-open-analysis-rescore-btn')", 'Timeline scoring review button');
   await waitFor(
     windowRef,
@@ -1648,32 +1817,25 @@ async function runTimelineSmoke(windowRef) {
     "document.getElementById('timeline-detail') && document.getElementById('timeline-detail-title')?.textContent.includes('Landing at KBOS 27')",
     'Timeline landing detail dialog',
   );
-  const overlayLayout = await evaluate(
+  const detailLayout = await evaluate(
     windowRef,
     `(() => {
-      const events = document.getElementById('timeline-events')?.getBoundingClientRect();
       const viewer = document.querySelector('#tab-timeline .timeline-split')?.getBoundingClientRect();
       const drawer = document.getElementById('timeline-detail')?.getBoundingClientRect();
       return {
-        eventListHeight: events?.height || 0,
-        centerOffsetX: (drawer.left + drawer.width / 2) - (viewer.left + viewer.width / 2),
-        centerOffsetY: (drawer.top + drawer.height / 2) - (viewer.top + viewer.height / 2),
+        contained: drawer.left >= viewer.left && drawer.right <= viewer.right + 2 && drawer.bottom <= viewer.bottom + 2,
+        role: document.getElementById('timeline-detail')?.getAttribute('role'),
+        flightContext: document.getElementById('timeline-mobile-viewer-title')?.textContent,
       };
     })();`,
   );
-  assert.ok(
-    overlayLayout.eventListHeight >= eventListHeightBeforeOverlays - 2,
-    'Timeline overlays must not steal vertical space from the event list',
-  );
-  assert.ok(
-    Math.abs(overlayLayout.centerOffsetX) <= 2 && Math.abs(overlayLayout.centerOffsetY) <= 2,
-    'Timeline event details should be centered over the replay viewer',
-  );
+  assert.ok(detailLayout.contained, 'desktop event details should remain in the selected flight review');
+  assert.equal(detailLayout.role, 'region', 'desktop event details must not introduce a modal focus trap');
+  assert.ok(detailLayout.flightContext.includes('KPHL -> KBOS'), 'event details retain recorded-flight context');
   await assertUsableLayout(windowRef, 'Timeline tab', [
     '#tab-timeline.active',
     '#tab-timeline .timeline-split',
-    '#timeline-card',
-    '#timeline-map-card',
+    '#vue-timeline-flights-root',
     '#timeline-detail',
   ]);
   await waitFor(
@@ -1688,34 +1850,44 @@ async function runTimelineSmoke(windowRef) {
   );
   for (const [width, height] of [[390, 844], [844, 390], [viewportWidth, viewportHeight]]) {
     await setContentSizeAndWait(windowRef, width, height, 'Event details');
+    await waitFor(windowRef,
+      `document.getElementById('timeline-detail')?.getAttribute('role') === '${width <= 1100 ? 'dialog' : 'region'}'`,
+      'event detail media-query and Vue update after resize', 3000);
     const layout = await evaluate(windowRef, `(() => {
       const detail = document.getElementById('timeline-detail');
       const rect = detail.getBoundingClientRect();
       return {
+        role: detail.getAttribute('role'),
         centered: Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 2
           && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 2,
         contained: rect.left >= 10 && rect.top >= 10 && rect.right <= innerWidth - 10 && rect.bottom <= innerHeight - 10,
         contentFits: detail.scrollHeight <= detail.clientHeight + 2,
       };
     })()`);
-    assert.ok(layout.centered && layout.contained && layout.contentFits, `Event details should fit and stay centered at ${width}x${height}: ${JSON.stringify(layout)}`);
+    assert.ok(layout.contained && layout.contentFits, `Event details should fit at ${width}x${height}: ${JSON.stringify(layout)}`);
+    assert.equal(layout.role, width <= 1100 ? 'dialog' : 'region', 'event-detail semantics follow the responsive presentation');
+    if (width <= 1100) {
+      assert.ok(layout.centered, `compact event details stay centered at ${width}x${height}`);
+      await evaluate(windowRef, "document.getElementById('timeline-detail-close').focus()");
+      await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))`);
+      assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-open-landing-btn', 'compact Shift+Tab should stay inside event details');
+      await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))`);
+      assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-detail-close', 'compact Tab should wrap inside event details');
+    }
     if (process.env.FF_BROWSER_SMOKE_TIMELINE_SCREENSHOT) {
       const screenshot = await windowRef.webContents.capturePage();
       fs.writeFileSync(`${process.env.FF_BROWSER_SMOKE_TIMELINE_SCREENSHOT}-${width}x${height}.png`, screenshot.toPNG());
     }
   }
-  await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))`);
-  assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-open-landing-btn', 'Shift+Tab should stay inside event details');
-  await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))`);
-  assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-detail-close', 'Tab should wrap inside event details');
+  assert.equal(await evaluate(windowRef, `(() => { const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }); document.getElementById('timeline-detail-close').dispatchEvent(event); return event.defaultPrevented; })()`), false, 'desktop details allow keyboard traversal back into the application');
   await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
   await waitFor(windowRef, "!document.getElementById('timeline-detail') && document.querySelector('.timeline-mobile-viewer-open')", 'Escape closes only event details');
   const landingRowExpression = "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at'))";
   await evaluate(windowRef, `(${landingRowExpression}).focus()`);
   await click(windowRef, landingRowExpression, 'Timeline landing event row');
   await waitFor(windowRef, "document.activeElement?.id === 'timeline-detail-close'", 'Reopened event details');
-  await click(windowRef, "document.querySelector('.timeline-detail-backdrop')", 'Event details backdrop');
-  await waitFor(windowRef, "!document.getElementById('timeline-detail') && document.activeElement?.classList.contains('timeline-event')", 'Backdrop dismisses event details and returns focus to the event');
+  await click(windowRef, "document.getElementById('timeline-detail-close')", 'Close desktop event details');
+  await waitFor(windowRef, "!document.getElementById('timeline-detail') && document.activeElement?.classList.contains('timeline-event')", 'Closing contextual details returns focus to the event');
   await click(windowRef, landingRowExpression, 'Timeline landing event row');
   await waitFor(windowRef, "document.activeElement?.id === 'timeline-detail-close'", 'Event details before opening landing debrief');
   await click(windowRef, "document.getElementById('timeline-open-landing-btn')", 'Timeline Open Landing Debrief button');
@@ -1739,7 +1911,7 @@ async function runTimelineSmoke(windowRef) {
 async function runReconnectSmoke(windowRef) {
   await waitFor(
     windowRef,
-    "document.querySelector('#vue-status-root .text-sm')?.textContent.includes('WS Ready')",
+    "document.querySelector('#vue-status-root [role=\"status\"]')?.dataset.connection === 'ready'",
     'initial ready websocket status',
   );
 
@@ -1747,7 +1919,7 @@ async function runReconnectSmoke(windowRef) {
 
   await waitFor(
     windowRef,
-    "document.querySelector('#vue-status-root .text-sm')?.textContent.includes('Disconnected')",
+    "document.querySelector('#vue-status-root [role=\"status\"]')?.textContent.includes('Disconnected')",
     'disconnected websocket status',
     timeoutMs + 3000,
   );
@@ -1765,13 +1937,13 @@ async function runReconnectSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "(() => { const text = document.querySelector('#vue-status-root .text-sm')?.textContent || ''; return text.includes('Connecting...') || text.includes('WS Ready'); })()",
+    "['connecting', 'ready'].includes(document.querySelector('#vue-status-root [role=\"status\"]')?.dataset.connection)",
     'reconnecting websocket status transition',
     timeoutMs + 5000,
   );
   await waitFor(
     windowRef,
-    "document.querySelector('#vue-status-root .text-sm')?.textContent.includes('WS Ready')",
+    "document.querySelector('#vue-status-root [role=\"status\"]')?.dataset.connection === 'ready'",
     'recovered websocket status',
     timeoutMs + 8000,
   );
@@ -1782,7 +1954,7 @@ async function runReconnectSmoke(windowRef) {
     timeoutMs + 5000,
   );
 
-  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"livemap\"]')", 'Live Map tab after reconnect');
+  await selectFlightView(windowRef, 'livemap');
   await waitFor(
     windowRef,
     "document.getElementById('tab-livemap')?.classList.contains('active')",
@@ -1806,14 +1978,247 @@ async function runReconnectSmoke(windowRef) {
   );
 }
 
+// A fresh browser opens the app directly, without the retired workspace picker.
+async function runFixedNavigationSmoke(windowRef) {
+  const result = await evaluate(windowRef, `(() => ({
+    retired: Boolean(document.querySelector('[data-workspace-toggle], [data-workspace-option], #workspace-welcome, #workspace-suggestion, #setting-workspace')),
+    tabs: [...document.querySelectorAll('.desktop-tab')].map(tab => tab.dataset.tab),
+    mobile: [...document.querySelectorAll('.mobile-tab[data-tab]')].map(tab => tab.dataset.tab),
+    stored: localStorage.getItem('ff_workspace_v1'),
+    overviewActive: document.getElementById('tab-flight')?.classList.contains('active') === true,
+  }))();`);
+  assert.equal(result.retired, false, 'fresh startup offers no workspace picker, selector or suggestion');
+  assert.equal(result.stored, null, 'startup must not create a retired workspace preference');
+  assert.equal(result.overviewActive, true, 'fresh startup retains Overview');
+  assert.deepEqual(result.tabs, ['livemap', 'autopilot', 'dispatch', 'timeline', 'settings', 'system']);
+  assert.deepEqual(result.mobile, ['livemap', 'autopilot', 'dispatch', 'timeline']);
+}
+
+async function assertSamplingDebugLayout(windowRef) {
+  await waitFor(windowRef, "document.getElementById('sampling-band')?.textContent.includes('VRE HIGH 10 Hz')", 'live sampling diagnostics');
+  for (const width of [1440, 390, 320]) {
+    await setContentSizeAndWait(windowRef, width, 900, 'sampling diagnostics');
+    assert.equal(await evaluate(windowRef, "Boolean(document.querySelector('#app-header #sampling-indicator'))"), false, 'sampling must not consume header space');
+    await evaluate(windowRef, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'D', ctrlKey: true, shiftKey: true, bubbles: true }));");
+    await waitFor(windowRef, "document.getElementById('debug-modal').getClientRects().length > 0", 'open Telemetry Debug');
+    const layout = await evaluate(windowRef, `(() => {
+      const pill = document.getElementById('sampling-pill');
+      const rect = pill.getBoundingClientRect();
+      return { inDebug: Boolean(pill.closest('#debug-modal')), left: rect.left, right: rect.right, height: rect.height };
+    })()`);
+    assert.ok(layout.inDebug && layout.height > 0 && layout.left >= 0 && layout.right <= width, `sampling pill fits Debug at ${width}px`);
+    await click(windowRef, "document.querySelector('#sampling-indicator .app-tooltip-anchor')", 'sampling details');
+    await waitFor(windowRef, "document.getElementById('sampling-rate')?.closest('[role=tooltip]')?.getClientRects().length > 0", 'sampling detail tooltip');
+    await waitFor(windowRef, `(() => {
+      const rect = document.getElementById('sampling-rate').closest('[role=tooltip]').getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= innerWidth + 1;
+    })()`, 'sampling tooltip position');
+    const tooltip = await evaluate(windowRef, `(() => {
+      const el = document.getElementById('sampling-rate').closest('[role=tooltip]');
+      const rect = el.getBoundingClientRect(); return { text: el.textContent, left: rect.left, right: rect.right };
+    })()`);
+    assert.match(tooltip.text, /ground proximity/);
+    assert.ok(tooltip.left >= 0 && tooltip.right <= width + 1, `sampling details fit at ${width}px`);
+    await evaluate(windowRef, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));");
+    await waitFor(windowRef, "document.getElementById('sampling-rate').closest('[role=tooltip]').getClientRects().length === 0", 'closed sampling tooltip');
+    await evaluate(windowRef, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));");
+    await waitFor(windowRef, "document.getElementById('debug-modal').getClientRects().length === 0", 'closed Telemetry Debug');
+  }
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'sampling check restore');
+  console.log('[browser-smoke] VRE sampling is in Debug, with working details at 1440/390/320px');
+}
+
+async function assertJoystickReleaseHoldLayout(windowRef) {
+  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"autopilot\"]')", 'Aircraft voice settings');
+  await waitFor(windowRef, "document.querySelector('[data-aircraft-voice-control-trigger]')", 'voice launcher');
+  await click(windowRef, "document.querySelector('[data-aircraft-voice-control-trigger]')", 'voice control');
+  await waitFor(windowRef, "document.getElementById('voice-ptt-shortcut')", 'keyboard shortcut settings');
+  for (const width of [1440, 390, 320]) {
+    await setContentSizeAndWait(windowRef, width, 1000, 'voice release layout');
+    const layout = await evaluate(windowRef, `(() => {
+      const modal = document.getElementById('aircraft-voice-control-modal');
+      const panel = modal.querySelector('[role=dialog]');
+      const shortcut = document.getElementById('voice-ptt-shortcut');
+      const rect = panel.getBoundingClientRect();
+      const keyRect = shortcut.getBoundingClientRect();
+      return {
+        joystickControls: modal.querySelectorAll('[data-voice-joystick-binding]').length,
+        keyboardVisible: keyRect.width > 0 && keyRect.left >= 0 && keyRect.right <= innerWidth + 1,
+        panelFits: rect.left >= 0 && rect.right <= innerWidth + 1,
+        pageFits: document.documentElement.scrollWidth <= innerWidth + 1,
+      };
+    })()`);
+    assert.equal(layout.joystickControls, 0, 'the release UI must not offer joystick detection');
+    assert.equal(layout.keyboardVisible, true, `keyboard setup remains visible at ${width}px`);
+    assert.equal(layout.panelFits, true, `voice dialog fits at ${width}px`);
+    assert.equal(layout.pageFits, true, `voice settings do not cause horizontal overflow at ${width}px`);
+  }
+  await evaluate(windowRef, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));");
+  await waitFor(windowRef, "!document.getElementById('aircraft-voice-control-modal')", 'closed voice settings');
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'voice layout restore');
+  await selectFlightView(windowRef, 'flight');
+  console.log('[browser-smoke] Joystick setup is absent; keyboard settings fit at 1440/390/320px');
+}
+
+async function assertTabScrollRestoration(windowRef) {
+  const cases = [
+    { tabId: 'autopilot', profile: 'pmdg-737' },
+    { tabId: 'autopilot', profile: 'pmdg-777' },
+    ...['settings', 'system', 'dispatch', 'timeline', 'livemap'].map(tabId => ({ tabId })),
+  ];
+  for (const width of [1440, 390, 320]) {
+    await setContentSizeAndWait(windowRef, width, 900, 'tab scroll restoration');
+    const selectTab = async (id) => {
+      if (id === 'livemap' || id === 'flight') {
+        await selectFlightView(windowRef, id);
+        await wait(120);
+        return;
+      }
+      let selector = `.desktop-tab[data-tab="${id}"]`;
+      if (width <= 760) {
+        selector = `.mobile-tab[data-tab="${id}"]`;
+        if (!await evaluate(windowRef, `Boolean(document.querySelector('${selector}'))`)) {
+          await click(windowRef, "document.getElementById('mobile-more-btn')", 'More navigation');
+          await waitFor(windowRef, "!document.getElementById('mobile-more-sheet').classList.contains('hidden')", 'More navigation open');
+          selector = `.mobile-more-item[data-tab="${id}"]`;
+        }
+      }
+      await click(windowRef, `document.querySelector('${selector}')`, `${id} tab`);
+      await waitFor(windowRef, `document.getElementById('tab-${id}')?.classList.contains('active')`, `${id} active`);
+      // Allow section memory and scroll observers to settle.
+      await wait(120);
+    };
+    for (const { tabId, profile } of cases) {
+      if (profile) {
+        await setInputValue(windowRef, 'aircraft-profile-correction-select', `bundled/msfs/${profile}`);
+        await waitFor(windowRef, `document.querySelector('[data-aircraft-template="${profile}"]')`, 'Aircraft template for scroll checks');
+      }
+      await selectTab(tabId);
+      // Hidden Electron windows do not reliably emit native scroll events.
+      await evaluate(windowRef, "document.querySelector('main').scrollTop = 250; document.querySelector('main').dispatchEvent(new Event('scroll'));");
+      await wait(100);
+      if (profile) {
+        await selectTab('flight');
+        await selectTab(tabId);
+        assert.equal(await evaluate(windowRef, "document.querySelector('main').scrollTop"), 250,
+          `${profile} should restore the exact offset rather than snapping to a section at ${width}px`);
+      }
+      await evaluate(windowRef, "document.querySelector('main').scrollTop = 0; document.querySelector('main').dispatchEvent(new Event('scroll'));");
+      await wait(100);
+      await selectTab('flight');
+      await selectTab(tabId);
+      const result = await evaluate(windowRef, `(() => {
+        const main = document.querySelector('main');
+        const nav = document.querySelector(innerWidth > 760 ? '.app-sidebar' : '.mobile-tab-bar');
+        const rect = nav.getBoundingClientRect();
+        return { scrollTop: main.scrollTop, navTop: rect.top, navBottom: rect.bottom, viewportHeight: innerHeight };
+      })()`);
+      assert.equal(result.scrollTop, 0, `${profile || tabId} should stay at the top when reopened at ${width}px: ${JSON.stringify(result)}`);
+      assert.ok(result.navTop >= 0 && result.navBottom <= result.viewportHeight, `${tabId} navigation stays visible at ${width}px`);
+    }
+  }
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'tab scroll restore');
+  await selectFlightView(windowRef, 'flight');
+  console.log('[browser-smoke] Tab navigation preserves the top of each page at desktop and phone widths');
+}
+
+async function runSupportSmoke(windowRef) {
+  // Seed only this disposable smoke session; exercise the real mounted cards.
+  await evaluate(windowRef, `(() => {
+    const stores = document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s;
+    const prompts = stores.get('prompts');
+    for (const id of [...prompts.queue]) prompts.release(id);
+    const support = stores.get('support');
+    support.hydrate({ firstSeenAt: Date.now() - 10 * 86400000 });
+    support.considerMilestone({ total: 50, airports: 8 });
+  })()`);
+  await waitFor(windowRef, "document.getElementById('support-prompt')", 'milestone card');
+
+  async function checkCard(id) {
+    for (const [width, height] of [[1440, 1000], [390, 844], [320, 700]]) {
+      await setContentSizeAndWait(windowRef, width, height, id);
+      const layout = await evaluate(windowRef, `(() => {
+        const card = document.getElementById(${JSON.stringify(id)});
+        const rect = card.getBoundingClientRect();
+        return {
+          contained: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+          fits: card.scrollWidth <= card.clientWidth + 1 && card.scrollHeight <= card.clientHeight + 1,
+          controlsFit: [...card.querySelectorAll('button, a')].every((control) => {
+            const box = control.getBoundingClientRect();
+            return box.left >= rect.left && box.right <= rect.right && box.bottom <= rect.bottom;
+          }),
+          focusStolen: card.contains(document.activeElement),
+        };
+      })()`);
+      assert.ok(layout.contained && layout.fits && layout.controlsFit && !layout.focusStolen,
+        `${id} should fit without taking focus at ${width}px: ${JSON.stringify(layout)}`);
+      if (process.env.FF_BROWSER_SMOKE_SUPPORT_SCREENSHOT) {
+        const screenshot = await windowRef.webContents.capturePage();
+        fs.writeFileSync(`${process.env.FF_BROWSER_SMOKE_SUPPORT_SCREENSHOT}-${id}-${width}.png`, screenshot.toPNG());
+      }
+    }
+  }
+
+  await checkCard('support-prompt');
+  await click(windowRef, "document.getElementById('support-prompt-mute')", 'permanent support opt-out');
+  await waitFor(windowRef, "!document.getElementById('support-prompt')", 'support opt-out closes card');
+  assert.equal(await evaluate(windowRef, "JSON.parse(localStorage.getItem('ff_support_v1')).muted"), true);
+  assert.equal(await evaluate(windowRef, `document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('support').considerMilestone({ total: 500, now: Date.now() + 45 * 86400000 })`), false);
+
+  const payload = JSON.parse(fs.readFileSync(require('path').resolve(__dirname, '../../frontend-dist/whats-new.json'), 'utf8'));
+  await evaluate(windowRef, `document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('whatsNew').show(${JSON.stringify(payload)})`);
+  await waitFor(windowRef, "document.getElementById('whats-new-card')", 'release highlights card');
+  assert.equal(await evaluate(windowRef, "Boolean(document.querySelector('#whats-new-card a[href*=\"flightfabric.com/support/\"]'))"), false, 'release highlights must respect the permanent support opt-out');
+  await checkCard('whats-new-card');
+  await click(windowRef, "document.getElementById('whats-new-dismiss')", 'dismiss release highlights');
+  await waitFor(windowRef, "!document.getElementById('whats-new-card')", 'release highlights dismissal');
+  const otherWindow = new BrowserWindow({
+    show: false, width: 1440, height: 1000,
+    webPreferences: { contextIsolation: true, sandbox: false, nodeIntegration: false },
+  });
+  try {
+    await otherWindow.loadURL(targetUrl);
+    await waitFor(otherWindow, "document.getElementById('vue-app-root')?.__vue_app__?.config.globalProperties.$pinia?._s.has('whatsNew')", 'second window prompt store');
+    for (let index = 0; index < 10; index++) {
+      const concurrentPayload = { version: `1.0.${index}`, highlights: [{ text: 'Concurrent window regression check' }] };
+      const showCard = `document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('whatsNew').show(${JSON.stringify(concurrentPayload)})`;
+      await Promise.all([evaluate(windowRef, showCard), evaluate(otherWindow, showCard)]);
+      await waitFor(windowRef, `localStorage.getItem('ff_whats_new_seen_v1') === ${JSON.stringify(concurrentPayload.version)}`, 'one window claims the update');
+      const states = await Promise.all([windowRef, otherWindow].map((target) => evaluate(target,
+        "document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('whatsNew').visible")));
+      assert.equal(states.filter(Boolean).length, 1, `only one renderer should display update ${concurrentPayload.version}`);
+      await Promise.all([windowRef, otherWindow].map((target) => evaluate(target,
+        "document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('whatsNew').dismiss()")));
+    }
+  } finally {
+    otherWindow.close();
+  }
+  console.log('[browser-smoke] Support cards fit at 1440, 390 and 320 pixels; opt-out persists; ten simultaneous update attempts each show in only one window');
+}
+
 async function runSmoke(windowRef) {
   await waitFor(
     windowRef,
     "document.getElementById('tab-flight')?.classList.contains('active')",
     'Overview as the initial workspace',
   );
+  await runFixedNavigationSmoke(windowRef);
+  if (process.env.FF_BROWSER_SMOKE_SUPPORT_ONLY === '1') {
+    await runSupportSmoke(windowRef);
+    return;
+  }
+  if (process.env.FF_BROWSER_SMOKE_NAVIGATION_ONLY === '1') {
+    await assertTabScrollRestoration(windowRef);
+    return;
+  }
+  if (process.env.FF_BROWSER_SMOKE_LIVE_MAP_ONLY === '1') {
+    await runLiveMapSmoke(windowRef);
+    return;
+  }
   await assertHeaderLayout(windowRef);
-  if (headerOnly) return;
+  await assertSamplingDebugLayout(windowRef);
+  await assertJoystickReleaseHoldLayout(windowRef);
+  if (headerOnly) { await assertMobileShellLayout(windowRef); return; }
   if (process.env.FF_BROWSER_SMOKE_TIMELINE_ONLY === '1') {
     await runTimelineSmoke(windowRef);
     return;
@@ -1828,6 +2233,7 @@ async function runSmoke(windowRef) {
   await runLiveMapSmoke(windowRef);
   await runTimelineSmoke(windowRef);
   await runReconnectSmoke(windowRef);
+  await assertTabScrollRestoration(windowRef);
   await assertRemoteSecondScreenGuideLayout(windowRef);
 }
 

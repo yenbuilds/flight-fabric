@@ -13,6 +13,7 @@ export function createRouteTargetsController({
   let targetAirport = null;
   let originAirport = null;
   let targetInitialDistanceNm = null;
+  let plannedRunways = null;
   const ignoredSyncIcao = { destination: null, origin: null };
   const lookupRequests = { destination: null, origin: null };
   const lookupTimeouts = { destination: null, origin: null };
@@ -178,15 +179,24 @@ export function createRouteTargetsController({
       return;
     }
 
+    // Runways belong to the imported plan, not to an arbitrary map target.
+    const departureRunway = originAirport?.icao === plannedRunways?.origin
+      ? plannedRunways?.departure : null;
+    const arrivalRunway = targetAirport.icao === plannedRunways?.destination
+      ? plannedRunways?.arrival : null;
+    const originLabel = `${originAirport?.icao || ''}${departureRunway ? ` RWY ${departureRunway}` : ''}`;
+    const targetLabel = `${targetAirport.icao}${arrivalRunway ? ` RWY ${arrivalRunway}` : ''}`;
     const progressLabel = originAirport
-      ? `From ${originAirport.icao} -> To ${targetAirport.icao}`
-      : `To ${targetAirport.icao}`;
+      ? `From ${originLabel} -> To ${targetLabel}`
+      : `To ${targetLabel}`;
+    const progressTitle = departureRunway || arrivalRunway ? 'Planned runways from SimBrief' : '';
     const lastPosition = getLastPosition();
 
     if (!lastPosition) {
       liveMapStore.setDestinationProgress({
         visible: true,
         label: progressLabel,
+        title: progressTitle,
         text: 'Awaiting position',
         percent: 0,
       });
@@ -212,6 +222,7 @@ export function createRouteTargetsController({
     liveMapStore.setDestinationProgress({
       visible: true,
       label: progressLabel,
+      title: progressTitle,
       text: `${progressPct.toFixed(0)}% - ${remText} remaining`,
       percent: progressPct,
     });
@@ -291,7 +302,26 @@ export function createRouteTargetsController({
   }
 
   function handleFlightPlanMessage(message = {}) {
-    if (message.cleared) return false;
+    if (message.cleared) {
+      plannedRunways = null;
+      updateDestinationProgress();
+      return true;
+    }
+
+    // The relay provides normalized identifiers; omit placeholders from older
+    // clients and retain leading zeroes in the displayed runway.
+    const runway = (value) => {
+      const ident = typeof value === 'string' ? value.trim().toUpperCase() : '';
+      return /^[A-Z0-9-]{1,12}$/.test(ident) && !['0', 'NONE', 'N/A', '--'].includes(ident) ? ident : null;
+    };
+    plannedRunways = {
+      origin: String(message.origin || '').trim().toUpperCase(),
+      destination: String(message.destination || '').trim().toUpperCase(),
+      departure: runway(message.departureRunway),
+      arrival: runway(message.arrivalRunway),
+    };
+    // A revised OFP can change runways without changing either airport.
+    updateDestinationProgress();
 
     let handled = false;
     if (message.origin) {

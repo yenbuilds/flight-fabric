@@ -8,6 +8,10 @@ const path = require('node:path');
 // of the backend artifact cannot prove that electron-builder included them.
 const REQUIRED_PACKAGED_BACKEND_STARTUP_FILES = Object.freeze([
   'core/simbridge.js',
+  'autotaxi/session.js',
+  'autotaxi/controller.js',
+  'autotaxi/route.js',
+  'telemetry-provider/cdu/provider.js',
   'utils/storage-paths.js',
   'utils/safe-fs.js',
   'utils/flight-logs-dir.js',

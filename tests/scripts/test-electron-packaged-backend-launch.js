@@ -12,7 +12,7 @@ const {
 } = require('./electron-packaged-startup-files');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const DEFAULT_EXE = path.join(ROOT, 'dist', 'electron', 'win-unpacked', 'Flight Fabric.exe');
+const DEFAULT_EXE = path.join(ROOT, 'dist', 'electron', 'win-unpacked', require('../../scripts/release-names').buildExecutableFileName());
 const READY_MARKER = '[SIMBRIDGE_READY]';
 const LAUNCH_TIMEOUT_MS = 15000;
 const SIDECAR_EXIT_TIMEOUT_MS = 10000;

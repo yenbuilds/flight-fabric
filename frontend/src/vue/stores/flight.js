@@ -84,6 +84,11 @@ function getDefaultTelemetry() {
       kohlsmanStd: '--',
     },
     hdg: '---',
+    observedAt: {
+      gear: null,
+      flaps: null,
+      lights: null,
+    },
     xwind: '--',
     xwindArrow: '\u2190',
     xwindArrowOpacity: '0.5',
@@ -96,9 +101,10 @@ function getDefaultTelemetry() {
       nose: null,
       left: null,
       right: null,
-      parkingBrake: false,
+      parkingBrake: null,
     },
     flaps: '--',
+    flapsExtended: null,
     flapsUnit: '',
     spoilers: '--',
     engines: {
@@ -110,11 +116,11 @@ function getDefaultTelemetry() {
     oat: '--',
     lights: {
       available: false,
-      nav: false,
-      beacon: false,
-      strobe: false,
-      landing: false,
-      taxi: false,
+      nav: null,
+      beacon: null,
+      strobe: null,
+      landing: null,
+      taxi: null,
     },
     quickGlance: {
       ias: '---',
@@ -191,7 +197,7 @@ function resolveGearDotValue(data, position, state) {
 const FLIGHT_STATES = Object.freeze({
   connecting: {
     title: 'Connecting to your flight',
-    copy: 'Keep Flight Fabric open on your simulator PC. Live readings will appear here when the connection is ready.',
+    copy: 'Keep FlightFabric open on your simulator PC. Live readings will appear here when the connection is ready.',
     hidden: false,
     muted: true,
   },
@@ -203,13 +209,13 @@ const FLIGHT_STATES = Object.freeze({
   },
   disconnected: {
     title: 'Waiting for a connection',
-    copy: 'Check that Flight Fabric is running on your simulator PC. We will reconnect automatically.',
+    copy: 'Check that FlightFabric is running on your simulator PC. We will reconnect automatically.',
     hidden: false,
     muted: true,
   },
   error: {
     title: 'Connection failed',
-    copy: 'Check that Flight Fabric and your simulator are running on the simulator PC. We will keep trying to reconnect.',
+    copy: 'Check that FlightFabric and your simulator are running on the simulator PC. We will keep trying to reconnect.',
     hidden: false,
     muted: true,
   },
@@ -265,6 +271,7 @@ export const useFlightStore = defineStore('flight', {
       muted: initialFlightState.muted !== false,
       lastLanding: getDefaultLandingPreview(),
       telemetry: getDefaultTelemetry(),
+      lastLiveTelemetryAt: null,
       warnings: getDefaultWarnings(),
     };
   },
@@ -325,6 +332,7 @@ export const useFlightStore = defineStore('flight', {
     resetLiveTelemetry() {
       const fuelUnit = this.telemetry.fuelUnit || 'gal';
       this.telemetry = getDefaultTelemetry();
+      this.lastLiveTelemetryAt = null;
       this.warnings = getDefaultWarnings();
       this.telemetry.fuelUnit = fuelUnit;
       this.telemetry.raVisible = false;
@@ -456,6 +464,10 @@ export const useFlightStore = defineStore('flight', {
     ingestMessage(message) {
       if (!message || typeof message !== 'object') return;
 
+      if (['ias', 'gs', 'vs', 'altitude', 'heading', 'gear', 'flaps', 'lights', 'spoilers', 'engines'].includes(message.type)) {
+        this.lastLiveTelemetryAt = Date.now();
+      }
+
       switch (message.type) {
         case 'ias':
           this.updateSpeedDisplay({ ias: message.value });
@@ -521,6 +533,7 @@ export const useFlightStore = defineStore('flight', {
 
     updateGear(data) {
       if (!data) return;
+      this.telemetry.observedAt.gear = Date.now();
       const state = resolveGearState(data);
       this.telemetry.gearState = state;
       this.telemetry.gear = {
@@ -528,32 +541,42 @@ export const useFlightStore = defineStore('flight', {
         left: resolveGearDotValue(data, 'left', state),
         right: resolveGearDotValue(data, 'right', state),
         locked: data.locked === true,
-        parkingBrake: data.parkingBrake === true,
+        parkingBrake: typeof data.parkingBrake === 'boolean' ? data.parkingBrake : null,
       };
     },
 
     updateLights(data) {
       if (!data) return;
+      this.telemetry.observedAt.lights = Date.now();
       this.telemetry.lights = {
         available: data.available !== false,
-        nav: data.available !== false && data.nav === true,
-        beacon: data.available !== false && data.beacon === true,
-        strobe: data.available !== false && data.strobe === true,
-        landing: data.available !== false && data.landing === true,
-        taxi: data.available !== false && data.taxi === true,
+        ...Object.fromEntries(['nav', 'beacon', 'strobe', 'landing', 'taxi'].map(light => [light,
+          data.available !== false && typeof data[light] === 'boolean' ? data[light] : null,
+        ])),
       };
     },
 
     updateFlaps(message = {}) {
       const flapsValue = message.value;
-      if (flapsValue?.notch != null && flapsValue.notch !== flapsValue.percent) {
+      const notch = flapsValue?.notch;
+      const percent = Number.isFinite(flapsValue?.percent) ? flapsValue.percent
+        : Number.isFinite(flapsValue?.fraction) ? flapsValue.fraction * 100 : null;
+      const validNotch = Number.isFinite(notch) && notch >= 0;
+      const validPercent = percent != null && percent >= 0 && percent <= 100;
+      this.telemetry.observedAt.flaps = validNotch || validPercent ? Date.now() : null;
+      this.telemetry.flapsExtended = validNotch ? notch > 0 : validPercent ? percent >= 1 : null;
+      if (validNotch && notch !== percent) {
         const label = flapsValue.label || flapsValue.notch;
         this.telemetry.flaps = label === 0 || label === '0' ? 'UP' : String(label);
         this.telemetry.flapsUnit = '';
         return;
       }
 
-      const percent = flapsValue?.percent ?? (flapsValue?.fraction * 100) ?? 0;
+      if (!validPercent) {
+        this.telemetry.flaps = '--';
+        this.telemetry.flapsUnit = '';
+        return;
+      }
       this.telemetry.flaps = percent < 1 ? 'UP' : String(Math.round(percent));
       this.telemetry.flapsUnit = percent >= 1 ? '%' : '';
     },

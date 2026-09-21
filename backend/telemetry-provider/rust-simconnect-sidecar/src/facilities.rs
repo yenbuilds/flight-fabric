@@ -23,6 +23,10 @@ const FT_PER_DEG_LAT: f64 = 364_567.0;
 pub(crate) const FACILITY_DATA_AIRPORT: Dword = 0;
 pub(crate) const FACILITY_DATA_RUNWAY: Dword = 1;
 pub(crate) const FACILITY_DATA_PAVEMENT: Dword = 23;
+const FACILITY_DATA_TAXI_POINT: Dword = 14;
+const FACILITY_DATA_TAXI_PARKING: Dword = 15;
+const FACILITY_DATA_TAXI_PATH: Dword = 16;
+const MAX_TAXI_ITEMS: usize = 20000;
 pub(crate) const MAX_FACILITY_RUNWAYS: usize = 256;
 pub(crate) const MAX_FACILITY_PAVEMENTS_PER_RUNWAY: usize = 64;
 
@@ -57,12 +61,51 @@ pub(crate) const AIRPORT_FACILITY_FIELDS: &[&str] = &[
     "ENABLE",
     "CLOSE SECONDARY_THRESHOLD",
     "CLOSE RUNWAY",
+    "OPEN TAXI_POINT",
+    "TYPE",
+    "ORIENTATION",
+    "BIAS_X",
+    "BIAS_Z",
+    "CLOSE TAXI_POINT",
+    "OPEN TAXI_PARKING",
+    "TYPE",
+    "TAXI_POINT_TYPE",
+    "NAME",
+    "SUFFIX",
+    "NUMBER",
+    "ORIENTATION",
+    "HEADING",
+    "RADIUS",
+    "BIAS_X",
+    "BIAS_Z",
+    "CLOSE TAXI_PARKING",
+    "OPEN TAXI_PATH",
+    "TYPE",
+    "WIDTH",
+    "START",
+    "END",
+    "RUNWAY_NUMBER",
+    "RUNWAY_DESIGNATOR",
+    "CLOSE TAXI_PATH",
     "CLOSE AIRPORT",
 ];
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct TaxiPointPayload { kind: i32, orientation: i32, x: f32, z: f32 }
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct TaxiPathPayload { kind: i32, width: f32, start: i32, end: i32, number: i32, designator: i32 }
+
+// Parking spots (gates, stands, ramps). PARKING-type paths end on these indices.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct TaxiParkingPayload { kind: i32, point_kind: i32, name: i32, suffix: i32, number: u32, orientation: i32, heading: f32, radius: f32, x: f32, z: f32 }
+
 // These layouts mirror the ordered fields registered above. Keep field order,
 // scalar widths, and `repr(C)` in sync with the SimConnect facility definition.
-#[repr(C)]
+#[repr(C, packed(4))]
 #[derive(Clone, Copy)]
 struct AirportPayload {
     latitude_deg: f64,
@@ -140,6 +183,13 @@ pub(crate) struct AirportFacilityRequest {
     airport: Option<DecodedAirport>,
     runways: Vec<DecodedRunway>,
     runway_index_by_unique_id: HashMap<Dword, usize>,
+    taxi_points: HashMap<Dword, Value>,
+    taxi_paths: HashMap<Dword, Value>,
+    taxi_parkings: HashMap<Dword, Value>,
+    taxi_point_count: usize,
+    taxi_path_count: usize,
+    taxi_parking_count: usize,
+    taxi_invalid: bool,
 }
 
 impl AirportFacilityRequest {
@@ -152,6 +202,13 @@ impl AirportFacilityRequest {
             airport: None,
             runways: Vec::new(),
             runway_index_by_unique_id: HashMap::new(),
+            taxi_points: HashMap::new(),
+            taxi_paths: HashMap::new(),
+            taxi_parkings: HashMap::new(),
+            taxi_point_count: 0,
+            taxi_path_count: 0,
+            taxi_parking_count: 0,
+            taxi_invalid: false,
         }
     }
 
@@ -181,6 +238,46 @@ impl AirportFacilityRequest {
         payload_len: usize,
     ) {
         match message.facility_type {
+            FACILITY_DATA_TAXI_POINT | FACILITY_DATA_TAXI_PATH | FACILITY_DATA_TAXI_PARKING => {
+                let count = message.list_size as usize;
+                if message.is_list_item == 0 || count == 0 || count > MAX_TAXI_ITEMS || message.item_index as usize >= count {
+                    self.taxi_invalid = true;
+                    return;
+                }
+                if message.facility_type == FACILITY_DATA_TAXI_POINT {
+                    if self.taxi_point_count != 0 && self.taxi_point_count != count { self.taxi_invalid = true; }
+                    self.taxi_point_count = count;
+                    if let Some(p) = unsafe { read_facility_payload::<TaxiPointPayload>(message, payload_len) } {
+                        if !p.x.is_finite() || !p.z.is_finite() { self.taxi_invalid = true; return; }
+                        if self.taxi_points.insert(message.item_index, json!({ "id": message.item_index,
+                            "type": p.kind, "orientation": p.orientation, "x": p.x, "z": p.z })).is_some() {
+                            self.taxi_invalid = true;
+                        }
+                    } else { self.taxi_invalid = true; }
+                } else if message.facility_type == FACILITY_DATA_TAXI_PARKING {
+                    if self.taxi_parking_count != 0 && self.taxi_parking_count != count { self.taxi_invalid = true; }
+                    self.taxi_parking_count = count;
+                    if let Some(p) = unsafe { read_facility_payload::<TaxiParkingPayload>(message, payload_len) } {
+                        if !p.x.is_finite() || !p.z.is_finite() || !p.heading.is_finite() || !p.radius.is_finite() { self.taxi_invalid = true; return; }
+                        if self.taxi_parkings.insert(message.item_index, json!({ "id": message.item_index,
+                            "type": p.kind, "name": p.name, "suffix": p.suffix, "number": p.number,
+                            "headingDeg": p.heading, "radiusM": p.radius, "x": p.x, "z": p.z })).is_some() {
+                            self.taxi_invalid = true;
+                        }
+                    } else { self.taxi_invalid = true; }
+                } else {
+                    if self.taxi_path_count != 0 && self.taxi_path_count != count { self.taxi_invalid = true; }
+                    self.taxi_path_count = count;
+                    if let Some(p) = unsafe { read_facility_payload::<TaxiPathPayload>(message, payload_len) } {
+                        if !p.width.is_finite() { self.taxi_invalid = true; return; }
+                        if self.taxi_paths.insert(message.item_index, json!({ "id": message.item_index,
+                            "type": p.kind, "widthM": p.width, "start": p.start, "end": p.end,
+                            "runway": runway_end_id(p.number, p.designator) })).is_some() {
+                            self.taxi_invalid = true;
+                        }
+                    } else { self.taxi_invalid = true; }
+                }
+            }
             FACILITY_DATA_AIRPORT => {
                 if let Some(payload) = unsafe { read_facility_payload::<AirportPayload>(message, payload_len) } {
                     self.airport = Some(DecodedAirport {
@@ -280,6 +377,14 @@ impl AirportFacilityRequest {
                 "nRunways": airport.as_ref().map(|item| item.n_runways),
             },
             "runways": runways,
+            "taxiways": {
+                "complete": !self.taxi_invalid && self.taxi_point_count > 0 && self.taxi_path_count > 0
+                    && self.taxi_points.len() == self.taxi_point_count && self.taxi_paths.len() == self.taxi_path_count
+                    && self.taxi_parkings.len() == self.taxi_parking_count,
+                "points": (0..self.taxi_point_count as Dword).filter_map(|id| self.taxi_points.get(&id)).collect::<Vec<_>>(),
+                "paths": (0..self.taxi_path_count as Dword).filter_map(|id| self.taxi_paths.get(&id)).collect::<Vec<_>>(),
+                "parkings": (0..self.taxi_parking_count as Dword).filter_map(|id| self.taxi_parkings.get(&id)).collect::<Vec<_>>(),
+            },
             "elapsedMs": self.age_ms(),
             "timestampIso": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         })
@@ -622,6 +727,8 @@ mod tests {
 
     #[test]
     fn airport_payload_decodes_at_the_exact_reported_size() {
+        // Native fields occupy 100 bytes, with no Rust f64 tail padding.
+        assert_eq!(size_of::<AirportPayload>(), 100);
         #[repr(C)]
         struct AirportCallbackFixture {
             header: SimConnectRecvFacilityData,
@@ -688,6 +795,80 @@ mod tests {
         assert_eq!(FACILITY_DATA_AIRPORT, 0);
         assert_eq!(FACILITY_DATA_RUNWAY, 1);
         assert_eq!(FACILITY_DATA_PAVEMENT, 23);
+        assert_eq!(FACILITY_DATA_TAXI_POINT, 14);
+        assert_eq!(FACILITY_DATA_TAXI_PARKING, 15);
+        assert_eq!(FACILITY_DATA_TAXI_PATH, 16);
+    }
+
+    #[test]
+    fn taxi_parkings_decode_with_native_indices_and_gate_the_completeness_flag() {
+        assert_eq!(size_of::<TaxiParkingPayload>(), 40);
+        assert_eq!(offset_of!(TaxiParkingPayload, heading), 24);
+        let p = TaxiPointPayload { kind: 1, orientation: 0, x: 0.0, z: 0.0 };
+        let path = TaxiPathPayload { kind: 3, width: 18.0, start: 0, end: 1, number: 0, designator: 0 };
+        let gate = TaxiParkingPayload { kind: 9, point_kind: 1, name: 15, suffix: 0, number: 12, orientation: 0, heading: 271.5, radius: 18.0, x: 120.0, z: -40.0 };
+        let mut request = AirportFacilityRequest::new(1, "TEST", "");
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_POINT, 0, 1, p, false);
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_PATH, 0, 1, path, false);
+        // No parking callbacks at all: an airport without stands is still complete.
+        assert_eq!(request.to_json(None)["taxiways"]["complete"], true);
+        assert_eq!(request.to_json(None)["taxiways"]["parkings"].as_array().map(Vec::len), Some(0));
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_PARKING, 1, 2, gate, false);
+        assert_eq!(request.to_json(None)["taxiways"]["complete"], false, "one of two stands is missing");
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_PARKING, 0, 2, gate, false);
+        let result = request.to_json(None);
+        assert_eq!(result["taxiways"]["complete"], true);
+        assert_eq!(result["taxiways"]["parkings"][1]["id"], 1);
+        assert_eq!(result["taxiways"]["parkings"][1]["name"], 15);
+        assert_eq!(result["taxiways"]["parkings"][1]["number"], 12);
+        assert_eq!(result["taxiways"]["parkings"][1]["headingDeg"], 271.5);
+        assert_eq!(result["taxiways"]["parkings"][0]["x"], 120.0);
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_PARKING, 0, 2, gate, true);
+        assert_eq!(request.to_json(None)["taxiways"]["complete"], false, "a truncated record invalidates the list");
+    }
+
+    fn taxi_callback<T: Copy>(request: &mut AirportFacilityRequest, kind: Dword, index: Dword, count: Dword, payload: T, truncated: bool) {
+        let bytes = facility_data_offset() + size_of::<T>();
+        let mut storage = vec![0u32; bytes.div_ceil(4)];
+        let header = storage.as_mut_ptr() as *mut SimConnectRecvFacilityData;
+        // Storage is DWORD-aligned and reserves the entire variable-length payload.
+        unsafe {
+            ptr::write(header, SimConnectRecvFacilityData { dw_size: bytes as Dword, dw_version: 0, dw_id: SIMCONNECT_RECV_ID_FACILITY_DATA,
+                user_request_id: 1, unique_request_id: 2, parent_unique_request_id: 1, facility_type: kind,
+                is_list_item: 1, item_index: index, list_size: count, data: 0 });
+            ptr::write_unaligned((storage.as_mut_ptr() as *mut u8).add(facility_data_offset()) as *mut T, payload);
+            request.handle_data(&*header, size_of::<T>() - usize::from(truncated));
+        }
+    }
+
+    #[test]
+    fn taxi_lists_preserve_native_indices_and_reject_partial_duplicate_or_truncated_data() {
+        assert_eq!(size_of::<TaxiPointPayload>(), 16);
+        assert_eq!(size_of::<TaxiPathPayload>(), 24);
+        assert_eq!(offset_of!(TaxiPathPayload, start), 8);
+        assert_eq!(offset_of!(TaxiPointPayload, x), 8);
+        let p = TaxiPointPayload { kind: 2, orientation: 1, x: 25.0, z: -60.0 };
+        let path = TaxiPathPayload { kind: 2, width: 45.0, start: 0, end: 1, number: 16, designator: 1 };
+        let mut request = AirportFacilityRequest::new(1, "TEST", "");
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_POINT, 1, 2, p, false);
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_PATH, 0, 1, path, false);
+        assert_eq!(request.to_json(None)["taxiways"]["complete"], false);
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_POINT, 0, 2, p, false);
+        let result = request.to_json(None);
+        assert_eq!(result["taxiways"]["complete"], true);
+        assert_eq!(result["taxiways"]["points"][0]["id"], 0);
+        assert_eq!(result["taxiways"]["points"][1]["z"], -60.0);
+        assert_eq!(result["taxiways"]["paths"][0]["runway"], "16L");
+        taxi_callback(&mut request, FACILITY_DATA_TAXI_POINT, 0, 2, p, false);
+        assert_eq!(request.to_json(None)["taxiways"]["complete"], false);
+        let mut truncated = AirportFacilityRequest::new(1, "TEST", "");
+        taxi_callback(&mut truncated, FACILITY_DATA_TAXI_POINT, 0, 1, p, true);
+        assert!(truncated.taxi_invalid);
+        assert!(truncated.taxi_points.is_empty());
+        let mut oversized = AirportFacilityRequest::new(1, "TEST", "");
+        taxi_callback(&mut oversized, FACILITY_DATA_TAXI_POINT, 0, MAX_TAXI_ITEMS as Dword + 1, p, false);
+        assert!(oversized.taxi_invalid);
+        assert!(oversized.taxi_points.is_empty());
     }
 
     #[test]
@@ -725,6 +906,9 @@ mod tests {
                 "ENABLE",
                 "CLOSE SECONDARY_THRESHOLD",
                 "CLOSE RUNWAY",
+                "OPEN TAXI_POINT", "TYPE", "ORIENTATION", "BIAS_X", "BIAS_Z", "CLOSE TAXI_POINT",
+                "OPEN TAXI_PARKING", "TYPE", "TAXI_POINT_TYPE", "NAME", "SUFFIX", "NUMBER", "ORIENTATION", "HEADING", "RADIUS", "BIAS_X", "BIAS_Z", "CLOSE TAXI_PARKING",
+                "OPEN TAXI_PATH", "TYPE", "WIDTH", "START", "END", "RUNWAY_NUMBER", "RUNWAY_DESIGNATOR", "CLOSE TAXI_PATH",
                 "CLOSE AIRPORT",
             ]
         );
@@ -740,11 +924,9 @@ mod tests {
         assert_eq!(offset_of!(AirportPayload, n_runways), 96);
         let airport_wire_bytes = offset_of!(AirportPayload, n_runways) + size_of::<i32>();
         assert_eq!(airport_wire_bytes, 100);
-        // `repr(C)` rounds the Rust type up to f64 alignment. Recording the
-        // difference prevents a future audit from mistaking 104 for the SDK's
-        // serialized field width.
-        assert_eq!(size_of::<AirportPayload>(), 104);
-        assert_eq!(size_of::<AirportPayload>() - airport_wire_bytes, 4);
+        // The wire record has no four-byte tail padding. Requiring 104 bytes
+        // silently discarded valid airport callbacks (including their origin).
+        assert_eq!(size_of::<AirportPayload>(), airport_wire_bytes);
 
         assert_eq!(offset_of!(RunwayPayload, latitude_deg), 0);
         assert_eq!(offset_of!(RunwayPayload, longitude_deg), 8);

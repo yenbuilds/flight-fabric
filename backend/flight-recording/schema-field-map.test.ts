@@ -362,6 +362,18 @@ test('yoke_x_pct: negative yokeX maps to negative', () => {
   assert(row.yoke_x_pct === '-100.0', `expected "-100.0" got "${row.yoke_x_pct}"`);
 });
 
+console.log('\nExtractors: ground handling');
+test('nose_steer_pct and brake_left/right_pct: flat frame first, then fdm, else empty', () => {
+  const flat = buildRow({ noseSteerPct: -12.5, brakeLeftPct: 65, brakeRightPct: 0, fdm: { noseSteerPct: 1, brakeLeftPct: 1, brakeRightPct: 1 } });
+  assert(flat.nose_steer_pct === '-12.5', `expected "-12.5" got "${flat.nose_steer_pct}"`);
+  assert(flat.brake_left_pct === '65.0', `expected "65.0" got "${flat.brake_left_pct}"`);
+  assert(flat.brake_right_pct === '0.0', `expected "0.0" got "${flat.brake_right_pct}"`);
+  const nested = buildRow({ fdm: { noseSteerPct: 30, brakeLeftPct: 10, brakeRightPct: 20 } });
+  assert(nested.nose_steer_pct === '30.0' && nested.brake_left_pct === '10.0' && nested.brake_right_pct === '20.0', JSON.stringify(nested));
+  const missing = buildRow({ fdm: {} });
+  assert(missing.nose_steer_pct === '' && missing.brake_left_pct === '' && missing.brake_right_pct === '', JSON.stringify(missing));
+});
+
 console.log('\nExtractors: spoiler_state');
 test('spoiler_source: reads resolved source provenance', () => {
   const row = buildRow({ spoilerSource: 'sdk', fdm: {} });

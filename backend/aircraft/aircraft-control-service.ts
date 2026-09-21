@@ -2,9 +2,11 @@
 
 import { encodeFrequencyBcd16Mhz, normalizeNavFrequencyMhz } from '../utils/radio-frequency';
 
+const controlEvidence = require('./control-evidence') as typeof import('./control-evidence');
 const profileLoader = require('./aircraft-profile-loader.js') as {
   getActiveProfile: () => Record<string, any> | null;
   getActiveProfileRevision?: () => number;
+  getLastDetectedTitle?: () => string | null;
 };
 const {
   defaultAircraftIntegrationRegistry,
@@ -1571,7 +1573,7 @@ function resolveAircraftCommand(rawRequest: unknown, options: ResolveOptions = {
         request: translated.command,
       };
     }
-    resolvedSteps.push({ label: step.label, resolved });
+    resolvedSteps.push({ label: step.label, resolved, settleMs: step.settleMs });
   }
 
   const primary = resolvedSteps[0].resolved;
@@ -1590,6 +1592,7 @@ function resolveAircraftCommand(rawRequest: unknown, options: ResolveOptions = {
       request: step.resolved.request,
       action: step.resolved.action,
       resolvedBy: step.resolved.resolvedBy,
+      ...(Number.isFinite(step.settleMs) && Number(step.settleMs) > 0 ? { settleMs: Number(step.settleMs) } : {}),
     })),
     stepCount: resolvedSteps.length,
     request: translated.command,
@@ -1677,6 +1680,7 @@ async function executeAircraftControl(
   }
 
   let result: unknown;
+  const startedAtMs = Date.now();
   try {
     result = await provider.executeAircraftControlAction(resolved.action, {
       request: resolved.request,
@@ -1686,15 +1690,28 @@ async function executeAircraftControl(
     });
   } catch (error) {
     const err = error as Error;
-    return {
+    const failed = {
       ok: false,
       code: 'provider_error',
       error: err && err.message ? err.message : String(err),
       ...buildResolvedResultBase(resolved),
     };
+    keepControlEvidence(failed, resolved, startedAtMs);
+    return failed;
   }
 
-  return normalizeProviderExecutionResult(result, resolved);
+  const normalized = normalizeProviderExecutionResult(result, resolved);
+  keepControlEvidence(normalized, resolved, startedAtMs);
+  return normalized;
+}
+
+// One line of evidence per executed command (see control-evidence.ts). A
+// problem here must never reach the caller, so everything is guarded.
+function keepControlEvidence(result: GenericRecord, resolved: GenericRecord, startedAtMs: number): void {
+  try {
+    const title = typeof profileLoader.getLastDetectedTitle === 'function' ? profileLoader.getLastDetectedTitle() : null;
+    controlEvidence.recordControlEvidence(controlEvidence.buildControlEvidence(result, resolved, { elapsedMs: Date.now() - startedAtMs, aircraftTitle: title }));
+  } catch { /* best effort */ }
 }
 
 async function executeAircraftCommandSteps(
@@ -1744,7 +1761,7 @@ async function executeAircraftCommandSteps(
         request: translated.command,
       };
     }
-    preflightSteps.push({ label: step.label, resolved });
+    preflightSteps.push({ label: step.label, resolved, settleMs: Number.isFinite(step.settleMs) ? Math.max(0, Math.min(10_000, Number(step.settleMs))) : 0 });
   }
 
   const completedSteps: GenericRecord[] = [];
@@ -1789,6 +1806,12 @@ async function executeAircraftCommandSteps(
     }
     completedSteps.push(stepResult);
     lastExecutionResult = result;
+    // A step that asked for settling time gets it only once it has confirmed
+    // and only when another step follows; a skipped no-op still counts as
+    // confirmed state, so it settles too.
+    if (step.settleMs > 0 && index < preflightSteps.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, step.settleMs));
+    }
   }
 
   const result = lastExecutionResult || completedSteps[completedSteps.length - 1];
@@ -1825,7 +1848,7 @@ async function executeAircraftCommand(
   options: ResolveOptions = {},
 ): Promise<GenericRecord> {
   const commandId = (rawRequest as GenericRecord | null)?.commandId;
-  const exterior = typeof commandId === 'string' && (commandId.startsWith('lights.') || commandId === 'configuration.lights.takeoff');
+  const exterior = typeof commandId === 'string' && (commandId.startsWith('lights.') || commandId.startsWith('configuration.lights.'));
   if (!provider || (!exterior && !['configuration.lighting.cockpit', 'configuration.lighting.displays'].includes(commandId))) {
     return executeAircraftCommandSteps(provider, rawRequest, options);
   }
@@ -1840,6 +1863,7 @@ async function executeAircraftCommand(
 }
 
 const aircraftControlServiceApi = {
+  validateSimState,
   AUTOPILOT_ACTION_KEYS,
   AUTOPILOT_SELECTOR_KEYS,
   GENERIC_MSFS_ACTIONS,

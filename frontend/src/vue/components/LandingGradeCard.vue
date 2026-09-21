@@ -141,7 +141,7 @@ onBeforeUnmount(() => {
       <path d="m50 48 7 7 14-16" stroke="#effff6" stroke-opacity=".75" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 .65)" />
       <path d="m50 48 7 7 14-16" stroke="#2b4653" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
       <text fill="#263f4c" font-size="4.3" font-family="'IBM Plex Mono', monospace" letter-spacing="1.15" font-weight="600">
-        <textPath :href="`#${id}-lettering`" startOffset="7%">FLIGHT FABRIC · FLIGHT FABRIC ·</textPath>
+        <textPath :href="`#${id}-lettering`" startOffset="7%">FLIGHTFABRIC · FLIGHTFABRIC ·</textPath>
       </text>
       <use :href="`#${id}-shape`" :fill="`url(#${id}-light)`" class="landing-grade-card__reflection" />
       <path d="M29 27A37 37 0 0 1 76 15" stroke="#fffef1" stroke-opacity=".55" stroke-width=".6" stroke-linecap="round" />

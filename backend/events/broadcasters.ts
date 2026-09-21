@@ -148,6 +148,9 @@ type ControlsPayload = {
   yokeX: number | null;
   yokeY: number | null;
   rudderPedalPct: number | null;
+  noseSteerPct: number | null;
+  brakeLeftPct: number | null;
+  brakeRightPct: number | null;
 };
 
 type MessageTypesModule = {
@@ -170,6 +173,7 @@ type MessageTypesModule = {
     ENVIRONMENT: string;
     AUTOPILOT: string;
     CONTROLS: string;
+    SIM_TIME: string;
   };
 };
 
@@ -256,6 +260,36 @@ function buildFuelBroadcastPayload(fuel: FuelPayload | null | undefined): AnyRec
   };
 }
 
+type SimTimePayload = {
+  zuluIso?: unknown;
+  localIso?: unknown;
+  timeOfDay?: unknown;
+  valid?: unknown;
+};
+
+function buildSimTimeBroadcastPayload(simTime: SimTimePayload | null | undefined): AnyRecord | null {
+  if (!simTime || typeof simTime !== 'object') return null;
+  const zuluIso = typeof simTime.zuluIso === 'string' && simTime.zuluIso ? simTime.zuluIso : null;
+  const localIso = typeof simTime.localIso === 'string' && simTime.localIso ? simTime.localIso : null;
+  const timeOfDay = typeof simTime.timeOfDay === 'number' && Number.isFinite(simTime.timeOfDay)
+    ? simTime.timeOfDay
+    : null;
+  return {
+    type: MSG.SIM_TIME,
+    zuluIso,
+    localIso,
+    timeOfDay,
+    valid: simTime.valid === true && zuluIso !== null,
+  };
+}
+
+function sendSimTime(broadcast: BroadcastFn, simTime: SimTimePayload | null | undefined): AnyRecord | null {
+  const payload = buildSimTimeBroadcastPayload(simTime);
+  if (!payload || typeof broadcast !== 'function') return null;
+  try { broadcast(payload); } catch {}
+  return payload;
+}
+
 function buildPositionBroadcastPayload(position: PositionPayload | null | undefined): AnyRecord | null {
   const lat = position?.lat;
   const lon = position?.lon;
@@ -331,11 +365,15 @@ function normalizeSelectedVerticalSpeedTarget(value: unknown): number | null {
 }
 
 function buildControlsBroadcastPayload(controls: ControlsPayload): AnyRecord {
+  const finite = (value: number | null) => value != null && Number.isFinite(value) ? value : null;
   return {
     type: MSG.CONTROLS,
-    yokeX: controls.yokeX != null && Number.isFinite(controls.yokeX) ? controls.yokeX : null,
-    yokeY: controls.yokeY != null && Number.isFinite(controls.yokeY) ? controls.yokeY : null,
-    rudderPedalPct: controls.rudderPedalPct != null && Number.isFinite(controls.rudderPedalPct) ? controls.rudderPedalPct : null,
+    yokeX: finite(controls.yokeX),
+    yokeY: finite(controls.yokeY),
+    rudderPedalPct: finite(controls.rudderPedalPct),
+    noseSteerPct: finite(controls.noseSteerPct),
+    brakeLeftPct: finite(controls.brakeLeftPct),
+    brakeRightPct: finite(controls.brakeRightPct),
   };
 }
 
@@ -513,10 +551,10 @@ function sendAutopilot(
 
 function sendControls(
   broadcast: BroadcastFn,
-  { yokeX, yokeY, rudderPedalPct }: ControlsPayload,
+  controls: ControlsPayload,
 ): void {
   if (typeof broadcast !== 'function') return;
-  try { broadcast(buildControlsBroadcastPayload({ yokeX, yokeY, rudderPedalPct })); } catch {}
+  try { broadcast(buildControlsBroadcastPayload(controls)); } catch {}
 }
 
 module.exports = {
@@ -527,8 +565,10 @@ module.exports = {
   buildEnvironmentBroadcastPayload,
   buildFuelBroadcastPayload,
   buildPositionBroadcastPayload,
+  buildSimTimeBroadcastPayload,
   buildSurfaceBroadcastPayload,
   sendBasicStreams,
+  sendSimTime,
   sendAttitude,
   sendGear,
   sendFlapsSpoilers,

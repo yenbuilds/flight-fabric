@@ -64,9 +64,11 @@ function clearBrowserGlobals() {
 async function main() {
   const { createPinia, setActivePinia } = await import(toFrontendUrl('node_modules', 'pinia', 'dist', 'pinia.mjs'));
   const { useTabsStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'tabs.js'));
+  const { resolveTabs } = await import(toFrontendUrl('src', 'vue', 'tab-config.js'));
   const { useSettingsEditorStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'settings-editor.js'));
   const { useSettingsFormStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'settings-form.js'));
   const { useSettingsUiStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'settings-ui.js'));
+  const { useToolbarPanelStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'toolbar-panel.js'));
   const { useAppSettingsStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'app-settings.js'));
   const { useLiveMapStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'live-map.js'));
   const { useSimbriefStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'simbrief.js'));
@@ -83,9 +85,15 @@ async function main() {
   const { useLvarInspectorStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'lvar-inspector.js'));
   const { usePreferencesStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'preferences.js'));
   const { useStatusStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'status.js'));
+  const { usePromptsStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'prompts.js'));
+  const { useSupportStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'support.js'));
+  const { useWhatsNewStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'whats-new.js'));
+  const supportRules = await import(toFrontendUrl('src', 'support', 'milestones.js'));
+  const { resolveWhatsNewDecision, extractSemver } = await import(toFrontendUrl('src', 'app', 'whats-new.js'));
   const { useThemeStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'theme.js'));
   const { useSystemHostStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'system-host.js'));
   const { useVoiceControlStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'voice-control.js'));
+  const { useFlightCuesStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'flight-cues.js'));
   const {
     matchesMedia,
     readStorageJson,
@@ -549,7 +557,7 @@ async function main() {
     assert.equal(shortLandingNormalized.tdzAchievedEffective, false, 'short landing should override explicit TDZ-achieved flags');
     assert.equal(shortLandingReasons.includes('Short of threshold'), true, 'nested short-landing flags should be surfaced');
     assert.equal(shortLandingReasons.includes('First 1,000 ft target'), false, 'short landing should suppress first-1,000-ft praise');
-    assert.equal(shortLandingReasons.includes('Inside formal 3,000 ft TDZ'), false, 'short landing should suppress formal-TDZ praise');
+    assert.equal(shortLandingReasons.includes('Inside the touchdown zone'), false, 'short landing should suppress touchdown-zone praise');
 
     const replayedShortLandingPayload = {
       vs: -210,
@@ -568,7 +576,7 @@ async function main() {
     assert.equal(replayedShortLandingNormalized.tdzAchievedEffective, false, 'grade-only short landings should override stale TDZ flags');
     assert.equal(replayedShortLandingReasons.includes('Short of threshold'), true, 'grade-only short landings should be surfaced');
     assert.equal(replayedShortLandingReasons.includes('First 1,000 ft target'), false, 'grade-only short landings should suppress first-1,000-ft praise');
-    assert.equal(replayedShortLandingReasons.includes('Inside formal 3,000 ft TDZ'), false, 'grade-only short landings should suppress formal-TDZ praise');
+    assert.equal(replayedShortLandingReasons.includes('Inside the touchdown zone'), false, 'grade-only short landings should suppress touchdown-zone praise');
 
     const shortLandingVerdict = buildLandingVerdict({
       grade: 'GOOD',
@@ -615,7 +623,7 @@ async function main() {
     assert.equal(
       normalizeLandingData(legacyNormalTdzPayload).tdzAchievedEffective,
       true,
-      'legacy landings inside the formal 3,000 ft TDZ should remain achieved',
+      'legacy landings inside the 3,000 ft zone with unknown runway length should remain achieved',
     );
     assert.equal(
       normalizeLandingData({
@@ -628,7 +636,27 @@ async function main() {
     const lateFormalTdzVerdict = buildLandingVerdict({
       touchdownDistance: { distanceFt: 2966, grade: 'Acceptable', tdzAchieved: true },
     });
-    assert.equal(lateFormalTdzVerdict.flags.tdzAchieved, true, '2,966 ft should remain inside the formal 3,000-ft TDZ');
+    assert.equal(lateFormalTdzVerdict.flags.tdzAchieved, true, '2,966 ft should remain inside the 3,000 ft zone');
+    assert.equal(
+      normalizeLandingData({ touchdownDistance: { distanceFt: 2500, grade: 'Long Landing', runwayLengthFt: 6000, tdzEndFt: 2000 } }).tdzAchievedEffective,
+      false,
+      'a recorded zone end decides the zone for graded landings without an explicit flag',
+    );
+    assert.equal(
+      normalizeLandingData({ touchdownDistance: { distanceFt: 2500, grade: 'Good', runwayLengthFt: 6000 } }).tdzAchievedEffective,
+      true,
+      'legacy landings without a recorded zone end were graded against a fixed 3,000 ft zone and read back that way',
+    );
+    assert.equal(
+      buildLandingVerdict({ touchdownDistance: { distanceFt: 1200, grade: 'Outstanding' } }).flags.touchdownTargetAchieved,
+      true,
+      'an Outstanding grade is the ideal target even beyond 1,000 ft',
+    );
+    assert.equal(
+      buildLandingVerdict({ touchdownDistance: { distanceFt: 300, grade: 'Near Threshold' } }).flags.touchdownTargetAchieved,
+      false,
+      'a near-threshold touchdown is not the ideal target',
+    );
     assert.equal(lateFormalTdzVerdict.flags.touchdownTargetAchieved, false, '2,966 ft must not pass the first-1,000-ft target');
     const overrunVerdict = buildLandingVerdict({
       touchdownDistance: {
@@ -662,7 +690,8 @@ async function main() {
       limit: 8,
     }).map((reason) => reason.text);
     assert.equal(lateFormalTdzReasons.includes('First 1,000 ft target'), false, 'late formal-TDZ landings should not receive first-1,000-ft praise');
-    assert.equal(lateFormalTdzReasons.includes('Inside formal 3,000 ft TDZ'), true, 'formal TDZ feedback should state its 3,000-ft boundary');
+    assert.equal(lateFormalTdzReasons.includes('Late in the touchdown zone'), true, 'a late touchdown inside the zone should be a caution, not praise');
+    assert.equal(lateFormalTdzVerdict.touchdown.color, '#f59e0b', 'a late touchdown inside the zone must not be painted green');
 
     const excursionVerdict = buildLandingVerdict({
       grade: 'GOOD',
@@ -1260,7 +1289,7 @@ async function main() {
     assert.equal(tabs.activeTabId, 'settings', 'legacy Profiles deep links should migrate to advanced Settings');
 
     tabs.setActiveTab('flight');
-    assert.equal(tabs.isMoreTabActive, true, 'mobile more-tab state should light up for hidden tabs');
+    assert.equal(tabs.isMoreTabActive, false, 'Overview belongs to the visible Flight destination');
     assert.equal(tabs.tabSectionClass('flight').active, true, 'tab section classes should mark the active tab');
     assert.equal(tabs.tabSectionClass('livemap').active, false, 'tab section classes should leave inactive tabs hidden');
 
@@ -1283,6 +1312,173 @@ async function main() {
     assert.equal(tabs.pullRefreshLabel, 'Reconnecting...', 'pull-to-refresh refreshing copy should render from state');
     tabs.clearPullRefresh();
     assert.equal(tabs.pullRefreshVisible, false, 'pull-to-refresh state should clear');
+  });
+
+  await test('fixed navigation retains every route and restores Flight views through guards', () => {
+    resetStoreTestContext();
+    const tabs = useTabsStore();
+    const routes = resolveTabs();
+    const ids = entries => entries.map(tab => tab.id);
+    assert.deepEqual(ids(routes.desktopPrimary), ['livemap', 'flight', 'autopilot', 'dispatch', 'timeline', 'settings', 'system']);
+    assert.deepEqual(routes.desktopSecondary, []);
+    assert.deepEqual(ids([...routes.mobilePrimary, ...routes.mobileMore]).sort(), ids(routes.desktopPrimary).sort());
+    assert.deepEqual(ids(tabs.desktopNavigationPrimaryTabs), ['livemap', 'autopilot', 'dispatch', 'timeline', 'settings', 'system']);
+    assert.deepEqual(ids(tabs.mobileNavigationPrimaryTabs), ['livemap', 'autopilot', 'dispatch', 'timeline']);
+    assert.deepEqual(ids(tabs.mobileNavigationMoreTabs), ['settings', 'system']);
+    assert.equal('setWorkspace' in tabs, false, 'retired workspace selection cannot reorder navigation');
+    for (const view of ['livemap', 'flight']) {
+      tabs.setActiveTab(view);
+      assert.equal(tabs.activeNavigationTabId, 'livemap');
+      assert.equal(tabs.isMoreTabActive, false);
+      tabs.requestTabChange('autopilot');
+      tabs.requestNavigationTabChange('livemap');
+      assert.equal(tabs.activeTabId, view, 'Flight returns to the chosen Map/Overview view');
+    }
+    tabs.setActiveTab('settings');
+    const release = tabs.registerBeforeChangeGuard(() => false);
+    assert.equal(tabs.requestNavigationTabChange('livemap'), false);
+    assert.equal(tabs.activeTabId, 'settings', 'unsaved-edit guards still protect navigation');
+    release();
+    assert.deepEqual(ids(tabs.mobileNavigationPrimaryTabs), ['livemap', 'autopilot', 'dispatch', 'timeline']);
+  });
+
+  await test('support milestone rules never ask early, often, twice, or after an answer', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const start = Date.UTC(2026, 8, 1);
+    const {
+      SUPPORT_MILESTONES, createSupportRecord, nextSupportMilestone, normalizeSupportRecord,
+      supportPromptBlockReason, describeSupportGoal, sanitizeSupportGoal, currentSupportPeriod, milestonesUpTo,
+    } = supportRules;
+    assert.deepEqual([...SUPPORT_MILESTONES], [10, 50, 100, 250, 500], 'five milestones, so five asks at most, ever');
+
+    const fresh = createSupportRecord(start);
+    assert.equal(supportPromptBlockReason(fresh, { total: 10, now: start + 6 * DAY }), 'too-soon-after-first-seen', 'no ask in the first week');
+    assert.equal(supportPromptBlockReason(fresh, { total: 9, now: start + 8 * DAY }), 'no-milestone', 'no ask below the first milestone');
+    assert.equal(supportPromptBlockReason(fresh, { total: 10, now: start + 8 * DAY }), null, 'the tenth flight after a week may ask');
+
+    const asked = { ...fresh, lastPromptAt: start + 8 * DAY, milestonesShown: [10] };
+    assert.equal(supportPromptBlockReason(asked, { total: 50, now: start + 20 * DAY }), 'too-soon-after-last-prompt', 'a new milestone still waits 30 days after the last ask');
+    assert.equal(supportPromptBlockReason(asked, { total: 50, now: start + 40 * DAY }), null, 'after 30 days the next milestone may ask');
+    assert.equal(supportPromptBlockReason(asked, { total: 30, now: start + 40 * DAY }), 'no-milestone', 'a milestone already asked about never asks again');
+    assert.equal(supportPromptBlockReason({ ...asked, supported: true }, { total: 500, now: start + 400 * DAY }), 'supported', 'a supporter is never asked');
+    assert.equal(supportPromptBlockReason({ ...asked, muted: true }, { total: 500, now: start + 400 * DAY }), 'muted', 'do-not-ask is honoured');
+
+    assert.equal(nextSupportMilestone(120, []), 100, 'the highest reached milestone is the one to ask about');
+    assert.deepEqual(milestonesUpTo(100), [10, 50, 100], 'lower milestones fold into the ask so an unmuted user is asked once, not three times');
+    assert.equal(nextSupportMilestone(120, [10, 50, 100]), null);
+    assert.equal(nextSupportMilestone(250, [10, 50, 100]), 250);
+
+    const normalized = normalizeSupportRecord({ firstSeenAt: 'bad', milestonesShown: [10, 7, '50'], supported: 'yes', muted: true }, start);
+    assert.equal(normalized.firstSeenAt, start, 'a corrupt first-seen falls back to now');
+    assert.deepEqual(normalized.milestonesShown, [10, 50], 'only real milestones survive normalization');
+    assert.equal(normalized.supported, false, 'supported must be a literal true');
+    assert.equal(normalized.muted, true);
+
+    assert.deepEqual(sanitizeSupportGoal({ period: '2026-09', supporters: 14, goal: 25 }), { period: '2026-09', supporters: 14, goal: 25 });
+    assert.equal(sanitizeSupportGoal({ period: '2026-13', supporters: 1, goal: 2 }), null, 'a bad month is rejected');
+    assert.equal(sanitizeSupportGoal({ period: '2026-09', supporters: -1, goal: 2 }), null);
+    assert.equal(sanitizeSupportGoal({ period: '2026-09', supporters: 1, goal: 0 }), null, 'a zero goal is rejected');
+    assert.equal(sanitizeSupportGoal({ period: '2026-09', supporters: 1.5, goal: 2 }), null);
+    const thisMonth = currentSupportPeriod(Date.now());
+    assert.equal(describeSupportGoal({ period: '2000-01', supporters: 14, goal: 25 }), null, 'a goal for another month is never shown');
+    assert.deepEqual(describeSupportGoal({ period: thisMonth, supporters: 14, goal: 25 }), { period: thisMonth, supporters: 14, goal: 25, percent: 56, label: '14 of 25 supporters this month' });
+    assert.equal(describeSupportGoal({ period: thisMonth, supporters: 40, goal: 25 }).percent, 100, 'progress caps at 100%');
+
+  });
+
+  await test('prompts store hands the corner card to one owner at a time', () => {
+    resetStoreTestContext();
+    const prompts = usePromptsStore();
+    assert.equal(prompts.current, null);
+    assert.equal(prompts.wasShown('whats-new'), false);
+    prompts.request('whats-new');
+    prompts.request('support');
+    prompts.request('whats-new');
+    assert.deepEqual(prompts.queue, ['whats-new', 'support'], 'a repeat request does not queue twice');
+    assert.equal(prompts.isCurrent('whats-new'), true);
+    assert.equal(prompts.isCurrent('support'), false, 'the second card waits');
+    prompts.release('whats-new');
+    assert.equal(prompts.current, 'support', 'releasing hands the slot to the next card');
+    prompts.release('missing');
+    prompts.release('support');
+    assert.equal(prompts.current, null);
+    assert.equal(prompts.wasShown('whats-new'), true, 'a dismissed card is still remembered for the session');
+    assert.deepEqual([...prompts.shown], ['whats-new', 'support']);
+  });
+
+  await test('support store records the ask when it shows and honours every way out', () => {
+    resetStoreTestContext();
+    const DAY = 24 * 60 * 60 * 1000;
+    const start = Date.UTC(2026, 8, 1);
+    const support = useSupportStore();
+    const prompts = usePromptsStore();
+    support.hydrate(null, start);
+    assert.equal(support.promptsEnabled, true);
+    assert.equal(support.considerMilestone({ total: 10, airports: 2, now: start + DAY }), false, 'too soon after install');
+    assert.equal(support.considerMilestone({ total: 10, airports: 2, now: start + 8 * DAY }), true, 'milestone ten asks after a week');
+    assert.deepEqual(support.prompt, { milestone: 10, total: 10, airports: 2, stage: 'ask' });
+    assert.equal(support.promptVisible, true, 'the card holds the prompt slot');
+    assert.equal(prompts.current, 'support');
+    assert.deepEqual(support.record.milestonesShown, [10], 'showing counts as the ask');
+    assert.equal(support.record.lastPromptAt, start + 8 * DAY);
+    assert.equal(support.considerMilestone({ total: 50, now: start + 8 * DAY }), false, 'one card at a time');
+
+    support.dismissPrompt();
+    assert.equal(support.prompt, null);
+    assert.equal(prompts.current, null, 'dismissing releases the slot');
+    assert.equal(support.considerMilestone({ total: 50, now: start + 20 * DAY }), false, 'Not now still means quiet for 30 days');
+    assert.equal(support.considerMilestone({ total: 50, now: start + 40 * DAY }), true);
+    support.coffeeClicked();
+    assert.equal(support.prompt.stage, 'thanks', 'clicking the coffee link moves to the thank-you stage');
+    support.markSupportedFromPrompt();
+    assert.equal(support.supported, true);
+    assert.equal(support.prompt, null, 'a supporter is not shown the card');
+    assert.equal(support.promptsEnabled, false);
+    assert.equal(support.considerMilestone({ total: 500, now: start + 400 * DAY }), false, 'never again after I\'ve supported');
+    support.setSupported(false);
+    assert.equal(support.considerMilestone({ total: 100, now: start + 400 * DAY }), true, 'undoing in About re-enables the remaining milestones');
+    assert.deepEqual(support.record.milestonesShown, [10, 50, 100]);
+    support.setMuted(true);
+    assert.equal(support.prompt, null, 'muting closes an open card');
+    assert.equal(support.considerMilestone({ total: 250, now: start + 800 * DAY }), false, 'muted means never');
+    assert.deepEqual(JSON.parse(JSON.stringify(support.serialize())).milestonesShown, [10, 50, 100], 'serialize round-trips through JSON');
+
+    support.ingestMessage({ type: 'supportGoal', period: supportRules.currentSupportPeriod(), supporters: 3, goal: 10 });
+    assert.equal(support.goalSummary.label, '3 of 10 supporters this month');
+    support.ingestMessage({ type: 'supportGoal', period: '2000-01', supporters: 3, goal: 10 });
+    assert.equal(support.goalSummary, null, 'a goal for another month is hidden');
+    support.ingestMessage({ type: 'other', period: '2001-01', supporters: 1, goal: 1 });
+    assert.equal(support.goal.period, '2000-01', 'unrelated messages are ignored');
+  });
+
+  await test('what\'s-new store and decision show highlights once per version and never on first run', () => {
+    resetStoreTestContext();
+    const whatsNew = useWhatsNewStore();
+    const prompts = usePromptsStore();
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '', currentVersion: '' }), 'wait');
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '', currentVersion: '0.9.9' }), 'first-run');
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '0.9.9', currentVersion: '0.9.9' }), 'seen');
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '0.9.8', currentVersion: '0.9.9' }), 'show');
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '0.9.9', currentVersion: '0.9.8' }), 'seen', 'rollbacks stay quiet');
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '0.9.9', currentVersion: '0.10.0' }), 'show', 'version order is numeric');
+    assert.equal(resolveWhatsNewDecision({ seenVersion: '1.0.0', currentVersion: '0.99.99' }), 'seen', 'major version takes precedence');
+    assert.equal(extractSemver('v0.9.9 Alpha'), '0.9.9');
+    assert.equal(extractSemver('--'), '');
+
+    assert.equal(whatsNew.show({ version: '0.9.9', highlights: [] }), false, 'no highlights, no card');
+    assert.equal(whatsNew.show({ version: '', highlights: [{ text: 'x' }] }), false, 'no version, no card');
+    const shown = whatsNew.show({
+      version: '0.9.9',
+      releaseNotesUrl: 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.9.9',
+      highlights: [{ label: 'A', text: '1' }, { label: 'B', text: '2' }, { label: 'C', text: '3' }, { label: 'D', text: '4' }, { label: 'E', text: '5' }, { text: '' }],
+    });
+    assert.equal(shown, true);
+    assert.equal(whatsNew.visible, true);
+    assert.equal(prompts.current, 'whats-new');
+    assert.equal(whatsNew.highlights.length, 4, 'at most four highlights, empty ones dropped');
+    whatsNew.dismiss();
+    assert.equal(whatsNew.visible, false);
+    assert.equal(prompts.current, null);
   });
 
   console.log('\n--- status store ---\n');
@@ -1687,6 +1883,12 @@ async function main() {
     assert.equal(status.requestEndFlightManual(), true, 'manual end-flight requests should delegate through the bound runtime action');
     assert.deepEqual(requests, ['start-recording', 'end-flight'], 'manual recording controls should invoke each bound runtime action once');
 
+    status.ingestMessage({ type: 'flightRecording', status: 'finalizing' });
+    assert.equal(status.requestEndFlightManual(), false, 'saving a recording must block another manual end request');
+    assert.equal(requests.length, 2, 'a duplicate end request must not reach the runtime while saving');
+    status.ingestMessage({ type: 'flightRecording', status: 'error', error: 'Save failed' });
+    assert.equal(status.requestEndFlightManual(), true, 'a failed save must release the finalizing guard');
+
     status.bindHeaderActions();
     assert.equal(status.startRecordingActionBound, false, 'clearing the manual start-recording action should reset the bound flag');
     assert.equal(status.endFlightActionBound, false, 'clearing the manual end-flight action should reset the bound flag');
@@ -2013,6 +2215,10 @@ async function main() {
                 costindex: '48',
                 route_distance: '3390',
                 avg_wind_comp: '-22',
+                sid_ident: 'DEEZ5',
+                sid_trans: 'KADAL',
+                star_ident: 'ARAM1A',
+                star_trans: '',
               },
               params: { units: 'kgs', airac: '2607', time_generated: '1781500000' },
               origin: { icao_code: 'YSSY', name: 'Sydney', plan_rwy: '34L' },
@@ -2099,6 +2305,8 @@ async function main() {
       assert.equal(simbrief.plan.aircraft, 'A388', 'fetchOfp should normalize aircraft metadata');
       assert.equal(simbrief.plan.departureRunway, '34L', 'fetchOfp should normalize the SimBrief departure runway');
       assert.equal(simbrief.plan.arrivalRunway, '02C', 'fetchOfp should normalize the SimBrief arrival runway');
+      assert.deepEqual(simbrief.plan.procedures, { sid: 'DEEZ5', sidTransition: 'KADAL', star: 'ARAM1A', starTransition: null },
+        'fetchOfp should normalize SID, STAR and transitions, treating SimBrief blanks as not planned');
       assert.equal(simbrief.plan.weightUnit, 'kg', 'fetchOfp should preserve the OFP weight unit');
       assert.equal(simbrief.plan.weather.destinationMetar.startsWith('WSSS'), true, 'fetchOfp should retain destination planning weather');
       assert.equal(
@@ -2189,6 +2397,8 @@ async function main() {
       ], 'renderer fetch should still try the backend proxy first');
       assert.deepEqual(ipcCalls, ['captain-test'], 'Electron IPC fallback should receive the sanitized username');
       assert.equal(simbrief.error, '', 'successful IPC fallback should clear the visible error');
+      assert.deepEqual(simbrief.plan.procedures, { sid: null, sidTransition: null, star: null, starTransition: null },
+        'an OFP without procedure fields should still carry a procedures block');
       assert.equal(simbrief.plan.origin, 'YBBN', 'IPC fallback should normalize the returned OFP');
       assert.equal(simbrief.plan.destination, 'YMML', 'IPC fallback should populate destination');
       assert.equal(relayedPayloads.length, 1, 'IPC fallback should relay the normalized OFP');
@@ -2294,6 +2504,9 @@ async function main() {
     assert.match(flight.gearDotClass('right'), /down/, 'backend DOWN state should show right gear down');
     assert.equal(flight.telemetry.flaps, '5', 'flaps notch label should render');
     assert.equal(flight.telemetry.spoilers, 'ARMED', 'spoiler state should render');
+    assert.equal(typeof flight.telemetry.observedAt.gear, 'number', 'gear cues should have a readback timestamp');
+    assert.equal(typeof flight.telemetry.observedAt.flaps, 'number', 'flap cues should have a readback timestamp');
+    assert.equal(typeof flight.telemetry.observedAt.lights, 'number', 'light cues should have a readback timestamp');
     assert.equal(flight.engineCards[2].visible, true, 'third engine should be visible when count is 3');
     assert.equal(flight.engineCards[3].visible, false, 'fourth engine should remain hidden when count is 3');
     assert.equal(flight.telemetry.cabinAlt, '12,050', 'cabin altitude should format');
@@ -2321,6 +2534,7 @@ async function main() {
     assert.equal(flight.cabinAltitudeBannerVisible, false, 'cabin altitude banner should be dismissible independently');
 
     flight.ingestMessage({ type: 'flaps', value: { notch: 4, label: 'FULL', percent: 100 } });
+    assert.equal(typeof flight.lastLiveTelemetryAt, 'number', 'flight cues should receive a live telemetry freshness timestamp');
     flight.ingestMessage({ type: 'engines', data: { count: 4, eng1Text: '51%', eng2Text: '52%', eng3Text: '53%', eng4Text: '54%' } });
     flight.ingestMessage({ type: 'fuel', totalGal: 123.4, totalWeightLbs: 827 });
     assert.equal(flight.telemetry.flaps, 'FULL', 'raw websocket ingestion should update flaps directly');
@@ -2377,6 +2591,10 @@ async function main() {
     assert.equal(flight.telemetry.gearState, '--', 'reset should not imply that the gear is up');
     assert.equal(flight.telemetry.flaps, '--', 'reset should not imply that flaps are up');
     assert.equal(flight.telemetry.spoilers, '--', 'reset should not imply that spoilers are stowed');
+    assert.equal(flight.telemetry.observedAt.gear, null, 'reset should clear the previous gear readback timestamp');
+    assert.equal(flight.telemetry.observedAt.flaps, null, 'reset should clear the previous flap readback timestamp');
+    assert.equal(flight.telemetry.observedAt.lights, null, 'reset should clear the previous light readback timestamp');
+    assert.equal(flight.lastLiveTelemetryAt, null, 'reset should stop stale flight cues');
     assert.equal(flight.speedWarningVisible, false, 'reset should clear speed warnings');
     assert.equal(flight.fuelExhaustedWarningVisible, false, 'reset should clear fuel warnings');
     assert.equal(flight.cabinAltCardToneClass, 'border-surface-200', 'reset should restore cabin card tone');
@@ -2420,9 +2638,80 @@ async function main() {
     assert.equal(voice.runtime.development, true, 'only explicit main-process runtime info should enable development mode');
     assert.equal(voice.runtime.shortcutRegistered, false, 'failed global shortcut registration should remain visible in the voice store');
     assert.equal(voice.runtime.shortcutError, 'Shortcut is already in use', 'the registration error should remain available to readiness UI');
+    assert.equal(voice.runtime.readbackError, '', 'runtime info without readback state should not invent a readback failure');
+    voice.applyRuntimeInfo({ available: true, readback: { available: true, lastError: 'Readback exited with code 1: Audio device unavailable', local: true } });
+    assert.equal(voice.runtime.readbackError, 'Readback exited with code 1: Audio device unavailable', 'a failed spoken readback should be visible in the voice store');
 
     voice.setState('blocked', 'Simulator telemetry link unavailable.');
     assert.equal(voice.ready, false, 'an unavailable aircraft-control gate should still disable PTT');
+  });
+
+  await test('voice store ignores stale joystick state when desktop capability is absent or disabled', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    for (const joystickAvailable of [false, undefined]) {
+      voice.applyRuntimeInfo({ enabled: true, available: true, pushToTalk: {
+        accelerator: 'Control+Alt+Space', registered: true, joystickAvailable,
+        joystick: { vendorId: '044F', productId: 'B10A', button: 5 }, joystickConnected: true,
+      } });
+      assert.equal(voice.runtime.joystickAvailable, false);
+      assert.equal(voice.runtime.joystick, null);
+      assert.equal(voice.runtime.joystickConnected, false);
+      assert.equal(voice.runtime.shortcutRegistered, true);
+    }
+  });
+
+  await test('voice joystick binding and detection state stay bounded in the store', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    assert.equal(voice.runtime.joystick, null, 'voice should not claim a joystick button before the user binds one');
+    assert.equal(voice.runtime.joystickConnected, false);
+
+    voice.applyRuntimeInfo({
+      available: true,
+      enabled: true,
+      pushToTalk: {
+        accelerator: '',
+        joystickAvailable: true,
+        joystick: { vendorId: '044f', productId: 'b10a', button: '5', name: ' T.16000M ', path: 'p' },
+        joystickConnected: true,
+        registered: true,
+      },
+    });
+    assert.deepEqual(voice.runtime.joystick, { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: 'p' });
+    assert.equal(voice.runtime.joystickConnected, true);
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { joystick: { vendorId: '044F', productId: 'B10A', button: 0 } } });
+    assert.equal(voice.runtime.joystick, null, 'a malformed binding must not survive into the store');
+
+    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
+    assert.deepEqual(voice.joystickLearn.devices, [], 'events outside a detection session are ignored');
+    voice.setJoystickLearn({ active: true });
+    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
+    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
+    assert.equal(voice.joystickLearn.devices.length, 1, 'a stick is listed once however often it reports');
+    voice.applyJoystickLearnEvent({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', button: 7, down: false });
+    assert.equal(voice.joystickLearn.captured, null, 'a release does not choose a button');
+    voice.applyJoystickLearnEvent({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', button: 7, down: true });
+    voice.applyJoystickLearnEvent({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', button: 8, down: true });
+    assert.equal(voice.joystickLearn.captured.button, 7, 'the first press wins');
+    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: false });
+    assert.deepEqual(voice.joystickLearn.devices, [], 'an unplugged stick leaves the list');
+    voice.applyJoystickLearnEvent({ type: 'stopped', reason: 'error', error: 'x'.repeat(400) });
+    assert.equal(voice.joystickLearn.active, false);
+    assert.equal(voice.joystickLearn.error.length, 240, 'detection errors stay bounded');
+    voice.setJoystickLearn();
+    assert.deepEqual(voice.joystickLearn, { active: false, devices: [], captured: null, error: '' });
+
+    const calls = [];
+    voice.bindRuntime({
+      setJoystick: (value) => calls.push(['joystick', value]),
+      startJoystickLearn: () => calls.push(['learn-start']),
+      stopJoystickLearn: () => calls.push(['learn-stop']),
+    });
+    voice.startJoystickLearn();
+    voice.stopJoystickLearn();
+    voice.setJoystick(null);
+    assert.deepEqual(calls, [['learn-start'], ['learn-stop'], ['joystick', null]]);
   });
 
   await test('voice preferences stay bounded and delegate to the active runtime', () => {
@@ -3009,6 +3298,11 @@ async function main() {
     debug.setTestShakeVs('-700');
     debug.requestTestShake();
     assert.equal(debug.testShakeVs, '-700', 'shake-test selector value should be store-backed');
+    assert.equal(debug.testShakeMethod, 'eyepoint', 'shake-test transport should default to the additive eyepoint overlay');
+    debug.setTestShakeMethod('camera6dof');
+    assert.equal(debug.testShakeMethod, 'camera6dof', 'shake-test transport should be store-backed');
+    debug.setTestShakeMethod('nonsense');
+    assert.equal(debug.testShakeMethod, 'eyepoint', 'unknown shake-test transports should fall back to eyepoint');
     assert.equal(debug.testShakeRequestNonce, 1, 'shake-test requests should increment a nonce for runtime side effects');
 
     debug.setTestShakeStatus('Sent (-700 fpm)');
@@ -3355,7 +3649,7 @@ async function main() {
       },
     });
     assert.equal(landing.landingCard.touchdown.distanceText, '2,966 ft', 'late touchdown distance should remain visible');
-    assert.equal(landing.landingCard.touchdown.distanceGradeText, 'Within touchdown zone', '2,966 ft should describe the zone without a first-1,000-ft failure');
+    assert.equal(landing.landingCard.touchdown.distanceGradeText, 'Late in touchdown zone', '2,966 ft with an Acceptable grade is late in the zone, not a first-1,000-ft failure');
 
     landing.applyLandingCardMessage({
       final: true,
@@ -3713,7 +4007,7 @@ async function main() {
     assert.equal(landing.landingCard.debrief.visible, true, 'landing card debrief should become visible when reasons are derived');
     assert.equal(reasons.includes('Firm touchdown rate'), true, 'firm touchdown reason should use the resolved touchdown-rate grade');
     assert.equal(reasons.includes('Stabilized approach'), true, 'stabilized approach reason should be derived from ultimate stability');
-    assert.equal(reasons.includes('Inside formal 3,000 ft TDZ'), true, 'touchdown feedback should describe the zone');
+    assert.equal(reasons.includes('Inside the touchdown zone'), true, 'touchdown feedback should describe the zone');
     assert.equal(reasons.includes('Nose-down touchdown'), false, 'positive touchdown pitch should not be marked nose-down');
     assert.equal(landing.landingCard.debrief.confidenceText, 'High', 'complete data should keep high confidence');
     assert.equal(landing.landingCard.approach.stabilityText, 'STABLE', 'confirmed gate result should lead the stability tile');
@@ -4202,6 +4496,52 @@ async function main() {
   });
 
   console.log('\n--- live-map store ---\n');
+  await test('live-map store persists the 2D/3D view mode and normalized 3D options', () => {
+    const context = resetStoreTestContext();
+    const store = useLiveMapStore();
+    assert.equal(store.viewMode, '2d', 'view mode should default to 2D');
+    assert.equal(store.is3dView, false);
+    store.setViewMode('3d');
+    assert.equal(store.is3dView, true);
+    assert.equal(context.storage.getItem('ff.liveMap.viewMode.v1'), '3d', 'view mode should persist');
+    store.setViewMode('hologram');
+    assert.equal(store.viewMode, '3d', 'unknown modes should be ignored');
+
+    assert.deepEqual(store.map3dOptions, {
+      cameraMode: 'chase',
+      colorMode: 'altitude',
+      verticalScale: 2,
+      showCurtain: true,
+      showTerrain: true,
+      lighting: 'time',
+    });
+    store.setMap3dOption('verticalScale', '5');
+    store.setMap3dOption('colorMode', 'groundSpeed');
+    store.setMap3dOption('cameraMode', 'nonsense');
+    store.setMap3dOption('showTerrain', false);
+    assert.equal(store.map3dOptions.verticalScale, 5, 'vertical scale should coerce to an offered step');
+    assert.equal(store.map3dOptions.colorMode, 'groundSpeed');
+    assert.equal(store.map3dOptions.cameraMode, 'chase', 'an unknown camera mode keeps the previous value');
+    assert.equal(store.map3dOptions.showTerrain, false);
+    assert.deepEqual(JSON.parse(context.storage.getItem('ff.liveMap.map3d.v1')), store.map3dOptions, 'options should persist');
+
+    store.setScene3dStatus('Loading 3D view...');
+    assert.equal(store.scene3dStatus, 'Loading 3D view...');
+    store.setScene3dStatus('');
+    assert.equal(store.scene3dStatus, '');
+    store.setScene3dHud({ altitudeFt: 1500, aglFt: 400 });
+    assert.equal(store.scene3dHud.altitudeFt, 1500);
+    assert.equal(store.scene3dHud.groundSpeedKts, null, 'unset HUD fields fall back to null');
+    store.setScene3dLegend(null);
+    assert.equal(store.scene3dLegend, null);
+
+    const reopened = resetStoreTestContext({ storage: context.storage });
+    const restored = useLiveMapStore();
+    assert.equal(restored.viewMode, '3d', 'a reopened store should restore the view mode');
+    assert.equal(restored.map3dOptions.verticalScale, 5, 'a reopened store should restore the options');
+    assert.ok(reopened);
+  });
+
   await test('live-map store sanitizes ICAO inputs, clamps progress, and exposes follow state', () => {
     resetStoreTestContext();
     const store = useLiveMapStore();
@@ -4281,6 +4621,35 @@ async function main() {
   });
 
   console.log('\n--- timeline store ---\n');
+  await test('timeline store persists the replay view mode and 3D options separately from the live map', () => {
+    const context = resetStoreTestContext();
+    const store = useTimelineStore();
+    assert.equal(store.mapViewMode, '2d');
+    assert.equal(store.is3dMapView, false);
+    store.setMapViewMode('3d');
+    assert.equal(store.is3dMapView, true);
+    assert.equal(context.storage.getItem('flightFabric.timelineMapViewMode.v1'), '3d');
+    assert.equal(context.storage.getItem('ff.liveMap.viewMode.v1'), null, 'the live map keeps its own choice');
+    store.setMap3dOption('colorMode', 'verticalSpeed');
+    store.setMap3dOption('verticalScale', 3);
+    assert.equal(store.map3dOptions.colorMode, 'verticalSpeed');
+    assert.equal(store.map3dOptions.verticalScale, 3);
+    assert.deepEqual(JSON.parse(context.storage.getItem('flightFabric.timelineMap3d.v1')), store.map3dOptions);
+
+    let fits = 0;
+    assert.equal(store.requestMap3dFitView(), false, 'no fit handler bound yet');
+    store.bindMap3dActions({ onFitView: () => { fits += 1; } });
+    assert.equal(store.requestMap3dFitView(), true);
+    assert.equal(fits, 1);
+    store.bindMap3dActions({});
+    assert.equal(store.requestMap3dFitView(), false);
+
+    store.setScene3dLegend({ mode: 'altitude', terrainElevationFt: 900 });
+    assert.equal(store.scene3dLegend.terrainElevationFt, 900);
+    store.setScene3dStatus('3D view unavailable: WebGL');
+    assert.equal(store.scene3dStatus, '3D view unavailable: WebGL');
+  });
+
   await test('timeline store filters flights, persists UI state, and drives websocket actions', () => {
     const storage = createStorage({
       'flightFabric.timelineMapFilters.v1': JSON.stringify({ landing: true, markers: true }),
@@ -5143,6 +5512,49 @@ async function main() {
     assert.equal(store.mapEmptyMessage, 'Loading timeline replay...', 'map placeholder should make loading clear');
   });
 
+  await test('flight cues remember dismissals across tabs, advance phases and distinguish arrival at the stand', () => {
+    setActivePinia(createPinia());
+    const cues = useFlightCuesStore(), status = useStatusStore();
+    status.phase = 'TAXI';
+    cues.dismiss('takeoff-lights');
+    useTabsStore().setActiveTab('flight');
+    assert.deepEqual(useFlightCuesStore().dismissed, ['takeoff-lights']);
+    status.phase = 'TAKEOFF';
+    assert.deepEqual(cues.dismissed, []);
+    status.phase = 'TAXI-IN';
+    status.phase = 'PARKED';
+    assert.equal(cues.arrived, true);
+    status.phase = 'TAXI';
+    assert.equal(cues.arrived, false);
+    cues.dismiss('example');
+    cues.restore();
+    assert.deepEqual(cues.dismissed, []);
+    cues.dismiss('old-profile');
+    status.aircraftProfile.profileKey = 'new-aircraft';
+    assert.deepEqual(cues.dismissed, []);
+    cues.$dispose();
+  });
+
+  await test('configuration telemetry preserves missing state instead of inventing off or retracted values', () => {
+    setActivePinia(createPinia());
+    const flight = useFlightStore();
+    flight.updateGear({ state: 'DOWN' });
+    assert.equal(flight.telemetry.gear.parkingBrake, null);
+    flight.updateLights({ available: true, nav: true });
+    assert.equal(flight.telemetry.lights.nav, true);
+    assert.equal(flight.telemetry.lights.landing, null);
+    for (const value of [null, {}, { fraction: null }, { percent: NaN }, { percent: -1 }, { percent: 101 }]) {
+      flight.updateFlaps({ value });
+      assert.equal(flight.telemetry.flaps, '--');
+      assert.equal(flight.telemetry.flapsExtended, null);
+      assert.equal(flight.telemetry.observedAt.flaps, null);
+    }
+    flight.updateFlaps({ value: { notch: 5, label: '5', percent: 20 } });
+    assert.equal(flight.telemetry.flapsExtended, true);
+    flight.updateFlaps({ value: { notch: 0, percent: 0 } });
+    assert.equal(flight.telemetry.flapsExtended, false);
+  });
+
   await test('timeline store appends indexed Recent Flights pages without rebuilding the first page', () => {
     resetStoreTestContext();
 
@@ -5729,6 +6141,112 @@ async function main() {
     assert.deepEqual(savedSettings[1], {
       aircraft: { profile: 'auto' },
     }, 'clearing an override should restore auto detection');
+  });
+
+  await test('toolbar panel store renders installer status and forwards only detected install ids', async () => {
+    resetStoreTestContext();
+    const store = useToolbarPanelStore();
+    assert.equal(store.available, false, 'browser sessions have no toolbar installer');
+    assert.equal(await store.refresh(), false);
+    assert.deepEqual(store.rows, []);
+
+    const calls = [];
+    let statusPayload = {
+      ok: true,
+      packageVersion: '0.9.9',
+      ports: { httpPort: 8101, wsPort: 8100 },
+      installs: [
+        { installId: 'msfs2024-store', label: 'MSFS 2024 - Microsoft Store', found: false, status: 'not_installed', canInstall: false },
+        {
+          installId: 'msfs2024-steam',
+          label: 'MSFS 2024 - Steam',
+          found: true,
+          status: 'configuration_update_required',
+          installedVersion: '0.9.9',
+          communityFolder: 'D:/MSFS/Packages/Community',
+          canInstall: true,
+          problems: [],
+          strayCopies: [],
+        },
+      ],
+    };
+    store.bindDesktopActions({
+      async getStatus() { calls.push(['status']); return statusPayload; },
+      async install(installId) { calls.push(['install', installId]); return { ok: true, status: 'installed', restartRequired: true }; },
+      async uninstall(installId) { calls.push(['uninstall', installId]); return { ok: true, removed: true, restartRequired: true }; },
+    });
+    assert.equal(store.available, true);
+    assert.equal(await store.refresh(), true);
+    assert.equal(store.packageVersion, '0.9.9');
+    assert.equal(store.hasFoundInstall, true);
+    const [storeRow, steamRow] = store.rows;
+    assert.equal(storeRow.found, false);
+    assert.equal(storeRow.statusLabel, 'Not found on this PC');
+    assert.equal(storeRow.canInstall, false);
+    assert.equal(steamRow.statusLabel, 'Ports changed');
+    assert.equal(steamRow.actionLabel, 'Update ports');
+    assert.equal(steamRow.tone, 'warn');
+    assert.equal(steamRow.canRemove, true);
+    assert.match(steamRow.detail, /network ports changed/);
+
+    statusPayload = { ...statusPayload, installs: [{ ...statusPayload.installs[1], status: 'installed' }] };
+    assert.equal(await store.install('msfs2024-steam'), true);
+    assert.deepEqual(calls, [['status'], ['install', 'msfs2024-steam'], ['status']], 'install re-reads status afterwards');
+    assert.equal(store.result.restartRequired, true);
+    assert.match(store.restartNotice, /Restart Microsoft Flight Simulator 2024/);
+    assert.equal(store.rows[0].statusLabel, 'Installed');
+    assert.equal(store.rows[0].actionLabel, 'Reinstall');
+
+    assert.equal(await store.install(''), false, 'an empty id is never forwarded');
+    assert.equal(calls.length, 3);
+
+    statusPayload = { ...statusPayload, installs: [{ ...statusPayload.installs[0], status: 'foreign_package', canInstall: false }] };
+    assert.equal(await store.uninstall('msfs2024-steam'), true);
+    assert.equal(store.result.message, 'Toolbar package removed.');
+    assert.equal(store.rows[0].canInstall, false, 'a foreign package offers no install action');
+    assert.equal(store.rows[0].canRemove, false, 'a foreign package offers no remove action');
+    assert.equal(store.rows[0].tone, 'danger');
+  });
+
+  await test('toolbar panel store surfaces installer failures without losing the last status', async () => {
+    resetStoreTestContext();
+    const store = useToolbarPanelStore();
+    store.bindDesktopActions({
+      async getStatus() { return { ok: false, error: 'Toolbar package source is incomplete: missing manifest', packageVersion: '0.9.9', ports: null, installs: [] }; },
+      async install() { return { ok: false, error: 'A different package already uses the folder.', code: 'foreign_package' }; },
+      async uninstall() { throw new Error('bridge unavailable'); },
+    });
+    await store.refresh();
+    assert.match(store.sourceError, /source is incomplete/);
+    assert.equal(await store.install('msfs2024-steam'), false);
+    assert.equal(store.error, 'A different package already uses the folder.');
+    assert.equal(store.result, null);
+    assert.equal(await store.uninstall('msfs2024-steam'), false);
+    assert.match(store.error, /bridge unavailable/);
+    assert.equal(store.busyInstallId, '', 'busy state clears after a thrown action');
+  });
+
+  await test('toolbar panel store keeps partial-cleanup errors visible after refreshing the installed copy', async () => {
+    resetStoreTestContext();
+    const store = useToolbarPanelStore();
+    store.bindDesktopActions({
+      async getStatus() {
+        return { ok: true, packageVersion: '0.9.9', installs: [{
+          installId: 'msfs2024-steam', found: true, status: 'update_available', canInstall: true,
+          strayCopies: [{ folder: 'D:/MSFS/Packages/Community2024', owned: true }],
+        }] };
+      },
+      async install() {
+        return { ok: false, code: 'cleanup_incomplete', restartRequired: true,
+          error: 'Toolbar files were installed, but cleanup did not finish. Close MSFS and retry the installation.' };
+      },
+      async uninstall() { return { ok: true }; },
+    });
+    assert.equal(await store.install('msfs2024-steam'), false);
+    assert.match(store.error, /installed.*cleanup/);
+    assert.equal(store.result, null, 'no completed-install success message');
+    assert.equal(store.rows[0].status, 'update_available');
+    assert.equal(store.busyInstallId, '');
   });
 
   console.log(`Results: ${passed} passed, ${failed} failed`);

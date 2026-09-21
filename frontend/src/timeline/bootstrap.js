@@ -1,4 +1,5 @@
 ﻿// ES module - strict mode is implicit in modules.
+import { watch } from 'vue';
 import { buildTimelineEventRows } from './events.js';
 import { MARKER_LABELS, TYPE_LABELS } from './constants.js';
 import { buildTimelineEventDetailState } from './detail-state.js';
@@ -14,6 +15,8 @@ import {
 import {
   createTimelineMapController,
 } from './map-controller.js';
+import { createTimelineMap3dController } from './map-3d-controller.js';
+import { createTimelineMapViewSwitch } from './map-view-switch.js';
 import {
   getEventAttitudeDeg,
   normalizeTimelineTrackPoints,
@@ -40,8 +43,10 @@ export function isTimelineMapElementVisible({
   tabsStore = null,
   timelineStore = null,
   mapEl = null,
+  documentRef = mapEl?.ownerDocument,
 } = {}) {
   if (!mapEl) return false;
+  if (documentRef?.visibilityState === 'hidden' || documentRef?.hidden === true) return false;
 
   const tabVisible = !tabsStore || tabsStore.activeTabId === 'timeline';
   const modalVisible = timelineStore?.timelineMobileViewerOpen === true;
@@ -67,6 +72,7 @@ export function initTimelinePage({
   approachProfileApiRef = approachProfileApi,
   subscribeLandingReceivedSignal = null,
   subscribeWsMessageSignal = null,
+  create3dController = createTimelineMap3dController,
 } = {}) {
   if (!timelineStore) {
     throw new Error('Timeline store is required before timeline bootstrap');
@@ -80,6 +86,7 @@ export function initTimelinePage({
   const pfdPitchMarks = getElementById('pfd-adi-pitchmarks');
   const profileCanvas = getElementById('pfd-profile-canvas');
   const mapEl = getElementById('timeline-map');
+  const map3dEl = getElementById('timeline-map-3d');
 
   const timelinePfd = createPFD({
     documentRef,
@@ -101,7 +108,12 @@ export function initTimelinePage({
 // Default: only violations on the map. Other categories are noisy and can
 // be re-enabled per user via checkboxes above the map.
 function isTimelineTabVisible() {
-  return isTimelineMapElementVisible({ tabsStore, timelineStore, mapEl });
+  return isTimelineMapElementVisible({ tabsStore, timelineStore, mapEl, documentRef });
+}
+
+function isTimelineMap3dVisible() {
+  return timelineStore.mapViewMode === '3d'
+    && isTimelineMapElementVisible({ tabsStore, timelineStore, mapEl: map3dEl, documentRef });
 }
 
 function eventPassesMapFilter(event) {
@@ -192,7 +204,7 @@ function getEventPosition(event) {
     timelinePfd.update({ headingDeg, pitchDeg, rollDeg, iasKts, altFt });
   }
 
-  const timelineMapController = createTimelineMapController({
+  const timelineMap2dController = createTimelineMapController({
     mapEl,
     timelineStore,
     windowRef,
@@ -210,6 +222,35 @@ function getEventPosition(event) {
     getTimelineScrubberStartMs: () => timelineScrubberStartMs,
     typeLabels: TYPE_LABELS,
     allowOnlineTiles: allowOnlineMapTiles,
+  });
+
+  const timelineMap3dController = map3dEl ? create3dController({
+    containerEl: map3dEl,
+    timelineStore,
+    windowRef,
+    documentRef,
+    consoleRef: console,
+    isTimelineTabVisible: isTimelineMap3dVisible,
+    isValidCoord: resolvedIsValidCoord,
+    eventPassesMapFilter,
+    getEventPosition,
+    getEventAttitude: getEventAttitudeDeg,
+    jumpToTimelineEvent,
+    updateOrientationWidget,
+    syncScrubberToTimestamp,
+    updateProfileCursor,
+    getTimelineScrubberStartMs: () => timelineScrubberStartMs,
+    allowOnlineTiles: allowOnlineMapTiles,
+    getOptions: () => timelineStore.map3dOptions,
+  }) : null;
+
+  // Everything downstream talks to one replay map; the switch forwards to
+  // the 2D or 3D controller for the selected view.
+  const timelineMapController = createTimelineMapViewSwitch({
+    controllers: timelineMap3dController
+      ? { '2d': timelineMap2dController, '3d': timelineMap3dController }
+      : { '2d': timelineMap2dController },
+    getMode: () => timelineStore.mapViewMode,
   });
 
   const timelineScrubber = createScrubber({
@@ -352,7 +393,44 @@ function getTimelineScrubberPoints(timeline, trackPoints = null) {
 
   timelineRuntime.init();
   timelinePage.showEmpty();
+  timelineMapController.applyMode();
+  // Flush after the DOM update so the newly selected surface is visible
+  // when its controller checks whether it may start.
+  const stopMapViewModeWatch = watch(
+    () => timelineStore.mapViewMode,
+    (mode) => {
+      timelineMapController.applyMode(mode);
+    },
+    { flush: 'post' },
+  );
+  const stopMap3dOptionsWatch = watch(
+    () => timelineStore.map3dOptions,
+    () => {
+      timelineMap3dController?.applyOptions();
+    },
+    { deep: true },
+  );
+  timelineStore.bindMap3dActions?.({
+    onFitView: () => timelineMap3dController?.fitView(),
+  });
+  const syncMap3dVisibility = () => {
+    if (isTimelineMap3dVisible()) timelineMap3dController?.setActive(true);
+    else timelineMap3dController?.suspend();
+  };
+  // Closing compact review keeps the Logbook tab selected. Observe the viewer
+  // as well as the tab, after CSS has hidden or exposed the retained surface.
+  const stopTabSuspendWatch = watch(
+    () => [tabsStore?.activeTabId, timelineStore.timelineMobileViewerOpen],
+    syncMap3dVisibility,
+    { flush: 'post' },
+  );
+  documentRef.addEventListener?.('visibilitychange', syncMap3dVisibility);
   return function cleanupTimelinePage() {
+    documentRef.removeEventListener?.('visibilitychange', syncMap3dVisibility);
+    stopTabSuspendWatch();
+    stopMapViewModeWatch();
+    stopMap3dOptionsWatch();
+    timelineStore.bindMap3dActions?.({});
     timelineRuntime?.cleanup?.();
     pfdOverlayFitter?.destroy?.();
     timelinePage?.cleanup?.();
@@ -365,7 +443,5 @@ function getTimelineScrubberPoints(timeline, trackPoints = null) {
     timelineStore.clearDetail?.();
   };
 }
-
-
 
 

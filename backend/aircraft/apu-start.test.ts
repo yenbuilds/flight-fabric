@@ -142,7 +142,7 @@ for (const [adapter, id, start] of families) {
     const count = h.calls.length;
     assert.equal(count, adapter.startsWith('pmdg-') ? 3 : adapter === 'fenix-a32x' ? 2 : 1);
     if (adapter === 'pmdg-737' || adapter === 'pmdg-777') {
-      const values = adapter === 'pmdg-737' ? [11802, 11802, 11804] : [302, 302, 304];
+      const values = adapter === 'pmdg-737' ? [11801, 11801, 11804] : [307, 307, 304];
       assert.deepEqual(h.calls, values.map((value) => ({ name: 'ROTOR_BRAKE', value })));
     }
     assert.equal((await h.run()).code, 'action_cooldown');
@@ -155,8 +155,8 @@ for (const [adapter, id, start] of families) {
 }
 
 for (const [adapter, start, selectorField, advanceValue, releaseValue] of [
-  ['pmdg-737', 'systems.apu.start', 'systems.apuMode', 11802, 11804],
-  ['pmdg-777', 'systems.apuSelector.start', 'systems.apuSelectorMode', 302, 304],
+  ['pmdg-737', 'systems.apu.start', 'systems.apuMode', 11801, 11804],
+  ['pmdg-777', 'systems.apuSelector.start', 'systems.apuSelectorMode', 307, 304],
 ] as const) {
   test(`${adapter} START gives asynchronous cockpit updates time to reach START before release`, async () => {
     for (const initialPosition of [0, 1]) {

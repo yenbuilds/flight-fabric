@@ -1,0 +1,10 @@
+{
+  "kind": "sdk-clientdata-connector",
+  "schemaVersion": 1,
+  "id": "pmdg-737-cdu-left",
+  "displayName": "PMDG 737 captain CDU",
+  "targets": ["pmdg-737-cdu-left"],
+  "clientData": { "name": "PMDG_NG3_CDU_0", "dataId": 1313289013, "defineId": 1313289016, "requestId": 3, "size": 1009, "requestPeriod": "visualFrame" },
+  "fields": [{ "name": "screen", "type": "bytes", "offset": 0, "length": 1009 }],
+  "normalized": [{ "path": "cdu.screen", "field": "screen" }]
+}

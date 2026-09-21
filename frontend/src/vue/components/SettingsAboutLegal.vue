@@ -1,5 +1,6 @@
 <script setup>
 import AppTooltip from './AppTooltip.vue';
+import SupportSection from './SupportSection.vue';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 
 const settingsUi = useSettingsUiStore();
@@ -24,7 +25,7 @@ async function copyStorageLocationPath(location) {
 <template>
   <div class="settings-about-card bg-surface-100 border border-surface-200 overflow-hidden">
     <div class="px-4 py-3 border-b border-surface-200">
-      <div class="text-xs font-semibold uppercase tracking-widest text-cyan-400" style="font-family: 'B612 Mono', monospace;">About Flight Fabric</div>
+      <div class="text-xs font-semibold uppercase tracking-widest text-cyan-400" style="font-family: 'B612 Mono', monospace;">About FlightFabric</div>
       <div class="text-xs text-amber-300 mt-1">Alpha build. Experimental release. Use with care.</div>
     </div>
 
@@ -40,7 +41,7 @@ async function copyStorageLocationPath(location) {
       <div class="px-4 py-4 space-y-2">
         <div class="text-[10px] uppercase tracking-widest text-cyan-400" style="font-family: 'B612 Mono', monospace;">Simulator Support</div>
         <p id="about-simulator-support-note" class="text-xs leading-relaxed text-gray-400">
-          Flight Fabric is designed and tested with Microsoft Flight Simulator
+          FlightFabric is designed and tested with Microsoft Flight Simulator
           2024. Microsoft Flight Simulator 2020 is not a tested or supported
           target; some features may work through SimConnect, but compatibility is
           not guaranteed. The experimental X-Plane Web API path has not been
@@ -51,10 +52,10 @@ async function copyStorageLocationPath(location) {
       <div class="px-4 py-4 space-y-2">
         <div class="text-[10px] uppercase tracking-widest text-amber-300" style="font-family: 'B612 Mono', monospace;">Safety Notice</div>
         <p id="about-safety-notice" class="text-xs leading-relaxed text-gray-400">
-          Flight Fabric is experimental alpha software designed for use with consumer
+          FlightFabric is experimental alpha software designed for use with consumer
           flight simulators. Distributed Windows builds are unsigned. It is not certified,
           approved, or intended for real-world aviation or any other safety-critical use.
-          Do not rely on Flight Fabric or any data, analysis, score, alert, recommendation,
+          Do not rely on FlightFabric or any data, analysis, score, alert, recommendation,
           or other output it produces for real-world flight operations, navigation,
           dispatch, pilot training, certification, or decisions affecting the safety of
           any person or property. See the bundled Safety Notice for the complete warranty,
@@ -65,9 +66,9 @@ async function copyStorageLocationPath(location) {
       <div id="about-source-offer" class="px-4 py-4 space-y-2">
         <div class="text-[10px] uppercase tracking-widest text-cyan-400" style="font-family: 'B612 Mono', monospace;">Source Code</div>
         <p class="text-xs leading-relaxed text-gray-400">
-          Flight Fabric is free software licensed under the GNU Affero General
+          FlightFabric is free software licensed under the GNU Affero General
           Public License version 3. The complete corresponding source code for
-          this version is available at no charge from the Flight Fabric source
+          this version is available at no charge from the FlightFabric source
           repository.
         </p>
         <a
@@ -79,10 +80,12 @@ async function copyStorageLocationPath(location) {
         >View Corresponding Source</a>
       </div>
 
+      <SupportSection />
+
       <div class="px-4 py-4 space-y-3">
         <div class="text-[10px] uppercase tracking-widest text-gray-400" style="font-family: 'B612 Mono', monospace;">Storage Locations</div>
         <p id="about-storage-note" class="text-xs leading-relaxed text-gray-500">
-          Flight Fabric stores app settings and runtime state under AppData, and saves
+          FlightFabric stores app settings and runtime state under AppData, and saves
           user-visible flight logs under Documents. It does not create or modify files
           outside its own app folders unless you explicitly choose an export location.
         </p>

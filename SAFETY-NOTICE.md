@@ -1,11 +1,11 @@
-# Flight Fabric Safety Notice
+# FlightFabric Safety Notice
 
-Flight Fabric is experimental alpha software designed for use with consumer
-flight simulators. Distributed Windows builds are unsigned. Flight Fabric is not
+FlightFabric is experimental alpha software designed for use with consumer
+flight simulators. Distributed Windows builds are unsigned. FlightFabric is not
 certified, approved, or intended for real-world aviation or any other
 safety-critical use.
 
-Do not rely on Flight Fabric or any data, analysis, score, alert, recommendation,
+Do not rely on FlightFabric or any data, analysis, score, alert, recommendation,
 or other output it produces for real-world flight operations, navigation,
 dispatch, pilot training, certification, or decisions affecting the safety of
 any person or property.

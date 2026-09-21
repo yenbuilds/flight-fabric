@@ -14,6 +14,8 @@ import { baroResultText } from '../aircraft/baro.js';
 import { comRadioResultText } from '../aircraft/com-radio.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
+import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';
+import { describeJoystickBinding } from './joystick-binding.js';
 import { formatSquawk } from '../aircraft/transponder.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
@@ -31,6 +33,7 @@ export function createVoiceControlController({
   aircraftControl,
   aircraftControlsStore,
   aircraftSpecificStore,
+  simbriefStore = null,
   voiceStore,
   globalRef = globalThis,
   createCapture = createPcmCapture,
@@ -153,16 +156,29 @@ export function createVoiceControlController({
       && (aircraftControlsStore?.availability?.enabled !== true || voiceCommandCount() === 0);
   }
 
+  // The global holds the user can reach while the simulator has focus: the
+  // keyboard shortcut and the joystick button, when each is set and usable.
+  function globalHoldText() {
+    const { shortcut, joystick, joystickConnected } = voiceStore.runtime;
+    const holds = [shortcut, joystickConnected ? describeJoystickBinding(joystick) : ''].filter(Boolean);
+    return holds.join(' or ');
+  }
+
   function readyStatusText({ transcriptionOnly = false } = {}) {
     if (voiceStore.runtime.shortcutRegistered === true) {
-      return transcriptionOnly
-        ? 'Ready.'
-        : `Hold ${voiceStore.runtime.shortcut} or the button, speak the complete command, then release.`;
+      if (transcriptionOnly) return 'Ready.';
+      const holds = globalHoldText();
+      const disconnected = voiceStore.runtime.joystick && !voiceStore.runtime.joystickConnected
+        ? ` ${voiceStore.runtime.joystick.name || 'The bound joystick'} is not connected.`
+        : '';
+      return holds
+        ? `Hold ${holds} or the button, speak the complete command, then release.${disconnected}`
+        : `Hold the button, speak the complete command, then release.${disconnected}`;
     }
     const shortcutError = typeof voiceStore.runtime.shortcutError === 'string'
       ? voiceStore.runtime.shortcutError.trim().replace(/[.\s]+$/u, '')
       : '';
-    if (!voiceStore.runtime.shortcut && !shortcutError) {
+    if (!voiceStore.runtime.shortcut && !voiceStore.runtime.joystick && !shortcutError) {
       return `Choose a push-to-talk shortcut in Voice settings, or use the on-screen button to ${transcriptionOnly ? 'transcribe' : 'speak'}.`;
     }
     const unavailable = shortcutError
@@ -532,6 +548,14 @@ export function createVoiceControlController({
       voiceStore.setState('error', 'Aircraft changed before the command could execute.');
       return;
     }
+    const planQuery = answerFlightPlanQuery(transcript, simbriefStore?.plan);
+    if (planQuery) {
+      resultHeld = true;
+      voiceStore.setLastCommand(`Read flight plan: ${planQuery.id}`);
+      voiceStore.setState(planQuery.ok ? 'sent' : 'error', planQuery.text);
+      speakReadback(planQuery.spoken);
+      return;
+    }
     const query = answerAircraftStateQuery(transcript, aircraftSpecificStore, session);
     if (query) {
       resultHeld = true;
@@ -585,19 +609,68 @@ export function createVoiceControlController({
   async function setShortcut(value) {
     if (!api) return false;
     try {
-      const info = await api.setPushToTalkShortcut(value);
-      voiceStore.applyRuntimeInfo({
-        available: voiceStore.runtime.available,
-        development: voiceStore.runtime.development,
-        enabled: voiceStore.runtime.enabled,
-        engine: { modelId: voiceStore.runtime.modelId },
-        pushToTalk: info,
-      });
-      refreshReadyState();
+      applyPushToTalkInfo(await api.setPushToTalkShortcut(value));
       return true;
     } catch (error) {
       voiceStore.setState('error', error?.message || 'Push-to-talk shortcut could not be changed.');
       return false;
+    }
+  }
+
+  function applyPushToTalkInfo(info) {
+    voiceStore.applyRuntimeInfo({
+      available: voiceStore.runtime.available,
+      development: voiceStore.runtime.development,
+      enabled: voiceStore.runtime.enabled,
+      error: voiceStore.runtime.error,
+      engine: { modelId: voiceStore.runtime.modelId },
+      pushToTalk: info,
+      readback: { lastError: voiceStore.runtime.readbackError },
+    });
+    refreshReadyState();
+  }
+
+  // Binds (or with null, removes) the joystick push-to-talk button.
+  async function setJoystick(value) {
+    if (!api?.setPushToTalkJoystick) return false;
+    try {
+      applyPushToTalkInfo(await api.setPushToTalkJoystick(value));
+      return true;
+    } catch (error) {
+      voiceStore.setState('error', error?.message || 'Joystick push-to-talk could not be changed.');
+      return false;
+    }
+  }
+
+  async function startJoystickLearn() {
+    if (!api?.startJoystickLearn) return false;
+    voiceStore.setJoystickLearn({ active: true });
+    try {
+      const result = await api.startJoystickLearn();
+      if (result?.started !== true) voiceStore.setJoystickLearn({ active: false });
+      return result?.started === true;
+    } catch (error) {
+      voiceStore.setJoystickLearn({ active: false, error: error?.message || 'Joystick detection could not start.' });
+      return false;
+    }
+  }
+
+  async function stopJoystickLearn() {
+    if (!api?.stopJoystickLearn) return false;
+    voiceStore.applyJoystickLearnEvent({ type: 'stopped', reason: 'stopped' });
+    try {
+      await api.stopJoystickLearn();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function handleJoystickLearn(event = {}) {
+    voiceStore.applyJoystickLearnEvent(event);
+    // The first press is the answer; the helper has nothing more to say.
+    if (event.type === 'button' && event.down === true && voiceStore.joystickLearn.captured) {
+      void stopJoystickLearn();
     }
   }
 
@@ -633,9 +706,12 @@ export function createVoiceControlController({
         enabled: voiceStore.runtime.enabled,
         error: voiceStore.runtime.error,
         engine: { modelId: voiceStore.runtime.modelId },
+        readback: { lastError: voiceStore.runtime.readbackError },
         pushToTalk: {
           accelerator: event.accelerator || voiceStore.runtime.shortcut,
           error: message,
+          joystick: voiceStore.runtime.joystick,
+          joystickConnected: false,
           registered: false,
         },
       });
@@ -654,9 +730,13 @@ export function createVoiceControlController({
       refreshInputDevices,
       setRecognitionEnabled,
       setInputDevice,
+      setJoystick,
       setSpokenReadbacks,
       setShortcut,
+      startJoystickLearn,
+      stopJoystickLearn,
     });
+    voiceStore.setBridgeAvailable?.(Boolean(api));
     const mediaDevices = globalRef?.navigator?.mediaDevices;
     if (typeof mediaDevices?.addEventListener === 'function') {
       const handleDeviceChange = () => { void refreshInputDevices(); };
@@ -666,6 +746,7 @@ export function createVoiceControlController({
     if (!api) { refreshReadyState(); return false; }
     unsubscribers.push(api.onRecognitionEvent(handleRecognitionEvent));
     unsubscribers.push(api.onPushToTalk(handlePushToTalk));
+    if (typeof api.onJoystickLearn === 'function') unsubscribers.push(api.onJoystickLearn(handleJoystickLearn));
     unsubscribers.push(api.onRuntimeState((info) => {
       voiceStore.applyRuntimeInfo(info);
       if (voiceStore.runtime.enabled !== true) voiceStore.setInputDevices?.([]);
@@ -730,7 +811,8 @@ export function createVoiceControlController({
     begin,
     cancel,
     collectHints: () => [...collectVoiceHints(activeCatalogue()),
-      ...(canQueryAircraftState(aircraftSpecificStore) ? stateQueryExamples(aircraftSpecificStore).map((text) => text.toUpperCase()) : [])],
+      ...(canQueryAircraftState(aircraftSpecificStore) ? stateQueryExamples(aircraftSpecificStore).map((text) => text.toUpperCase()) : []),
+      ...flightPlanQueryExamples().map((text) => text.toUpperCase())],
     dispose,
     finish,
     handleAircraftContextChange,

@@ -25,9 +25,9 @@ test('an armed failed-build exit removes every clickable or publishable artifact
   const outputDir = makeOutputFixture();
   try {
     fs.mkdirSync(path.join(outputDir, 'win-unpacked'), { recursive: true });
-    fs.writeFileSync(path.join(outputDir, 'win-unpacked', 'Flight Fabric.exe'), 'partial');
-    fs.writeFileSync(path.join(outputDir, 'Flight Fabric Setup 0.3.0.exe'), 'partial');
-    fs.writeFileSync(path.join(outputDir, 'Flight Fabric 0.3.0.exe'), 'partial');
+    fs.writeFileSync(path.join(outputDir, 'win-unpacked', 'FlightFabric.exe'), 'partial');
+    fs.writeFileSync(path.join(outputDir, 'FlightFabric Setup 0.3.0.exe'), 'partial');
+    fs.writeFileSync(path.join(outputDir, 'FlightFabric 0.3.0.exe'), 'partial');
     fs.writeFileSync(path.join(outputDir, 'latest.yml'), 'partial');
     fs.writeFileSync(path.join(outputDir, 'SHA256SUMS.txt'), 'partial');
     fs.writeFileSync(path.join(outputDir, 'failure.log'), 'diagnostic');
@@ -45,7 +45,7 @@ test('an armed failed-build exit removes every clickable or publishable artifact
 test('a verified build disarms cleanup and preserves canonical artifacts', () => {
   const outputDir = makeOutputFixture();
   try {
-    const executable = path.join(outputDir, 'Flight Fabric 0.3.0.exe');
+    const executable = path.join(outputDir, 'FlightFabric 0.3.0.exe');
     fs.writeFileSync(executable, 'verified');
     const processRef = new EventEmitter();
     const guard = installElectronOutputFailureGuard(outputDir, { processRef });

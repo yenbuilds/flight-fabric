@@ -1,0 +1,10 @@
+{
+  "kind": "sdk-clientdata-connector",
+  "schemaVersion": 1,
+  "id": "pmdg-777-cdu-right",
+  "displayName": "PMDG 777 first officer CDU",
+  "targets": ["pmdg-777-cdu-right"],
+  "clientData": { "name": "PMDG_777X_CDU_1", "dataId": 1313306678, "defineId": 1313306681, "requestId": 4, "size": 1009, "requestPeriod": "visualFrame" },
+  "fields": [{ "name": "screen", "type": "bytes", "offset": 0, "length": 1009 }],
+  "normalized": [{ "path": "cdu.screen", "field": "screen" }]
+}

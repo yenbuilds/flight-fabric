@@ -87,6 +87,7 @@ function buildReplayLandingEvent(input: {
           score: touchdownDistanceData.touchdown_distance_score,
           grade: touchdownDistanceData.touchdown_distance_grade,
           zone: touchdownDistanceData.touchdown_distance_zone,
+          tdzEndFt: touchdownDistanceData.touchdown_zone_end_ft ?? null,
         }
       : null;
     touchdownDistanceFt = touchdownDistanceData.touchdown_distance_ft;
@@ -216,6 +217,7 @@ function buildReplayLandingEvent(input: {
       score: touchdownScore.score,
       grade: touchdownScore.grade,
       zone: touchdownScore.zone,
+      tdzEndFt: touchdownScore.tdzEndFt ?? null,
       runway_condition: surfaceResolution ? surfaceResolution.surface : null,
       runway_condition_source: surfaceResolution ? surfaceResolution.source : null,
       runway_condition_confident: surfaceResolution ? surfaceResolution.confident : null,

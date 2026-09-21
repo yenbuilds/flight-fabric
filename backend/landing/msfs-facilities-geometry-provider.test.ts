@@ -491,6 +491,52 @@ test('provider requests facilities once SimConnect is live', () => {
   }
 });
 
+test('taxi lookup requires a complete current simulator graph and retains native runway identity', () => {
+  let message = facilityAirportMessage();
+  message.airport.lat = -35.3; message.airport.lon = 149.2;
+  message.runways[0].reciprocalRunway = '17';
+  message.taxiways = { complete: true, points: [{ id: 0, x: 10, z: 20 }], paths: [] };
+  const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: () => immediateResponse(message) }, { logger: null });
+  provider.prefetchAirport('YSCB');
+  const taxi = provider.getTaxiAirport('YSCB', '35');
+  assertEqual(taxi?.origin.lat, -35.3);
+  assertEqual(taxi?.graph.points[0].id, 0);
+  assertEqual(taxi?.reciprocal, '17');
+  assertEqual(taxi?.threshold.lat, -35.312, 'departure selection uses physical runway end');
+  message = { ok: false, error: 'disconnected' };
+  provider.probeAirport('YSCB');
+  let error = '';
+  try { provider.getTaxiAirport('YSCB', '35'); } catch (err) { error = (err as Error).message; }
+  assertTrue(error.includes('Live airport data for YSCB are unavailable'), 'failed refresh must not authorize a cached taxi route');
+});
+
+test('taxi lookup distinguishes an unknown runway from missing taxiways using simulator runway names', () => {
+  const message = facilityAirportMessage();
+  message.icao = 'YMML';
+  message.airport.lat = -37.67; message.airport.lon = 144.84;
+  message.runways = ['09', '16', '27', '34'].map((runway, index) => ({
+    ...message.runways[0], icao: 'YMML', runway, reciprocalRunway: ['27', '34', '09', '16'][index],
+  }));
+  // Even if the graph is also missing, the entered runway must be checked first.
+  const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: () => immediateResponse(message) }, { logger: null });
+  provider.prefetchAirport('YMML');
+  const errorFor = (runway: string) => {
+    try { provider.getTaxiAirport('YMML', runway); return ''; } catch (err) { return (err as Error).message; }
+  };
+  assertEqual(errorFor('16L'), 'Runway 16L was not found at YMML. Available runways: 09, 16, 27, 34.');
+  assertTrue(errorFor('16').includes('taxiway data for YMML are missing or incomplete'));
+  message.taxiways = { complete: false, points: [], paths: [] };
+  provider.probeAirport('YMML');
+  assertTrue(errorFor('16').includes('missing or incomplete'));
+  message.taxiways.complete = true;
+  provider.probeAirport('YMML');
+  assertEqual(provider.getTaxiAirport('YMML', '16').reciprocal, '34');
+  assertEqual(provider.getTaxiAirport('ymml', '9').reciprocal, '27', 'leading-zero aliases preserve the runway identity');
+  assertEqual(errorFor('16L'), 'Runway 16L was not found at YMML. Available runways: 09, 16, 27, 34.');
+});
+
 summary('msfs-facilities-geometry-provider tests');
 
 export {};

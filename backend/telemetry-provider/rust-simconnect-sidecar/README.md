@@ -1,7 +1,7 @@
-# Flight Fabric Rust SimConnect Sidecar
+# FlightFabric Rust SimConnect Sidecar
 
-This crate is Flight Fabric's native bridge to Microsoft Flight Simulator's
-SimConnect API. It communicates with the Flight Fabric backend using
+This crate is FlightFabric's native bridge to Microsoft Flight Simulator's
+SimConnect API. It communicates with the FlightFabric backend using
 newline-delimited JSON over standard input and output.
 
 ## Licence and source

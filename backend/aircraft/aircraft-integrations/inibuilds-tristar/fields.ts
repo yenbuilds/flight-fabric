@@ -47,7 +47,7 @@ function numberGaugeField(
     id,
     sources: [{
       // The bounded gauge-subscription bridge can sample standard A-vars that
-      // are not part of Flight Fabric's shared SimConnect frame. These are
+      // are not part of FlightFabric's shared SimConnect frame. These are
       // simulator variables, not iniBuilds-private LVARs.
       route: { type: 'lvar', name: `A:${name}`, unit },
       decode: { type: 'number', precision },
@@ -57,7 +57,7 @@ function numberGaugeField(
 
 // No vendor-published TriStar telemetry catalogue is available. Keep this
 // monitoring surface on an explicit set of standard SimVars normalized into the
-// Flight Fabric frame. AFCS engagement/mode booleans and selector values are
+// FlightFabric frame. AFCS engagement/mode booleans and selector values are
 // deliberately absent because the standard autopilot fields do not represent
 // the TriStar's custom AFCS windows reliably. The speedbrake field is also
 // absent because the generic spoiler value can include DLC or roll-spoiler

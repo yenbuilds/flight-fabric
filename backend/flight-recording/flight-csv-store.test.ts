@@ -1500,7 +1500,7 @@ test('listFlights ignores unrelated CSV files in the flight logs directory', asy
   });
 });
 
-test('listFlights ignores malformed Flight Fabric-looking CSV files', async () => {
+test('listFlights ignores malformed FlightFabric-looking CSV files', async () => {
   await withTempAppData(async () => {
     const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
     const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));

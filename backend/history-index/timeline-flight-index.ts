@@ -65,6 +65,7 @@ function normalizeIndexedLandingEvent(landing: AnyRecord): AnyRecord {
     grade: nonEmptyString(landing.touchdownDistanceGrade),
     score: knownFiniteNumber(landing.touchdownDistanceScore),
     zone: nonEmptyString(landing.touchdownDistanceZone),
+    tdzEndFt: knownFiniteNumber(landing.tdzEndFt),
     lateralOffsetFt: knownFiniteNumber(landing.lateralOffsetFt),
     lateralOffsetGrade: nonEmptyString(landing.lateralOffsetGrade),
     lateralOffsetScore: knownFiniteNumber(landing.lateralOffsetScore),

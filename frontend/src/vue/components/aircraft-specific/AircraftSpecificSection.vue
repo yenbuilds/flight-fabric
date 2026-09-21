@@ -15,9 +15,9 @@ const templateInstanceKey = computed(() => [
 const hasPartialData = computed(() => (
   aircraftSpecific.available && aircraftSpecific.unavailable.length > 0
 ));
-const badgeLabel = computed(() => {
-  return aircraftSpecific.available ? 'Live' : aircraftSpecific.sourceStatus;
-});
+const healthyConnection = computed(() => aircraftSpecific.available && !hasPartialData.value
+  && aircraftSpecific.sourceStatus === 'connected' && !aircraftSpecific.controlsSetupRequired
+  && !directLvarFallbackActive.value);
 const mobiflightDependency = computed(() => {
   const dependency = aircraftSpecific.dependencies.mobiflightEventModule;
   return dependency?.required === true ? dependency : null;
@@ -47,7 +47,7 @@ const mobiflightNotice = computed(() => {
     },
     connecting: {
       label: 'Checking',
-      detail: `${controlScope} require the MobiFlight Event Module. Flight Fabric is checking the connection.`,
+      detail: `${controlScope} require the MobiFlight Event Module. FlightFabric is checking the connection.`,
     },
     disabled: {
       label: 'Disabled',
@@ -117,6 +117,10 @@ function getCommand(commandId) {
 function isActionPending(groupId) {
   return aircraftControls.isCommandPending(getPendingKey(groupId));
 }
+
+function isCommandPending(commandId) {
+  return aircraftControls.isCommandPending(commandId);
+}
 </script>
 
 <template>
@@ -126,11 +130,9 @@ function isActionPending(groupId) {
     class="flight-section-block ff-panel bg-surface-100 border border-surface-200 overflow-hidden"
     :class="{ 'aircraft-specific-section--mobile-ribbon': ['fbw-a32nx', 'fbw-a380x', 'fenix-a32x', 'inibuilds-a350', 'pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId) }"
   >
-    <div class="p-3 sm:p-4 border-b border-surface-200 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <div class="ff-kicker">Aircraft Specific</div>
-        <div class="text-xs text-muted-fg mt-0.5">{{ aircraftSpecific.statusLabel }}</div>
-      </div>
+    <div class="aircraft-connection-summary px-3 py-2 sm:px-4 border-b border-surface-200 flex flex-wrap items-center justify-between gap-2"
+      :class="{ 'aircraft-connection-summary--healthy': healthyConnection }">
+      <div class="text-xs text-muted-fg">{{ aircraftSpecific.statusLabel }}</div>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <button
           v-if="aircraftSpecific.controlsSetupRequired"
@@ -151,26 +153,14 @@ function isActionPending(groupId) {
         >
           Direct LVAR fallback
         </div>
-        <div
-          v-if="!hasPartialData"
-          class="px-2.5 py-1 rounded-full border text-[10px] font-semibold uppercase tracking-wider"
-          :class="aircraftSpecific.available
-            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-            : 'border-surface-200 bg-surface-50 text-gray-400'"
-        >
-          {{ badgeLabel }}
-        </div>
       </div>
     </div>
 
     <div
-      v-if="mobiflightNotice"
+      v-if="mobiflightNotice && !mobiflightNotice.connected"
       id="aircraft-mobiflight-notice"
       ref="mobiflightNoticeElement"
-      class="px-3 py-2.5 sm:px-4 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5"
-      :class="mobiflightNotice.connected
-        ? 'border-emerald-500/25 bg-emerald-500/[0.06]'
-        : 'border-amber-500/30 bg-amber-500/[0.08]'"
+      class="px-3 py-2.5 sm:px-4 border-b border-amber-500/30 bg-amber-500/[0.08] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5"
       role="status"
       aria-live="polite"
       tabindex="-1"
@@ -180,10 +170,7 @@ function isActionPending(groupId) {
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-xs font-semibold text-gray-100">MobiFlight Event Module</span>
           <span
-            class="rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider"
-            :class="mobiflightNotice.connected
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-              : 'border-amber-500/40 bg-amber-500/10 text-amber-300'"
+            class="rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider"
           >
             {{ mobiflightNotice.label }}
           </span>
@@ -217,6 +204,7 @@ function isActionPending(groupId) {
         :is-command-supported="isCommandSupported"
         :get-command="getCommand"
         :is-action-pending="isActionPending"
+        :is-command-pending="isCommandPending"
         :profile-key="aircraftSpecific.activeProfileKey || ''"
       >
         <template #presets><slot name="presets" /></template>
@@ -231,6 +219,12 @@ function isActionPending(groupId) {
 
 <style>
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  /* The family header already identifies its live data source. Preserve all
+     partial, stale, fallback and setup notices; only healthy duplication recedes. */
+  .aircraft-connection-summary--healthy {
+    display: none;
+  }
+
   .aircraft-specific-section--mobile-ribbon {
     overflow: visible !important;
   }

@@ -15,7 +15,7 @@ export const THEMES = Object.freeze({
     id: 'dark',
     label: 'Night Shift',
     mode: 'dark',
-    metaColor: '#09111a',
+    metaColor: '#11141a',
   },
 });
 

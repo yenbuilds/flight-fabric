@@ -45,7 +45,7 @@ function run() {
   try {
     console.log('\nStorage Path Tests\n');
 
-    test('settings path uses Flight Fabric settings folder', () => {
+    test('settings path uses the Flight Fabric settings folder (the on-disk name is deliberately still two words)', () => {
       const settingsPath = storagePaths.getSettingsFilePath(env);
       assertTrue(settingsPath.includes('Flight Fabric'), 'settings path should include the Flight Fabric folder');
       assertTrue(settingsPath.endsWith(path.join('Settings', 'settings.json')), 'settings path should end with Settings/settings.json');

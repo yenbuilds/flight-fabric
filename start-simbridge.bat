@@ -19,7 +19,7 @@ if errorlevel 1 (
     echo ========================================
     echo ERROR: Node.js not found on PATH.
     echo ========================================
-    echo Flight Fabric backend requires Node.js.
+    echo FlightFabric backend requires Node.js.
     echo Install Node.js from https://nodejs.org/
     echo Then re-run this script.
     echo.
@@ -65,7 +65,7 @@ exit /b 1
 
 :main
 echo ========================================
-echo   Flight Fabric - Startup
+echo   FlightFabric - Startup
 echo ========================================
 echo.
 
@@ -400,13 +400,13 @@ if defined P8100_PID (
 )
 
 if defined P8099_PID (
-    echo Verified standalone Flight Fabric backend detected; stopping PID !P8099_PID! and its sidecars.
+    echo Verified standalone FlightFabric backend detected; stopping PID !P8099_PID! and its sidecars.
     call :stop_standalone_backend_pid "!P8099_PID!"
     if errorlevel 1 goto :backend_cleanup_failed
     if "!P8100_PID!"=="!P8099_PID!" set "P8100_PID="
 )
 if defined P8100_PID (
-    echo Verified standalone Flight Fabric backend detected; stopping PID !P8100_PID! and its sidecars.
+    echo Verified standalone FlightFabric backend detected; stopping PID !P8100_PID! and its sidecars.
     call :stop_standalone_backend_pid "!P8100_PID!"
     if errorlevel 1 goto :backend_cleanup_failed
 )
@@ -446,8 +446,8 @@ if not defined FF_BACKEND_LAUNCH_NONCE goto :backend_nonce_failed
 
 echo.
 echo [prep] Ensuring built backend and frontend are current under the runtime lock...
-echo [1/2] Preparing and starting Flight Fabric backend ^(in new window^)...
-start "Flight Fabric Backend" cmd /k "node scripts\start-backend-runtime.js --ff-wrapper-prepare-runtime --ff-launch-owner=batch --ff-launch-nonce=!FF_BACKEND_LAUNCH_NONCE!"
+echo [1/2] Preparing and starting FlightFabric backend ^(in new window^)...
+start "FlightFabric Backend" cmd /k "node scripts\start-backend-runtime.js --ff-wrapper-prepare-runtime --ff-launch-owner=batch --ff-launch-nonce=!FF_BACKEND_LAUNCH_NONCE!"
 
 REM The wrapper holds the shared launch lock while it prepares dist output. It
 REM does not spawn the backend until this launcher validates the resulting
@@ -502,13 +502,13 @@ if defined P8100_PID if not "!P8100_OWNER!"=="STANDALONE" (
 )
 
 if defined P8099_PID (
-    echo Verified standalone Flight Fabric backend detected after preparation; stopping PID !P8099_PID! and its sidecars.
+    echo Verified standalone FlightFabric backend detected after preparation; stopping PID !P8099_PID! and its sidecars.
     call :stop_standalone_backend_pid "!P8099_PID!"
     if errorlevel 1 goto :backend_cleanup_failed
     if "!P8100_PID!"=="!P8099_PID!" set "P8100_PID="
 )
 if defined P8100_PID (
-    echo Verified standalone Flight Fabric backend detected after preparation; stopping PID !P8100_PID! and its sidecars.
+    echo Verified standalone FlightFabric backend detected after preparation; stopping PID !P8100_PID! and its sidecars.
     call :stop_standalone_backend_pid "!P8100_PID!"
     if errorlevel 1 goto :backend_cleanup_failed
 )
@@ -528,10 +528,10 @@ goto :start_services
 call :abort_prepared_wrapper
 echo.
 echo ========================================
-echo ERROR: Flight Fabric desktop backend is already running ^(PID !FF_CONFLICT_PID!^).
+echo ERROR: FlightFabric desktop backend is already running ^(PID !FF_CONFLICT_PID!^).
 echo ========================================
 echo The Electron app may be hidden in the system tray.
-echo Use Quit from the Flight Fabric tray menu, then re-run this launcher.
+echo Use Quit from the FlightFabric tray menu, then re-run this launcher.
 echo This launcher will not detach or replace a backend owned by the desktop app.
 echo.
 pause
@@ -616,7 +616,7 @@ exit /b 1
 call :cleanup_failed_backend_launch
 echo.
 echo ========================================
-echo ERROR: Flight Fabric backend did not become ready.
+echo ERROR: FlightFabric backend did not become ready.
 echo ========================================
 if defined FF_BACKEND_READY_FAILURE echo !FF_BACKEND_READY_FAILURE!
 if defined FF_FAILED_LAUNCH_CLEANUP echo !FF_FAILED_LAUNCH_CLEANUP!

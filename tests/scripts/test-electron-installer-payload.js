@@ -13,9 +13,10 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const DIST = path.join(ROOT, 'dist', 'electron');
 const WIN_UNPACKED = path.join(DIST, 'win-unpacked');
 const { getRepoScratchPath, resetRepoScratchDirectory } = require('../../scripts/repo-scratch');
+const { buildExecutableFileName, buildInstallerFileName } = require('../../scripts/release-names');
 const EXTRACT_ROOT = getRepoScratchPath('electron-installer-payload');
 const REQUIRED_PAYLOAD_FILES = [
-  'Flight Fabric.exe',
+  buildExecutableFileName(),
   path.join('resources', 'app.asar'),
   ...REQUIRED_PACKAGED_BACKEND_STARTUP_FILES.map((relativePath) => (
     path.join('resources', 'backend', ...relativePath.split('/'))
@@ -56,7 +57,7 @@ function assertSafeRegularFile(filePath, label) {
 function findInstaller() {
   assertSafeRegularDirectory(DIST, 'Electron output directory');
   const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  const installerPath = path.join(DIST, `Flight Fabric Setup ${version}.exe`);
+  const installerPath = path.join(DIST, buildInstallerFileName(version));
   if (!fs.existsSync(installerPath)) {
     throw new Error(`Expected NSIS installer does not exist: ${installerPath}`);
   }
@@ -161,7 +162,7 @@ async function verifyRequiredPayload() {
 }
 
 function launchExtractedBackend() {
-  const executablePath = path.join(EXTRACT_ROOT, 'Flight Fabric.exe');
+  const executablePath = path.join(EXTRACT_ROOT, buildExecutableFileName());
   const probePath = path.join(ROOT, 'tests', 'scripts', 'test-electron-packaged-backend-launch.js');
   const result = childProcess.spawnSync(process.execPath, [
     probePath,

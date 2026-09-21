@@ -1,7 +1,7 @@
 /**
  * @flight-fabric/telemetry-types
  *
- * TypeScript type definitions for Flight Fabric telemetry WebSocket messages.
+ * TypeScript type definitions for FlightFabric telemetry WebSocket messages.
  * Zero-runtime package - exports only types and constants.
  */
 
@@ -84,6 +84,7 @@ export type {
   RatesMessage,
   // System
   ConnectedMessage,
+  AutotaxiStateMessage,
   // Union
   TelemetryMessage,
 } from './messages';
@@ -94,5 +95,7 @@ export { type TelemetryState, createInitialState } from './state';
 // Commands (client → server)
 export type {
   BaseCommand,
+  AutotaxiCommand,
   TelemetryCommand,
 } from './commands';
+export type { CduSide, CduColor, CduCell, CduScreen, CduKey, CduState, CduRequest } from './cdu.js';

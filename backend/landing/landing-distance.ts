@@ -18,7 +18,7 @@ type NullableNumber = number | null | undefined;
 type RunwaySide = 'left' | 'right' | 'center';
 type KnownSurface = 'dry' | 'wet' | 'ice' | 'snow';
 type SurfaceSource = 'simconnect' | 'xplane' | 'inferred' | 'unavailable';
-type BandKey = 'PERFECT' | 'GOOD' | 'ACCEPTABLE' | 'POOR' | 'DANGEROUS';
+type BandKey = 'NEAR_THRESHOLD' | 'PERFECT' | 'GOOD' | 'ACCEPTABLE' | 'POOR' | 'DANGEROUS';
 
 type CoordinateLike = {
   lat: NullableNumber;
@@ -28,8 +28,8 @@ type CoordinateLike = {
 type RolloutSample = CoordinateLike;
 
 type TouchdownBand = {
+  /** Inclusive upper limit of the band, in feet from the landing threshold. */
   max: number;
-  pctCap: number | null;
   score: number;
   grade: string;
   zone: string;
@@ -37,11 +37,16 @@ type TouchdownBand = {
 
 type TouchdownBands = Record<BandKey, TouchdownBand>;
 
+/** Score and labels per band; limits are computed per runway by getAdjustedBands(). */
+type TouchdownBandLabels = Record<BandKey, Omit<TouchdownBand, 'max'>>;
+
 type TouchdownScore = {
   score: number | null;
   grade: string;
   zone: string;
   distanceFt: number | null;
+  /** End of the touchdown zone used for this landing (3,000 ft or one third of the runway). */
+  zoneEndFt: number | null;
   bands: TouchdownBands | null;
 };
 
@@ -120,37 +125,85 @@ type TouchdownScoreOptions = {
 const EARTH_RADIUS_FT = 20902224;
 
 /**
- * Application touchdown-distance scoring bands.
- * Distance thresholds in feet from the landing threshold. These scores are a
- * proficiency heuristic, not an FAA/ICAO grading standard.
+ * Touchdown-distance scoring.
  *
- * Touchdowns within 3,000 ft receive no TDZ penalty, provided they are before
- * the runway end. Runway-length caps apply only to the later touchdown bands.
- * Weather does not move the TDZ boundary or establish stopping performance.
+ * Two real-world boundaries anchor the scale and never move for weather:
+ *   - the aiming point, approximately 1,000 ft from the threshold
+ *     (FAA AIM 2-3-3, ICAO Annex 14 aiming-point markings);
+ *   - the touchdown zone end: the first 3,000 ft of the runway or the first
+ *     third of the landing length, whichever is less (FAA AC 91-79B,
+ *     Boeing FCTM; the same one-third line drives "LONG LANDING" callouts).
  *
- * Reference geometry (the scoring cutoffs themselves remain product policy):
- *   - FAA AIM 2-3-3: aiming-point markings are approximately 1,000 ft from the threshold
- *   - FAA Pilot/Controller Glossary: touchdown zone = first 3,000 ft from the threshold
+ * Everything past the zone end is a Long Landing (orange) and past half the
+ * runway, or 5,000 ft, an overrun risk (red). Those are the operational
+ * boundaries. Inside the zone, the score is a proficiency layer for the app,
+ * not an aviation standard: the space between the aiming point and the zone
+ * end is split into Ideal (first quarter), Good (to two thirds) and Late
+ * (the rest). Anchoring on the aiming point keeps the ideal target where the
+ * runway markings are on every runway; only the zone end shrinks with length.
+ *
+ * A touchdown inside the first 500 ft is inside the zone geometrically but
+ * implies a threshold crossing well below the standard 50 ft, so it gets its
+ * own amber caution.
+ *
+ * Grades are the labels the logbook and history index already rank:
+ * Outstanding/Good (green), Near Threshold/Acceptable (amber),
+ * Long Landing (orange), Dangerous/Short Landing (red).
  */
-const TDZ_BANDS: TouchdownBands = {
-  //                  absMax  pctCap  score  grade            zone
-  PERFECT:    { max: 1000, pctCap: null, score: 100, grade: 'Outstanding',  zone: 'Ideal TDZ'      },
-  GOOD:       { max: 3000, pctCap: null, score: 100, grade: 'Good',         zone: 'Within TDZ'     },
-  ACCEPTABLE: { max: 3500, pctCap: 0.50, score: 75,  grade: 'Acceptable',   zone: 'Late TDZ'       },
-  POOR:       { max: 5000, pctCap: 0.65, score: 70,  grade: 'Long Landing', zone: 'Beyond TDZ'     },
-  DANGEROUS:  { max: Infinity, pctCap: null, score: 10, grade: 'Dangerous', zone: 'Overrun Risk'   },
+const AIMING_POINT_FT = 1000;
+const NEAR_THRESHOLD_FT = 500;
+const TOUCHDOWN_ZONE_MAX_FT = 3000;
+const TOUCHDOWN_ZONE_RUNWAY_FRACTION = 1 / 3;
+const LONG_LANDING_MAX_FT = 5000;
+const LONG_LANDING_RUNWAY_FRACTION = 1 / 2;
+const IDEAL_ZONE_FRACTION = 1 / 4;
+const GOOD_ZONE_FRACTION = 2 / 3;
+
+/** Grade/score/zone labels per band; band limits come from getAdjustedBands(). */
+const TDZ_BANDS: TouchdownBandLabels = {
+  //                score  grade             zone
+  NEAR_THRESHOLD: { score: 85,  grade: 'Near Threshold', zone: 'Before Aiming Point' },
+  PERFECT:        { score: 100, grade: 'Outstanding',    zone: 'Ideal TDZ'    },
+  GOOD:           { score: 95,  grade: 'Good',           zone: 'Within TDZ'   },
+  ACCEPTABLE:     { score: 80,  grade: 'Acceptable',     zone: 'Late TDZ'     },
+  POOR:           { score: 60,  grade: 'Long Landing',   zone: 'Beyond TDZ'   },
+  DANGEROUS:      { score: 10,  grade: 'Dangerous',      zone: 'Overrun Risk' },
 };
 
-const TOUCHDOWN_ZONE_MAX_FT = 3000;
+function validRunwayLengthFt(runwayLengthFt: unknown): number | null {
+  return typeof runwayLengthFt === 'number' && Number.isFinite(runwayLengthFt) && runwayLengthFt > 0
+    ? runwayLengthFt
+    : null;
+}
+
+/**
+ * End of the touchdown zone for a runway: 3,000 ft or one third of the
+ * landing length, whichever is less. Unknown length falls back to 3,000 ft.
+ */
+function touchdownZoneEndFt(runwayLengthFt: unknown = null): number {
+  const lengthFt = validRunwayLengthFt(runwayLengthFt);
+  if (lengthFt === null) return TOUCHDOWN_ZONE_MAX_FT;
+  return Math.min(TOUCHDOWN_ZONE_MAX_FT, Math.round(lengthFt * TOUCHDOWN_ZONE_RUNWAY_FRACTION));
+}
+
+/**
+ * Whether a touchdown distance lies inside a given zone end and before the
+ * runway end. Replay uses this with the zone end that was recorded with the
+ * landing, so a stored grade and its zone flag never disagree.
+ */
+function isWithinTouchdownZone(distanceFt: unknown, zoneEndFt: unknown, runwayLengthFt: unknown = null): boolean {
+  if (typeof distanceFt !== 'number' || !Number.isFinite(distanceFt)) return false;
+  const endFt = typeof zoneEndFt === 'number' && Number.isFinite(zoneEndFt) && zoneEndFt > 0
+    ? zoneEndFt
+    : TOUCHDOWN_ZONE_MAX_FT;
+  if (distanceFt < 0 || distanceFt > endFt) return false;
+
+  const lengthFt = validRunwayLengthFt(runwayLengthFt);
+  return lengthFt === null || distanceFt < lengthFt;
+}
 
 function isTouchdownZoneAchieved(distanceFt: unknown, runwayLengthFt: unknown = null): boolean {
-  if (typeof distanceFt !== 'number' || !Number.isFinite(distanceFt)) return false;
-  if (distanceFt < 0 || distanceFt > TOUCHDOWN_ZONE_MAX_FT) return false;
-
-  const hasValidRunwayLength = typeof runwayLengthFt === 'number'
-    && Number.isFinite(runwayLengthFt)
-    && runwayLengthFt > 0;
-  return !hasValidRunwayLength || distanceFt < (runwayLengthFt as number);
+  return isWithinTouchdownZone(distanceFt, touchdownZoneEndFt(runwayLengthFt), runwayLengthFt);
 }
 
 const FT_PER_DEG_LAT = 364567;
@@ -173,6 +226,7 @@ function unknownTouchdownScore(): TouchdownScore {
     grade: 'Unknown',
     zone: 'No data',
     distanceFt: null,
+    zoneEndFt: null,
     bands: null
   };
 }
@@ -682,53 +736,59 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
 // -----------------------------------------------------------------------------
 
 /**
- * Get effective scoring band thresholds adjusted for runway length
- * 
- * @param {number} runwayLengthFt - Runway length in feet
- * @param {string} _surface - Retained for caller compatibility; does not alter TDZ
- * @returns {Object} Adjusted band thresholds
+ * Band limits for a runway. Every limit is an inclusive upper bound in feet
+ * from the landing threshold and the limits are monotonic, so each distance
+ * maps to exactly one band.
+ *
+ *   NEAR_THRESHOLD  500 ft                       (fixed: threshold-crossing geometry)
+ *   PERFECT         aim + (T - aim) / 4          (1,500 ft when T = 3,000)
+ *   GOOD            aim + (T - aim) * 2 / 3      (2,333 ft when T = 3,000)
+ *   ACCEPTABLE      T = min(3,000, L / 3)        (the touchdown zone end)
+ *   POOR            max(T, min(5,000, L / 2))    (Long Landing)
+ *   DANGEROUS       beyond
+ *
+ * On a runway so short that T falls at or before the aiming point, the three
+ * in-zone bands collapse onto T; the aiming point itself is never moved
+ * toward the threshold.
+ *
+ * @param {number} runwayLengthFt - Landing length in feet, or null when unknown
+ * @param {string} _surface - Retained for caller compatibility; weather does not move the zone
  */
 function getAdjustedBands(runwayLengthFt: NullableNumber, _surface: string | null = null): TouchdownBands {
-  const adjusted = {} as TouchdownBands;
-  let previousFiniteMax = 0;
-  for (const [key, band] of Object.entries(TDZ_BANDS) as Array<[BandKey, TouchdownBand]>) {
-    // TDZ describes a position, not a stopping-distance assessment. Weather
-    // cannot move its boundary, and missing weather must never tighten it.
-    let effectiveMax = band.max;
+  const lengthFt = validRunwayLengthFt(runwayLengthFt);
+  const zoneEndFt = touchdownZoneEndFt(lengthFt);
+  const zoneSpanFt = Math.max(0, zoneEndFt - AIMING_POINT_FT);
+  const idealMaxFt = Math.min(zoneEndFt, Math.round(AIMING_POINT_FT + zoneSpanFt * IDEAL_ZONE_FRACTION));
+  const goodMaxFt = Math.max(idealMaxFt, Math.min(zoneEndFt, Math.round(AIMING_POINT_FT + zoneSpanFt * GOOD_ZONE_FRACTION)));
+  const longMaxFt = lengthFt === null
+    ? Math.max(zoneEndFt, LONG_LANDING_MAX_FT)
+    : Math.max(zoneEndFt, Math.min(LONG_LANDING_MAX_FT, Math.round(lengthFt * LONG_LANDING_RUNWAY_FRACTION)));
 
-    // Apply percentage-based cap for upper bands when runway length is known.
-    // These caps do not change the first 3,000 ft or predict stopping distance.
-    if (band.pctCap != null && isNumericValue(runwayLengthFt) && runwayLengthFt > 0) {
-      const pctMax = Math.round(runwayLengthFt * band.pctCap);
-      effectiveMax = Math.min(effectiveMax, pctMax);
-    }
-
-    // Very short runways can make percentage caps overlap an earlier band.
-    // Preserve monotonic thresholds so every distance has deterministic
-    // ordering and the ideal target is never compressed toward the threshold.
-    if (effectiveMax !== Infinity) {
-      effectiveMax = Math.max(previousFiniteMax, effectiveMax);
-      previousFiniteMax = effectiveMax;
-    }
-
-    adjusted[key] = { ...band, max: effectiveMax };
-  }
-
-  return adjusted;
+  return {
+    // The ideal band starts at NEAR_THRESHOLD_FT, so the near-threshold band
+    // ends one foot before it; distances are scored in whole feet.
+    NEAR_THRESHOLD: { ...TDZ_BANDS.NEAR_THRESHOLD, max: Math.min(NEAR_THRESHOLD_FT - 1, idealMaxFt) },
+    PERFECT: { ...TDZ_BANDS.PERFECT, max: idealMaxFt },
+    GOOD: { ...TDZ_BANDS.GOOD, max: goodMaxFt },
+    ACCEPTABLE: { ...TDZ_BANDS.ACCEPTABLE, max: zoneEndFt },
+    POOR: { ...TDZ_BANDS.POOR, max: longMaxFt },
+    DANGEROUS: { ...TDZ_BANDS.DANGEROUS, max: Infinity },
+  };
 }
 
 /**
  * Score a touchdown distance
- * 
- * @param {number} distanceFt - Touchdown distance from threshold in feet
+ *
+ * @param {number} distanceFt - Touchdown distance from the landing threshold in feet
  * @param {Object} options - Scoring options
- * @param {number} [options.runwayLengthFt] - Runway length for short runway adjustment
- * @param {string} [options.surface='dry'] - Surface condition
+ * @param {number} [options.runwayLengthFt] - Landing length; sets the zone end and the overrun bands
+ * @param {string} [options.surface] - Recorded for callers; does not change the result
  * @returns {Object} Scoring result
  * @returns {number} result.score - Score 0-100
  * @returns {string} result.grade - Human-readable grade
  * @returns {string} result.zone - Touchdown zone description
  * @returns {number} result.distanceFt - Input distance
+ * @returns {number} result.zoneEndFt - Touchdown zone end used for this runway
  * @returns {Object} result.bands - Effective scoring bands used
  */
 function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownScoreOptions | null = {}): TouchdownScore {
@@ -737,11 +797,9 @@ function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownSc
   }
 
   const normalizedOptions = options ?? {};
-  const runwayLengthFt = isNumericValue(normalizedOptions.runwayLengthFt) && normalizedOptions.runwayLengthFt > 0
-    ? normalizedOptions.runwayLengthFt
-    : null;
-  const surface = normalizedOptions.surface ?? 'dry';
-  const bands = getAdjustedBands(runwayLengthFt, surface);
+  const runwayLengthFt = validRunwayLengthFt(normalizedOptions.runwayLengthFt);
+  const bands = getAdjustedBands(runwayLengthFt, normalizedOptions.surface ?? null);
+  const zoneEndFt = bands.ACCEPTABLE.max;
 
   if (distanceFt < 0) {
     return {
@@ -749,6 +807,7 @@ function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownSc
       grade: 'Short Landing',
       zone: 'Before Threshold',
       distanceFt,
+      zoneEndFt,
       bands,
     };
   }
@@ -759,12 +818,15 @@ function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownSc
       grade: 'Dangerous',
       zone: 'Past Runway End',
       distanceFt,
+      zoneEndFt,
       bands,
     };
   }
 
   let result: TouchdownBand;
-  if (distanceFt <= bands.PERFECT.max) {
+  if (distanceFt <= bands.NEAR_THRESHOLD.max) {
+    result = bands.NEAR_THRESHOLD;
+  } else if (distanceFt <= bands.PERFECT.max) {
     result = bands.PERFECT;
   } else if (distanceFt <= bands.GOOD.max) {
     result = bands.GOOD;
@@ -775,12 +837,13 @@ function scoreTouchdownDistance(distanceFt: NullableNumber, options: TouchdownSc
   } else {
     result = bands.DANGEROUS;
   }
-  
+
   return {
     score: result.score,
     grade: result.grade,
     zone: result.zone,
     distanceFt,
+    zoneEndFt,
     bands
   };
 }
@@ -886,6 +949,8 @@ module.exports = {
   // Scoring
   scoreTouchdownDistance,
   isTouchdownZoneAchieved,
+  isWithinTouchdownZone,
+  touchdownZoneEndFt,
   scoreLateralOffset,
   scoreBounce,
   getAdjustedBands,

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Canonical on-disk layout for one Flight Fabric recording.
+ * Canonical on-disk layout for one FlightFabric recording.
  *
  * Mutable presentation metadata (route, aircraft, callsign, destination) is
  * deliberately absent from physical paths.  The directory name is allocated

@@ -10,8 +10,8 @@ export function readStorageValue(key, {
   storage = null,
   fallback = null,
 } = {}) {
-  const storageRef = getBrowserStorage(storage);
   try {
+    const storageRef = getBrowserStorage(storage);
     const value = storageRef?.getItem?.(key);
     return value == null ? fallback : value;
   } catch {
@@ -35,9 +35,10 @@ export function readStorageJson(key, {
 export function writeStorageValue(key, value, {
   storage = null,
 } = {}) {
-  const storageRef = getBrowserStorage(storage);
   try {
-    storageRef?.setItem?.(key, String(value));
+    const storageRef = getBrowserStorage(storage);
+    if (typeof storageRef?.setItem !== 'function') return false;
+    storageRef.setItem(key, String(value));
     return true;
   } catch {
     return false;
@@ -47,9 +48,10 @@ export function writeStorageValue(key, value, {
 export function writeStorageJson(key, value, {
   storage = null,
 } = {}) {
-  const storageRef = getBrowserStorage(storage);
   try {
-    storageRef?.setItem?.(key, JSON.stringify(value));
+    const storageRef = getBrowserStorage(storage);
+    if (typeof storageRef?.setItem !== 'function') return false;
+    storageRef.setItem(key, JSON.stringify(value));
     return true;
   } catch {
     return false;
@@ -59,10 +61,26 @@ export function writeStorageJson(key, value, {
 export function removeStorageValue(key, {
   storage = null,
 } = {}) {
-  const storageRef = getBrowserStorage(storage);
   try {
-    storageRef?.removeItem?.(key);
+    const storageRef = getBrowserStorage(storage);
+    if (typeof storageRef?.removeItem !== 'function') return false;
+    storageRef.removeItem(key);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+// Coordinate a read/change/write decision across renderer processes. Without
+// Web Locks, retain the synchronous storage checks used by older browsers.
+// An unavailable or failed lock is a reason to skip an optional prompt.
+export function withBrowserLock(name, callback, { windowRef = null } = {}) {
+  const locks = (windowRef || globalThis.window)?.navigator?.locks;
+  if (typeof locks?.request !== 'function') return callback();
+  try {
+    return Promise.resolve(locks.request(name, { ifAvailable: true }, (lock) => (
+      lock ? callback() : false
+    ))).catch(() => false);
   } catch {
     return false;
   }

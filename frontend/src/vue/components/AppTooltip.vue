@@ -35,6 +35,8 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  triggerMode: { type: String, default: 'hover', validator: value => ['hover', 'click'].includes(value) },
+  label: { type: String, default: '' },
 });
 
 const reference = ref(null);
@@ -81,7 +83,19 @@ const floatingOptions = computed(() => ({
   },
 }));
 
-const { floatingStyles, update } = useFloating(reference, floating, floatingOptions);
+// v-show preserves slotted content. Only an open tooltip needs positioning
+// observers; aircraft pages can contain hundreds of otherwise hidden hints.
+const positioningEnabled = computed(() => open.value && mounted.value && !props.disabled);
+const { floatingStyles, update } = useFloating(
+  computed(() => positioningEnabled.value ? reference.value : null),
+  computed(() => positioningEnabled.value ? floating.value : null), {
+  open: positioningEnabled,
+  placement: computed(() => props.placement),
+  strategy: 'fixed',
+  transform: false,
+  middleware: computed(() => floatingOptions.value.middleware),
+  whileElementsMounted: floatingOptions.value.whileElementsMounted,
+});
 const clampedFloatingStyles = computed(() => ({
   ...floatingStyles.value,
   ...viewportAdjustedStyles.value,
@@ -100,7 +114,7 @@ function clearClampFrame() {
 }
 
 function clampFloatingToViewport() {
-  if (typeof window === 'undefined' || !floating.value) return;
+  if (typeof window === 'undefined' || !floating.value || !positioningEnabled.value) return;
 
   const element = floating.value;
   const rect = element.getBoundingClientRect();
@@ -187,7 +201,15 @@ function scheduleHide() {
   }, props.interactive ? 300 : 120);
 }
 
-function handleFocusOut() {
+function handleFocusOut(event) {
+  // Native pointer focus changes can run Vue's nextTick before the browser
+  // focuses the new element. Keep internal moves open through that transition
+  // so the clicked control is still present when mouseup/click arrives.
+  const next = event.relatedTarget;
+  // Disabling the focused action while saving must not dismiss its progress.
+  // Outside pointers still close the popover separately.
+  if (props.interactive && !next && event.target?.disabled === true) return;
+  if (reference.value?.contains?.(next) || floating.value?.contains?.(next)) return;
   nextTick(() => {
     const active = document.activeElement;
     if (reference.value?.contains?.(active) || floating.value?.contains?.(active)) return;
@@ -200,7 +222,10 @@ function toggle() {
   clearShowTimer();
   clearHideTimer();
   open.value = !open.value;
-  if (open.value) nextTick(updateFloatingPosition);
+  if (open.value) nextTick(() => {
+    updateFloatingPosition();
+    if (props.triggerMode === 'click' && props.interactive) floating.value?.focus({ preventScroll: true });
+  });
 }
 
 function isDisabledInteractiveElement(element) {
@@ -239,10 +264,19 @@ function handleClick(event) {
 }
 
 function handleKeydown(event) {
+  if (open.value && props.triggerMode === 'click' && event.key === 'Tab'
+    && document.activeElement === floating.value) {
+    const first = floating.value.querySelector('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled)');
+    event.preventDefault();
+    if (!event.shiftKey && first) first.focus({ preventScroll: true });
+    else reference.value?.querySelector('button')?.focus({ preventScroll: true });
+    return;
+  }
   if (event.key === 'Escape' && open.value) {
     event.preventDefault();
     event.stopPropagation();
     hide();
+    if (props.triggerMode === 'click') reference.value?.querySelector('button')?.focus({ preventScroll: true });
   }
 }
 
@@ -264,6 +298,10 @@ watch([open, mounted], ([isOpen, isMounted]) => {
   else document.removeEventListener('keydown', handleKeydown, true);
 });
 
+watch(() => props.disabled, disabled => {
+  if (disabled) hide();
+});
+
 onBeforeUnmount(() => {
   clearHideTimer();
   clearShowTimer();
@@ -283,14 +321,14 @@ onBeforeUnmount(() => {
     :aria-describedby="open && !disabled ? tooltipId : undefined"
     :aria-controls="open && !disabled && interactive ? tooltipId : undefined"
     :aria-expanded="interactive ? String(open && !disabled) : undefined"
-    @mouseenter="scheduleShow"
-    @mouseleave="scheduleHide"
-    @focusin="show"
+    @mouseenter="triggerMode === 'hover' && scheduleShow()"
+    @mouseleave="triggerMode === 'hover' && scheduleHide()"
+    @focusin="triggerMode === 'hover' && show()"
     @focusout="handleFocusOut"
     @click="handleClick"
     @keydown="handleKeydown"
   >
-    <slot :tooltip-id="tooltipId" />
+    <slot :tooltip-id="tooltipId" :open="open && !disabled" :toggle="toggle" />
   </component>
 
   <Teleport to="body" :disabled="!mounted">
@@ -299,12 +337,14 @@ onBeforeUnmount(() => {
       :id="tooltipId"
       ref="floating"
       :role="interactive ? 'dialog' : 'tooltip'"
+      :aria-label="interactive && label ? label : undefined"
+      :tabindex="interactive && triggerMode === 'click' ? -1 : undefined"
       class="app-tooltip"
       :class="[tooltipClass, { 'app-tooltip-interactive': interactive }]"
       :style="clampedFloatingStyles"
-      @mouseenter="show"
-      @mouseleave="scheduleHide"
-      @focusin="show"
+      @mouseenter="triggerMode === 'hover' && show()"
+      @mouseleave="triggerMode === 'hover' && scheduleHide()"
+      @focusin="triggerMode === 'hover' && show()"
       @focusout="handleFocusOut"
       @keydown="handleKeydown"
     >

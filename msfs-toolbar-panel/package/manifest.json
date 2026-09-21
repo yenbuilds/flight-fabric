@@ -1,0 +1,17 @@
+{
+  "dependencies": [],
+  "content_type": "MISC",
+  "title": "FlightFabric Toolbar",
+  "manufacturer": "FlightFabric",
+  "creator": "FlightFabric",
+  "package_version": "0.10.0",
+  "minimum_game_version": "1.0.0",
+  "package_order_hint": "CUSTOM_INSTRUMENT",
+  "release_notes": {
+    "neutral": {
+      "LastUpdate": "",
+      "OlderHistory": ""
+    }
+  },
+  "total_package_size": "00000000000000024689"
+}

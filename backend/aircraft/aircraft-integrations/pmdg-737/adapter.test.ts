@@ -140,9 +140,9 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
   assert.equal(apuStart.routes[0].transport, 'simconnect-sequence');
   assert.equal(apuStart.routes[0].requiredSdkAdapter, 'clientdata-manifest');
   assert.deepEqual(apuStart.routes[0].operations, [
-    { type: 'event', name: 'ROTOR_BRAKE', value: 11802 },
+    { type: 'event', name: 'ROTOR_BRAKE', value: 11801 },
     { type: 'delay', milliseconds: 500 },
-    { type: 'event', name: 'ROTOR_BRAKE', value: 11802 },
+    { type: 'event', name: 'ROTOR_BRAKE', value: 11801 },
     { type: 'delay', milliseconds: 500 },
     { type: 'event', name: 'ROTOR_BRAKE', value: 11804 },
   ]);

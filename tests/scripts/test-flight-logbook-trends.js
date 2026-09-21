@@ -250,6 +250,21 @@ test('logbook PERFECT outcomes require explicit stable, target, and clean eviden
     'outside first 1,000 ft caps PERFECT',
   );
   assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, touchdownDistanceFt: 1400, touchdownDistanceGrade: 'Outstanding' }),
+    'PERFECT',
+    'an Outstanding distance grade verifies PERFECT beyond 1,000 ft',
+  );
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, touchdownDistanceFt: 900, touchdownDistanceGrade: 'Good' }),
+    'SMOOTH',
+    'a recorded distance grade below Outstanding caps PERFECT',
+  );
+  assertEqual(
+    flightLogbook.logbookOutcomeGrade({ ...verified, touchdownDistanceFt: 300, touchdownDistanceGrade: 'Near Threshold' }),
+    'Near Threshold',
+    'a near-threshold caution outranks a perfect touchdown rate',
+  );
+  assertEqual(
     flightLogbook.logbookOutcomeGrade({ ...verified, bounceCount: 1, bounceGrade: null }),
     'SMOOTH',
     'recorded bounce caps PERFECT',

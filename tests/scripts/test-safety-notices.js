@@ -62,7 +62,7 @@ function surfacePathsPresentInThisCheckout() {
 test('authoritative safety notice defines intended use and non-reliance', () => {
   assert.match(safetyNotice, /experimental alpha software designed for use with consumer\s+flight simulators/);
   assert.match(safetyNotice, /not\s+certified, approved, or intended for real-world aviation or any other\s+safety-critical use/);
-  assert.match(safetyNotice, /Do not rely on Flight Fabric or any data, analysis, score, alert, recommendation/);
+  assert.match(safetyNotice, /Do not rely on FlightFabric or any data, analysis, score, alert, recommendation/);
   assert.match(safetyNotice, /decisions affecting the safety of\s+any person or property/);
 });
 
@@ -103,10 +103,10 @@ test('network-facing and distribution surfaces provide corresponding source', ()
   assert.ok(installerNotice.includes(sourceUrl));
 
   const aboutPanel = read('frontend/src/vue/components/SettingsAboutLegal.vue');
-  const appFooter = read('frontend/src/vue/components/AppFooter.vue');
+  const appHelp = read('frontend/src/vue/components/AppNavigator.vue');
   assert.match(aboutPanel, /complete corresponding source code/i);
   assert.ok(aboutPanel.includes(sourceUrl));
-  assert.ok(appFooter.includes(sourceUrl));
+  assert.ok(appHelp.includes(sourceUrl));
 });
 
 test('installation and legal surfaces include alpha, intended-use, and non-reliance warnings', () => {

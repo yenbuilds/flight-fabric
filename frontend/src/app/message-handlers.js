@@ -42,6 +42,7 @@ const STATUS_STORE_MESSAGE_TYPES = new Set([
 
 const LOGBOOK_STORE_MESSAGE_TYPES = new Set(['logbook', 'historyIndexStatus']);
 const TIMELINE_STORE_MESSAGE_TYPES = new Set(['timelineList', 'timelineListError', 'deleteFlightCsvResult', 'historyIndexStatus']);
+const SUPPORT_STORE_MESSAGE_TYPES = new Set(['supportGoal']);
 
 function updateAircraftProfileDisplay({ aircraftControl, aircraftSpecificStore, voiceController }, message) {
   aircraftControl.setActiveProfileToken?.(message.profile || {});
@@ -177,6 +178,7 @@ export function createAppMessageHandler({
   statusStore = null,
   logbookStore = null,
   timelineStore = null,
+  supportStore = null,
   desktopIntegration = null,
   getCabinAnnouncements = () => null,
 } = {}) {
@@ -208,6 +210,9 @@ export function createAppMessageHandler({
     }
     if (TIMELINE_STORE_MESSAGE_TYPES.has(message?.type)) {
       timelineStore?.ingestMessage?.(message);
+    }
+    if (SUPPORT_STORE_MESSAGE_TYPES.has(message?.type)) {
+      supportStore?.ingestMessage?.(message);
     }
 
     emitWsMessage(message);

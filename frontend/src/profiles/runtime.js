@@ -3,6 +3,7 @@
 export function initProfilesRuntime({
   profilesStore = null,
   getAuthorizationScope = null,
+  isAuthorizationAcknowledged = null,
   sendMessage = null,
   showToast = null,
   subscribeWsMessageSignal = null,
@@ -28,8 +29,8 @@ export function initProfilesRuntime({
     }
   }
 
-  function applyProfileAuthorization(scope, pairingStatus) {
-    const acknowledgedScope = profilesStore.setAuthorizationScope(scope, pairingStatus);
+  function applyProfileAuthorization(scope, pairingStatus, acknowledged = true) {
+    const acknowledgedScope = profilesStore.setAuthorizationScope(scope, pairingStatus, acknowledged);
     if (acknowledgedScope !== 'full-control') {
       profilesRequestedForConnection = false;
       return acknowledgedScope;
@@ -43,7 +44,11 @@ export function initProfilesRuntime({
   function reconcileProfileAuthorization() {
     if (typeof getAuthorizationScope !== 'function') return profilesStore.authorizationScope;
     try {
-      return applyProfileAuthorization(getAuthorizationScope());
+      const scope = getAuthorizationScope();
+      const acknowledged = typeof isAuthorizationAcknowledged === 'function'
+        ? isAuthorizationAcknowledged() === true
+        : profilesStore.authorizationAcknowledged === true || scope !== 'read-only';
+      return applyProfileAuthorization(scope, undefined, acknowledged);
     } catch {
       return profilesStore.authorizationScope;
     }

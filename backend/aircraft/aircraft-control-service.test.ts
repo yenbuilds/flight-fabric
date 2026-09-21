@@ -241,7 +241,7 @@ test('FlyByWire A32NX catalogue exposes guarded FCU custom-event commands with n
     'flightGuidance.altitudeMode.set',
     'propulsion.throttleDetent.set',
   ]);
-  assert.equal(commandIds.length, 84);
+  assert.equal(commandIds.length, 87);
   assert.deepEqual(commandIds.filter((id) => id.startsWith('radios.com')), [
     'radios.com1.setStandby', 'radios.com1.swap', 'radios.com1.switchTo',
     'radios.com2.setStandby', 'radios.com2.swap', 'radios.com2.switchTo',
@@ -390,6 +390,9 @@ test('Fenix A32X catalogue exposes one reviewed UI and voice command slice acros
     'lights.navLogoMode.set',
     'lights.noseMode.set',
     'configuration.lights.takeoff',
+    'configuration.lights.afterTakeoff',
+    'configuration.lights.landing',
+    'configuration.lights.afterLanding',
     'surveillance.squawk.set',
     'surveillance.ident.activate',
     'navigation.captain.range',
@@ -579,6 +582,9 @@ test('iniBuilds A350 catalogue exposes the shared page controls to voice across 
     'lights.landing.set',
     'lights.noseMode.set',
     'configuration.lights.takeoff',
+    'configuration.lights.afterTakeoff',
+    'configuration.lights.landing',
+    'configuration.lights.afterLanding',
     'navigation.captain.range',
     'navigation.captain.ls',
     'navigation.firstOfficer.range',
@@ -735,6 +741,9 @@ test('PMDG 777 catalogue exposes one reviewed UI and voice command slice across 
     'lights.strobe.set',
     'lights.taxi.set',
     'configuration.lights.takeoff',
+    'configuration.lights.afterTakeoff',
+    'configuration.lights.landing',
+    'configuration.lights.afterLanding',
     'surveillance.squawk.set',
     'surveillance.ident.activate',
     'navigation.captain.range',
@@ -985,6 +994,9 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'radios.nav.setBothActive',
     'lights.taxi.set',
     'configuration.lights.takeoff',
+    'configuration.lights.afterTakeoff',
+    'configuration.lights.landing',
+    'configuration.lights.afterLanding',
     'surveillance.squawk.set',
     'surveillance.ident.activate',
     'navigation.captain.range',
@@ -1038,7 +1050,9 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'set flight level {value}',
     'flight level {value}',
   ]);
-  assert.equal(commands.get('flightGuidance.course.setBoth').kind, 'action');
+  assert.equal(commands.get('flightGuidance.course.setBoth').kind, 'preset');
+  assert.equal(commands.get('flightGuidance.course.setBoth').group, 'presets');
+  assert.equal(commands.get('flightGuidance.course.setBoth').speech?.example, 'set courses two seven zero');
   assert.deepEqual(commands.get('flightGuidance.course.setBoth').input, {
     kind: 'number', min: 0, max: 359, step: 1, units: 'degrees',
   });
@@ -1076,7 +1090,9 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'set cockpit lights {value}',
     'set all cockpit lights {value}',
   ]);
-  assert.equal(commands.get('radios.nav.setBothActive').kind, 'action');
+  assert.equal(commands.get('radios.nav.setBothActive').kind, 'preset');
+  assert.equal(commands.get('radios.nav.setBothActive').group, 'presets');
+  assert.equal(commands.get('radios.nav.setBothActive').speech?.example, 'set nav radios one one zero decimal three');
   assert.deepEqual(commands.get('radios.nav.setBothActive').input, {
     kind: 'number', min: 108, max: 117.95, step: 0.05, units: 'megahertz',
   });
@@ -1319,6 +1335,28 @@ test('executeAircraftCommand preserves the canonical request while using the gua
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].action.name, 'GEAR_DOWN');
+});
+
+test('generic fallback phase light presets map to the standard light events with the reviewed values', async () => {
+  for (const [preset, expected] of [
+    ['afterTakeoff', [['LANDING_LIGHTS_SET', false], ['TAXI_LIGHTS_SET', false]]],
+    ['landing', [['LANDING_LIGHTS_SET', true], ['TAXI_LIGHTS_SET', true], ['STROBES_SET', true]]],
+    ['afterLanding', [['STROBES_SET', false], ['LANDING_LIGHTS_SET', false], ['TAXI_LIGHTS_SET', true]]],
+  ] as const) {
+    const calls = [];
+    const provider = {
+      aircraftControlCapabilities: { actionTypes: ['key-event'] },
+      async executeAircraftControlAction(action, options) {
+        calls.push([action.name, options.request.value]);
+        return { ok: true, code: 'executed' };
+      },
+    };
+    const result = await executeAircraftCommand(provider, { commandId: `configuration.lights.${preset}`, input: {} },
+      { profile: buildBroadGenericControlProfile() });
+    assert.equal(result.ok, true, preset);
+    assert.equal(result.completedStepCount, expected.length, preset);
+    assert.deepEqual(calls, expected.map(([name, value]) => [name, value]), preset);
+  }
 });
 
 test('executeAircraftCommand applies a takeoff-light preset in order through the shared provider path', async () => {
@@ -2926,3 +2964,29 @@ test('executeAircraftControl rejects blocked simulator states before provider ex
 });
 
 export {};
+
+test('APU start presets pause for real after the master confirms, and Fenix observes the verified lamps', async () => {
+  // The Fenix preset resolves to master then START with a 3 s settle on the master step.
+  const resolved = resolveAircraftCommand({
+    commandId: 'configuration.apu.start', input: {}, profileKey: 'bundled/msfs/fenix-a320', profileRevision: 12,
+  }, {
+    profile: buildFenixA32xProfile(), profileRevision: 12, requireProfileToken: true,
+    capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['mobiflight-calculator', 'lvar'] },
+  });
+  assert.equal(resolved.ok, true, resolved.error);
+  assert.deepEqual(resolved.controlRequests.map((request) => request.actionId), ['systems.apuMaster.on', 'systems.apuStart.start']);
+  assert.deepEqual(resolved.steps.map((step) => step.settleMs ?? null), [3000, null]);
+
+  // Execution honours the pause: START is dispatched no sooner than the settle after the master confirmed.
+  const dispatched = [];
+  const provider = {
+    aircraftControlCapabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['mobiflight-calculator', 'lvar'] },
+    async executeAircraftControlAction(action, options) { dispatched.push({ actionId: options?.request?.actionId, at: Date.now() }); return { ok: true, code: 'executed' }; },
+  };
+  const result = await executeAircraftCommand(provider, {
+    commandId: 'configuration.apu.start', input: {}, profileKey: 'bundled/msfs/fenix-a320', profileRevision: 12,
+  }, { profile: buildFenixA32xProfile(), profileRevision: 12, requireProfileToken: true });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(dispatched.length, 2);
+  assert.ok(dispatched[1].at - dispatched[0].at >= 2900, `START waited ${dispatched[1].at - dispatched[0].at} ms after the master`);
+});

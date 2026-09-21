@@ -65,6 +65,8 @@ type AirportRecord = {
   lat: number;
   lon: number;
   elevation_ft: number;
+  /** ISO 3166-1 alpha-2 from OurAirports `iso_country`, or null when blank. */
+  isoCountry: string | null;
   maxRunwayLengthFt: number;
   runways: AirportRunway[];
 };
@@ -118,7 +120,8 @@ const RAD_TO_DEG = 180 / Math.PI;
 // State
 // -----------------------------------------------------------------------------
 
-const airports = new Map<string, AirportRecord>();     // ICAO -> airport data
+const airports = new Map<string, AirportRecord>();     // ident -> airport data
+const airportsByIcao = new Map<string, AirportRecord>(); // icao_code -> airport data, where it differs from ident
 let airportsByCoord: AirportRecord[] = [];       // Array for spatial search [{lat, lon, icao, ...}]
 let isLoaded = false;
 let loadError: string | null = null;
@@ -205,6 +208,7 @@ function loadData(): boolean {
       lon: airportHeaders.indexOf('longitude_deg'),
       elevation: airportHeaders.indexOf('elevation_ft'),
       icao: airportHeaders.indexOf('icao_code'),
+      isoCountry: airportHeaders.indexOf('iso_country'),
     };
     
     for (let i = 1; i < airportLines.length; i++) {
@@ -232,11 +236,13 @@ function loadData(): boolean {
         lat: lat,
         lon: lon,
         elevation_ft: parseFloat(fields[aptIdx.elevation]) || 0,
+        isoCountry: normalizeIsoCountry(aptIdx.isoCountry >= 0 ? fields[aptIdx.isoCountry] : ''),
         maxRunwayLengthFt: 0,  // Will be populated from runways
         runways: [],
       };
       
       airports.set(ident, airport);
+      if (airport.icao !== ident) airportsByIcao.set(airport.icao, airport);
     }
     
     Debug.log('airport-search', `Loaded ${airports.size} airports`);
@@ -452,6 +458,22 @@ function getStats(): { loaded: boolean; airportCount: number; indexedCount: numb
  * @param {string} query - ICAO code, IATA code, or partial name
  * @returns {Object|null} Airport or null
  */
+function normalizeIsoCountry(value: unknown): string | null {
+  const code = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : null;
+}
+
+/**
+ * Exact ICAO / ident lookup with no name search, for callers that must not
+ * accept a fuzzy match (for example attributing a country to a logged airport).
+ */
+function findAirportByIcao(icao: string | null | undefined): AirportRecord | null {
+  if (!loadData()) return null;
+  const code = String(icao || '').trim().toUpperCase();
+  if (!code) return null;
+  return airports.get(code) || airportsByIcao.get(code) || null;
+}
+
 function findAirportByQuery(query: string | null | undefined): AirportRecord | null {
   if (!loadData()) return null;
   if (!query || query.length < 2) return null;
@@ -571,6 +593,7 @@ module.exports = {
   // Search
   findSuitableAirports,
   findNearestSuitable,
+  findAirportByIcao,
   findAirportByQuery,
   getDistanceToAirport,
   

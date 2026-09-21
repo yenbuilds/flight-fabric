@@ -25,5 +25,5 @@ export declare function createSimbridgeRuntimeState(params?: {
 };
 export declare function resetSimbridgeBroadcastState(runtimeState: AnyRecord): void;
 export declare function rememberReplayMessage(runtimeState: AnyRecord, message: AnyRecord | null | undefined): void;
-export declare function getReplayMessages(runtimeState: AnyRecord): any[];
+export declare function getReplayMessages(runtimeState: AnyRecord, subscriptions?: ReadonlySet<string> | null): any[];
 export {};

@@ -1,7 +1,7 @@
 // user-settings.js
 // User-editable settings loaded from settings.json in the app data directory.
 //
-// This provides a user-friendly way to configure Flight Fabric without
+// This provides a user-friendly way to configure FlightFabric without
 // needing to edit environment variables or .env files.
 //
 // Settings file location:
@@ -71,7 +71,7 @@ let retiredLocalProfileWarningEmitted = false;
 const DEFAULT_SETTINGS: SettingsObject = {
   // Schema version for forward compatibility
   _version: CURRENT_SETTINGS_VERSION,
-  _description: 'Flight Fabric user settings. Edit values below and restart the app.',
+  _description: 'FlightFabric user settings. Edit values below and restart the app.',
 
   // ---------------------------------------------------------------------------
   // Database Storage Limits
@@ -121,7 +121,7 @@ const DEFAULT_SETTINGS: SettingsObject = {
   // Flight Recording
   // ---------------------------------------------------------------------------
   recording: {
-    // Automatically start saving a CSV flight log when Flight Fabric detects a
+    // Automatically start saving a CSV flight log when FlightFabric detects a
     // flight start (default: true). Turn off if you only want live monitoring.
     autoStart: true,
   },
@@ -138,7 +138,7 @@ const DEFAULT_SETTINGS: SettingsObject = {
   // Debrief
   // ---------------------------------------------------------------------------
   // Personal simulator debrief criteria. These are not SOP compliance rules and
-  // do not make Flight Fabric training software; they only tune the local
+  // do not make FlightFabric training software; they only tune the local
   // post-flight stability explanation/scoring model.
   debrief: {
     stabilityCriteria: {
@@ -197,8 +197,18 @@ const DEFAULT_SETTINGS: SettingsObject = {
   // ---------------------------------------------------------------------------
   effects: {
     // Camera shake on touchdown, scaled to landing V/S (default: false).
-    // Requires the LVAR sidecar bridge to be running.
+    // DISABLED in this release regardless of this value: neither transport
+    // produced a visible effect in the sim. See TOUCHDOWN_SHAKE_DISABLED in
+    // telemetry-provider/touchdown-shake.ts. The settings are kept so a
+    // future release can honour them again without a migration.
     touchdownShake: false,
+    // 'eyepoint' writes the sim's own eyepoint dynamic offset/angle: additive on
+    // top of the user's camera and never takes camera ownership. 'camera6dof'
+    // is the legacy CameraSetRelative6DOF path, which snaps the camera to the
+    // default eyepoint and holds it until MSFS releases the override.
+    touchdownShakeMethod: 'eyepoint',
+    // Amplitude multiplier for the shake, 0.1 to 3.
+    touchdownShakeIntensity: 1,
   },
 
 };
@@ -222,8 +232,8 @@ function ensureAppDataMarker(): void {
       allowedBasenames: [APP_DATA_MARKER_FILE_NAME],
       allowedExtensions: ['.json'],
       data: JSON.stringify({
-        app: 'Flight Fabric',
-        purpose: 'Marks this directory as Flight Fabric per-user app data.',
+        app: 'FlightFabric',
+        purpose: 'Marks this directory as FlightFabric per-user app data.',
         version: 1,
       }, null, 2),
       operation: 'createAppDataMarker',

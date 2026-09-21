@@ -9,7 +9,7 @@ const props = defineProps({
   },
   label: {
     type: String,
-    default: 'Flight Fabric phone setup QR code',
+    default: 'FlightFabric phone setup QR code',
   },
   value: {
     type: String,

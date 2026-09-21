@@ -8,6 +8,9 @@
 const { MSG } = require('./message-types') as {
   MSG: Readonly<Record<string, string>>;
 };
+const { sanitizeFlightPlanFields } = require('./flight-plan-relay') as typeof import('./flight-plan-relay');
+const { sanitizeVoiceStatusFields } = require('./voice-status-relay') as typeof import('./voice-status-relay');
+const { sanitizeToolbarFlightHistory } = require('./toolbar-flight-history') as typeof import('./toolbar-flight-history');
 
 type ClientScopeFlags = {
   __ffPrivilegedClient?: boolean;
@@ -19,7 +22,7 @@ type ServerMessage = Record<string, any>;
 const PRIVILEGE_REQUIRED_ERROR = 'Privileged session required for this action.';
 const AIRCRAFT_CONTROL_AUTH_ERROR =
   'Aircraft controls require a privileged session or trusted-LAN aircraft control permission.';
-const LOCAL_SETTINGS_LABEL = 'Stored locally in your Flight Fabric settings directory';
+const LOCAL_SETTINGS_LABEL = 'Stored locally in your FlightFabric settings directory';
 
 // Every MSG value must live in exactly one of these lists. The regression test
 // compares their union with MSG so a new server message fails closed until its
@@ -52,6 +55,7 @@ export const UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = 
   MSG.CONTROLS,
   MSG.CABIN_ANNOUNCEMENT,
   MSG.SIM_STATE,
+  MSG.SIM_TIME,
   MSG.AIRCRAFT_SPECIFIC_STATE,
   MSG.ASSISTS,
   MSG.SIGNAL_RELIABILITY,
@@ -67,12 +71,15 @@ export const UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = 
   MSG.AUTOPILOT,
   MSG.DISK_WARNING,
   MSG.UPDATE_AVAILABLE,
+  // Public supporter goal from the update manifest; safe for any viewer.
+  MSG.SUPPORT_GOAL,
   MSG.FUEL_UNIT,
   MSG.SHOW_BRANDING,
   MSG.AUTHORIZATION_SCOPE,
 ]);
 
 export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Object.freeze([
+  MSG.TOOLBAR_FLIGHT_HISTORY,
   MSG.AIRCRAFT_CHANGED,
   MSG.AIRCRAFT_PROFILE,
   MSG.DATA_SOURCES,
@@ -85,7 +92,10 @@ export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Ob
   MSG.FLIGHT_ANALYSIS_RESCORE_RESULT,
   MSG.AIRCRAFT_COMMAND_RESULT,
   MSG.AIRCRAFT_CONTROL_RESULT,
+  MSG.AUTOTAXI_STATE,
+  MSG.CDU_STATE,
   MSG.FLIGHT_PLAN,
+  MSG.VOICE_STATUS,
   MSG.DESTINATION_TARGET,
   MSG.ORIGIN_TARGET,
   MSG.APP_SETTINGS,
@@ -518,55 +528,38 @@ function projectDataSources(message: ServerMessage): ServerMessage {
   return projected;
 }
 
+// Drop any relayed string that looks like a local path or URL so a mislabelled
+// OFP field can never carry filesystem details to an unpaired client.
+function scrubPathLikeStrings(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  for (const [key, entry] of Object.entries(value as ServerMessage)) {
+    if (typeof entry === 'string') {
+      if (isSensitivePathLike(entry)) delete (value as ServerMessage)[key];
+    } else if (entry && typeof entry === 'object') {
+      scrubPathLikeStrings(entry);
+    }
+  }
+}
+
 function projectFlightPlan(message: ServerMessage): ServerMessage {
+  // The SimBrief username stays with the privileged desktop session; every
+  // other field is re-bounded by the shared relay schema.
   const projected: ServerMessage = { type: message.type };
   if (typeof message.cleared === 'boolean') projected.cleared = message.cleared;
-
-  const stringFields: ReadonlyArray<[string, number]> = [
-    ['originName', 80],
-    ['destinationName', 80],
-    ['aircraft', 20],
-    ['aircraftName', 80],
-    ['callsign', 20],
-    ['flightNumber', 20],
-    ['route', 2000],
-    ['cruiseAltFl', 10],
-    ['cruiseMach', 10],
-  ];
-  for (const [key, maxLength] of stringFields) {
-    if (!hasOwn(message, key)) continue;
-    if (message[key] === null) {
-      projected[key] = null;
-      continue;
-    }
-    const sanitized = safeBoundedString(message[key], maxLength);
-    if (sanitized !== null) projected[key] = sanitized;
+  if (hasOwn(message, 'fetchedAt')) {
+    projected.fetchedAt = message.fetchedAt === null ? null : safeFiniteNumber(message.fetchedAt);
   }
+  const fields = sanitizeFlightPlanFields(message);
+  scrubPathLikeStrings(fields);
+  return Object.assign(projected, fields);
+}
 
-  for (const key of ['origin', 'destination', 'alternate']) {
-    if (!hasOwn(message, key)) continue;
-    if (message[key] === null) {
-      projected[key] = null;
-      continue;
-    }
-    const icao = safeBoundedString(message[key], 4, /^[A-Z0-9]{3,4}$/i);
-    if (icao) projected[key] = icao.toUpperCase();
-  }
-
-  for (const key of [
-    'fetchedAt',
-    'eteSeconds',
-    'fuelLbs',
-    'costIndex',
-  ]) {
-    if (!hasOwn(message, key)) continue;
-    if (message[key] === null) {
-      projected[key] = null;
-      continue;
-    }
-    const numericValue = safeFiniteNumber(message[key]);
-    if (numericValue !== null) projected[key] = numericValue;
-  }
+function projectVoiceStatus(message: ServerMessage): ServerMessage | null {
+  const fields = sanitizeVoiceStatusFields(message);
+  if (!fields) return null;
+  const projected: ServerMessage = { type: message.type, ...fields };
+  const updatedAt = safeFiniteNumber(message.updatedAt);
+  if (updatedAt !== null) projected.updatedAt = updatedAt;
   return projected;
 }
 
@@ -910,6 +903,71 @@ function projectAircraftCommandResult(
   return projected;
 }
 
+function projectAutotaxiState(client: ClientScopeFlags | null | undefined, message: ServerMessage): ServerMessage | null {
+  const projected: ServerMessage = { type: message.type, requestId: safeRequestId(message.requestId), ok: message.ok === true };
+  if (client?.__ffAircraftControlClient !== true) {
+    return message.ok === false ? { ...projected, error: AIRCRAFT_CONTROL_AUTH_ERROR } : null;
+  }
+  for (const key of ['status', 'reason', 'active', 'canStart', 'unavailableReason', 'remainingM', 'runwayTravelM', 'joinM',
+    'handedOver', 'steeringReversed', 'probing', 'runway', 'profileKey', 'profileRevision', 'currentProfileKey',
+    'currentProfileRevision', 'observedSpeedKts', 'commanded']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key]);
+  }
+  // Preserve the entire bounded route and the taxi-map scene; the ordinary
+  // 100-entry metadata limit would silently shorten a route or drop most of
+  // the pavement on large airport graphs. Scenes are bounded at source
+  // (MAX_LINKS in autotaxi/scene.ts) and hold only local geometry.
+  for (const key of ['preview', 'route', 'scene', 'stands', 'standOptions']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key], 0, 5, 20000);
+  }
+  for (const key of ['aircraft', 'sceneKey']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key]);
+  }
+  // Candidate instructions and public handling identity belong on paired
+  // aircraft controls too. Never expose resolver paths or internal diagnostics.
+  for (const [key, fields] of [
+    ['support', ['family', 'aircraftLabel', 'qualificationStatus', 'setupInstructions', 'reason']],
+    ['handling', ['id', 'label']],
+  ] as const) {
+    const value = message[key];
+    if (value === null) projected[key] = null;
+    else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const selected: ServerMessage = {};
+      for (const field of fields) if (hasOwn(value, field)) selected[field] = value[field];
+      projected[key] = sanitizeMetadataValue(selected);
+    }
+  }
+  if (message.error) projected.error = safeBoundedString(message.error, 300) || 'Autotaxi request failed.';
+  return projected;
+}
+
+function projectCduState(message: ServerMessage): ServerMessage {
+  // Screen reads are allowed on trusted-LAN viewers. Key authorization remains
+  // on the inbound command path; a display/session identifier grants no rights.
+  const projected: ServerMessage = { type: message.type, requestId: safeRequestId(message.requestId), ok: message.ok === true };
+  for (const key of ['profileKey', 'profileRevision', 'integrationId', 'side', 'sessionId', 'label', 'mode', 'setup', 'functionKeys', 'entryKeys']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key]);
+  }
+  if (message.externalPort === 8083) projected.externalPort = 8083;
+  if (message.error) projected.error = safeBoundedString(message.error, 300) || 'CDU request failed.';
+  if (hasOwn(message, 'screen')) {
+    const screen = message.screen;
+    projected.screen = screen && Array.isArray(screen.rows) ? {
+      powered: screen.powered === true,
+      rows: screen.rows.slice(0, 14).map((row: unknown) => Array.isArray(row) ? row.slice(0, 24).map(cell => ({
+        // Individual display characters such as '/' must survive path
+        // redaction. Never copy arbitrary fields from a native display cell.
+        text: typeof cell?.text === 'string' && [...cell.text].length === 1 ? cell.text : ' ',
+        color: ['white', 'cyan', 'green', 'magenta', 'amber', 'red', 'yellow'].includes(cell?.color) ? cell.color : 'white',
+        small: cell?.small === true, reverse: cell?.reverse === true, dim: cell?.dim === true,
+      })) : []),
+      annunciators: sanitizeMetadataValue(screen.annunciators),
+      arrows: sanitizeMetadataValue(screen.arrows),
+    } : null;
+  }
+  return projected;
+}
+
 function projectAppSettings(message: ServerMessage): ServerMessage {
   const rawSettings = message.settings && typeof message.settings === 'object' && !Array.isArray(message.settings)
     ? message.settings as ServerMessage
@@ -930,7 +988,7 @@ function projectAppSettings(message: ServerMessage): ServerMessage {
     settings,
     settingsFile: LOCAL_SETTINGS_LABEL,
     storage: {
-      appDataDir: 'Stored locally in your Flight Fabric app-data directory',
+      appDataDir: 'Stored locally in your FlightFabric app-data directory',
       settingsFile: LOCAL_SETTINGS_LABEL,
       bundledAircraftProfilesDir: 'Release-owned and read-only',
       cabinAnnouncementAudioDir: 'Stored locally for cabin-audio overrides',
@@ -964,6 +1022,7 @@ function projectPrivilegeDeniedResult(message: ServerMessage): ServerMessage | n
     case MSG.APP_SETTINGS_SAVED:
       return {
         type,
+        requestId,
         ok: false,
         error: PRIVILEGE_REQUIRED_ERROR,
         settingsFile: LOCAL_SETTINGS_LABEL,
@@ -1021,6 +1080,18 @@ export function projectServerMessageForClient(
   switch (type) {
     case MSG.AIRCRAFT_PROFILE:
       return projectAircraftProfile(value);
+    case MSG.TOOLBAR_FLIGHT_HISTORY: {
+      const history = sanitizeToolbarFlightHistory(value);
+      const aircraft = history.aircraft;
+      history.aircraft = aircraft ? {
+        profileKey: safeProfileLocator(aircraft.profileKey) || '',
+        title: safeAircraftLabel(aircraft.title, null) || '',
+      } : null;
+      history.flightId = safeBoundedString(history.flightId, 128) || '';
+      history.landing = stripKnownSensitiveFields(history.landing);
+      history.cautions = stripKnownSensitiveFields(history.cautions);
+      return history;
+    }
     case MSG.AIRCRAFT_CHANGED:
       return projectAircraftChanged(value);
     case MSG.DATA_SOURCES:
@@ -1041,8 +1112,14 @@ export function projectServerMessageForClient(
       return projectAircraftControlResult(client, value);
     case MSG.AIRCRAFT_COMMAND_RESULT:
       return projectAircraftCommandResult(client, value);
+    case MSG.AUTOTAXI_STATE:
+      return projectAutotaxiState(client, value);
+    case MSG.CDU_STATE:
+      return projectCduState(value);
     case MSG.FLIGHT_PLAN:
       return projectFlightPlan(value);
+    case MSG.VOICE_STATUS:
+      return projectVoiceStatus(value);
     case MSG.DESTINATION_TARGET:
     case MSG.ORIGIN_TARGET:
       return projectRouteTarget(value);
@@ -1072,7 +1149,7 @@ export function projectSerializedServerMessageForClient(
   try {
     parsed = JSON.parse(payload);
   } catch {
-    // Flight Fabric's server protocol is JSON-only. Fail closed for unpaired
+    // FlightFabric's server protocol is JSON-only. Fail closed for unpaired
     // clients if a caller tries to bypass the structured message boundary.
     return null;
   }

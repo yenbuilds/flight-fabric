@@ -19,6 +19,7 @@ const timeSource = require('./time-source');
 const { APP_DATA_DIR, loadUserSettings, updateUserSettings, SETTINGS_FILE } = require('./user-settings');
 const { DESTINATION_TARGET_FILE, ORIGIN_TARGET_FILE } = require('./destination-target-store');
 const { LOGBOOK_FILE } = require('../landing/flight-logbook');
+const { withFlightCountriesList, withLandingCountryList } = require('../landing/airport-country') as typeof import('../landing/airport-country');
 const { createFlightCsvStore } = require('../flight-recording/flight-csv-store');
 const {
   getCabinAnnouncementAudioDir,
@@ -33,19 +34,23 @@ const {
   sanitizeAppSettingsPatch: sanitizeSharedAppSettingsPatch,
 } = require('../../shared/app-settings-shared.js');
 const BACKEND_VERSION = getDisplayAppVersion();
-const { getLastUpdateMsg } = require('./update-checker');
+const { getLastUpdateMsg, getLastSupportGoalMsg } = require('./update-checker');
 const aircraftControlService = require('../aircraft/aircraft-control-service');
 const { isClientMessageAuthorized } = require('./client-message-authorization');
+const { sanitizeFlightPlanFields } = require('./flight-plan-relay') as typeof import('./flight-plan-relay');
+const { sanitizeVoiceStatusFields } = require('./voice-status-relay') as typeof import('./voice-status-relay');
 
 type AnyRecord = Record<string, any>;
 type WsLike = {
   send: (_payload: string) => void;
   __ffPrivilegedClient?: boolean;
   __ffAircraftControlClient?: boolean;
+  __ffSubscribedTypes?: ReadonlySet<string> | null;
 };
 type DebugLike = { log: (_scope: string, _event: string, _payload?: AnyRecord) => void };
 
 let aircraftControlRequestTail: Promise<void> = Promise.resolve();
+let autotaxiRequestGeneration = 0;
 
 function serializeAircraftControlRequest<T>(operation: () => Promise<T>): Promise<T> {
   const result = aircraftControlRequestTail.then(operation, operation);
@@ -65,6 +70,10 @@ let lastShowBrandingPref = null;
 // Allows strip overlays to recover the active flight plan after reconnect.
 let lastFlightPlan = null;
 
+// Last known desktop voice-control status - replayed to newly-connected clients
+// on requestState so in-sim views show the current push-to-talk state.
+let lastVoiceStatus = null;
+
 /**
  * Sanitize an incoming flightPlan relay payload from a UI client.
  * Returns a clean object or null if the payload is too malformed to relay.
@@ -72,57 +81,35 @@ let lastFlightPlan = null;
 function sanitizeFlightPlan(payload) {
   if (!payload || typeof payload !== 'object') return null;
 
-  function safeStr(v, maxLen = 100) {
-    if (typeof v !== 'string') return null;
-    const t = v.trim().slice(0, maxLen);
-    return t || null;
-  }
-  function safeNum(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  function safeIcao(v) {
-    if (typeof v !== 'string') return null;
-    const t = v.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
-    return t.length >= 3 ? t : null;
-  }
-
   // A cleared message only needs cleared:true - no flight data required.
   if (payload.cleared === true) {
     return { type: MSG.FLIGHT_PLAN, cleared: true, username: '' };
   }
 
-  const username = safeStr(payload.username, 40);
+  const username = typeof payload.username === 'string' ? payload.username.trim().slice(0, 40) : '';
   if (!username) return null; // Username is the minimum required field
 
-  const origin      = safeIcao(payload.origin);
-  const destination = safeIcao(payload.destination);
-  const alternate   = safeIcao(payload.alternate);
-
+  const fetchedAt = Number(payload.fetchedAt);
   return {
     type: MSG.FLIGHT_PLAN,
     username,
-    fetchedAt: safeNum(payload.fetchedAt) ?? timeSource.now(),
-    origin,
-    originName:      safeStr(payload.originName, 80),
-    destination,
-    destinationName: safeStr(payload.destinationName, 80),
-    alternate,
-    aircraft:   safeStr(payload.aircraft, 20),
-    aircraftName: safeStr(payload.aircraftName, 80),
-    callsign:   safeStr(payload.callsign, 20),
-    flightNumber: safeStr(payload.flightNumber, 20),
-    route:      safeStr(payload.route, 2000),
-    cruiseAltFl: safeStr(payload.cruiseAltFl, 10),
-    cruiseMach:  safeStr(payload.cruiseMach, 10),
-    eteSeconds:  safeNum(payload.eteSeconds),
-    fuelLbs:     safeNum(payload.fuelLbs),
-    costIndex:   safeNum(payload.costIndex),
+    fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : timeSource.now(),
+    ...sanitizeFlightPlanFields(payload),
   };
+}
+
+/**
+ * Sanitize an incoming voiceStatus relay payload from the desktop UI.
+ * Returns a clean object or null if the payload carries no usable status.
+ */
+function sanitizeVoiceStatus(payload) {
+  const fields = sanitizeVoiceStatusFields(payload);
+  if (!fields) return null;
+  return { type: MSG.VOICE_STATUS, updatedAt: timeSource.now(), ...fields };
 }
 const profileLoader = require('../aircraft/aircraft-profile-loader');
 const CABIN_ANNOUNCEMENTS_DIR = getCabinAnnouncementAudioDir();
-const SETTINGS_FILE_LABEL = 'Stored locally in your Flight Fabric settings directory';
+const SETTINGS_FILE_LABEL = 'Stored locally in your FlightFabric settings directory';
 
 function buildStorageSummary(options: { includeLocalPaths?: boolean } = {}) {
   const flightLogs = getFlightLogsStorageInfo();
@@ -146,7 +133,7 @@ function buildStorageSummary(options: { includeLocalPaths?: boolean } = {}) {
   }
 
   return {
-    appDataDir: 'Stored locally in your Flight Fabric app-data directory',
+    appDataDir: 'Stored locally in your FlightFabric app-data directory',
     settingsFile: SETTINGS_FILE_LABEL,
     bundledAircraftProfilesDir: 'Release-owned and read-only',
     cabinAnnouncementAudioDir: 'Stored locally for cabin-audio overrides',
@@ -271,6 +258,7 @@ function sendRequestStateSnapshot(ws: WsLike, {
       if (message.type === MSG.SIM_STATE) continue;
       if (message.type === MSG.PHASE) continue;
       if (message.type === MSG.FLIGHT_RECORDING) continue;
+      if (message.type === MSG.TOOLBAR_FLIGHT_HISTORY && !ws.__ffSubscribedTypes?.has(MSG.TOOLBAR_FLIGHT_HISTORY)) continue;
       try {
         ws.send(JSON.stringify(message));
       } catch {}
@@ -306,10 +294,17 @@ function sendRequestStateSnapshot(ws: WsLike, {
   if (lastFlightPlan) {
     ws.send(JSON.stringify(lastFlightPlan));
   }
+  if (lastVoiceStatus) {
+    ws.send(JSON.stringify(lastVoiceStatus));
+  }
 
   const pendingUpdate = getLastUpdateMsg();
   if (pendingUpdate) {
     ws.send(JSON.stringify(pendingUpdate));
+  }
+  const pendingSupportGoal = getLastSupportGoalMsg();
+  if (pendingSupportGoal) {
+    ws.send(JSON.stringify(pendingSupportGoal));
   }
 
   ws.send(JSON.stringify(refreshAppSettingsMessage({
@@ -322,9 +317,18 @@ function sendPrivilegeDenied(ws: WsLike, msg: AnyRecord) {
   const error = 'Privileged session required for this action.';
 
   switch (msg.type) {
+    case 'sendCduKey':
+      ws.send(JSON.stringify({ type: 'cduState', requestId: msg.requestId || null, ok: false,
+        error: 'Pair this device for aircraft controls before using CDU keys.' }));
+      return;
+    case 'autotaxi':
+      ws.send(JSON.stringify({ type: 'autotaxiState', requestId: msg.requestId || null, ok: false,
+        error: 'Aircraft control permission is required for autotaxi.' }));
+      return;
     case 'saveAppSettings':
       ws.send(JSON.stringify({
         type: MSG.APP_SETTINGS_SAVED,
+        requestId: sanitizeTimelineRequestId(msg.requestId),
         ok: false,
         error,
         settingsFile: SETTINGS_FILE_LABEL,
@@ -678,7 +682,52 @@ async function handleClientMessage(ws, msg, context) {
     || createFlightCsvStore({ flightCsvWriter, recordingBundleGuard, Debug });
 
   switch (msg.type) {
+    case 'requestCduState':
+    case 'sendCduKey': {
+      try {
+        if (typeof msg.requestId !== 'string' || msg.requestId.length > 128) throw new Error('Invalid CDU request identifier.');
+        if (typeof provider?.requestCdu !== 'function') throw new Error('Remote CDU is available with the MSFS provider only.');
+        const receivedAt = timeSource.now();
+        const canWrite = () => isClientMessageAuthorized(ws, 'sendCduKey')
+          && (ws.readyState === undefined || ws.readyState === 1)
+          && !aircraftControlService.validateSimState({ requireStableSimState: true,
+            simState: lastSimState, getSimState: typeof getSimState === 'function' ? getSimState : undefined });
+        const operation = () => {
+          // Keys must never wait behind a long preset/minimums transaction and then replay.
+          if (msg.type === 'sendCduKey' && (timeSource.now() - receivedAt > 500 || !canWrite())) throw new Error('CDU key was not sent. Wait for aircraft controls to become ready.');
+          return provider.requestCdu(msg, canWrite);
+        };
+        const result = msg.type === 'sendCduKey' ? await serializeAircraftControlRequest(operation) : await operation();
+        ws.send(JSON.stringify({ ...result, type: 'cduState', requestId: msg.requestId, ok: true }));
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'cduState', requestId: typeof msg.requestId === 'string' ? msg.requestId.slice(0, 128) : null, ok: false,
+          error: err instanceof Error ? err.message : 'CDU request failed.' }));
+      }
+      break;
+    }
     // Request current state (for page refresh/reconnect)
+    case 'autotaxi': {
+      try {
+        if (typeof provider?.requestAutotaxi !== 'function') throw new Error('Autotaxi is available with the MSFS provider only.');
+        const receivedAt = timeNow();
+        const ownerConnected = () => isClientMessageAuthorized(ws, 'autotaxi')
+          && (ws.readyState === undefined || ws.readyState === 1);
+        const generation = ['start', 'preview', 'stop', 'release'].includes(msg.operation)
+          ? ++autotaxiRequestGeneration : autotaxiRequestGeneration;
+        const result = msg.operation === 'start' || msg.operation === 'preview'
+          ? await serializeAircraftControlRequest(() => {
+              if (generation !== autotaxiRequestGeneration) throw new Error('Taxi request cancelled.');
+              if (!ownerConnected() || timeNow() - receivedAt > 3000) throw new Error('Taxi request expired or control connection lost. Try again.');
+              return provider.requestAutotaxi(msg, ws, ownerConnected);
+            })
+          : await provider.requestAutotaxi(msg, ws, ownerConnected);
+        ws.send(JSON.stringify({ ...result, requestId: msg.requestId || null, ok: true }));
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'autotaxiState', requestId: msg.requestId || null, ok: false,
+          error: err instanceof Error ? err.message : 'Autotaxi request failed.' }));
+      }
+      break;
+    }
     case 'requestState': {
       sendRequestStateSnapshot(ws, {
         lastSimState,
@@ -741,6 +790,7 @@ async function handleClientMessage(ws, msg, context) {
         broadcast(lastAppSettings);
         ws.send(JSON.stringify({
           type: MSG.APP_SETTINGS_SAVED,
+          requestId: sanitizeTimelineRequestId(msg.requestId),
           ok: true,
           settings: clientAppSettings.settings,
           settingsFile: clientAppSettings.settingsFile,
@@ -751,6 +801,7 @@ async function handleClientMessage(ws, msg, context) {
       } catch (err) {
         ws.send(JSON.stringify({
           type: MSG.APP_SETTINGS_SAVED,
+          requestId: sanitizeTimelineRequestId(msg.requestId),
           ok: false,
           error: err.message || 'Failed to save settings',
           settingsFile: SETTINGS_FILE_LABEL,
@@ -797,6 +848,20 @@ async function handleClientMessage(ws, msg, context) {
       // receive a stale plan after the user has cleared the dispatch.
       lastFlightPlan = plan.cleared ? null : plan;
       broadcast(plan);
+      break;
+    }
+
+    // ========================================
+    // Desktop Voice Status Relay
+    // ========================================
+
+    case MSG.VOICE_STATUS: {
+      // Sanitize and relay the desktop voice-control status so in-sim views
+      // (the MSFS toolbar panel) can show push-to-talk state and outcomes.
+      const status = sanitizeVoiceStatus(msg);
+      if (!status) break;
+      lastVoiceStatus = status;
+      broadcast(status);
       break;
     }
 
@@ -1153,7 +1218,7 @@ async function handleClientMessage(ws, msg, context) {
         ws.send(JSON.stringify({
           type: MSG.TIMELINE_LIST,
           requestId: msg.requestId || null,
-          flights: result.flights,
+          flights: withFlightCountriesList(result.flights),
           storage: result.storage,
           ...(result.index ? { index: result.index } : {}),
         }));
@@ -1312,7 +1377,7 @@ async function handleClientMessage(ws, msg, context) {
         if (!result.success) throw new Error(result.error);
         ws.send(JSON.stringify({
           type: MSG.LOGBOOK,
-          entries: result.entries,
+          entries: withLandingCountryList(result.entries),
           stats: result.stats,
           index: result.index || null,
         }));

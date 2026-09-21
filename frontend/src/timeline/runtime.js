@@ -94,6 +94,15 @@ export function createTimelineRuntime({
     timelineStore.clearTimelineLoading?.();
   }
 
+  function failTimelineLoading(message) {
+    if (typeof timelineStore.failTimelineLoading === 'function') {
+      timelineStore.failTimelineLoading(message);
+    } else {
+      finishTimelineLoading();
+      timelineStore.failPendingFlightLanding?.(message);
+    }
+  }
+
   function isCurrentTimelineRequestMessage(message) {
     return typeof timelineStore.isCurrentTimelineRequestMessage !== 'function'
       || timelineStore.isCurrentTimelineRequestMessage(message);
@@ -163,7 +172,7 @@ export function createTimelineRuntime({
       } catch (error) {
         const errorMessage = `Could not display timeline: ${error?.message || 'unknown error'}`;
         console.error('[Timeline] Failed to display Timeline response', error);
-        timelineStore.failPendingFlightLanding?.(errorMessage);
+        failTimelineLoading(errorMessage);
         timelinePage.showEmpty?.({ message: errorMessage });
       } finally {
         // A map or rendering exception must not strand the viewer in its
@@ -188,8 +197,7 @@ export function createTimelineRuntime({
 
     if (msg.type === 'timelineError') {
       const errorMessage = `Could not load timeline: ${msg.error || 'unknown error'}`;
-      finishTimelineLoading();
-      timelineStore.failPendingFlightLanding?.(errorMessage);
+      failTimelineLoading(errorMessage);
       timelinePage.showEmpty?.({ message: errorMessage });
     }
 
@@ -267,6 +275,8 @@ export function createTimelineRuntime({
         (state, previousState) => {
           if (state === 'ready' && previousState !== 'ready') {
             scheduleTimelineListRequest(500);
+          } else if (state === 'disconnected' || state === 'error') {
+            timelineStore.markListDisconnected?.();
           }
         },
         { immediate: true },

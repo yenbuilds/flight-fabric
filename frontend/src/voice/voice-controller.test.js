@@ -31,10 +31,11 @@ function createHarness(options = {}) {
   const state = {
     runtime: {
       available: false, development: false, enabled: false, error: '', modelId: '', shortcut: '',
-      shortcutError: '', shortcutRegistered: false,
+      shortcutError: '', shortcutRegistered: false, joystick: null, joystickConnected: false,
     },
     status: 'initializing', statusText: '', transcript: '', lastCommand: '', activeSessionId: '',
     inputDevices: [], selectedInputDeviceId: '', spokenReadbacks: true,
+    joystickLearn: { active: false, devices: [], captured: null, error: '' },
   };
   const voiceStore = Object.assign(state, {
     bindRuntime(actions) { this.actions = actions; },
@@ -50,7 +51,16 @@ function createHarness(options = {}) {
           : '',
         shortcutError: info.pushToTalk?.error || '',
         shortcutRegistered: info.pushToTalk?.registered === true,
+        joystick: info.pushToTalk?.joystick || null,
+        joystickConnected: info.pushToTalk?.joystickConnected === true,
       };
+    },
+    setJoystickLearn({ active = false, error = '' } = {}) {
+      this.joystickLearn = { active, devices: [], captured: null, error };
+    },
+    applyJoystickLearnEvent(event) {
+      if (event.type === 'button' && event.down) this.joystickLearn.captured = { ...event };
+      if (event.type === 'stopped') this.joystickLearn.active = false;
     },
     setState(status, text) { this.status = status; this.statusText = text; },
     setSession(value) { this.activeSessionId = value; },
@@ -64,6 +74,8 @@ function createHarness(options = {}) {
   let recognitionListener = null;
   let pttListener = null;
   let runtimeListener = null;
+  let joystickLearnListener = null;
+  const joystickCalls = [];
   let recognitionSessionIndex = 0;
   const audio = [];
   const cancellations = [];
@@ -100,6 +112,13 @@ function createHarness(options = {}) {
       return runtimeInfo;
     },
     setPushToTalkShortcut: async (accelerator) => ({ accelerator, registered: true }),
+    onJoystickLearn(listener) { joystickLearnListener = listener; return () => {}; },
+    startJoystickLearn: async () => { joystickCalls.push('start'); return { started: true }; },
+    stopJoystickLearn: async () => { joystickCalls.push('stop'); return { stopped: true }; },
+    setPushToTalkJoystick: async (binding) => {
+      joystickCalls.push(['bind', binding]);
+      return { ...runtimeInfo.pushToTalk, joystick: binding, joystickConnected: binding !== null };
+    },
   };
   const captures = [];
   const spokenReadbacks = [];
@@ -139,6 +158,7 @@ function createHarness(options = {}) {
   const controller = createVoiceControlController({
     api, aircraftControl, aircraftControlsStore, voiceStore, createCapture,
     aircraftSpecificStore: options.aircraftSpecificStore,
+    simbriefStore: options.simbriefStore,
     globalRef: options.globalRef || {}, readback, pushToTalkTone,
     // Most controller tests do not need to spend real time in the production
     // release tail. The dedicated regression below exercises the real delay.
@@ -150,6 +170,8 @@ function createHarness(options = {}) {
     emitRecognition: (event) => recognitionListener?.(event),
     emitPtt: (event) => pttListener?.(event),
     emitRuntime: (event) => runtimeListener?.(event),
+    emitJoystickLearn: (event) => joystickLearnListener?.(event),
+    joystickCalls,
     readbackCancellations, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
@@ -286,6 +308,39 @@ test('read-only queries work before a control catalogue and reject profile or da
     assert.equal(h.sentCommands.length, 0);
     assert.equal(h.voiceStore.status, change === 'none' ? 'sent' : 'error');
     assert.equal(h.spokenReadbacks.includes('Ground spoilers disarmed.'), change === 'none');
+    await h.controller.dispose();
+  }
+});
+
+test('SimBrief flight plan questions read the loaded OFP on any voice-ready aircraft without dispatching controls', async () => {
+  const plan = { origin: 'YSSY', departureRunway: '34L', destination: 'WSSS', arrivalRunway: '02C', cruiseAltFl: 'FL360',
+    procedures: { sid: 'DEEZ5', sidTransition: 'KADAL', star: 'ARAM1A', starTransition: null } };
+  const cases = [
+    [plan, 'what is the simbrief flight plan', 'sent',
+      'Departure YSSY, runway 34L, SID DEEZ5, transition KADAL. Planned altitude FL360. Arrival WSSS, runway 02C, STAR ARAM1A, no transition.',
+      'Departure Y S S Y, runway three four left, SID D E E Z five, transition K A D A L. Planned altitude flight level three six zero. Arrival W S S S, runway zero two center, STAR A R A M one A, no transition.'],
+    [plan, "what's my departure", 'sent', 'Departure YSSY, runway 34L, SID DEEZ5, transition KADAL.',
+      'Departure Y S S Y, runway three four left, SID D E E Z five, transition K A D A L.'],
+    [null, 'what is the arrival', 'error', 'No SimBrief flight plan loaded. Fetch an OFP on the SimBrief tab first.',
+      'No SimBrief flight plan loaded. Fetch an OFP on the SimBrief tab first.'],
+  ];
+  // A generic command catalogue with no state queries still answers, as does a query-only aircraft.
+  for (const [current, phrase, status, text, spoken] of cases) for (const queryOnly of [false, true]) {
+    const now = Date.now();
+    const state = queryOnly ? { activeProfileKey: 'bundled/msfs/fbw-a32nx', activeProfileRevision: 2, sourceStatus: 'connected',
+      values: {}, unavailable: [], updatedAt: new Date(now).toISOString(), receivedAt: now, valueUpdatedAt: {} } : undefined;
+    const h = createHarness({ simbriefStore: { plan: current }, aircraftSpecificStore: state,
+      ...(queryOnly ? { availability: { enabled: false, reason: 'Read only' },
+        catalogue: { profileKey: state.activeProfileKey, profileRevision: 2, configurationId: 'fbw-a32nx', commands: {} } } : {}) });
+    await h.controller.initialize(); assert.equal(await h.controller.begin(), true);
+    assert.ok(h.controller.collectHints().includes('WHAT IS THE SIMBRIEF FLIGHT PLAN'));
+    await h.controller.finish();
+    await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: phrase });
+    assert.equal(h.sentCommands.length, 0, phrase);
+    assert.equal(h.voiceStore.status, status, phrase);
+    assert.equal(h.voiceStore.statusText, text, phrase);
+    assert.equal(h.spokenReadbacks[0], spoken, phrase);
+    assert.match(h.voiceStore.lastCommand, /^Read flight plan: flightPlan/);
     await h.controller.dispose();
   }
 });
@@ -516,6 +571,58 @@ test('unassigned global shortcut asks for setup while on-screen push-to-talk sta
   assert.doesNotMatch(harness.voiceStore.statusText, /unavailable/i);
   assert.equal(await harness.controller.begin(), true, 'the on-screen PTT should work without a global shortcut');
   await harness.controller.cancel('user');
+});
+
+test('a bound joystick button is named in the ready status only while its stick is connected', async () => {
+  const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' };
+  const harness = createHarness({
+    runtimeInfo: {
+      available: true,
+      development: false,
+      enabled: true,
+      engine: { modelId: 'zipformer' },
+      pushToTalk: { accelerator: 'Control+Alt+Space', error: '', joystick, joystickConnected: true, registered: true },
+    },
+  });
+
+  await harness.controller.initialize();
+  assert.match(harness.voiceStore.statusText, /Hold Control\+Alt\+Space or T\.16000M button 5 or the button/);
+
+  harness.emitRuntime({
+    available: true, enabled: true, engine: { modelId: 'zipformer' },
+    pushToTalk: { accelerator: '', error: '', joystick, joystickConnected: false, registered: true },
+  });
+  assert.equal(harness.voiceStore.status, 'ready', 'an unplugged stick must not disable on-screen push-to-talk');
+  assert.doesNotMatch(harness.voiceStore.statusText, /button 5/, 'an unplugged stick is not offered as a hold');
+  assert.match(harness.voiceStore.statusText, /T\.16000M is not connected/);
+
+  harness.emitPtt({ type: 'error', error: 'Push-to-talk helper stopped' });
+  assert.deepEqual(harness.voiceStore.runtime.joystick, joystick, 'a helper failure keeps the saved binding visible');
+  assert.equal(harness.voiceStore.runtime.joystickConnected, false);
+});
+
+test('binding a joystick button takes the first press, stops detection and saves through the bridge', async () => {
+  const harness = createHarness();
+  await harness.controller.initialize();
+
+  assert.equal(await harness.voiceStore.actions.startJoystickLearn(), true);
+  assert.equal(harness.voiceStore.joystickLearn.active, true);
+  harness.emitJoystickLearn({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
+  harness.emitJoystickLearn({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 5, down: false });
+  assert.equal(harness.voiceStore.joystickLearn.captured, null, 'a release is not a choice');
+  harness.emitJoystickLearn({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 5, down: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.voiceStore.joystickLearn.captured.button, 5);
+  assert.equal(harness.voiceStore.joystickLearn.active, false, 'the first press ends detection');
+  assert.deepEqual(harness.joystickCalls, ['start', 'stop']);
+
+  const binding = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: 'p' };
+  assert.equal(await harness.voiceStore.actions.setJoystick(binding), true);
+  assert.deepEqual(harness.joystickCalls.at(-1), ['bind', binding]);
+  assert.deepEqual(harness.voiceStore.runtime.joystick, binding);
+  assert.match(harness.voiceStore.statusText, /T\.16000M button 5/);
+  assert.equal(await harness.voiceStore.actions.setJoystick(null), true);
+  assert.equal(harness.voiceStore.runtime.joystick, null);
 });
 
 test('development mode transcribes without a simulator, aircraft, or command catalogue', async () => {

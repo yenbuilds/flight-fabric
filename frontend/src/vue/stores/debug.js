@@ -26,6 +26,7 @@ function createDefaultConnectionState() {
     frameCount: 0,
     phase: '--',
     testShakeVs: '-400',
+    testShakeMethod: 'eyepoint',
     testShakeStatus: '',
     testShakeRequestNonce: 0,
     lastFrameTime: 0,
@@ -308,6 +309,10 @@ export const useDebugStore = defineStore('debug', {
 
     setTestShakeVs(value) {
       this.testShakeVs = String(value || '-400');
+    },
+
+    setTestShakeMethod(value) {
+      this.testShakeMethod = value === 'camera6dof' ? 'camera6dof' : 'eyepoint';
     },
 
     requestTestShake() {

@@ -1339,7 +1339,7 @@ function stubFenixA320IntegrationFields(provider) {
     'flightGuidance.altitudeIncrementMode': {
       id: 'flightGuidance.altitudeIncrementMode',
       source: { type: 'lvar', key: 'fenix_altitude_scale' },
-      decode: { type: 'enum', values: { 0: 'thousand', 1: 'hundred' } },
+      decode: { type: 'enum', values: { 0: 'hundred', 1: 'thousand' } },
     },
     'propulsion.throttleLever1Position': {
       id: 'propulsion.throttleLever1Position',
@@ -3045,6 +3045,24 @@ test('FlyByWire A380X virtual throttle coordinates and confirms all four calibra
     'the expression owns the documented fourth-axis event');
 });
 
+// Applies a Fenix encoder calculator code to a mocked snapshot the way the
+// aircraft would: ++/-- one detent, "N +"/"N -" N detents, a prime nothing.
+function applyFenixEncoderCode(snapshot, key, code, { step = 1, modulo = null, extra = 0 } = {}) {
+  const batch = /\) (\d+) ([+-]) \(>/.exec(code);
+  const detents = batch ? Number(batch[1]) * (batch[2] === '+' ? 1 : -1) : /\+\+/.test(code) ? 1 : /--/.test(code) ? -1 : 0;
+  if (detents === 0) return 0;
+  const moved = detents + Math.sign(detents) * extra;
+  let next = Number((snapshot.values[key] + moved * step).toFixed(8));
+  if (modulo != null) next = ((next % modulo) + modulo) % modulo;
+  snapshot.values[key] = next;
+  snapshot.snapshotSequence += 1;
+  snapshot.updatedAt = new Date().toISOString();
+  return moved;
+}
+const FENIX_PRIME_SPEED = '(L:E_FCU_SPEED, Number) (>L:E_FCU_SPEED, Number)';
+const FENIX_PRIME_HEADING = '(L:E_FCU_HEADING, Number) (>L:E_FCU_HEADING, Number)';
+const fenixBatch = (lvar, n) => `(L:${lvar}, Number) ${Math.abs(n)} ${n >= 0 ? '+' : '-'} (>L:${lvar}, Number)`;
+
 function buildFenixFcuProvider(initialValues, executeCode) {
   const provider = new SimConnectTelemetryProvider();
   const snapshot: any = {
@@ -3339,7 +3357,7 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
   // if the pilot has since changed the 100/1000 selector.
   const satisfiedAltitude = buildFenixFcuProvider({
     fenix_altitude: 10000,
-    fenix_altitude_scale: 0,
+    fenix_altitude_scale: 1,
   }, () => {
     throw new Error('same-target altitude must not dispatch');
   });
@@ -3351,43 +3369,55 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
   assertEqual(altitudeNoOp.noOp, true, 'same-target altitude is an explicit no-op');
   assertEqual(satisfiedAltitude.codes.length, 0, 'same-target altitude bypasses an irrelevant step precondition');
 
-  const speed = buildFenixFcuProvider({ fenix_speed: 250 }, ({ snapshot }) => {
-    snapshot.values.fenix_speed += 1;
-    snapshot.snapshotSequence += 1;
-    snapshot.updatedAt = new Date().toISOString();
+  const speed = buildFenixFcuProvider({ fenix_speed: 250 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code);
     return { ok: true };
   });
   const speedResult = await speed.provider.executeAircraftControlAction(
     action,
     fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
   );
-  assertEqual(speedResult.ok, true, 'three trusted speed increments should confirm');
+  assertEqual(speedResult.ok, true, 'a primed three-detent batch should confirm');
   assertEqual(speedResult.confirmedValue, 253, 'numeric confirmation requires the exact target');
-  assertEqual(JSON.stringify(speed.codes), JSON.stringify([increaseSpeed, increaseSpeed, increaseSpeed]), 'speed uses an exact bounded step count');
+  assertEqual(JSON.stringify(speed.codes), JSON.stringify([FENIX_PRIME_SPEED, fenixBatch('E_FCU_SPEED', 3)]), 'speed primes the encoder once, then moves all three detents in one write');
+  assertEqual(increaseSpeed, '(L:E_FCU_SPEED, Number) ++ (>L:E_FCU_SPEED, Number)', 'the single-step code stays available for one-detent moves');
 
-  const decreaseSpeed = '(L:E_FCU_SPEED, Number) -- (>L:E_FCU_SPEED, Number)';
-  const descendingSpeed = buildFenixFcuProvider({ fenix_speed: 253 }, ({ snapshot }) => {
-    snapshot.values.fenix_speed -= 1;
-    snapshot.snapshotSequence += 1;
-    snapshot.updatedAt = new Date().toISOString();
+  const oneDetent = buildFenixFcuProvider({ fenix_speed: 250 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code);
+    return { ok: true };
+  });
+  const oneDetentResult = await oneDetent.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 251),
+  );
+  assertEqual(oneDetentResult.ok, true, 'a single detent should confirm');
+  assertEqual(JSON.stringify(oneDetent.codes), JSON.stringify([FENIX_PRIME_SPEED, increaseSpeed]), 'one detent uses the single-step code after priming');
+  // The knob group cools down for 750 ms between commands; the encoder stays primed across it.
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const secondCommand = await oneDetent.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 252),
+  );
+  assertEqual(secondCommand.ok, true, 'a second command on the same encoder should confirm');
+  assertEqual(oneDetent.codes.length, 3, 'an encoder is primed once per aircraft, not per command');
+
+  const descendingSpeed = buildFenixFcuProvider({ fenix_speed: 253 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code);
     return { ok: true };
   });
   const descendingResult = await descendingSpeed.provider.executeAircraftControlAction(
     action,
     fenixA320IntegrationOptions('flightGuidance.speed.set', 250),
   );
-  assertEqual(descendingResult.ok, true, 'three trusted speed decrements should confirm');
+  assertEqual(descendingResult.ok, true, 'a three-detent decrement batch should confirm');
   assertEqual(
     JSON.stringify(descendingSpeed.codes),
-    JSON.stringify([decreaseSpeed, decreaseSpeed, decreaseSpeed]),
-    'descending speed uses the exact decrement count',
+    JSON.stringify([FENIX_PRIME_SPEED, fenixBatch('E_FCU_SPEED', -3)]),
+    'descending speed uses one exact decrement batch',
   );
 
-  const increaseHeading = '(L:E_FCU_HEADING, Number) ++ (>L:E_FCU_HEADING, Number)';
-  const heading = buildFenixFcuProvider({ fenix_heading: 359 }, ({ snapshot }) => {
-    snapshot.values.fenix_heading = (snapshot.values.fenix_heading + 1) % 360;
-    snapshot.snapshotSequence += 1;
-    snapshot.updatedAt = new Date().toISOString();
+  const heading = buildFenixFcuProvider({ fenix_heading: 359 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360 });
     return { ok: true };
   });
   const headingResult = await heading.provider.executeAircraftControlAction(
@@ -3395,7 +3425,33 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
     fenixA320IntegrationOptions('flightGuidance.heading.set', 1),
   );
   assertEqual(headingResult.ok, true, 'circular heading target should confirm');
-  assertEqual(JSON.stringify(heading.codes), JSON.stringify([increaseHeading, increaseHeading]), '359 to 1 takes the two-step circular path');
+  assertEqual(JSON.stringify(heading.codes), JSON.stringify([FENIX_PRIME_HEADING, fenixBatch('E_FCU_HEADING', 2)]), '359 to 1 takes the two-detent circular path in one write');
+
+  // A large target is split into bounded batches, each landing exactly before the next.
+  const far = buildFenixFcuProvider({ fenix_speed: 159 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code);
+    return { ok: true };
+  });
+  const farResult = await far.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 279),
+  );
+  assertEqual(farResult.ok, true, '120 detents should confirm');
+  assertEqual(JSON.stringify(far.codes), JSON.stringify([FENIX_PRIME_SPEED, fenixBatch('E_FCU_SPEED', 50), fenixBatch('E_FCU_SPEED', 50), fenixBatch('E_FCU_SPEED', 20)]), '120 detents go as 50, 50 and 20');
+
+  // Priming can move a fresh encoder (live: a first heading click jumped 89 degrees); the target is re-read and still reached.
+  const jumpy = buildFenixFcuProvider({ fenix_heading: 0 }, ({ code, snapshot }) => {
+    if (code === FENIX_PRIME_HEADING) { snapshot.values.fenix_heading = 89; snapshot.snapshotSequence += 1; snapshot.updatedAt = new Date().toISOString(); }
+    else applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360 });
+    return { ok: true };
+  });
+  const jumpyResult = await jumpy.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.heading.set', 120),
+  );
+  assertEqual(jumpyResult.ok, true, 'a jump on priming is absorbed by re-reading the baseline');
+  assertEqual(jumpyResult.confirmedValue, 120, 'the target is still reached exactly');
+  assertEqual(JSON.stringify(jumpy.codes), JSON.stringify([FENIX_PRIME_HEADING, fenixBatch('E_FCU_HEADING', 31)]), 'the batch is sized from the post-prime reading, not the stale baseline');
 });
 
 test('Fenix FCU numeric targets pace every relative step against exact aircraft progress', async () => {
@@ -3444,25 +3500,19 @@ test('Fenix FCU numeric targets pace every relative step against exact aircraft 
   assertEqual(periodicCaptureCount, 2, 'the unchanged periodic snapshot is sampled before exact progress');
 
   let dispatchedBeforePreviousProgress = false;
-  const paced = buildFenixFcuProvider({ fenix_speed: 250 }, ({ codes, snapshot }) => {
-    const callNumber = codes.length;
-    if (callNumber > 1 && snapshot.values.fenix_speed !== 249 + callNumber) {
-      dispatchedBeforePreviousProgress = true;
-    }
-    setTimeout(() => {
-      snapshot.values.fenix_speed += 1;
-      snapshot.snapshotSequence += 1;
-      snapshot.updatedAt = new Date().toISOString();
-    }, 70);
+  const paced = buildFenixFcuProvider({ fenix_speed: 250 }, ({ code, codes, snapshot }) => {
+    // Batches: prime, then 50, then 30. The second batch may not go out until the first has landed.
+    if (codes.length === 3 && snapshot.values.fenix_speed !== 300) dispatchedBeforePreviousProgress = true;
+    setTimeout(() => { applyFenixEncoderCode(snapshot, 'fenix_speed', code); }, 70);
     return { ok: true };
   });
   const pacedResult = await paced.provider.executeAircraftControlAction(
     action,
-    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 330),
   );
-  assertEqual(pacedResult.ok, true, 'delayed one-detent readbacks should reach the absolute target');
-  assertEqual(dispatchedBeforePreviousProgress, false, 'no later command may precede exact progress from the prior detent');
-  assertEqual(paced.codes.length, 3, 'the paced route still emits the required three detents');
+  assertEqual(pacedResult.ok, true, 'delayed batch readbacks should reach the absolute target');
+  assertEqual(dispatchedBeforePreviousProgress, false, 'no later batch may precede exact landing of the prior one');
+  assertEqual(JSON.stringify(paced.codes), JSON.stringify([FENIX_PRIME_SPEED, fenixBatch('E_FCU_SPEED', 50), fenixBatch('E_FCU_SPEED', 30)]), 'the paced route emits prime, 50 and 30');
 
   const noProgress = buildFenixFcuProvider({ fenix_speed: 250 }, () => ({ ok: true }));
   const generationContext = {
@@ -3493,19 +3543,29 @@ test('Fenix FCU numeric targets pace every relative step against exact aircraft 
   assertEqual(stopped.code, 'aircraft_integration_selector_readback_timeout', 'missing progress remains distinguishable');
   assertEqual(noProgress.codes.length, 1, 'missing progress stops after one relative command instead of sending the full burst');
 
-  const drifted = buildFenixFcuProvider({ fenix_speed: 250 }, ({ snapshot }) => {
-    snapshot.values.fenix_speed += 2;
-    snapshot.snapshotSequence += 1;
-    snapshot.updatedAt = new Date().toISOString();
+  const drifted = buildFenixFcuProvider({ fenix_speed: 250 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code, { extra: 1 });
     return { ok: true };
   });
   const driftResult = await drifted.provider.executeAircraftControlAction(
     action,
-    fenixA320IntegrationOptions('flightGuidance.speed.set', 253),
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 251),
   );
   assertEqual(driftResult.ok, false, 'unexpected multi-detent movement must fail closed');
   assertEqual(driftResult.code, 'aircraft_integration_selector_drift', 'unexpected movement remains distinguishable');
-  assertEqual(drifted.codes.length, 1, 'unexpected movement stops before any corrective or additional command');
+  assertEqual(drifted.codes.length, 2, 'unexpected movement stops after the prime and the one step that drifted');
+
+  const partial = buildFenixFcuProvider({ fenix_speed: 250 }, ({ code, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code, { extra: -1 });
+    return { ok: true };
+  });
+  const partialResult = await partial.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.speed.set', 260),
+  );
+  assertEqual(partialResult.ok, false, 'a batch that lands short must fail closed');
+  assertEqual(partialResult.code, 'aircraft_integration_selector_drift', 'a short landing is reported as drift with the observed value');
+  assertEqual(partial.codes.length, 2, 'a short landing sends no corrective batch');
 
   const deadlineProvider = new SimConnectTelemetryProvider();
   const deadlineCodes = [];
@@ -3648,12 +3708,10 @@ test('Fenix FCU stepped targets fail closed on mode drift, failed ack, and unsup
   };
   const altitude = buildFenixFcuProvider({
     fenix_altitude: 10000,
-    fenix_altitude_scale: 1,
-  }, ({ codes, snapshot }) => {
-    snapshot.values.fenix_altitude += 100;
-    snapshot.snapshotSequence += 1;
-    snapshot.updatedAt = new Date().toISOString();
-    if (codes.length === 1) snapshot.values.fenix_altitude_scale = 0;
+    fenix_altitude_scale: 0,
+  }, ({ code, codes, snapshot }) => {
+    applyFenixEncoderCode(snapshot, 'fenix_altitude', code, { step: 100 });
+    if (codes.length === 1) { snapshot.values.fenix_altitude_scale = 1; snapshot.snapshotSequence += 1; snapshot.updatedAt = new Date().toISOString(); }
     return { ok: true };
   });
   const modeDrift = await altitude.provider.executeAircraftControlAction(
@@ -3666,7 +3724,7 @@ test('Fenix FCU stepped targets fail closed on mode drift, failed ack, and unsup
 
   const wrongScale = buildFenixFcuProvider({
     fenix_altitude: 10000,
-    fenix_altitude_scale: 0,
+    fenix_altitude_scale: 1,
   }, () => {
     throw new Error('wrong altitude scale must fail before dispatch');
   });
@@ -3678,11 +3736,9 @@ test('Fenix FCU stepped targets fail closed on mode drift, failed ack, and unsup
   assertEqual(mismatch.code, 'aircraft_integration_precondition_failed', 'wrong scale reports its precondition');
   assertEqual(wrongScale.codes.length, 0, 'wrong initial altitude scale emits no calculator step');
 
-  const failedAck = buildFenixFcuProvider({ fenix_speed: 250 }, ({ codes, snapshot }) => {
+  const failedAck = buildFenixFcuProvider({ fenix_speed: 250 }, ({ code, codes, snapshot }) => {
     if (codes.length === 2) return { ok: false, error: 'step rejected' };
-    snapshot.values.fenix_speed += 1;
-    snapshot.snapshotSequence += 1;
-    snapshot.updatedAt = new Date().toISOString();
+    applyFenixEncoderCode(snapshot, 'fenix_speed', code);
     return { ok: true };
   });
   const ackResult = await failedAck.provider.executeAircraftControlAction(

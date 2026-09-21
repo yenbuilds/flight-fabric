@@ -96,8 +96,16 @@ export function buildDebriefReasons(data, {
   } else if (verdict.stability.verdict === 'stable') {
     addReason(reasons, 'Stabilized approach', GOOD_COLOR, 'good');
   }
-  if ((normalized.tdzAchievedEffective ?? verdict.flags.tdzAchieved) && !shortLanding) {
-    addReason(reasons, 'Inside formal 3,000 ft TDZ', GOOD_COLOR, 'good');
+  const distanceGrade = verdict.touchdown.grade;
+  const insideZone = (normalized.tdzAchievedEffective ?? verdict.flags.tdzAchieved) && !shortLanding;
+  if (distanceGrade === 'Near Threshold') {
+    addReason(reasons, 'Touched down close to the threshold', WARNING_COLOR, 'warning');
+  } else if (insideZone && distanceGrade === 'Acceptable') {
+    addReason(reasons, 'Late in the touchdown zone', WARNING_COLOR, 'warning');
+  } else if (insideZone) {
+    addReason(reasons, 'Inside the touchdown zone', GOOD_COLOR, 'good');
+  } else if (distanceGrade === 'Long Landing') {
+    addReason(reasons, 'Long landing, beyond the touchdown zone', WARNING_COLOR, 'warning');
   }
   if (data.bankDeg != null && Math.abs(Number(data.bankDeg)) <= 3) addReason(reasons, 'Wings level', GOOD_COLOR, 'good');
 

@@ -5,18 +5,18 @@ const timeline = useTimelineStore();
 </script>
 
 <template>
-  <div
+  <details
     id="timeline-altitude-profile"
     class="timeline-altitude-profile"
     :class="{ hidden: !timeline.altitudeProfileVisible && !timeline.altitudeProfileEmptyVisible }"
   >
-    <div class="timeline-altitude-profile-head">
+    <summary class="timeline-altitude-profile-head">
       <div>
         <div class="timeline-altitude-profile-title">Altitude Profile</div>
         <div id="timeline-altitude-range" class="timeline-altitude-profile-range">{{ timeline.altitudeProfileRangeText }}</div>
       </div>
       <div id="timeline-altitude-current" class="timeline-altitude-profile-current">{{ timeline.altitudeProfileCurrentText }}</div>
-    </div>
+    </summary>
     <div class="timeline-altitude-profile-plot">
       <svg
         id="timeline-altitude-profile-svg"
@@ -69,5 +69,15 @@ const timeline = useTimelineStore();
       <span id="timeline-altitude-min">{{ timeline.altitudeProfileMinText }}</span>
       <span id="timeline-altitude-max">{{ timeline.altitudeProfileMaxText }}</span>
     </div>
-  </div>
+  </details>
 </template>
+
+<style scoped>
+.timeline-altitude-profile { flex-shrink: 0; }
+.timeline-altitude-profile:not([open]) { padding-block: 0.2rem; }
+.timeline-altitude-profile-head { cursor: pointer; min-height: 2.75rem; gap: 0.75rem; }
+.timeline-altitude-profile-head::before { content: '+'; color: rgb(var(--muted-foreground)); }
+.timeline-altitude-profile[open] > summary::before { content: '\2212'; }
+.timeline-altitude-profile-head > div:first-child { flex: 1; }
+.timeline-altitude-profile-head:focus-visible { outline: 2px solid rgb(var(--selection)); outline-offset: 2px; }
+</style>

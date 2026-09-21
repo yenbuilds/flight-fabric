@@ -13,7 +13,7 @@ const commandId = light => `lights.${light.target}.set`;
 const command = light => controls.getAircraftCommand(commandId(light));
 const visible = computed(() => lights.some(command));
 const busy = computed(() => sending.value || Object.entries(controls.pendingCommands).some(([key, pending]) => pending
-  && (key.startsWith('aircraft-command:lights.') || key === 'aircraft-command:configuration.lights.takeoff')));
+  && (key.startsWith('aircraft-command:lights.') || key.startsWith('aircraft-command:configuration.lights.'))));
 const disabled = light => busy.value || !command(light) || !controls.availability.enabled;
 async function apply(light, value) {
   if (disabled(light)) return false;

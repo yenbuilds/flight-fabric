@@ -132,6 +132,58 @@ test('individual commands preserve every established takeoff preset recipe', () 
   }
 });
 
+test('phase light presets compose only reviewed fixed light actions and share the takeoff recipe for landing', () => {
+  const expected = {
+    'pmdg-737': {
+      afterTakeoff: ['landingRetractableLeft.retract', 'landingRetractableRight.retract', 'landingLeft.off', 'landingRight.off',
+        'turnoffLeft.off', 'turnoffRight.off', 'taxi.off'],
+      afterLanding: ['position.steady', 'landingRetractableLeft.retract', 'landingRetractableRight.retract', 'landingLeft.off',
+        'landingRight.off', 'taxi.on', 'turnoffLeft.on', 'turnoffRight.on'],
+    },
+    'pmdg-777': {
+      afterTakeoff: ['landingLeft.off', 'landingNose.off', 'landingRight.off', 'turnoffLeft.off', 'turnoffRight.off', 'taxi.off'],
+      afterLanding: ['strobe.off', 'landingLeft.off', 'landingNose.off', 'landingRight.off', 'taxi.on', 'turnoffLeft.on', 'turnoffRight.on'],
+    },
+    'fenix-a320': {
+      afterTakeoff: ['landingLeft.retract', 'landingRight.retract', 'runwayTurnoff.off', 'nose.off'],
+      afterLanding: ['strobe.off', 'landingLeft.retract', 'landingRight.retract', 'nose.taxi', 'runwayTurnoff.on'],
+    },
+    'fbw-a32nx': {
+      afterTakeoff: ['landingLeft.retract', 'landingRight.retract', 'runwayTurnoff.off', 'nose.off'],
+      afterLanding: ['strobe.off', 'landingLeft.retract', 'landingRight.retract', 'nose.taxi', 'runwayTurnoff.on'],
+    },
+    'fbw-a380x': {
+      afterTakeoff: ['landing.off', 'taxi.off'],
+      afterLanding: ['strobe.off', 'landing.off', 'taxi.on'],
+    },
+    'inibuilds-a350-900': {
+      afterTakeoff: ['landing.off', 'nose.off'],
+      afterLanding: ['strobe.off', 'landing.off', 'nose.taxi'],
+    },
+  };
+  for (const [id, recipes] of Object.entries(expected)) {
+    const profile = loader.loadProfile(`bundled/msfs/${id}`);
+    const options = { profile, capabilities };
+    const integration = registry.resolveForProfile(profile._profileKey);
+    const takeoff = resolveAircraftCommand({ commandId: 'configuration.lights.takeoff', input: {} }, options);
+    const landing = resolveAircraftCommand({ commandId: 'configuration.lights.landing', input: {} }, options);
+    assert.equal(landing.ok, true, `${id}: landing preset`);
+    assert.deepEqual(landing.controlRequests, takeoff.controlRequests, `${id}: landing lights equal the takeoff configuration`);
+    for (const [phase, steps] of Object.entries(recipes)) {
+      const result = resolveAircraftCommand({ commandId: `configuration.lights.${phase}`, input: {} }, options);
+      assert.equal(result.ok, true, `${id}: ${phase} ${JSON.stringify(result)}`);
+      assert.deepEqual(result.controlRequests.map(r => r.actionId), steps.map(step => `lights.${step}`), `${id}: ${phase}`);
+      for (const control of result.controlRequests) {
+        const action = registry.resolveAction({ adapterId: integration.id, profileKey: profile._profileKey, actionId: control.actionId });
+        assert.ok(action, `${id}: ${control.actionId} must exist in the adapter`);
+        assert.equal(action.guard.retry, 'never');
+      }
+    }
+    // Climb-out never touches strobes, and after landing always ends with strobes off before ground lights.
+    assert.ok(!recipes.afterTakeoff.some(step => step.startsWith('strobe.') || step.startsWith('position.')), `${id}: after takeoff keeps strobes`);
+  }
+});
+
 for (const id of profiles) test(`${id}: individual light groups use complete fixed ON/OFF recipes`, async () => {
   const profile = loader.loadProfile(`bundled/msfs/${id}`);
   const options = { profile, capabilities, profileRevision: 7 };
@@ -294,7 +346,8 @@ test('individual lights and the full takeoff preset cannot interleave', async ()
   } };
   const pending = executeAircraftCommand(provider, request('landing', true), { profile });
   await new Promise(resolve => setImmediate(resolve));
-  for (const command of [request('taxi', false), request('landingRight', false), { commandId: 'configuration.lights.takeoff', input: {} }]) {
+  for (const command of [request('taxi', false), request('landingRight', false), { commandId: 'configuration.lights.takeoff', input: {} },
+    { commandId: 'configuration.lights.afterTakeoff', input: {} }, { commandId: 'configuration.lights.landing', input: {} }, { commandId: 'configuration.lights.afterLanding', input: {} }]) {
     assert.equal((await executeAircraftCommand(provider, command, { profile })).code, 'action_in_flight');
   }
   assert.equal(writes.length, 1); release(); assert.equal((await pending).ok, true);

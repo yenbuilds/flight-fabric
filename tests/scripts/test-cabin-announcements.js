@@ -156,8 +156,21 @@ function createWindow(shared, windowId, options = {}) {
     play() {
       this.playCalls += 1;
       this.paused = false;
-      return Promise.resolve().then(() => {
-        if (!this.paused && typeof this.onplaying === 'function') {
+      // With shared.holdPlay set, the play() promise stays pending until the
+      // test releases it, so a mute can land in the window between the
+      // element being created and playback actually starting.
+      const gate = shared.holdPlay
+        ? new Promise((resolve) => { this.releasePlay = resolve; })
+        : Promise.resolve();
+      return gate.then(() => {
+        // Per the HTMLMediaElement spec, a pause() before playback starts
+        // rejects the pending play() promise with AbortError.
+        if (this.paused) {
+          const error = new Error('The play() request was interrupted by a call to pause().');
+          error.name = 'AbortError';
+          throw error;
+        }
+        if (typeof this.onplaying === 'function') {
           this.onplaying();
         }
       });
@@ -414,6 +427,32 @@ async function testSingleWindowMuteUnmuteResumesPlayback() {
   assert.equal(audio.playCalls, 2, 'expected unmute to resume the paused announcement');
 }
 
+async function testMuteBeforePlaybackStartsKeepsTheAnnouncement() {
+  const shared = createSharedState();
+  const windowCtx = createWindow(shared, 'solo');
+
+  shared.holdPlay = true;
+  windowCtx.CabinAnnouncements.enqueue({ phase: 'TAXI-IN', style: 'standard' });
+  await flushAsync();
+  const audio = shared.audioInstances.find((instance) => instance.src.includes('shortly-after-landing-rollout'));
+  assert.ok(audio && typeof audio.releasePlay === 'function', 'the element exists with play() still pending');
+
+  // Mute while play() is pending, then let the browser settle the promise.
+  windowCtx.CabinAnnouncements.setMuted(true);
+  assert.equal(audio.pauseCalls, 1, 'mute paused the element');
+  shared.holdPlay = false;
+  audio.releasePlay();
+  await flushAsync();
+
+  const attempts = shared.audioInstances.filter((instance) => instance.src.includes('shortly-after-landing-rollout'));
+  assert.equal(attempts.length, 1, 'an interrupted play() must not be treated as a load failure and retried through fallbacks');
+
+  windowCtx.CabinAnnouncements.setMuted(false);
+  await flushAsync();
+  assert.equal(audio.playCalls, 2, 'unmute resumes the same element instead of losing the announcement');
+  assert.equal(audio.paused, false);
+}
+
 async function testStandardPackHasAudioForEveryRecognizedSlot() {
   for (const [phase, stem] of Object.entries(STANDARD_CABIN_AUDIO_SLOTS)) {
     const sourceAsset = findAudioAsset(STANDARD_CABIN_AUDIO_DIR, stem);
@@ -445,6 +484,7 @@ async function main() {
 
   await runTest('standard pack has audio for every recognized slot', testStandardPackHasAudioForEveryRecognizedSlot, stats);
   await runTest('built frontend contains standard pack audio', testBuiltFrontendContainsStandardPackAudio, stats);
+  await runTest('mute before playback starts keeps the announcement', testMuteBeforePlaybackStartsKeepsTheAnnouncement, stats);
   await runTest('default disabled drops announcements until enabled', testDefaultDisabledDropsAnnouncements, stats);
   await runTest('host Electron renderer plays cabin announcements', testHostElectronRendererPlaysAnnouncements, stats);
   await runTest('host and LAN browsers drop Electron-only cabin announcements', testBrowserRenderersDropAnnouncements, stats);

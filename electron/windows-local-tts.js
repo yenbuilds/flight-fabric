@@ -19,9 +19,13 @@ function normalizeReadbackText(value) {
   return text;
 }
 
+const MAX_STDERR_CHARS = 400;
+
 function createWindowsLocalTts({
   debugLog = () => {},
   fileExists = fs.existsSync,
+  now = Date.now,
+  onErrorChange = () => {},
   platform = process.platform,
   spawnProcess = spawn,
   systemRoot = process.env.SystemRoot || 'C:\\Windows',
@@ -35,13 +39,40 @@ function createWindowsLocalTts({
   );
   const available = platform === 'win32' && fileExists(executable);
   let activeChild = null;
+  // The packaged app writes no debug log, so the last failure is kept here
+  // for the renderer to show; a later successful readback clears it.
+  let lastError = '';
 
   function getInfo() {
     return Object.freeze({
       available,
       engine: available ? 'windows-sapi' : '',
+      lastError,
       local: true,
     });
+  }
+
+  function setLastError(message) {
+    const next = String(message || '').replace(/\s+/gu, ' ').trim().slice(0, MAX_STDERR_CHARS);
+    if (next === lastError) return;
+    lastError = next;
+    if (next) debugLog('Local Windows readback failed:', next);
+    try { onErrorChange(next); } catch {}
+  }
+
+  /**
+   * PowerShell prints the thrown SAPI error to stderr, hard-wrapped at the
+   * console width, followed by "At line:" / "+ ..." script context. Keep the
+   * message lines and drop the context.
+   */
+  function errorMessage(stderr) {
+    const lines = [];
+    for (const raw of stderr.split(/\r?\n/u)) {
+      const line = raw.trim();
+      if (/^(At line:|\+ )/u.test(line)) break;
+      if (line) lines.push(line);
+    }
+    return lines.join(' ');
   }
 
   function cancel() {
@@ -82,22 +113,40 @@ function createWindowsLocalTts({
       ], {
         env: { ...process.env, [READBACK_ENV_KEY]: utterance },
         shell: false,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
       });
       activeChild = child;
+      const startedAt = now();
+      let stderr = '';
+      child.stderr?.on?.('data', (chunk) => {
+        if (stderr.length < MAX_STDERR_CHARS) stderr += String(chunk);
+      });
+      let failedToStart = false;
       child.once?.('error', (error) => {
         if (activeChild === child) activeChild = null;
-        debugLog('Local Windows readback failed:', error?.message || error);
+        failedToStart = true;
+        setLastError(`PowerShell could not start: ${error?.message || error}`);
       });
-      child.once?.('exit', (code) => {
+      // 'close' rather than 'exit': stderr can still be delivering the SAPI
+      // error text when 'exit' fires.
+      child.once?.('close', (code) => {
         if (activeChild === child) activeChild = null;
-        if (code !== 0) debugLog('Local Windows readback exited with code:', code);
+        // A readback replaced or cancelled on purpose is not a failure, and a
+        // spawn failure was already reported through 'error'.
+        if (child.killed === true || failedToStart) return;
+        if (code === 0) {
+          debugLog(`Local Windows readback finished in ${now() - startedAt} ms`);
+          setLastError('');
+          return;
+        }
+        const detail = errorMessage(stderr);
+        setLastError(`Readback exited with code ${code}${detail ? `: ${detail}` : ''}`);
       });
       return true;
     } catch (error) {
       activeChild = null;
-      debugLog('Local Windows readback failed:', error?.message || error);
+      setLastError(`PowerShell could not start: ${error?.message || error}`);
       return false;
     }
   }

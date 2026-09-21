@@ -1,4 +1,4 @@
-//! Flight Fabric's client for the MobiFlight Event Module's SimConnect
+//! FlightFabric's client for the MobiFlight Event Module's SimConnect
 //! ClientData protocol. This talks directly to the WASM module running inside
 //! MSFS; it does not launch or require the MobiFlight Connector desktop app.
 //!

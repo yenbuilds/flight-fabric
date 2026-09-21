@@ -22,13 +22,6 @@ const analysisActionText = computed(() => (
             <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-gray-200">{{ timeline.eventCountText }}</dd>
           </div>
           <div class="min-w-0 rounded-md border border-surface-200/70 bg-surface-100/50 px-2.5 py-2">
-            <dt class="text-[11px] uppercase tracking-wider text-gray-500">Alerts</dt>
-            <dd class="mt-0.5 break-words text-xs font-semibold leading-5">
-              <div class="text-amber-400">Cautions: {{ timeline.cautionCountText }}</div>
-              <div :class="timeline.violationCountText === '0' ? 'text-gray-400' : 'text-red-400'">Violations: {{ timeline.violationCountText }}</div>
-            </dd>
-          </div>
-          <div class="min-w-0 rounded-md border border-surface-200/70 bg-surface-100/50 px-2.5 py-2">
             <dt class="text-[11px] uppercase tracking-wider text-gray-500">Duration</dt>
             <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-gray-200">{{ timeline.durationText }}</dd>
           </div>
@@ -43,6 +36,13 @@ const analysisActionText = computed(() => (
           >
             <dt class="text-[11px] uppercase tracking-wider text-gray-500">Fuel burn</dt>
             <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-gray-400">{{ timeline.fuelBurnText }}</dd>
+          </div>
+          <div class="timeline-summary-alerts">
+            <dt class="text-[11px] uppercase tracking-wider text-gray-500">Alerts</dt>
+            <dd class="text-xs font-semibold leading-5">
+              <span class="text-amber-400">Cautions: {{ timeline.cautionCountText }}</span>
+              <span :class="timeline.violationCountText === '0' ? 'text-gray-400' : 'text-red-400'">Violations: {{ timeline.violationCountText }}</span>
+            </dd>
           </div>
         </dl>
       </div>
@@ -83,14 +83,29 @@ const analysisActionText = computed(() => (
 }
 
 .timeline-summary-stats {
-  grid-template-columns: repeat(auto-fit, minmax(7.25rem, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem 1rem;
+}
+
+.timeline-summary-alerts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+
+.timeline-summary-alerts dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
 }
 
 .timeline-summary-action {
   min-width: 9rem;
 }
 
-@container (max-width: 30rem) {
+@container (max-width: 40rem) {
   .timeline-summary-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -98,6 +113,13 @@ const analysisActionText = computed(() => (
   .timeline-summary-action {
     border-top-width: 1px;
     border-left-width: 0;
+    min-height: 2.75rem;
+  }
+}
+
+@container (max-width: 24rem) {
+  .timeline-summary-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

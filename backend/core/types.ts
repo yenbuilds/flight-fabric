@@ -1,5 +1,5 @@
 // types.js
-// JSDoc type definitions for Flight Fabric.
+// JSDoc type definitions for FlightFabric.
 // These provide documentation and IDE autocomplete without requiring TypeScript.
 //
 // Usage in other files:
@@ -485,6 +485,7 @@
  * @property {number|null} touchdownDistanceFt - Touchdown distance from threshold in feet
  * @property {string|null} touchdownDistanceGrade - Touchdown distance grade label
  * @property {number|null} touchdownDistanceScore - Touchdown distance score
+ * @property {number|null} [tdzEndFt] - Touchdown zone end the distance grade was scored against; null for entries graded against the fixed 3,000 ft zone
  * @property {number|null} lateralOffsetFt - Lateral runway offset in feet
  * @property {string|null} lateralOffsetGrade - Lateral offset grade label
  * @property {number|null} lateralOffsetScore - Lateral offset score
@@ -573,6 +574,15 @@
  * @property {string|null} downloadUrl - Release download URL when provided
  * @property {string|null} message - Optional banner message
  * @property {boolean} urgent - True when the update should use urgent styling
+ */
+
+/**
+ * Supporter goal broadcast by update-checker.js from the manifest's optional
+ * support block; shown only for the month it describes.
+ * @typedef {Object} SupportGoalMessage
+ * @property {string|null} period - Month as YYYY-MM; null withdraws the goal
+ * @property {number|null} supporters - Supporters so far; null on withdrawal
+ * @property {number|null} goal - Supporter target; null on withdrawal
  */
 
 /**
@@ -717,6 +727,7 @@
  * Result message after attempting to save app settings.
  * @typedef {Object} AppSettingsSavedMessage
  * @property {boolean} ok - Whether the save succeeded
+ * @property {string|number|null} [requestId] - Bounded identifier echoed from the save request
  * @property {AppSettings} [settings] - Saved settings when successful
  * @property {string} settingsFile - User settings file path
  * @property {AppStorageSummary} [storage] - Storage summary when successful
@@ -914,6 +925,9 @@
  * @property {number|null} yokeX - Normalized lateral input (-1..1)
  * @property {number|null} yokeY - Normalized longitudinal input (-1..1)
  * @property {number|null} rudderPedalPct - Rudder pedal input percentage
+ * @property {number|null} noseSteerPct - Nose-gear steer angle as a percentage of full travel, right positive
+ * @property {number|null} brakeLeftPct - Left toe-brake application (0..100)
+ * @property {number|null} brakeRightPct - Right toe-brake application (0..100)
  */
 
 /**

@@ -1,11 +1,77 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import AppTooltip from './AppTooltip.vue';
 import { useSimbriefStore } from '../stores/simbrief.js';
 import { buildRunwayAnalysisSections } from '../simbrief-runway-analysis.js';
+import { isRemoteView } from '../../app/remote-view.js';
 
 const simbrief = useSimbriefStore();
 const runwayAnalysisSections = computed(() => buildRunwayAnalysisSections(simbrief.plan?.tlr));
+const remoteView = isRemoteView();
+const briefing = ref(null);
+const activeSection = ref('sb-summary');
+const briefingSections = computed(() => [
+  { id: 'sb-summary', label: 'Flight summary' },
+  { id: 'sb-route-section', label: 'Route' },
+  ...(hasValues(simbrief.plan?.weather) ? [{ id: 'sb-weather-section', label: 'Planning weather' }] : []),
+  ...(hasValues(simbrief.plan?.fuel) || hasValues(simbrief.plan?.weights) ? [{ id: 'sb-fuel-section', label: 'Fuel & weights' }] : []),
+  { id: 'sb-times-section', label: 'Times & performance' },
+  ...(simbrief.plan?.navlog?.length ? [{ id: 'sb-navlog-section', label: 'Navlog' }] : []),
+  ...(runwayAnalysisSections.value.length ? [{ id: 'sb-runways-section', label: 'Runway analysis' }] : []),
+  ...(simbrief.plan?.icaoFlightPlan ? [{ id: 'sb-icao-section', label: 'ICAO flight plan' }] : []),
+]);
+let scrollTarget = null;
+let sectionFrame = null;
+
+function syncActiveSection() {
+  sectionFrame = null;
+  if (!briefing.value?.getClientRects().length) return;
+  const viewportTop = scrollTarget?.getBoundingClientRect?.().top || 0;
+  const focusedSection = document.activeElement?.closest('.simbrief-document section[id], .simbrief-document details[id]');
+  // A short final section cannot always align with the viewport top. Keep its
+  // navigation selection while the focused destination is still in view.
+  if (focusedSection && briefing.value.contains(focusedSection)) {
+    const top = focusedSection.getBoundingClientRect().top;
+    if (top >= viewportTop && top < viewportTop + (scrollTarget?.clientHeight || window.innerHeight)) {
+      activeSection.value = focusedSection.id;
+      return;
+    }
+  }
+  const anchor = viewportTop + 80;
+  let next = briefingSections.value[0]?.id;
+  for (const section of briefingSections.value) {
+    const target = briefing.value.querySelector(`#${section.id}`);
+    if (target && target.getBoundingClientRect().top <= anchor) next = section.id;
+  }
+  activeSection.value = next;
+}
+
+function scheduleSectionSync() {
+  if (sectionFrame == null) sectionFrame = window.requestAnimationFrame(syncActiveSection);
+}
+
+async function openBriefingSection(id) {
+  const target = briefing.value?.querySelector(`#${id}`);
+  if (!target) return;
+  if (target.tagName === 'DETAILS') target.open = true;
+  activeSection.value = id;
+  await nextTick();
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+  target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+  (target.querySelector('summary') || target).focus({ preventScroll: true });
+}
+
+watch(() => simbrief.plan, () => nextTick(scheduleSectionSync));
+onMounted(() => {
+  scrollTarget = document.getElementById('vue-main-root') || window;
+  scrollTarget.addEventListener('scroll', scheduleSectionSync, { passive: true });
+  window.addEventListener('resize', scheduleSectionSync, { passive: true });
+});
+onUnmounted(() => {
+  scrollTarget?.removeEventListener('scroll', scheduleSectionSync);
+  window.removeEventListener('resize', scheduleSectionSync);
+  if (sectionFrame != null) window.cancelAnimationFrame(sectionFrame);
+});
 
 function onUsernameKeydown(event) {
   if (event.key === 'Enter' && !simbrief.fetchInProgress && simbrief.username.trim()) {
@@ -44,19 +110,16 @@ function hasValues(object) {
 
 <template>
   <div class="simbrief-shell page-stack">
-    <div class="page-intro">
-      <h2 class="text-sm font-semibold tracking-wide mb-1">SimBrief</h2>
-      <p class="text-xs text-muted-fg">Your route, fuel, weather, and timings in one place. Import your latest flight plan to get started.</p>
-    </div>
-
-    <div class="simbrief-card ff-card overflow-hidden">
-      <div class="simbrief-card-section simbrief-card-section--header px-4 py-3">
-        <div class="simbrief-card-head">
+    <header class="simbrief-import-toolbar">
+      <div class="simbrief-import-heading">
+        <h2>SimBrief</h2>
+        <span>Flight briefing</span>
+      </div>
+      <div class="simbrief-import-form">
+        <div class="simbrief-card-head sr-only">
           <label for="sb-username-input" class="simbrief-fetch-label">SimBrief username or pilot ID</label>
           <div id="sb-username-help" class="text-xs text-muted-fg">Use the account you planned your flight with.</div>
         </div>
-      </div>
-      <div class="px-4 py-4 space-y-3">
         <div class="simbrief-fetch-row">
           <input
             id="sb-username-input"
@@ -78,9 +141,9 @@ function hasValues(object) {
             :disabled="simbrief.fetchInProgress || !simbrief.username.trim()"
             @click="simbrief.fetchOfp"
           >
-            {{ simbrief.fetchInProgress ? 'Fetching...' : 'Fetch Latest OFP' }}
+            {{ simbrief.fetchInProgress ? 'Fetching...' : 'Fetch latest OFP' }}
           </button>
-          <AppTooltip content="Clear active flight plan">
+          <AppTooltip :content="remoteView ? 'Clear the briefing saved on this device' : 'Clear active flight plan'">
             <button
               id="sb-clear-btn"
               type="button"
@@ -106,21 +169,37 @@ function hasValues(object) {
         </div>
         <div id="sb-error" role="alert" class="simbrief-error" :class="{ hidden: !simbrief.error }">{{ simbrief.error }}</div>
       </div>
-    </div>
+    </header>
+    <p v-if="remoteView" class="simbrief-device-note">
+      Plans fetched here are saved on this device. Fetch or clear the plan on the simulator PC to update the shared flight plan.
+    </p>
 
     <div v-if="!simbrief.plan" class="ff-empty-state simbrief-empty-state" :aria-busy="simbrief.fetchInProgress">
       <svg class="ff-empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z M14 3v6h6 M8 13h8M8 17h5" /></svg>
       <h3>{{ simbrief.fetchInProgress ? 'Bringing your flight plan aboard' : 'Ready for your next flight' }}</h3>
-      <p>Your latest SimBrief plan will appear here and in your connected flight strips.</p>
+      <p>{{ remoteView ? 'Fetch your latest SimBrief plan to read it on this device.' : 'Your latest SimBrief plan will appear here and in your connected flight strips.' }}</p>
     </div>
 
     <div
       id="sb-result-panel"
-      class="simbrief-card ff-card overflow-hidden"
+      ref="briefing"
+      class="simbrief-workspace"
       :class="{ hidden: !simbrief.plan }"
     >
+      <nav class="simbrief-section-nav" aria-label="Briefing sections" data-no-swipe>
+        <div class="simbrief-section-nav-label">Briefing</div>
+        <button
+          v-for="section in briefingSections"
+          :key="section.id"
+          type="button"
+          :aria-current="activeSection === section.id ? 'location' : undefined"
+          @click="openBriefingSection(section.id)"
+        >{{ section.label }}</button>
+      </nav>
+      <article class="simbrief-card simbrief-document" aria-label="Operational flight plan">
+      <section id="sb-summary" tabindex="-1" aria-label="Flight summary">
       <div class="simbrief-card-section simbrief-card-section--header px-4 py-3 flex items-center justify-between gap-3">
-        <div class="simbrief-kicker">Active OFP</div>
+        <div class="simbrief-kicker">Imported OFP</div>
         <div id="sb-fetched-at" class="text-xs text-muted-fg">{{ simbrief.fetchedAtLabel }}</div>
       </div>
 
@@ -188,8 +267,8 @@ function hasValues(object) {
           <div id="sb-payload" class="simbrief-metric-value">{{ formatWeight(simbrief.plan?.weights?.payload) }}</div>
         </div>
       </div>
-
-      <div class="simbrief-route-block">
+      </section>
+      <section id="sb-route-section" class="simbrief-route-block" tabindex="-1" aria-label="Route">
         <div class="flex items-center justify-between gap-3">
           <div class="simbrief-metric-label">Route</div>
           <button
@@ -204,10 +283,10 @@ function hasValues(object) {
           </button>
         </div>
         <div id="sb-route" class="simbrief-route-value">{{ simbrief.displayValue(simbrief.plan?.route) }}</div>
-      </div>
+      </section>
 
       <div class="simbrief-details-stack">
-        <details v-if="hasValues(simbrief.plan?.weather)" class="simbrief-details">
+        <details v-if="hasValues(simbrief.plan?.weather)" id="sb-weather-section" class="simbrief-details" @toggle="scheduleSectionSync">
           <summary>
             <span>Planning weather</span>
             <span class="simbrief-details-hint">OFP snapshot · not live</span>
@@ -232,7 +311,7 @@ function hasValues(object) {
           </div>
         </details>
 
-        <details v-if="hasValues(simbrief.plan?.fuel) || hasValues(simbrief.plan?.weights)" class="simbrief-details">
+        <details v-if="hasValues(simbrief.plan?.fuel) || hasValues(simbrief.plan?.weights)" id="sb-fuel-section" class="simbrief-details" @toggle="scheduleSectionSync">
           <summary><span>Fuel & weights</span><span class="simbrief-details-hint">{{ simbrief.plan?.weightUnit || 'lbs' }}</span></summary>
           <div class="simbrief-details-body simbrief-data-columns">
             <section>
@@ -256,7 +335,7 @@ function hasValues(object) {
           </div>
         </details>
 
-        <details class="simbrief-details">
+        <details id="sb-times-section" class="simbrief-details" @toggle="scheduleSectionSync">
           <summary><span>Times & performance</span><span class="simbrief-details-hint">Schedule and planning data</span></summary>
           <div class="simbrief-details-body simbrief-data-columns">
             <section>
@@ -286,9 +365,9 @@ function hasValues(object) {
           </div>
         </details>
 
-        <details v-if="simbrief.plan?.navlog?.length" class="simbrief-details">
+        <details v-if="simbrief.plan?.navlog?.length" id="sb-navlog-section" class="simbrief-details" @toggle="scheduleSectionSync">
           <summary><span>Navlog</span><span class="simbrief-details-hint">{{ simbrief.plan.navlog.length }} waypoints</span></summary>
-          <div class="simbrief-details-body simbrief-table-wrap">
+          <div class="simbrief-details-body simbrief-table-wrap" data-no-swipe>
             <table class="simbrief-navlog-table">
               <thead><tr><th>Fix</th><th>Type</th><th>Altitude</th><th>Wind</th><th>OAT</th><th>Leg</th><th>Time</th><th>Fuel</th></tr></thead>
               <tbody><tr v-for="(fix, index) in simbrief.plan.navlog" :key="`${fix.ident}-${index}`">
@@ -300,7 +379,7 @@ function hasValues(object) {
           </div>
         </details>
 
-        <details v-if="runwayAnalysisSections.length" class="simbrief-details">
+        <details v-if="runwayAnalysisSections.length" id="sb-runways-section" class="simbrief-details" @toggle="scheduleSectionSync">
           <summary><span>Runway analysis</span><span class="simbrief-details-hint">Planned runways only</span></summary>
           <div class="simbrief-details-body simbrief-data-columns">
             <section v-for="section in runwayAnalysisSections" :key="section.key">
@@ -315,11 +394,12 @@ function hasValues(object) {
           </div>
         </details>
 
-        <details v-if="simbrief.plan?.icaoFlightPlan" class="simbrief-details">
+        <details v-if="simbrief.plan?.icaoFlightPlan" id="sb-icao-section" class="simbrief-details" @toggle="scheduleSectionSync">
           <summary><span>ICAO flight plan</span><span class="simbrief-details-hint">Filed-format text</span></summary>
           <div class="simbrief-details-body"><pre id="sb-icao-flight-plan" class="simbrief-icao-text">{{ simbrief.plan.icaoFlightPlan }}</pre></div>
         </details>
       </div>
+      </article>
     </div>
   </div>
 </template>
@@ -329,6 +409,106 @@ function hasValues(object) {
   width: 100%;
   max-width: none;
   margin-inline: auto;
+  gap: 0.85rem;
+}
+
+.simbrief-import-toolbar {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgb(var(--border) / 0.55);
+}
+
+.simbrief-import-heading {
+  flex: none;
+  padding-top: 0.25rem;
+}
+
+.simbrief-import-heading h2 {
+  margin: 0;
+  color: rgb(var(--foreground));
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.simbrief-import-heading > span {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.simbrief-import-form {
+  display: grid;
+  gap: 0.5rem;
+  width: min(100%, 43rem);
+  min-width: 0;
+}
+
+.simbrief-device-note {
+  margin: 0;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.simbrief-workspace {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.simbrief-workspace.hidden {
+  display: none;
+}
+
+.simbrief-section-nav {
+  position: sticky;
+  top: 0.5rem;
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.simbrief-section-nav-label {
+  padding: 0.5rem 0.65rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.simbrief-section-nav > button {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.simbrief-section-nav > button:hover {
+  background: rgb(var(--panel-elevated) / 0.5);
+  color: rgb(var(--foreground));
+}
+
+.simbrief-section-nav > button[aria-current="location"] {
+  border-color: rgb(var(--selection) / 0.3);
+  background: rgb(var(--selection) / 0.1);
+  color: rgb(var(--foreground));
+}
+
+.simbrief-document {
+  min-width: 0;
+  max-width: 90rem;
+  border: 1px solid rgb(var(--border) / 0.65);
+  border-radius: 6px;
+  background: rgb(var(--panel));
+}
+
+.simbrief-document :is(section[id], details[id]) {
+  scroll-margin-top: 1rem;
 }
 
 .simbrief-card-section {
@@ -336,7 +516,7 @@ function hasValues(object) {
 }
 
 .simbrief-card-section--header {
-  background: linear-gradient(180deg, rgb(var(--panel-subtle) / 0.88) 0%, rgb(var(--panel) / 0.68) 100%);
+  background: rgb(var(--panel-subtle) / 0.6);
 }
 
 .simbrief-card-head {
@@ -520,7 +700,7 @@ function hasValues(object) {
   align-content: start;
   gap: 0.22rem;
   min-width: 0;
-  min-height: 5.1rem;
+  min-height: 4.5rem;
   border: 1px solid rgb(var(--border) / 0.72);
   border-width: 0;
   background: rgb(var(--panel) / 0.9);
@@ -532,7 +712,7 @@ function hasValues(object) {
   display: grid;
   gap: 0.58rem;
   padding: 0.95rem 1rem;
-  background: linear-gradient(180deg, rgb(var(--panel-subtle) / 0.48) 0%, rgb(var(--panel) / 0.9) 100%);
+  background: rgb(var(--panel-subtle) / 0.3);
 }
 
 .simbrief-copy-button {
@@ -598,6 +778,7 @@ function hasValues(object) {
 
 .simbrief-details-body {
   padding: 0.25rem 1rem 1rem;
+  max-width: 90rem;
 }
 
 .simbrief-weather-note {
@@ -671,18 +852,66 @@ function hasValues(object) {
 .simbrief-navlog-table td { color: rgb(var(--gray-300)); }
 .simbrief-icao-text { margin: 0.45rem 0 0; }
 
-@media (max-width: 980px) {
-  .simbrief-fetch-row,
-  .simbrief-kpi-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 1100px) {
+  .simbrief-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
   }
 
-  .simbrief-button {
+  .simbrief-section-nav {
+    z-index: 35;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding: 0.3rem;
+    border: 1px solid rgb(var(--border) / 0.65);
+    border-radius: 6px;
+    background: rgb(var(--panel));
+  }
+
+  .simbrief-section-nav-label {
+    display: none;
+  }
+
+  .simbrief-section-nav > button {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .simbrief-document :is(section[id], details[id]) {
+    scroll-margin-top: 4.5rem;
+  }
+}
+
+@media (max-width: 980px) {
+  .simbrief-import-toolbar {
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .simbrief-import-form {
     width: 100%;
+  }
+
+  .simbrief-shell .simbrief-card .simbrief-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simbrief-kpi-grid > .simbrief-kpi-cell:last-child {
+    grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 640px) {
+  .simbrief-fetch-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .simbrief-input {
+    grid-column: 1 / -1;
+  }
+
   .simbrief-data-columns {
     grid-template-columns: 1fr;
   }
@@ -692,6 +921,14 @@ function hasValues(object) {
 
   .simbrief-kpi-cell {
     min-height: auto;
+  }
+}
+
+@media (pointer: coarse) {
+  .simbrief-section-nav > button,
+  .simbrief-input,
+  .simbrief-button {
+    min-height: var(--ff-touch-target-flight);
   }
 }
 </style>

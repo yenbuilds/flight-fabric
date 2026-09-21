@@ -143,7 +143,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "No custom cockpit writes are active. This iFly profile allows only Flight Fabric's narrow standard gear/flaps surface fallback."
+      "_comment": "No custom cockpit writes are active. This iFly profile allows only FlightFabric's narrow standard gear/flaps surface fallback."
     },
     "presentation": {
       "visualSupport": "basic",

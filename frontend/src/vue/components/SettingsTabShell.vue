@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import {
   $,
   getAppSettings,
@@ -18,15 +18,20 @@ import SettingsActionBar from './SettingsActionBar.vue';
 import SettingsFormPanels from './SettingsFormPanels.vue';
 import HelpTooltip from './HelpTooltip.vue';
 import SettingsPendingBar from './SettingsPendingBar.vue';
+import { useProfilesStore } from '../stores/profiles.js';
 import { useSettingsEditorStore } from '../stores/settings-editor.js';
 import { useSettingsFormStore } from '../stores/settings-form.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
+import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 import { useTabsStore } from '../stores/tabs.js';
 
 const settingsEditor = useSettingsEditorStore();
 const settingsForm = useSettingsFormStore();
 const settingsUi = useSettingsUiStore();
+const toolbarPanel = useToolbarPanelStore();
 const tabs = useTabsStore();
+const profiles = useProfilesStore();
+const canManageSettings = computed(() => profiles.authorizationScope === 'full-control');
 let settingsRuntime = null;
 
 function showSettingsToast(...args) {
@@ -40,9 +45,11 @@ onMounted(() => {
     $,
     getAppSettings,
     getWs,
+    canManageSettings: () => canManageSettings.value,
     settingsEditorStore: settingsEditor,
     settingsFormStore: settingsForm,
     settingsUiStore: settingsUi,
+    toolbarPanelStore: toolbarPanel,
     subscribeAppSettingsSignal: subscribeAppSettings,
     subscribeAppSettingsSavedSignal: subscribeAppSettingsSaved,
     subscribeWsOpenSignal: subscribeWsOpen,
@@ -64,30 +71,40 @@ onUnmounted(() => {
   <div class="max-w-6xl page-stack settings-page">
     <div class="page-intro">
       <h2 class="text-sm font-semibold tracking-wide mb-1">Settings</h2>
-      <p class="text-xs text-gray-500">Make Flight Fabric work the way you fly. Save your changes below; settings that need a restart will be marked.</p>
+      <p class="text-xs text-gray-500">Choose how FlightFabric works on this device.</p>
     </div>
 
-    <form id="settings-form" class="settings-form-shell" @submit.prevent="settingsForm.requestSave()">
-      <div class="settings-form-head">
-        <div class="settings-form-heading">Preferences</div>
-        <HelpTooltip label="App settings help">Changes are written to the settings file. Simulator, aircraft profile, network, and recording changes require restart.</HelpTooltip>
+    <section v-if="!canManageSettings" id="settings-pc-managed-note" class="settings-panel" aria-labelledby="settings-pc-managed-title">
+      <h3 id="settings-pc-managed-title" class="settings-panel-title">App settings are managed on your PC</h3>
+      <p class="mt-2 text-sm text-muted-fg">Open Settings in FlightFabric on the simulator PC to change simulator, recording, network, and app preferences.</p>
+    </section>
+
+    <!-- Keep the form mounted: the settings runtime binds its fields before the connection grants access. -->
+    <div id="settings-desktop-preferences" v-show="canManageSettings" :inert="!canManageSettings" class="page-stack">
+      <form id="settings-form" class="settings-form-shell" @submit.prevent="canManageSettings && settingsForm.requestSave()">
+        <fieldset :disabled="!canManageSettings" class="min-w-0 m-0 border-0 p-0">
+          <div class="settings-form-head">
+            <div class="settings-form-heading">App preferences</div>
+            <HelpTooltip label="App settings help">Changes are written to the settings file. Simulator, aircraft profile, network, and recording changes require restart.</HelpTooltip>
+          </div>
+
+          <div id="vue-settings-form-root">
+            <SettingsFormPanels />
+          </div>
+
+          <div id="vue-settings-action-bar-root">
+            <SettingsActionBar />
+          </div>
+        </fieldset>
+      </form>
+
+      <div id="vue-settings-pending-bar-root">
+        <SettingsPendingBar />
       </div>
 
-      <div id="vue-settings-form-root">
-        <SettingsFormPanels />
+      <div id="vue-settings-about-root">
+        <SettingsAboutLegal />
       </div>
-
-      <div id="vue-settings-action-bar-root">
-        <SettingsActionBar />
-      </div>
-    </form>
-
-    <div id="vue-settings-pending-bar-root">
-      <SettingsPendingBar />
-    </div>
-
-    <div id="vue-settings-about-root">
-      <SettingsAboutLegal />
     </div>
   </div>
 </template>

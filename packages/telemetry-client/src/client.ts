@@ -1,7 +1,7 @@
 /**
  * client.ts
  *
- * TelemetryClient — the core WebSocket client for the Flight Fabric backend.
+ * TelemetryClient — the core WebSocket client for the FlightFabric backend.
  * Opens a connection, parses incoming messages, applies them to a TelemetryState
  * snapshot, and notifies registered subscribers on every update.
  *
@@ -33,7 +33,7 @@ export interface TelemetryClientOptions {
 }
 
 /**
- * WebSocket client for Flight Fabric telemetry.
+ * WebSocket client for FlightFabric telemetry.
  * Manages connection, reconnection, state updates, and message dispatch.
  */
 export class TelemetryClient {

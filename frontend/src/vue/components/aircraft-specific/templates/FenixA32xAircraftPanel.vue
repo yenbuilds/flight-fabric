@@ -1400,7 +1400,7 @@ function controlGridClass(control) {
       Only the listed states and validated FCU values can be sent. Controls require the bundled Fenix profile, a connected simulator, current aircraft data, and a supported write connection. Commands are rate limited, confirmed from the aircraft, and never retried automatically.
     </p>
     <p class="text-[10px] leading-relaxed text-gray-500">
-      Unofficial Fenix A32X compatibility. Flight Fabric is not affiliated with FenixSim. A separately licensed Fenix aircraft is required, and no Fenix software is included.
+      Unofficial Fenix A32X compatibility. FlightFabric is not affiliated with FenixSim. A separately licensed Fenix aircraft is required, and no Fenix software is included.
     </p>
     <p class="text-[10px] leading-relaxed text-amber-300/80">
       These controls change the simulated aircraft. Most expanded controls still need live testing across every A319, A320, and A321 release. Check critical changes in the cockpit. Emergency, maintenance, circuit breaker, arbitrary axis, and reverse-thrust controls are not included.

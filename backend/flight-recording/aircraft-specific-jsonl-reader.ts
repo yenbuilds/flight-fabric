@@ -449,7 +449,7 @@ async function readAircraftSpecificRowsForCsv(
           const rowBytes = Buffer.byteLength(line, 'utf8');
           if (retainedBytes + rowBytes > maxRetainedBytes) {
             fail(
-              'Aircraft-specific sidecar exceeds Timeline\'s safe retained-data limit. Archive or inspect this recording outside Flight Fabric.',
+              'Aircraft-specific sidecar exceeds Timeline\'s safe retained-data limit. Archive or inspect this recording outside FlightFabric.',
             );
           }
           retainedBytes += rowBytes;

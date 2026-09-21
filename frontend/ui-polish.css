@@ -79,8 +79,8 @@
 .timeline-flight-row:last-child { border-bottom: 0; }
 .timeline-flight-row:hover { background: rgb(var(--panel-elevated) / 0.32); }
 .timeline-flight-row:is(.is-selected, .is-loading) {
-  border-left-color: rgb(var(--primary));
-  background: rgb(var(--primary) / 0.055);
+  border-left-color: rgb(var(--selection));
+  background: rgb(var(--selection) / 0.08);
 }
 
 .timeline-flight-row-layout,
@@ -110,6 +110,37 @@
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.015em;
+}
+
+/* Stays inline (not inline-flex) so the route's text-overflow ellipsis still
+   applies to long NEAR labels. */
+.timeline-flight-route-end .country-flag {
+  margin-right: 0.35rem;
+}
+
+.timeline-flight-route-arrow {
+  margin: 0 0.4rem;
+  color: rgb(var(--gray-500));
+  font-weight: 400;
+}
+
+/* Country flag beside a logged airport (CountryFlag.vue). Sized to the text
+   line, with a faint edge so pale flags read against dark cards. */
+.country-flag {
+  display: inline-block;
+  width: 1.125em;
+  height: 0.75em;
+  flex-shrink: 0;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14);
+  object-fit: cover;
+  vertical-align: -0.05em;
+}
+
+.logbook-airport {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .timeline-flight-aircraft {
@@ -270,23 +301,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .logbook-expand-chevron, .timeline-flight-row { transition: none; }
-}
-
-.desktop-tab {
-  min-height: 2.5rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.015em;
-  text-transform: none;
-}
-
-.desktop-tab.active {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
-}
-
-.desktop-tab-bar {
-  border-color: rgb(var(--border) / 0.45);
-  box-shadow: none;
 }
 
 .page-intro h2 {
@@ -874,6 +888,18 @@ input[type="checkbox"] {
   font-size: 0.75rem !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
+}
+
+.footer-experimental {
+  padding-top: 0.75rem;
+  border-top: 1px solid rgb(var(--border) / 0.5);
+}
+
+.footer-experimental-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(251 191 36 / 0.8);
 }
 
 .footer-diagnostics-panel #connection-info {

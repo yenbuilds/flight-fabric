@@ -211,7 +211,7 @@
         "name": "MSFS 2024 Avionics Framework - Key Events",
         "url": "https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/",
         "retrievedAt": "2026-07-19",
-        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits Flight Fabric's narrow standard gear/flaps fallback."
+        "notes": "Documents key events as simulator control bindings. This profile does not add custom key-event mappings; it only permits FlightFabric's narrow standard gear/flaps fallback."
       }
     ],
     "verification": {

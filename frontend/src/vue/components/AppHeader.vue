@@ -8,21 +8,14 @@ import FlightStatusBadges from './FlightStatusBadges.vue';
 import { useStatusStore } from '../stores/status.js';
 import { useSystemHostStore } from '../stores/system-host.js';
 import { useTabsStore } from '../stores/tabs.js';
+import { useShellStore } from '../stores/shell.js';
+import { useProfilesStore } from '../stores/profiles.js';
 
 const status = useStatusStore();
 const systemHost = useSystemHostStore();
 const tabs = useTabsStore();
-const samplingDetailRowClass = 'flex justify-between gap-3';
-const samplingDetailLabelClass = 'text-muted-fg';
-const samplingDetailValueClass = 'text-right font-mono text-gray-200';
-
-const samplingDetails = [
-  { id: 'sampling-rate', label: 'Rate', valueKey: 'vreSamplingRateDetail' },
-  { id: 'sampling-reason', label: 'Reason', valueKey: 'vreSamplingReasonLabel' },
-  { id: 'sampling-decision', label: 'Decision', valueKey: 'vreSamplingDecisionLabel' },
-  { id: 'sampling-last', label: 'Frame', valueKey: 'vreSamplingLastLabel' },
-  { id: 'sampling-safety', label: 'Ultra', valueKey: 'vreSamplingSafetyLabel' },
-];
+const shell = useShellStore();
+const profiles = useProfilesStore();
 
 function handleStartRecordingManual() {
   status.requestStartRecordingManual();
@@ -57,7 +50,7 @@ async function openMobileAccess() {
         <div class="app-brand-block flex items-center gap-4">
           <img id="app-brand-logo" class="app-brand-mark" src="/assets/app-icon.png" alt="" aria-hidden="true">
           <div class="app-brand-copy min-w-0">
-            <div class="app-brand-title">Flight Fabric</div>
+            <div class="app-brand-title">FlightFabric</div>
           </div>
           <div id="legacy-status-annunciator" class="hidden">
             <div id="status-dot" class="w-3 h-3 rounded-sm bg-danger" style="box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);"></div>
@@ -68,6 +61,9 @@ async function openMobileAccess() {
           <div id="vue-status-root">
             <AppStatusStrip />
           </div>
+          <button type="button" class="header-nav-search" aria-label="Search views and tools" @click="shell.openNavigator()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
+          </button>
         </div>
 
         <div class="header-desktop-status hidden sm:flex items-center gap-3">
@@ -130,34 +126,8 @@ async function openMobileAccess() {
 
         <div class="header-controls flex items-center gap-4 text-sm">
           <div class="header-activity-controls flex min-w-0 items-center gap-4">
-            <div id="sampling-indicator" :class="{ hidden: !status.vreSamplingVisible }">
-              <AppTooltip placement="bottom-end" tooltip-class="w-72" anchor-tag="div">
-                <div
-                  id="sampling-pill"
-                  class="ff-status-chip cursor-help"
-                  :class="status.vreSamplingPillToneClass"
-                >
-                  <div id="sampling-dot" class="h-2 w-2 rounded-full" :class="status.vreSamplingDotToneClass"></div>
-                  <span id="sampling-band" class="font-medium" :class="status.vreSamplingLabelToneClass">{{ status.vreSamplingSummaryLabel }}</span>
-                </div>
-                <template #content>
-                  <div class="mb-2 text-xs font-semibold text-gray-200">CSV Sampling</div>
-                  <dl class="space-y-1 text-[10px] text-gray-400">
-                    <div
-                      v-for="detail in samplingDetails"
-                      :key="detail.id"
-                      :class="samplingDetailRowClass"
-                    >
-                      <dt :class="samplingDetailLabelClass">{{ detail.label }}</dt>
-                      <dd :id="detail.id" :class="samplingDetailValueClass">{{ status[detail.valueKey] }}</dd>
-                    </div>
-                  </dl>
-                </template>
-              </AppTooltip>
-            </div>
-
             <AppTooltip
-              v-if="status.startRecordingActionBound && status.recordingStartAvailable && !status.recordingVisible"
+              v-if="profiles.authorizationScope === 'full-control' && status.startRecordingActionBound && status.recordingStartAvailable && !status.recordingVisible"
               content="Start Recording Manually"
             >
               <button
@@ -171,11 +141,14 @@ async function openMobileAccess() {
             </AppTooltip>
 
             <div id="recording-indicator" :class="{ hidden: !status.recordingVisible }">
-              <AppTooltip placement="bottom-end" tooltip-class="w-72" anchor-tag="div" interactive>
-                <div class="ff-status-chip cursor-help" :class="status.recordingPillToneClass">
-                  <div class="h-2 w-2 rounded-full animate-pulse" :class="status.recordingDotToneClass"></div>
-                  <span class="font-medium" :class="status.recordingLabelToneClass">{{ status.recordingBadgeLabel }}</span>
-                </div>
+              <AppTooltip placement="bottom-end" tooltip-class="w-72" anchor-tag="div" interactive trigger-mode="click" :label="status.recordingTitle" :disabled="!status.recordingVisible">
+                <template #default="{ open, toggle, tooltipId }">
+                  <button id="recording-details-btn" type="button" class="ff-status-chip recording-details-trigger" :class="status.recordingPillToneClass"
+                    :aria-label="`${status.recordingTitle}. Open recording details`" aria-haspopup="dialog" :aria-expanded="open" :aria-controls="tooltipId" @click="toggle">
+                    <span class="h-2 w-2 rounded-full animate-pulse" :class="status.recordingDotToneClass" aria-hidden="true"></span>
+                    <span class="font-medium" :class="status.recordingLabelToneClass">{{ status.recordingBadgeLabel }}</span>
+                  </button>
+                </template>
                 <template #content>
                   <div class="mb-2 text-xs font-semibold" :class="status.recordingTitleToneClass">{{ status.recordingTitle }}</div>
                   <div id="recording-path" class="break-all font-mono text-[10px] text-gray-400">
@@ -193,11 +166,14 @@ async function openMobileAccess() {
                       Flight logs are saved automatically when you land or change aircraft.
                     </div>
                     <button
+                      v-if="profiles.authorizationScope === 'full-control'"
                       id="end-flight-btn"
-                      class="ff-button-secondary w-full justify-center px-3 py-1.5 text-xs"
+                      type="button"
+                      class="ff-button-secondary w-full justify-center px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      :disabled="status.recordingFinalizing || !status.endFlightActionBound"
                       @click="handleEndFlightManual"
                     >
-                      End Flight Manually
+                      {{ status.recordingFinalizing ? 'Saving flight...' : 'End Flight Manually' }}
                     </button>
                   </div>
                 </template>
@@ -206,6 +182,9 @@ async function openMobileAccess() {
           </div>
 
           <div class="header-flight-meta flex min-w-0 items-center gap-4">
+            <div id="vue-phase-mobile-root" class="header-mobile-phase">
+              <FlightStatusBadges mode="mobile" />
+            </div>
             <span id="flight-time" class="header-flight-time tabular text-sm text-muted-fg">{{ status.flightTimeLabel }}</span>
             <div class="header-aircraft-summary flex min-w-0 items-center">
               <div class="header-aircraft-copy flex min-w-0 flex-col leading-tight">

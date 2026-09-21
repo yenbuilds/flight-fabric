@@ -46,6 +46,10 @@ type LvarSidecarBridgeTestInstance = {
   ) => { exception: number | null; sendId: number; index: number | null; receivedAtMs: number } | null;
   stop: () => Promise<void>;
   sendEyepointOffset: (options?: Record<string, unknown>) => void;
+  sendEyepointAngle: (options?: Record<string, unknown>) => void;
+  sendCameraShake: (options?: Record<string, unknown>) => void;
+  getCameraWriteStats: () => { ok: number; failed: number; lastAckType: string | null; lastError: string | null; lastAckAtMs: number | null };
+  resetCameraWriteStats: () => void;
   start: () => Promise<void>;
   _resolveLaunchSpec: () => { provider: string; source: string } | null;
   _buildSidecarEnv: () => NodeJS.ProcessEnv;
@@ -841,6 +845,44 @@ test('LvarSidecarBridge refuses unsafe eyepoint offsets before writing to stdin'
 
     bridge.sendEyepointOffset({ x: 1, y: 0, z: 0, units: 'Meters' });
     assert.equal(writes, 1);
+  });
+});
+
+test('LvarSidecarBridge bounds eyepoint angles, sends camera shakes without a config gate, and counts write acks', () => {
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    const written: string[] = [];
+    bridge._started = true;
+    bridge._proc = {
+      killed: false,
+      stdin: {
+        write(line: string) {
+          written.push(line);
+        },
+      },
+    };
+
+    bridge.sendEyepointAngle({ pitch: 20, bank: 0, heading: 0 });
+    bridge.sendEyepointAngle({ pitch: Number.NaN, bank: 0, heading: 0 });
+    assert.equal(written.length, 0, 'out-of-range or non-finite angles never reach the sidecar');
+
+    bridge.sendEyepointAngle({ pitch: 1.25, bank: -0.5, heading: 0.1 });
+    bridge.sendCameraShake({ pitch: 0.5, dy: -0.03 });
+    assert.equal(written.length, 2);
+    assert.deepEqual(JSON.parse(written[0]), { type: 'eyepointAngle', pitch: 1.25, bank: -0.5, heading: 0.1 });
+    assert.deepEqual(JSON.parse(written[1]), { type: 'cameraShake', pitch: 0.5, bank: 0, heading: 0, dx: 0, dy: -0.03, dz: 0 });
+
+    assert.deepEqual(bridge.getCameraWriteStats(), { ok: 0, failed: 0, lastAckType: null, lastError: null, lastAckAtMs: null });
+    bridge._onStdout('{"type":"eyepointAngleAck","ok":true}\n{"type":"eyepointOffsetAck","ok":true}\n{"type":"cameraShakeAck","ok":false,"error":"not_connected"}\n');
+    const stats = bridge.getCameraWriteStats();
+    assert.equal(stats.ok, 2);
+    assert.equal(stats.failed, 1);
+    assert.equal(stats.lastAckType, 'cameraShakeAck');
+    assert.equal(stats.lastError, 'not_connected');
+    assert.equal(typeof stats.lastAckAtMs, 'number');
+
+    bridge.resetCameraWriteStats();
+    assert.deepEqual(bridge.getCameraWriteStats(), { ok: 0, failed: 0, lastAckType: null, lastError: null, lastAckAtMs: null });
   });
 });
 

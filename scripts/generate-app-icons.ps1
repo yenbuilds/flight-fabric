@@ -472,4 +472,4 @@ try {
   $primarySource.Dispose()
 }
 
-Write-Host "Generated Flight Fabric primary and compact icon sets"
+Write-Host "Generated FlightFabric primary and compact icon sets"

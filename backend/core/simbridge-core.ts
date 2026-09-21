@@ -20,7 +20,7 @@ const {
   resolveStabilityPolicy,
   buildStabilityScoringContext,
 } = require('../stability/stability-policy');
-const { sendBasicStreams, sendAttitude, sendGear, sendFlapsSpoilers, sendSurface, sendFuel, sendPosition, sendEnvironment, assessAutopilotReliability, sendAutopilot, sendControls } = require('../events/broadcasters');
+const { sendBasicStreams, sendAttitude, sendGear, sendFlapsSpoilers, sendSurface, sendFuel, sendPosition, sendEnvironment, assessAutopilotReliability, sendAutopilot, sendControls, sendSimTime } = require('../events/broadcasters');
 const { normalizeSurface } = require('../aircraft/surface-normalizer');
 const { updatePhase, getPhase } = require('../lifecycle/phase-runner');
 const { PHASES, APPROACH_PHASES } = require('../lifecycle/phases');
@@ -110,6 +110,9 @@ const { isoFromMs, createEventId } = require('./time-id');
 const { createTickFrameFactory } = require('../lifecycle/tick-frame');
 const flightLogbook = require('../landing/flight-logbook');
 const { getDataSourceInfo } = require('../telemetry-provider');
+const { TOUCHDOWN_SHAKE_DISABLED } = require('../telemetry-provider/touchdown-shake.js') as {
+  TOUCHDOWN_SHAKE_DISABLED: boolean;
+};
 const {
   createSourceOverlayContext,
   overlayParkingBrakeSources,
@@ -156,7 +159,7 @@ const {
   resetSimbridgeBroadcastState,
 } = require('./simbridge-runtime-state.js') as {
   createSimbridgeRuntimeState: (params: AnyRecord) => AnyRecord;
-  getReplayMessages: (runtimeState: AnyRecord) => AnyRecord[];
+  getReplayMessages: (runtimeState: AnyRecord, subscriptions?: ReadonlySet<string> | null) => AnyRecord[];
   rememberReplayMessage: (runtimeState: AnyRecord, message: AnyRecord | null | undefined) => void;
   resetSimbridgeBroadcastState: (runtimeState: AnyRecord) => void;
 };
@@ -661,6 +664,8 @@ async function runSimbridgeCore({
   let flightRecordingStartIso = '';
   let flightRecordingSessionId = '';
   let lastFlightTimeBroadcastSec = null;
+  let lastSimTimeBroadcastMs = null;
+  let lastSimTimeBroadcastIso = null;
 
   // Flight lifecycle gate: only log/broadcast flight timer during a real flight.
   // Declared early so WS handlers can safely read on immediate client messages.
@@ -883,7 +888,7 @@ async function runSimbridgeCore({
             getOriginTarget,
             setOriginTarget,
             clearOriginTarget,
-          replayMessages: getReplayMessages(runtimeState),
+          replayMessages: getReplayMessages(runtimeState, ws.__ffSubscribedTypes),
           provider,
           broadcast,
           getCabinAnnouncementsConfig: () => (
@@ -927,29 +932,63 @@ async function runSimbridgeCore({
       }
       // Handle test shake command (requires provider, not in standard context)
       if (msg.type === 'testShake') {
-        const vsFpm = (typeof msg.vs_fpm === 'number') ? msg.vs_fpm : -400;
-        console.log(`[TouchdownShake] testShake received: vs_fpm=${vsFpm} isMock=${capabilities.isMock} hasFn=${typeof provider.triggerTouchdownShake === 'function'}`);
+        if (TOUCHDOWN_SHAKE_DISABLED) {
+          // The button is gone from the debug modal; a hand-crafted message
+          // gets an honest refusal rather than silence.
+          ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: null, phase: 'started', diag: { shake: { ok: false, reason: 'disabled' } } }));
+          return;
+        }
+        const vsFpm = (typeof msg.vs_fpm === 'number' && Number.isFinite(msg.vs_fpm)) ? msg.vs_fpm : -400;
+        const method = typeof msg.method === 'string' ? msg.method : undefined;
+        const intensity = typeof msg.intensity === 'number' ? msg.intensity : undefined;
+        console.log(`[TouchdownShake] testShake received: vs_fpm=${vsFpm} method=${method || 'configured'} isMock=${capabilities.isMock} hasFn=${typeof provider.triggerTouchdownShake === 'function'}`);
 
+        const lvarBridge = provider._lvarBridge;
         const diagInfo = {
           isMock: capabilities.isMock,
           hasTriggerFn: typeof provider.triggerTouchdownShake === 'function',
-          lvarBridge: !!provider._lvarBridge,
-          lvarStarted: provider._lvarBridge?._started,
-          lvarProcAlive: provider._lvarBridge?._proc && !provider._lvarBridge._proc.killed,
+          lvarBridge: !!lvarBridge,
+          lvarStarted: lvarBridge?._started,
+          lvarProcAlive: lvarBridge?._proc && !lvarBridge._proc.killed,
           sdkBridge: !!provider._sdkBridge,
           sdkStarted: provider._sdkBridge?._started,
           sdkProcAlive: provider._sdkBridge?._proc && !provider._sdkBridge._proc.killed,
           connected: provider._connected,
           handle: !!provider._handle,
+          autoShakeEnabled: config.touchdownShake.enable,
         };
         console.log('[TouchdownShake] diag:', JSON.stringify(diagInfo));
 
+        // The Test Shake button bypasses effects.touchdownShake on purpose: it is
+        // how the feel gets tuned before the automatic landing trigger is enabled.
+        let shake = null;
         if (!capabilities.isMock && typeof provider.triggerTouchdownShake === 'function') {
-          try { provider.triggerTouchdownShake(vsFpm); } catch (e) { console.warn('[TouchdownShake] testShake failed:', e.message); }
+          try {
+            lvarBridge?.resetCameraWriteStats?.();
+            shake = provider.triggerTouchdownShake(vsFpm, { method, intensity });
+          } catch (e) {
+            console.warn('[TouchdownShake] testShake failed:', e.message);
+            shake = { ok: false, reason: 'exception' };
+          }
         } else {
           console.warn('[TouchdownShake] testShake: provider not available or is mock');
+          shake = { ok: false, reason: capabilities.isMock ? 'mock_provider' : 'no_trigger' };
         }
-        ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: vsFpm, diag: diagInfo }));
+        ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: vsFpm, phase: 'started', diag: { ...diagInfo, shake } }));
+
+        // Follow up once the shake has played so the debug modal can show
+        // whether the sidecar accepted the camera writes.
+        if (shake?.ok && typeof shake.durationMs === 'number') {
+          const followUp = setTimeout(() => {
+            if (ws.readyState !== 1) return;
+            const writes = lvarBridge?.getCameraWriteStats?.() || null;
+            console.log('[TouchdownShake] testShake done:', JSON.stringify(writes));
+            try {
+              ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: vsFpm, phase: 'done', diag: { ...diagInfo, shake, writes } }));
+            } catch {}
+          }, shake.durationMs + 300);
+          try { followUp.unref?.(); } catch {}
+        }
         return;
       }
       await handleClientMessageImpl(ws, msg, context);
@@ -1301,7 +1340,7 @@ async function runSimbridgeCore({
     }
   });
 
-  // Flight data goes to the resolved Flight Fabric logs folder.
+  // Flight data goes to the resolved FlightFabric logs folder.
   if (!capabilities.isMock) {
     console.log('[simbridge:init] Flight events: using a synchronized CSV + two-JSONL recording bundle');
   } else {
@@ -1309,12 +1348,12 @@ async function runSimbridgeCore({
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Touchdown screen shake — fires at the moment of wheel contact.
-  // Fires EYEPOINT_DOWN / EYEPOINT_UP key events via transmitClientEvent on
-  // touchdown to produce a V/S-scaled cockpit jolt. Key events are fully
-  // supported from external SimConnect clients (unlike SimVar writes).
+  // Touchdown camera shake — fires at the moment of wheel contact.
+  // Plays a V/S-scaled landing profile through the Rust SimConnect sidecar
+  // (see telemetry-provider/touchdown-shake.ts). Gated by effects.touchdownShake;
+  // the debug modal's Test Shake button bypasses the gate for tuning.
   // ═══════════════════════════════════════════════════════════════════════════
-  if (!capabilities.isMock && config.touchdownShake.enable && typeof provider.triggerTouchdownShake === 'function') {
+  if (!TOUCHDOWN_SHAKE_DISABLED && !capabilities.isMock && config.touchdownShake.enable && typeof provider.triggerTouchdownShake === 'function') {
     eventBus.on('landing:early', (payload) => {
       if (!payload) return;
       console.log(`[TouchdownShake] landing:early received, vs_fpm=${payload.vs_fpm}`);
@@ -1325,7 +1364,7 @@ async function runSimbridgeCore({
       }
     });
   } else {
-    console.log(`[TouchdownShake] Not subscribing: isMock=${capabilities.isMock}, enabled=${config.touchdownShake.enable}, hasTriggerFn=${typeof provider.triggerTouchdownShake === 'function'}`);
+    console.log(`[TouchdownShake] Not subscribing: disabled=${TOUCHDOWN_SHAKE_DISABLED}, isMock=${capabilities.isMock}, enabled=${config.touchdownShake.enable}, hasTriggerFn=${typeof provider.triggerTouchdownShake === 'function'}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3354,6 +3393,23 @@ async function runSimbridgeCore({
     } catch {}
   }
 
+  // The simulator clock drives time-of-day presentation (3D map lighting).
+  // It changes once a second but a few seconds of drift is invisible, so it
+  // goes out when the minute changes and at least every ten seconds.
+  const SIM_TIME_BROADCAST_INTERVAL_MS = 10000;
+  function broadcastSimTimeIfDue(nowEpochMs, simTime) {
+    if (!simTime || typeof simTime !== 'object') return;
+    const zuluIso = typeof simTime.zuluIso === 'string' ? simTime.zuluIso : null;
+    const minuteKey = zuluIso ? zuluIso.slice(0, 16) : null;
+    const elapsedMs = Number.isFinite(nowEpochMs) && Number.isFinite(lastSimTimeBroadcastMs)
+      ? nowEpochMs - lastSimTimeBroadcastMs
+      : Number.POSITIVE_INFINITY;
+    if (minuteKey === lastSimTimeBroadcastIso && elapsedMs < SIM_TIME_BROADCAST_INTERVAL_MS) return;
+    lastSimTimeBroadcastMs = nowEpochMs;
+    lastSimTimeBroadcastIso = minuteKey;
+    sendSimTime(broadcast, simTime);
+  }
+
   function broadcastFlightTimeReset(nowEpochMs, reason = 'unknown', endingFlightId = '') {
     const nowIso = Number.isFinite(nowEpochMs)
       ? new Date(nowEpochMs).toISOString()
@@ -4290,6 +4346,9 @@ async function runSimbridgeCore({
       yokeX: fdmForFuel.yokeXPct != null ? fdmForFuel.yokeXPct / 100 : null,
       yokeY: fdmForFuel.yokeYPct != null ? fdmForFuel.yokeYPct / 100 : null,
       rudderPedalPct: fdmForFuel.rudderPedalPct,
+      noseSteerPct: fdmForFuel.noseSteerPct,
+      brakeLeftPct: fdmForFuel.brakeLeftPct,
+      brakeRightPct: fdmForFuel.brakeRightPct,
     });
 
     const gearDecoded = overlayParkingBrakeSources({
@@ -4335,6 +4394,7 @@ async function runSimbridgeCore({
     }, broadcast);
 
     broadcastFlightTimeIfDue(nowEpochMs, timestampIso);
+    broadcastSimTimeIfDue(nowEpochMs, frame?.simTime);
     resetStabilityForHighAltOrParked(raFeet, phase);
 
     const fdmForVisibility = mergeFdmData(frame.fdm, frame.simconnect);

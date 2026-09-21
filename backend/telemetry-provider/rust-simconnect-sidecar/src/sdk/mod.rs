@@ -135,6 +135,8 @@ struct FieldSpec {
     #[serde(default)]
     offset: Option<usize>,
     #[serde(default)]
+    length: Option<usize>,
+    #[serde(default)]
     op: Option<String>,
     #[serde(default)]
     terms: Vec<ReadTerm>,
@@ -507,6 +509,22 @@ fn validate_field(field: &FieldSpec, data_size: usize) -> Result<(), String> {
     if !is_safe_field_name(&field.name) {
         return Err(format!("invalid_field_name:{}", field.name));
     }
+    if field.value_type.as_deref() == Some("bytes") {
+        let offset = field.offset.ok_or_else(|| format!("field_missing_offset:{}", field.name))?;
+        let length = field.length.ok_or_else(|| format!("field_missing_length:{}", field.name))?;
+        if length == 0 || offset.checked_add(length).is_none_or(|end| end > data_size) {
+            return Err(format!("field_out_of_bounds:{}", field.name));
+        }
+        if field.op.as_deref().unwrap_or("read") != "read" || !field.map.is_empty()
+            || !field.ranges.is_empty() || field.equals.is_some() || field.round.is_some()
+            || field.fallback.is_some() || !field.terms.is_empty() || !field.when.is_empty() {
+            return Err(format!("byte_field_has_scalar_options:{}", field.name));
+        }
+        return Ok(());
+    }
+    if field.length.is_some() {
+        return Err(format!("field_length_requires_bytes:{}", field.name));
+    }
     if field.map.len() > 64 {
         return Err(format!("field_map_too_large:{}", field.name));
     }
@@ -661,6 +679,12 @@ fn read_width(read_type: ReadType) -> usize {
 // Field decoding happens only after validation proved every read fits inside
 // `data_size`; runtime length is checked again by `SdkClientDataAdapter::decode`.
 fn decode_field(raw: &[u8], field: &FieldSpec) -> Value {
+    if field.value_type.as_deref() == Some("bytes") {
+        let offset = field.offset.unwrap_or_default();
+        let length = field.length.unwrap_or_default();
+        return offset.checked_add(length).and_then(|end| raw.get(offset..end))
+            .map_or(Value::Null, |bytes| json!(bytes));
+    }
     if !field
         .when
         .iter()
@@ -1124,6 +1148,30 @@ mod tests {
             ]
         })
         .to_string()
+    }
+
+    #[test]
+    fn byte_fields_preserve_cdu_payload_and_reject_invalid_bounds() {
+        let manifests = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sdk-connectors");
+        for name in ["pmdg-737-cdu-left", "pmdg-737-cdu-right", "pmdg-777-cdu-left", "pmdg-777-cdu-right"] {
+            let text = fs::read_to_string(manifests.join(format!("{name}.json"))).unwrap();
+            let adapter = parse_connector(&text).unwrap();
+            // VISUAL_FRAME also delivers the existing
+            // screen when a viewer opens after the last CDU update. ON_SET can
+            // leave an already powered, unchanged CDU blank indefinitely.
+            assert!(matches!(adapter.definition.request_period, ClientDataPeriod::VisualFrame));
+            let raw: Vec<u8> = (0..1009).map(|i| (i % 256) as u8).collect();
+            assert_eq!(adapter.decode(&raw).unwrap()["screen"], json!(raw));
+            assert!(adapter.decode(&raw[..1008]).is_none());
+            let mut spec: Value = serde_json::from_str(&text).unwrap();
+            for length in [0, 1010, usize::MAX] {
+                spec["fields"][0]["length"] = json!(length);
+                assert!(parse_connector(&spec.to_string()).is_err());
+            }
+            spec["fields"][0]["length"] = json!(1009);
+            spec["fields"][0]["map"] = json!({"0": true});
+            assert!(parse_connector(&spec.to_string()).is_err());
+        }
     }
 
     fn test_adapter() -> SdkClientDataAdapter {

@@ -192,7 +192,9 @@ function verifyBatchPortValidation(root) {
   ];
 
   for (const testCase of cases) {
-    const result = spawnSync('cmd.exe', ['/d', '/c', 'start-simbridge.bat <NUL'], {
+    // An explicit relative path keeps the launch independent of cmd.exe's
+    // current-directory lookup, which NoDefaultCurrentDirectoryInExePath disables.
+    const result = spawnSync('cmd.exe', ['/d', '/c', '.\\start-simbridge.bat <NUL'], {
       cwd: root,
       env: {
         ...process.env,

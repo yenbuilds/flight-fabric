@@ -51,6 +51,7 @@ watch(resolvedVisual, () => { imageFailed.value = false; });
     :class="[`aircraft-artwork--${variant}`, { 'aircraft-artwork--placeholder': showPlaceholder }]"
     :data-aircraft-visual-key="showPlaceholder ? 'generic-aircraft' : resolvedVisual.assetKey"
     :data-aircraft-visual-fidelity="showPlaceholder ? 'placeholder' : resolvedVisual.fidelity"
+    :style="showPlaceholder ? undefined : { '--aircraft-artwork-scale': resolvedVisual.scale }"
     :role="showPlaceholder ? 'img' : undefined"
     :aria-label="showPlaceholder ? placeholderLabel : undefined"
     :title="showPlaceholder ? placeholderLabel : undefined"

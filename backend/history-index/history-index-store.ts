@@ -1262,7 +1262,7 @@ function createHistoryIndexStore(db: AnyRecord) {
   }
 
   /**
-   * Clear only Flight Fabric's derived SQLite catalogue. Authoritative CSVs and
+   * Clear only FlightFabric's derived SQLite catalogue. Authoritative CSVs and
    * portable history-summary sidecars are deliberately outside this database
    * transaction and are never touched by an index rebuild.
    */

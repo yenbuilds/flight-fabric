@@ -1,11 +1,10 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 
 const props = defineProps({
   target: { type: Object, default: null },
   contentKey: { type: String, default: '' },
-  hideOnMobile: { type: Boolean, default: false },
 });
 const emit = defineEmits(['expanded-change']);
 
@@ -16,13 +15,6 @@ const query = ref('');
 const matches = ref([]);
 const currentIndex = ref(-1);
 const expanded = ref(false);
-const mobileRibbonSearchHidden = ref(false);
-
-const MOBILE_SEARCH_HIDDEN_QUERY = '(max-width: 760px), (max-height: 500px) and (pointer: coarse)';
-const SEARCH_FOCUS_FALLBACK_MS = 150;
-let mobileSearchMediaQuery = null;
-let searchWasLastFocused = false;
-let searchFocusFallbackTimer = null;
 
 const RESULT_TARGET_SELECTOR = [
   '[data-aircraft-control-group]',
@@ -132,7 +124,7 @@ function collectMatches() {
   const candidates = Array.from(root.querySelectorAll(RESULT_TARGET_SELECTOR))
     .filter((element) => (
       isSearchable(element)
-      && !element.closest?.('.aircraft-find')
+      && !element.closest?.('.aircraft-page-tools, .aircraft-find, [data-aircraft-section-ribbon]')
       && normalizeSearchText(searchableElementText(element)).includes(needle)
     ));
 
@@ -226,72 +218,6 @@ function searchOwnsFocus() {
   );
 }
 
-function clearSearchFocusMemory() {
-  searchWasLastFocused = false;
-  if (searchFocusFallbackTimer != null && typeof window !== 'undefined') {
-    window.clearTimeout(searchFocusFallbackTimer);
-  }
-  searchFocusFallbackTimer = null;
-}
-
-function handleSearchFocusIn() {
-  if (searchFocusFallbackTimer != null && typeof window !== 'undefined') {
-    window.clearTimeout(searchFocusFallbackTimer);
-    searchFocusFallbackTimer = null;
-  }
-  searchWasLastFocused = true;
-}
-
-function handleSearchFocusOut(event) {
-  if (searchRoot.value?.contains?.(event.relatedTarget)) return;
-  // Browsers may blur a focused control to <body> before the matching
-  // media-query callback runs. Preserve that last meaningful focus long
-  // enough to hand it to the replacement ribbon.
-  if (
-    !event.relatedTarget
-    || event.relatedTarget === document.body
-    || event.relatedTarget === document.documentElement
-  ) {
-    if (typeof window !== 'undefined') {
-      if (searchFocusFallbackTimer != null) window.clearTimeout(searchFocusFallbackTimer);
-      searchFocusFallbackTimer = window.setTimeout(
-        clearSearchFocusMemory,
-        SEARCH_FOCUS_FALLBACK_MS,
-      );
-    }
-    return;
-  }
-  clearSearchFocusMemory();
-}
-
-function handleDocumentPointerdown(event) {
-  if (!searchRoot.value?.contains?.(event.target)) clearSearchFocusMemory();
-}
-
-function focusMobileRibbon() {
-  nextTick(() => {
-    const ribbonTarget = props.target
-      ?.querySelector?.('[data-aircraft-section-ribbon] .aircraft-section-ribbon__current')
-      || null;
-    ribbonTarget?.focus?.({ preventScroll: true });
-    clearSearchFocusMemory();
-  });
-}
-
-function syncMobileRibbonSearchVisibility() {
-  const shouldHide = Boolean(props.hideOnMobile && mobileSearchMediaQuery?.matches);
-  const searchHadFocus = searchOwnsFocus() || searchWasLastFocused;
-  mobileRibbonSearchHidden.value = shouldHide;
-  if (
-    shouldHide
-    && (expanded.value || query.value.trim() || matches.value.length > 0 || searchHadFocus)
-  ) {
-    if (searchHadFocus) clearSearchFocusMemory();
-    collapseSearch({ focusLauncher: false });
-    if (searchHadFocus) focusMobileRibbon();
-  }
-}
-
 function handleSearchKeydown(event) {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -318,7 +244,6 @@ function handleDocumentKeydown(event) {
   if (
     event.defaultPrevented
     || !aircraftPageIsActive()
-    || mobileRibbonSearchHidden.value
     || modalDialogIsOpen()
     || event.altKey
     || !(event.ctrlKey || event.metaKey)
@@ -330,46 +255,15 @@ function handleDocumentKeydown(event) {
 }
 
 useDocumentEvent('keydown', handleDocumentKeydown);
-useDocumentEvent('pointerdown', handleDocumentPointerdown);
-
-onMounted(() => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-  mobileSearchMediaQuery = window.matchMedia(MOBILE_SEARCH_HIDDEN_QUERY);
-  syncMobileRibbonSearchVisibility();
-  if (typeof mobileSearchMediaQuery.addEventListener === 'function') {
-    mobileSearchMediaQuery.addEventListener('change', syncMobileRibbonSearchVisibility);
-  } else {
-    mobileSearchMediaQuery.addListener?.(syncMobileRibbonSearchVisibility);
-  }
-  window.addEventListener('resize', syncMobileRibbonSearchVisibility, { passive: true });
-});
-
 watch(query, () => {
   nextTick(() => refreshMatches({ scroll: Boolean(query.value.trim()) }));
 });
 
 watch(() => props.contentKey, () => {
-  const searchHadFocus = searchOwnsFocus();
-  const shouldUseMobileRibbon = Boolean(props.hideOnMobile && mobileSearchMediaQuery?.matches);
-  collapseSearch({ focusLauncher: searchHadFocus && !shouldUseMobileRibbon });
-  if (searchHadFocus && shouldUseMobileRibbon) focusMobileRibbon();
+  collapseSearch({ focusLauncher: searchOwnsFocus() });
 });
 
-watch(() => props.hideOnMobile, syncMobileRibbonSearchVisibility);
-
-onBeforeUnmount(() => {
-  if (typeof mobileSearchMediaQuery?.removeEventListener === 'function') {
-    mobileSearchMediaQuery.removeEventListener('change', syncMobileRibbonSearchVisibility);
-  } else {
-    mobileSearchMediaQuery?.removeListener?.(syncMobileRibbonSearchVisibility);
-  }
-  if (typeof window !== 'undefined') {
-    window.removeEventListener('resize', syncMobileRibbonSearchVisibility);
-  }
-  clearSearchFocusMemory();
-  mobileSearchMediaQuery = null;
-  clearMatchMarkers();
-});
+onBeforeUnmount(clearMatchMarkers);
 </script>
 
 <template>
@@ -377,14 +271,11 @@ onBeforeUnmount(() => {
     ref="searchRoot"
     class="aircraft-find"
     :class="{
-      'aircraft-find--mobile-hidden': hideOnMobile,
       'aircraft-find--expanded': expanded,
     }"
     role="search"
     aria-label="Find on Aircraft page"
     data-no-swipe
-    @focusin="handleSearchFocusIn"
-    @focusout="handleSearchFocusOut"
   >
     <button
       v-show="!expanded"
@@ -495,7 +386,7 @@ onBeforeUnmount(() => {
   display: flex;
   width: max-content;
   max-width: 100%;
-  min-height: 3rem;
+  min-height: 2.75rem;
   align-items: flex-start;
   justify-content: flex-end;
   overflow: visible;
@@ -522,15 +413,14 @@ onBeforeUnmount(() => {
 .aircraft-find__launcher {
   display: inline-flex;
   width: auto;
-  min-height: 3rem;
+  min-height: 2.75rem;
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
-  padding: 0.5rem 0.65rem 0.5rem 0.9rem;
-  border: 1px solid rgb(var(--primary) / 0.42);
-  border-radius: 999px;
-  background: rgb(var(--panel) / 0.98);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28), 0 0 0 1px rgb(var(--primary) / 0.06);
+  padding: 0.4rem 0.65rem;
+  border: 1px solid rgb(var(--border) / 0.65);
+  border-radius: 6px;
+  background: rgb(var(--panel) / 0.7);
   color: rgb(var(--foreground));
   font-size: 0.75rem;
   font-weight: 650;
@@ -553,15 +443,9 @@ onBeforeUnmount(() => {
   height: 1.1rem;
   flex: 0 0 auto;
   fill: none;
-  stroke: rgb(var(--primary));
+  stroke: rgb(var(--selection));
   stroke-linecap: round;
   stroke-width: 1.8;
-}
-
-@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
-  .aircraft-find--mobile-hidden {
-    display: none;
-  }
 }
 
 .aircraft-find__row {
@@ -747,7 +631,7 @@ onBeforeUnmount(() => {
 @media (max-width: 640px) {
   .aircraft-find {
     width: max-content;
-    margin-inline: -0.15rem;
+    margin-inline: 0;
   }
 
   .aircraft-find--expanded {

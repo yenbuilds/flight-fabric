@@ -244,6 +244,11 @@ function buildSimConnectFdmData(d: AnyRecord, boolOrNull: (value: unknown) => bo
     yokeXPct: d.yokeX != null ? d.yokeX * 100 : null,
     yokeYPct: d.yokeY != null ? d.yokeY * 100 : null,
     rudderPedalPct: d.rudderPedal != null ? d.rudderPedal * 100 : null,
+    // Ground handling: nose-gear steer angle as a percentage of full travel
+    // (signed, right positive) and toe-brake application per side, 0-100.
+    noseSteerPct: d.noseSteer != null ? d.noseSteer * 100 : null,
+    brakeLeftPct: d.brakeLeftPos != null ? d.brakeLeftPos * 100 : null,
+    brakeRightPct: d.brakeRightPos != null ? d.brakeRightPos * 100 : null,
 
     // Autopilot state
     apMaster: d.apMaster ?? null,

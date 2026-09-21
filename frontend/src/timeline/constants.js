@@ -63,7 +63,7 @@ export const RULE_DESCRIPTIONS = Object.freeze({
   approach_bank: 'Bank is assessed from the recorded height gate to touchdown. Small deviations have a gradual scoring effect. Sustained or severe breaches become red violations.',
   approach_pitch: 'Pitch is assessed from the recorded height gate to touchdown. Small deviations have a gradual scoring effect. Sustained or severe breaches become red violations.',
   approach_localizer: 'A valid localizer signal is assessed from the recorded height gate to 50 ft. The ideal band is within one dot; severe deviations exceed two dots. Entry and recovery use elapsed time.',
-  [VIOLATION_RULE.HIGH_SINK_RATE]: 'Flight Fabric stability rule: vertical speed dropped below the configured threshold during APPROACH/FINAL. This differs from a GPWS "SINK RATE" aural callout, which uses a height-versus-rate envelope and may occur at a different time or not at all.',
+  [VIOLATION_RULE.HIGH_SINK_RATE]: 'FlightFabric stability rule: vertical speed dropped below the configured threshold during APPROACH/FINAL. This differs from a GPWS "SINK RATE" aural callout, which uses a height-versus-rate envelope and may occur at a different time or not at all.',
   [VIOLATION_RULE.EXCESS_IAS_DEVIATION]: 'Indicated airspeed deviated from the reference speed by more than the configured tolerance during the approach.',
   [VIOLATION_RULE.GLIDEPATH_DEVIATION]: 'Glideslope deviation exceeded +/-1 dot during the approach.',
   localizer_deviation: 'Localizer deviation exceeded +/-1 dot during the approach.',

@@ -80,6 +80,9 @@ async function testPortMismatchBootstrapFallback() {
   assert.equal(openedUrl, 'ws://localhost:8099?token=fixture-token&aircraftControlToken=fixture-aircraft-token');
   assert.equal(connection.getBackendHttpBase(), 'http://localhost:8100');
   assert.equal(connection.getAuthorizationScope(), 'read-only', 'credentials alone must not grant UI capability');
+  assert.equal(connection.isAuthorizationAcknowledged(), false, 'a socket and credentials do not acknowledge access');
+  acknowledgeScope(connection, 'read-only');
+  assert.equal(connection.isAuthorizationAcknowledged(), true, 'a genuine viewer acknowledgement is distinct from the initial read-only fallback');
   acknowledgeScope(connection, 'full-control');
   assert.equal(connection.getAuthorizationScope(), 'full-control');
 }
@@ -295,10 +298,12 @@ async function testElectronLoopbackBootstrapFallback() {
 
   connection.getWs().onerror({ type: 'error' });
   assert.equal(connection.getAuthorizationScope(), 'read-only', 'socket errors must revoke the acknowledged UI scope immediately');
+  assert.equal(connection.isAuthorizationAcknowledged(), false, 'socket errors invalidate the previous acknowledgement');
 
   acknowledgeScope(connection, 'full-control');
   connection.reconnect();
   assert.equal(connection.getAuthorizationScope(), 'read-only', 'manual reconnect must revoke the previous socket scope before async bootstrap');
+  assert.equal(connection.isAuthorizationAcknowledged(), false, 'a replacement connection waits for a new acknowledgement');
   assert.equal(connection.getWs(), null, 'manual reconnect must detach the previous socket during async bootstrap');
   await wait(10);
 }

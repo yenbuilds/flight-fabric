@@ -1,7 +1,7 @@
 /**
  * Electron Main Process
  * 
- * Runs the Flight Fabric backend and provides a native GUI wrapper.
+ * Runs the FlightFabric backend and provides a native GUI wrapper.
  * The backend (simbridge.js) runs as a child process.
  */
 
@@ -13,9 +13,12 @@ const crypto = require('crypto');
 const http = require('http');
 const net = require('net');
 const os = require('os');
-const { createSettingsStore } = require('./settings-store');
-const { getMainWindowBounds } = require('./main-window-bounds');
+const { createSettingsStore, createDesktopWindowStateStore } = require('./settings-store');
+const { restoreMainWindowState } = require('./main-window-bounds');
+const { trackMainWindowState, showMainWindow, setAutotaxiBackgroundActivity } = require('./main-window-state');
+const { createDesktopMenuTemplate } = require('./desktop-menu');
 const { detectMsfsInstalls } = require('./msfs-detect');
+const { createToolbarPanelInstaller } = require('./msfs-toolbar-panel-installer');
 const { getLocalIPv4AddressesFromInterfaces } = require('./network-info');
 const { resolveAllowedExternalUrl } = require('./external-url-policy');
 const { isTrustedIpcSender } = require('./ipc-sender-policy');
@@ -40,7 +43,7 @@ const {
   shouldOfferWindowsPortFallback,
 } = require('./backend-lifecycle');
 
-const APP_PRODUCT_NAME = 'Flight Fabric';
+const APP_PRODUCT_NAME = 'FlightFabric';
 const APP_ID = 'com.flightfabric.app';
 const APP_USER_MODEL_ID = app.isPackaged ? APP_ID : `${APP_ID}.dev`;
 const OPENSTREETMAP_TILE_REQUEST_PATTERN = 'https://tile.openstreetmap.org/*';
@@ -74,10 +77,10 @@ function buildEmergencyFallbackDocument() {
         <html>
           <head>
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'sha256-${scriptHash}'; script-src-attr 'none'; style-src 'unsafe-inline'">
-            <title>Flight Fabric</title>
+            <title>FlightFabric</title>
           </head>
           <body style="font-family: sans-serif; padding: 20px; background: #1a1a2e; color: #fff;">
-            <h1>Flight Fabric</h1>
+            <h1>FlightFabric</h1>
             <p>Experimental release. Use with care.</p>
             <p>Backend status: <span id="status">Starting...</span></p>
             <pre id="log" style="background: #0f0f1a; padding: 10px; max-height: 400px; overflow: auto;"></pre>
@@ -606,6 +609,11 @@ function clearActiveBackendLaunch(proc) {
 const settingsStore = createSettingsStore({
   logger: (...args) => debugLog(...args),
 });
+const desktopWindowStateStore = createDesktopWindowStateStore({
+  stateFile: path.join(ELECTRON_USER_DATA_DIR, 'window-state.json'),
+  logger: (...args) => debugLog(...args),
+});
+let mainWindowState = null;
 
 ({ backendWsPort, backendHttpPort } = settingsStore.refreshRuntimeNetworkFromSettings(
   { backendWsPort, backendHttpPort },
@@ -659,7 +667,7 @@ function buildRendererContentSecurityPolicy(nonce) {
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob: https://tile.openstreetmap.org",
+    "img-src 'self' data: blob: https://tile.openstreetmap.org https://s3.amazonaws.com",
     "media-src 'self' data: blob:",
     "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
     "worker-src 'self' blob:",
@@ -675,9 +683,11 @@ function injectRendererCspNonce(html, nonce) {
 }
 
 function streamStaticFile(req, res, filePath, contentType, options = {}) {
+  if (res.destroyed) return;
   const notFoundMessage = options.notFoundMessage || 'File not found';
   fs.open(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0), (openErr, descriptor) => {
     if (openErr) {
+      if (res.destroyed) return;
       const fileErr = openErr;
       if (typeof options.onMissing === 'function') {
         options.onMissing(fileErr);
@@ -692,8 +702,9 @@ function streamStaticFile(req, res, filePath, contentType, options = {}) {
     }
 
     fs.fstat(descriptor, (statErr, stat) => {
-      if (statErr || !stat.isFile()) {
+      if (res.destroyed || statErr || !stat.isFile()) {
         fs.close(descriptor, () => {
+          if (res.destroyed) return;
           const fileErr = statErr || Object.assign(new Error('Path is not a file'), { code: 'ENOENT' });
           if (typeof options.onMissing === 'function') {
             options.onMissing(fileErr);
@@ -711,6 +722,7 @@ function streamStaticFile(req, res, filePath, contentType, options = {}) {
       if (contentType === 'text/html' && options.htmlNonce) {
         fs.readFile(descriptor, 'utf8', (readErr, html) => {
           fs.close(descriptor, () => {
+            if (res.destroyed) return;
             if (readErr) {
               if (typeof options.onMissing === 'function') {
                 options.onMissing(readErr);
@@ -747,6 +759,10 @@ function streamStaticFile(req, res, filePath, contentType, options = {}) {
       }
 
       const stream = fs.createReadStream(filePath, { fd: descriptor, autoClose: true });
+      // A cancelled page/audio load must release its file even under backpressure.
+      const closeStream = () => stream.destroy();
+      res.once('close', closeStream);
+      stream.once('close', () => res.off('close', closeStream));
       stream.on('error', (streamErr) => {
         if (!res.headersSent) {
           writeStaticError(res, 500, `Server error: ${streamErr.message}`);
@@ -754,6 +770,7 @@ function streamStaticFile(req, res, filePath, contentType, options = {}) {
         }
         try { res.end(); } catch {}
       });
+      if (res.destroyed) { stream.destroy(); return; }
       stream.pipe(res);
     });
   });
@@ -1098,6 +1115,36 @@ async function loadLegacyLauncher(targetWindow = mainWindow) {
   return { success: true, path: LAUNCHER_HTML };
 }
 
+async function loadInitialWindowContent(targetWindow) {
+  // A cancelled navigation can settle after quit or after a replacement window
+  // exists. Recovery belongs only to the window that started this load.
+  const isCurrentWindow = () => !isQuitting && mainWindow === targetWindow
+    && targetWindow && !targetWindow.isDestroyed();
+  if (!isCurrentWindow()) return;
+  try {
+    await loadDesktopApp(targetWindow);
+    if (isCurrentWindow()) debugLog('Desktop UI loaded successfully');
+    return;
+  } catch (desktopErr) {
+    if (!isCurrentWindow()) return;
+    debugLog('Desktop UI load error:', desktopErr?.message || desktopErr);
+  }
+  try {
+    await loadLegacyLauncher(targetWindow);
+    if (isCurrentWindow()) debugLog('Legacy launcher loaded as fallback');
+    return;
+  } catch (launcherErr) {
+    if (!isCurrentWindow()) return;
+    debugLog('Legacy launcher load error:', launcherErr?.message || launcherErr);
+  }
+  try {
+    const fallbackDocument = buildEmergencyFallbackDocument();
+    await targetWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(fallbackDocument)}`);
+  } catch (fallbackErr) {
+    if (isCurrentWindow()) debugLog('Emergency fallback load error:', fallbackErr?.message || fallbackErr);
+  }
+}
+
 function fetchSimbriefViaBackend(username) {
   const normalizedUsername = typeof username === 'string'
     ? username.trim().replace(/[^A-Za-z0-9_-]/g, '')
@@ -1331,9 +1378,9 @@ async function showReservedBackendPortFailure(detail) {
   await dialog.showMessageBox({
     type: 'error',
     title: 'Backend Ports Unavailable',
-    message: 'Windows will not allow Flight Fabric to use the configured backend ports.',
+    message: 'Windows will not allow FlightFabric to use the configured backend ports.',
     detail,
-    buttons: ['Quit Flight Fabric'],
+    buttons: ['Quit FlightFabric'],
     defaultId: 0,
   });
 }
@@ -1351,8 +1398,8 @@ async function promptToUseAvailableBackendPorts(blockedPorts, replacementPorts) 
   const { response } = await dialog.showMessageBox({
     type: 'question',
     title: 'Backend Ports Unavailable',
-    message: 'Windows will not allow Flight Fabric to use the configured backend ports.',
-    detail: `No process is listening on ${blockedPortText}. Windows may have reserved these ports for virtual networking. Flight Fabric can use WebSocket ${replacementPorts.wsPort} and HTTP ${replacementPorts.httpPort} instead. This choice will be saved.`,
+    message: 'Windows will not allow FlightFabric to use the configured backend ports.',
+    detail: `No process is listening on ${blockedPortText}. Windows may have reserved these ports for virtual networking. FlightFabric can use WebSocket ${replacementPorts.wsPort} and HTTP ${replacementPorts.httpPort} instead. This choice will be saved.`,
     buttons: ['Use Available Ports', 'Cancel Startup and Quit'],
     defaultId: 1,
     cancelId: 1,
@@ -1368,8 +1415,8 @@ async function promptToUseAvailableBackendPorts(blockedPorts, replacementPorts) 
       type: 'error',
       title: 'Replacement Ports Became Unavailable',
       message: 'The selected backend ports are no longer available.',
-      detail: 'Restart Flight Fabric to search for another available pair.',
-      buttons: ['Quit Flight Fabric'],
+      detail: 'Restart FlightFabric to search for another available pair.',
+      buttons: ['Quit FlightFabric'],
       defaultId: 0,
     });
     return false;
@@ -1385,9 +1432,9 @@ async function promptToUseAvailableBackendPorts(blockedPorts, replacementPorts) 
     await dialog.showMessageBox({
       type: 'error',
       title: 'Replacement Ports Could Not Be Saved',
-      message: 'Flight Fabric could not save the available backend ports.',
+      message: 'FlightFabric could not save the available backend ports.',
       detail: result.message || 'The settings file could not be updated.',
-      buttons: ['Quit Flight Fabric'],
+      buttons: ['Quit FlightFabric'],
       defaultId: 0,
     });
     return false;
@@ -1407,10 +1454,10 @@ async function promptToFreeBackendPort(port, label) {
   debugLog(`${label} port ${port} is busy, prompting user to stop the existing backend`);
   const { response } = await dialog.showMessageBox({
     type: 'question',
-    title: 'Flight Fabric Backend Already Running',
+    title: 'FlightFabric Backend Already Running',
     message: `Another process is using the ${label} port (${port}).`,
-    detail: 'Flight Fabric cannot safely start a second backend on the same ports. You can stop the existing process only if its command line verifies that it is a Flight Fabric backend, or cancel and stop it yourself.',
-    buttons: ['Stop Verified Flight Fabric Backend', 'Cancel Startup and Quit'],
+    detail: 'FlightFabric cannot safely start a second backend on the same ports. You can stop the existing process only if its command line verifies that it is a FlightFabric backend, or cancel and stop it yourself.',
+    buttons: ['Stop Verified FlightFabric Backend', 'Cancel Startup and Quit'],
     defaultId: 1,
     cancelId: 1,
   });
@@ -1428,8 +1475,8 @@ async function promptToFreeBackendPort(port, label) {
   await dialog.showMessageBox({
     type: 'error',
     title: 'Backend Could Not Be Stopped',
-    message: 'Flight Fabric did not stop the process using the backend port.',
-    detail: 'The process was either not a verified Flight Fabric backend or could not be stopped. Flight Fabric will not start an unmanaged second backend.',
+    message: 'FlightFabric did not stop the process using the backend port.',
+    detail: 'The process was either not a verified FlightFabric backend or could not be stopped. FlightFabric will not start an unmanaged second backend.',
     buttons: ['Close'],
     defaultId: 0,
   });
@@ -1476,7 +1523,7 @@ function killProcessOnPort(port, options = {}) {
           debugLog(`Skipping process on port ${safePort}, PID ${pid}: Electron recovery requires both active ownership locks`);
           continue;
         }
-        debugLog(`Skipping process on port ${safePort}, PID ${pid}: not a verified Flight Fabric backend`);
+        debugLog(`Skipping process on port ${safePort}, PID ${pid}: not a verified FlightFabric backend`);
         continue;
       }
       if (ownership === 'electron') {
@@ -1529,9 +1576,9 @@ async function runStartupHealthChecks() {
       await dialog.showMessageBox({
         type: 'error',
         title: 'Invalid Backend Port Configuration',
-        message: 'Flight Fabric cannot start with the configured backend ports.',
+        message: 'FlightFabric cannot start with the configured backend ports.',
         detail: health.criticalFailures[0],
-        buttons: ['Quit Flight Fabric'],
+        buttons: ['Quit FlightFabric'],
         defaultId: 0,
       });
     }
@@ -1576,14 +1623,14 @@ async function runStartupHealthChecks() {
     const blockedPorts = backendPortStates.filter(({ probe }) => !probe.available);
     if (hasExplicitBackendPortEnvironmentOverride()) {
       recordLifecycleSmokeEvent('startup-blocked', { reason: 'reserved-environment-backend-port' });
-      await showReservedBackendPortFailure('A backend port is set by SIMBRIDGE_WS_PORT or HTTP_PORT, so Flight Fabric cannot safely save a replacement. Change or remove the environment override, then restart Flight Fabric.');
+      await showReservedBackendPortFailure('A backend port is set by SIMBRIDGE_WS_PORT or HTTP_PORT, so FlightFabric cannot safely save a replacement. Change or remove the environment override, then restart FlightFabric.');
       return null;
     }
 
     const replacementPorts = await findAvailableBackendPortPair(Math.max(wsPort, httpPort) + 1);
     if (!replacementPorts) {
       recordLifecycleSmokeEvent('startup-blocked', { reason: 'no-backend-port-fallback' });
-      await showReservedBackendPortFailure('No available backend port pair was found. Restart Windows or change the backend ports in Flight Fabric settings.');
+      await showReservedBackendPortFailure('No available backend port pair was found. Restart Windows or change the backend ports in FlightFabric settings.');
       return null;
     }
 
@@ -1647,7 +1694,7 @@ async function runStartupHealthChecks() {
     if (!lifecycleSmokeConfig) {
       dialog.showMessageBox({
         type: 'warning',
-        title: 'Flight Fabric Startup Checks',
+        title: 'FlightFabric Startup Checks',
         message: 'Some startup checks failed. The app may not work correctly.',
         detail: criticalFailures.join('\n'),
         buttons: ['Continue'],
@@ -1681,7 +1728,7 @@ async function checkBackendPortsForSpawn(ports) {
     dialog.showMessageBox({
       type: 'error',
       title: 'Backend Did Not Start',
-      message: 'Another process took a Flight Fabric backend port.',
+      message: 'Another process took a FlightFabric backend port.',
       detail: `${error}. Close the other backend or app, then start the backend again.`,
       buttons: ['Close'],
       defaultId: 0,
@@ -2361,6 +2408,8 @@ async function shutdownApplication({ relaunch = false } = {}) {
 
   isQuitSequenceRunning = true;
   isQuitting = true;
+  // app.exit() follows owned backend cleanup and does not emit window close.
+  mainWindowState?.save();
   stopTrayRecordingBadge({ restoreDefault: false });
   recordLifecycleSmokeEvent('shutdown-start', { relaunch });
 
@@ -2386,7 +2435,7 @@ async function shutdownApplication({ relaunch = false } = {}) {
     const liveBackend = backendProcess && isBackendProcessAlive(backendProcess);
     if (liveBackend) {
       const pidDetail = liveBackend ? ` (PID ${backendProcess.pid})` : '';
-      const error = `Flight Fabric could not verify that its backend process tree stopped${pidDetail}.`;
+      const error = `FlightFabric could not verify that its backend process tree stopped${pidDetail}.`;
       backendStatus = 'error';
       sendToRenderer('backend-status', { status: backendStatus, error });
       console.error(`[electron] ${error} Keeping the app and runtime lock active.`);
@@ -2395,10 +2444,10 @@ async function shutdownApplication({ relaunch = false } = {}) {
         try {
           await dialog.showMessageBox({
             type: 'error',
-            title: 'Flight Fabric Could Not Quit Safely',
+            title: 'FlightFabric Could Not Quit Safely',
             message: error,
             detail: 'The desktop app will remain open so it does not abandon SimConnect sidecar processes. Try Quit again, or stop the reported backend process tree in Task Manager.',
-            buttons: ['Keep Flight Fabric Open'],
+            buttons: ['Keep FlightFabric Open'],
             defaultId: 0,
           });
         } catch (dialogError) {
@@ -2468,7 +2517,7 @@ function showTrayCloseNotice() {
   if (hasShownTrayCloseNotice) return;
   hasShownTrayCloseNotice = true;
 
-  const title = 'Flight Fabric is still running';
+  const title = 'FlightFabric is still running';
   const body = 'Flight logging and SimBridge keep running in the tray. Right-click the tray icon and choose Quit to exit.';
 
   try {
@@ -2601,7 +2650,7 @@ function setRecordingBadge(payload = {}) {
 
   const isActive = nextState === 'recording' || nextState === 'finalizing';
   const activityLabel = nextState === 'finalizing' ? 'Saving flight log' : 'Recording';
-  const tooltip = isActive ? `Flight Fabric - ${activityLabel}` : 'Flight Fabric';
+  const tooltip = isActive ? `FlightFabric - ${activityLabel}` : 'FlightFabric';
 
   try {
     setTaskbarRecordingBadgeImage(nextState);
@@ -2629,11 +2678,14 @@ function setRecordingBadge(payload = {}) {
  * Create the main window
  */
 function createWindow() {
+  const restoredState = restoreMainWindowState(
+    desktopWindowStateStore.read(), screen.getAllDisplays(), screen.getPrimaryDisplay(),
+  );
   mainWindow = new BrowserWindow({
-    title: 'Flight Fabric',
-    ...getMainWindowBounds(screen.getPrimaryDisplay().workArea),
+    title: 'FlightFabric',
+    ...restoredState.windowOptions,
     resizable: true,
-    backgroundColor: '#05070a',
+    backgroundColor: '#11141a',
     autoHideMenuBar: true,
     icon: fs.existsSync(TASKBAR_ICON_PATH) ? TASKBAR_ICON_PATH : undefined,
     webPreferences: {
@@ -2647,6 +2699,9 @@ function createWindow() {
     },
     show: false, // Don't show until ready
   });
+  // Windows can adjust the constructor's native frame at fractional DPI. Apply
+  // the saved outer bounds once the frame exists, before maximizing or showing.
+  mainWindow.setBounds(restoredState.bounds);
 
   if (process.platform === 'win32' && fs.existsSync(TASKBAR_ICON_PATH)) {
     try {
@@ -2691,27 +2746,24 @@ function createWindow() {
 
   mainWindow.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
     if (isMainFrame !== false) voiceRuntime?.cancelActiveSession();
+    if (isMainFrame !== false && !_isInPlace) {
+      setAutotaxiBackgroundActivity(mainWindow?.webContents, false);
+    }
   });
 
   mainWindow.webContents.on('render-process-gone', () => {
     voiceRuntime?.cancelActiveSession();
+    setAutotaxiBackgroundActivity(mainWindow?.webContents, false);
   });
 
-  loadDesktopApp(mainWindow).then(() => {
-    debugLog('Desktop UI loaded successfully');
-  }).catch((desktopErr) => {
-    debugLog('Desktop UI load error:', desktopErr.message);
-    loadLegacyLauncher(mainWindow).then(() => {
-      debugLog('Legacy launcher loaded as fallback');
-    }).catch((launcherErr) => {
-      debugLog('Legacy launcher load error:', launcherErr.message);
-      const fallbackDocument = buildEmergencyFallbackDocument();
-      mainWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(fallbackDocument)}`);
-    });
-  });
+  void loadInitialWindowContent(mainWindow);
 
   // Show when ready
   mainWindow.once('ready-to-show', () => {
+    if (restoredState.maximized) mainWindow.maximize();
+    mainWindowState = trackMainWindowState({
+      window: mainWindow, screen, store: desktopWindowStateStore, initialState: restoredState,
+    });
     if (!lifecycleSmokeConfig) mainWindow.show();
     // Open DevTools in dev mode to debug CSS issues
     if (isDev) {
@@ -2722,10 +2774,31 @@ function createWindow() {
   mainWindow.on('close', hideWindowToTrayOnClose);
 
   mainWindow.on('closed', () => {
+    mainWindowState?.dispose();
+    mainWindowState = null;
     voiceRuntime?.cancelActiveSession();
     mainWindow = null;
     taskbarRecordingBadgeAppliedState = null;
   });
+}
+
+function createApplicationMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(createDesktopMenuTemplate({
+    hasTray: Boolean(tray),
+    isDev,
+    hideWindow: () => mainWindow?.close(),
+    quit: () => app.quit(),
+    showWindow: () => showMainWindow(mainWindow),
+    resetPlacement: () => mainWindowState?.resetPlacement(),
+    showAbout: () => {
+      void dialog.showMessageBox(mainWindow, {
+        type: 'info', title: 'About FlightFabric', message: 'FlightFabric',
+        detail: `Version ${app.getVersion()}\n\nYour flight companion for Microsoft Flight Simulator.`,
+        buttons: ['Close'],
+      });
+    },
+    openReleases: () => openExternalBrowserUrl('https://github.com/yenbuilds/flight-fabric/releases', 'native menu'),
+  })));
 }
 
 /**
@@ -2745,12 +2818,9 @@ function createTray() {
   
   const contextMenu = Menu.buildFromTemplate([
     { 
-      label: 'Show Window', 
+      label: 'Show FlightFabric',
       click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
+        showMainWindow(mainWindow);
       }
     },
     { type: 'separator' },
@@ -2771,8 +2841,7 @@ function createTray() {
       label: 'Show Desktop UI',
       click: () => {
         if (!mainWindow) return;
-        mainWindow.show();
-        mainWindow.focus();
+        showMainWindow(mainWindow);
         loadDesktopApp(mainWindow).catch((err) => {
           debugLog('Tray Desktop UI navigation failed:', err.message);
         });
@@ -2782,8 +2851,7 @@ function createTray() {
       label: 'Recovery Launcher',
       click: () => {
         if (!mainWindow) return;
-        mainWindow.show();
-        mainWindow.focus();
+        showMainWindow(mainWindow);
         loadLegacyLauncher(mainWindow).catch((err) => {
           debugLog('Tray launcher fallback failed:', err.message);
         });
@@ -2791,7 +2859,7 @@ function createTray() {
     },
     { type: 'separator' },
     { 
-      label: 'Quit', 
+      label: 'Quit FlightFabric',
       click: () => {
         isQuitting = true;
         app.quit();
@@ -2799,17 +2867,14 @@ function createTray() {
     },
   ]);
 
-  tray.setToolTip(recordingBadgeState === 'stopped' ? 'Flight Fabric' : `Flight Fabric - ${recordingBadgeState === 'finalizing' ? 'Saving flight log' : 'Recording'}`);
+  tray.setToolTip(recordingBadgeState === 'stopped' ? 'FlightFabric' : `FlightFabric - ${recordingBadgeState === 'finalizing' ? 'Saving flight log' : 'Recording'}`);
   tray.setContextMenu(contextMenu);
   if (recordingBadgeState !== 'stopped') {
     setTrayRecordingBadgeImage(recordingBadgeState, { force: true });
   }
   
   tray.on('double-click', () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    showMainWindow(mainWindow);
   });
   } catch (err) {
     console.error('[electron] Failed to create tray:', err);
@@ -2837,6 +2902,7 @@ registerTrustedIpcHandler('backend-http-port', () => getBackendRuntimePorts().ht
 registerTrustedIpcHandler('backend-bootstrap', () => fetchBackendBootstrapViaBackend());
 registerTrustedIpcHandler('simbrief-fetch', (_, username) => fetchSimbriefViaBackend(username));
 registerTrustedIpcHandler('recording-badge-set', (_, payload) => setRecordingBadge(payload));
+registerTrustedIpcHandler('autotaxi-background-set', (event, active) => setAutotaxiBackgroundActivity(event.sender, active));
 
 registerTrustedIpcHandler('settings-get', () => {
   const settings = settingsStore.getSettings();
@@ -2901,7 +2967,7 @@ registerTrustedIpcHandler('storage-locations-get', () => ({
       id: 'settingsDir',
       label: 'Settings Folder',
       path: getSettingsDir(),
-      description: 'The folder containing Flight Fabric settings files.',
+      description: 'The folder containing FlightFabric settings files.',
     },
   ],
 }));
@@ -2912,6 +2978,28 @@ registerTrustedIpcHandler('startup-health', () => startupHealth);
 
 // MSFS install detection - read-only filesystem probe, no traversal
 registerTrustedIpcHandler('msfs-detect-installs', () => detectMsfsInstalls());
+
+// MSFS 2024 toolbar package. The renderer only names a detected install id;
+// paths are resolved here from the detector and the bundled package.
+const toolbarPanelInstaller = createToolbarPanelInstaller({
+  detectInstalls: () => detectMsfsInstalls(),
+  resolveSourceDir: () => (app.isPackaged && process.resourcesPath
+    ? path.join(process.resourcesPath, 'msfs-toolbar-panel')
+    : path.join(__dirname, '..', 'msfs-toolbar-panel', 'package')),
+  getPorts: () => {
+    const { httpPort, wsPort } = getBackendRuntimePorts();
+    return { httpPort, wsPort };
+  },
+  packageVersion: app.getVersion(),
+  logger: (...args) => debugLog(...args),
+});
+registerTrustedIpcHandler('toolbar-panel-status', () => toolbarPanelInstaller.getStatus());
+registerTrustedIpcHandler('toolbar-panel-install', (_, installId) => toolbarPanelInstaller.install(
+  typeof installId === 'string' ? installId.slice(0, 32) : '',
+));
+registerTrustedIpcHandler('toolbar-panel-uninstall', (_, installId) => toolbarPanelInstaller.uninstall(
+  typeof installId === 'string' ? installId.slice(0, 32) : '',
+));
 
 // Network info for Remote Access modal
 registerTrustedIpcHandler('get-network-info', () => {
@@ -3016,10 +3104,10 @@ void app.whenReady().then(async () => {
     if (!lifecycleSmokeConfig) {
       await dialog.showMessageBox({
         type: 'error',
-        title: 'Flight Fabric Already Running',
-        message: 'Another Flight Fabric launch mode is already active.',
-        detail: 'Close the standalone backend window or quit the other Flight Fabric desktop instance, then try again. This app will not attach to a backend it does not own.',
-        buttons: ['Quit Flight Fabric'],
+        title: 'FlightFabric Already Running',
+        message: 'Another FlightFabric launch mode is already active.',
+        detail: 'Close the standalone backend window or quit the other FlightFabric desktop instance, then try again. This app will not attach to a backend it does not own.',
+        buttons: ['Quit FlightFabric'],
         defaultId: 0,
       });
     }
@@ -3050,6 +3138,7 @@ void app.whenReady().then(async () => {
   if (!lifecycleSmokeConfig) {
     createWindow();
     createTray();
+    createApplicationMenu();
     voiceRuntime = createVoiceRuntime({
       app,
       appDir: __dirname,
@@ -3085,10 +3174,10 @@ void app.whenReady().then(async () => {
     try {
       await dialog.showMessageBox({
         type: 'error',
-        title: 'Flight Fabric Could Not Start',
-        message: 'Flight Fabric encountered an unexpected startup error.',
+        title: 'FlightFabric Could Not Start',
+        message: 'FlightFabric encountered an unexpected startup error.',
         detail: error?.stack || error?.message || String(error),
-        buttons: ['Quit Flight Fabric'],
+        buttons: ['Quit FlightFabric'],
         defaultId: 0,
       });
     } catch (dialogError) {
@@ -3122,10 +3211,6 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    showMainWindow(mainWindow);
   });
 }

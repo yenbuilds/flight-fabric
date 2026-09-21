@@ -111,7 +111,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "No custom cockpit writes are active. Only Flight Fabric's narrow standard gear/flaps surface fallback is allowed."
+      "_comment": "No custom cockpit writes are active. Only FlightFabric's narrow standard gear/flaps surface fallback is allowed."
     },
     "presentation": {
       "visualSupport": "basic",
@@ -172,7 +172,7 @@
       "knownIssues": [
         "Exact MSFS title strings for A300 variants remain unverified in-sim.",
         "Aircraft-specific readbacks remain inactive pending vendor documentation and verified in-sim semantics.",
-        "Profile mode, AP2, autobrake, and speedbrake off/fault indicators are not mapped because Flight Fabric has no matching canonical field or verified state semantics.",
+        "Profile mode, AP2, autobrake, and speedbrake off/fault indicators are not mapped because FlightFabric has no matching canonical field or verified state semantics.",
         "No custom cockpit writes are active; only standard gear/flaps fallback is enabled."
       ]
     },

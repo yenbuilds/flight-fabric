@@ -24,6 +24,8 @@ export type AircraftCommandDefinition = Readonly<{
   kind?: 'action' | 'preset';
   label: string;
   speech?: Readonly<{
+    /** One complete spoken form shown beside a preset that takes a value. */
+    example?: string;
     fixedInputs?: Readonly<Record<string, Readonly<{ value: boolean }>>>;
     hints?: readonly string[];
     patterns: readonly string[];
@@ -57,7 +59,7 @@ export type AircraftCommandBinding = Readonly<{
   | {
       kind: 'sequence';
       description: string;
-      steps: readonly Readonly<{ label: string; request: LegacyRequest }>[];
+      steps: readonly Readonly<{ label: string; request: LegacyRequest; settleMs?: number }>[];
     }
   | {
       kind: 'input-sequence';
@@ -155,9 +157,11 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       id: 'flightGuidance.course.setBoth',
       label: 'Captain + FO course windows',
       description: 'Set both MCP course windows to the same course.',
-      group: 'flightGuidance',
+      group: 'presets',
+      kind: 'preset',
       input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
       speech: {
+        example: 'set courses two seven zero',
         patterns: [
           'set course {value}',
           'set courses {value}',
@@ -563,9 +567,11 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       id: 'radios.nav.setBothActive',
       label: 'NAV 1 + NAV 2 active frequency',
       description: 'Set both active NAV radios to the same frequency.',
-      group: 'radios',
+      group: 'presets',
+      kind: 'preset',
       input: { kind: 'number', min: 108, max: 117.95, step: 0.05, units: 'megahertz' },
       speech: {
+        example: 'set nav radios one one zero decimal three',
         patterns: [
           'set nav radios {value}',
           'set both nav radios {value}',
@@ -633,6 +639,56 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
           'takeoff lights', 'take off lights',
         ],
         hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
+      },
+    },
+    {
+      id: 'configuration.lights.afterTakeoff',
+      label: 'After-takeoff lights',
+      description: 'Apply the reviewed climb-out light configuration for the active aircraft. Strobes and navigation lights stay as set.',
+      group: 'presets',
+      kind: 'preset',
+      input: NONE_INPUT,
+      speech: {
+        patterns: [
+          'set lights after takeoff', 'set lights after take off',
+          'lights after takeoff', 'lights after take off',
+          'set after takeoff lights', 'set after take off lights',
+          'after takeoff lights', 'after take off lights',
+          'set lights for climb', 'set climb lights', 'climb lights',
+        ],
+        hints: ['AFTER TAKEOFF LIGHTS', 'LIGHTS AFTER TAKEOFF', 'CLIMB LIGHTS'],
+      },
+    },
+    {
+      id: 'configuration.lights.landing',
+      label: 'Lights for landing',
+      description: 'Apply the reviewed landing-light configuration for the active aircraft.',
+      group: 'presets',
+      kind: 'preset',
+      input: NONE_INPUT,
+      speech: {
+        patterns: [
+          'set lights for landing', 'set lights for a landing',
+          'lights for landing', 'set lights for approach', 'lights for approach',
+          'set landing light configuration',
+        ],
+        hints: ['LIGHTS FOR LANDING', 'LIGHTS FOR APPROACH'],
+      },
+    },
+    {
+      id: 'configuration.lights.afterLanding',
+      label: 'After-landing lights',
+      description: 'Apply the reviewed after-landing light configuration for the active aircraft once clear of the runway. This is also the ground taxi configuration.',
+      group: 'presets',
+      kind: 'preset',
+      input: NONE_INPUT,
+      speech: {
+        patterns: [
+          'set lights after landing', 'lights after landing',
+          'set after landing lights', 'after landing lights',
+          'set lights for taxi in', 'set lights for taxi',
+        ],
+        hints: ['AFTER LANDING LIGHTS', 'LIGHTS AFTER LANDING'],
       },
     },
     {
@@ -734,10 +790,13 @@ function choice(
   });
 }
 
+/** Longest pause a sequence step may ask for after it confirms, before the next step. */
+const MAX_STEP_SETTLE_MS = 10_000;
+
 function sequence(
   commandId: string,
   description: string,
-  steps: readonly Readonly<{ label: string; request: LegacyRequest }>[],
+  steps: readonly Readonly<{ label: string; request: LegacyRequest; settleMs?: number }>[],
 ): AircraftCommandBinding {
   return Object.freeze({
     commandId,
@@ -746,6 +805,9 @@ function sequence(
     steps: Object.freeze(steps.map((step) => Object.freeze({
       label: step.label,
       request: Object.freeze({ ...step.request }),
+      ...(Number.isFinite(step.settleMs) && Number(step.settleMs) > 0
+        ? { settleMs: Math.min(MAX_STEP_SETTLE_MS, Math.round(Number(step.settleMs))) }
+        : {}),
     }))),
   });
 }
@@ -768,6 +830,24 @@ function inputSequence(
     }))),
     ...(inputOverride ? { input: Object.freeze(inputOverride) } : {}),
   });
+}
+
+type LightStep = Readonly<{ label: string; request: LegacyRequest }>;
+
+// One reviewed step table per aircraft yields the four exterior-light phase
+// presets. Landing reuses the takeoff steps: on every supported type the
+// landing configuration is the takeoff configuration.
+function lightPhasePresets(recipes: Readonly<{
+  takeoff: Readonly<{ description: string; steps: readonly LightStep[] }>;
+  afterTakeoff: Readonly<{ description: string; steps: readonly LightStep[] }>;
+  afterLanding: Readonly<{ description: string; steps: readonly LightStep[] }>;
+}>): readonly AircraftCommandBinding[] {
+  return Object.freeze([
+    sequence('configuration.lights.takeoff', recipes.takeoff.description, recipes.takeoff.steps),
+    sequence('configuration.lights.afterTakeoff', recipes.afterTakeoff.description, recipes.afterTakeoff.steps),
+    sequence('configuration.lights.landing', recipes.takeoff.description, recipes.takeoff.steps),
+    sequence('configuration.lights.afterLanding', recipes.afterLanding.description, recipes.afterLanding.steps),
+  ]);
 }
 
 const genericBoolean = (control: string, target?: string): LegacyRequest => ({
@@ -824,15 +904,22 @@ const GENERIC_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Obj
       false: { control: 'spoilers', operation: 'disarm' },
       true: { control: 'spoilers', operation: 'arm' },
     }, BOOLEAN_INPUT),
-    sequence(
-      'configuration.lights.takeoff',
-      'Landing ON · Taxi ON · Strobe ON',
-      [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing ON · Taxi ON · Strobe ON', steps: [
         { label: 'Landing lights ON', request: { ...genericBoolean('lights', 'landing'), value: true } },
         { label: 'Taxi lights ON', request: { ...genericBoolean('lights', 'taxi'), value: true } },
         { label: 'Strobe lights ON', request: { ...genericBoolean('lights', 'strobe'), value: true } },
-      ],
-    ),
+      ] },
+      afterTakeoff: { description: 'Landing OFF · Taxi OFF', steps: [
+        { label: 'Landing lights OFF', request: { ...genericBoolean('lights', 'landing'), value: false } },
+        { label: 'Taxi lights OFF', request: { ...genericBoolean('lights', 'taxi'), value: false } },
+      ] },
+      afterLanding: { description: 'Strobe OFF · Landing OFF · Taxi ON', steps: [
+        { label: 'Strobe lights OFF', request: { ...genericBoolean('lights', 'strobe'), value: false } },
+        { label: 'Landing lights OFF', request: { ...genericBoolean('lights', 'landing'), value: false } },
+        { label: 'Taxi lights ON', request: { ...genericBoolean('lights', 'taxi'), value: true } },
+      ] },
+    }),
     ...['nav', 'beacon', 'strobe', 'landing', 'taxi'].map((light) => (
       input(`lights.${light}.set`, genericBoolean('lights', light))
     )),
@@ -855,17 +942,28 @@ function standardLightBindings(on = 'on', off = 'off'): readonly AircraftCommand
       false: aircraftAction(`lights.${light}.${off}`),
       true: aircraftAction(`lights.${light}.${on}`),
     }, BOOLEAN_INPUT)),
-    sequence('configuration.lights.takeoff', 'Landing ON · Taxi ON · Strobe ON · Navigation ON', [
-      { label: 'Landing lights ON', request: aircraftAction(`lights.landing.${on}`) },
-      { label: 'Taxi lights ON', request: aircraftAction(`lights.taxi.${on}`) },
-      { label: 'Strobe lights ON', request: aircraftAction(`lights.strobe.${on}`) },
-      { label: 'Navigation lights ON', request: aircraftAction(`lights.nav.${on}`) },
-    ]),
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing ON · Taxi ON · Strobe ON · Navigation ON', steps: [
+        { label: 'Landing lights ON', request: aircraftAction(`lights.landing.${on}`) },
+        { label: 'Taxi lights ON', request: aircraftAction(`lights.taxi.${on}`) },
+        { label: 'Strobe lights ON', request: aircraftAction(`lights.strobe.${on}`) },
+        { label: 'Navigation lights ON', request: aircraftAction(`lights.nav.${on}`) },
+      ] },
+      afterTakeoff: { description: 'Landing OFF · Taxi OFF', steps: [
+        { label: 'Landing lights OFF', request: aircraftAction(`lights.landing.${off}`) },
+        { label: 'Taxi lights OFF', request: aircraftAction(`lights.taxi.${off}`) },
+      ] },
+      afterLanding: { description: 'Strobe OFF · Landing OFF · Taxi ON', steps: [
+        { label: 'Strobe lights OFF', request: aircraftAction(`lights.strobe.${off}`) },
+        { label: 'Landing lights OFF', request: aircraftAction(`lights.landing.${off}`) },
+        { label: 'Taxi lights ON', request: aircraftAction(`lights.taxi.${on}`) },
+      ] },
+    }),
   ]);
 }
 
 function usesStandardLightBinding(binding: AircraftCommandBinding): boolean {
-  return binding.commandId.startsWith('lights.') || binding.commandId === 'configuration.lights.takeoff';
+  return binding.commandId.startsWith('lights.') || binding.commandId.startsWith('configuration.lights.');
 }
 
 function standardLightConfiguration(id: string, on = 'on', off = 'off'): AircraftCommandConfiguration {
@@ -883,13 +981,21 @@ function apuStartPreset(
   masterActionId?: string,
   observations?: AircraftCommandBinding['observations'],
   settlingSeconds = 0,
+  // FlyByWire's master action already waits inside its own route (a delay
+  // operation); the preset then only describes that pause. Fenix's master is
+  // a plain write, so its pause has to come from the preset step.
+  settleInPreset = true,
 ): AircraftCommandBinding {
   return Object.freeze({
     ...sequence(
       'configuration.apu.start',
       `${masterActionId ? `APU master ON${settlingSeconds ? `, allow ${settlingSeconds} seconds to settle` : ''}, then request START.` : 'Request APU selector START.'} Requires aircraft electrical power.`,
       [
-        ...(masterActionId ? [{ label: 'APU master ON', request: aircraftAction(masterActionId) }] : []),
+        // The pause is real: the executor waits after the master confirms.
+        // The START pushbutton is ignored by some APU controllers while the
+        // master's own inrush is still under way.
+        ...(masterActionId ? [{ label: 'APU master ON', request: aircraftAction(masterActionId),
+          ...(settlingSeconds && settleInPreset ? { settleMs: settlingSeconds * 1000 } : {}) }] : []),
         { label: 'APU START', request: aircraftAction(startActionId) },
       ],
     ),
@@ -925,7 +1031,7 @@ const FBW_A380X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = O
       `flightGuidance.${target}.set`, aircraftAction(`flightGuidance.${target}.set`),
       'value', { kind: 'number', min, max, step, units },
     )),
-    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3),
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3, false),
   ]),
 });
 
@@ -1023,10 +1129,8 @@ const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
       false: aircraftAction('lights.taxi.off'),
       true: aircraftAction('lights.taxi.on'),
     }, BOOLEAN_INPUT),
-    sequence(
-      'configuration.lights.takeoff',
-      'Landing L/R ON · Runway turnoffs ON · Taxi ON · Position STROBE + STEADY',
-      [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing L/R ON · Runway turnoffs ON · Taxi ON · Position STROBE + STEADY', steps: [
         { label: 'Retractable landing light left ON', request: aircraftAction('lights.landingRetractableLeft.on') },
         { label: 'Retractable landing light right ON', request: aircraftAction('lights.landingRetractableRight.on') },
         { label: 'Fixed landing light left ON', request: aircraftAction('lights.landingLeft.on') },
@@ -1035,8 +1139,27 @@ const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
         { label: 'Runway turnoff light right ON', request: aircraftAction('lights.turnoffRight.on') },
         { label: 'Taxi light ON', request: aircraftAction('lights.taxi.on') },
         { label: 'Position lights STROBE + STEADY', request: aircraftAction('lights.position.strobeSteady') },
-      ],
-    ),
+      ] },
+      afterTakeoff: { description: 'Retractables RETRACT · Fixed landing OFF · Runway turnoffs OFF · Taxi OFF', steps: [
+        { label: 'Retractable landing light left RETRACT', request: aircraftAction('lights.landingRetractableLeft.retract') },
+        { label: 'Retractable landing light right RETRACT', request: aircraftAction('lights.landingRetractableRight.retract') },
+        { label: 'Fixed landing light left OFF', request: aircraftAction('lights.landingLeft.off') },
+        { label: 'Fixed landing light right OFF', request: aircraftAction('lights.landingRight.off') },
+        { label: 'Runway turnoff light left OFF', request: aircraftAction('lights.turnoffLeft.off') },
+        { label: 'Runway turnoff light right OFF', request: aircraftAction('lights.turnoffRight.off') },
+        { label: 'Taxi light OFF', request: aircraftAction('lights.taxi.off') },
+      ] },
+      afterLanding: { description: 'Position STEADY · Retractables RETRACT · Fixed landing OFF · Taxi ON · Runway turnoffs ON', steps: [
+        { label: 'Position lights STEADY', request: aircraftAction('lights.position.steady') },
+        { label: 'Retractable landing light left RETRACT', request: aircraftAction('lights.landingRetractableLeft.retract') },
+        { label: 'Retractable landing light right RETRACT', request: aircraftAction('lights.landingRetractableRight.retract') },
+        { label: 'Fixed landing light left OFF', request: aircraftAction('lights.landingLeft.off') },
+        { label: 'Fixed landing light right OFF', request: aircraftAction('lights.landingRight.off') },
+        { label: 'Taxi light ON', request: aircraftAction('lights.taxi.on') },
+        { label: 'Runway turnoff light left ON', request: aircraftAction('lights.turnoffLeft.on') },
+        { label: 'Runway turnoff light right ON', request: aircraftAction('lights.turnoffRight.on') },
+      ] },
+    }),
     input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
     fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
     ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
@@ -1127,16 +1250,23 @@ const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguratio
       taxi: aircraftAction('lights.nose.taxi'),
       takeoff: aircraftAction('lights.nose.takeoff'),
     }),
-    sequence(
-      'configuration.lights.takeoff',
-      'Landing ON · nose TAKEOFF · strobe ON · navigation NAV 1',
-      [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing ON · nose TAKEOFF · strobe ON · navigation NAV 1', steps: [
         { label: 'Landing lights ON', request: aircraftAction('lights.landing.on') },
         { label: 'Nose light TAKEOFF', request: aircraftAction('lights.nose.takeoff') },
         { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
         { label: 'Navigation lights NAV 1', request: aircraftAction('lights.nav.nav1') },
-      ],
-    ),
+      ] },
+      afterTakeoff: { description: 'Landing OFF · nose OFF', steps: [
+        { label: 'Landing lights OFF', request: aircraftAction('lights.landing.off') },
+        { label: 'Nose light OFF', request: aircraftAction('lights.nose.off') },
+      ] },
+      afterLanding: { description: 'Strobe OFF · landing OFF · nose TAXI', steps: [
+        { label: 'Strobe lights OFF', request: aircraftAction('lights.strobe.off') },
+        { label: 'Landing lights OFF', request: aircraftAction('lights.landing.off') },
+        { label: 'Nose light TAXI', request: aircraftAction('lights.nose.taxi') },
+      ] },
+    }),
     ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
       choice(`navigation.${side}.range`, Object.fromEntries(['10', '20', '40', '80', '160', '320', '640'].map((nm) =>
         [nm, aircraftAction(`navigation.${side}.range.nm${nm}`)])), { kind: 'enum', values: ['10', '20', '40', '80', '160', '320', '640'] }),
@@ -1148,7 +1278,7 @@ const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguratio
 const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'fbw-a32nx',
   bindings: Object.freeze([
-    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3),
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3, false),
     input(
       'flightGuidance.speed.set',
       aircraftAction('flightGuidance.speed.set'),
@@ -1265,18 +1395,29 @@ const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = O
       taxi: aircraftAction('lights.nose.taxi'),
       takeoff: aircraftAction('lights.nose.takeoff'),
     }),
-    sequence(
-      'configuration.lights.takeoff',
-      'Landing L/R ON - runway turnoff ON - nose TAKEOFF - strobe ON - nav ON',
-      [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing L/R ON - runway turnoff ON - nose TAKEOFF - strobe ON - nav ON', steps: [
         { label: 'Landing light left ON', request: aircraftAction('lights.landingLeft.on') },
         { label: 'Landing light right ON', request: aircraftAction('lights.landingRight.on') },
         { label: 'Runway turnoff lights ON', request: aircraftAction('lights.runwayTurnoff.on') },
         { label: 'Nose light TAKEOFF', request: aircraftAction('lights.nose.takeoff') },
         { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
         { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
-      ],
-    ),
+      ] },
+      afterTakeoff: { description: 'Landing L/R RETRACT - runway turnoff OFF - nose OFF', steps: [
+        { label: 'Landing light left RETRACT', request: aircraftAction('lights.landingLeft.retract') },
+        { label: 'Landing light right RETRACT', request: aircraftAction('lights.landingRight.retract') },
+        { label: 'Runway turnoff lights OFF', request: aircraftAction('lights.runwayTurnoff.off') },
+        { label: 'Nose light OFF', request: aircraftAction('lights.nose.off') },
+      ] },
+      afterLanding: { description: 'Strobe OFF - landing L/R RETRACT - nose TAXI - runway turnoff ON', steps: [
+        { label: 'Strobe lights OFF', request: aircraftAction('lights.strobe.off') },
+        { label: 'Landing light left RETRACT', request: aircraftAction('lights.landingLeft.retract') },
+        { label: 'Landing light right RETRACT', request: aircraftAction('lights.landingRight.retract') },
+        { label: 'Nose light TAXI', request: aircraftAction('lights.nose.taxi') },
+        { label: 'Runway turnoff lights ON', request: aircraftAction('lights.runwayTurnoff.on') },
+      ] },
+    }),
     ...[1, 2].flatMap((index) => [
       input(`radios.com${index}.setStandby`, aircraftAction(`radios.com${index}.setStandby`)),
       fixed(`radios.com${index}.swap`, aircraftAction(`radios.com${index}.swap`)),
@@ -1323,7 +1464,7 @@ const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = O
 const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'fenix-a32x',
   bindings: Object.freeze([
-    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on'),
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3),
     ...([
       ['mach', 0.4, 0.99, 0.01, 'mach'],
       ['altitude', 0, 49000, 100, 'feet'],
@@ -1418,18 +1559,29 @@ const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = 
       taxi: aircraftAction('lights.nose.taxi'),
       takeoff: aircraftAction('lights.nose.takeoff'),
     }),
-    sequence(
-      'configuration.lights.takeoff',
-      'Landing L/R ON · runway turnoff ON · nose TAKEOFF · strobe ON · nav lights ON',
-      [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing L/R ON · runway turnoff ON · nose TAKEOFF · strobe ON · nav lights ON', steps: [
         { label: 'Landing light left ON', request: aircraftAction('lights.landingLeft.on') },
         { label: 'Landing light right ON', request: aircraftAction('lights.landingRight.on') },
         { label: 'Runway turnoff lights ON', request: aircraftAction('lights.runwayTurnoff.on') },
         { label: 'Nose light TAKEOFF', request: aircraftAction('lights.nose.takeoff') },
         { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
         { label: 'Navigation lights ON', request: aircraftAction('lights.navLogo.nav') },
-      ],
-    ),
+      ] },
+      afterTakeoff: { description: 'Landing L/R RETRACT · runway turnoff OFF · nose OFF', steps: [
+        { label: 'Landing light left RETRACT', request: aircraftAction('lights.landingLeft.retract') },
+        { label: 'Landing light right RETRACT', request: aircraftAction('lights.landingRight.retract') },
+        { label: 'Runway turnoff lights OFF', request: aircraftAction('lights.runwayTurnoff.off') },
+        { label: 'Nose light OFF', request: aircraftAction('lights.nose.off') },
+      ] },
+      afterLanding: { description: 'Strobe OFF · landing L/R RETRACT · nose TAXI · runway turnoff ON', steps: [
+        { label: 'Strobe lights OFF', request: aircraftAction('lights.strobe.off') },
+        { label: 'Landing light left RETRACT', request: aircraftAction('lights.landingLeft.retract') },
+        { label: 'Landing light right RETRACT', request: aircraftAction('lights.landingRight.retract') },
+        { label: 'Nose light TAXI', request: aircraftAction('lights.nose.taxi') },
+        { label: 'Runway turnoff lights ON', request: aircraftAction('lights.runwayTurnoff.on') },
+      ] },
+    }),
     input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
     fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
     ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
@@ -1560,10 +1712,8 @@ const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
       false: aircraftAction(`lights.${light}.off`),
       true: aircraftAction(`lights.${light}.on`),
     }, BOOLEAN_INPUT)),
-    sequence(
-      'configuration.lights.takeoff',
-      'Landing L/Nose/R ON · Runway turnoffs ON · Taxi ON · Strobe ON · Navigation ON',
-      [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing L/Nose/R ON · Runway turnoffs ON · Taxi ON · Strobe ON · Navigation ON', steps: [
         { label: 'Landing light left ON', request: aircraftAction('lights.landingLeft.on') },
         { label: 'Landing nose light ON', request: aircraftAction('lights.landingNose.on') },
         { label: 'Landing light right ON', request: aircraftAction('lights.landingRight.on') },
@@ -1572,8 +1722,25 @@ const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
         { label: 'Taxi light ON', request: aircraftAction('lights.taxi.on') },
         { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
         { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
-      ],
-    ),
+      ] },
+      afterTakeoff: { description: 'Landing L/Nose/R OFF · Runway turnoffs OFF · Taxi OFF', steps: [
+        { label: 'Landing light left OFF', request: aircraftAction('lights.landingLeft.off') },
+        { label: 'Landing nose light OFF', request: aircraftAction('lights.landingNose.off') },
+        { label: 'Landing light right OFF', request: aircraftAction('lights.landingRight.off') },
+        { label: 'Runway turnoff light left OFF', request: aircraftAction('lights.turnoffLeft.off') },
+        { label: 'Runway turnoff light right OFF', request: aircraftAction('lights.turnoffRight.off') },
+        { label: 'Taxi light OFF', request: aircraftAction('lights.taxi.off') },
+      ] },
+      afterLanding: { description: 'Strobe OFF · Landing L/Nose/R OFF · Taxi ON · Runway turnoffs ON', steps: [
+        { label: 'Strobe lights OFF', request: aircraftAction('lights.strobe.off') },
+        { label: 'Landing light left OFF', request: aircraftAction('lights.landingLeft.off') },
+        { label: 'Landing nose light OFF', request: aircraftAction('lights.landingNose.off') },
+        { label: 'Landing light right OFF', request: aircraftAction('lights.landingRight.off') },
+        { label: 'Taxi light ON', request: aircraftAction('lights.taxi.on') },
+        { label: 'Runway turnoff light left ON', request: aircraftAction('lights.turnoffLeft.on') },
+        { label: 'Runway turnoff light right ON', request: aircraftAction('lights.turnoffRight.on') },
+      ] },
+    }),
     input('surveillance.squawk.set', aircraftAction('surveillance.squawk.set')),
     fixed('surveillance.ident.activate', aircraftAction('surveillance.ident.activate')),
     ...(['captain', 'firstOfficer'] as const).flatMap((side) => [
@@ -1766,7 +1933,7 @@ function requestsForBinding(
   inputValue: Readonly<Record<string, boolean | number | string>>,
 ): readonly Readonly<{ label: string; request: LegacyRequest }>[] | null {
   if (binding.kind === 'sequence') {
-    return binding.steps.map((step) => ({ label: step.label, request: { ...step.request } }));
+    return binding.steps.map((step) => ({ label: step.label, request: { ...step.request }, ...(step.settleMs ? { settleMs: step.settleMs } : {}) }));
   }
   if (binding.kind === 'input-sequence') {
     return binding.steps.map((step) => ({
@@ -1831,6 +1998,7 @@ export function resolveAircraftCommandRequest(rawRequest: unknown, profile: unkn
       profileRevision: request.profileRevision,
       requestId: request.requestId,
     }),
+    ...(Number.isFinite((step as GenericRecord).settleMs) && Number((step as GenericRecord).settleMs) > 0 ? { settleMs: Number((step as GenericRecord).settleMs) } : {}),
   }));
   const controlRequests = controlSteps.map((step) => step.request);
   return {

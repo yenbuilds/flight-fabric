@@ -67,6 +67,11 @@ export function getAuthorizationScope() {
     : 'read-only';
 }
 
+export function isAuthorizationAcknowledged() {
+  const readAcknowledged = resolveService('isAuthorizationAcknowledged');
+  return typeof readAcknowledged === 'function' && readAcknowledged() === true;
+}
+
 export function getUiHelpers() {
   const uiHelpers = resolveService('ui');
   return uiHelpers && typeof uiHelpers === 'object' ? uiHelpers : {};

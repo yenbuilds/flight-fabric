@@ -71,6 +71,14 @@ for (const [id, lvar] of [
   ['systems.apuBleed', 'S_OH_PNEUMATIC_APU_BLEED'],
   ['systems.apuGenerator', 'S_OH_ELEC_APU_GENERATOR'],
   ['systems.apuMaster', 'S_OH_ELEC_APU_MASTER'],
+  // APU pushbutton lamps, watched live on 2026-09-19 while the pilot pressed
+  // START: MASTER_L lit with MASTER SW ON, START_L lit while the APU was
+  // starting, START_U lit once it was available. The commanded S_ inputs
+  // above only echo what was written; these say what the aircraft did.
+  ['systems.apuMasterOn', 'I_OH_ELEC_APU_MASTER_L'],
+  ['systems.apuMasterFault', 'I_OH_ELEC_APU_MASTER_U'],
+  ['systems.apuStart', 'I_OH_ELEC_APU_START_L'],
+  ['systems.apuAvailable', 'I_OH_ELEC_APU_START_U'],
   ['systems.battery1', 'S_OH_ELEC_BAT1'],
   ['systems.battery2', 'S_OH_ELEC_BAT2'],
   ['systems.commercial', 'S_OH_ELEC_COMMERCIAL'],
@@ -229,8 +237,10 @@ for (const [id, lvar, values] of [
   ['flightGuidance.baroUnitFirstOfficer', 'S_FCU_EFIS2_BARO_MODE', {
     0: 'inhg', 1: 'hpa',
   }],
+  // Verified live 2026-09-18 on Fenix A320 2.4.0.4720: one click at scale 1
+  // moved the target 1,000 ft, at scale 0 it moved 100 ft.
   ['flightGuidance.altitudeIncrementMode', 'S_FCU_ALTITUDE_SCALE', {
-    0: 'thousand', 1: 'hundred',
+    0: 'hundred', 1: 'thousand',
   }],
 
   ['navigation.navaidCaptain1', 'S_FCU_EFIS1_NAV1', {

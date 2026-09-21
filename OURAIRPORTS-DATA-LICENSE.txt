@@ -3,10 +3,10 @@ OurAirports Data License Notice
 
 Data source:
 - https://ourairports.com/data/
-- Mirror used by Flight Fabric sync tooling:
+- Mirror used by FlightFabric sync tooling:
   https://davidmegginson.github.io/ourairports-data/
 
-Files used by Flight Fabric:
+Files used by FlightFabric:
 - airports.csv
 - runways.csv
 - countries.csv
@@ -18,7 +18,7 @@ License / terms:
 - OurAirports terms of use state: "All data is released to the Public Domain, and comes with no guarantee of accuracy or fitness for use."
 - The upstream GitHub data mirror carries an Unlicense/public-domain dedication:
   https://github.com/davidmegginson/ourairports-data/blob/main/LICENSE
-- Flight Fabric treats bundled OurAirports CSV data as public-domain data under the upstream terms.
+- FlightFabric treats bundled OurAirports CSV data as public-domain data under the upstream terms.
 
 Summary:
 - Data may be copied, modified, and redistributed, including for commercial use, without asking permission.
@@ -26,4 +26,4 @@ Summary:
 - No warranty is provided for accuracy or fitness.
 - Do not imply endorsement by data authors.
 
-This notice is provided for transparency in distributed Flight Fabric packages.
+This notice is provided for transparency in distributed FlightFabric packages.

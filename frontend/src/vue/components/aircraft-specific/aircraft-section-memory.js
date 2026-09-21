@@ -147,7 +147,10 @@ export function useAircraftSectionMemory({ memoryKey, sections, onRestore } = {}
       if (tabId === 'autopilot') {
         scheduleRestore();
       } else {
-        restoredStorageKey = '';
+        // The tabs runtime restores the exact scroll offset on return, including
+        // the page top. Replaying a section jump would hide the navigation and
+        // overwrite that position. Section restoration is only for a new profile.
+        clearRestoreTimer();
       }
     },
     { immediate: true },

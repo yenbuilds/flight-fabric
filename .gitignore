@@ -26,6 +26,7 @@ logs/
 .tmp-*
 .tmp/
 /tmp/
+/tmp-*.png
 C_tmp/
 tmp/icon-size-preview.png
 

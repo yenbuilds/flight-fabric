@@ -1,13 +1,14 @@
 {
   "$schema": "./release-profile.schema.json",
   "name": "user",
-  "displayName": "Flight Fabric (User Edition)",
+  "displayName": "FlightFabric (User Edition)",
   "description": "Core telemetry and overlays for end users. No account or sign-in is required.",
   
   "include": {
     "backend_dirs": [
       "core",
       "analysis",
+      "autotaxi",
       "cabin-announcements",
       "lifecycle",
       "flight-recording",
@@ -34,6 +35,7 @@
   },
   
   "exclude_patterns": [
+    "autotaxi/recorder.js",
     "**/*.test.js",
     "**/test-*.js",
     "**/*.spec.js",

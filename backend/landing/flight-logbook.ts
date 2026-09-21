@@ -147,6 +147,8 @@ type LandingEntry = {
   touchdownDistanceGrade: string | null;
   touchdownDistanceScore: number | null;
   touchdownDistanceZone?: string | null;
+  /** Touchdown zone end the distance grade was scored against; null for legacy entries (fixed 3,000 ft). */
+  tdzEndFt?: number | null;
   timestamp: string;
   timestampMs: number;
   vsFpm: number | null;
@@ -623,6 +625,7 @@ const LOGBOOK_GRADE_SEVERITY: Record<string, number> = {
   Good: 0,
   Acceptable: 1,
   Marginal: 1,
+  'Near Threshold': 1,
   'Long Landing': 2,
   Poor: 2,
   Dangerous: 3,
@@ -699,14 +702,25 @@ function hasExplicitlyCleanLogbookBounce(entry: Partial<LandingEntry>): boolean 
   return normalizedCount === 0 && (!bounceGrade || bounceGrade.toLowerCase() === 'clean');
 }
 
+/**
+ * PERFECT requires the touchdown to sit in the Ideal band of the distance
+ * scorer, which the recorded distance grade carries. Entries recorded before
+ * a distance grade existed fall back to the first 1,000 ft.
+ */
 function isVerifiedPerfectLogbookEntry(entry: Partial<LandingEntry>): boolean {
   const touchdownDistanceFt = Number(entry.touchdownDistanceFt);
+  const distanceGrade = typeof entry.touchdownDistanceGrade === 'string'
+    ? entry.touchdownDistanceGrade.trim()
+    : '';
+  const idealPlacement = distanceGrade
+    ? distanceGrade === 'Outstanding'
+    : touchdownDistanceFt <= 1000;
   return entry.gateStable === true
     && entry.touchdownDistanceFt !== null
     && entry.touchdownDistanceFt !== undefined
     && Number.isFinite(touchdownDistanceFt)
     && touchdownDistanceFt >= 0
-    && touchdownDistanceFt <= 1000
+    && idealPlacement
     && hasExplicitlyCleanLogbookBounce(entry);
 }
 
@@ -804,6 +818,7 @@ function extractEntry(payload: GenericRecord | null | undefined): LandingEntry |
     touchdownDistanceFt: toNum(payload.touchdown_distance_ft),
     touchdownDistanceGrade: payload.touchdown_distance_grade || null,
     touchdownDistanceScore: toNum(payload.touchdown_distance_score),
+    tdzEndFt: toNum(payload.touchdown_zone_end_ft),
     lateralOffsetFt: toNum(payload.lateral_offset_ft),
     lateralOffsetGrade: payload.lateral_offset_grade || null,
     lateralOffsetScore: toNum(payload.lateral_offset_score),
@@ -1141,6 +1156,7 @@ function parseLandingsFromContent(
           : null,
       touchdownDistanceScore:
         typeof row.touchdown_distance_score === 'number' ? row.touchdown_distance_score : null,
+      tdzEndFt: typeof row.touchdown_zone_end_ft === 'number' ? row.touchdown_zone_end_ft : null,
       lateralOffsetFt: typeof row.lateral_offset_ft === 'number' ? row.lateral_offset_ft : null,
       lateralOffsetGrade:
         typeof row.lateral_offset_grade === 'string' && row.lateral_offset_grade.trim()
@@ -1309,6 +1325,7 @@ function materializeFlightAnalysisLandings(
       touchdownDistanceGrade: toText(touchdownDistance.grade),
       touchdownDistanceScore: toNum(touchdownDistance.score),
       touchdownDistanceZone: toText(touchdownDistance.zone),
+      tdzEndFt: toNum(touchdownDistance.tdzEndFt),
       lateralOffsetFt: toNum(touchdownDistance.lateralOffsetFt),
       lateralOffsetGrade: toText(touchdownDistance.lateralOffsetGrade),
       lateralOffsetScore: toNum(touchdownDistance.lateralOffsetScore),

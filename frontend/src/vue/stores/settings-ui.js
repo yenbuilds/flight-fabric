@@ -74,6 +74,9 @@ export const useSettingsUiStore = defineStore('settingsUi', {
     restartActionBound: false,
     restartActionAvailable: false,
     restartActionBusy: false,
+    restartActionSaving: false,
+    restartActionSaveRequired: false,
+    restartActionBlocked: false,
     restartActionTitle: '',
   }),
 
@@ -96,8 +99,8 @@ export const useSettingsUiStore = defineStore('settingsUi', {
           ? 'No results returned.'
           : 'Press Detect to scan for installations.'
     ),
-    restartActionDisabled: (state) => state.restartActionBusy || !state.restartActionAvailable,
-    restartActionLabel: (state) => (state.restartActionBusy ? 'Restarting...' : 'Restart App'),
+    restartActionDisabled: (state) => state.restartActionBusy || state.restartActionSaving || state.restartActionBlocked || !state.restartActionAvailable,
+    restartActionLabel: (state) => (state.restartActionSaving ? 'Saving before restart...' : state.restartActionBusy ? 'Restarting...' : state.restartActionSaveRequired ? 'Save & Restart' : 'Restart App'),
     storageLocationRows: (state) => state.storageLocations.map((entry) => ({
       ...entry,
       copyLabel: state.storageCopiedId === entry.id ? 'Copied' : 'Copy Path',
@@ -244,6 +247,15 @@ export const useSettingsUiStore = defineStore('settingsUi', {
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'busy')) {
         this.restartActionBusy = payload.busy === true;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'saving')) {
+        this.restartActionSaving = payload.saving === true;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'saveRequired')) {
+        this.restartActionSaveRequired = payload.saveRequired === true;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'blocked')) {
+        this.restartActionBlocked = payload.blocked === true;
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'title')) {
         this.restartActionTitle = payload.title || '';

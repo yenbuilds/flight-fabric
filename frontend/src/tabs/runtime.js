@@ -3,12 +3,19 @@ import { nextTick, watch } from 'vue';
 import { readStorageValue, writeStorageValue } from '../app/browser-environment.js';
 import {
   DEFAULT_TAB_ID,
-  TAB_ORDER,
   VALID_TAB_IDS,
   normalizeTabId,
 } from '../vue/tab-config.js';
 
 export const LAST_ACTIVE_TAB_STORAGE_KEY = 'ff_last_active_tab_v1';
+
+// Number shortcuts use the fixed route order. Flight groups its two
+// route shortcuts into one navigation item and displays both keycaps.
+export function desktopShortcutTabIds(tabsStore) {
+  return [...tabsStore.desktopPrimaryTabs, ...tabsStore.desktopSecondaryTabs]
+    .map((tab) => tab.id)
+    .slice(0, 9);
+}
 
 export function resolveInitialTabId({
   requestedTabId = '',
@@ -52,7 +59,7 @@ const TOUCH_NAVIGATION_EXCLUSION_SELECTOR = [
   'input',
   'select',
   'textarea',
-  '[contenteditable="true"]',
+  '[contenteditable]:not([contenteditable="false"])',
   '[role="button"]',
   '[role="slider"]',
 ].join(',');
@@ -145,21 +152,15 @@ export function initTabsRuntime({
   }
 
   function bindKeyboardShortcuts() {
-    const tabKeys = {
-      '1': 'livemap',
-      '2': 'flight',
-      '3': 'dispatch',
-      '4': 'timeline',
-      '5': 'settings',
-      '6': 'system',
-      '7': 'landing',
-    };
-
     addListener(documentRef, 'keydown', (event) => {
-      if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
-      if (event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+      if (event.target?.isContentEditable || event.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="spinbutton"], [role="slider"], [role="dialog"], [role="alertdialog"], [role="menu"], [data-cdu-modal]')) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return;
+      if ([...(documentRef.querySelectorAll?.('[aria-modal="true"], dialog[open]') || [])].some(element => element.getClientRects?.().length)) return;
+      if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      if (!/^[1-9]$/.test(String(event.key))) return;
 
-      const tabId = tabKeys[event.key];
+      const tabId = desktopShortcutTabIds(resolvedTabsStore)[Number(event.key) - 1];
       if (!tabId) return;
       event.preventDefault();
       requestTabChange(tabId);
@@ -171,7 +172,14 @@ export function initTabsRuntime({
     if (!mainEl) return;
 
     function touchNavigationExcluded(target) {
-      return Boolean(target?.closest?.(TOUCH_NAVIGATION_EXCLUSION_SELECTOR));
+      if (target?.closest?.(TOUCH_NAVIGATION_EXCLUSION_SELECTOR + ', [role="dialog"], [aria-modal="true"]')) return true;
+      // A local scroller owns its gesture, including swipes at either edge.
+      // Do not turn an attempt to read a wide table into application navigation.
+      for (let element = target; element && element !== mainEl; element = element.parentElement) {
+        if (element.scrollWidth > element.clientWidth + 1
+          && /^(auto|scroll)$/.test(windowRef.getComputedStyle?.(element)?.overflowX || '')) return true;
+      }
+      return false;
     }
 
     let touchStartX = 0;
@@ -198,12 +206,14 @@ export function initTabsRuntime({
       const dx = event.changedTouches[0].clientX - touchStartX;
       const dy = event.changedTouches[0].clientY - touchStartY;
       if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.7) return;
-      const currentIndex = TAB_ORDER.indexOf(resolvedTabsStore.activeTabId);
+      // Swipe walks the fixed bottom-bar order.
+      const swipeOrder = resolvedTabsStore.mobileNavigationPrimaryTabs.map((tab) => tab.id);
+      const currentIndex = swipeOrder.indexOf(resolvedTabsStore.activeNavigationTabId);
       if (currentIndex === -1) return;
-      if (dx < 0 && currentIndex < TAB_ORDER.length - 1) {
-        requestTabChange(TAB_ORDER[currentIndex + 1], 'right');
+      if (dx < 0 && currentIndex < swipeOrder.length - 1) {
+        resolvedTabsStore.requestNavigationTabChange(swipeOrder[currentIndex + 1], { direction: 'right' });
       } else if (dx > 0 && currentIndex > 0) {
-        requestTabChange(TAB_ORDER[currentIndex - 1], 'left');
+        resolvedTabsStore.requestNavigationTabChange(swipeOrder[currentIndex - 1], { direction: 'left' });
       }
     }, { passive: true });
 
@@ -298,6 +308,8 @@ export function initTabsRuntime({
     }, { passive: true });
   }
 
+  // Retired ff_workspace_v1 / ff_workspace_suggestions_v1 values are ignored.
+  // Leave them untouched for older builds; only normal route memory is used.
   const initialTabId = resolveInitialTabId({
     requestedTabId: params.get('tab') || '',
     persistedTabId: readStorageValue(LAST_ACTIVE_TAB_STORAGE_KEY, { storage, fallback: '' }),

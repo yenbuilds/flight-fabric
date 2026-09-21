@@ -136,7 +136,7 @@
       "backend": "simconnect",
       "genericFallback": false,
       "standardSurfaceFallback": true,
-      "_comment": "The dedicated page is monitoring-only. No A310-specific cockpit writes are active; only Flight Fabric's narrow standard gear/flaps surface fallback is allowed."
+      "_comment": "The dedicated page is monitoring-only. No A310-specific cockpit writes are active; only FlightFabric's narrow standard gear/flaps surface fallback is allowed."
     },
     "presentation": {
       "visualSupport": "basic"

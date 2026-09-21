@@ -1,5 +1,5 @@
 // Cabin announcement runtime owned by the Vue app shell.
-// Pre-recorded cabin PA audio player for Flight Fabric.
+// Pre-recorded cabin PA audio player for FlightFabric.
 //
 // Receives `cabinAnnouncement` WebSocket messages from the backend and plays
 // the corresponding audio only in the host Electron renderer. Browser views
@@ -261,6 +261,13 @@ function _tryPlaySources(next, sourceIndex) {
   };
 
   audio.play().catch((err) => {
+    // Muting pauses the element while play() may still be pending; the spec
+    // rejects that pending promise with AbortError. That is not a load
+    // failure: keep the element so unmute can resume it.
+    if (_current === audio && (_muted || _pausedByMute)) {
+      console.log(`[cabin-announcements] Play interrupted by mute, keeping: ${src}`);
+      return;
+    }
     failCurrent(err && err.message ? err.message : 'play() failed');
   });
 }

@@ -1,0 +1,77 @@
+/* Shared desktop presentation for the existing family section navigators.
+   Their section lists, navigation actions and phone ribbons retain ownership. */
+.aircraft-desktop-section-choices {
+  display: none;
+}
+
+@media (min-width: 761px) and (pointer: fine), (min-width: 761px) and (min-height: 501px) {
+  .aircraft-tab-shell .aircraft-tab-search-content .aircraft-desktop-section-anchor {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 40;
+    display: block;
+    min-width: 0;
+  }
+
+  .aircraft-tab-shell .aircraft-desktop-section-anchor > .aircraft-desktop-section-nav {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid rgb(var(--border) / 0.65);
+    border-radius: 6px;
+    background: rgb(var(--panel));
+    box-shadow: 0 3px 8px rgb(0 0 0 / 0.12);
+  }
+
+  .aircraft-desktop-section-nav > button {
+    display: none;
+  }
+
+  .aircraft-desktop-section-nav > .aircraft-desktop-section-choices {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding: 0.3rem;
+  }
+
+  .aircraft-desktop-section-choices > span {
+    flex: none;
+    padding-inline: 0.5rem;
+    color: rgb(var(--muted-foreground));
+    font-size: 0.75rem;
+  }
+
+  .aircraft-desktop-section-choices > button {
+    flex: none;
+    min-height: 2.25rem;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: rgb(var(--muted-foreground));
+    font-size: 0.8125rem;
+    font-weight: 550;
+    white-space: nowrap;
+  }
+
+  .aircraft-desktop-section-choices > button:hover {
+    background: rgb(var(--panel-elevated) / 0.7);
+    color: rgb(var(--foreground));
+  }
+
+  .aircraft-desktop-section-choices > button[aria-current="location"] {
+    border-color: rgb(var(--selection) / 0.3);
+    background: rgb(var(--selection) / 0.1);
+    color: rgb(var(--foreground));
+  }
+}
+
+@media (min-width: 761px) and (min-height: 501px) and (pointer: coarse) {
+  .aircraft-desktop-section-choices > button {
+    min-height: var(--ff-touch-target-flight);
+  }
+}

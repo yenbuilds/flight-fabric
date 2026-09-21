@@ -348,6 +348,18 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && calculatorRoute.maxSteps === undefined
           && calculatorRoute.circular === undefined
           && validPrecondition;
+        const batchIncrease = calculatorRoute.batchIncreaseCode;
+        const batchDecrease = calculatorRoute.batchDecreaseCode;
+        const maxBatchSteps = calculatorRoute.maxBatchSteps;
+        const validBatch = (batchIncrease === undefined && batchDecrease === undefined && maxBatchSteps === undefined)
+          || (typeof batchIncrease === 'string' && typeof batchDecrease === 'string'
+            && batchIncrease.includes('{steps}') && batchDecrease.includes('{steps}')
+            && isSafeMobiFlightCalculatorCode(batchIncrease.replace('{steps}', '1'))
+            && isSafeMobiFlightCalculatorCode(batchDecrease.replace('{steps}', '1'))
+            && Number.isSafeInteger(maxBatchSteps)
+            && Number(maxBatchSteps) >= 2
+            && Number(maxBatchSteps) <= MAX_CALCULATOR_TARGET_STEPS);
+        const validPrime = calculatorRoute.primeCode === undefined || isSafeMobiFlightCalculatorCode(calculatorRoute.primeCode);
         const hasSteppedOnlyShape = mode === 'step-to-target'
           && Boolean(action.input)
           && calculatorReadback?.expectedInput === true
@@ -364,10 +376,14 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
           && Number(calculatorRoute.maxSteps) >= 1
           && Number(calculatorRoute.maxSteps) <= MAX_CALCULATOR_TARGET_STEPS
           && (calculatorRoute.circular === undefined || calculatorRoute.circular === true)
+          && validBatch
+          && validPrime
           && validPrecondition;
         if ((!hasSingleOnlyShape && !hasPulseOnlyShape && !hasSteppedOnlyShape)
           || (mode !== 'pulse' && pulses !== undefined)
-          || (mode !== 'step-to-target' && calculatorRoute.prepareCode !== undefined)) {
+          || (mode !== 'step-to-target' && (calculatorRoute.prepareCode !== undefined
+            || batchIncrease !== undefined || batchDecrease !== undefined || maxBatchSteps !== undefined
+            || calculatorRoute.primeCode !== undefined))) {
           throw new TypeError(`Aircraft integration "${adapterId}" has an invalid calculator route.`);
         }
       }

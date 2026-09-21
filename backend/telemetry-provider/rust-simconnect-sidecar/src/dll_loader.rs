@@ -388,6 +388,7 @@ fn simconnect_candidates() -> Vec<Candidate> {
             &mut seen,
             Some(
                 PathBuf::from(local_appdata)
+                    // The on-disk app-data folder keeps the two-word name.
                     .join("Flight Fabric")
                     .join("SimConnect")
                     .join("SimConnect.dll"),
@@ -501,18 +502,18 @@ mod tests {
         push_config_directory(
             &mut candidates,
             &mut seen,
-            Some(Path::new(r"C:\FlightFabric")),
+            Some(Path::new(r"C:\Flight Fabric")),
         );
         push_config_directory(
             &mut candidates,
             &mut seen,
-            Some(Path::new(r"C:\flightfabric")),
+            Some(Path::new(r"C:\flight fabric")),
         );
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(
             candidates[0],
-            PathBuf::from(r"C:\FlightFabric\SimConnect.cfg")
+            PathBuf::from(r"C:\Flight Fabric\SimConnect.cfg")
         );
     }
 
@@ -565,17 +566,17 @@ mod tests {
         push_candidate(
             &mut candidates,
             &mut seen,
-            Some(PathBuf::from(r"C:\FlightFabric\SimConnect")),
+            Some(PathBuf::from(r"C:\Flight Fabric\SimConnect")),
         );
         push_candidate(
             &mut candidates,
             &mut seen,
-            Some(PathBuf::from(r"C:\flightfabric\simconnect\SimConnect.dll")),
+            Some(PathBuf::from(r"C:\flight fabric\simconnect\SimConnect.dll")),
         );
 
         assert_eq!(candidates.len(), 1);
         assert!(candidates[0]
             .load_name()
-            .ends_with(r"FlightFabric\SimConnect\SimConnect.dll"));
+            .ends_with(r"Flight Fabric\SimConnect\SimConnect.dll"));
     }
 }

@@ -30,7 +30,7 @@ function keepTailwindBeforeBundledCss() {
 }
 
 /**
- * Vite configuration for Flight Fabric frontend.
+ * Vite configuration for FlightFabric frontend.
  *
  * Architecture notes:
  * - Dev server: `npm run dev` (from frontend/) or `npm run frontend:dev` from the root starts

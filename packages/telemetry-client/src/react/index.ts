@@ -1,5 +1,5 @@
 /**
- * React hooks for Flight Fabric telemetry.
+ * React hooks for FlightFabric telemetry.
  */
 
 export { TelemetryContext, useTelemetryClient } from './context';

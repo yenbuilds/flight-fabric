@@ -17,7 +17,7 @@ const {
 } = require('./windows-process-cleanup');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const DEFAULT_EXE = path.join(ROOT, 'dist', 'electron', 'win-unpacked', 'Flight Fabric.exe');
+const DEFAULT_EXE = path.join(ROOT, 'dist', 'electron', 'win-unpacked', require('../../scripts/release-names').buildExecutableFileName());
 const START_TIMEOUT_MS = 60000;
 const EXIT_TIMEOUT_MS = 30000;
 const PROCESS_EXIT_TIMEOUT_MS = 10000;
@@ -223,7 +223,7 @@ async function runPackagedLifecycleScenario(action) {
   const lockPath = getLifecycleRuntimeOwnerPipePath(nonce);
   const lockProbe = await acquireRuntimeOwnerLock({ owner: 'packaged-lifecycle-test-preflight', path: lockPath });
   if (!lockProbe.acquired) {
-    throw new Error(`Cannot run packaged lifecycle probe while another Flight Fabric launch mode owns ${lockProbe.path}`);
+    throw new Error(`Cannot run packaged lifecycle probe while another FlightFabric launch mode owns ${lockProbe.path}`);
   }
   await lockProbe.release();
   let wsPort = await findFreePort();

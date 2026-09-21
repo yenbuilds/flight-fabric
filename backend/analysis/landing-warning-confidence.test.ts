@@ -17,7 +17,10 @@ test('the WSSS fallback coordinate mismatch cannot establish an excursion or ali
   assert.equal(data.lateral_offset_suspect, true);
   assert.equal(data.lateral_offset_score, null);
   assert.equal(data.lateral_offset_grade, 'Unverified');
-  assert.equal(data.touchdown_distance_grade, 'Good');
+  // 2,590 ft on a 10,694 ft landing length: inside the 3,000 ft zone but past
+  // the 2,333 ft Good limit, so it is a late-in-zone caution.
+  assert.equal(data.touchdown_distance_grade, 'Acceptable');
+  assert.equal(data.touchdown_zone_end_ft, 3000);
   assert.equal(data.runway_condition, null);
   assert.equal(result.tdzAchieved, true);
   const conflict = buildTouchdownRunwayAnalysis({ runwayData: { ...runway, source: 'msfs-facilities' },
@@ -25,17 +28,39 @@ test('the WSSS fallback coordinate mismatch cannot establish an excursion or ali
   assert.equal(conflict.touchdownDistanceData.lateral_offset_score, null, 'conflicting surface telemetry must fail open');
 });
 
-test('touchdowns through 3000 ft are within TDZ regardless of weather, but not beyond the runway', () => {
+test('the touchdown zone is 3,000 ft or one third of the runway and weather never moves it', () => {
+  // Long runway: the zone ends at 3,000 ft on every surface.
   for (const surface of ['dry', 'wet', 'ice', 'snow', 'slush', 'unknown', null]) {
-    for (const distance of [0, 1000, 1751, 2451, 2590, 2999, 3000]) {
-      const result = scoreTouchdownDistance(distance, { surface, runwayLengthFt: 4000 });
-      assert.equal(result.score, 100, `${distance} ft on ${surface}`);
-      assert.ok(['Good', 'Outstanding'].includes(result.grade));
+    const expectations: Array<[number, string, number]> = [
+      [500, 'Outstanding', 100], [1000, 'Outstanding', 100], [1500, 'Outstanding', 100],
+      [1501, 'Good', 95], [2333, 'Good', 95],
+      [2334, 'Acceptable', 80], [3000, 'Acceptable', 80],
+      [3001, 'Long Landing', 60], [5000, 'Long Landing', 60],
+      [5001, 'Dangerous', 10],
+    ];
+    for (const [distance, grade, score] of expectations) {
+      const result = scoreTouchdownDistance(distance, { surface, runwayLengthFt: 12000 });
+      assert.equal(result.grade, grade, `${distance} ft on ${surface}`);
+      assert.equal(result.score, score, `${distance} ft on ${surface}`);
+      assert.equal(result.zoneEndFt, 3000);
     }
   }
+  // Short runway: the zone is the first third, and half the runway is the overrun line.
+  // Zone end 1,333 ft: Ideal to 1,083 ft, Good to 1,222 ft, Late to 1,333 ft.
+  assert.equal(scoreTouchdownDistance(1080, { runwayLengthFt: 4000 }).grade, 'Outstanding');
+  assert.equal(scoreTouchdownDistance(1100, { runwayLengthFt: 4000 }).grade, 'Good');
+  assert.equal(scoreTouchdownDistance(1300, { runwayLengthFt: 4000 }).grade, 'Acceptable');
+  assert.equal(scoreTouchdownDistance(1334, { runwayLengthFt: 4000 }).grade, 'Long Landing');
+  assert.equal(scoreTouchdownDistance(2001, { runwayLengthFt: 4000 }).grade, 'Dangerous');
+  assert.equal(scoreTouchdownDistance(2999, { runwayLengthFt: 4000 }).zoneEndFt, 1333);
+  // The aiming point never moves toward the threshold.
+  assert.equal(scoreTouchdownDistance(1000, { runwayLengthFt: 3000 }).grade, 'Outstanding');
+  assert.equal(scoreTouchdownDistance(1001, { runwayLengthFt: 3000 }).grade, 'Long Landing');
+  // Inside the first 500 ft is an amber caution, not a perfect landing.
+  assert.equal(scoreTouchdownDistance(0, { runwayLengthFt: 12000 }).grade, 'Near Threshold');
+  assert.equal(scoreTouchdownDistance(499, { runwayLengthFt: 12000 }).score, 85);
   assert.equal(scoreTouchdownDistance(-1, { runwayLengthFt: 4000 }).grade, 'Short Landing');
   assert.equal(scoreTouchdownDistance(2000, { runwayLengthFt: 2000 }).grade, 'Dangerous');
-  assert.equal(scoreTouchdownDistance(3001, { runwayLengthFt: 12000 }).grade, 'Acceptable');
   assert.equal(inferSurfaceCondition({ oatC: 30 }).surface, null);
 });
 

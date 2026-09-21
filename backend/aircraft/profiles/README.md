@@ -14,7 +14,7 @@ separate from simulator bindings.
 
 ## Layout
 
-Bundled Flight Fabric profiles live under:
+Bundled FlightFabric profiles live under:
 
 - `backend/aircraft/profiles/bundled/msfs/*.json`
 - `backend/aircraft/profiles/bundled/xplane/*.json`
@@ -99,7 +99,7 @@ Use the profile name, matching rules, and source notes to describe the covered
 variants. Telemetry and flight logs retain the exact simulator aircraft name;
 `aircraft_profile_id` records the behavior profile that was active.
 
-Split a family only when a variant changes behavior that Flight Fabric needs to
+Split a family only when a variant changes behavior that FlightFabric needs to
 model, such as:
 
 - different LVAR, SDK, dataref, command, or control names
@@ -134,7 +134,7 @@ metadata, and older recordings. Transport scoring ignores bands for individual
 airliners, so changing a transport profile's stability block does not change
 its live score.
 
-`vref` ranges are metadata. Flight Fabric does not calculate the selected Vref
+`vref` ranges are metadata. FlightFabric does not calculate the selected Vref
 or Vapp from weight and flap state, and it does not yet have a verified target
 speed signal. The speed check uses IAS at the stability gate. A profile should
 claim authoritative Vref data only when a verified source has been added and
@@ -179,7 +179,7 @@ A bundled profile selects its adapter with a small reference:
 }
 ```
 
-An adapter ID alone does not grant access. Flight Fabric activates it only when
+An adapter ID alone does not grant access. FlightFabric activates it only when
 the ID and complete profile key match a trusted backend registration. Writes
 also require the current profile revision. For example,
 only `bundled/msfs/fbw-a32nx` can activate the `fbw-a32nx` adapter.
@@ -281,7 +281,7 @@ candidate actions. Lists allow a preferred aircraft control with a safe
 fallback.
 
 Broad generic MSFS cockpit writes are blocked by default. Without a profile
-mapping, Flight Fabric supports only gear up, down, and toggle, plus flap
+mapping, FlightFabric supports only gear up, down, and toggle, plus flap
 increment and decrement.
 
 Set `genericFallback: true` only when broad simulator controls are known to be

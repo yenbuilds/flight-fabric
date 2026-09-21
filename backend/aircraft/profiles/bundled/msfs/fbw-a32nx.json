@@ -53,7 +53,7 @@
         "goodMinFpm": -250,
         "firmMinFpm": -400,
         "hardMinFpm": -650,
-        "_comment": "Flight Fabric A320-family touchdown-rate bands aligned with the established Airbus transport grading policy."
+        "_comment": "FlightFabric A320-family touchdown-rate bands aligned with the established Airbus transport grading policy."
       }
     }
   },
@@ -85,7 +85,7 @@
         "autopilot": "A32NX_FCU_AP_1_LIGHT_ON",
         "autothrottle": "A32NX_FCU_ATHR_LIGHT_ON",
         "flaps": "A32NX_FLAPS_HANDLE_INDEX",
-        "_commentFlaps": "A32NX_FLAPS_HANDLE_INDEX is documented as the physical flaps handle position: 0=0, 1=1/1+F, 2=2, 3=3, 4=FULL. Flight Fabric uses profile flap LVARs before SimConnect flap mapping.",
+        "_commentFlaps": "A32NX_FLAPS_HANDLE_INDEX is documented as the physical flaps handle position: 0=0, 1=1/1+F, 2=2, 3=3, 4=FULL. FlightFabric uses profile flap LVARs before SimConnect flap mapping.",
         "spoilers": {
           "_comment": "The cited FlyByWire interface supplies the intended armed state through A32NX_SPOILERS_ARMED and a 0-1 handle fraction through A32NX_SPOILERS_HANDLE_POSITION; the standard SimConnect armed field is not used for this profile.",
           "armed": "A32NX_SPOILERS_ARMED",
@@ -171,7 +171,7 @@
         "name": "FlyByWire A32NX PERF APPR minimums and FMGC entry handlers (pinned source)",
         "url": "https://github.com/flybywiresim/aircraft/blob/5702838ee1d27dd50386d9a3490d686a4128786f/fbw-a32nx/src/systems/instruments/src/MCDU/legacy_pages/A320_Neo_CDU_PerformancePage.ts",
         "retrievedAt": "2026-09-07",
-        "notes": "PERF APPR calls setPerfApprMDA on R2 to store approachBaroMinimum and clears RADIO with setPerfApprDH. R3 calls setPerfApprDH to store approachRadioMinimum and clears BARO with setPerfApprMDA. RADIO is available only for an ILS approach. A32NX_FMCMainDisplay.ts at the same revision validates BARO 0..39000 feet or destination runway threshold through threshold+5000, and RADIO 0..5000 feet. Output AIRLINER_MINIMUM_DESCENT_ALTITUDE and AIRLINER_DECISION_HEIGHT LVARs are not supported inputs. The paired A320_Neo_CDU_MainDisplay.ts exposes event:left numeric/R2/R3 keys, requestUpdate and update JSON with title, lines and scratchpad. Flight Fabric requires a fresh active PERF APPR page and empty scratchpad, confirms each key and the final stored entry, never navigates or clears input, and stops on interruption without retry. Full evidence and live-validation limits are in docs/A32NX-ATC-EFIS-VOICE.md."
+        "notes": "PERF APPR calls setPerfApprMDA on R2 to store approachBaroMinimum and clears RADIO with setPerfApprDH. R3 calls setPerfApprDH to store approachRadioMinimum and clears BARO with setPerfApprMDA. RADIO is available only for an ILS approach. A32NX_FMCMainDisplay.ts at the same revision validates BARO 0..39000 feet or destination runway threshold through threshold+5000, and RADIO 0..5000 feet. Output AIRLINER_MINIMUM_DESCENT_ALTITUDE and AIRLINER_DECISION_HEIGHT LVARs are not supported inputs. The paired A320_Neo_CDU_MainDisplay.ts exposes event:left numeric/R2/R3 keys, requestUpdate and update JSON with title, lines and scratchpad. FlightFabric requires a fresh active PERF APPR page and empty scratchpad, confirms each key and the final stored entry, never navigates or clears input, and stops on interruption without retry. Full evidence and live-validation limits are in docs/A32NX-ATC-EFIS-VOICE.md."
       },
       {
         "type": "official-sdk",
@@ -201,7 +201,7 @@
         "name": "FlyByWire Common Throttle Calibration",
         "url": "https://docs.flybywiresim.com/aircraft/common/flypados3/throttle-calibration/",
         "retrievedAt": "2026-08-15",
-        "notes": "Documents the shared A32NX/A380X per-axis calibration contract used by the fixed forward-detent routes. Flight Fabric reads A32NX_THROTTLE_MAPPING_IDLE_*, A32NX_THROTTLE_MAPPING_CLIMB_*, A32NX_THROTTLE_MAPPING_FLEXMCT_*, and A32NX_THROTTLE_MAPPING_TOGA_* LOW/HIGH bounds for each lever and targets only the midpoint of a valid saved window. Reverse calibration and arbitrary axis values are not exposed."
+        "notes": "Documents the shared A32NX/A380X per-axis calibration contract used by the fixed forward-detent routes. FlightFabric reads A32NX_THROTTLE_MAPPING_IDLE_*, A32NX_THROTTLE_MAPPING_CLIMB_*, A32NX_THROTTLE_MAPPING_FLEXMCT_*, and A32NX_THROTTLE_MAPPING_TOGA_* LOW/HIGH bounds for each lever and targets only the midpoint of a valid saved window. Reverse calibration and arbitrary axis values are not exposed."
       },
       {
         "type": "official-docs",
@@ -231,7 +231,7 @@
         "name": "FlyByWire A32NX a320-events.md",
         "url": "https://github.com/flybywiresim/aircraft/blob/master/fbw-a32nx/docs/a320-events.md",
         "retrievedAt": "2026-08-29",
-        "notes": "Documents the current A32NX custom-event namespace and payload semantics used by the guarded FCU routes: A32NX.FCU_SPD_SET, A32NX.FCU_HDG_SET, A32NX.FCU_ALT_SET, A32NX.FCU_VS_SET, A32NX.FCU_SPD_PUSH, A32NX.FCU_SPD_PULL, A32NX.FCU_HDG_PUSH, A32NX.FCU_HDG_PULL, A32NX.FCU_ALT_PUSH, A32NX.FCU_ALT_PULL, and A32NX.FCU_AP_2_PUSH. Flight Fabric maps only these fixed adapter-owned names and never accepts an event name from the client."
+        "notes": "Documents the current A32NX custom-event namespace and payload semantics used by the guarded FCU routes: A32NX.FCU_SPD_SET, A32NX.FCU_HDG_SET, A32NX.FCU_ALT_SET, A32NX.FCU_VS_SET, A32NX.FCU_SPD_PUSH, A32NX.FCU_SPD_PULL, A32NX.FCU_HDG_PUSH, A32NX.FCU_HDG_PULL, A32NX.FCU_ALT_PUSH, A32NX.FCU_ALT_PULL, and A32NX.FCU_AP_2_PUSH. FlightFabric maps only these fixed adapter-owned names and never accepts an event name from the client."
       },
       {
         "type": "official-sdk",

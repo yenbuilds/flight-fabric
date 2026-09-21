@@ -1,4 +1,4 @@
-# Flight Fabric Electron app
+# FlightFabric Electron app
 
 This directory contains the Windows launcher and packaging setup.
 
@@ -12,9 +12,9 @@ npm run build
 
 Output files:
 
-- `dist/electron/Flight Fabric Setup <version>.exe`
-- `dist/electron/Flight Fabric <version>.exe`
-- `dist/electron/win-unpacked/Flight Fabric.exe`
+- `dist/electron/FlightFabric Setup <version>.exe`
+- `dist/electron/FlightFabric <version>.exe`
+- `dist/electron/win-unpacked/FlightFabric.exe`
 
 `npm run electron:release` runs the packaged smoke, lifecycle, content, and
 summary checks. Publish only the installer, never the portable executable or
@@ -29,7 +29,7 @@ published filename even though the local output uses spaces.
 - One running app instance at a time.
 - System tray behavior.
 - Local port conflict handling.
-- Persistent settings in the Flight Fabric application data folder.
+- Persistent settings in the FlightFabric application data folder.
 
 ## Development
 
@@ -228,7 +228,7 @@ private network.
 
 Remote browsers are view-only by default. Aircraft controls also require
 `network.remoteAircraftControl` and the paired Mobile Browser link shown on the
-Flight Fabric PC. Treat its URL and QR code as private. The token expires when
+FlightFabric PC. Treat its URL and QR code as private. The token expires when
 the backend restarts and grants aircraft-control access only; it cannot access
 settings, recordings, history, file deletion, or profile management.
 
@@ -239,7 +239,7 @@ If a phone cannot connect:
    link.
 2. Confirm `network.remoteAccess` is true.
 3. Confirm Windows Firewall allows the active backend process on private
-   networks. Packaged releases use `Flight Fabric.exe`; `start-simbridge.bat`
+   networks. Packaged releases use `FlightFabric.exe`; `start-simbridge.bat`
    uses Node.js.
 4. Confirm the phone is on the same private Wi-Fi network and device isolation
    is off.

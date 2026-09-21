@@ -521,6 +521,7 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
     touchdown_distance_score: tdd.touchdown_distance_score ?? null,
     touchdown_distance_grade: tdd.touchdown_distance_grade ?? null,
     touchdown_distance_zone: tdd.touchdown_distance_zone ?? null,
+    touchdown_zone_end_ft: tdd.touchdown_zone_end_ft ?? null,
     short_landing: tdd.short_landing ?? tdd.shortLanding ?? null,
     runway_condition: tdd.runway_condition ?? null,
     runway_condition_source: tdd.runway_condition_source ?? null,
@@ -1092,6 +1093,7 @@ function buildFinalLandingBroadcast(input: {
       grade: touchdownDistanceData.touchdown_distance_grade,
       score: touchdownDistanceData.touchdown_distance_score,
       zone: touchdownDistanceData.touchdown_distance_zone,
+      tdzEndFt: touchdownDistanceData.touchdown_zone_end_ft ?? null,
       tdzAchieved,
       shortLanding: shortLandingDetected,
       runway: touchdownDistanceData.runway_icao && touchdownDistanceData.runway_id

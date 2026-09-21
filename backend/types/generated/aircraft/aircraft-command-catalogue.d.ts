@@ -21,6 +21,8 @@ export type AircraftCommandDefinition = Readonly<{
     kind?: 'action' | 'preset';
     label: string;
     speech?: Readonly<{
+        /** One complete spoken form shown beside a preset that takes a value. */
+        example?: string;
         fixedInputs?: Readonly<Record<string, Readonly<{
             value: boolean;
         }>>>;
@@ -68,6 +70,7 @@ export type AircraftCommandBinding = Readonly<{
     steps: readonly Readonly<{
         label: string;
         request: LegacyRequest;
+        settleMs?: number;
     }>[];
 } | {
     kind: 'input-sequence';

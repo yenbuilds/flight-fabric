@@ -21,6 +21,7 @@ export function createConnection({
   let wsAuthToken = '';
   let aircraftControlToken = params.get('aircraftControlToken') || '';
   let authorizationScope = 'read-only';
+  let authorizationAcknowledged = false;
 
   function getExplicitWsPort() {
     const value = Number(params.get('wsPort') || params.get('port') || params.get('ws'));
@@ -119,6 +120,10 @@ export function createConnection({
     return authorizationScope;
   }
 
+  function isAuthorizationAcknowledged() {
+    return authorizationAcknowledged;
+  }
+
   function getBackendHttpBase() {
     const host = resolvedHttpHost || getBackendHost();
     return `http://${host}:${resolvedHttpPort}`;
@@ -196,6 +201,7 @@ export function createConnection({
 
   function closeCurrentSocket() {
     authorizationScope = 'read-only';
+    authorizationAcknowledged = false;
     const socketToClose = ws;
     ws = null;
     if (!socketToClose) return;
@@ -272,6 +278,7 @@ export function createConnection({
     // A credential in the URL is only a claim. Controls remain read-only until
     // the server acknowledges the scope granted for this exact socket.
     authorizationScope = 'read-only';
+    authorizationAcknowledged = false;
 
     // Stop the previous socket before resolving fresh connection metadata so
     // no stale acknowledged capability survives an asynchronous reconnect.
@@ -305,6 +312,7 @@ export function createConnection({
 
     ws.onclose = (ev) => {
       authorizationScope = 'read-only';
+      authorizationAcknowledged = false;
       ws = null;
       onClose(ev);
       reconnectTimer = setTimeout(() => {
@@ -314,6 +322,7 @@ export function createConnection({
 
     ws.onerror = (ev) => {
       authorizationScope = 'read-only';
+      authorizationAcknowledged = false;
       onError(ev);
     };
 
@@ -325,6 +334,7 @@ export function createConnection({
           && ['read-only', 'aircraft-control', 'full-control'].includes(message.scope)
         ) {
           authorizationScope = message.scope;
+          authorizationAcknowledged = true;
         }
         onMessage(message);
       } catch (e) {
@@ -349,6 +359,7 @@ export function createConnection({
     connect,
     getBackendHttpBase,
     getAuthorizationScope,
+    isAuthorizationAcknowledged,
     getWs: () => ws,
     getWsUrl,
     initialize,

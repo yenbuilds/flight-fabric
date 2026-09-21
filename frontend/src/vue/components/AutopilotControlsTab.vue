@@ -368,6 +368,7 @@ function requestLightSet(light, value) {
       aircraft-label="Aircraft"
       :memory-key="aircraftControls.aircraftCommandCatalogue.profileKey ? `generic:${aircraftControls.aircraftCommandCatalogue.profileKey}` : ''"
     />
+    <slot name="page-tasks" />
     <p v-if="!aircraftControls.availability.enabled" class="generic-availability" role="status">
       {{ aircraftControls.availability.reason }}
     </p>

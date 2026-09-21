@@ -42,6 +42,9 @@ test('buildSimConnectFdmData preserves conversion-heavy telemetry fields', () =>
     eng1Itt: 900,
     prop1Beta: Math.PI / 2,
     yokeX: 0.5,
+    noseSteer: -0.4,
+    brakeLeftPos: 0.65,
+    brakeRightPos: 0,
     gsNeedle: 119,
     locNeedle: -127,
     navHasGlideSlope: 1,
@@ -84,6 +87,9 @@ test('buildSimConnectFdmData preserves conversion-heavy telemetry fields', () =>
   assert.ok(Math.abs(fdm.eng1IttC - 226.85) < 0.0001);
   assert.equal(fdm.prop1BetaDeg, 90);
   assert.equal(fdm.yokeXPct, 50);
+  assert.equal(fdm.noseSteerPct, -40);
+  assert.equal(fdm.brakeLeftPct, 65);
+  assert.equal(fdm.brakeRightPct, 0);
   assert.equal(fdm.nav1GsiRaw, 119);
   assert.equal(fdm.nav1CdiRaw, -127);
   assert.equal(fdm.nav1HasGlideSlope, true);

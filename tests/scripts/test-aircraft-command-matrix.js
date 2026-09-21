@@ -149,6 +149,24 @@ for (const entry of loader.listProfiles()) {
     }
     assert.equal(catalogue.inventory.find(command => command.id === 'configuration.lights.takeoff')?.supported,
       supportsTakeoffLights, `${profileKey}: inventory explains whether the preset is available`);
+    // The other phase presets are composed from the same reviewed light actions,
+    // so they are available exactly where the takeoff preset is.
+    for (const [preset, phrase, minimumSteps] of [
+      ['afterTakeoff', 'set lights after takeoff', 2],
+      ['landing', 'set lights for landing', 3],
+      ['afterLanding', 'set lights after landing', 3],
+    ]) {
+      const voice = interpret(phrase, catalogue);
+      assert.equal(voice.ok, supportsTakeoffLights, `${profileKey}: ${phrase} coverage`);
+      const resolved = resolveAircraftCommand({ commandId: `configuration.lights.${preset}`, input: {} }, options);
+      assert.equal(resolved.ok, supportsTakeoffLights, `${profileKey}: ${preset} preset coverage`);
+      if (supportsTakeoffLights) {
+        assert.equal(voice.commandId, `configuration.lights.${preset}`);
+        assert.ok(resolved.stepCount >= minimumSteps, `${profileKey}: ${preset} steps`);
+      }
+      assert.equal(catalogue.inventory.find(command => command.id === `configuration.lights.${preset}`)?.supported,
+        supportsTakeoffLights, `${profileKey}: ${preset} inventory`);
+    }
     const supportsStd = ['fbw-a32nx', 'fbw-a380x', 'fenix-a319', 'fenix-a320', 'fenix-a321'].includes(entry.id);
     for (const [phrase, target] of [['set baro standard', 'both'], ['set captain baro standard', 'captain'],
       ['set first officer baro standard', 'firstOfficer']]) {

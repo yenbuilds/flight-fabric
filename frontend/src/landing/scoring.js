@@ -22,6 +22,8 @@ const LANDING_GRADE_SEVERITY = Object.freeze({
   ACCEPTABLE: 1,
   Marginal: 1,
   MARGINAL: 1,
+  'Near Threshold': 1,
+  'NEAR THRESHOLD': 1,
   'Long Landing': 2,
   'LONG LANDING': 2,
   Poor: 2,
@@ -62,8 +64,16 @@ const LATERAL_GRADE_SEVERITY = Object.freeze({
   Excursion: 3,
 });
 
-const TOUCHDOWN_ZONE_MAX_FT = 3000;
-const TOUCHDOWN_TARGET_MAX_FT = 1000;
+// The backend owns the zone rule and sends the zone end with every result.
+// Records without one predate that rule and were graded against a fixed
+// 3,000 ft zone, so they are read back the same way.
+const LEGACY_TOUCHDOWN_ZONE_MAX_FT = 3000;
+const LEGACY_TOUCHDOWN_TARGET_MAX_FT = 1000;
+
+function touchdownZoneEndFt(touchdownDistance) {
+  const explicit = Number(touchdownDistance?.tdzEndFt ?? touchdownDistance?.tdz_end_ft ?? touchdownDistance?.touchdown_zone_end_ft);
+  return Number.isFinite(explicit) && explicit > 0 ? explicit : LEGACY_TOUCHDOWN_ZONE_MAX_FT;
+}
 const RETIRED_STABILITY_FAILURES = new Set(['spoilers_moved_after_gate']);
 const INSUFFICIENT_STABILITY_FAILURES = new Set(['insufficient_data', 'no_gate_sample', 'incomplete_gate_coverage']);
 const HARD_STABILITY_FAILURES = new Set([
@@ -348,15 +358,20 @@ export function buildLandingVerdict(data = {}, {
   const pastRunwayEnd = touchdownZone === 'Past Runway End'
     || (hasTouchdownDistanceFt && hasRunwayLengthFt && touchdownDistanceFt >= runwayLengthFt);
   // Preserve the historical optional-target flag for compatibility. It is not
-  // a pass/fail criterion; the backend's tdzAchieved represents the 3,000-ft TDZ.
+  // a pass/fail criterion. With a distance grade it means the Ideal band;
+  // ungraded legacy records keep the first 1,000 ft.
+  const distanceGradeForTarget = typeof touchdownDistance?.grade === 'string' ? touchdownDistance.grade.trim() : '';
   const touchdownTargetAchieved = touchdownDistance != null && !shortLanding && !pastRunwayEnd
     && hasTouchdownDistanceFt
     && touchdownDistanceFt >= 0
-    && touchdownDistanceFt <= TOUCHDOWN_TARGET_MAX_FT;
+    && (distanceGradeForTarget
+      ? distanceGradeForTarget === 'Outstanding'
+      : touchdownDistanceFt <= LEGACY_TOUCHDOWN_TARGET_MAX_FT);
+  const zoneEndFt = touchdownZoneEndFt(touchdownDistance);
   const tdzAchievedEffective = touchdownDistance != null && !shortLanding && !pastRunwayEnd && (
     explicitTdzAchieved != null
       ? explicitTdzAchieved
-      : (hasTouchdownDistanceFt && touchdownDistanceFt >= 0 && touchdownDistanceFt <= TOUCHDOWN_ZONE_MAX_FT)
+      : (hasTouchdownDistanceFt && touchdownDistanceFt >= 0 && touchdownDistanceFt <= zoneEndFt)
   );
 
   const gateFailures = normalizeStabilityGateFailures(ultimateStability?.gateFailures);
@@ -378,6 +393,7 @@ export function buildLandingVerdict(data = {}, {
       ...data,
       touchdownTargetAchieved,
       tdzAchievedEffective,
+      tdzEndFt: zoneEndFt,
     },
     flags: {
       runwayExcursion,
@@ -390,13 +406,18 @@ export function buildLandingVerdict(data = {}, {
     touchdown: {
       data: touchdownDistance,
       grade: touchdownDistance?.grade || null,
+      zoneEndFt,
       severity: touchdownSev,
       tone: verdictToneForSeverity(touchdownSev),
+      // The grade carries the caution. Being inside the zone must not paint a
+      // late or near-threshold touchdown green.
       color: criticalTouchdown
         ? VERDICT_COLORS.danger
+        : touchdownSev >= 0
+        ? verdictColorForSeverity(touchdownSev)
         : tdzAchievedEffective
         ? VERDICT_COLORS.good
-        : scoreColor(touchdownDistance?.score, 90, 70, verdictColorForSeverity(touchdownSev)),
+        : scoreColor(touchdownDistance?.score, 90, 70, VERDICT_COLORS.muted),
       textClass: textClassForSeverity(touchdownSev),
     },
     lateral: {
@@ -545,8 +566,10 @@ export function buildLandingPresentation(data = {}, options = {}) {
   const touchdownPositionText = !distanceText ? 'Position unavailable'
     : verdict.flags.shortLanding ? 'Short of threshold'
       : verdict.flags.pastRunwayEnd ? 'Past runway end'
-        : verdict.flags.tdzAchieved ? 'Within touchdown zone'
-          : 'Beyond touchdown zone';
+        : distanceGrade === 'Near Threshold' ? 'Close to threshold'
+          : verdict.flags.tdzAchieved && distanceGrade === 'Acceptable' ? 'Late in touchdown zone'
+            : verdict.flags.tdzAchieved ? 'Within touchdown zone'
+              : 'Beyond touchdown zone';
   const distanceDetail = [distanceText, distanceGrade].filter(Boolean).join(' · ');
   if (distanceDetail) touchdownDetailParts.push(`TDZ: ${distanceDetail}`);
   if (verdict.flags.runwayExcursion) touchdownDetailParts.push('Runway excursion');

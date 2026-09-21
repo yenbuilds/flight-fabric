@@ -404,7 +404,7 @@ function acquireMigrationGate(root: string): { release: () => boolean } {
     purpose: 'pre_release_flat_layout_migration',
   });
   if (gate.acquired === false) {
-    throw new Error(`Flight Logs migration is not exclusive (${gate.error || gate.reason}); close Flight Fabric and try again`);
+    throw new Error(`Flight Logs migration is not exclusive (${gate.error || gate.reason}); close FlightFabric and try again`);
   }
   return gate;
 }

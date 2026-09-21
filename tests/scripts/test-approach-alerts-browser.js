@@ -115,7 +115,7 @@ async function main() {
           res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/frontend-dist/tailwind.css"><style>body{margin:0;padding:16px;background:rgb(var(--background));color:rgb(var(--foreground));font-family:system-ui}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/approach-alerts-browser.js"></script></body></html>'); });
       },
     }], resolve: { alias: { vue: path.join(ROOT, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'), pinia: path.join(ROOT, 'frontend/node_modules/pinia/dist/pinia.mjs') } },
-    server: { host: '127.0.0.1', port: 0 } });
+    server: { host: '127.0.0.1', port: 0, watch: null } });
   await server.listen();
   try {
     const env = { ...process.env, FF_APPROACH_BROWSER_URL: `http://127.0.0.1:${server.httpServer.address().port}/approach-test` };

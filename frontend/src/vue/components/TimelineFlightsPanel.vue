@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import AppTooltip from './AppTooltip.vue';
-import AircraftArtwork from './AircraftArtwork.vue';
+import CountryFlag from './CountryFlag.vue';
 import { useLogbookStore } from '../stores/logbook.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTimelineStore } from '../stores/timeline.js';
@@ -10,6 +10,7 @@ import {
   getFlightBundleSizeBytes,
   getFlightRouteLabel,
 } from '../../timeline/flight-list.js';
+import { flightRouteSegments } from '../../timeline/country-flags.js';
 import {
   formatBytes,
   formatDistanceNm,
@@ -21,6 +22,7 @@ const logbook = useLogbookStore();
 const status = useStatusStore();
 const timeline = useTimelineStore();
 const routeFilterInput = ref(null);
+const filtersExpanded = ref(Boolean(timeline.aircraftFilter.trim() || timeline.sort !== 'recent'));
 
 const flights = computed(() => timeline.visibleFlights);
 const hasFilters = computed(() => Boolean(timeline.routeFilter.trim() || timeline.aircraftFilter.trim()));
@@ -33,7 +35,7 @@ const flightProgressShortLabel = computed(() => {
   if (status.recordingFinalizing) return 'Finalizing';
   return status.recordingActive ? 'In Progress' : '';
 });
-const refreshButtonLabel = computed(() => (pageRefreshing.value ? 'Refreshing...' : 'Refresh Page'));
+const refreshButtonLabel = computed(() => (pageRefreshing.value ? 'Refreshing...' : 'Refresh'));
 const historyIndex = computed(() => logbook.historyIndexStatus || {});
 const historyIndexTitle = computed(() => (
   historyIndex.value.mode === 'rebuild' ? 'Rebuilding flight history index' : 'Indexing flight history'
@@ -52,9 +54,10 @@ function isFlightSelected(flight) {
     || (flight.flightId && flight.flightId === timeline.loadedTimelineFlightId));
 }
 
-function clearFilters() {
+async function clearFilters() {
   timeline.setRouteFilter('');
   timeline.setAircraftFilter('');
+  await nextTick();
   routeFilterInput.value?.focus?.({ preventScroll: true });
 }
 
@@ -68,7 +71,7 @@ const emptyTitle = computed(() => {
   return 'Your flights, ready to replay';
 });
 const emptyDescription = computed(() => {
-  if (timeline.listStatus === 'not-connected') return 'Connect to Flight Fabric on your simulator PC to browse saved flights.';
+  if (timeline.listStatus === 'not-connected') return 'Connect to FlightFabric on your simulator PC to browse saved flights.';
   if (timeline.listStatus === 'error' || timeline.listStatus === 'restricted' || timeline.historyIndexStatus?.busy) return timeline.emptyStateMessage;
   if (timeline.listStatus === 'loading') return 'Recent recordings will appear here as they load.';
   if (hasFilters.value) return 'Try another airport or aircraft, or clear your filters to see all flights.';
@@ -76,6 +79,10 @@ const emptyDescription = computed(() => {
 });
 
 function openFlight(flight) {
+  if (isFlightSelected(flight) && !timeline.timelineLoading) {
+    timeline.openTimelineMobileViewer();
+    return;
+  }
   timeline.requestTimeline(flight.filePath, flight.flightId, {
     flightKey: getFlightKey(flight),
     flightLabel: getFlightRouteLabel(flight) || flight.flightId || 'selected flight',
@@ -99,6 +106,15 @@ function deleteFlight(flight) {
   timeline.requestDeleteFlight(flight);
 }
 
+function closeFlightOptions(event) {
+  const details = event.currentTarget;
+  if (!details.open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  details.open = false;
+  details.querySelector('summary')?.focus();
+}
+
 async function openStorageFolder() {
   await timeline.requestOpenStorageFolder();
 }
@@ -117,6 +133,10 @@ function flightTimestampKind(flight) {
   return Number.isFinite(new Date(flight?.recordingStartIso).getTime()) ? 'Recorded' : 'Saved';
 }
 
+function routeSegments(flight) {
+  return flightRouteSegments(flight, getFlightRouteLabel(flight) || 'Route unavailable');
+}
+
 function flightDateTimeLabel(flight) {
   const date = flightTimestampDate(flight);
   if (!Number.isFinite(date.getTime())) return '--';
@@ -127,17 +147,16 @@ function flightDateTimeLabel(flight) {
 
 <template>
   <div id="timeline-flights-card" class="ff-card overflow-hidden">
-    <div class="p-3 sm:p-4 border-b border-surface-200 flex items-start justify-between gap-3 flex-wrap">
+    <div class="logbook-flights-header border-b border-border flex items-center justify-between gap-2 flex-wrap">
       <div class="min-w-0">
         <h2 class="text-sm font-semibold text-gray-200">Recent flights</h2>
-        <div class="text-xs text-gray-400 mt-0.5">Choose a flight to explore its route, events, and landing.</div>
       </div>
       <div class="flex items-center gap-2 flex-wrap justify-end">
         <div
           v-if="flightProgressLabel"
-          class="inline-flex items-center gap-1.5 rounded border border-sky-500/35 bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-300"
+          class="logbook-recording-badge"
         >
-          <span class="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" aria-hidden="true"></span>
+          <span class="logbook-recording-dot" aria-hidden="true"></span>
           <span class="hidden sm:inline">{{ flightProgressLabel }}</span>
           <span class="sm:hidden">{{ flightProgressShortLabel }}</span>
         </div>
@@ -163,7 +182,7 @@ function flightDateTimeLabel(flight) {
         <div class="min-w-0">
           <div class="font-semibold text-cyan-200">{{ historyIndexTitle }}</div>
           <div class="mt-0.5 text-gray-400">
-            {{ logbook.historyIndexProgressLabel }}. Recent flights appear first; you can keep using Flight Fabric.
+            {{ logbook.historyIndexProgressLabel }}. Recent flights appear first; you can keep using FlightFabric.
           </div>
         </div>
         <div class="shrink-0 font-mono text-cyan-300">{{ historyIndex.percent || 0 }}%</div>
@@ -175,20 +194,28 @@ function flightDateTimeLabel(flight) {
         ></div>
       </div>
     </div>
-    <div class="px-3 sm:px-4 py-3 border-b border-surface-200 bg-surface-50/60">
-      <div class="timeline-filters-grid">
-        <label class="timeline-filter-field">
-          <span>Route or airport</span>
+    <div class="logbook-flight-filters border-b border-border">
+      <label class="timeline-filter-field logbook-flight-search">
+        <span>Search flights</span>
         <input
           ref="routeFilterInput"
           :value="timeline.routeFilter"
           type="search"
-          placeholder="e.g. YSSY or EGLL"
+          aria-label="Search flights by route or airport"
+          placeholder="Route or airport (e.g. EGLL)"
           style="color-scheme: dark"
-          class="timeline-filter-control w-full px-3 py-2 text-xs rounded border border-surface-300 bg-surface-200 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent/50"
+          class="timeline-filter-control w-full px-3 py-2 text-xs rounded border border-border bg-panel text-fg placeholder:text-muted-fg focus:outline-none focus:ring-1 focus:ring-primary/50"
           @input="timeline.setRouteFilter($event.target.value)"
         />
-        </label>
+      </label>
+      <div class="logbook-filter-tools">
+        <button type="button" class="logbook-filter-toggle" :aria-expanded="filtersExpanded" aria-controls="timeline-flight-filters" @click="filtersExpanded = !filtersExpanded">
+          <span>Aircraft &amp; sort</span><span v-if="timeline.aircraftFilter.trim() || timeline.sort !== 'recent'" class="logbook-filter-active">Active</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path :d="filtersExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'" /></svg>
+        </button>
+        <button v-if="hasFilters" type="button" class="timeline-clear-filters" @click="clearFilters">Clear filters</button>
+      </div>
+      <div v-show="filtersExpanded" id="timeline-flight-filters" class="timeline-filters-grid">
         <label class="timeline-filter-field">
           <span>Aircraft</span>
         <input
@@ -217,26 +244,11 @@ function flightDateTimeLabel(flight) {
       </div>
       <div class="timeline-filter-summary">
         <span role="status" aria-live="polite">{{ timeline.flightsMeta }}</span>
-        <button v-if="hasFilters" type="button" class="timeline-clear-filters" @click="clearFilters">Clear filters</button>
       </div>
     </div>
 
     <div v-if="timeline.listStatus === 'error' && flights.length" class="px-4 py-3 text-xs text-amber-300 border-b border-surface-200" role="status">
       {{ timeline.listErrorMessage || 'Couldn’t refresh your flights. Your previous results are still available.' }}
-    </div>
-
-    <div v-if="timeline.showStorage" class="px-3 sm:px-4 py-2 border-b border-surface-200 bg-surface-200/30 text-xs text-gray-400 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-      <div class="flex-1 min-w-0">
-        <div class="text-[10px] uppercase tracking-widest text-gray-500" style="font-family: 'B612 Mono', monospace;">Flight logs folder</div>
-        <AppTooltip :content="timeline.storagePath" placement="top-start" anchor-class="min-w-0" anchor-tag="div">
-          <div class="truncate text-gray-300" style="font-family: 'B612 Mono', monospace;">{{ timeline.storagePath }}</div>
-        </AppTooltip>
-        <div class="text-[11px] text-gray-500 mt-0.5">{{ timeline.storageSummary }}</div>
-      </div>
-      <div class="timeline-storage-actions flex-shrink-0">
-        <button type="button" class="timeline-storage-btn px-2 py-1 text-[11px] rounded border border-surface-300 text-gray-300 hover:bg-surface-300/40" @click="openStorageFolder">Open Folder</button>
-        <button type="button" class="timeline-storage-btn px-2 py-1 text-[11px] rounded border border-surface-300 text-gray-300 hover:bg-surface-300/40" @click="copyStoragePath">{{ timeline.storagePathCopyLabel }}</button>
-      </div>
     </div>
 
     <div class="timeline-flight-list" :aria-busy="timeline.listStatus === 'loading'">
@@ -281,60 +293,61 @@ function flightDateTimeLabel(flight) {
             :aria-current="isFlightSelected(flight) ? 'true' : undefined"
             @click="openFlight(flight)"
           >
-            <AircraftArtwork
-              class="timeline-aircraft-thumb"
-              :profile-id="flight.aircraftProfileId || flight.aircraft_profile_id || ''"
-              :aircraft-name="getFlightAircraftLabel(flight)"
-            />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <div
                   class="timeline-flight-route"
+                  :title="getFlightRouteLabel(flight) || 'Route unavailable'"
                 >
-                  {{ getFlightRouteLabel(flight) || 'Route unavailable' }}
+                  <template v-for="(segment, index) in routeSegments(flight)" :key="index">
+                    <span v-if="index > 0" class="timeline-flight-route-arrow" aria-hidden="true">→</span>
+                    <span class="timeline-flight-route-end">
+                      <CountryFlag :country="segment.country" />
+                      <span>{{ segment.text }}</span>
+                    </span>
+                  </template>
                 </div>
                 <div v-if="isFlightLoading(flight)" class="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin flex-shrink-0" aria-label="Loading timeline"></div>
               </div>
-              <div class="timeline-flight-aircraft">{{ getFlightAircraftLabel(flight) || 'Aircraft unavailable' }}</div>
+              <div class="timeline-flight-aircraft" :title="getFlightAircraftLabel(flight) || 'Aircraft unavailable'">{{ getFlightAircraftLabel(flight) || 'Aircraft unavailable' }}</div>
               <div class="timeline-flight-meta">
-                <span>{{ flightTimestampKind(flight) }} {{ flightDateTimeLabel(flight) }}</span>
+                <span class="timeline-flight-date">{{ flightTimestampKind(flight) }} {{ flightDateTimeLabel(flight) }}</span>
                 <span v-if="flight.durationFormatted || flight.durationMs">{{ flight.durationFormatted || formatDuration(flight.durationMs) }}</span>
                 <span v-if="getFiniteDistanceNm(flight.distanceNm) !== null">{{ formatDistanceNm(flight.distanceNm) }}</span>
               </div>
             </div>
-            <div class="timeline-flight-replay-hint" aria-hidden="true">
-              <span>{{ isFlightLoading(flight) ? 'Opening' : isFlightSelected(flight) ? 'Open again' : 'Replay' }}</span>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m9 5 7 7-7 7" /></svg>
-            </div>
           </button>
-          <div class="timeline-flight-actions">
-            <AppTooltip v-slot="{ tooltipId }" :content="`${flight.eventCount ?? 0} samples${getFlightBundleSizeBytes(flight) !== null ? ` · ${formatBytes(getFlightBundleSizeBytes(flight))}` : ''}`">
-              <button type="button" class="timeline-flight-info" :aria-describedby="tooltipId" :aria-label="`Recording details for ${getFlightRouteLabel(flight) || 'flight'}`">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg>
-              </button>
-            </AppTooltip>
-            <button
-              v-if="hasLandingAction(flight)"
-              type="button"
-              class="ff-button-secondary timeline-flight-landing"
-              title="Open the recorded landing card"
-              @click.stop="openLanding(flight)"
-            >
-              Landing
-            </button>
-            <AppTooltip content="Delete this flight log">
-              <button
-                type="button"
-                aria-label="Delete this flight log"
-                class="timeline-flight-delete"
-                @click.stop="deleteFlight(flight)"
-              >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/>
-                </svg>
-              </button>
-            </AppTooltip>
-          </div>
+          <details class="timeline-flight-more" @keydown.esc="closeFlightOptions">
+            <summary :aria-label="`Flight options for ${getFlightRouteLabel(flight) || 'flight'}, ${flightDateTimeLabel(flight)}`" title="Flight options">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+            </summary>
+            <div class="timeline-flight-options">
+              <div class="timeline-flight-options-context">{{ getFlightRouteLabel(flight) || 'Route unavailable' }} · {{ getFlightAircraftLabel(flight) || 'Aircraft unavailable' }}</div>
+              <div>{{ flight.eventCount ?? 0 }} samples<span v-if="getFlightBundleSizeBytes(flight) !== null"> · {{ formatBytes(getFlightBundleSizeBytes(flight)) }}</span></div>
+              <div class="timeline-flight-actions">
+                <button
+                  v-if="hasLandingAction(flight)"
+                  type="button"
+                  class="ff-button-secondary timeline-flight-landing"
+                  title="Open the recorded landing card"
+                  @click.stop="openLanding(flight)"
+                >
+                  Landing
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete this flight log"
+                  class="ff-button-secondary timeline-flight-delete"
+                  @click.stop="deleteFlight(flight)"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/>
+                  </svg>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </details>
         </div>
         </div>
         <div v-if="timeline.hasMoreVisibleFlights" class="px-4 py-3">
@@ -348,5 +361,21 @@ function flightDateTimeLabel(flight) {
         </div>
       </template>
     </div>
+    <details v-if="timeline.showStorage" class="logbook-storage text-xs text-muted-fg">
+      <summary>Recording storage</summary>
+      <div class="logbook-storage-content">
+        <div class="min-w-0">
+          <div class="text-[10px] uppercase tracking-widest text-muted-fg">Flight logs folder</div>
+          <AppTooltip :content="timeline.storagePath" placement="top-start" anchor-class="min-w-0" anchor-tag="div">
+            <div class="truncate font-mono text-fg">{{ timeline.storagePath }}</div>
+          </AppTooltip>
+          <div class="text-[11px] mt-0.5">{{ timeline.storageSummary }}</div>
+        </div>
+        <div class="timeline-storage-actions">
+          <button type="button" class="ff-button-secondary timeline-storage-btn" @click="openStorageFolder">Open Folder</button>
+          <button type="button" class="ff-button-secondary timeline-storage-btn" @click="copyStoragePath">{{ timeline.storagePathCopyLabel }}</button>
+        </div>
+      </div>
+    </details>
   </div>
 </template>

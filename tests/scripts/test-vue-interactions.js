@@ -401,7 +401,12 @@ async function main() {
       subscribeWsOpen,
     },
     { getCabinAnnouncements, getReconnect, setAppService, setAppServices },
-    { initTabsRuntime, LAST_ACTIVE_TAB_STORAGE_KEY, resolveInitialTabId },
+    { desktopShortcutTabIds, initTabsRuntime, LAST_ACTIVE_TAB_STORAGE_KEY, resolveInitialTabId },
+    { usePromptsStore },
+    { useSupportStore },
+    { useWhatsNewStore },
+    { initSupportRuntime, SUPPORT_STORAGE_KEY },
+    { initWhatsNewRuntime, WHATS_NEW_SEEN_STORAGE_KEY },
     { initDebugRuntime },
     { initProfilesRuntime },
     { initLiveMapRuntime },
@@ -478,6 +483,11 @@ async function main() {
     import(toFrontendUrl('src', 'app', 'runtime-signals.js')),
     import(toFrontendUrl('app-shared.js')),
     import(toFrontendUrl('src', 'tabs', 'runtime.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'prompts.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'support.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'whats-new.js')),
+    import(toFrontendUrl('src', 'support', 'runtime.js')),
+    import(toFrontendUrl('src', 'app', 'whats-new.js')),
     import(toFrontendUrl('src', 'debug', 'runtime.js')),
     import(toFrontendUrl('src', 'profiles', 'runtime.js')),
     import(toFrontendUrl('src', 'live-map', 'runtime.js')),
@@ -881,14 +891,15 @@ async function main() {
   await test('message frame batcher coalesces bursty websocket packets into one animation-frame flush', () => {
     const flushed = [];
     const rafCallbacks = [];
+    const fallbackCallbacks = [];
     const windowRef = {
       requestAnimationFrame(callback) {
         rafCallbacks.push(callback);
         return rafCallbacks.length;
       },
       setTimeout(callback) {
-        rafCallbacks.push(callback);
-        return rafCallbacks.length;
+        fallbackCallbacks.push(callback);
+        return fallbackCallbacks.length;
       },
     };
 
@@ -915,14 +926,15 @@ async function main() {
   await test('message frame batcher coalesces configured live-state packets before flushing', () => {
     const flushed = [];
     const rafCallbacks = [];
+    const fallbackCallbacks = [];
     const windowRef = {
       requestAnimationFrame(callback) {
         rafCallbacks.push(callback);
         return rafCallbacks.length;
       },
       setTimeout(callback) {
-        rafCallbacks.push(callback);
-        return rafCallbacks.length;
+        fallbackCallbacks.push(callback);
+        return fallbackCallbacks.length;
       },
     };
 
@@ -964,14 +976,15 @@ async function main() {
   await test('authorization scope and live positions bypass frame batching', () => {
     const flushed = [];
     const rafCallbacks = [];
+    const fallbackCallbacks = [];
     const windowRef = {
       requestAnimationFrame(callback) {
         rafCallbacks.push(callback);
         return rafCallbacks.length;
       },
       setTimeout(callback) {
-        rafCallbacks.push(callback);
-        return rafCallbacks.length;
+        fallbackCallbacks.push(callback);
+        return fallbackCallbacks.length;
       },
     };
     const batcher = createMessageFrameBatcher({
@@ -1005,6 +1018,105 @@ async function main() {
     rafCallbacks.shift()();
     assert.deepEqual(flushed.at(-1), { type: 'ias', value: 124 }, 'the latest display value should still flush normally');
     assert.equal(batcher.queuedCount(), 0, 'the display queue should drain after rendering resumes');
+  });
+
+  function createBatcherScheduler() {
+    const frames = new Map(), timers = new Map();
+    let nextId = 0;
+    return {
+      frames, timers,
+      requestAnimationFrame(callback) { const id = ++nextId; frames.set(id, callback); return id; },
+      cancelAnimationFrame(id) { frames.delete(id); },
+      setTimeout(callback, delay) { const id = ++nextId; timers.set(id, { callback, delay }); return id; },
+      clearTimeout(id) { timers.delete(id); },
+    };
+  }
+
+  await test('suspended display frames still drain correlated replies in order through a timer', () => {
+    const windowRef = createBatcherScheduler();
+    const flushed = [];
+    const batcher = createMessageFrameBatcher({ windowRef, coalescedMessageTypes: FRAME_COALESCED_MESSAGE_TYPES, handleMessage: message => flushed.push(message) });
+    const messages = [
+      { type: 'ias', value: 100 },
+      { type: 'autotaxiState', requestId: 'preview-1', scene: { key: 'airport' } },
+      { type: 'ias', value: 110 },
+      { type: 'aircraftCommandResult', requestId: 'control-1', ok: true },
+      { type: 'autotaxiState', requestId: 'status-2', active: false },
+    ];
+    messages.forEach(message => batcher.enqueue(message));
+    assert.equal(flushed.length, 0);
+    assert.equal(windowRef.timers.size, 1, 'one fallback must run even when animation frames do not');
+    const timer = [...windowRef.timers.values()][0];
+    assert.ok(timer.delay > 0 && timer.delay <= 100);
+    timer.callback();
+    assert.deepEqual(flushed, messages, 'snapshots and every request identity retain their order');
+    assert.equal(batcher.queuedCount(), 0);
+    assert.equal(windowRef.frames.size, 0);
+    assert.equal(windowRef.timers.size, 0);
+  });
+
+  await test('message queues stay bounded even when both frames and timers are suspended', () => {
+    const windowRef = createBatcherScheduler();
+    const flushed = [];
+    const expected = [];
+    const batcher = createMessageFrameBatcher({ windowRef, coalescedMessageTypes: FRAME_COALESCED_MESSAGE_TYPES, handleMessage: message => flushed.push(message) });
+    let peakQueued = 0;
+    for (let index = 0; index < 12000; index += 1) {
+      for (const message of [
+        { type: 'ias', value: index },
+        { type: 'autotaxiState', requestId: `status-${index}` },
+        { type: 'aircraftCommandResult', requestId: `control-${index}`, ok: index % 2 === 0 },
+      ]) {
+        expected.push(message);
+        batcher.enqueue(message);
+        peakQueued = Math.max(peakQueued, batcher.queuedCount());
+      }
+    }
+    assert.ok(peakQueued <= 256, `stalled render clocks retained ${peakQueued} messages`);
+    assert.ok(windowRef.frames.size <= 1 && windowRef.timers.size <= 1, 'drains must also retire scheduled callbacks');
+    batcher.flush();
+    assert.deepEqual(flushed, expected, 'no status, command reply, request identity or ordering barrier is dropped');
+    assert.equal(windowRef.frames.size, 0);
+    assert.equal(windowRef.timers.size, 0);
+  });
+
+  await test('a completed animation frame cancels its fallback and stale callbacks cannot drain the next batch', () => {
+    const windowRef = createBatcherScheduler();
+    const flushed = [];
+    const batcher = createMessageFrameBatcher({ windowRef, handleMessage: message => flushed.push(message.requestId) });
+    batcher.enqueue({ type: 'cduState', requestId: 'first' });
+    const oldFrame = [...windowRef.frames.values()][0];
+    const oldTimer = [...windowRef.timers.values()][0]?.callback;
+    assert.equal(typeof oldTimer, 'function');
+    oldFrame();
+    assert.deepEqual(flushed, ['first']);
+    assert.equal(windowRef.frames.size + windowRef.timers.size, 0);
+    batcher.enqueue({ type: 'cduState', requestId: 'second' });
+    oldTimer(); oldFrame();
+    assert.deepEqual(flushed, ['first']);
+    [...windowRef.frames.values()][0]();
+    assert.deepEqual(flushed, ['first', 'second']);
+  });
+
+  await test('a queue drain keeps replies already being delivered ahead of reentrant packets', () => {
+    const windowRef = createBatcherScheduler();
+    const flushed = [];
+    const batcher = createMessageFrameBatcher({
+      windowRef,
+      handleMessage(message) {
+        flushed.push(message.requestId);
+        if (message.requestId === 'first') {
+          for (let index = 0; index < 300; index += 1) batcher.enqueue({ type: 'cduState', requestId: `nested-${index}` });
+        }
+      },
+    });
+    batcher.enqueue({ type: 'cduState', requestId: 'first' });
+    batcher.enqueue({ type: 'cduState', requestId: 'second' });
+    batcher.flush();
+    batcher.flush();
+    assert.deepEqual(flushed, ['first', 'second', ...Array.from({ length: 300 }, (_, index) => `nested-${index}`)]);
+    assert.equal(batcher.queuedCount(), 0);
+    assert.equal(windowRef.frames.size + windowRef.timers.size, 0);
   });
 
   console.log('\n--- preferences bridge ---\n');
@@ -3438,9 +3550,11 @@ async function main() {
     );
     assert.equal(profilesStore.authorizationScope, 'read-only');
     assert.equal(profilesStore.profileSelectionAvailable, false);
+    assert.equal(profilesStore.authorizationAcknowledged, false, 'initial read-only fallback is not a server acknowledgement');
 
     emitWsOpen();
     emitWsMessage({ type: 'authorizationScope', scope: 'read-only', aircraftControlPairingStatus: 'expired' });
+    assert.equal(profilesStore.authorizationAcknowledged, true, 'explicit viewer authorization completes the handshake');
     assert.equal(profilesStore.aircraftControlPairingStatus, 'expired', 'profiles runtime should retain the server pairing rejection reason for mobile guidance');
     emitWsMessage({ type: 'authorizationScope', scope: 'aircraft-control', aircraftControlPairingStatus: 'accepted' });
     assert.deepEqual(
@@ -3467,6 +3581,7 @@ async function main() {
     emitWsClose();
     assert.equal(profilesStore.authorizationScope, 'read-only');
     assert.equal(profilesStore.aircraftControlPairingStatus, 'not-requested', 'disconnect should clear stale pairing diagnostics');
+    assert.equal(profilesStore.authorizationAcknowledged, false, 'disconnect should clear the handshake marker');
     assert.equal(profilesStore.profileSelectionAvailable, false);
     assert.deepEqual(profilesStore.installedProfiles, [], 'disconnect should clear privileged profile-list state immediately');
 
@@ -3562,6 +3677,43 @@ async function main() {
     assert.deepEqual(sent, [{ type: 'listProfiles' }]);
 
     cleanupProfilesRuntime();
+  });
+
+  await test('profiles runtime distinguishes a late viewer mount from an unfinished handshake', async () => {
+    const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage()); setActivePinia(createPinia());
+    const profiles = useProfilesStore();
+    let acknowledged = true;
+    const mount = () => initProfilesRuntime({
+      profilesStore: profiles,
+      getAuthorizationScope: () => 'read-only',
+      isAuthorizationAcknowledged: () => acknowledged,
+      subscribeWsMessageSignal: subscribeWsMessage,
+      subscribeWsCloseSignal: subscribeWsClose,
+      subscribeWsConnectingSignal: subscribeWsConnecting,
+      subscribeWsErrorSignal: subscribeWsError,
+      subscribeWsOpenSignal: subscribeWsOpen,
+    });
+    let cleanup = mount();
+    assert.equal(profiles.authorizationAcknowledged, true, 'late mounts should recover an acknowledged viewer without claiming controls');
+    assert.equal(profiles.authorizationScope, 'read-only');
+    cleanup();
+    acknowledged = false;
+    cleanup = mount();
+    try {
+      assert.equal(profiles.authorizationAcknowledged, false);
+      emitWsMessage({ type: 'position' });
+      assert.equal(profiles.authorizationAcknowledged, false, 'ordinary data must not stand in for handshake acknowledgement');
+      acknowledged = true;
+      emitWsMessage({ type: 'authorizationScope', scope: 'read-only', aircraftControlPairingStatus: 'not-requested' });
+      assert.equal(profiles.authorizationAcknowledged, true);
+      for (const disconnect of [emitWsClose, emitWsConnecting, emitWsError, emitWsOpen]) {
+        disconnect(); assert.equal(profiles.authorizationAcknowledged, false);
+        emitWsMessage({ type: 'authorizationScope', scope: 'read-only' });
+        assert.equal(profiles.authorizationAcknowledged, true);
+      }
+    } finally { cleanup(); }
+    assert.equal(profiles.authorizationAcknowledged, false);
   });
 
   console.log('\n--- debug runtime ---\n');
@@ -3684,14 +3836,15 @@ async function main() {
     assert.equal(debugStore.modalOpen, true, 'telemetry reset should leave the debug modal open');
 
     debugStore.setTestShakeVs('-700');
+    debugStore.setTestShakeMethod('camera6dof');
     debugStore.requestTestShake();
     await nextTick();
     assert.deepEqual(
       sent.shift(),
-      { type: 'testShake', vs_fpm: -700 },
-      'shake-test requests should flow through the websocket bridge',
+      { type: 'testShake', vs_fpm: -700, method: 'camera6dof' },
+      'shake-test requests should flow through the websocket bridge with the chosen transport',
     );
-    assert.equal(debugStore.testShakeStatus, 'Sent (-700 fpm)', 'successful shake-test sends should update status text');
+    assert.equal(debugStore.testShakeStatus, 'Sent (-700 fpm, camera6dof)', 'successful shake-test sends should update status text');
 
     emitWsMessage({
       type: 'testShakeAck',
@@ -3706,6 +3859,33 @@ async function main() {
       },
     });
     assert.match(debugStore.testShakeStatus, /ack -700fpm/, 'shake-test acknowledgements should update the status text');
+
+    emitWsMessage({
+      type: 'testShakeAck',
+      vs_fpm: -700,
+      phase: 'started',
+      diag: { shake: { ok: true, method: 'eyepoint', durationMs: 1500, severity: 0.75, peakDropMeters: 0.055 } },
+    });
+    assert.match(debugStore.testShakeStatus, /eyepoint 1\.5s sev=0\.75 drop=5\.5cm \| playing/, 'a started ack should describe the shake profile');
+
+    emitWsMessage({
+      type: 'testShakeAck',
+      vs_fpm: -700,
+      phase: 'done',
+      diag: {
+        shake: { ok: true, method: 'eyepoint', durationMs: 1500, severity: 0.75, peakDropMeters: 0.055 },
+        writes: { ok: 180, failed: 2, lastError: 'not_connected' },
+      },
+    });
+    assert.match(debugStore.testShakeStatus, /writes ok=180 fail=2 \(not_connected\)/, 'a done ack should surface sidecar write results');
+
+    emitWsMessage({
+      type: 'testShakeAck',
+      vs_fpm: -700,
+      phase: 'started',
+      diag: { shake: { ok: false, reason: 'sidecar_unavailable' } },
+    });
+    assert.match(debugStore.testShakeStatus, /skipped: sidecar_unavailable/, 'a refused shake should say why');
     runtime.cleanup();
     assert.ok(clearedIntervals.includes(2), 'debug cleanup should stop the active periodic timer');
   });
@@ -4849,6 +5029,57 @@ async function main() {
     assert.equal(sent[sentAfterClear].icao, 'KSFO', 'changed flight-plan destination should preserve the normalized ICAO');
     assert.equal(liveMapStore.targetInput, 'KSFO', 'changed flight-plan destination should update the target input');
     assert.equal(liveMapStore.originInput, '', 'unchanged ignored flight-plan origin should stay cleared');
+
+    const originTarget = { icao: 'EGCC', name: 'Manchester', lat: 53.3537, lon: -2.275 };
+    const destinationTarget = { icao: 'LEBL', name: 'Barcelona', lat: 41.2974, lon: 2.0833 };
+    emitWsMessage({ type: 'originTarget', target: originTarget });
+    emitWsMessage({ type: 'destinationTarget', target: destinationTarget });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC -> To LEBL', 'shared airport targets without a matching runway plan should keep the airport-only label');
+
+    const sentBeforeRunwayPlan = sent.length;
+    emitWsMessage({
+      type: 'flightPlan', origin: 'EGCC', destination: 'LEBL', departureRunway: '23R', arrivalRunway: '24R',
+    });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC RWY 23R -> To LEBL RWY 24R', 'a matching plan should add both planned runways without requiring another position update');
+    assert.equal(liveMapStore.destinationProgressTitle, 'Planned runways from SimBrief', 'runway details should explain their planned source');
+    assert.equal(sent.length, sentBeforeRunwayPlan, 'adding runway details for selected airports should not repeat airport lookups');
+
+    emitWsMessage({
+      type: 'flightPlan', origin: 'EGCC', destination: 'LEBL', departureRunway: '05L', arrivalRunway: '06L',
+    });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC RWY 05L -> To LEBL RWY 06L', 'a runway change on the same route should replace the previous runway details immediately');
+    assert.equal(sent.length, sentBeforeRunwayPlan, 'same-route runway changes should not initiate unnecessary airport lookups');
+
+    emitWsMessage({
+      type: 'destinationTarget', target: { icao: 'EGLL', name: 'Heathrow', lat: 51.47, lon: -0.4543 },
+    });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC RWY 05L -> To EGLL', 'a manually changed destination must not inherit the old destination runway');
+
+    emitWsMessage({
+      type: 'originTarget', target: { icao: 'EGBB', name: 'Birmingham', lat: 52.4539, lon: -1.748 },
+    });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGBB -> To EGLL', 'a manually changed origin must not inherit the old departure runway');
+    assert.equal(liveMapStore.destinationProgressTitle, '', 'airport-only progress should not retain a planned-runway source hint');
+
+    emitWsMessage({ type: 'originTarget', target: originTarget });
+    emitWsMessage({ type: 'destinationTarget', target: destinationTarget });
+    emitWsMessage({ type: 'flightPlan', origin: 'EGCC', destination: 'LEBL', departureRunway: '23R' });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC RWY 23R -> To LEBL', 'an omitted arrival runway in a newer plan should clear the previous arrival runway');
+
+    emitWsMessage({ type: 'flightPlan', cleared: true });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC -> To LEBL', 'clearing a flight plan should remove runway details while preserving the selected airports');
+    assert.equal(liveMapStore.destinationProgressTitle, '', 'clearing a flight plan should remove the runway source hint');
+
+    emitWsMessage({ type: 'flightPlan', origin: 'EGCC', destination: 'LEBL' });
+    await nextTick();
+    assert.equal(liveMapStore.destinationProgressLabel, 'From EGCC -> To LEBL', 'a plan without runway data should retain the original airport-only label');
 
     emitWsMessage({
       type: 'position',
@@ -6665,6 +6896,9 @@ async function main() {
   await test('settings runtime handles dirty state, leave guard, save, and reload', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
     const storage = createStorage();
     resetGlobals(windowRef, documentRef, storage);
     setActivePinia(createPinia());
@@ -6829,6 +7063,7 @@ async function main() {
     const savedSettings = sent[0].settings;
 
     emitAppSettingsSaved({
+      requestId: sent[0].requestId,
       ok: true,
       settings: savedSettings,
       storage: { flightLogsDir: 'C:/Flights', flightLogsExists: true, flightLogsFileCount: 2, flightLogsTotalBytes: 4096 },
@@ -6867,7 +7102,9 @@ async function main() {
     assert.match(settingsFormStore.statusMessage, /Restart is not available in browser mode/i, 'unavailable restart action should still report through the settings form status');
 
     const recordingSavedSettings = settingsEditorStore.serializeSettings();
+    assert.equal(await settingsFormStore.requestSave(), true);
     emitAppSettingsSaved({
+      requestId: sent.at(-1).requestId,
       ok: true,
       settings: recordingSavedSettings,
       storage: { flightLogsDir: 'C:/Flights', flightLogsExists: true, flightLogsFileCount: 2, flightLogsTotalBytes: 4096 },
@@ -6878,7 +7115,9 @@ async function main() {
     assert.match(settingsFormStore.statusMessage, /Automatic recording/i, 'recording save results should name the restart reason');
     assert.equal(settingsFormStore.saveFlashActive, false, 'restart-required recording saves should not trigger the immediate-apply save flash');
 
+    assert.equal(await settingsFormStore.requestSave(), true);
     emitAppSettingsSaved({
+      requestId: sent.at(-1).requestId,
       ok: true,
       settings: recordingSavedSettings,
       storage: { flightLogsDir: 'C:/Flights', flightLogsExists: true, flightLogsFileCount: 2, flightLogsTotalBytes: 4096 },
@@ -7057,6 +7296,320 @@ async function main() {
     runtimeApi.cleanup();
   });
 
+  await test('settings runtime waits for full control and preserves drafts through revocation', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+    const profiles = useProfilesStore();
+    const editor = useSettingsEditorStore();
+    const form = useSettingsFormStore();
+    const ui = useSettingsUiStore();
+    const tabs = useTabsStore();
+    tabs.setActiveTab('settings');
+    const sent = [];
+    let restartCalls = 0;
+    let storageCalls = 0;
+    let confirmations = 0;
+    windowRef.confirm = () => { confirmations += 1; return false; };
+    windowRef.electronAPI = {
+      restartApp: async () => { restartCalls += 1; },
+      getStorageLocations: async () => { storageCalls += 1; return { locations: [] }; },
+    };
+    const baseline = sharedSettings.normalizeAppSettings({ network: { wsPort: 9123 }, recording: { autoStart: false } });
+    const runtime = initSettingsRuntime({
+      $: id => documentRef.getElementById(id),
+      getAppSettings: () => baseline,
+      getWs: () => ({ readyState: 1, send: payload => sent.push(JSON.parse(payload)) }),
+      canManageSettings: () => profiles.authorizationScope === 'full-control',
+      settingsEditorStore: editor,
+      settingsFormStore: form,
+      settingsUiStore: ui,
+      subscribeAppSettingsSignal: subscribeAppSettings,
+      subscribeAppSettingsSavedSignal: subscribeAppSettingsSaved,
+      subscribeWsOpenSignal: subscribeWsOpen,
+      tabsStore: tabs,
+      appSettingsShared: sharedSettings,
+      windowRef,
+      WebSocketRef: { OPEN: 1 },
+      consoleRef: { warn() {} },
+    });
+    try {
+      assert.ok(runtime, 'the retained form must bind before authorization');
+      assert.equal(form.saveActionBound, true);
+      emitWsOpen();
+      emitAppSettings({ settings: baseline });
+      await nextTick();
+      assert.notEqual(editor.wsPort, '9123', 'untrusted or cached settings must not hydrate the desktop form');
+      assert.equal(await form.requestSave(), false);
+      assert.equal(await form.requestReload(), false);
+      assert.equal(await ui.requestRestart(), false);
+      assert.equal(sent.length, 0);
+      assert.equal(storageCalls, 0, 'desktop discovery must wait for authorization');
+      assert.equal(restartCalls, 0);
+
+      profiles.setAuthorizationScope('full-control');
+      assert.equal(sent.at(-1).type, 'requestAppSettings', 'granting control should request the authoritative snapshot immediately');
+      emitAppSettings({ settings: baseline });
+      await nextTick(); await nextTick();
+      assert.equal(editor.wsPort, '9123');
+      assert.equal(editor.recordingAutoStart, false);
+      assert.equal(storageCalls, 1);
+      editor.wsPort = '9234';
+      await nextTick(); await nextTick();
+      assert.equal(form.saveEnabled, true);
+      assert.equal(tabs.requestTabChange('flight'), false, 'authorized unsaved edits must retain the leave warning');
+      assert.equal(confirmations, 1);
+      await form.requestReload();
+      assert.equal(form.reloadBusy, true);
+
+      profiles.setAuthorizationScope('aircraft-control');
+      assert.equal(form.reloadBusy, false, 'revocation must cancel a pending force-reload flag');
+      assert.equal(form.saveEnabled, false);
+      const sentAtRevocation = sent.length;
+      emitWsOpen();
+      emitAppSettings({ settings: { recording: { autoStart: true } } });
+      emitAppSettingsSaved({ ok: true, settings: baseline });
+      assert.equal(await form.requestSave(), false);
+      assert.equal(await form.requestReload(), false);
+      assert.equal(await ui.requestRestart(), false);
+      await nextTick();
+      assert.equal(editor.wsPort, '9234', 'masked snapshots and late acknowledgements must not replace a desktop draft');
+      assert.equal(sent.length, sentAtRevocation, 'no privileged requests should escape after revocation');
+      assert.equal(restartCalls, 0);
+      assert.equal(tabs.requestTabChange('flight'), true, 'hidden desktop drafts must not block remote navigation');
+      assert.equal(confirmations, 1);
+
+      profiles.setAuthorizationScope('full-control');
+      emitAppSettings({ settings: baseline });
+      await nextTick(); await nextTick();
+      assert.equal(editor.wsPort, '9234', 'a fresh authorized snapshot must preserve the unsaved desktop draft');
+      assert.equal(form.saveEnabled, true);
+      assert.equal(await form.requestSave(), true);
+      assert.equal(sent.at(-1).type, 'saveAppSettings');
+      assert.equal(sent.at(-1).settings.network.wsPort, 9234);
+      assert.equal(sent.at(-1).settings.recording.autoStart, false, 'saving a retained draft must preserve its original complete baseline');
+    } finally {
+      runtime.cleanup();
+    }
+    const countAtCleanup = sent.length;
+    profiles.setAuthorizationScope('read-only');
+    profiles.setAuthorizationScope('full-control');
+    assert.equal(sent.length, countAtCleanup, 'cleanup must remove authorization watchers');
+  });
+
+  await test('ordinary settings save expires without losing drafts or accepting a late acknowledgement for a retry', async () => {
+    const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
+    resetGlobals(windowRef, documentRef, createStorage()); setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+    const editor = useSettingsEditorStore(), form = useSettingsFormStore();
+    const sent = [];
+    const baseline = sharedSettings.normalizeAppSettings({});
+    const runtime = initSettingsRuntime({
+      $: id => documentRef.getElementById(id), getAppSettings: () => baseline,
+      getWs: () => ({ readyState: 1, send: value => sent.push(JSON.parse(value)) }),
+      settingsEditorStore: editor, settingsFormStore: form,
+      subscribeAppSettingsSignal: subscribeAppSettings, subscribeAppSettingsSavedSignal: subscribeAppSettingsSaved,
+      appSettingsShared: sharedSettings, windowRef, WebSocketRef: { OPEN: 1 }, consoleRef: { warn() {} },
+    });
+    try {
+      editor.wsPort = '9345'; await nextTick(); await nextTick();
+      assert.equal(await form.requestSave(), true);
+      const expired = sent.at(-1);
+      assert.equal(form.saveBusy, true);
+      assert.equal(timers.size, 1, 'ordinary saves also need an acknowledgement deadline');
+      [...timers.values()][0]();
+      assert.equal(form.saveBusy, false);
+      assert.equal(editor.wsPort, '9345');
+      assert.equal(form.saveEnabled, true);
+      assert.match(form.statusMessage, /confirmation did not arrive/i);
+      assert.equal(await form.requestReload(), true, 'Reload remains available after a missing reply');
+      emitAppSettings({ settings: baseline }); await nextTick();
+      editor.wsPort = '9456'; await nextTick(); await nextTick();
+      assert.equal(await form.requestSave(), true);
+      const retry = sent.at(-1);
+      emitAppSettingsSaved({ requestId: expired.requestId, ok: true, settings: expired.settings });
+      assert.equal(form.saveBusy, true, 'the old reply cannot complete the new save');
+      assert.equal(editor.wsPort, '9456');
+      emitAppSettingsSaved({ requestId: retry.requestId, ok: true, settings: retry.settings });
+      assert.equal(form.saveBusy, false);
+      assert.equal(timers.size, 0, 'successful acknowledgement cancels the deadline');
+      editor.wsPort = '9567'; await nextTick(); await nextTick();
+      await form.requestSave();
+    } finally { runtime.cleanup(); }
+    assert.equal(timers.size, 0, 'cleanup cancels an ordinary save deadline too');
+  });
+
+  await test('settings restart saves dirty drafts before restart and cancels safely on failed or interrupted saves', async () => {
+    const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
+    resetGlobals(windowRef, documentRef, createStorage()); setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+    const profiles = useProfilesStore(); profiles.setAuthorizationScope('full-control');
+    const editor = useSettingsEditorStore(), form = useSettingsFormStore(), ui = useSettingsUiStore();
+    const sent = []; let restarts = 0; let connected = true;
+    windowRef.electronAPI = { restartApp: async () => { restarts += 1; return { ok: true }; } };
+    const runtime = initSettingsRuntime({
+      $: id => documentRef.getElementById(id),
+      getAppSettings: () => sharedSettings.normalizeAppSettings({}),
+      getWs: () => ({ readyState: connected ? 1 : 3, send: value => sent.push(JSON.parse(value)) }),
+      canManageSettings: () => profiles.authorizationScope === 'full-control',
+      settingsEditorStore: editor, settingsFormStore: form, settingsUiStore: ui,
+      subscribeAppSettingsSignal: subscribeAppSettings, subscribeAppSettingsSavedSignal: subscribeAppSettingsSaved,
+      appSettingsShared: sharedSettings, windowRef, WebSocketRef: { OPEN: 1 }, consoleRef: { warn() {} },
+    });
+    const edit = async value => { editor.wsPort = String(value); await nextTick(); await nextTick(); };
+    const acknowledge = (extra = {}) => emitAppSettingsSaved({ requestId: sent.at(-1).requestId, ok: true, settings: sent.at(-1).settings, ...extra });
+    try {
+      await nextTick();
+      assert.equal(ui.restartActionLabel, 'Restart App');
+      assert.equal(await ui.requestRestart(), true);
+      assert.equal(restarts, 1, 'a clean restart should not invent a save');
+      assert.equal(sent.length, 0);
+
+      await edit(9201);
+      assert.equal(ui.restartActionLabel, 'Save & Restart');
+      const restart = ui.requestRestart();
+      assert.equal(sent.at(-1).type, 'saveAppSettings');
+      assert.equal(restarts, 1, 'sending a save is not proof it reached disk');
+      assert.equal(ui.restartActionDisabled, true);
+      assert.equal(ui.restartActionLabel, 'Saving before restart...');
+      assert.equal(await ui.requestRestart(), false, 'a second restart action cannot compete with the first');
+      assert.equal(await form.requestSave(), false);
+      assert.equal(await form.requestReload(), false);
+      acknowledge({ restartRequired: true });
+      assert.equal(await restart, true);
+      assert.equal(restarts, 2);
+      assert.equal(timers.size, 0, 'successful confirmation clears its timeout');
+
+      await edit(9202);
+      const failure = ui.requestRestart();
+      acknowledge({ ok: false, error: 'Disk full' });
+      assert.equal(await failure, false);
+      assert.equal(restarts, 2);
+      assert.equal(editor.wsPort, '9202');
+      assert.equal(form.saveEnabled, true);
+      assert.equal(ui.restartActionLabel, 'Save & Restart');
+      assert.equal(form.statusMessage, 'Disk full');
+
+      await form.requestSave();
+      assert.equal(ui.restartActionDisabled, true, 'a regular save also disables restart');
+      assert.equal(await ui.requestRestart(), false);
+      acknowledge(); await nextTick();
+      assert.equal(ui.restartActionDisabled, false);
+
+      await edit(9203);
+      const changedDuringSave = ui.requestRestart();
+      const submitted = sent.at(-1).settings;
+      await edit(9204);
+      emitAppSettings({ settings: submitted });
+      assert.equal(editor.wsPort, '9204', 'a pre-ack broadcast must not replace newer edits');
+      acknowledge();
+      assert.equal(await changedDuringSave, false);
+      assert.equal(restarts, 2);
+      assert.equal(editor.wsPort, '9204');
+      assert.equal(form.saveEnabled, true);
+      assert.match(form.statusMessage, /newer edits are kept/i);
+
+      const timeout = ui.requestRestart();
+      assert.equal(timers.size, 1);
+      [...timers.values()][0]();
+      assert.equal(await timeout, false);
+      assert.match(form.statusMessage, /confirmation did not arrive/i);
+      assert.equal(editor.wsPort, '9204');
+      acknowledge(); await nextTick();
+      assert.equal(restarts, 2, 'a late confirmation after timeout must not restart the app');
+
+      await edit(9205);
+      const revoked = ui.requestRestart();
+      profiles.setAuthorizationScope('read-only');
+      acknowledge();
+      assert.equal(await revoked, false);
+      assert.equal(restarts, 2);
+      assert.equal(editor.wsPort, '9205');
+      assert.equal(timers.size, 0);
+      profiles.setAuthorizationScope('full-control');
+      // Reauthorization requests settings; the retained local draft must still save.
+      connected = false;
+      assert.equal(await ui.requestRestart(), false);
+      assert.equal(editor.wsPort, '9205');
+      assert.equal(restarts, 2, 'a failed socket send must not restart');
+      connected = true;
+      const disposed = ui.requestRestart();
+      runtime.cleanup();
+      assert.equal(await disposed, false);
+      assert.equal(restarts, 2);
+      assert.equal(timers.size, 0, 'cleanup cancels a pending restart and its timer');
+    } finally { runtime.cleanup(); }
+  });
+
+  await test('settings can reload and retry after a restart save timeout without accepting its late reply', async () => {
+    const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
+    resetGlobals(windowRef, documentRef, createStorage()); setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+    const editor = useSettingsEditorStore(), form = useSettingsFormStore(), ui = useSettingsUiStore();
+    const baseline = sharedSettings.normalizeAppSettings({});
+    const sent = []; let restarts = 0;
+    windowRef.electronAPI = { restartApp: async () => { restarts++; return { ok: true }; } };
+    const runtime = initSettingsRuntime({
+      $: id => documentRef.getElementById(id), getAppSettings: () => baseline,
+      getWs: () => ({ readyState: 1, send: value => sent.push(JSON.parse(value)) }),
+      settingsEditorStore: editor, settingsFormStore: form, settingsUiStore: ui,
+      subscribeAppSettingsSignal: subscribeAppSettings, subscribeAppSettingsSavedSignal: subscribeAppSettingsSaved,
+      appSettingsShared: sharedSettings, windowRef, WebSocketRef: { OPEN: 1 }, consoleRef: { warn() {} },
+    });
+    try {
+      editor.wsPort = '9301'; await nextTick();
+      const expired = ui.requestRestart();
+      const oldSave = sent.at(-1);
+      [...timers.values()][0]();
+      assert.equal(await expired, false);
+      assert.equal(editor.wsPort, '9301', 'timeout preserves the draft');
+      assert.equal(form.saveBusy, false);
+
+      assert.equal(await form.requestReload(), true);
+      assert.equal(form.reloadBusy, true);
+      emitAppSettings({ settings: baseline });
+      await nextTick();
+      assert.equal(form.reloadBusy, false, 'a successful reload must clear busy after the save timed out');
+      assert.equal(editor.wsPort, String(baseline.network.wsPort), 'explicit reload applies the returned settings');
+      assert.equal(ui.restartActionDisabled, false);
+
+      editor.wsPort = '9302'; await nextTick();
+      assert.equal(await form.requestSave(), true, 'ordinary Save is usable after Reload');
+      const retrySave = sent.at(-1);
+      assert.notEqual(retrySave.requestId, oldSave.requestId);
+      emitAppSettingsSaved({ requestId: oldSave.requestId, ok: false, error: 'Late failure' });
+      assert.equal(form.saveBusy, true, 'the expired failure cannot settle a new save');
+      emitAppSettingsSaved({ requestId: retrySave.requestId, ok: true, settings: retrySave.settings });
+      await nextTick();
+      assert.equal(form.saveBusy, false);
+
+      editor.wsPort = '9303'; await nextTick();
+      const retryRestart = ui.requestRestart();
+      const latestSave = sent.at(-1);
+      // Even a same-content result cannot confirm a different request.
+      emitAppSettingsSaved({ requestId: oldSave.requestId, ok: true, settings: latestSave.settings });
+      await nextTick();
+      assert.equal(restarts, 0);
+      assert.equal(form.saveBusy, true);
+      assert.equal(editor.wsPort, '9303');
+      emitAppSettingsSaved({ requestId: latestSave.requestId, ok: true, settings: latestSave.settings });
+      assert.equal(await retryRestart, true);
+      assert.equal(restarts, 1, 'only the matching new save may authorize restart');
+      assert.equal(timers.size, 0);
+    } finally { runtime.cleanup(); }
+  });
+
   console.log('\n--- section motion ---\n');
   await test('section motion follows the tabs store without depending on MutationObserver', async () => {
     const documentRef = new FakeDocument();
@@ -7144,6 +7697,780 @@ async function main() {
     await nextTick();
     assert.equal(refreshedTabsStore.activeTabId, 'landing', 'a refreshed app should reopen the contextual tab that was active');
     cleanupRefreshedTabsRuntime();
+  });
+
+  await test('tabs runtime ignores retired workspaces without resetting page memory or other preferences', async () => {
+    assert.equal(resolveInitialTabId(), 'flight');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'timeline' }), 'timeline');
+    assert.equal(resolveInitialTabId({ requestedTabId: 'livemap', persistedTabId: 'settings' }), 'livemap');
+    assert.equal(resolveInitialTabId({ requestedTabId: 'invalid', persistedTabId: 'settings' }), 'settings');
+    for (const legacy of [null, 'flying', 'planning', 'debrief', 'all', 'invalid']) {
+      const mapView = JSON.stringify({ lat: -35.8, lon: 148, zoom: 6 });
+      const initial = { [LAST_ACTIVE_TAB_STORAGE_KEY]: 'timeline', 'ff_sidebar_collapsed_v1': 'true', 'ff.liveMap.view.v1': mapView };
+      if (legacy !== null) Object.assign(initial, { ff_workspace_v1: legacy, ff_workspace_suggestions_v1: 'on' });
+      const storage = createStorage(initial);
+      const documentRef = new FakeDocument(), windowRef = new FakeWindow(documentRef);
+      resetGlobals(windowRef, documentRef, storage); setActivePinia(createPinia());
+      const tabs = useTabsStore();
+      const cleanup = initTabsRuntime({ tabsStore: tabs, windowRef, documentRef, storage });
+      try {
+        await nextTick();
+        assert.equal(tabs.activeTabId, 'timeline', 'saved Logbook survives old layout preferences');
+        assert.deepEqual(desktopShortcutTabIds(tabs), ['livemap', 'flight', 'autopilot', 'dispatch', 'timeline', 'settings', 'system']);
+        assert.equal('workspacePickerOpen' in tabs, false, 'no first-run workspace question');
+        assert.equal(storage.getItem('ff_workspace_v1'), legacy, 'old layout value is left untouched for older builds');
+        assert.equal(storage.getItem('ff_workspace_suggestions_v1'), legacy === null ? null : 'on');
+        assert.equal(storage.getItem('ff_sidebar_collapsed_v1'), 'true');
+        assert.equal(storage.getItem('ff.liveMap.view.v1'), mapView);
+        tabs.requestTabChange('settings'); await nextTick();
+        assert.equal(storage.getItem(LAST_ACTIVE_TAB_STORAGE_KEY), 'settings');
+      } finally { cleanup(); }
+    }
+    const storage = createStorage(), documentRef = new FakeDocument(), windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, storage); setActivePinia(createPinia());
+    const tabs = useTabsStore();
+    const cleanup = initTabsRuntime({ tabsStore: tabs, windowRef, documentRef, storage });
+    assert.equal(tabs.activeTabId, 'flight', 'a fresh browser starts at Overview without a picker');
+    cleanup();
+  });
+
+  await test('tabs runtime keeps keyboard and swipe order aligned with fixed navigation despite legacy preferences', async () => {
+    const storage = createStorage({ 'ff_workspace_v1': 'flying' });
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const tabsStore = useTabsStore();
+    const mainEl = new FakeElement('main', { tagName: 'MAIN' });
+    documentRef.setQuerySelector('main', mainEl);
+
+    const cleanup = initTabsRuntime({ tabsStore, windowRef, documentRef, storage });
+    await nextTick();
+    assert.deepEqual(desktopShortcutTabIds(tabsStore), ['livemap', 'flight', 'autopilot', 'dispatch', 'timeline', 'settings', 'system'], 'shortcuts 1..7 retain the fixed route order');
+
+    const pressKey = (key) => {
+      const event = {
+        type: 'keydown', key, ctrlKey: false, altKey: false, metaKey: false,
+        target: { tagName: 'DIV' }, prevented: false,
+        preventDefault() { this.prevented = true; },
+      };
+      documentRef.dispatchEvent(event);
+      return event;
+    };
+    assert.equal(pressKey('3').prevented, true, 'a visible keycap should be handled');
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'autopilot', 'key 3 opens Aircraft');
+    pressKey('4');
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'dispatch', 'key 4 opens SimBrief');
+    assert.equal(pressKey('9').prevented, false, 'keys beyond the visible tabs should be left alone');
+
+    const swipe = (fromX, toX) => {
+      mainEl.dispatchEvent({ type: 'touchstart', touches: [{ clientX: fromX, clientY: 40 }], target: mainEl });
+      mainEl.dispatchEvent({ type: 'touchend', changedTouches: [{ clientX: toX, clientY: 44 }], target: mainEl });
+    };
+    tabsStore.setActiveTab('livemap');
+    swipe(300, 100);
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'autopilot', 'swiping left from Map should reach Aircraft, the next bottom-bar tab');
+    swipe(300, 100);
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'dispatch', 'swiping again follows the bottom bar to briefing without a duplicate Flight stop');
+    swipe(100, 300);
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'autopilot', 'swiping right should walk back along the bottom bar');
+    tabsStore.setActiveTab('settings');
+    swipe(300, 100);
+    await nextTick();
+    assert.equal(tabsStore.activeTabId, 'settings', 'a tab under More is not part of the swipe sequence');
+    cleanup();
+  });
+
+  await test('flight phases and landing signals cannot raise workspace prompts or move navigation', async () => {
+    const storage = createStorage({ ff_workspace_v1: 'planning', ff_workspace_suggestions_v1: 'on' });
+    const documentRef = new FakeDocument(), windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, storage); setActivePinia(createPinia());
+    const tabs = useTabsStore(), status = useStatusStore(), prompts = usePromptsStore();
+    const cleanup = initTabsRuntime({
+      tabsStore: tabs, windowRef, documentRef, storage, statusStore: status,
+      subscribeLandingReceivedSignal: () => assert.fail('tabs must not subscribe to landing-based workspace suggestions'),
+    });
+    try {
+      tabs.requestTabChange('autopilot');
+      for (const phase of ['CLIMB', 'CRUISE', 'LANDED', 'PARKED']) {
+        status.ingestMessage({ type: 'phase', value: phase });
+        emitLandingReceived({ final: true, grade: 'A' });
+        await nextTick();
+        assert.equal(tabs.activeTabId, 'autopilot');
+        assert.deepEqual(prompts.queue, [], 'no retired prompt enters the shared card queue');
+        assert.deepEqual(tabs.mobileNavigationPrimaryTabs.map(tab => tab.id), ['livemap', 'autopilot', 'dispatch', 'timeline']);
+      }
+    } finally { cleanup(); }
+  });
+
+  await test('support runtime asks at a milestone landing, defers to other cards, and stays silent on the phone', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    let clock = Date.UTC(2026, 8, 1);
+    const now = () => clock;
+    const storage = createStorage({
+      [SUPPORT_STORAGE_KEY]: JSON.stringify({ version: 1, firstSeenAt: clock - 10 * DAY, lastPromptAt: 0, milestonesShown: [], supported: false, muted: false }),
+    });
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    windowRef.location.pathname = '/';
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const support = useSupportStore();
+    const logbook = useLogbookStore();
+    const prompts = usePromptsStore();
+    const landingHandlers = new Set();
+    const subscribeLandingReceivedSignal = (handler) => {
+      landingHandlers.add(handler);
+      return () => landingHandlers.delete(handler);
+    };
+    const landing = (final = true) => { for (const handler of landingHandlers) handler({ final, grade: 'B' }); };
+    const setFlights = (total, airports = 3) => logbook.ingestMessage({ type: 'logbook', entries: [], stats: { total, airports, aircraft: 1, grades: {}, outcomeGrades: {}, longLandingCount: 0, avgVsFpm: null, bestVsFpm: null, trends: { aircraft: [], airports: [], runways: [] } } });
+
+    // Timers we control: the linger fade must not fire until we say so.
+    const timers = new Map();
+    let timerId = 0;
+    windowRef.setTimeout = (fn, ms) => { timerId += 1; timers.set(timerId, { fn, ms }); return timerId; };
+    windowRef.clearTimeout = (id) => { timers.delete(id); };
+    const fireTimers = (predicate = () => true) => {
+      for (const [id, timer] of [...timers]) {
+        if (!predicate(timer)) continue;
+        timers.delete(id);
+        timer.fn();
+      }
+    };
+    const cleanup = initSupportRuntime({
+      supportStore: support, logbookStore: logbook, promptsStore: prompts,
+      subscribeLandingReceivedSignal, storage, windowRef, documentRef, now, landingSettleMs: 0,
+    });
+    assert.equal(support.record.firstSeenAt, clock - 10 * DAY, 'the stored record is restored');
+
+    setFlights(9);
+    landing();
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(support.prompt, null, 'nine flights is below the first milestone');
+
+    setFlights(10);
+    await nextTick();
+    assert.equal(support.prompt?.milestone, 10, 'the logbook refresh after a landing can complete the ask');
+    assert.equal(support.prompt.airports, 3);
+    assert.equal(JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY)).milestonesShown[0], 10, 'the ask is persisted the moment it shows');
+    const linger = [...timers.values()].find((timer) => timer.ms === 90 * 1000);
+    assert.ok(linger, 'an ask card arms a 90 second fade');
+    fireTimers((timer) => timer.ms === 90 * 1000);
+    assert.equal(support.prompt, null, 'an ignored card fades by itself');
+    assert.equal(prompts.current, null, 'and releases the slot');
+    assert.deepEqual(JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY)).milestonesShown, [10], 'fading does not un-count the ask');
+    await nextTick();
+
+    clock += 45 * DAY;
+    setFlights(50);
+    prompts.request('other-card');
+    landing();
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(support.prompt, null, 'an existing card keeps the prompt slot');
+    assert.equal(prompts.current, 'other-card');
+    prompts.release('other-card');
+    landing();
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(support.prompt?.milestone, 50, 'a later landing can show the deferred milestone');
+    assert.equal(prompts.current, 'support');
+    support.coffeeClicked();
+    assert.ok([...timers.values()].some((timer) => timer.ms === 60 * 1000), 'the thank-you stage arms its own shorter fade');
+    fireTimers((timer) => timer.ms === 60 * 1000);
+    assert.equal(support.prompt, null, 'the thank-you stage fades too');
+    await nextTick();
+
+    clock += 45 * DAY;
+    setFlights(100);
+    const modal = new FakeElement('busy-modal', { tagName: 'DIV' });
+    documentRef.setQuerySelectorAll('[role="dialog"][aria-modal="true"]', [modal]);
+    landing();
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(support.prompt, null, 'nothing shows behind an open modal');
+    assert.deepEqual(JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY)).milestonesShown, [10, 50], 'a deferred milestone is not consumed');
+    documentRef.setQuerySelectorAll('[role="dialog"][aria-modal="true"]', []);
+
+    const whatsNew = useWhatsNewStore();
+    whatsNew.show({ version: '9.9.9', highlights: [{ text: 'x' }] });
+    landing();
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(support.prompt, null, 'the what\'s-new card is never displaced');
+    whatsNew.dismiss();
+    landing();
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(support.prompt, null, 'a session that already showed what\'s new gets no coffee card, even after it closed');
+    assert.deepEqual(JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY)).milestonesShown, [10, 50], 'the milestone waits for another session');
+    cleanup();
+    assert.equal(landingHandlers.size, 0, 'cleanup unsubscribes');
+
+    // A fresh session (new prompts store) at the same milestone asks.
+    setActivePinia(createPinia());
+    const laterSupport = useSupportStore();
+    const laterLogbook = useLogbookStore();
+    const laterHandlers = new Set();
+    const cleanupLater = initSupportRuntime({
+      supportStore: laterSupport, logbookStore: laterLogbook, promptsStore: usePromptsStore(),
+      subscribeLandingReceivedSignal: (handler) => { laterHandlers.add(handler); return () => laterHandlers.delete(handler); },
+      storage, windowRef, documentRef, now, landingSettleMs: 0, promptLingerMs: null,
+    });
+    laterLogbook.ingestMessage({ type: 'logbook', entries: [], stats: { total: 100, airports: 3, aircraft: 1, grades: {}, outcomeGrades: {}, longLandingCount: 0, avgVsFpm: null, bestVsFpm: null, trends: { aircraft: [], airports: [], runways: [] } } });
+    for (const handler of laterHandlers) handler({ final: true, grade: 'A' });
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(laterSupport.prompt?.milestone, 100, 'the deferred milestone asks in the next session');
+    assert.equal([...timers.values()].some((timer) => timer.ms === 90 * 1000), false, 'a null linger disables the fade');
+    for (const handler of laterHandlers) handler({ final: false, grade: 'B' });
+    fireTimers((timer) => timer.ms === 0);
+    await nextTick();
+    assert.equal(laterSupport.prompt?.milestone, 100, 'a provisional landing card never asks');
+    cleanupLater();
+
+    const phoneStorage = createStorage();
+    const phoneDocument = new FakeDocument();
+    const phoneWindow = new FakeWindow(phoneDocument);
+    phoneWindow.location.pathname = '/remote';
+    resetGlobals(phoneWindow, phoneDocument, phoneStorage);
+    setActivePinia(createPinia());
+    const phoneSupport = useSupportStore();
+    const phoneLogbook = useLogbookStore();
+    const phoneHandlers = new Set();
+    const cleanupPhone = initSupportRuntime({
+      supportStore: phoneSupport, logbookStore: phoneLogbook, promptsStore: usePromptsStore(),
+      subscribeLandingReceivedSignal: (handler) => { phoneHandlers.add(handler); return () => phoneHandlers.delete(handler); },
+      storage: phoneStorage, windowRef: phoneWindow, now: () => Date.UTC(2026, 8, 30), landingSettleMs: 0,
+    });
+    assert.equal(phoneHandlers.size, 0, 'the remote view never subscribes to landings');
+    assert.ok(phoneStorage.getItem(SUPPORT_STORAGE_KEY), 'the phone still records first-seen so a later desktop reading is honest');
+    cleanupPhone();
+  });
+
+  await test('support asks respect history, settle time, visibility, other windows and storage failures', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    let clock = new Date(2026, 8, 30, 23, 59, 50).getTime();
+    const storage = createStorage({
+      [SUPPORT_STORAGE_KEY]: JSON.stringify({ firstSeenAt: clock - 10 * DAY }),
+    });
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    windowRef.location.pathname = '/';
+    const timers = new Map();
+    let timerId = 0;
+    windowRef.setTimeout = (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; };
+    windowRef.clearTimeout = (id) => timers.delete(id);
+    const fire = (ms) => {
+      for (const [id, timer] of [...timers]) {
+        if (timer.ms !== ms) continue;
+        timers.delete(id);
+        timer.fn();
+      }
+    };
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const support = useSupportStore();
+    const logbook = useLogbookStore();
+    const cleanup = initSupportRuntime({
+      supportStore: support, logbookStore: logbook, promptsStore: usePromptsStore(),
+      subscribeLandingReceivedSignal: subscribeLandingReceived,
+      storage, windowRef, documentRef, now: () => clock,
+    });
+    const controller = createLandingController({ windowRef, landingStore: useLandingStore() });
+    controller.showTimelineLanding({ type: 'landing', vs_fpm: -100, grade: 'Good' });
+    logbook.ingestMessage({ type: 'logbook', stats: { total: 10, airports: 3 } });
+    await nextTick();
+    fire(4000);
+    assert.equal(support.prompt, null, 'opening a recorded landing must not arm a support ask');
+
+    controller.handleLandingMessage({ final: true, vs: -100, grade: 'Good' });
+    logbook.ingestMessage({ type: 'logbook', stats: { total: 11, airports: 3 } });
+    await nextTick();
+    assert.equal(support.prompt, null, 'a fast logbook refresh must not bypass the settle delay');
+    clock += 4000;
+    documentRef.visibilityState = 'hidden';
+    fire(4000);
+    assert.equal(support.prompt, null, 'a background window must not open a card');
+    documentRef.visibilityState = 'visible';
+    controller.handleLandingMessage({ final: true, vs: -100, grade: 'Good' });
+    clock += 4000;
+    fire(4000);
+    assert.equal(support.prompt?.milestone, 10, 'a live landing in the visible window can ask after settling');
+
+    // A remote window opts out. The event payload is deliberately stale:
+    // reading storage must apply the newest preference, without echoing it.
+    const muted = { ...support.serialize(), muted: true };
+    storage.setItem(SUPPORT_STORAGE_KEY, JSON.stringify(muted));
+    windowRef.dispatchEvent({ type: 'storage', key: SUPPORT_STORAGE_KEY, newValue: '{}' });
+    assert.equal(support.muted, true);
+    assert.equal(support.prompt, null, 'another window\'s opt-out closes a visible ask');
+    assert.equal(JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY)).muted, true);
+
+    support.setMuted(false);
+    clock += 45 * DAY;
+    logbook.ingestMessage({ type: 'logbook', stats: { total: 50 } });
+    // No storage event yet: the landing evaluation still checks saved state.
+    storage.setItem(SUPPORT_STORAGE_KEY, JSON.stringify({ ...support.serialize(), supported: true }));
+    controller.handleLandingMessage({ final: true, vs: -100, grade: 'Good' });
+    clock += 4000;
+    fire(4000);
+    assert.equal(support.supported, true);
+    assert.equal(support.prompt, null, 'an unseen storage event cannot let an old window ask a supporter');
+
+    support.setSupported(false);
+    storage.setItem = () => { throw new Error('quota exceeded'); };
+    controller.handleLandingMessage({ final: true, vs: -100, grade: 'Good' });
+    clock += 4000;
+    fire(4000);
+    assert.equal(support.prompt, null, 'no prompt may appear if its ask cannot be saved');
+    cleanup();
+    assert.equal(timers.size, 0, 'cleanup removes all support timers');
+    assert.equal(windowRef.listeners.get('storage').size, 0, 'cleanup removes cross-window listeners');
+  });
+
+  await test('support preference edits preserve newer opt-outs and prompt history from another window', () => {
+    const clock = Date.UTC(2026, 8, 20);
+    const storage = createStorage({ [SUPPORT_STORAGE_KEY]: JSON.stringify({ firstSeenAt: clock - 10 * 86400000 }) });
+    const start = () => {
+      const documentRef = new FakeDocument();
+      const windowRef = new FakeWindow(documentRef);
+      windowRef.setTimeout = () => 1;
+      resetGlobals(windowRef, documentRef, storage);
+      setActivePinia(createPinia());
+      const support = useSupportStore();
+      const cleanup = initSupportRuntime({ supportStore: support, storage, windowRef, documentRef, now: () => clock });
+      return { support, cleanup };
+    };
+    const first = start();
+    const stale = start();
+    try {
+      first.support.considerMilestone({ total: 10, now: clock });
+      assert.equal(stale.support.considerMilestone({ total: 50, now: clock }), false, 'another window must observe the just-recorded cooldown');
+      first.support.setMuted(true);
+      // Deliberately do not deliver a storage event before the other window acts.
+      stale.support.markSupportedFromPrompt();
+      let saved = JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY));
+      assert.equal(saved.muted, true, 'marking support must preserve an opt-out from another window');
+      assert.deepEqual(saved.milestonesShown, [10], 'a preference edit must not erase the last ask');
+      stale.support.setSupported(false);
+      assert.equal(stale.support.muted, true, 'undoing support must not re-enable opted-out prompts');
+      first.support.setMuted(false);
+      saved = JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY));
+      assert.equal(saved.muted, false, 'an explicit reversal of that setting still works');
+      assert.equal(saved.supported, false, 'reversing one setting preserves the other setting');
+      assert.deepEqual(saved.milestonesShown, [10]);
+    } finally {
+      first.cleanup();
+      stale.cleanup();
+    }
+  });
+
+  await test('support startup never overwrites a newer record saved during its initial read', () => {
+    const clock = Date.UTC(2026, 8, 20);
+    const initial = { firstSeenAt: clock - 10 * 86400000, muted: false };
+    const storage = createStorage({ [SUPPORT_STORAGE_KEY]: JSON.stringify(initial) });
+    const read = storage.getItem.bind(storage);
+    let firstRead = true;
+    storage.getItem = (key) => {
+      const snapshot = read(key);
+      if (firstRead && key === SUPPORT_STORAGE_KEY) {
+        firstRead = false;
+        storage.setItem(key, JSON.stringify({ ...initial, muted: true }));
+      }
+      return snapshot;
+    };
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const support = useSupportStore();
+    const cleanup = initSupportRuntime({ supportStore: support, storage, windowRef, documentRef, now: () => clock });
+    try {
+      assert.equal(JSON.parse(storage.getItem(SUPPORT_STORAGE_KEY)).muted, true, 'hydration is not a user edit');
+      assert.equal(support.considerMilestone({ total: 50, now: clock }), false);
+    } finally { cleanup(); }
+  });
+
+  await test('support ignores a browser lock granted after the runtime was torn down', async () => {
+    const clock = Date.UTC(2026, 8, 20);
+    const storage = createStorage({ [SUPPORT_STORAGE_KEY]: JSON.stringify({ firstSeenAt: clock - 10 * 86400000 }) });
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    let grant;
+    let landing;
+    windowRef.navigator = { locks: { request: (name, options, callback) => new Promise((resolve) => {
+      grant = () => resolve(callback({}));
+    }) } };
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const support = useSupportStore();
+    const logbook = useLogbookStore();
+    logbook.ingestMessage({ type: 'logbook', stats: { total: 50 } });
+    const cleanup = initSupportRuntime({
+      supportStore: support, logbookStore: logbook, storage, windowRef, documentRef, now: () => clock, landingSettleMs: 0,
+      subscribeLandingReceivedSignal: (handler) => { landing = handler; return () => {}; },
+    });
+    landing({ final: true });
+    assert.equal(typeof grant, 'function');
+    cleanup();
+    grant();
+    await nextTick();
+    assert.equal(support.prompt, null);
+    assert.equal(support.record.lastPromptAt, 0, 'a cancelled claim must not consume a milestone');
+  });
+
+  await test('support goals expire across a month boundary without another manifest', () => {
+    let clock = new Date(2026, 8, 30, 23, 59, 59).getTime();
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    const timers = new Map();
+    let timerId = 0;
+    windowRef.setTimeout = (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; };
+    windowRef.clearTimeout = (id) => timers.delete(id);
+    const storage = createStorage();
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const support = useSupportStore();
+    const cleanup = initSupportRuntime({ supportStore: support, storage, windowRef, documentRef, now: () => clock });
+    support.applyGoal({ period: '2026-09', supporters: 3, goal: 10 });
+    assert.equal(support.goalSummary.label, '3 of 10 supporters this month');
+    const expiry = [...timers.values()].find((timer) => timer.ms === 1000);
+    assert.ok(expiry, 'expiry is scheduled at local midnight on the first');
+    clock += 1000;
+    expiry.fn();
+    assert.equal(support.goalSummary, null, 'a cached computed summary cannot keep last month\'s goal visible');
+    support.ingestMessage({ type: 'supportGoal', period: '2026-10', supporters: 4, goal: 10 });
+    assert.equal(support.goalSummary.label, '4 of 10 supporters this month');
+    support.ingestMessage({ type: 'supportGoal', period: null, supporters: null, goal: null });
+    assert.equal(support.goalSummary, null, 'the server can withdraw a goal from connected clients');
+    cleanup();
+    assert.equal(timers.size, 0);
+  });
+
+  await test('browser storage helpers report missing or denied storage without throwing', async () => {
+    const { readStorageValue, writeStorageValue, writeStorageJson, removeStorageValue } = await import(toFrontendUrl('src', 'app', 'browser-environment.js'));
+    assert.equal(writeStorageValue('key', 'value', { storage: {} }), false);
+    assert.equal(writeStorageJson('key', {}, { storage: {} }), false);
+    assert.equal(removeStorageValue('key', { storage: {} }), false);
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('storage denied'); } });
+    try {
+      assert.equal(readStorageValue('key', { fallback: 'quiet' }), 'quiet');
+      assert.equal(writeStorageValue('key', 'value'), false);
+      assert.equal(writeStorageJson('key', {}), false);
+      assert.equal(removeStorageValue('key'), false);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+      else delete globalThis.localStorage;
+    }
+  });
+
+  await test('what\'s-new runtime cancels pending fetches and stays quiet without persistence', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    windowRef.location = { pathname: '/', href: 'http://localhost/' };
+    const storage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const whatsNew = useWhatsNewStore();
+    const settingsUi = useSettingsUiStore();
+    settingsUi.setAboutVersion('0.9.9');
+    let finish;
+    const payload = { version: '0.9.9', highlights: [{ text: 'Example' }] };
+    const cleanup = initWhatsNewRuntime({
+      whatsNewStore: whatsNew, settingsUiStore: settingsUi, storage, windowRef,
+      fetchImpl: () => new Promise((resolve) => { finish = resolve; }),
+    });
+    cleanup();
+    finish({ ok: true, json: async () => payload });
+    await nextTick();
+    await nextTick();
+    await nextTick();
+    assert.equal(whatsNew.open, false, 'a response after teardown must not reopen a card');
+    assert.equal(storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.8');
+    storage.setItem = () => { throw new Error('quota exceeded'); };
+    const cleanupDenied = initWhatsNewRuntime({
+      whatsNewStore: whatsNew, settingsUiStore: settingsUi, storage, windowRef,
+      fetchImpl: async () => ({ ok: true, json: async () => payload }),
+    });
+    await nextTick();
+    await nextTick();
+    await nextTick();
+    assert.equal(whatsNew.open, false, 'without persistent memory an update card could repeat on every launch');
+    cleanupDenied();
+  });
+
+  await test('what\'s-new runtime counts a card only after it reaches the visible prompt slot', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    windowRef.location = { pathname: '/', href: 'http://localhost/' };
+    const storage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+    resetGlobals(windowRef, documentRef, storage);
+    const payload = { version: '0.9.9', highlights: [{ text: 'Example' }] };
+    const fetchImpl = async () => ({ ok: true, json: async () => payload });
+    const start = () => {
+      setActivePinia(createPinia());
+      const whatsNew = useWhatsNewStore();
+      const settingsUi = useSettingsUiStore();
+      const prompts = usePromptsStore();
+      prompts.request('workspace-welcome');
+      settingsUi.setAboutVersion('0.9.9');
+      const cleanup = initWhatsNewRuntime({ whatsNewStore: whatsNew, settingsUiStore: settingsUi, storage, windowRef, fetchImpl });
+      return { whatsNew, prompts, cleanup };
+    };
+    const first = start();
+    await nextTick();
+    await nextTick();
+    await nextTick();
+    assert.equal(first.whatsNew.open, true);
+    assert.equal(first.whatsNew.visible, false, 'the welcome card holds the slot');
+    assert.equal(storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.8', 'queued highlights have not been seen');
+    first.cleanup();
+    const restart = start();
+    await nextTick();
+    await nextTick();
+    await nextTick();
+    assert.equal(restart.whatsNew.open, true, 'unseen highlights survive an app restart');
+    restart.prompts.release('workspace-welcome');
+    assert.equal(restart.whatsNew.visible, true);
+    assert.equal(storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.9', 'taking the visible slot immediately counts');
+    restart.cleanup();
+    const ignored = start();
+    await nextTick();
+    await nextTick();
+    assert.equal(ignored.whatsNew.open, false, 'an ignored visible card never returns');
+    ignored.cleanup();
+  });
+
+  await test('what\'s-new runtime does not duplicate highlights across pending fetches or queued windows', async () => {
+    const storage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+    const payload = { version: '0.9.9', highlights: [{ text: 'Example' }] };
+    const start = (queued = false) => {
+      const documentRef = new FakeDocument();
+      const windowRef = new FakeWindow(documentRef);
+      windowRef.location = { pathname: '/', href: 'http://localhost/' };
+      resetGlobals(windowRef, documentRef, storage);
+      setActivePinia(createPinia());
+      const whatsNew = useWhatsNewStore();
+      const settingsUi = useSettingsUiStore();
+      const prompts = usePromptsStore();
+      if (queued) prompts.request('workspace-welcome');
+      settingsUi.setAboutVersion('0.9.9');
+      let finish;
+      const cleanup = initWhatsNewRuntime({
+        whatsNewStore: whatsNew, settingsUiStore: settingsUi, storage, windowRef,
+        fetchImpl: () => new Promise((resolve) => { finish = resolve; }),
+      });
+      return {
+        whatsNew, prompts, windowRef, cleanup,
+        finish: () => finish({ ok: true, json: async () => payload }),
+      };
+    };
+    const queued = start(true);
+    const notified = start(true);
+    const visible = start();
+    const loading = start();
+    try {
+      queued.finish();
+      notified.finish();
+      await nextTick(); await nextTick(); await nextTick();
+      assert.equal(queued.whatsNew.open, true);
+      assert.equal(queued.whatsNew.visible, false);
+      visible.finish();
+      await nextTick(); await nextTick(); await nextTick();
+      assert.equal(visible.whatsNew.visible, true);
+      notified.windowRef.dispatchEvent({ type: 'storage', key: WHATS_NEW_SEEN_STORAGE_KEY });
+      assert.equal(notified.whatsNew.open, false, 'storage notifications remove a duplicate from the queue');
+      loading.finish();
+      await nextTick(); await nextTick(); await nextTick();
+      assert.equal(loading.whatsNew.open, false, 'a slower fetch must notice that another window already showed the update');
+      queued.prompts.release('workspace-welcome');
+      assert.equal(queued.whatsNew.visible, false, 'a queued window checks again even if its storage event has not arrived');
+      visible.windowRef.dispatchEvent({ type: 'storage', key: WHATS_NEW_SEEN_STORAGE_KEY });
+      assert.equal(visible.whatsNew.visible, true, 'the window that showed the card keeps it until dismissed');
+    } finally {
+      queued.cleanup(); notified.cleanup(); visible.cleanup(); loading.cleanup();
+      assert.equal(notified.windowRef.listeners.get('storage').size, 0, 'teardown removes the storage listener');
+    }
+  });
+
+  await test('what\'s-new waits for its browser lock and releases denied or cancelled claims', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    windowRef.location = { pathname: '/', href: 'http://localhost/' };
+    const claims = [];
+    windowRef.navigator = { locks: {
+      request: (name, options, callback) => new Promise((resolve) => claims.push({ name, options, callback, resolve })),
+    } };
+    const start = () => {
+      const storage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+      resetGlobals(windowRef, documentRef, storage);
+      setActivePinia(createPinia());
+      const whatsNew = useWhatsNewStore();
+      const settingsUi = useSettingsUiStore();
+      const prompts = usePromptsStore();
+      settingsUi.setAboutVersion('0.9.9');
+      const cleanup = initWhatsNewRuntime({
+        whatsNewStore: whatsNew, settingsUiStore: settingsUi, storage, windowRef,
+        fetchImpl: async () => ({ ok: true, json: async () => ({ version: '0.9.9', highlights: [{ text: 'Example' }] }) }),
+      });
+      return { storage, whatsNew, prompts, cleanup };
+    };
+    const flush = async () => { for (let index = 0; index < 6; index++) await nextTick(); };
+    const grant = (lock) => { const claim = claims.shift(); claim.resolve(claim.callback(lock)); };
+    const first = start();
+    await flush();
+    assert.equal(first.whatsNew.hasPromptSlot, true);
+    assert.equal(first.whatsNew.visible, false, 'a pending claim must not flash a duplicate card');
+    assert.equal(first.storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.8');
+    assert.equal(claims[0].options.ifAvailable, true, 'another window must never block this window waiting for a lock');
+    grant({});
+    await flush();
+    assert.equal(first.whatsNew.visible, true);
+    assert.equal(first.storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.9');
+    first.cleanup();
+
+    const denied = start();
+    await flush();
+    grant(null);
+    await flush();
+    assert.equal(denied.whatsNew.open, false);
+    assert.equal(denied.prompts.current, null, 'a losing claim must not leave an invisible card occupying the slot');
+    denied.cleanup();
+
+    const cancelled = start();
+    await flush();
+    cancelled.cleanup();
+    grant({});
+    await flush();
+    assert.equal(cancelled.whatsNew.visible, false);
+    assert.equal(cancelled.storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.8', 'late lock callbacks cannot consume unseen updates after teardown');
+
+    windowRef.navigator.locks.request = () => Promise.reject(new Error('locks denied'));
+    const failed = start();
+    await flush();
+    assert.equal(failed.whatsNew.open, false, 'a rejected lock request skips the optional card');
+    assert.equal(failed.prompts.current, null);
+    failed.cleanup();
+  });
+
+  await test('what\'s-new runtime preserves the latest seen version through a rollback', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    const storage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '1.0.0' });
+    windowRef.location = { pathname: '/', href: 'http://localhost/' };
+    resetGlobals(windowRef, documentRef, storage);
+    setActivePinia(createPinia());
+    const whatsNew = useWhatsNewStore();
+    const settingsUi = useSettingsUiStore();
+    settingsUi.setAboutVersion('0.9.9');
+    let fetches = 0;
+    const cleanup = initWhatsNewRuntime({
+      whatsNewStore: whatsNew, settingsUiStore: settingsUi, storage, windowRef,
+      fetchImpl: async () => { fetches++; return { ok: true, json: async () => ({ version: '0.9.9', highlights: [{ text: 'Example' }] }) }; },
+    });
+    try {
+      await nextTick(); await nextTick(); await nextTick();
+      assert.equal(whatsNew.open, false, 'rolling back is not a new update');
+      assert.equal(fetches, 0);
+      assert.equal(storage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '1.0.0', 'reinstalling the newer version must not show it again');
+    } finally { cleanup(); }
+  });
+
+  await test('what\'s-new runtime shows highlights once after an update and never on a fresh install', async () => {
+    const payload = { version: '0.9.9', releaseNotesUrl: 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.9.9', highlights: [{ label: 'A', text: 'one' }] };
+    let fetches = 0;
+    const fetchImpl = async () => { fetches += 1; return { ok: true, json: async () => payload }; };
+
+    const freshStorage = createStorage();
+    const freshDocument = new FakeDocument();
+    const freshWindow = new FakeWindow(freshDocument);
+    freshWindow.location.pathname = '/';
+    freshWindow.location.href = 'http://127.0.0.1:1/';
+    resetGlobals(freshWindow, freshDocument, freshStorage);
+    setActivePinia(createPinia());
+    const freshStore = useWhatsNewStore();
+    const freshSettings = useSettingsUiStore();
+    const cleanupFresh = initWhatsNewRuntime({ whatsNewStore: freshStore, settingsUiStore: freshSettings, storage: freshStorage, windowRef: freshWindow, fetchImpl });
+    freshSettings.setAboutVersion('0.9.9');
+    await nextTick();
+    await nextTick();
+    assert.equal(freshStore.open, false, 'a fresh install shows nothing');
+    assert.equal(fetches, 0, 'a fresh install does not even fetch');
+    assert.equal(freshStorage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.9', 'the current version is remembered silently');
+    cleanupFresh();
+
+    const upgradeStorage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+    const upgradeDocument = new FakeDocument();
+    const upgradeWindow = new FakeWindow(upgradeDocument);
+    upgradeWindow.location.pathname = '/';
+    upgradeWindow.location.href = 'http://127.0.0.1:1/';
+    resetGlobals(upgradeWindow, upgradeDocument, upgradeStorage);
+    setActivePinia(createPinia());
+    const upgradeStore = useWhatsNewStore();
+    const upgradeSettings = useSettingsUiStore();
+    const cleanupUpgrade = initWhatsNewRuntime({ whatsNewStore: upgradeStore, settingsUiStore: upgradeSettings, storage: upgradeStorage, windowRef: upgradeWindow, fetchImpl });
+    assert.equal(upgradeStore.open, false, 'nothing happens until the running version is known');
+    upgradeSettings.setAboutVersion('v0.9.9 Alpha');
+    await nextTick();
+    await nextTick();
+    await nextTick();
+    assert.equal(upgradeStore.open, true, 'an update shows the card');
+    assert.equal(upgradeStore.version, '0.9.9');
+    assert.equal(upgradeStorage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.9', 'showing counts immediately, even if the app closes without a dismissal');
+    upgradeStore.dismiss();
+    await nextTick();
+    assert.equal(upgradeStorage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '0.9.9', 'dismissing marks the version seen');
+    cleanupUpgrade();
+
+    setActivePinia(createPinia());
+    const restartStore = useWhatsNewStore();
+    const cleanupRestart = initWhatsNewRuntime({ whatsNewStore: restartStore, settingsUiStore: upgradeSettings, storage: upgradeStorage, windowRef: upgradeWindow, fetchImpl });
+    await nextTick();
+    await nextTick();
+    assert.equal(restartStore.open, false, 'an already shown update must not return on restart');
+    cleanupRestart();
+
+    const mismatchStorage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+    const mismatchDocument = new FakeDocument();
+    const mismatchWindow = new FakeWindow(mismatchDocument);
+    mismatchWindow.location.pathname = '/';
+    mismatchWindow.location.href = 'http://127.0.0.1:1/';
+    resetGlobals(mismatchWindow, mismatchDocument, mismatchStorage);
+    setActivePinia(createPinia());
+    const mismatchStore = useWhatsNewStore();
+    const mismatchSettings = useSettingsUiStore();
+    const cleanupMismatch = initWhatsNewRuntime({ whatsNewStore: mismatchStore, settingsUiStore: mismatchSettings, storage: mismatchStorage, windowRef: mismatchWindow, fetchImpl });
+    mismatchSettings.setAboutVersion('1.0.0');
+    await nextTick();
+    await nextTick();
+    await nextTick();
+    assert.equal(mismatchStore.open, false, 'an asset for a different version shows nothing');
+    assert.equal(mismatchStorage.getItem(WHATS_NEW_SEEN_STORAGE_KEY), '1.0.0', 'and is not retried on every launch');
+    cleanupMismatch();
+
+    const phoneStorage = createStorage({ [WHATS_NEW_SEEN_STORAGE_KEY]: '0.9.8' });
+    const phoneDocument = new FakeDocument();
+    const phoneWindow = new FakeWindow(phoneDocument);
+    phoneWindow.location.pathname = '/remote';
+    resetGlobals(phoneWindow, phoneDocument, phoneStorage);
+    setActivePinia(createPinia());
+    const phoneStore = useWhatsNewStore();
+    const phoneSettings = useSettingsUiStore();
+    const cleanupPhone = initWhatsNewRuntime({ whatsNewStore: phoneStore, settingsUiStore: phoneSettings, storage: phoneStorage, windowRef: phoneWindow, fetchImpl });
+    phoneSettings.setAboutVersion('0.9.9');
+    await nextTick();
+    await nextTick();
+    assert.equal(phoneStore.open, false, 'the paired phone never shows what\'s new');
+    cleanupPhone();
   });
 
   await test('tabs runtime drives tab store state from startup, keyboard, and touch interactions', async () => {
@@ -7251,6 +8578,36 @@ async function main() {
 
     assert.equal(ignoredKeyEvent.prevented, false, 'keyboard shortcuts should ignore focused inputs');
     assert.equal(tabsStore.activeTabId, 'livemap', 'ignored keyboard shortcuts should not change tabs');
+
+    for (const [label, overrides] of [
+      ['inherited editable content', { target: { tagName: 'SPAN', isContentEditable: true } }],
+      ['empty/plaintext contenteditable', { target: { tagName: 'SPAN', closest: selector => selector.includes('[contenteditable]:not') ? {} : null } }],
+      ...['textbox', 'combobox', 'spinbutton', 'slider', 'dialog', 'alertdialog', 'menu'].map(role => [role, {
+        target: { tagName: 'DIV', closest: selector => selector.includes(`[role="${role}"]`) ? {} : null },
+      }]),
+      ['CDU physical keyboard target', { target: { tagName: 'BUTTON', closest: selector => selector.includes('[data-cdu-modal]') ? {} : null } }],
+      ['IME composition', { isComposing: true }], ['legacy IME composition', { keyCode: 229 }],
+      ['held key', { repeat: true }], ['consumed key', { defaultPrevented: true }],
+      ['Control shortcut', { ctrlKey: true }], ['Alt shortcut', { altKey: true }],
+      ['Command shortcut', { metaKey: true }], ['Shift shortcut', { shiftKey: true }],
+    ]) {
+      const protectedKey = { ...keyboardEvent, key: '2', prevented: false, ...overrides };
+      documentRef.dispatchEvent(protectedKey);
+      assert.equal(protectedKey.prevented, false, `${label}: app navigation must not consume the key`);
+      assert.equal(tabsStore.activeTabId, 'livemap', `${label}: entering a number must not change view`);
+    }
+    documentRef.setQuerySelectorAll('[aria-modal="true"], dialog[open]', [{ getClientRects: () => [{}] }]);
+    const modalKey = { ...keyboardEvent, key: '2', prevented: false };
+    documentRef.dispatchEvent(modalKey);
+    assert.equal(modalKey.prevented, false, 'a visible modal protects keyboard input even if focus is temporarily outside it');
+    assert.equal(tabsStore.activeTabId, 'livemap');
+    documentRef.setQuerySelectorAll('[aria-modal="true"], dialog[open]', [{ getClientRects: () => [] }]);
+    const permittedKey = { ...keyboardEvent, key: '2', prevented: false };
+    documentRef.dispatchEvent(permittedKey);
+    assert.equal(permittedKey.prevented, true, 'hidden dialogs do not disable navigation shortcuts');
+    assert.equal(tabsStore.activeTabId, 'flight');
+    tabsStore.requestTabChange('livemap');
+    await nextTick();
 
     const interactiveTouchTarget = {
       closest(selector) {

@@ -1,11 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const FRONTEND_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(FRONTEND_DIR, '..');
 const OUT_DIR = path.join(ROOT, 'frontend-dist');
+const RELEASE_NOTES = path.join(ROOT, 'RELEASE_NOTES.md');
+const WHATS_NEW_OUTPUT = path.join(OUT_DIR, 'whats-new.json');
+const require = createRequire(import.meta.url);
+const { buildWhatsNew } = require(path.join(ROOT, 'scripts', 'whats-new-highlights.js'));
 const VITE_BIN = path.join(FRONTEND_DIR, 'node_modules', 'vite', 'bin', 'vite.js');
 const TAILWIND_CONFIG = path.join(ROOT, 'tailwind.config.js');
 const TAILWIND_INPUT = path.join(FRONTEND_DIR, 'tailwind-input.css');
@@ -19,7 +24,7 @@ const REQUIRED_TAILWIND_MARKERS = [
   '.space-y-5>',
   '.rounded-3xl{',
   '.border-border\\/80{',
-  '.bg-panel\\/80{',
+  '.bg-panel\\/75{',
   '.shadow-2xl{',
 ];
 
@@ -32,6 +37,9 @@ const STATIC_DIRS = [
   'assets',
   'audio',
   'themes',
+  // MSFS toolbar panel page, served by the backend at /toolbar/ and framed
+  // by the simulator package. Plain script, so it is copied, not bundled.
+  'toolbar',
 ];
 
 process.chdir(ROOT);
@@ -108,6 +116,15 @@ function assertBundledVoiceWorklet() {
   }
 }
 
+const TOOLBAR_PAGE_FILES = ['index.html', 'toolbar.js', 'toolbar.css', 'voice-reference.json', 'ping.svg'];
+
+function assertBundledToolbarPage() {
+  const missing = TOOLBAR_PAGE_FILES.filter((name) => !fs.existsSync(path.join(OUT_DIR, 'toolbar', name)));
+  if (missing.length > 0) {
+    throw new Error(`Built frontend is missing MSFS toolbar page files: ${missing.join(', ')}`);
+  }
+}
+
 function buildBundle() {
   if (fs.existsSync(OUT_DIR)) {
     fs.rmSync(OUT_DIR, { recursive: true, force: true });
@@ -127,10 +144,20 @@ function buildBundle() {
     copyDir(relativePath);
   }
   buildTailwindCss();
+  writeWhatsNew();
 
   assertBundledIndexHtml();
   assertBundledVoiceWorklet();
+  assertBundledToolbarPage();
   log('Frontend bundle ready.');
+}
+
+// The once-per-update highlights card reads this; it is derived from the
+// release notes so it cannot drift from them.
+function writeWhatsNew() {
+  log('Writing what\'s-new highlights from RELEASE_NOTES.md...');
+  const payload = buildWhatsNew(fs.readFileSync(RELEASE_NOTES, 'utf8'));
+  fs.writeFileSync(WHATS_NEW_OUTPUT, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function buildTailwindCss() {

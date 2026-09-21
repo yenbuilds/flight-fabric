@@ -34,6 +34,23 @@ function spokenAltitude(value) {
   ].join(' ');
 }
 
+/** Spell an ICAO code or procedure ident: letters spaced, digits as words. */
+export function spokenIdentifier(value) {
+  return String(value || '').toUpperCase().split('')
+    .map((character) => (/\d/.test(character) ? DIGIT_WORDS[Number(character)] : character))
+    .filter((word) => /^[A-Z]$|^[a-z]+$/.test(word))
+    .join(' ');
+}
+
+const RUNWAY_SIDE_WORDS = Object.freeze({ L: 'left', R: 'right', C: 'center' });
+
+export function spokenRunway(value) {
+  const match = /^(\d{1,2})([A-Z]?)$/.exec(String(value || '').toUpperCase());
+  if (!match) return spokenIdentifier(value);
+  const [, digits, side] = match;
+  return [spokenDigits(digits, 2), RUNWAY_SIDE_WORDS[side] || side].filter(Boolean).join(' ');
+}
+
 export function formatAviationReadback(match = {}) {
   const commandId = String(match.commandId || '');
   const label = boundedText(match.label) || 'Command';
@@ -105,6 +122,15 @@ export function formatAviationReadback(match = {}) {
   }
   if (commandId === 'configuration.lights.takeoff') {
     return 'Takeoff lights set.';
+  }
+  if (commandId === 'configuration.lights.afterTakeoff') {
+    return 'After takeoff lights set.';
+  }
+  if (commandId === 'configuration.lights.landing') {
+    return 'Landing lights set.';
+  }
+  if (commandId === 'configuration.lights.afterLanding') {
+    return 'After landing lights set.';
   }
   if (commandId === 'configuration.apu.start') {
     return 'A P U start requested.';

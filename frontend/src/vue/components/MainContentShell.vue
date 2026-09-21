@@ -1,7 +1,6 @@
 <script setup>
 import AircraftTabShell from './AircraftTabShell.vue';
-import DesktopTabs from './DesktopTabs.vue';
-import FlightStatusBadges from './FlightStatusBadges.vue';
+import FlightWorkspaceBar from './FlightWorkspaceBar.vue';
 import FlightTabShell from './FlightTabShell.vue';
 import LandingPanel from './LandingPanel.vue';
 import LiveMapTabShell from './LiveMapTabShell.vue';
@@ -12,11 +11,14 @@ import DevicePairingRequest from './DevicePairingRequest.vue';
 import SimbriefTab from './SimbriefTab.vue';
 import SystemTabShell from './SystemTabShell.vue';
 import TimelineTabShell from './TimelineTabShell.vue';
+import FlightCuesTabShell from './FlightCuesTabShell.vue';
 import { useLandingStore } from '../stores/landing.js';
 import { useTabsStore } from '../stores/tabs.js';
+import { useFlightCuesStore } from '../stores/flight-cues.js';
 
 const landing = useLandingStore();
 const tabs = useTabsStore();
+useFlightCuesStore();
 </script>
 
 <template>
@@ -24,19 +26,17 @@ const tabs = useTabsStore();
     <SecondScreenGuide />
     <DevicePairingRequest />
 
-    <div class="sm:hidden mb-4 flex items-center justify-center gap-3">
-      <div id="vue-phase-mobile-root" class="contents">
-        <FlightStatusBadges mode="mobile" />
-      </div>
-    </div>
-
-    <div id="vue-desktop-tabs-root">
-      <DesktopTabs />
-    </div>
+    <FlightWorkspaceBar v-if="tabs.activeTabId === 'flight' || tabs.activeTabId === 'livemap'" />
 
     <div id="tab-flight" class="tab-section" :class="tabs.tabSectionClass('flight')">
       <div id="vue-flight-tab-root">
         <FlightTabShell />
+      </div>
+    </div>
+
+    <div id="tab-cues" class="tab-section" :class="tabs.tabSectionClass('cues')">
+      <div id="vue-flight-cues-tab-root">
+        <FlightCuesTabShell v-if="tabs.activeTabId === 'cues'" />
       </div>
     </div>
 

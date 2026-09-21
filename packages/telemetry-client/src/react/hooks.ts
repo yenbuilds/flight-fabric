@@ -1,7 +1,7 @@
 /**
  * hooks.ts
  *
- * React hooks for consuming Flight Fabric telemetry inside React components.
+ * React hooks for consuming FlightFabric telemetry inside React components.
  * All hooks require a TelemetryClient to be provided via TelemetryProvider
  * (from context.ts) higher in the component tree.
  *

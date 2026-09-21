@@ -1150,7 +1150,7 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     assert.equal(integration.presentation.templateId, 'fenix-a32x');
   }
 
-  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 157);
+  assert.equal(Object.keys(FENIX_A32X_INTEGRATION.fields).length, 161);
   assert.equal(Object.keys(FENIX_A32X_INTEGRATION.actions).length, 327);
   for (const [fieldId, field] of Object.entries(
     FENIX_A32X_INTEGRATION.fields,
@@ -1221,11 +1221,19 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
     if (actionId === 'systems.apuStart.start') {
       assert.equal(action.guard.cooldownMs, 3000);
       assert.equal(action.routes[0].mode, 'pulse');
-      assert.equal(action.routes[0].confirmation, 'transport-acknowledged');
       assert.equal(action.routes[0].pressCode, action.routes[0].releaseCode);
       assert.match(action.routes[0].pressCode, /S_OH_ELEC_APU_START.*\+\+/);
+      assert.equal(action.routes[0].confirmation, 'transport-acknowledged');
       assert.equal(action.routes[0].readback, undefined);
+      // Live 2026-09-19: the START ON and AVAIL lamps make a running APU a no-op.
+      assert.deepEqual(action.guard.skipWhen, [
+        { fieldId: 'systems.apuAvailable', expectedValue: true },
+        { fieldId: 'systems.apuStart', expectedValue: true },
+      ]);
       continue;
+    }
+    if (actionId.startsWith('systems.apuMaster.')) {
+      assert.equal(action.routes[0].readback.fieldId, 'systems.apuMasterOn', 'the master confirms on its lamp, not on the switch input it wrote');
     }
     if (actionId.startsWith('baro.')) {
       assert.equal(action.routes[0].mode, 'fenix-baro');
@@ -1336,7 +1344,7 @@ test('Fenix A32x adapter shares one trusted contract across exact family profile
   });
   assert.deepEqual(FENIX_A32X_INTEGRATION.fields['flightGuidance.altitudeIncrementMode'].sources[0], {
     route: { type: 'lvar', name: 'L:S_FCU_ALTITUDE_SCALE', unit: 'Number' },
-    decode: { type: 'enum', values: { 0: 'thousand', 1: 'hundred' } },
+    decode: { type: 'enum', values: { 0: 'hundred', 1: 'thousand' } },
   });
   for (const [fieldId, lvar, precision] of [
     ['flightGuidance.speedValue', 'N_FCU_SPEED', 2],

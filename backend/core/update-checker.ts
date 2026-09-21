@@ -7,7 +7,12 @@
 //     "version":     "0.2.0",          // required - semver string
 //     "downloadUrl": "https://...",    // required - link shown in the update banner
 //     "message":     "Security fix",   // optional - short note displayed in banner
-//     "urgent":      false             // optional - true makes the banner red
+//     "urgent":      false,            // optional - true makes the banner red
+//     "support": {                     // optional - supporter goal shown in About
+//       "period": "2026-09",           //   the month it describes (YYYY-MM)
+//       "supporters": 14,              //   supporters so far this period
+//       "goal": 25                     //   target for the period
+//     }
 //   }
 //
 // To configure: update MANIFEST_URL to point at a publicly accessible raw JSON file.
@@ -17,6 +22,7 @@ const https = require('https') as typeof import('https');
 const { MSG } = require('./message-types.js') as {
   MSG: {
     UPDATE_AVAILABLE: string;
+    SUPPORT_GOAL: string;
   };
 };
 
@@ -25,6 +31,7 @@ type UpdateManifest = {
   downloadUrl?: unknown;
   message?: unknown;
   urgent?: unknown;
+  support?: unknown;
 } | null;
 
 export type UpdateAvailableMessage = {
@@ -36,7 +43,19 @@ export type UpdateAvailableMessage = {
   urgent: boolean;
 };
 
-type BroadcastFn = (payload: UpdateAvailableMessage) => void;
+type SupportGoal = {
+  period: string;
+  supporters: number;
+  goal: number;
+};
+
+export type SupportGoalMessage = { type: string } & (SupportGoal | {
+  period: null;
+  supporters: null;
+  goal: null;
+});
+
+type BroadcastFn = (payload: UpdateAvailableMessage | SupportGoalMessage) => void;
 type UpdateCheckerHandle = {
   stop: () => void;
 };
@@ -51,8 +70,28 @@ const MAX_MANIFEST_BYTES = 128 * 1024;
 const RELEASE_DOWNLOAD_HOST = 'github.com';
 const RELEASE_DOWNLOAD_PATH_PREFIX = '/yenbuilds/flight-fabric/releases';
 
-// Cached result - replayed to newly-connected clients on requestState.
+// Cached results - replayed to newly-connected clients on requestState.
 let lastUpdateMsg: UpdateAvailableMessage | null = null;
+let lastSupportGoalMsg: SupportGoalMessage | null = null;
+
+const SUPPORT_PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+const MAX_SUPPORT_COUNT = 100000;
+
+/**
+ * Accepts only a well-formed supporter goal: a YYYY-MM period, a non-negative
+ * integer count and a positive integer goal, both within a sane bound.
+ */
+export function sanitizeSupportGoal(value: unknown): SupportGoal | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const period = typeof record.period === 'string' && SUPPORT_PERIOD_PATTERN.test(record.period) ? record.period : null;
+  const supporters = record.supporters;
+  const goal = record.goal;
+  if (!period) return null;
+  if (typeof supporters !== 'number' || !Number.isInteger(supporters) || supporters < 0 || supporters > MAX_SUPPORT_COUNT) return null;
+  if (typeof goal !== 'number' || !Number.isInteger(goal) || goal <= 0 || goal > MAX_SUPPORT_COUNT) return null;
+  return { period, supporters, goal };
+}
 
 /**
  * Fetch and parse the remote manifest JSON over HTTPS.
@@ -146,7 +185,19 @@ export function startUpdateChecker({
       const manifest = await fetchManifest();
 
       if (stopped) return;
-      if (!manifest || typeof manifest.version !== 'string') return;
+      if (!manifest || typeof manifest !== 'object') return;
+
+      // The supporter goal is independent of whether an update exists.
+      const supportGoal = sanitizeSupportGoal(manifest.support);
+      const hadSupportGoal = lastSupportGoalMsg?.period != null;
+      // Keep an explicit withdrawal for requestState replay: a window may
+      // have disconnected with the old goal before its removal was broadcast.
+      lastSupportGoalMsg = supportGoal
+        ? { type: MSG.SUPPORT_GOAL, ...supportGoal }
+        : { type: MSG.SUPPORT_GOAL, period: null, supporters: null, goal: null };
+      if (supportGoal || hadSupportGoal) broadcast(lastSupportGoalMsg);
+
+      if (typeof manifest.version !== 'string') return;
       if (!semverGt(manifest.version, currentVersion)) return;
 
       lastUpdateMsg = {
@@ -184,4 +235,12 @@ export function startUpdateChecker({
  */
 export function getLastUpdateMsg(): UpdateAvailableMessage | null {
   return lastUpdateMsg;
+}
+
+/**
+ * Returns the last goal or withdrawal for requestState replay; null until a
+ * manifest has been read successfully.
+ */
+export function getLastSupportGoalMsg(): SupportGoalMessage | null {
+  return lastSupportGoalMsg;
 }

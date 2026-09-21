@@ -11,6 +11,7 @@ use serde_json::json;
 use std::io::{self, BufRead};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
+use std::time::Duration;
 
 pub(crate) const MAX_STDIN_LINE_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_PENDING_STDIN_COMMANDS: usize = 64;
@@ -175,8 +176,19 @@ fn stdin_command_channel() -> (SyncSender<Command>, Receiver<Command>) {
 pub(crate) fn receive_command_batch(
     receiver: &Receiver<Command>,
     max_commands: usize,
+    wait: Duration,
 ) -> Vec<Command> {
-    receiver.try_iter().take(max_commands).collect()
+    if max_commands == 0 {
+        return Vec::new();
+    }
+    // Wake for the first command, then drain only a bounded batch. Serial
+    // callers must not pay a whole telemetry interval for every axis ACK.
+    match receiver.recv_timeout(wait) {
+        Ok(first) => std::iter::once(first)
+            .chain(receiver.try_iter().take(max_commands - 1))
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
 
 // Oversized input is drained through the next newline before reporting an
@@ -385,7 +397,7 @@ mod tests {
             Err(mpsc::TrySendError::Full(_))
         ));
 
-        let first_batch = receive_command_batch(&receiver, 7);
+        let first_batch = receive_command_batch(&receiver, 7, Duration::ZERO);
         assert_eq!(first_batch.len(), 7);
         for (index, command) in first_batch.iter().enumerate() {
             assert_eq!(command.command_type, format!("command-{index}"));
@@ -397,5 +409,32 @@ mod tests {
                 .command_type,
             "command-7"
         );
+    }
+
+    #[test]
+    fn serial_axis_commands_wake_the_wait_without_paying_each_poll_interval() {
+        let (sender, receiver) = stdin_command_channel();
+        let (ack_tx, ack_rx) = mpsc::sync_channel(0);
+        let writer = thread::spawn(move || {
+            for index in 0..5 {
+                let mut command = Command::stop();
+                command.request_id = Some(index);
+                sender.send(command).unwrap();
+                assert_eq!(ack_rx.recv_timeout(Duration::from_secs(2)).unwrap(), index);
+            }
+        });
+        let start = std::time::Instant::now();
+        for index in 0..5 {
+            let batch =
+                receive_command_batch(&receiver, MAX_COMMANDS_PER_TICK, Duration::from_secs(2));
+            assert_eq!(batch.len(), 1);
+            assert_eq!(batch[0].request_id, Some(index));
+            ack_tx.send(index).unwrap();
+        }
+        writer.join().unwrap();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        let (_sender, empty) = stdin_command_channel();
+        assert!(receive_command_batch(&empty, 3, Duration::from_millis(1)).is_empty());
+        assert!(receive_command_batch(&empty, 0, Duration::from_secs(2)).is_empty());
     }
 }

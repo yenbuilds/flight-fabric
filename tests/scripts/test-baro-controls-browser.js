@@ -166,7 +166,7 @@ async function main() {
     }], resolve: { alias: {
       vue: path.join(ROOT, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'),
       pinia: path.join(ROOT, 'frontend/node_modules/pinia/dist/pinia.mjs'),
-    } }, server: { host: '127.0.0.1', port: 0 } });
+    } }, server: { host: '127.0.0.1', port: 0, watch: null } });
   await server.listen();
   try {
     const env = { ...process.env, FF_BARO_CONTROLS_TEST_URL: `http://127.0.0.1:${server.httpServer.address().port}/baro-controls-test` };

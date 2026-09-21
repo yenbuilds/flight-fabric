@@ -1,5 +1,5 @@
 /*!
- * QRCode for JavaScript - browser bundle for Flight Fabric launcher
+ * QRCode for JavaScript - browser bundle for FlightFabric launcher
  * Copyright (c) 2009 Kazuhiko Arase - MIT License
  * Source: http://www.d-project.com/  (re-bundled from qrcode-terminal vendor files)
  */

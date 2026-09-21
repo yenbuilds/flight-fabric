@@ -1,3 +1,10 @@
 electron/resources/voice/hotwords.txt text eol=lf
 electron/resources/voice/bpe.vocab text eol=lf
 .husky/* text eol=lf
+# MSFS layout.json records exact payload byte sizes across every checkout.
+msfs-toolbar-panel/package/**/*.js text eol=lf
+msfs-toolbar-panel/package/**/*.css text eol=lf
+msfs-toolbar-panel/package/**/*.html text eol=lf
+msfs-toolbar-panel/package/**/*.svg text eol=lf
+msfs-toolbar-panel/package/**/*.json text eol=lf
+msfs-toolbar-panel/package/**/*.spb binary

@@ -1,7 +1,7 @@
 {
   "name": "@flight-fabric/telemetry-types",
   "version": "0.1.0",
-  "description": "TypeScript type definitions for Flight Fabric telemetry WebSocket messages",
+  "description": "TypeScript type definitions for FlightFabric telemetry WebSocket messages",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -28,7 +28,7 @@
     "types",
     "msfs"
   ],
-  "author": "Flight Fabric",
+  "author": "FlightFabric",
   "license": "AGPL-3.0-only",
   "devDependencies": {
     "tsup": "^8.0.0",

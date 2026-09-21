@@ -25,6 +25,7 @@ const timeSource = require('./time-source.js') as {
 const config = require('./config.js') as {
   env: { isElectronPackaged: boolean };
 };
+const { getAppVersion } = require('./app-version') as typeof import('./app-version');
 
 type DebugLike = {
   log: (scope: string, message: string, extra?: Record<string, unknown>) => void;
@@ -275,6 +276,21 @@ const STATIC_ASSET_HEADERS = {
   'Cache-Control': 'no-store, max-age=0',
 };
 
+// The MSFS toolbar panel page. The simulator package hosts /toolbar/ in an
+// iframe, so this route is the one place the dashboard may be framed, and
+// only by the simulator browser origin or the app itself. The page is served
+// from the frontend build and connects back as an ordinary read-only
+// loopback WebSocket client with a narrowed subscription.
+const TOOLBAR_ROUTE_PREFIX = '/toolbar';
+const TOOLBAR_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
+  'index.html': 'text/html',
+  'toolbar.js': 'application/javascript',
+  'toolbar.css': 'text/css',
+  'voice-reference.json': 'application/json',
+  'ping.svg': 'image/svg+xml',
+});
+export const TOOLBAR_FRAME_ANCESTORS = "'self' coui: coui://html_ui";
+
 const VIRTUAL_INTERFACE_RE = /(docker|wsl|hyper-v|vethernet|vmware|virtualbox|vbox|tailscale|zerotier|vpn|tunnel|tun|tap|bridge|loopback)/i;
 const WIFI_INTERFACE_RE = /(wi-?fi|wlan|wireless)/i;
 const ETHERNET_INTERFACE_RE = /(ethernet|^eth\d*$|^en\d+$|lan)/i;
@@ -478,7 +494,11 @@ export function buildContentSecurityPolicy(
   req: RequestLike,
   nonce: string,
   remoteAccessEnable: boolean,
+  options: { frameAncestors?: string } = {},
 ): string {
+  const frameAncestors = typeof options.frameAncestors === 'string' && options.frameAncestors.trim()
+    ? options.frameAncestors.trim()
+    : "'none'";
   const connectSources = new Set([
     "'self'",
     'http://localhost:*',
@@ -499,7 +519,7 @@ export function buildContentSecurityPolicy(
     "default-src 'self'",
     "base-uri 'none'",
     "object-src 'none'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${frameAncestors}`,
     "frame-src 'none'",
     "form-action 'self'",
     `script-src 'self' 'nonce-${nonce}'`,
@@ -507,7 +527,7 @@ export function buildContentSecurityPolicy(
     "style-src 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' data: blob: https://tile.openstreetmap.org",
+    "img-src 'self' data: blob: https://tile.openstreetmap.org https://s3.amazonaws.com",
     "media-src 'self' data: blob:",
     `connect-src ${[...connectSources].join(' ')}`,
     "worker-src 'self' blob:",
@@ -595,6 +615,7 @@ function streamFirstExistingFile(
   htmlNonce?: string,
 ): void {
   function tryNext(index: number): void {
+    if (res.destroyed) return;
     if (index >= filePaths.length) {
       res.writeHead(404);
       res.end('Not found');
@@ -609,7 +630,7 @@ function streamFirstExistingFile(
       }
 
       fs.fstat(descriptor, (statErr, stat) => {
-        if (statErr || !stat.isFile()) {
+        if (res.destroyed || statErr || !stat.isFile()) {
           fs.close(descriptor, () => tryNext(index + 1));
           return;
         }
@@ -617,6 +638,7 @@ function streamFirstExistingFile(
         if (contentType === 'text/html' && htmlNonce) {
           fs.readFile(descriptor, 'utf8', (readErr, html) => {
             fs.close(descriptor, () => {
+              if (res.destroyed) return;
               if (readErr) {
                 tryNext(index + 1);
                 return;
@@ -639,7 +661,12 @@ function streamFirstExistingFile(
           ...STATIC_ASSET_HEADERS,
         });
         const stream = fs.createReadStream(filePath, { fd: descriptor, autoClose: true });
+        // pipe() does not close a paused file stream when its HTTP reader leaves.
+        const closeStream = () => stream.destroy();
+        res.once('close', closeStream);
+        stream.once('close', () => res.off('close', closeStream));
         stream.on('error', () => { try { res.end(); } catch {} });
+        if (res.destroyed) { stream.destroy(); return; }
         stream.pipe(res);
       });
     });
@@ -947,6 +974,48 @@ export function startHttpServer({
       return;
     }
 
+    // MSFS toolbar panel page and its assets. Allowlisted file names only;
+    // everything else under /toolbar/ is a 404 rather than a directory walk.
+    if (req.method === 'GET' && (requestPathname === TOOLBAR_ROUTE_PREFIX || requestPathname.startsWith(`${TOOLBAR_ROUTE_PREFIX}/`))) {
+      const assetName = requestPathname === TOOLBAR_ROUTE_PREFIX || requestPathname === `${TOOLBAR_ROUTE_PREFIX}/`
+        ? 'index.html'
+        : requestPathname.slice(TOOLBAR_ROUTE_PREFIX.length + 1);
+      const assetType = Object.prototype.hasOwnProperty.call(TOOLBAR_ASSET_TYPES, assetName)
+        ? TOOLBAR_ASSET_TYPES[assetName]
+        : null;
+      if (!assetType) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store, max-age=0' });
+        res.end('Not found');
+        return;
+      }
+      res.setHeader(
+        'Content-Security-Policy',
+        buildContentSecurityPolicy(req, cspNonce, remoteAccessEnable, { frameAncestors: TOOLBAR_FRAME_ANCESTORS }),
+      );
+      streamFirstExistingFile(
+        res,
+        resolveFrontendAssetCandidates(`toolbar/${assetName}`),
+        assetType,
+        assetType === 'text/html' ? cspNonce : undefined,
+      );
+      return;
+    }
+
+    // Connection details for the toolbar page. Carries no session secret, so
+    // it is safe for any trusted request regardless of Origin; the page then
+    // connects as a read-only loopback client.
+    if (req.method === 'GET' && requestPathname === '/api/toolbar/bootstrap') {
+      const boundAddress = httpServer.address();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
+      res.end(JSON.stringify({
+        ok: true,
+        appVersion: getAppVersion() || '',
+        httpPort: boundAddress && typeof boundAddress === 'object' ? boundAddress.port : resolvedHttpPort,
+        wsPort,
+      }));
+      return;
+    }
+
     if (req.method === 'GET' && requestPathname === '/phone') {
       const query = new URLSearchParams();
       if (Number.isInteger(wsPort) && wsPort > 0) query.set('wsPort', String(wsPort));
@@ -976,7 +1045,7 @@ export function startHttpServer({
 <html><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flight Fabric - Mobile Browser Setup</title>
+  <title>FlightFabric - Mobile Browser Setup</title>
   <style>
     body { font-family: system-ui, sans-serif; background: #0d1117; color: #c9d1d9; margin: 0; padding: 2rem; text-align: center; }
     h1 { color: #58a6ff; margin-bottom: 0.25rem; }
@@ -994,7 +1063,7 @@ export function startHttpServer({
   </style>
 </head><body>
   <h1>Mobile Browser Setup</h1>
-  <p class="sub">Open the Flight Fabric dashboard in your phone browser</p>
+  <p class="sub">Open the FlightFabric dashboard in your phone browser</p>
   <div class="card">
     <div style="color:#8b949e;font-size:0.9rem;margin-bottom:0.5rem;">Your PC's LAN IP</div>
     <div class="ip">${primaryIP}</div>
@@ -1006,7 +1075,7 @@ export function startHttpServer({
   </div>
   <div class="card warn">
     <b>Trusted LAN only.</b> Use this setup page only on a private home network you trust.
-    Do not use Flight Fabric remote access on hotel, airport, school, workplace, hotspot, or other public/shared networks.
+    Do not use FlightFabric remote access on hotel, airport, school, workplace, hotspot, or other public/shared networks.
   </div>
   <div class="card steps">
     <b>1.</b> Connect your phone to the <b>same WiFi</b> network<br>
@@ -1124,7 +1193,7 @@ export function startHttpServer({
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flight Fabric</title>
+  <title>FlightFabric</title>
   <style>
     body { font-family: system-ui, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; text-align: center; }
     h1 { color: #58a6ff; }
@@ -1136,7 +1205,7 @@ export function startHttpServer({
   </style>
 </head>
 <body>
-  <h1>Flight Fabric</h1>
+  <h1>FlightFabric</h1>
   <div class="box">
     <div>Your PC's IP address:</div>
     <div class="ip">${primaryIP}</div>

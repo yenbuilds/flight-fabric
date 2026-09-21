@@ -1,7 +1,10 @@
 <script setup>
+import { computed } from 'vue';
 import { useStatusStore } from '../stores/status.js';
 
 const status = useStatusStore();
+const label = computed(() => status.websocket === 'ready' && !status.primarySource?.connected
+  ? 'Waiting for simulator' : status.websocketLabel);
 </script>
 
 <template>
@@ -13,7 +16,7 @@ const status = useStatusStore();
         :style="status.websocketStyle"
       />
       <div class="flex flex-col leading-tight min-w-0">
-        <span class="truncate text-sm text-muted-fg">{{ status.websocketLabel }}</span>
+        <span class="truncate text-xs text-muted-fg" role="status" :data-connection="status.websocket">{{ label }}</span>
       </div>
     </div>
   </div>

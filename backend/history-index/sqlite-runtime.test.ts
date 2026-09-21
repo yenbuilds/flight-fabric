@@ -26,6 +26,7 @@ test('history index database path resolves under app data', () => {
     };
     const resolved = resolveHistoryIndexDatabasePath({ env });
     assert.equal(path.basename(resolved), HISTORY_INDEX_DB_FILE_NAME);
+    // The storage folder deliberately keeps the two-word name (see storage-paths.ts).
     assert.ok(resolved.includes('Flight Fabric'));
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -62,7 +63,7 @@ test('history index sqlite smoke refuses an implicit or explicit production data
   }
 
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-index-smoke-guard-'));
-  const appDataRoot = path.join(tmpRoot, 'Flight Fabric');
+  const appDataRoot = path.join(tmpRoot, 'FlightFabric');
   const productionDbPath = path.join(appDataRoot, HISTORY_INDEX_DB_FILE_NAME);
   try {
     const implicit = runHistoryIndexSqliteSmoke({ appDataRoot });

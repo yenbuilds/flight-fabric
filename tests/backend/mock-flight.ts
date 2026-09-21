@@ -57,7 +57,7 @@ function stopReplay() {
 }
 
 /**
- * Convert an external replay frame to Flight Fabric frame format.
+ * Convert an external replay frame to FlightFabric frame format.
  */
 function convertReplayFrame(osFrame) {
     const {

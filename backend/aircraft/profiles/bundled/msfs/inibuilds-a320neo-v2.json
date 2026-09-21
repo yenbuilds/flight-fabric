@@ -196,7 +196,7 @@
         "name": "MSFS 2020 SDK - Aircraft Miscellaneous Events",
         "url": "https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Misc_Events.htm",
         "retrievedAt": "2026-08-13",
-        "notes": "MSFS 2020 source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. Flight Fabric exposes fixed semantic targets and confirms newer standard handle/state readback."
+        "notes": "MSFS 2020 source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. FlightFabric exposes fixed semantic targets and confirms newer standard handle/state readback."
       },
       {
         "type": "official-sdk",
@@ -236,7 +236,7 @@
         "name": "MSFS 2024 SDK - Aircraft General Systems Events",
         "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm",
         "retrievedAt": "2026-08-13",
-        "notes": "MSFS 2024 source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. Flight Fabric exposes fixed semantic targets and confirms newer standard handle/state readback."
+        "notes": "MSFS 2024 source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. FlightFabric exposes fixed semantic targets and confirms newer standard handle/state readback."
       }
     ],
     "verification": {

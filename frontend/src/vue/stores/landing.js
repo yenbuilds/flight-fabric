@@ -18,6 +18,8 @@ const IN_FLIGHT_UPSET_RULE_IDS = new Set([
 function createDefaultLandingCardState() {
   return {
     gradeAnimationNonce: 0,
+    // When this card was shown; the share image and its filename use it.
+    capturedAtMs: null,
     runwayExcursionVisible: false,
     gradeText: '--',
     gradeColor: DEFAULT_GRADE_COLOR,
@@ -596,6 +598,8 @@ export const useLandingStore = defineStore('landing', {
         : 0;
 
       landingCard.gradeAnimationNonce = this.landingCard.gradeAnimationNonce + 1;
+      const capturedAtMs = Number(options.capturedAtMs);
+      landingCard.capturedAtMs = Number.isFinite(capturedAtMs) && capturedAtMs > 0 ? capturedAtMs : Date.now();
       landingCard.runwayExcursionVisible = verdict.flags.runwayExcursion;
       landingCard.gradeText = summaryPresentation.touchdownGrade;
       landingCard.gradeColor = summaryPresentation.touchdownColor;

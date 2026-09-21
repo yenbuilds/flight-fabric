@@ -24,7 +24,7 @@ User overrides:
 macOS uses `~/Library/Application Support/Flight Fabric/Themes/`.
 Linux uses `${XDG_CONFIG_HOME:-~/.config}/Flight Fabric/Themes/`.
 
-Flight Fabric looks for `/user-assets/themes/<filename>` first. If a valid user
+FlightFabric looks for `/user-assets/themes/<filename>` first. If a valid user
 file is not present, it uses the bundled file with the same name.
 
 ## Available assets

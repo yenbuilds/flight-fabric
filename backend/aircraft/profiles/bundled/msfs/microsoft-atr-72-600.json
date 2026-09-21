@@ -127,7 +127,7 @@
         "Microsoft and S&H do not publish an ATR 72-600-specific external telemetry or control interface in the cited sources.",
         "Aircraft-specific telemetry remains absent from the active profile and adapter pending vendor documentation and in-sim verification.",
         "The dedicated page is monitoring-only and its standard-SimVar fields still require validation against the supported native MSFS package.",
-        "ATR selected-speed telemetry remains on standard SimConnect because the cited vendor sources do not define an aircraft-specific readback with Flight Fabric-compatible units.",
+        "ATR selected-speed telemetry remains on standard SimConnect because the cited vendor sources do not define an aircraft-specific readback with FlightFabric-compatible units.",
         "This profile intentionally matches the passenger ATR 72-600 only and does not attempt to cover the 72-600F freighter or the ATR 42 variants included in the same package.",
         "MLW, MZFW, flap schedule, and gear speed schedule remain absent because the cited vendor sources do not confirm them."
       ]

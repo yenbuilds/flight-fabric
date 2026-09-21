@@ -312,7 +312,7 @@ test('backend runtime build preserves a locked running Rust sidecar', () => {
   assert(startSimbridgeSource.includes('commandLine=$commandLine'), 'batch cleanup identity should include the exact marked command line and optional nonce');
   assert(stopHelperSource.includes('FF_TASKKILL_RESULT'), 'stop helper should check taskkill failure');
   assert(stopHelperSource.includes('is still running after taskkill'), 'stop helper should verify PID exit');
-  const launchIndex = startSimbridgeSource.indexOf('start "Flight Fabric Backend"');
+  const launchIndex = startSimbridgeSource.indexOf('start "FlightFabric Backend"');
   const nonceGenerationIndex = startSimbridgeSource.indexOf("require('crypto').randomBytes(32).toString('hex')");
   assert(nonceGenerationIndex > 0 && nonceGenerationIndex < launchIndex, 'dev launcher should create a cryptographically random identity immediately before launch');
   assert(startSimbridgeSource.includes('--ff-launch-nonce=!FF_BACKEND_LAUNCH_NONCE!'), 'dev launcher should pass its unique identity through the wrapper to the backend');
@@ -424,13 +424,13 @@ test('release-facing setup HTML and build logs stay ASCII-safe', () => {
   const electronMainSource = readRepoFile('electron/main.js');
 
   assert(httpServerSource.includes('<h1>Mobile Browser Setup</h1>'), 'mobile setup page should use an ASCII-safe heading');
-  assert(httpServerSource.includes('<h1>Flight Fabric</h1>'), 'fallback HTTP page should use an ASCII-safe heading');
+  assert(httpServerSource.includes('<h1>FlightFabric</h1>'), 'fallback HTTP page should use an ASCII-safe heading');
   assert(!httpServerSource.includes('📱'), 'mobile setup page should not rely on emoji rendering');
   assert(!httpServerSource.includes('✈'), 'fallback HTTP page should not rely on emoji rendering');
   assert(electronBuildSource.includes("log('  Profile validated OK');"), 'release build validation log should use ASCII-safe success text');
   assert(!electronBuildSource.includes('Profile validated ✓'), 'release build logs should not rely on symbol rendering');
   assert(!electronBuildSource.includes('— skipping'), 'release build warnings should use ASCII-safe punctuation');
-  assert(!electronMainSource.includes('Flight Fabric —'), 'Electron tooltips should use ASCII-safe punctuation');
+  assert(!electronMainSource.includes('FlightFabric —'), 'Electron tooltips should use ASCII-safe punctuation');
 });
 
 test('OBS widgets load telemetry-ui before inline widget scripts run', () => {
@@ -630,8 +630,8 @@ test('tab navigation flows through the Vue tabs store', () => {
   const tabsRuntimeSource = readRepoFile('frontend/src/tabs/runtime.js');
   const tabConfigSource = readRepoFile('frontend/src/vue/tab-config.js');
 
-  assert(desktopTabsSource.includes('@click="tabs.requestTabChange(tab.id)"'));
-  assert(mobileTabsSource.includes('@click="tabs.requestTabChange(tab.id)"'));
+  assert(desktopTabsSource.includes('@click="tabs.requestNavigationTabChange(tab.id)"'));
+  assert(mobileTabsSource.includes('tabs.requestNavigationTabChange(tabId)'));
   assert(mainShellSource.includes(':class="tabs.tabSectionClass('), 'tab panels should derive active classes from the tabs store');
   assert(appShellSource.includes('tabs.pullRefreshLabel'), 'pull-to-refresh copy should render from the tabs store');
   assert(tabsStoreSource.includes('function requestTabChange(tabId, options = {})'));
@@ -657,6 +657,112 @@ test('tab navigation flows through the Vue tabs store', () => {
   assert(tabsRuntimeSource.includes("'[role=\"slider\"]'"), 'touch navigation should not steal horizontal slider gestures');
   assert(tabsRuntimeSource.includes('tabScrollPositions.set(previousTabId'), 'tab navigation should remember each tab scroll position');
   assert(tabsRuntimeSource.includes('tabScrollPositions.get(tabId)'), 'tab navigation should restore the destination tab scroll position');
+});
+
+test('fixed navigation is resolved centrally with no retired workspace entry points', () => {
+  const desktop = readRepoFile('frontend/src/vue/components/DesktopTabs.vue');
+  const mobile = readRepoFile('frontend/src/vue/components/MobileTabs.vue');
+  const shell = readRepoFile('frontend/src/vue/components/AppShell.vue');
+  const store = readRepoFile('frontend/src/vue/stores/tabs.js');
+  const runtime = readRepoFile('frontend/src/tabs/runtime.js');
+  const config = readRepoFile('frontend/src/vue/tab-config.js');
+  assert(config.includes('export function resolveTabs()') && config.includes('export function resolveNavigation()'), 'route and navigation definitions remain centralized');
+  assert(store.includes('resolveTabs()') && store.includes('resolveNavigation()'), 'store uses the shared definitions');
+  assert(desktop.includes('tabs.desktopPrimaryTabs') && mobile.includes('tabs.mobileNavigationPrimaryTabs'), 'both navigation surfaces use store data');
+  assert(runtime.includes('resolvedTabsStore.mobileNavigationPrimaryTabs.map((tab) => tab.id)'), 'swipes follow the visible bottom bar');
+  assert(runtime.includes('export function desktopShortcutTabIds(tabsStore)') && desktop.includes('aria-keyshortcuts'), 'shortcut labels and handlers use the fixed routes');
+  for (const source of [desktop, mobile, shell, store, runtime,
+    readRepoFile('frontend/src/vue/components/SettingsTabShell.vue'),
+    readRepoFile('frontend/src/vue/components/SettingsFormPanels.vue')]) {
+    assert(!/WorkspaceSwitcher|WorkspaceWelcome|WorkspaceSuggestion|WorkspacePreferencesPanel|setWorkspace|createWorkspaceSuggester/.test(source), 'retired workspace UI and behavior must not return');
+  }
+});
+
+test('the touchdown shake switch, the debug-modal button and the internal changelog move together', () => {
+  const shakeSource = readRepoFile('backend/telemetry-provider/touchdown-shake.ts');
+  const providerSource = readRepoFile('backend/telemetry-provider/simconnect-telemetry-provider.ts');
+  const coreSource = readRepoFile('backend/core/simbridge-core.ts');
+  const modalSource = readRepoFile('frontend/src/vue/components/DebugTelemetryModal.vue');
+  const internalChangelog = readRepoFile('docs/INTERNAL-CHANGELOG.md');
+  const disabled = /export const TOUCHDOWN_SHAKE_DISABLED = (true|false);/.exec(shakeSource);
+  assert(disabled, 'touchdown-shake.ts must declare TOUCHDOWN_SHAKE_DISABLED as a literal');
+  assert(providerSource.includes('if (TOUCHDOWN_SHAKE_DISABLED) {') && coreSource.includes('if (TOUCHDOWN_SHAKE_DISABLED) {') && coreSource.includes('!TOUCHDOWN_SHAKE_DISABLED && '), 'the provider trigger, the testShake handler and the landing subscription must all check the switch');
+  const buttonPresent = modalSource.includes('id="debug-test-shake"');
+  if (disabled[1] === 'true') {
+    assert(!buttonPresent, 'while the touchdown shake is disabled the debug modal must not offer Test Shake');
+    assert(internalChangelog.includes('Touchdown camera shake disabled'), 'docs/INTERNAL-CHANGELOG.md must record why the shake is disabled');
+  } else {
+    assert(buttonPresent, 're-enabling the touchdown shake must restore the Test Shake button');
+    assert(/re-enabled|brought back|restored/i.test(internalChangelog.split('## ')[1] || ''), 'docs/INTERNAL-CHANGELOG.md must get a new entry when the shake comes back');
+  }
+});
+
+test('support asks use one untagged destination, one rule module and one prompt slot', () => {
+  const linksSource = readRepoFile('frontend/src/support/links.js');
+  const rulesSource = readRepoFile('frontend/src/support/milestones.js');
+  const supportStoreSource = readRepoFile('frontend/src/vue/stores/support.js');
+  const supportRuntimeSource = readRepoFile('frontend/src/support/runtime.js');
+  const promptSource = readRepoFile('frontend/src/vue/components/SupportPrompt.vue');
+  const whatsNewCardSource = readRepoFile('frontend/src/vue/components/WhatsNewCard.vue');
+  const voiceFirstCommandSource = readRepoFile('frontend/src/vue/components/VoiceFirstCommandCard.vue');
+  const aboutSource = readRepoFile('frontend/src/vue/components/SettingsAboutLegal.vue');
+  const footerSource = readRepoFile('frontend/src/vue/components/AppFooter.vue');
+  const navigatorSource = readRepoFile('frontend/src/vue/components/AppNavigator.vue');
+  const buildSource = readRepoFile('frontend/build.js');
+  const policySource = readRepoFile('electron/external-url-policy.js');
+
+  const kofiOutsideHelper = ['frontend/src/vue/components/AppFooter.vue', 'frontend/src/vue/components/AppNavigator.vue', 'frontend/src/vue/components/SupportLink.vue', 'frontend/src/vue/components/SupportSection.vue', 'frontend/src/vue/components/SupportPrompt.vue', 'frontend/src/vue/components/WhatsNewCard.vue', 'frontend/src/vue/components/SettingsAboutLegal.vue']
+    .filter((file) => readRepoFile(file).includes('ko-fi.com'));
+  assert.deepEqual(kofiOutsideHelper, [], 'provider destinations must not appear in app components');
+  assert(linksSource.includes("export const SUPPORT_URL = 'https://www.flightfabric.com/support/'"), 'links.js owns the stable support URL');
+  assert(policySource.includes("const SUPPORT_URL = 'https://www.flightfabric.com/support/'") && !policySource.includes('KOFI_SOURCE_TAG'), 'the Electron policy only allows the fixed support entry point');
+  for (const source of [linksSource, navigatorSource, promptSource, readRepoFile('frontend/src/vue/components/SupportSection.vue'), readRepoFile('frontend/src/vue/components/SupportLink.vue')]) {
+    assert(!source.includes('?src=') && !source.includes('SUPPORT_SOURCES') && !source.includes('kofiLink'), 'support links must not add source tags');
+    assert(source.includes('SUPPORT_URL'), 'support links must use the shared destination');
+  }
+  if (repoFileExists('site/flightfabric')) {
+    const destination = JSON.parse(readRepoFile('site/support-link.json')).destination;
+    for (const file of listRepoFiles(path.join(ROOT_DIR, 'site/flightfabric'), file => file.endsWith('.html'))) {
+      const websitePath = path.relative(ROOT_DIR, file).replace(/\\/g, '/');
+      if (websitePath === 'site/flightfabric/support/index.html') continue;
+      let html = fs.readFileSync(file, 'utf8');
+      if (['site/flightfabric/index.html', 'site/flightfabric/msfs-2024-voice-control/index.html'].includes(websitePath)) {
+        // The two header links go directly to the configured profile.
+        // Release-tooling checks their placement and destination.
+        html = html.replace(`class="header-support-link" href="${destination}"`, 'class="header-support-link"');
+      }
+      if (websitePath === 'site/flightfabric/index.html') {
+        // The official inline tip panel also needs a provider URL; its
+        // fallback retains the stable redirect.
+        html = html.replace('src="https://ko-fi.com/yenbuilds/?hidefeed=true&amp;widget=true&amp;embed=true&amp;preview=true"', '');
+      }
+      assert(!html.includes('https://ko-fi.com/'), `${file} must use /support/ except for the configured header links and homepage tip-panel embed`);
+    }
+  }
+  assert(navigatorSource.includes('SUPPORT_URL as supportHref')
+    && footerSource.includes("shell.openNavigator('help')")
+    && !footerSource.includes('support/links.js'), 'the footer should route support through Help');
+  assert(!whatsNewCardSource.includes('support/links.js'), 'release highlights never bypass support prompt limits');
+
+  assert(rulesSource.includes('export const SUPPORT_MILESTONES = Object.freeze([10, 50, 100, 250, 500])'), 'the milestones live in the rules module');
+  assert(rulesSource.includes('SUPPORT_MIN_DAYS_BETWEEN_PROMPTS = 30') && rulesSource.includes('SUPPORT_MIN_DAYS_SINCE_FIRST_SEEN = 7'), 'the quiet periods are named constants');
+  assert(supportRuntimeSource.includes("promptsStore?.wasShown?.('whats-new')") && supportRuntimeSource.includes('modalIsOpen(documentRef)') && supportRuntimeSource.includes('SUPPORT_PROMPT_LINGER_MS'), 'the runtime enforces one mention per session, no card behind a modal, and a self-fading card');
+  assert(!promptSource.includes('goalSummary'), 'the ask card never shows the supporter goal');
+  assert(supportStoreSource.includes('supportPromptBlockReason(record.value') && !supportRuntimeSource.includes('SUPPORT_MILESTONES'), 'the store applies the rules; the runtime only decides when to evaluate them');
+  assert(supportRuntimeSource.includes("detail?.final !== true") && supportRuntimeSource.includes('isRemoteViewPath('), 'the runtime asks only after a final landing and never on the remote view');
+  assert(!supportRuntimeSource.includes('setInterval'), 'the support runtime never polls');
+
+  for (const [file, source] of [['SupportPrompt.vue', promptSource], ['WhatsNewCard.vue', whatsNewCardSource], ['VoiceFirstCommandCard.vue', voiceFirstCommandSource]]) {
+    assert(source.includes('role="status"') && !source.includes('role="dialog"') && source.includes('class="app-prompt"'), `${file} is a non-modal prompt card in the shared style`);
+  }
+  assert(supportStoreSource.includes("prompts.request(SUPPORT_PROMPT_ID)") && readRepoFile('frontend/src/vue/stores/whats-new.js').includes('prompts.request(WHATS_NEW_PROMPT_ID)') && readRepoFile('frontend/src/vue/stores/voice-first-command.js').includes('prompts.request(VOICE_FIRST_COMMAND_PROMPT_ID)'), 'every card asks the prompts store for the slot');
+  const firstCommandRuntimeSource = readRepoFile('frontend/src/voice/first-command.js');
+  assert(firstCommandRuntimeSource.includes('isRemoteViewPath(') && firstCommandRuntimeSource.includes("status === 'sent'") && !firstCommandRuntimeSource.includes('setInterval'), 'the first-command runtime never asks on the phone, retires on a sent command, and never polls');
+  assert(voiceFirstCommandSource.includes("useVoicePushToTalk(voice)") && readRepoFile('frontend/src/vue/components/VoiceControlPanel.vue').includes("useVoicePushToTalk(voice)"), 'the card and the voice panel share one hold-to-talk composable');
+  assert(voiceFirstCommandSource.includes('audio never leaves it'), 'the first ask carries the privacy promise');
+  assert(aboutSource.includes('<SupportSection />'), 'About mounts the shared Support section');
+  assert(buildSource.includes("require(path.join(ROOT, 'scripts', 'whats-new-highlights.js'))") && buildSource.includes("'whats-new.json'"), 'the build derives the what\'s-new asset from the release notes parser');
+  assert(readRepoFile('scripts/validate-release-versions.js').includes("require('./whats-new-highlights.js')"), 'the release validator reuses the same parser');
 });
 
 test('responsive browser shell accounts for dynamic viewports and device safe areas', () => {
@@ -937,15 +1043,17 @@ test('sim menu and quick-glance visibility are Vue state driven', () => {
   assert(!displayDefaultsSource.includes("'menu-state-bottom'"), 'generic text reset should not mutate Vue-owned footer sim badge');
 });
 
-test('VRE sampling indicator is Vue state driven', () => {
+test('VRE sampling diagnostics are Vue state driven in the debug modal', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
+  const debugModalSource = readRepoFile('frontend/src/vue/components/DebugTelemetryModal.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
   const statusIndicatorsSource = readRepoFile('frontend/src/ui/status-indicators.js');
   const appRuntimeSource = readRepoFile('frontend/src/app/runtime.js');
 
   assert(statusStoreSource.includes('vreSampling: getDefaultVreSampling()'), 'status store should own VRE sampling state');
   assert(statusStoreSource.includes('updateVreSampling(message)'), 'status store should expose a VRE sampling update action');
-  assert(appHeaderSource.includes('status.vreSamplingSummaryLabel'), 'AppHeader should render VRE sampling from the status store');
+  assert(debugModalSource.includes('status.vreSamplingSummaryLabel'), 'debug modal should render VRE sampling from the status store');
+  assert(!appHeaderSource.includes('sampling-indicator'), 'sampling diagnostics should stay out of the flight header');
   assert(appRuntimeSource.includes('statusStore,'), 'app runtime should pass the status store into legacy indicator shims');
   assert(statusIndicatorsSource.includes('statusStore?.updateVreSampling'), 'legacy indicator shim should delegate VRE sampling to the store');
   assert(!statusIndicatorsSource.includes('formatSamplingBand'), 'legacy indicator shim should not format VRE sampling display text');
@@ -1265,7 +1373,7 @@ test('Vue components centralize repeated display primitives', () => {
   assert(flightTelemetrySource.includes('lightItems'), 'flight telemetry light indicators should use shared metadata');
   assert(flightTelemetrySource.includes('telemetryValueLargeClass'), 'flight telemetry large value classes should be centralized');
   assert(flightTelemetrySource.includes('warningBannerBaseClass'), 'flight telemetry warning banner classes should be centralized');
-  assert(appHeaderSource.includes('samplingDetails'), 'header sampling details should be data-driven');
+  assert(readRepoFile('frontend/src/vue/components/DebugTelemetryModal.vue').includes('samplingDetails'), 'debug sampling details should be data-driven');
   assert(appHeaderSource.includes('AppTooltip'), 'header hover/click hints should use the shared Floating UI tooltip component');
   assert(!appHeaderSource.includes('popoverPanelClass'), 'header should not keep the retired CSS-hover popover class helper');
   assert(liveMapHeaderSource.includes('routeFields'), 'live map route controls should be data-driven');
@@ -1314,7 +1422,7 @@ test('live map and timeline runtime bridges use store-driven signals', () => {
   assert(liveMapStoreSource.includes('function requestCenter()'));
   assert(liveMapStoreSource.includes('function requestSetTarget()'));
   assert(liveMapStoreSource.includes('function bindRuntimeActions({'));
-  assert(liveMapHeaderSource.includes('@click="liveMap.requestCenter()"'));
+  assert(liveMapShellSource.includes('@click="liveMap.requestCenter()"'), 'the on-map center button should delegate through the store');
   assert(liveMapHeaderSource.includes("setAction: 'requestSetTarget'"), 'route metadata should preserve set-target action');
   assert(liveMapHeaderSource.includes("clearAction: 'requestClearTarget'"), 'route metadata should preserve clear-target action');
   assert(liveMapHeaderSource.includes("setAction: 'requestSetOrigin'"), 'route metadata should preserve set-origin action');
@@ -1565,7 +1673,7 @@ test('settings desktop actions delegate through store/runtime bindings', () => {
   assert(settingsAboutSource.includes('await settingsUi.requestRevealLegalFolder();'), 'settings legal panel should route legal-folder opening through the store');
   assert(!msfsModalSource.includes('window.electronAPI'), 'MSFS installs modal should not call Electron APIs directly');
   assert(!settingsAboutSource.includes('window.electronAPI'), 'settings legal panel should not call Electron APIs directly');
-  assert(settingsRuntimeSource.includes('settingsUiStore?.bindDesktopActions?.({'), 'settings runtime should bind Electron-backed desktop actions into the store');
+  assert(settingsRuntimeSource.includes('settingsUiStore?.bindDesktopActions?.(canManageSettings() ? {'), 'settings runtime should bind Electron-backed desktop actions into the store only with management access');
   assert(settingsRuntimeSource.includes('getStorageLocations: typeof windowRef.electronAPI?.getStorageLocations'), 'settings runtime should bind storage-location loading from Electron');
   assert(settingsRuntimeSource.includes('openStorageLocation: typeof windowRef.electronAPI?.revealInExplorer'), 'settings runtime should reuse the allowlisted Explorer reveal IPC for storage paths');
 });
@@ -1698,12 +1806,14 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(systemHostSource.includes('const remoteControlPairingUrl = computed'), 'phone URL construction should retain the current session token URL');
   assert(systemHostSource.includes('remoteControlPairingUrl.value || remoteViewerUrl.value'), 'phone setup should choose one best URL without redistributing received tokens');
   assert(systemHostSource.includes("if (remoteAccessEnabled.value !== true) return ''"), 'phone URLs should fail closed unless the active backend confirms trusted-LAN access');
-  assert(systemTabSource.includes(':value="systemHost.remoteBrowserUrl"'), 'the single phone QR must use the best available phone URL');
+  assert(systemTabSource.includes(':value="phoneSetupUrl"')
+    && systemTabSource.includes("profiles.authorizationScope === 'full-control'")
+    && systemTabSource.includes('computed(() => canManageHost.value ? systemHost.remoteBrowserUrl : systemHost.remoteViewerUrl)'), 'the single phone QR must use the best authorized URL and fall back to viewer access for remote devices');
   assert.equal((systemTabSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
   assert(!systemTabSource.includes(':value="systemHost.remoteViewerUrl"') && !systemTabSource.includes(':value="systemHost.remoteControlPairingUrl"'), 'PC setup should not expose separate viewer and control choices');
   assert(systemTabSource.includes('Starting a new flight does not require pairing again'), 'PC setup should explain that new flights do not rotate the backend token');
   assert(secondScreenGuideSource.includes('New flights appear automatically'), 'phone onboarding should explain repeat-flight behavior');
-  assert(secondScreenGuideSource.includes('Pair again only after the Flight Fabric backend restarts'), 'phone onboarding should explain when control re-pairing is required');
+  assert(secondScreenGuideSource.includes('Pair again only after the FlightFabric backend restarts'), 'phone onboarding should explain when control re-pairing is required');
   assert(appHeaderSource.includes('id="header-mobile-access-btn"'), 'desktop header should expose an obvious Phone setup action');
   assert(aircraftControlSource.includes('open Phone setup. Scan the QR, or request controls here and approve the matching code'), 'read-only control attempts should explain both secure phone pairing paths');
 });
@@ -1712,7 +1822,7 @@ test('remote access UI warns users to stay on trusted private networks', () => {
   const settingsPanelsSource = readRepoFile('frontend/src/vue/components/SettingsFormPanels.vue');
   const httpServerSource = readRepoFile('backend/core/http-server.js');
 
-  assert(settingsPanelsSource.includes('Use Flight Fabric on phones and tablets'), 'settings should make the phone and tablet access path explicit');
+  assert(settingsPanelsSource.includes('Use FlightFabric on phones and tablets'), 'settings should make the phone and tablet access path explicit');
   assert(settingsPanelsSource.includes('id="setting-remote-access-warning"'), 'settings panel should render a trusted-LAN warning when enabled');
   assert(settingsPanelsSource.includes('public/shared networks'), 'settings panel should warn against public/shared networks');
   assert(settingsPanelsSource.includes('Open <span class="font-medium text-fg">Phone setup</span> on this PC')

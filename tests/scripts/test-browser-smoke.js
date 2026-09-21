@@ -15,7 +15,9 @@ const FRONTEND_DIST = path.join(ROOT, 'frontend-dist');
 const ELECTRON_APP_DIR = path.join(ROOT, 'scripts', 'browser-smoke-app');
 const ELECTRON_MODULE_PATH = path.join(ROOT, 'electron', 'node_modules', 'electron');
 const ELECTRON_SMOKE_TIMEOUT_MS = 30000;
-const ELECTRON_PARENT_TIMEOUT_MS = ELECTRON_SMOKE_TIMEOUT_MS + 15000;
+// The combined suite crosses Aircraft, map, review and reconnect workflows.
+// Individual waits retain their 30s ceiling; give the entire process its own budget.
+const ELECTRON_PARENT_TIMEOUT_MS = 120000;
 const headerOnly = process.env.FF_BROWSER_SMOKE_HEADER_ONLY === '1';
 const sharedSettings = require(path.join(ROOT, 'shared', 'app-settings-shared.js'));
 
@@ -415,6 +417,13 @@ function createFixtureState() {
         qualifiedId: 'bundled/msfs/asobo-a320neo',
       },
       {
+        id: 'pmdg-737',
+        name: 'PMDG 737',
+        namespace: 'bundled',
+        simulator: 'msfs',
+        qualifiedId: 'bundled/msfs/pmdg-737',
+      },
+      {
         id: 'pmdg-777',
         name: 'PMDG 777',
         namespace: 'bundled',
@@ -496,30 +505,57 @@ function createFixtureBackend() {
     });
   }
 
+  function sendAircraftProfile(ws) {
+    const selectedAircraft = {
+      auto: { id: 'generic', name: 'Generic Aircraft', profileKey: 'bundled/msfs/generic' },
+      'bundled/msfs/pmdg-737': { id: 'pmdg-737', name: 'PMDG 737', profileKey: 'bundled/msfs/pmdg-737', templateId: 'pmdg-737' },
+      'bundled/msfs/pmdg-777': { id: 'pmdg-777', name: 'PMDG 777', profileKey: 'bundled/msfs/pmdg-777', templateId: 'pmdg-777' },
+      'bundled/msfs/fenix-a320': { id: 'fenix-a320', name: 'Fenix A320', profileKey: 'bundled/msfs/fenix-a320', templateId: 'fenix-a32x' },
+      'bundled/msfs/fbw-a32nx': { id: 'fbw-a32nx', name: 'FlyByWire A32NX', profileKey: 'bundled/msfs/fbw-a32nx', templateId: 'fbw-a32nx' },
+      'bundled/msfs/fbw-a380x': { id: 'fbw-a380x', name: 'FlyByWire A380X', profileKey: 'bundled/msfs/fbw-a380x', templateId: 'fbw-a380x' },
+    }[state.appSettings.aircraft?.profile];
+    if (!selectedAircraft) return;
+    sendJson(ws, {
+      type: 'aircraftProfile',
+      profile: {
+        id: selectedAircraft.id,
+        name: selectedAircraft.name,
+        namespace: 'bundled',
+        simulator: 'msfs',
+        _profileKey: selectedAircraft.profileKey,
+        profileRevision: 1,
+        aircraftSpecificTemplateId: selectedAircraft.templateId,
+      },
+      controlCapabilities: buildFixtureControlCapabilities(selectedAircraft.id, selectedAircraft.profileKey, 1),
+    });
+  }
+
   function handleMessage(ws, message) {
     state.messages.push(message);
 
     switch (message.type) {
+      case 'autotaxi':
+        // This fixture exercises production UI/navigation. Motion and route
+        // journeys have their own fake-transport aircraft-layout fixture.
+        sendJson(ws, {
+          type: 'autotaxiState', requestId: message.requestId,
+          ok: message.operation === 'status', status: 'idle', active: false,
+          canStart: false, reason: 'Autotaxi motion is unavailable in this fixture.',
+          unavailableReason: 'Autotaxi motion is unavailable in this fixture.',
+          ...(message.operation === 'status' ? {} : { error: 'No simulator controls are available in this fixture.' }),
+        });
+        break;
       case 'requestState':
+        sendJson(ws, { type: 'vreSampling', active: true, band: 'HIGH_FIDELITY', rateHz: 10,
+          targetRateHz: 10, effectiveRateHz: 10, intervalMs: 100, shouldSample: true,
+          reason: 'ground_proximity', phase: 'APPROACH', raFt: 240, vsFpm: -720 });
         sendJson(ws, {
           type: 'simState',
           simconnectConnected: true,
           inMenu: false,
         });
-        sendJson(ws, {
-          type: 'aircraftProfile',
-          profile: {
-            id: 'generic',
-            name: 'Generic Aircraft',
-            namespace: 'bundled',
-            simulator: 'msfs',
-            _profileKey: 'bundled/msfs/generic',
-          },
-          controlCapabilities: buildFixtureControlCapabilities(
-            'generic',
-            'bundled/msfs/generic',
-          ),
-        });
+        // A focus/resize state refresh must retain the selected aircraft.
+        sendAircraftProfile(ws);
         sendAppSettings(ws);
         sendJson(ws, {
           type: 'position',
@@ -550,6 +586,7 @@ function createFixtureBackend() {
         });
         sendJson(ws, {
           type: 'appSettingsSaved',
+          requestId: message.requestId,
           ok: true,
           settings: state.appSettings,
           settingsFile: state.storage.settingsFile,
@@ -557,32 +594,7 @@ function createFixtureBackend() {
           restartRequired: false,
           restartReasons: [],
         });
-        const selectedAircraft = {
-          auto: { id: 'generic', name: 'Generic Aircraft', profileKey: 'bundled/msfs/generic' },
-          'bundled/msfs/pmdg-777': { id: 'pmdg-777', name: 'PMDG 777', profileKey: 'bundled/msfs/pmdg-777', templateId: 'pmdg-777' },
-          'bundled/msfs/fenix-a320': { id: 'fenix-a320', name: 'Fenix A320', profileKey: 'bundled/msfs/fenix-a320', templateId: 'fenix-a32x' },
-          'bundled/msfs/fbw-a32nx': { id: 'fbw-a32nx', name: 'FlyByWire A32NX', profileKey: 'bundled/msfs/fbw-a32nx', templateId: 'fbw-a32nx' },
-          'bundled/msfs/fbw-a380x': { id: 'fbw-a380x', name: 'FlyByWire A380X', profileKey: 'bundled/msfs/fbw-a380x', templateId: 'fbw-a380x' },
-        }[state.appSettings.aircraft?.profile];
-        if (selectedAircraft) {
-          sendJson(ws, {
-            type: 'aircraftProfile',
-            profile: {
-              id: selectedAircraft.id,
-              name: selectedAircraft.name,
-              namespace: 'bundled',
-              simulator: 'msfs',
-              _profileKey: selectedAircraft.profileKey,
-              profileRevision: 1,
-              aircraftSpecificTemplateId: selectedAircraft.templateId,
-            },
-            controlCapabilities: buildFixtureControlCapabilities(
-              selectedAircraft.id,
-              selectedAircraft.profileKey,
-              1,
-            ),
-          });
-        }
+        sendAircraftProfile(ws);
         break;
 
       case 'requestLogbook':
@@ -874,6 +886,21 @@ async function main() {
       onDisconnectRequested: () => fixtureBackend.disconnectAllClients(),
     });
     if (headerOnly) {
+      return;
+    }
+    if (process.env.FF_BROWSER_SMOKE_SUPPORT_ONLY === '1') {
+      log('support prompt browser smoke test passed');
+      return;
+    }
+    if (process.env.FF_BROWSER_SMOKE_NAVIGATION_ONLY === '1') {
+      log('tab navigation browser smoke test passed');
+      return;
+    }
+    if (process.env.FF_BROWSER_SMOKE_LIVE_MAP_ONLY === '1') {
+      assert.deepEqual(fixtureBackend.state.airportLookupRequests.map((request) => request.icao), ['KBOS', 'KPHL']);
+      assert.equal(fixtureBackend.state.destinationTarget, null);
+      assert.equal(fixtureBackend.state.originTarget?.icao, 'KPHL');
+      log('live map browser smoke test passed');
       return;
     }
     if (process.env.FF_BROWSER_SMOKE_TIMELINE_ONLY === '1') {

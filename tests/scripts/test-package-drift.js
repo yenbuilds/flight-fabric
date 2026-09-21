@@ -352,10 +352,7 @@ test('recovery launcher display matches the root package version', () => {
 
 test('published update manifest is self-consistent and not newer than the root candidate', () => {
   const publishedVersion = UPDATE_MANIFEST_JSON.version;
-  const expectedDownloadUrl = (
-    `https://github.com/yenbuilds/flight-fabric/releases/download/v${publishedVersion}`
-    + `/Flight.Fabric.Setup.${publishedVersion}.exe`
-  );
+  const expectedDownloadUrl = require('../../scripts/release-names.js').publishedInstallerUrl(publishedVersion);
   assert(
     compareAppVersions(publishedVersion, ROOT_VERSION) <= 0,
     `update-manifest.json version ${JSON.stringify(publishedVersion)} is newer than root candidate ${JSON.stringify(ROOT_VERSION)}`,
@@ -559,6 +556,22 @@ test('AltitudeMessage fields match MSG.ALTITUDE broadcast in sendBasicStreams (b
   const extra   = [...ifaceFields].filter(f => !bcFields.has(f));
   assert(missing.length === 0, `broadcast fields not in AltitudeMessage: ${missing.join(', ')}`);
   assert(extra.length   === 0, `AltitudeMessage fields not in broadcast: ${extra.join(', ')}`);
+});
+
+test('SimTimeMessage fields match sendSimTime broadcast object (bidirectional)', () => {
+  const ifaceFields = getInterfaceFields(MESSAGES_TS, 'SimTimeMessage');
+  const bcFields = getRuntimePayloadFields(
+    broadcastersRuntime.buildSimTimeBroadcastPayload({
+      zuluIso: '2026-09-19T21:14:05Z',
+      localIso: '2026-09-19T23:14:05',
+      timeOfDay: 4,
+      valid: true,
+    }),
+  );
+  const missing = [...bcFields].filter(f => !ifaceFields.has(f));
+  const extra   = [...ifaceFields].filter(f => !bcFields.has(f));
+  assert(missing.length === 0, `broadcast fields not in SimTimeMessage: ${missing.join(', ')}`);
+  assert(extra.length   === 0, `SimTimeMessage fields not in broadcast: ${extra.join(', ')}`);
 });
 
 test('EnvironmentMessage fields match sendEnvironment broadcast object (bidirectional)', () => {

@@ -138,6 +138,11 @@ mod tests {
         assert!(!is_safe_control_name("BAD;Remove-Item"));
         assert!(!is_safe_control_unit("Feet; rm"));
         assert!(bounded_event_data(-9900.0).is_some());
+        // Partial brake-axis values must keep their signed bit pattern through
+        // the DWORD transport; they must never become zero or full braking.
+        for value in [-16383, -15359, -12287, -8191, -4311, 0, 8191, 16383] {
+            assert_eq!(bounded_event_data(value as f64).unwrap() as i32, value);
+        }
         assert!(bounded_event_data(f64::NAN).is_none());
         assert!(bounded_event_data(1_000_001.0).is_none());
         assert_eq!(bounded_sdk_event_data(0x20000000 as f64), Some(0x20000000));

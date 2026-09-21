@@ -1563,7 +1563,7 @@ test('runway touchdown at threshold counts as TDZ achieved and preserves score-s
 
     assert.strictEqual(finalEvent.touchdownDistance.distanceFt, 0, 'Expected threshold touchdown distance to be 0 ft');
     assert.strictEqual(finalEvent.touchdownDistance.tdzAchieved, true, '0 ft at/after threshold should count as TDZ achieved');
-    assert.strictEqual(finalEvent.touchdownDistance.grade, 'Outstanding', 'Generic scoring should not penalize threshold touchdowns without aircraft-specific target data');
+    assert.strictEqual(finalEvent.touchdownDistance.grade, 'Near Threshold', 'A touchdown on the threshold is inside the zone but earns the near-threshold caution');
     assert.strictEqual(finalEvent.touchdownDistance.shortLanding, false, 'Threshold touchdown is not short');
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetFt, 0, 'Centered touchdown should emit lateral offset');
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetSide, 'center', 'Centered touchdown should emit center side');

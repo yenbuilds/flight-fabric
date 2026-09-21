@@ -162,15 +162,54 @@ test('bank-rate analysis ignores a one-frame spike and retains sustained recorde
   assert(!isolatedSpike.flags.some((flag: Record<string, any>) => flag.code === 'rapid_bank_change'));
 
   const sustainedRate = analyzeRollout([
-    sample(1_000, { rollRateDegS: 0.5 }),
-    sample(1_200, { rollRateDegS: 8.5 }),
-    sample(1_400, { rollRateDegS: 9 }),
+    sample(1_000, { bankDeg: 0, rollRateDegS: 0.5 }),
+    sample(1_200, { bankDeg: 1.7, rollRateDegS: 8.5 }),
+    sample(1_400, { bankDeg: 3.5, rollRateDegS: 9 }),
   ], { runwayHeadingTrueDeg: 360 });
   assert(sustainedRate);
   assert.equal(sustainedRate.maxBankRateDegS, 8.5);
   assert(sustainedRate.flags.some((flag: Record<string, any>) => (
     flag.code === 'rapid_bank_change' && flag.severity === 'warning'
   )));
+});
+
+test('bank-rate flags require a noticeable bank amplitude', () => {
+  // YSCB RWY 35, 737-800, 2026-09-17: nosewheel touchdown with a 6 kt left
+  // crosswind rocked the aircraft +2.2 -> -1.4 deg with no roll input. The
+  // recorded roll rate briefly reached 5.3 deg/s, but a sub-3 deg wobble is
+  // gear settling, not an abrupt correction.
+  const gearBump = analyzeRollout([
+    sample(1_000, { gsKts: 131.7, bankDeg: 2.2, rollRateDegS: -0.3 }),
+    sample(1_250, { gsKts: 130.4, bankDeg: 1.3, rollRateDegS: -0.5 }),
+    sample(1_500, { gsKts: 129.5, bankDeg: 0.6, rollRateDegS: 3.3 }),
+    sample(1_650, { gsKts: 129.2, bankDeg: 0.1, rollRateDegS: 5.3 }),
+    sample(1_750, { gsKts: 129.0, bankDeg: -0.3, rollRateDegS: 5.4 }),
+    sample(2_000, { gsKts: 128.0, bankDeg: -1.4, rollRateDegS: 2.6 }),
+    sample(2_250, { gsKts: 127.4, bankDeg: -1.4, rollRateDegS: -0.3 }),
+  ], { runwayHeadingTrueDeg: 360 });
+  assert(gearBump);
+  assert.equal(gearBump.maxBankDeg, 2.2);
+  assert.equal(gearBump.maxBankRateDegS, 5.3);
+  assert.equal(gearBump.assessment, 'normal');
+  assert(!gearBump.flags.some((flag: Record<string, any>) => flag.code === 'rapid_bank_change'));
+
+  // Same rate trace, but the roll actually develops into a 3+ deg bank.
+  const realCorrection = analyzeRollout([
+    sample(1_000, { gsKts: 131.7, bankDeg: 0.4, rollRateDegS: -0.3 }),
+    sample(1_250, { gsKts: 130.4, bankDeg: 0.2, rollRateDegS: -0.5 }),
+    sample(1_500, { gsKts: 129.5, bankDeg: -0.6, rollRateDegS: 3.3 }),
+    sample(1_650, { gsKts: 129.2, bankDeg: -1.4, rollRateDegS: 5.3 }),
+    sample(1_750, { gsKts: 129.0, bankDeg: -1.9, rollRateDegS: 5.4 }),
+    sample(2_000, { gsKts: 128.0, bankDeg: -3.2, rollRateDegS: 2.6 }),
+    sample(2_250, { gsKts: 127.4, bankDeg: -3.2, rollRateDegS: -0.3 }),
+  ], { runwayHeadingTrueDeg: 360 });
+  assert(realCorrection);
+  assert.equal(realCorrection.maxBankDeg, 3.2);
+  assert.equal(realCorrection.assessment, 'caution');
+  assert.deepEqual(
+    realCorrection.flags.map((flag: Record<string, any>) => flag.code).sort(),
+    ['rapid_bank_change', 'rollout_bank'],
+  );
 });
 
 test('runway-edge contact is critical only when corroborated by an excursion', () => {

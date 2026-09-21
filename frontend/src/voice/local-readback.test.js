@@ -56,6 +56,10 @@ test('aviation readbacks use natural state confirmations', () => {
   assert.equal(formatAviationReadback({
     commandId: 'configuration.lights.takeoff', label: 'Takeoff lights', input: {},
   }), 'Takeoff lights set.');
+  for (const [preset, spoken] of [['afterTakeoff', 'After takeoff lights set.'], ['landing', 'Landing lights set.'],
+    ['afterLanding', 'After landing lights set.']]) {
+    assert.equal(formatAviationReadback({ commandId: `configuration.lights.${preset}`, label: 'x', input: {} }), spoken);
+  }
 });
 
 test('local readback sends bounded text only to the trusted local Electron API', async () => {

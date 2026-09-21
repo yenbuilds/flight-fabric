@@ -95,6 +95,9 @@ function buildBaseArgs(overrides: AnyRecord = {}): AnyRecord {
       yokeXPct: 5,
       yokeYPct: -3,
       rudderPedalPct: 2,
+      noseSteerPct: -40,
+      brakeLeftPct: 65,
+      brakeRightPct: 0,
       aileronPct: 1,
       elevatorPct: -1,
       rudderPct: 2,
@@ -364,6 +367,8 @@ test('preserves reliable automation and weather fields', () => {
   assert(row.flapsSource === 'profile', 'expected flap provenance to survive recording enrichment');
   assert(row.spoilerSource === 'simconnect', 'expected spoiler provenance to survive recording enrichment');
   assert(row.spoilerAvailable === true, 'expected spoiler availability to survive recording enrichment');
+  assert(row.rudderPedalPct === 2 && row.noseSteerPct === -40 && row.brakeLeftPct === 65 && row.brakeRightPct === 0,
+    'expected pilot ground-handling inputs to reach the recording frame flat');
 });
 
 test('preserves explicit altitude and barometer diagnostics for CSV recording', () => {

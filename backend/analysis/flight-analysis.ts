@@ -152,6 +152,7 @@ function buildDefaultTouchdownDistanceData(bounceScoring: BounceScoring = {}): A
     touchdown_distance_score: null,
     touchdown_distance_grade: null,
     touchdown_distance_zone: null,
+    touchdown_zone_end_ft: null,
     runway_icao: null,
     runway_id: null,
     short_landing: null,
@@ -221,6 +222,9 @@ function buildTouchdownRunwayAnalysis(input: {
   if (distanceFt == null) {
     return { touchdownDistanceData: baseData, shortLandingDetected, tdzAchieved: false };
   }
+  // Score the same whole-foot distance that is recorded, so a replay that
+  // recomputes from the stored value lands in the same band.
+  distanceFt = Math.round(distanceFt);
 
   const lateralOffset = heading !== null
     ? landingDistance.calculateLateralOffset(threshold, touchdownPoint, heading)
@@ -257,6 +261,7 @@ function buildTouchdownRunwayAnalysis(input: {
     touchdown_distance_score: scoring.score,
     touchdown_distance_grade: scoring.grade,
     touchdown_distance_zone: scoring.zone,
+    touchdown_zone_end_ft: scoring.zoneEndFt ?? null,
     runway_icao: runwayData.icao || null,
     runway_id: runwayData.runway || runwayData.runwayId || null,
     short_landing: shortLandingDetected,

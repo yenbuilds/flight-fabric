@@ -168,8 +168,8 @@ export function createLandingController({
     renderStabilityBreakdown,
     renderApproachProfile,
   });
-  function showLanding(msg) {
-    landingCardRenderer.renderLandingCard(msg);
+  function showLanding(msg, options) {
+    landingCardRenderer.renderLandingCard(msg, options);
   }
 
   function activateLandingTab() {
@@ -302,7 +302,7 @@ export function createLandingController({
     try {
       showLanding(timelineUltimateStability
         ? replaceLandingMessageUltimateStability(msg, timelineUltimateStability)
-        : msg);
+        : msg, { source: 'history' });
     } finally {
       pendingUltimateStability = previousPendingUltimateStability;
       lastLandingData = previousLastLandingData;

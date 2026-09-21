@@ -2,17 +2,18 @@
 :root.dark {
   color-scheme: dark;
 
-  --background: 6 8 12;
+  --background: 17 20 26;
   --foreground: 242 245 247;
-  --card: 36 42 51;
+  --card: 28 33 41;
   --card-foreground: 242 245 247;
-  --panel: 23 27 35;
-  --panel-subtle: 31 37 45;
-  --panel-elevated: 51 59 71;
-  --muted: 42 49 59;
+  --panel: 23 27 34;
+  --panel-subtle: 28 33 41;
+  --panel-elevated: 39 46 57;
+  --muted: 39 46 57;
   --muted-foreground: 184 192 204;
-  --border: 75 85 101;
-  --border-strong: 112 124 143;
+  --border: 57 66 79;
+  --border-strong: 96 111 133;
+  --selection: 139 184 239;
   --primary: 49 220 126;
   --primary-foreground: 4 10 7;
   --success: 49 220 126;
@@ -31,11 +32,11 @@
   --gray-900: 36 42 51;
   --gray-950: 6 8 12;
 
-  --color-surface: 6 8 12;
-  --color-surface-50: 23 27 35;
-  --color-surface-100: 36 42 51;
-  --color-surface-200: 51 59 71;
-  --color-surface-300: 88 100 118;
+  --color-surface: var(--background);
+  --color-surface-50: var(--panel);
+  --color-surface-100: var(--card);
+  --color-surface-200: var(--muted);
+  --color-surface-300: var(--border-strong);
   --color-accent: 49 220 126;
   --color-accent-warm: 245 174 71;
   --color-danger: 255 101 101;
@@ -68,8 +69,8 @@
   --ff-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --ff-motion-lift: 8px;
   --ff-motion-scale: 0.992;
-  --ff-shadow-card: 0 22px 54px rgba(0, 0, 0, 0.34);
-  --ff-shadow-soft: 0 14px 30px rgba(0, 0, 0, 0.24);
+  --ff-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.14);
+  --ff-shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.1);
   --ff-shadow-accent: 0 14px 32px rgba(49, 220, 126, 0.13);
   --ff-touch-target: 2.75rem;
   --ff-touch-target-flight: 3.25rem;
@@ -119,8 +120,7 @@ body.ff-app-shell {
   overflow: hidden;
   overscroll-behavior: none;
   color: rgb(var(--foreground)) !important;
-  background:
-    linear-gradient(180deg, #0b0e14 0%, #06080c 42%, #090c12 100%) !important;
+  background: rgb(var(--background)) !important;
   font-family: var(--ff-font-ui);
 }
 
@@ -129,6 +129,7 @@ body.ff-dialog-open {
 }
 
 body.ff-app-shell::before {
+  display: none;
   content: "";
   position: fixed;
   inset: 0;
@@ -234,82 +235,6 @@ select:disabled {
   display: contents;
 }
 
-.app-shell-container {
-  width: min(100%, 76rem);
-  margin-inline: auto;
-  padding-inline: 1rem;
-}
-
-@media (min-width: 768px) {
-  .app-shell-container {
-    padding-inline: 1.5rem;
-  }
-}
-
-@media (min-width: 1200px) {
-  .app-shell-container {
-    padding-inline: 1.5rem;
-  }
-}
-
-#app-header {
-  overflow: visible;
-  padding-top: env(safe-area-inset-top, 0px);
-  background: rgba(16, 19, 25, 0.92) !important;
-  border-bottom: 1px solid rgb(var(--border) / 0.7) !important;
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(20px);
-}
-
-.app-header-shell {
-  position: relative;
-}
-
-.app-header-row {
-  min-height: 4.25rem !important;
-}
-
-.app-brand-block {
-  min-width: 0;
-}
-
-.app-brand-mark {
-  display: block;
-  width: 2.5rem;
-  height: 2.5rem;
-  flex: none;
-  object-fit: contain;
-  filter: drop-shadow(0 8px 14px rgba(30, 144, 255, 0.14));
-}
-
-.app-brand-title {
-  color: rgb(var(--foreground));
-  font-family: var(--ff-font-display);
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.header-mobile-access {
-  display: block;
-  flex: 0 0 auto;
-}
-
-@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
-  .header-mobile-access {
-    display: none;
-  }
-}
-
-.app-brand-subtitle {
-  color: rgb(var(--muted-foreground));
-  font-family: var(--ff-font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
-  line-height: 1.3;
-  text-transform: uppercase;
-}
-
 #flight-time,
 #connection-info,
 #runway-context,
@@ -317,40 +242,6 @@ select:disabled {
   color: rgb(var(--muted-foreground)) !important;
   font-family: var(--ff-font-mono);
   letter-spacing: 0.04em;
-}
-
-#aircraft-name {
-  color: rgb(var(--foreground)) !important;
-  font-family: var(--ff-font-display);
-  font-weight: 650;
-}
-
-#dest-progress-wrap {
-  padding-bottom: 0.8rem !important;
-}
-
-#dest-progress-wrap .text-gray-500 {
-  color: rgb(var(--muted-foreground)) !important;
-  font-family: var(--ff-font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-#dest-progress-fill,
-.dest-progress-fill {
-  background: linear-gradient(90deg, rgb(var(--primary)), rgb(87 196 255)) !important;
-  transition: width var(--ff-motion-medium) var(--ff-motion-ease);
-}
-
-.app-main {
-  min-height: 0;
-  position: relative;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.dashboard-shell {
-  padding-block: 0.9rem 4.5rem !important;
 }
 
 .tab-section {
@@ -379,64 +270,6 @@ select:disabled {
   }
 }
 
-.desktop-tab-stage {
-  margin-bottom: 1rem;
-}
-
-.desktop-tab-bar {
-  display: flex;
-  gap: 0.3rem;
-  align-items: center;
-  overflow-x: auto;
-  padding: 0.3rem;
-  border: 1px solid rgb(var(--border) / 0.72);
-  border-radius: 8px;
-  background: rgb(var(--panel) / 0.78);
-  box-shadow: var(--ff-shadow-soft);
-  scrollbar-width: none;
-}
-
-.desktop-tab-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.desktop-tab {
-  display: inline-flex;
-  flex: 1 1 0;
-  min-width: 5.8rem;
-  min-height: 2.2rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: rgb(var(--muted-foreground));
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition:
-    background var(--ff-motion-fast) var(--ff-motion-ease),
-    border-color var(--ff-motion-fast) var(--ff-motion-ease),
-    color var(--ff-motion-fast) var(--ff-motion-ease);
-  white-space: nowrap;
-}
-
-.desktop-tab:hover {
-  border-color: rgb(var(--border-strong) / 0.55);
-  background: rgb(var(--panel-elevated) / 0.56);
-  color: rgb(var(--foreground));
-}
-
-.desktop-tab.active {
-  border-color: rgb(var(--primary) / 0.44);
-  background: rgb(var(--primary) / 0.12);
-  color: rgb(var(--primary));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), var(--ff-shadow-accent);
-}
-
-.desktop-tab svg,
 .mobile-tab svg {
   width: 1rem;
   height: 1rem;
@@ -445,20 +278,16 @@ select:disabled {
 
 .mobile-tab-bar {
   position: fixed;
-  right: max(0.75rem, env(safe-area-inset-right, 0px));
-  bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
-  left: max(0.75rem, env(safe-area-inset-left, 0px));
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 45;
   display: none;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.25rem;
-  padding: 0.35rem;
-  padding-bottom: 0.35rem;
-  border: 1px solid rgb(var(--border) / 0.74);
-  border-radius: 8px;
-  background: rgb(var(--panel) / 0.94);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.44);
-  backdrop-filter: blur(18px);
+  padding: 0.4rem max(0.5rem, env(safe-area-inset-right, 0px)) max(0.4rem, env(safe-area-inset-bottom, 0px)) max(0.5rem, env(safe-area-inset-left, 0px));
+  border-top: 1px solid rgb(var(--border) / 0.74);
+  background: rgb(var(--panel));
 }
 
 .mobile-tab {
@@ -484,9 +313,9 @@ select:disabled {
 }
 
 .mobile-tab.active {
-  border-color: rgb(var(--primary) / 0.4);
-  background: rgb(var(--primary) / 0.12);
-  color: rgb(var(--primary));
+  border-color: rgb(var(--selection) / 0.18);
+  background: rgb(var(--selection) / 0.13);
+  color: rgb(var(--selection));
 }
 
 #mobile-more-sheet > div:last-child {
@@ -530,80 +359,129 @@ select:disabled {
   background: rgb(var(--panel-elevated) / 0.7) !important;
 }
 
+/* Prompt card: the one quiet, non-modal card the app may show at a time
+   (what's new, voice guidance, support). It sits above the footer, or
+   above the bottom bar on phones, and never takes focus. */
+.app-prompt {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right, 0px));
+  /* Clear the app footer so the coffee button and Diagnostics stay reachable. */
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  z-index: 46;
+  display: flex;
+  max-width: min(26rem, calc(100vw - 2rem));
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgb(var(--primary) / 0.35);
+  border-radius: var(--ff-radius-card);
+  background: rgb(var(--card) / 0.98);
+  box-shadow: var(--ff-shadow-soft);
+}
+
+.app-prompt-reason {
+  font-family: var(--ff-font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--primary));
+}
+
+.app-prompt-title {
+  margin-top: 0.15rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgb(var(--foreground));
+}
+
+.app-prompt-intent {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: rgb(var(--muted-foreground));
+}
+
+.app-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.app-prompt-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: rgb(var(--foreground) / 0.9);
+}
+
+.app-prompt-list li + li {
+  margin-top: 0.25rem;
+}
+
+.app-prompt-list-label {
+  font-weight: 600;
+  color: rgb(var(--foreground));
+}
+
+.app-prompt-list-label::after {
+  content: ": ";
+}
+
+.app-prompt-footnote {
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: rgb(var(--muted-foreground));
+}
+
+.app-prompt-link {
+  margin-left: 0.25rem;
+  color: rgb(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Supporter goal: a thin, honest progress line shown only for the month the
+   manifest describes. */
+.support-goal-track {
+  height: 0.3rem;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--panel-elevated) / 0.8);
+}
+
+.support-goal-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: rgb(var(--primary) / 0.8);
+}
+
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .app-prompt {
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    bottom: var(--mobile-bottom-nav-clearance);
+    max-width: none;
+  }
+}
+
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   body.ff-app-shell::before,
   body.ff-app-shell::after {
     display: none;
   }
 
-  #app-header,
-  .mobile-tab-bar,
-  .ff-app-footer {
+  .mobile-tab-bar {
     backdrop-filter: none;
-  }
-
-  #app-header {
-    background: rgb(var(--panel) / 0.99) !important;
-  }
-
-  .desktop-tab-stage {
-    display: none;
   }
 
   .mobile-tab-bar {
     display: grid;
     user-select: none;
     -webkit-user-select: none;
-  }
-
-  .dashboard-shell {
-    padding-bottom: var(--mobile-bottom-nav-clearance) !important;
-  }
-
-  .app-main {
-    scroll-padding-bottom: var(--mobile-bottom-nav-clearance);
-  }
-
-  .ff-app-footer {
-    padding-bottom: var(--mobile-bottom-nav-clearance);
-  }
-
-  .footer-meta {
-    align-items: flex-start !important;
-    flex-direction: column;
-    gap: 0.65rem;
-  }
-
-  .footer-meta > div {
-    width: 100%;
-    flex-wrap: wrap;
-    gap: 0.45rem 0.75rem;
-    justify-content: flex-start;
-  }
-
-  .app-header-row {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-block: 0.8rem;
-  }
-
-  .app-brand-block,
-  .header-controls {
-    width: 100%;
-  }
-
-  .app-brand-block {
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
-  .header-controls {
-    gap: 0.5rem 0.65rem;
-    justify-content: flex-start;
-  }
-
-  #aircraft-name {
-    max-width: min(14rem, calc(100vw - 9rem)) !important;
   }
 
   .app-feedback-toast {
@@ -675,17 +553,6 @@ select:disabled {
   #mobile-more-sheet {
     display: none !important;
   }
-}
-
-.ff-app-footer {
-  border-top-color: rgb(var(--border) / 0.72) !important;
-  background: rgb(var(--panel) / 0.88) !important;
-  color: rgb(var(--muted-foreground));
-  backdrop-filter: blur(18px);
-}
-
-.footer-meta {
-  color: rgb(var(--muted-foreground));
 }
 
 .ptr-indicator {
@@ -1578,7 +1445,7 @@ body.sim-in-menu .menu-overlay {
 
 .live-map-header-shell {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.45rem;
 }
 
 .live-map-header-top {
@@ -1634,14 +1501,41 @@ body.sim-in-menu .menu-overlay {
   text-transform: uppercase;
 }
 
+.live-map-overlays {
+  display: contents;
+}
+
+.live-map-controls {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 2rem;
+  z-index: 800;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: calc(100% - 1.5rem);
+  pointer-events: none;
+}
+
 #live-map-center-btn {
-  min-height: 1.8rem;
+  min-height: 2.75rem;
   border-color: rgb(var(--border) / 0.86) !important;
   border-radius: 7px !important;
-  background: rgb(var(--panel-elevated) / 0.68) !important;
+  background: rgb(var(--panel-elevated)) !important;
   color: rgb(var(--foreground)) !important;
-  padding: 0.35rem 0.65rem !important;
+  padding: 0.5rem 0.85rem !important;
   font-size: 0.75rem !important;
+  pointer-events: auto;
+}
+
+#live-map-center-btn:hover {
+  border-color: rgb(var(--primary) / 0.7) !important;
+}
+
+#live-map-center-btn:focus-visible {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
 }
 
 .live-map-inline-meta {
@@ -1731,16 +1625,17 @@ body.sim-in-menu .menu-overlay {
 
 @media (max-width: 640px) {
   .live-map-header-top {
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .live-map-actions {
-    width: 100%;
-    justify-content: space-between;
+    margin-left: auto;
   }
 
   .live-map-subtitle {
-    white-space: normal;
+    display: none;
   }
 }
 
@@ -3141,6 +3036,15 @@ body.sim-in-menu .menu-overlay {
   aspect-ratio: 3 / 2;
 }
 
+/* Thumbnails sit in lists beside other aircraft, so each is drawn at its relative
+   real length (--aircraft-artwork-scale, from the visual manifest) instead of
+   edge to edge. The origin sits on the shared belly line of the catalog renders
+   so smaller types read as smaller, not further away. The hero stays full-bleed. */
+.aircraft-artwork--thumbnail .aircraft-artwork__image {
+  transform: scale(var(--aircraft-artwork-scale, 1));
+  transform-origin: 50% 67%;
+}
+
 .aircraft-artwork--placeholder {
   pointer-events: auto;
 }
@@ -3751,8 +3655,6 @@ body.ff-app-shell.timeline-viewer-modal-open {
   overflow: hidden;
 }
 
-.app-shell-container,
-.dashboard-shell,
 .tab-section,
 .tab-section > div,
 .page-stack,
@@ -3762,16 +3664,6 @@ body.ff-app-shell.timeline-viewer-modal-open {
 .profiles-library,
 .settings-panel-grid {
   min-width: 0;
-}
-
-.app-shell-container {
-  width: min(100%, 76rem);
-  max-width: 76rem;
-  margin-inline: auto;
-}
-
-.dashboard-shell {
-  width: 100%;
 }
 
 .tab-section {
@@ -3827,61 +3719,22 @@ body.ff-app-shell.timeline-viewer-modal-open {
 .landing-gradient::before,
 .landing-gradient::after,
 .flight-state-panel::before,
-.flight-state-panel::after,
-#app-header::before {
+.flight-state-panel::after {
   display: none !important;
 }
 
 .card-hover:hover {
-  transform: translateY(-2px);
+  transform: none;
   border-color: rgb(var(--primary) / 0.32) !important;
   box-shadow: var(--ff-shadow-card);
 }
 
-.app-header-row {
-  min-width: 0;
-  gap: 0.85rem;
-}
-
-.app-brand-block,
-.app-header-primary,
-.app-header-secondary,
-.header-controls,
 .system-status-wrap {
   min-width: 0;
 }
 
-.header-controls,
 .system-status-wrap {
   flex-wrap: wrap;
-}
-
-.header-activity-controls,
-.header-flight-meta,
-.header-aircraft-summary,
-.header-aircraft-copy {
-  min-width: 0;
-}
-
-.header-activity-controls {
-  flex-wrap: wrap;
-}
-
-.header-flight-meta {
-  flex: 0 1 auto;
-  flex-wrap: nowrap;
-}
-
-.header-flight-time {
-  white-space: nowrap;
-}
-
-.desktop-tab-bar {
-  width: 100%;
-}
-
-.desktop-tab {
-  flex: 1 1 6.2rem;
 }
 
 .flight-state-panel {
@@ -4083,15 +3936,6 @@ body.ff-app-shell.timeline-viewer-modal-open {
 }
 
 @media (max-width: 1100px) {
-  .app-header-row {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .app-header-secondary {
-    width: 100%;
-    justify-content: flex-start;
-  }
 
   .timeline-split,
   .settings-panel-grid {
@@ -4100,18 +3944,6 @@ body.ff-app-shell.timeline-viewer-modal-open {
 }
 
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
-  .app-shell-container {
-    padding-left: max(0.8rem, env(safe-area-inset-left, 0px));
-    padding-right: max(0.8rem, env(safe-area-inset-right, 0px));
-  }
-
-  .dashboard-shell {
-    padding-top: 0.85rem !important;
-  }
-
-  .desktop-tab {
-    flex: 0 0 auto;
-  }
 
   .live-map-wrap,
   .timeline-map-wrap {
@@ -4410,39 +4242,6 @@ body.ff-app-shell.timeline-viewer-modal-open {
 }
 
 @media (max-width: 760px) {
-  #app-header {
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
-  }
-
-  .header-desktop-status {
-    display: none !important;
-  }
-
-  .app-header-row {
-    min-height: 0 !important;
-    gap: 0.4rem;
-    padding-block: 0.45rem 0.4rem;
-  }
-
-  .app-brand-block {
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 0.65rem;
-  }
-
-  .app-brand-mark {
-    width: 1.9rem;
-    height: 1.9rem;
-  }
-
-  .app-brand-copy {
-    flex: 0 1 auto;
-  }
-
-  .app-brand-title {
-    font-size: 0.9rem;
-    white-space: nowrap;
-  }
 
   #vue-status-root {
     min-width: 0;
@@ -4463,46 +4262,6 @@ body.ff-app-shell.timeline-viewer-modal-open {
     white-space: nowrap;
   }
 
-  .header-controls {
-    display: flex !important;
-    width: 100%;
-    flex-flow: row nowrap;
-    align-items: center;
-    gap: 0.45rem;
-  }
-
-  .header-flight-meta {
-    order: 1;
-    display: grid;
-    width: auto;
-    flex: 1 1 auto;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.45rem;
-  }
-
-  .header-aircraft-summary {
-    order: 1;
-    min-width: 0;
-  }
-
-  .header-aircraft-copy {
-    min-width: 0;
-  }
-
-  .header-flight-time {
-    order: 2;
-    justify-self: end;
-    font-size: 0.72rem !important;
-    letter-spacing: 0.05em;
-  }
-
-  #aircraft-name {
-    max-width: 100% !important;
-    font-size: 0.86rem !important;
-    line-height: 1.1;
-  }
-
   #aircraft-profile-name {
     max-width: 100% !important;
   }
@@ -4511,89 +4270,15 @@ body.ff-app-shell.timeline-viewer-modal-open {
     margin-left: 0.35rem;
   }
 
-  .header-activity-controls {
-    order: 2;
-    width: auto;
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
-    gap: 0.4rem;
-  }
-
-  .header-activity-controls > .app-tooltip-anchor,
-  .header-activity-controls > div {
-    flex: 0 0 auto;
-    min-width: 0;
-  }
-
-  .header-activity-controls .ff-status-chip {
-    min-height: 2rem;
-    gap: 0.35rem;
-    padding: 0.32rem 0.55rem;
-    font-size: 0.6rem;
-    letter-spacing: 0.11em;
-  }
-
-  #sampling-indicator,
   #vue-destination-progress-root {
     display: none !important;
   }
 }
 
 @media (max-height: 500px) and (pointer: coarse) {
-  .app-header-row {
-    min-height: 0 !important;
-    align-items: center;
-    flex-flow: row nowrap;
-    gap: 0.55rem;
-    padding-block: 0.4rem;
-  }
 
-  .app-brand-block {
-    width: auto;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 0.4rem;
-  }
-
-  .app-brand-mark {
-    width: 1.9rem;
-    height: 1.9rem;
-  }
-
-  .app-brand-copy,
-  #vue-status-root .text-sm,
-  #sampling-indicator {
+  #vue-status-root .text-sm {
     display: none;
-  }
-
-  .header-controls {
-    width: auto;
-    min-width: 0;
-    flex: 1 1 auto;
-    justify-content: flex-end;
-    gap: 0.5rem;
-  }
-
-  .header-activity-controls {
-    width: auto;
-    order: 2;
-  }
-
-  .header-flight-meta {
-    min-width: 0;
-    order: 1;
-  }
-
-  #aircraft-name {
-    max-width: min(10rem, 24vw) !important;
-  }
-
-  #dest-progress-wrap {
-    padding-bottom: 0.4rem !important;
-  }
-
-  .dashboard-shell {
-    padding-top: 0.5rem !important;
   }
 
   .mobile-tab {
@@ -4601,8 +4286,390 @@ body.ff-app-shell.timeline-viewer-modal-open {
   }
 }
 
-@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
-  .ff-app-footer {
+/* 3D flight views (live map and timeline replay).
+   The three.js canvas fills its surface; overlays sit above it and never
+   catch pointer input unless they are controls. The Leaflet containers are
+   hidden from their wrapper rather than by a bound class, because Leaflet
+   owns the classes on its own element. */
+.map-view-hidden,
+.live-map-wrap.map-view-3d-active > #live-map,
+.timeline-map-wrap.map-view-3d-active > #timeline-map {
+  display: none !important;
+}
+
+.flight-scene-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  /* The scene sets the two sky colours from its light rig so dusk and
+     night reach the CSS sky behind the transparent canvas. */
+  background:
+    linear-gradient(180deg, var(--flight-sky-top, rgb(var(--gray-900))) 0%, var(--flight-sky-horizon, rgb(var(--gray-700) / 0.85)) 58%, rgb(var(--gray-950)) 100%);
+}
+
+.flight-scene-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.flight-scene-status {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 520;
+  max-width: calc(100% - 2rem);
+  border: 1px solid rgb(var(--border) / 0.72);
+  border-radius: 8px;
+  background: rgb(var(--panel) / 0.9);
+  color: rgb(var(--foreground));
+  padding: 0.45rem 0.7rem;
+  font-size: 0.74rem;
+  line-height: 1.3;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.map-view-toggle {
+  display: inline-flex;
+  min-height: 1.8rem;
+  align-items: stretch;
+  border: 1px solid rgb(var(--border) / 0.86);
+  border-radius: 7px;
+  background: rgb(var(--panel-elevated) / 0.45);
+  overflow: hidden;
+}
+
+.map-view-toggle-option {
+  min-width: 2.4rem;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--muted-foreground));
+  padding: 0.3rem 0.6rem;
+  font-family: var(--ff-font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: background-color var(--ff-motion-fast) var(--ff-motion-ease), color var(--ff-motion-fast) var(--ff-motion-ease);
+}
+
+.map-view-toggle-option + .map-view-toggle-option {
+  border-left: 1px solid rgb(var(--border) / 0.6);
+}
+
+.map-view-toggle-option:hover {
+  color: rgb(var(--foreground));
+}
+
+.map-view-toggle-option.active {
+  background: rgb(var(--primary) / 0.16);
+  color: rgb(var(--primary));
+}
+
+.map-view-toggle-option:focus-visible {
+  outline: 2px solid rgb(var(--primary) / 0.7);
+  outline-offset: -2px;
+}
+
+.map-3d-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  min-width: 0;
+}
+
+.map-3d-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: rgb(var(--muted-foreground));
+  font-size: 0.72rem;
+}
+
+.map-3d-option-label {
+  font-family: var(--ff-font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.map-3d-select {
+  min-height: 1.7rem;
+  border: 1px solid rgb(var(--border) / 0.86);
+  border-radius: 6px;
+  background: rgb(var(--panel-elevated) / 0.6);
+  color: rgb(var(--foreground));
+  padding: 0.2rem 0.45rem;
+  font-size: 0.72rem;
+}
+
+.map-3d-select:focus-visible {
+  outline: 2px solid rgb(var(--primary) / 0.7);
+  outline-offset: 1px;
+}
+
+.map-3d-option-check {
+  cursor: pointer;
+  user-select: none;
+}
+
+.timeline-map-header + .map-3d-options {
+  margin-top: 0.6rem;
+}
+
+.map-3d-legend {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 510;
+  display: grid;
+  gap: 0.3rem;
+  width: min(15rem, calc(100% - 1.5rem));
+  border: 1px solid rgb(var(--border) / 0.72);
+  border-radius: 8px;
+  background: rgb(var(--panel) / 0.88);
+  color: rgb(var(--foreground));
+  padding: 0.55rem 0.65rem;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.map-3d-legend-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 700;
+}
+
+.map-3d-legend-unit {
+  color: rgb(var(--muted-foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+}
+
+.map-3d-legend-bar {
+  height: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--gray-950) / 0.6);
+}
+
+.map-3d-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: rgb(var(--muted-foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.62rem;
+}
+
+.map-3d-legend-note,
+.map-3d-legend-hint,
+.map-3d-legend-attribution {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.62rem;
+}
+
+.map-3d-legend-attribution {
+  padding-top: 0.15rem;
+  border-top: 1px solid rgb(var(--border) / 0.5);
+  font-size: 0.58rem;
+}
+
+.map-3d-hud {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 510;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  max-width: calc(100% - 1.5rem);
+  pointer-events: none;
+}
+
+.map-3d-hud-tile {
+  display: grid;
+  min-width: 4.4rem;
+  gap: 0.05rem;
+  border: 1px solid rgb(var(--border) / 0.72);
+  border-radius: 8px;
+  background: rgb(var(--panel) / 0.88);
+  padding: 0.4rem 0.55rem;
+  text-align: right;
+  backdrop-filter: blur(8px);
+}
+
+.map-3d-hud-label {
+  color: rgb(var(--muted-foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.map-3d-hud-value {
+  color: rgb(var(--foreground));
+  font-family: var(--ff-font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-3d-hud-unit {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+
+.map-view-3d-active .live-map-target-overlay {
+  top: auto;
+  bottom: 0.75rem;
+}
+
+.map-view-3d-active .live-map-controls {
+  bottom: 0.75rem;
+}
+
+.live-map-controls .map-3d-legend {
+  position: static;
+  width: 15rem;
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  /* Let wrapped readouts reserve their actual height. The recovery action
+     stays whole; unusually long legend notes scroll in the remaining space. */
+  .map-view-3d-active .live-map-overlays {
+    position: absolute;
+    inset: 0.5rem;
+    z-index: 800;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.5rem;
+    pointer-events: none;
+  }
+
+  .live-map-overlays .map-3d-hud {
+    position: static;
+    flex: none;
+    align-self: flex-end;
+    max-width: 100%;
+  }
+
+  .map-view-3d-active .live-map-overlays .live-map-controls {
+    position: static;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-width: 100%;
+    margin-left: auto;
+  }
+
+  .live-map-overlays #live-map-center-btn {
+    flex: none;
+  }
+
+  .live-map-overlays .map-3d-legend {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    grid-auto-rows: max-content;
+    align-content: start;
+    pointer-events: auto;
+  }
+
+  .live-map-overlays .map-3d-legend:focus-visible {
+    outline: 2px solid rgb(var(--selection));
+    outline-offset: 2px;
+  }
+
+  .map-3d-hud {
+    top: 0.5rem;
+    right: 0.5rem;
+    gap: 0.25rem;
+  }
+
+  .map-3d-hud-tile {
+    min-width: 3.6rem;
+    padding: 0.3rem 0.4rem;
+  }
+
+  .map-3d-hud-value {
+    font-size: 0.8rem;
+  }
+
+  .map-3d-legend {
+    right: 0.5rem;
+    bottom: 0.5rem;
+    width: min(12rem, calc(100% - 1rem));
+    padding: 0.45rem 0.5rem;
+  }
+
+  .map-3d-legend-hint {
     display: none;
+  }
+
+  .map-view-3d-active .live-map-controls {
+    right: 0.5rem;
+    bottom: 0.5rem;
+  }
+
+  .live-map-controls .map-3d-legend {
+    width: 12rem;
+  }
+
+  .map-3d-hud-tile[data-hud-key="ias"] {
+    display: none;
+  }
+
+  .map-3d-options {
+    gap: 0.4rem 0.6rem;
+  }
+
+  /* The legend owns the bottom corner on phones; the destination overlay
+     sits under the HUD instead of colliding with it. */
+  .map-view-3d-active .live-map-target-overlay {
+    top: 4.5rem;
+    bottom: auto;
+    left: 0.5rem;
+    max-width: calc(100% - 1rem);
+  }
+}
+
+/* Short landscape maps need the action beside the legend to clear the HUD. */
+@media (min-width: 480px) and (max-height: 500px) {
+  .map-view-3d-active .live-map-controls {
+    left: 0.75rem;
+    max-width: none;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .map-view-3d-active .live-map-overlays .live-map-controls {
+    width: 100%;
+  }
+
+  .map-view-3d-active .live-map-target-overlay {
+    top: 5.5rem;
+    bottom: auto;
+    left: 0.75rem;
   }
 }

@@ -16,6 +16,8 @@ const { PHASES } = require('../lifecycle/phases.js') as {
  * @enum {string}
  */
 const MSG = Object.freeze({
+  AUTOTAXI_STATE: 'autotaxiState',
+  CDU_STATE: 'cduState',
   // Scalar streams
   IAS: 'ias',
   VS: 'vs',
@@ -43,6 +45,7 @@ const MSG = Object.freeze({
   SPOILERS: 'spoilers',
   ENGINES: 'engines',
   LANDING: 'landing',
+  TOOLBAR_FLIGHT_HISTORY: 'toolbarFlightHistory', // opt-in reconnect snapshot, never a live landing event
   FLIGHT_SUMMARY: 'flightSummary',
   FLIGHT_VIOLATION: 'flightViolation',
 
@@ -52,7 +55,7 @@ const MSG = Object.freeze({
   POSITION: 'position',
 
   // Pilot control inputs (yoke/sidestick and rudder pedals)
-  CONTROLS: 'controls', // { yokeX: +/-1, yokeY: +/-1, rudderPedalPct: +/-100 }
+  CONTROLS: 'controls', // { yokeX: +/-1, yokeY: +/-1, rudderPedalPct: +/-100, noseSteerPct: +/-100, brakeLeftPct: 0-100, brakeRightPct: 0-100 }
 
   // Events & beats
   CALLOUT: 'callout',
@@ -64,6 +67,8 @@ const MSG = Object.freeze({
   FLIGHT_ENDED: 'flightEnded',
   AIRCRAFT_CHANGED: 'aircraftChanged',
   SIM_STATE: 'simState',
+  // The simulator's own clock (Zulu and local), for time-of-day presentation
+  SIM_TIME: 'simTime',
 
   // Debug
   DEBUG: 'debug',
@@ -116,6 +121,9 @@ const MSG = Object.freeze({
   // Update available notification
   UPDATE_AVAILABLE: 'updateAvailable',
 
+  // Supporter goal from the update manifest (shown in Settings > About)
+  SUPPORT_GOAL: 'supportGoal',
+
   // Timeline/logbook and flight history requests.
   TIMELINE: 'timeline',
   TIMELINE_ERROR: 'timelineError',
@@ -146,6 +154,12 @@ const MSG = Object.freeze({
   // Relayed to all connected clients (strip overlays, mobile) so the
   // active OFP is always available without requiring a re-fetch.
   FLIGHT_PLAN: 'flightPlan', // { username, origin, destination, ... }
+
+  // Desktop voice-control status (client->server relay; replayed on requestState).
+  // Sent by the desktop UI whenever push-to-talk state, the last transcript or
+  // the last command outcome changes, so in-sim views (the MSFS toolbar panel)
+  // can show whether a spoken command was understood without leaving the sim.
+  VOICE_STATUS: 'voiceStatus', // { status, statusText, transcript, lastCommand, shortcut, ... }
 
   // Persisted UI-configurable app settings.
   APP_SETTINGS: 'appSettings',

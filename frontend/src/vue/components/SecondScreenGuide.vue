@@ -1,42 +1,33 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { readStorageValue, writeStorageValue } from '../../app/browser-environment.js';
+import { isRemoteView } from '../../app/remote-view.js';
 import { useProfilesStore } from '../stores/profiles.js';
+import { useStatusStore } from '../stores/status.js';
 
 const GUIDE_STORAGE_KEY = 'ff_second_screen_guide_dismissed_v1';
 const profiles = useProfilesStore();
+const status = useStatusStore();
+const awaitingAuthorization = computed(() => status.websocket !== 'ready' || !profiles.authorizationAcknowledged);
 
 function isRemoteBrowserPage() {
-  const location = typeof window !== 'undefined' && window.location
-    ? window.location
-    : globalThis.location;
-  const pathname = String(location?.pathname || '').toLowerCase();
-  return pathname === '/remote' || pathname === '/remote.html';
+  return isRemoteView(typeof window !== 'undefined' && window.location ? window.location : globalThis.location);
 }
 
 const isSecondScreen = isRemoteBrowserPage();
 const dismissed = ref(readStorageValue(GUIDE_STORAGE_KEY, { fallback: '' }) === '1');
 const controlsPaired = computed(() => (
-  profiles.authorizationScope === 'aircraft-control'
-  || profiles.authorizationScope === 'full-control'
+  !awaitingAuthorization.value && (profiles.authorizationScope === 'aircraft-control'
+  || profiles.authorizationScope === 'full-control')
 ));
 const pairingProblem = computed(() => {
-  if (controlsPaired.value) return '';
+  if (awaitingAuthorization.value || controlsPaired.value) return '';
   if (profiles.aircraftControlPairingStatus === 'disabled') return 'disabled';
   if (profiles.aircraftControlPairingStatus === 'expired') return 'expired';
-
-  const location = typeof window !== 'undefined' && window.location
-    ? window.location
-    : globalThis.location;
-  try {
-    return new URLSearchParams(String(location?.search || '')).has('aircraftControlToken')
-      ? 'expired'
-      : '';
-  } catch {
-    return '';
-  }
+  return '';
 });
 const controlStatusLabel = computed(() => {
+  if (awaitingAuthorization.value) return 'Checking connection';
   if (controlsPaired.value) return 'Controls paired';
   if (pairingProblem.value === 'expired') return 'Pairing expired';
   if (pairingProblem.value === 'disabled') return 'Controls not active';
@@ -85,19 +76,22 @@ function dismissGuide() {
           </span>
         </div>
         <p class="mt-1 text-xs leading-5 text-gray-300">
-          Bookmark this page after connecting it from <strong>Phone setup</strong> on your Flight Fabric PC. New flights appear automatically—there is no new-flight scan.
+          Bookmark this page after connecting it from <strong>Phone setup</strong> on your FlightFabric PC. New flights appear automatically—there is no new-flight scan.
         </p>
-        <p v-if="controlsPaired" class="mt-2 text-xs leading-5 text-muted-fg">
-          Aircraft controls stay paired for this backend session. Pair again only after the Flight Fabric backend restarts, using matching-code approval or the current Phone QR.
+        <p v-if="awaitingAuthorization" id="second-screen-connecting" class="mt-2 text-xs leading-5 text-muted-fg">
+          Waiting for FlightFabric to confirm this device's access. A connection interruption does not require pairing again; keep this page open while it reconnects.
+        </p>
+        <p v-else-if="controlsPaired" class="mt-2 text-xs leading-5 text-muted-fg">
+          Aircraft controls stay paired for this backend session. Pair again only after the FlightFabric backend restarts, using matching-code approval or the current Phone QR.
         </p>
         <p v-else-if="pairingProblem === 'expired'" id="second-screen-pairing-expired" class="mt-2 text-xs leading-5 text-rose-200">
-          This device's control approval has expired. Request approval again below, or use the current QR from <strong>Phone setup</strong> on the Flight Fabric PC. Pairing changes whenever the backend restarts.
+          This device's control approval has expired. Request approval again below, or use the current QR from <strong>Phone setup</strong> on the FlightFabric PC. Pairing changes whenever the backend restarts.
         </p>
         <p v-else-if="pairingProblem === 'disabled'" id="second-screen-pairing-disabled" class="mt-2 text-xs leading-5 text-rose-200">
           LAN viewing is connected, but aircraft controls are not active in this backend session. Enable LAN aircraft controls on the PC, save, restart, then scan the current Phone QR.
         </p>
         <p v-else class="mt-2 text-xs leading-5 text-muted-fg">
-          To use aircraft controls, request approval below and match its code on the Flight Fabric PC. The QR in <strong>Phone setup</strong> remains a faster alternative. Pairing is needed again only after the backend restarts.
+          To use aircraft controls, request approval below and match its code on the FlightFabric PC. The QR in <strong>Phone setup</strong> remains a faster alternative. Pairing is needed again only after the backend restarts.
         </p>
       </div>
       <button

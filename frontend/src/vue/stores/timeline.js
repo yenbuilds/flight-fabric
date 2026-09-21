@@ -15,6 +15,11 @@ import {
 import { formatBytes, getFiniteFuelBurnGal } from '../../utils/formatting.js';
 import { DEFAULT_ALTITUDE_PROFILE_STATE } from '../../timeline/altitude-profile.js';
 import { INSPECTOR_FILTER_OPTIONS } from '../../timeline/constants.js';
+import {
+  defaultMap3dOptions,
+  normalizeMap3dOptions,
+  normalizeMapViewMode,
+} from '../../maps/three-d/view-mode.js';
 
 const MAP_FILTER_KEYS = ['violations', 'landing', 'automation', 'flightGuidance', 'markers', 'phases', 'scores'];
 const MAP_FILTER_DEFAULTS = Object.freeze({
@@ -27,6 +32,8 @@ const MAP_FILTER_DEFAULTS = Object.freeze({
   scores: false,
 });
 const MAP_FILTER_STORAGE_KEY = 'flightFabric.timelineMapFilters.v1';
+const MAP_VIEW_MODE_STORAGE_KEY = 'flightFabric.timelineMapViewMode.v1';
+const MAP_3D_OPTIONS_STORAGE_KEY = 'flightFabric.timelineMap3d.v1';
 const INSPECTOR_FILTER_STORAGE_KEY = 'flightFabric.timelineEventFilters.v1';
 const PFD_COLLAPSED_KEY = 'ff-pfd-overlay-collapsed';
 const DEFAULT_INSPECTOR_EMPTY_MESSAGE = 'No timeline loaded';
@@ -34,6 +41,7 @@ const DEFAULT_MAP_EMPTY_MESSAGE = 'No positional event data yet';
 const DEFAULT_STORAGE_PATH_COPY_LABEL = 'Copy Path';
 const STORAGE_PATH_COPY_RESET_MS = 1500;
 const TIMELINE_LOADING_MIN_VISIBLE_MS = 180;
+const TIMELINE_RESPONSE_TIMEOUT_MS = 60_000;
 const TIMELINE_LIST_RESPONSE_TIMEOUT_MS = 30_000;
 const TIMELINE_LIST_TIMEOUT_MESSAGE = 'Saved flights did not respond. Select Refresh Page to try again.';
 const FLIGHT_RENDER_INITIAL_LIMIT = 150;
@@ -91,6 +99,14 @@ function loadMapFilters() {
 
 function saveMapFilters(mapFilters) {
   writeStorageJson(MAP_FILTER_STORAGE_KEY, mapFilters);
+}
+
+function loadMapViewMode() {
+  return normalizeMapViewMode(readStorageValue(MAP_VIEW_MODE_STORAGE_KEY));
+}
+
+function loadMap3dOptions() {
+  return normalizeMap3dOptions(readStorageJson(MAP_3D_OPTIONS_STORAGE_KEY), defaultMap3dOptions());
 }
 
 function loadInspectorFilters() {
@@ -304,6 +320,8 @@ export const useTimelineStore = defineStore('timeline', {
     listErrorMessage: '',
     listLastUpdatedAt: 0,
     timelineLoadStatus: 'idle',
+    timelineLoadError: '',
+    timelineRetryRequest: null,
     timelineLoadingFlightKey: '',
     timelineLoadingFlightLabel: '',
     timelineLoadingStartedAtMs: 0,
@@ -369,6 +387,10 @@ export const useTimelineStore = defineStore('timeline', {
     ...DEFAULT_PFD_STATE,
     mapFilters: loadMapFilters(),
     mapFilterMenuOpen: false,
+    mapViewMode: loadMapViewMode(),
+    map3dOptions: loadMap3dOptions(),
+    scene3dStatus: '',
+    scene3dLegend: null,
     pfdCollapsed: loadPfdCollapsed(),
     requestListActionBound: false,
     requestTimelineActionBound: false,
@@ -380,6 +402,10 @@ export const useTimelineStore = defineStore('timeline', {
   }),
 
   getters: {
+    is3dMapView(state) {
+      return state.mapViewMode === '3d';
+    },
+
     matchingFlights(state) {
       return sortAndFilterFlights(state.flights, {
         route: state.routeFilter,
@@ -480,6 +506,8 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     timelineLoading: (state) => state.timelineLoadStatus === 'loading',
+    canRetryTimeline: (state) => Boolean(state.timelineLoadError && state.timelineRetryRequest
+      && state.requestTimelineActionBound && !['not-connected', 'restricted'].includes(state.listStatus)),
 
     canRequestAnalysisRescorePreview: (state) => Boolean(
       state.requestTimelineActionBound
@@ -706,12 +734,14 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     markListDisconnected() {
+      this.failTimelineLoading('The connection was interrupted while opening this recording. Reconnect, then try again.');
       this.clearListResponseWatchdog();
       this.listStatus = 'not-connected';
       this.listErrorMessage = '';
     },
 
     markListRestricted() {
+      this.failTimelineLoading('This recording could not be loaded with the current connection.');
       this.clearListResponseWatchdog();
       this.flights = [];
       this.storage = null;
@@ -729,6 +759,7 @@ export const useTimelineStore = defineStore('timeline', {
         flightKey: options.flightKey || payload.filePath || payload.flightId || '',
         flightLabel: options.flightLabel || payload.flightId || 'selected flight',
       });
+      this.timelineRetryRequest = { filePathOrFlightId, legacyFlightId, options: { ...options } };
 
       if (typeof this._onRequestTimeline !== 'function') {
         this.clearTimelineLoading();
@@ -755,6 +786,9 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     beginTimelineLoading({ flightKey = '', flightLabel = '' } = {}) {
+      this.clearTimelineResponseWatchdog();
+      this.timelineLoadError = '';
+      this.timelineRetryRequest = null;
       if (this._timelineLoadingFinishTimer && typeof globalThis?.clearTimeout === 'function') {
         globalThis.clearTimeout(this._timelineLoadingFinishTimer);
       }
@@ -781,9 +815,63 @@ export const useTimelineStore = defineStore('timeline', {
         visible: true,
         message: 'Loading timeline replay...',
       });
+      this.armTimelineResponseWatchdog();
+    },
+
+    armTimelineResponseWatchdog() {
+      this.clearTimelineResponseWatchdog();
+      if (typeof globalThis?.setTimeout !== 'function') return false;
+      const requestId = this.timelineRequestId;
+      let scheduling = true;
+      let firedSynchronously = false;
+      const timer = globalThis.setTimeout(() => {
+        if (scheduling) { firedSynchronously = true; return; }
+        if (requestId !== this.timelineRequestId || !this.timelineLoading) return;
+        this.failTimelineLoading('This recording took too long to load. Try again.');
+      }, TIMELINE_RESPONSE_TIMEOUT_MS);
+      scheduling = false;
+      if (firedSynchronously) { globalThis?.clearTimeout?.(timer); return false; }
+      this._timelineResponseTimer = timer;
+      timer?.unref?.();
+      return true;
+    },
+
+    clearTimelineResponseWatchdog() {
+      if (this._timelineResponseTimer == null) return;
+      globalThis?.clearTimeout?.(this._timelineResponseTimer);
+      this._timelineResponseTimer = null;
+    },
+
+    failTimelineLoading(message) {
+      if (!this.timelineLoading) return false;
+      // The reply has already rendered when only the minimum spinner duration
+      // remains. A disconnect here must retain that successfully loaded flight.
+      if (this._timelineLoadingFinishTimer != null) {
+        this.clearTimelineLoading();
+        return false;
+      }
+      const retry = this.timelineRetryRequest;
+      this.clearTimelineLoading();
+      // A reply from the interrupted request must not replace a later retry.
+      this.timelineRequestId += 1;
+      this.timelineLoadStatus = 'error';
+      this.timelineLoadError = message || 'Could not open this recording. Try again.';
+      this.timelineRetryRequest = retry;
+      this.setInspectorState({ rows: [], emptyVisible: true, emptyMessage: this.timelineLoadError });
+      this.setMapEmptyState({ visible: true, message: this.timelineLoadError });
+      this.failPendingFlightLanding(this.timelineLoadError);
+      return true;
+    },
+
+    retryTimeline() {
+      if (!this.canRetryTimeline) return false;
+      const { filePathOrFlightId, legacyFlightId, options } = this.timelineRetryRequest;
+      return this.requestTimeline(filePathOrFlightId, legacyFlightId, options);
     },
 
     finishTimelineLoading() {
+      this.clearTimelineResponseWatchdog();
+      if (this.timelineLoadStatus === 'error') return;
       if (this.timelineLoadStatus !== 'loading') {
         this.clearTimelineLoading();
         return;
@@ -809,6 +897,9 @@ export const useTimelineStore = defineStore('timeline', {
     },
 
     clearTimelineLoading() {
+      this.clearTimelineResponseWatchdog();
+      this.timelineLoadError = '';
+      this.timelineRetryRequest = null;
       if (this._timelineLoadingFinishTimer && typeof globalThis?.clearTimeout === 'function') {
         globalThis.clearTimeout(this._timelineLoadingFinishTimer);
       }
@@ -1666,6 +1757,37 @@ export const useTimelineStore = defineStore('timeline', {
 
     closeMapFilterMenu() {
       this.mapFilterMenuOpen = false;
+    },
+
+    setMapViewMode(mode) {
+      const next = normalizeMapViewMode(mode, this.mapViewMode);
+      if (next === this.mapViewMode) return;
+      this.mapViewMode = next;
+      writeStorageValue(MAP_VIEW_MODE_STORAGE_KEY, next);
+    },
+
+    setMap3dOption(key, value) {
+      const next = normalizeMap3dOptions({ ...this.map3dOptions, [key]: value }, this.map3dOptions);
+      this.map3dOptions = next;
+      writeStorageJson(MAP_3D_OPTIONS_STORAGE_KEY, next);
+    },
+
+    setScene3dStatus(message) {
+      this.scene3dStatus = message ? String(message) : '';
+    },
+
+    setScene3dLegend(nextState) {
+      this.scene3dLegend = nextState && typeof nextState === 'object' ? { ...nextState } : null;
+    },
+
+    requestMap3dFitView() {
+      if (typeof this._onMap3dFitView !== 'function') return false;
+      this._onMap3dFitView();
+      return true;
+    },
+
+    bindMap3dActions({ onFitView = null } = {}) {
+      this._onMap3dFitView = typeof onFitView === 'function' ? onFitView : null;
     },
 
     setPfdCollapsed(value) {

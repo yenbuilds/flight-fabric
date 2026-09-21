@@ -291,7 +291,7 @@ async function parseCSV(filePath: string, options: ParseCsvOptions = {}): Promis
       || currentBytes - parseStartBytes > MAX_TIMELINE_PARSE_MEMORY_GROWTH_BYTES
     ) {
       fail(
-        'CSV expands beyond Timeline\'s safe memory budget. Archive or inspect this recording outside Flight Fabric.',
+        'CSV expands beyond Timeline\'s safe memory budget. Archive or inspect this recording outside FlightFabric.',
       );
     }
   };
@@ -305,7 +305,7 @@ async function parseCSV(filePath: string, options: ParseCsvOptions = {}): Promis
       return {
         headers: [],
         rows: [],
-        error: `CSV is too large to open in Timeline (${formatCsvSize(Number(pathStat.size))}; limit is ${formatTimelineCsvLimit()}). Delete, archive, or inspect it outside Flight Fabric.`,
+        error: `CSV is too large to open in Timeline (${formatCsvSize(Number(pathStat.size))}; limit is ${formatTimelineCsvLimit()}). Delete, archive, or inspect it outside FlightFabric.`,
       };
     }
 
@@ -436,7 +436,7 @@ async function parseCSV(filePath: string, options: ParseCsvOptions = {}): Promis
       error: err?.code === INVALID_UTF8_ERROR_CODE
         ? 'CSV contains invalid UTF-8'
         : err?.code === 'FF_FILE_TOO_LARGE'
-          ? `CSV is too large to open in Timeline (limit is ${formatTimelineCsvLimit()}). Delete, archive, or inspect it outside Flight Fabric.`
+          ? `CSV is too large to open in Timeline (limit is ${formatTimelineCsvLimit()}). Delete, archive, or inspect it outside FlightFabric.`
         : err?.code === 'FF_FILE_CHANGED_ON_OPEN'
           ? 'CSV changed while it was being opened'
           : err?.code === 'FF_FILE_CHANGED_DURING_READ'

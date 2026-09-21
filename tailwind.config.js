@@ -1,5 +1,5 @@
 /**
- * Tailwind config for Flight Fabric (V1 strict-local).
+ * Tailwind config for FlightFabric (V1 strict-local).
  *
  * The V1 Electron build compiles Tailwind at build time into frontend-dist/tailwind.css.
  * This avoids runtime CDN dependencies.

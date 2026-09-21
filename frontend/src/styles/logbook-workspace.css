@@ -1,0 +1,250 @@
+/* Logbook owns its workspace layout. Recorded data and command semantics remain
+   in the timeline stores; these panels adapt without remounting replay state. */
+.logbook-page {
+  --logbook-pane-border: rgb(var(--border) / 0.64);
+  gap: 1rem;
+  min-width: 0;
+}
+
+.logbook-workspace {
+  display: grid;
+  grid-template-columns: clamp(15rem, 24%, 18rem) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 34rem;
+  height: max(34rem, calc(100dvh - 9rem));
+  overflow: hidden;
+  border: 1px solid var(--logbook-pane-border);
+  border-radius: var(--ff-radius-lg, 0.75rem);
+  background: rgb(var(--panel));
+}
+
+.logbook-workspace > #vue-timeline-flights-root {
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--logbook-pane-border);
+}
+
+.logbook-page #timeline-flights-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.logbook-page #timeline-flights-card > :not(.timeline-flight-list) { flex: 0 0 auto; }
+.logbook-page .timeline-flight-list {
+  flex: 1 1 auto;
+  min-height: 8rem;
+  max-height: none;
+}
+.logbook-page .timeline-flight-row { padding: 0.5rem 0.6rem; }
+.logbook-page .timeline-flight-row-layout { position: relative; display: block; }
+.logbook-page .timeline-flight-open { width: 100%; min-height: 2.75rem; }
+.logbook-page .timeline-flight-route { display: flex; align-items: center; min-width: 0; padding-right: 2.25rem; font-size: 0.8125rem; line-height: 1.5; }
+.logbook-page .timeline-flight-route-end { display: flex; align-items: center; min-width: 0; }
+.logbook-page .timeline-flight-route-end > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logbook-page .timeline-flight-route-arrow { flex-shrink: 0; margin: 0 0.3rem; }
+.logbook-page .timeline-flight-aircraft { margin-top: 0.1rem; padding-right: 2.25rem; font-size: 0.75rem; line-height: 1.5; }
+.logbook-page .timeline-flight-meta { margin-top: 0.2rem; font-size: 0.6875rem; line-height: 1.5; gap: 0 0.6rem; }
+.logbook-page .timeline-flight-date { flex-basis: 100%; }
+.timeline-flight-more > summary { position: absolute; top: 0; right: 0; display: grid; place-items: center; width: 2.25rem; min-height: 2.25rem; border-radius: 0.35rem; color: rgb(var(--muted-foreground)); cursor: pointer; list-style: none; }
+.timeline-flight-more > summary::-webkit-details-marker { display: none; }
+.timeline-flight-more > summary:hover,
+.timeline-flight-more[open] > summary { color: rgb(var(--foreground)); background: rgb(var(--foreground) / 0.06); }
+.timeline-flight-options { padding: 0.5rem 0.2rem 0.1rem; margin-top: 0.4rem; border-top: 1px solid var(--logbook-pane-border); color: rgb(var(--muted-foreground)); font-size: 0.6875rem; overflow-wrap: anywhere; }
+.timeline-flight-options-context { margin-bottom: 0.25rem; color: rgb(var(--foreground)); }
+.logbook-page .timeline-flight-actions { width: auto; justify-content: flex-end; gap: 0.4rem; margin-top: 0.5rem; padding: 0; border: 0; }
+.logbook-page .timeline-flight-delete { display: inline-flex; align-items: center; gap: 0.35rem; width: auto; min-height: 2.25rem; }
+.logbook-page .timeline-flight-delete:hover { color: rgb(var(--danger)); border-color: rgb(var(--danger) / 0.5); }
+.logbook-page :is(.timeline-flight-open, .timeline-flight-more > summary, .logbook-filter-toggle, .logbook-storage > summary):focus-visible { outline: 2px solid rgb(var(--selection)); outline-offset: 2px; }
+.logbook-flights-header { padding: 0.55rem 0.75rem; }
+.logbook-flight-filters { padding: 0.5rem 0.75rem; }
+.logbook-page .timeline-refresh-button { min-width: 0; min-height: 2.25rem; }
+.logbook-page .timeline-filters-grid { grid-template-columns: minmax(0, 1fr); gap: 0.65rem; padding: 0.25rem 0 0.65rem; }
+.logbook-page .timeline-filter-summary { margin-top: 0; min-height: 1.75rem; font-size: 0.6875rem; }
+.logbook-filter-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0 0.35rem; }
+.logbook-filter-toggle { display: flex; align-items: center; min-height: 2.25rem; gap: 0.35rem; text-align: left; font-size: 0.6875rem; color: rgb(var(--muted-foreground)); }
+.logbook-filter-active { color: rgb(var(--selection)); font-size: 0.6875rem; }
+.logbook-recording-badge { display: inline-flex; align-items: center; gap: 0.35rem; color: rgb(var(--primary)); font-size: 0.6875rem; }
+.logbook-recording-dot { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: currentColor; }
+.logbook-storage { padding: 0 0.75rem; border-top: 1px solid var(--logbook-pane-border); }
+.logbook-storage summary { display: flex; align-items: center; min-height: 2.5rem; cursor: pointer; }
+.logbook-storage summary::after { content: '+'; margin-left: auto; }
+.logbook-storage[open] summary::after { content: '−'; }
+.logbook-storage-content { display: grid; gap: 0.75rem; padding-bottom: 0.75rem; }
+
+.logbook-workspace > .timeline-split {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: rgb(var(--background) / 0.28);
+  box-shadow: none;
+}
+.logbook-workspace .timeline-mobile-viewer-header {
+  flex: 0 0 auto;
+  min-height: 5rem;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-bottom: 1px solid var(--logbook-pane-border);
+  border-radius: 0;
+  background: transparent;
+}
+.logbook-recorded-context { margin-bottom: 0.2rem; color: rgb(var(--muted-foreground)); font-size: 0.625rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.logbook-page .logbook-back-button { min-height: 2.5rem; padding: 0.45rem 0.65rem; font-size: 0.75rem; white-space: nowrap; }
+.logbook-page .logbook-landing-shortcut { min-height: 2.75rem; gap: 0.5rem; padding: 0.6rem 0.85rem; font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
+.logbook-landing-shortcut svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; pointer-events: none; }
+.logbook-landing-shortcut:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: 3px; }
+.logbook-review-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-height: 18rem; }
+.logbook-review-empty p { max-width: 22rem; }
+.logbook-review-content { display: contents; }
+.logbook-load-error { padding: 1.25rem; color: rgb(var(--foreground)); }
+.logbook-load-error h3 { margin: 0 0 .5rem; font-size: .95rem; font-weight: 600; }
+.logbook-load-error p { max-width: 34rem; margin: 0 0 1rem; color: rgb(var(--muted-foreground)); font-size: .8125rem; line-height: 1.5; }
+.logbook-load-error button { min-height: 2.75rem; }
+.logbook-review-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--logbook-pane-border); }
+.logbook-review-views { display: flex; gap: 0.25rem; }
+.logbook-review-views button { min-height: 2.25rem; padding: 0.4rem 0.65rem; border: 1px solid transparent; border-radius: 0.35rem; font-size: 0.75rem; color: rgb(var(--muted-foreground)); }
+.logbook-review-views button:hover { background: rgb(var(--foreground) / 0.04); color: rgb(var(--foreground)); }
+.logbook-review-views button[aria-pressed='true'] { background: rgb(var(--selection) / 0.13); border-color: rgb(var(--selection) / 0.22); color: rgb(var(--selection)); }
+.logbook-history-label { font-size: 0.6875rem; color: rgb(var(--muted-foreground)); }
+.logbook-page #vue-timeline-summary-root { flex: 0 0 auto; }
+.logbook-page .timeline-summary-stats > div { border: 0; padding: 0; background: none; }
+.logbook-page .timeline-summary-stats dt { font-size: 0.625rem; }
+.logbook-page .timeline-summary-layout > div { padding: 0.6rem 0.85rem; }
+.logbook-page .timeline-summary-action { min-width: 0; padding: 0.6rem 0.85rem; }
+
+.logbook-review-body { position: relative; display: grid; flex: 1 1 auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
+.logbook-review-body > #timeline-card,
+.logbook-review-body > #vue-timeline-map-shell-root,
+.logbook-review-body > #vue-timeline-detail-root { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; }
+.logbook-review-body #timeline-card { display: flex; flex-direction: column; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+.logbook-review-body #vue-timeline-inspector-shell-root,
+.logbook-review-body #vue-timeline-inspector-shell-root > div { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.logbook-review-body #timeline-events { flex: 1 1 auto; min-height: 0; height: auto; padding: 0.5rem 0.75rem; overflow-y: auto; overscroll-behavior: contain; }
+.logbook-review-body .timeline-card-header { padding: 0.6rem 0.85rem; }
+.logbook-review-body .timeline-inspector-aircraft-art { display: none; }
+.logbook-review-body #timeline-flight-route,
+.logbook-review-body .timeline-card-header .max-w-\[24rem\] { display: none; }
+.logbook-review-body #vue-timeline-map-shell-root { display: flex; height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+.logbook-review-body #timeline-map-card { display: flex; flex: 1; flex-direction: column; width: 100%; height: auto; min-height: 100%; border: 0; border-radius: 0; overflow: visible; }
+.logbook-review-body #timeline-map-card > * { flex-shrink: 0; }
+.logbook-review-body #timeline-map-card > div:first-child { padding: 0.65rem 0.85rem; }
+/* A short window scrolls the replay tools instead of flattening the flight. */
+.logbook-review-body .timeline-map-wrap { flex: 1 0 20rem; height: auto; min-height: 20rem; }
+.logbook-review-body .timeline-map-surface { min-height: 0; }
+.logbook-review-body #vue-timeline-detail-root { display: none; }
+.logbook-page [data-review-view='events'] #vue-timeline-map-shell-root,
+.logbook-page [data-review-view='map'] #timeline-card { display: none; }
+.logbook-page [data-detail-open='true'] #vue-timeline-detail-root { display: block; }
+.logbook-page [data-detail-open='true'] #vue-timeline-map-shell-root { display: none; }
+.logbook-page .timeline-detail-backdrop.is-embedded { position: relative; inset: auto; display: block; height: 100%; padding: 0; background: none; }
+.logbook-page .is-embedded .timeline-detail-drawer { width: 100%; height: 100%; max-height: 100%; border: 0; border-radius: 0; box-shadow: none; background: rgb(var(--panel)); }
+.logbook-page .is-embedded .timeline-detail-drawer-content { flex: 1; }
+.logbook-page .logbook-history-summary { min-width: 0; }
+.logbook-page.is-restricted .timeline-split,
+.logbook-page.is-restricted .logbook-history-summary { display: none; }
+.logbook-page.is-restricted .logbook-workspace { grid-template-columns: minmax(0, 1fr); min-height: 20rem; height: auto; }
+.logbook-page.is-restricted #vue-timeline-flights-root { border-right: 0; }
+.logbook-page.is-restricted .logbook-flight-filters,
+.logbook-page.is-restricted #timeline-page-refresh-btn { display: none; }
+
+/* Leave room for navigation and the flight list before opening a third pane. */
+@media (min-width: 1720px) {
+  .logbook-review-body { grid-template-columns: minmax(16rem, 0.75fr) minmax(0, 1.25fr); }
+  .logbook-review-body > #timeline-card { grid-column: 1; border-right: 1px solid var(--logbook-pane-border); }
+  .logbook-review-body > #vue-timeline-map-shell-root,
+  .logbook-review-body > #vue-timeline-detail-root { grid-column: 2; }
+  .logbook-page [data-review-view='events'] #vue-timeline-map-shell-root { display: flex; }
+  .logbook-page [data-review-view='map'] #timeline-card { display: flex; }
+  .logbook-page [data-detail-open='true'] #vue-timeline-map-shell-root { display: none; }
+}
+
+@media (min-width: 1101px) and (max-width: 1719px) {
+  .logbook-page [data-detail-open='true'] #timeline-card { display: none; }
+}
+
+@media (max-width: 1100px) {
+  .logbook-workspace { display: block; height: auto; min-height: 0; }
+  .logbook-workspace > #vue-timeline-flights-root { border-right: 0; }
+  .logbook-page .timeline-flight-list { min-height: 12rem; overflow: visible; }
+  .logbook-page .timeline-filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .logbook-page .timeline-filter-field:last-child { grid-column: auto; }
+  .logbook-workspace > .timeline-mobile-viewer-closed { display: none; }
+  .logbook-workspace > .timeline-mobile-viewer-open {
+    position: fixed;
+    inset: 0;
+    z-index: 220;
+    width: 100%;
+    height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: rgb(var(--background));
+  }
+  .logbook-page .timeline-mobile-viewer-header { flex-wrap: wrap; min-height: 0; padding: 0.65rem 0.85rem; }
+  .logbook-page .timeline-mobile-viewer-header > div:first-child { flex: 1 1 18rem; }
+  .logbook-page .timeline-mobile-viewer-header > div:last-child { margin-left: auto; }
+  .logbook-page #timeline-mobile-viewer-flight-times { gap: 0.15rem 0.5rem; }
+  .logbook-page .timeline-detail-backdrop:not(.is-embedded) { position: fixed; padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem max(0.75rem, env(safe-area-inset-bottom)); z-index: 230; }
+  .logbook-review-body #timeline-events { min-height: 0; }
+  .logbook-review-body #timeline-map-card > div:first-child { padding: 0.65rem 0.75rem; }
+  .logbook-review-body .timeline-map-wrap { min-height: 8rem; }
+
+  /* Compact review is one scrolling document below its Back/context header.
+     Fixed summary/filter heights must never squeeze the events out of view. */
+  .logbook-review-content { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+  .logbook-review-body { display: block; overflow: visible; }
+  .logbook-review-body #timeline-card,
+  .logbook-review-body #vue-timeline-map-shell-root,
+  .logbook-review-body #timeline-map-card { height: auto; }
+  .logbook-review-body #vue-timeline-inspector-shell-root,
+  .logbook-review-body #vue-timeline-inspector-shell-root > div { display: block; }
+  .logbook-review-body #timeline-events { height: auto; min-height: 12rem; overflow: visible; }
+  .logbook-review-body .timeline-map-wrap { flex: none; height: max(16rem, 50dvh); min-height: 16rem; }
+}
+
+@media (max-width: 760px) {
+  .logbook-page { gap: 0.75rem; }
+  .logbook-page .timeline-filters-grid { grid-template-columns: minmax(0, 1fr); }
+  .logbook-page .timeline-flight-route,
+  .logbook-page .timeline-flight-aircraft { padding-right: 2.75rem; }
+  .logbook-page .timeline-flight-more > summary { width: 2.75rem; min-height: 2.75rem; }
+  .logbook-page .timeline-flight-landing,
+  .logbook-page .timeline-flight-delete,
+  .logbook-page .timeline-refresh-button,
+  .logbook-page .timeline-clear-filters { min-height: 2.75rem; }
+  .logbook-page .logbook-filter-toggle,
+  .logbook-page .timeline-filter-control,
+  .logbook-page .logbook-storage summary,
+  .logbook-page .logbook-storage .timeline-storage-btn { min-height: 2.75rem; }
+  .logbook-page .timeline-mobile-aircraft-thumb { display: none; }
+  .logbook-page .timeline-mobile-viewer-header { gap: 0.45rem; }
+  .logbook-page .timeline-mobile-viewer-header > div:first-child { flex-basis: 100%; }
+  .logbook-page .timeline-mobile-viewer-header > div:last-child { width: 100%; justify-content: space-between; }
+  .logbook-page .logbook-back-button { margin-left: auto; min-height: 2.75rem; }
+  .logbook-review-toolbar { padding: 0.25rem 0.65rem; }
+  .logbook-review-views button { min-height: 2.75rem; }
+  .logbook-history-label { display: none; }
+  .logbook-review-body #timeline-events { padding: 0.45rem 0.55rem; }
+  .logbook-review-body .timeline-event { min-height: 2.75rem; }
+  .logbook-review-body .timeline-map-header { flex-direction: column !important; align-items: stretch !important; }
+  .logbook-review-body .timeline-map-controls { flex-wrap: wrap; }
+}
+
+@media (forced-colors: active) {
+  .logbook-page .timeline-flight-row.is-selected { border-left-color: Highlight; }
+  .logbook-review-views button[aria-pressed='true'] { border-color: Highlight; color: Highlight; }
+}

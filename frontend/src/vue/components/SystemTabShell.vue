@@ -1,15 +1,29 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { sendWs } from '../../../app-shared.js';
 import { subscribeWsMessage } from '../../app/runtime-signals.js';
 import RemoteBrowserQr from './RemoteBrowserQr.vue';
 import { useLogbookStore } from '../stores/logbook.js';
 import { useSystemHostStore } from '../stores/system-host.js';
 import { useTabsStore } from '../stores/tabs.js';
+import { useProfilesStore } from '../stores/profiles.js';
+import { useStatusStore } from '../stores/status.js';
 
 const systemHost = useSystemHostStore();
 const logbook = useLogbookStore();
 const tabs = useTabsStore();
+const profiles = useProfilesStore();
+const status = useStatusStore();
+const canManageHost = computed(() => profiles.authorizationScope === 'full-control');
+// Native recovery is provided by the trusted preload bridge, including while the
+// backend is stopped. Websocket authorization still owns history and pairing.
+const canInspectServices = computed(() => systemHost.isElectron || canManageHost.value);
+const phoneSetupUrl = computed(() => canManageHost.value ? systemHost.remoteBrowserUrl : systemHost.remoteViewerUrl);
+const connectionLabel = computed(() => ({
+  ready: 'Connected to FlightFabric',
+  disconnected: 'Disconnected from FlightFabric',
+  error: 'Connection failed',
+}[status.websocket] || 'Connecting to FlightFabric...'));
 let refreshTimer = null;
 let cleanupBackendStatus = null;
 let copyResetTimer = null;
@@ -39,19 +53,30 @@ function toneClass(map, tone) {
   return map[tone] || map.muted;
 }
 
+function nativeServiceActionAvailable(method) {
+  return !systemHost.isBusy && typeof systemHost.electronApi?.[method] === 'function';
+}
+
+function runNativeServiceAction(method) {
+  if (!nativeServiceActionAvailable(method)) return false;
+  return systemHost[method]();
+}
+
 function refreshNow() {
   pairingNowMs.value = Date.now();
   systemHost.refresh();
+  if (!canManageHost.value) return;
   sendWs({ type: 'requestHistoryIndexStatus' });
   sendWs({ type: 'requestDevicePairingRequests' });
 }
 
 function openPhoneTabletSettings() {
+  if (!canManageHost.value) return;
   tabs.requestTabChange('settings');
 }
 
 function approvePairingRequest(request) {
-  if (!request?.id || !request?.confirmationCode) return;
+  if (!canManageHost.value || !request?.id || !request?.confirmationCode) return;
   pairingNotice.value = null;
   approvingPairingRequestId.value = request.id;
   const sent = sendWs({
@@ -93,14 +118,16 @@ const historyIndexStatusLabel = computed(() => {
 });
 
 function checkHistoryIndex() {
+  if (!canManageHost.value) return;
   sendWs({ type: 'checkHistoryIndex' });
 }
 
 function rebuildHistoryIndex() {
+  if (!canManageHost.value) return;
   const confirmed = window.confirm(
-    'Rebuild Flight Fabric\'s flight history index?\n\nThis clears and recreates only the derived SQLite catalogue. Your flight CSV files and portable history summaries will not be changed or deleted.',
+    'Rebuild FlightFabric\'s flight history index?\n\nThis clears and recreates only the derived SQLite catalogue. Your flight CSV files and portable history summaries will not be changed or deleted.',
   );
-  if (!confirmed) return;
+  if (!confirmed || !canManageHost.value) return;
   sendWs({ type: 'rebuildHistoryIndex' });
 }
 
@@ -119,8 +146,17 @@ async function copyMobileLink(url) {
   }
 }
 
+watch(canManageHost, (allowed) => {
+  pairingRequests.value = [];
+  pairingRequestsEnabled.value = false;
+  pairingNotice.value = null;
+  approvingPairingRequestId.value = '';
+  if (allowed) refreshNow();
+}, { flush: 'sync' });
+
 onMounted(() => {
   cleanupPairingMessages = subscribeWsMessage((message = {}) => {
+    if (!canManageHost.value) return;
     if (message.type === 'devicePairingRequests') {
       const hadPendingRequest = pairingRequests.value.length > 0;
       pairingRequestsEnabled.value = message.enabled === true;
@@ -173,15 +209,12 @@ onUnmounted(() => {
 
 <template>
   <section id="system-tab-shell" class="space-y-5">
-    <div class="rounded-3xl border border-border/80 bg-panel/80 p-5 shadow-2xl shadow-black/20">
+    <div class="page-intro">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-400" style="font-family: var(--ff-font-mono);">
-            Electron App Host
-          </div>
-          <h2 class="text-2xl font-semibold tracking-tight text-gray-100">System Control</h2>
+          <h2 class="text-sm font-semibold tracking-wide text-gray-100">System</h2>
           <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-fg">
-            Service status, local ports, mobile access, and flight-history maintenance.
+            {{ canInspectServices ? 'Service status, phone and tablet access, and flight-history maintenance.' : 'Connection status and phone or tablet access.' }}
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -192,15 +225,15 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="!systemHost.isElectron"
+        v-if="canManageHost && !systemHost.isElectron"
         id="system-browser-mode-note"
         class="mt-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
       >
-        Native service controls are only available in the Electron app. The web dashboard can still connect to a running backend normally.
+        Service controls are available in the FlightFabric desktop app on your simulator PC. This browser can connect to FlightFabric while it is running.
       </div>
 
       <div
-        v-if="systemHost.lastError"
+        v-if="canInspectServices && systemHost.lastError"
         id="system-host-error"
         class="mt-5 rounded-2xl border border-danger/35 bg-danger/10 p-4 text-sm text-danger"
       >
@@ -209,19 +242,19 @@ onUnmounted(() => {
     </div>
 
     <div class="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-      <section class="rounded-3xl border border-border/80 bg-panel/75 p-5">
+      <section v-if="canInspectServices" class="rounded-3xl border border-border/80 bg-panel/75 p-5">
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
             <h3 class="text-lg font-semibold text-gray-100">Services</h3>
-            <p class="mt-1 text-sm text-muted-fg">Start, stop, and inspect the local Flight Fabric runtime.</p>
+            <p class="mt-1 text-sm text-muted-fg">Start, stop, and inspect the local FlightFabric runtime.</p>
           </div>
           <div class="flex gap-2">
             <button
               id="system-start-all-btn"
               type="button"
               class="ff-button-primary px-3 py-2 text-xs"
-              :disabled="!systemHost.isElectron || systemHost.isBusy"
-              @click="systemHost.startBackend()"
+              :disabled="!nativeServiceActionAvailable('startBackend')"
+              @click="runNativeServiceAction('startBackend')"
             >
               Start All
             </button>
@@ -229,13 +262,17 @@ onUnmounted(() => {
               id="system-stop-all-btn"
               type="button"
               class="ff-button-secondary px-3 py-2 text-xs text-danger"
-              :disabled="!systemHost.isElectron || systemHost.isBusy"
-              @click="systemHost.stopBackend()"
+              :disabled="!nativeServiceActionAvailable('stopBackend')"
+              @click="runNativeServiceAction('stopBackend')"
             >
               Stop Backend
             </button>
           </div>
         </div>
+
+        <p v-if="systemHost.isElectron && !canManageHost" id="system-desktop-recovery-note" class="mb-4 text-sm text-muted-fg" role="status">
+          {{ connectionLabel }}. This desktop app can still start or restart the backend below. Settings and flight-history maintenance return when the connection is restored.
+        </p>
 
         <div class="space-y-3">
           <div id="system-backend-service" class="rounded-2xl border border-border bg-surface-100/80 p-4">
@@ -267,8 +304,8 @@ onUnmounted(() => {
                   id="system-start-backend-btn"
                   type="button"
                   class="ff-button-primary px-3 py-2 text-xs"
-                  :disabled="!systemHost.isElectron || systemHost.isBusy"
-                  @click="systemHost.startBackend()"
+                  :disabled="!nativeServiceActionAvailable('startBackend')"
+                  @click="runNativeServiceAction('startBackend')"
                 >
                   Start
                 </button>
@@ -276,8 +313,8 @@ onUnmounted(() => {
                   id="system-restart-backend-btn"
                   type="button"
                   class="ff-button-secondary px-3 py-2 text-xs"
-                  :disabled="!systemHost.isElectron || systemHost.isBusy"
-                  @click="systemHost.restartBackend()"
+                  :disabled="!nativeServiceActionAvailable('restartBackend')"
+                  @click="runNativeServiceAction('restartBackend')"
                 >
                   Restart
                 </button>
@@ -285,8 +322,8 @@ onUnmounted(() => {
                   id="system-stop-backend-btn"
                   type="button"
                   class="ff-button-secondary px-3 py-2 text-xs text-danger"
-                  :disabled="!systemHost.isElectron || systemHost.isBusy"
-                  @click="systemHost.stopBackend()"
+                  :disabled="!nativeServiceActionAvailable('stopBackend')"
+                  @click="runNativeServiceAction('stopBackend')"
                 >
                   Stop
                 </button>
@@ -327,6 +364,13 @@ onUnmounted(() => {
         </div>
       </section>
 
+      <section v-else id="system-pc-managed-note" class="settings-panel" aria-labelledby="system-connection-title">
+        <h3 id="system-connection-title" class="settings-panel-title">This device</h3>
+        <p id="system-connection-status" class="mt-3 text-sm text-gray-100" role="status">{{ connectionLabel }}</p>
+        <p class="mt-2 text-sm text-muted-fg">{{ profiles.authorizationScope === 'aircraft-control' ? 'Aircraft controls are paired on this device.' : 'This device has viewer access. To pair aircraft controls, use Request aircraft controls on this device and approve the code on your PC.' }}</p>
+        <p class="mt-4 text-sm text-muted-fg">Services, recordings, and flight-history maintenance are managed in FlightFabric on your simulator PC. Keep FlightFabric running there to use this device as a second screen.</p>
+      </section>
+
       <div class="space-y-5">
         <section id="system-mobile-access" class="scroll-mt-24 rounded-3xl border border-border/80 bg-panel/75 p-5">
           <div class="flex items-start gap-3">
@@ -340,7 +384,7 @@ onUnmounted(() => {
             <div>
               <h3 class="text-lg font-semibold text-gray-100">Phone &amp; tablet</h3>
               <p class="mt-1 text-sm leading-6 text-muted-fg">
-                Keep a browser second screen ready for every flight. Connect the device to the same trusted network as this PC.
+                Keep a browser second screen ready for every flight. Connect the device to the same trusted network as your simulator PC.
               </p>
             </div>
           </div>
@@ -354,15 +398,15 @@ onUnmounted(() => {
                 {{ systemHost.remoteAccessEnabled === false ? 'Phone & tablet access is off' : 'Scan the QR or type the address' }}
               </div>
               <div id="system-remote-url" class="mt-2 break-all font-mono text-sm text-cyan-100">
-                <template v-if="systemHost.remoteAccessEnabled === false">Enable phone &amp; tablet access in Settings</template>
+                <template v-if="systemHost.remoteAccessEnabled === false">Enable phone &amp; tablet access in Settings on your simulator PC</template>
                 <span v-else-if="systemHost.remotePhoneEntryUrl" id="system-phone-entry-url">{{ systemHost.remotePhoneEntryUrl }}</span>
                 <template v-else>LAN address unavailable</template>
               </div>
               <div v-if="systemHost.remoteAccessEnabled === false" id="system-mobile-disabled-note" class="mt-2 text-xs leading-5 text-muted-fg">
-                Save the setting, then restart the backend before pairing a phone or tablet.
+                Save the setting on your simulator PC, then restart the backend before pairing a phone or tablet.
               </div>
               <button
-                v-if="systemHost.remoteAccessEnabled === false"
+                v-if="canManageHost && systemHost.remoteAccessEnabled === false"
                 id="system-mobile-settings-btn"
                 type="button"
                 class="ff-button-primary mt-3 px-3 py-2 text-xs"
@@ -370,10 +414,10 @@ onUnmounted(() => {
               >
                 Enable phone &amp; tablet access
               </button>
-              <div v-if="systemHost.remoteBrowserUrl" id="system-mobile-pairing-note" class="mt-2 text-xs leading-5 text-muted-fg">
-                <template v-if="systemHost.shareAircraftControlPaired">The QR privately pairs aircraft controls for this backend session. The typed address opens safely in viewer mode, then asks you to approve a matching code. Starting a new flight does not require pairing again.</template>
-                <template v-else-if="systemHost.currentBrowserAircraftControlPaired">This browser is already paired for aircraft controls. The typed address stays safe to share because it contains no pairing credential.</template>
-                <template v-else>The QR and typed address open in viewer mode. To use aircraft controls, request them on the device and approve the matching code below.</template>
+              <div v-if="phoneSetupUrl" id="system-mobile-pairing-note" class="mt-2 text-xs leading-5 text-muted-fg">
+                <template v-if="canManageHost && systemHost.shareAircraftControlPaired">The QR privately pairs aircraft controls for this backend session. The typed address opens safely in viewer mode, then asks you to approve a matching code. Starting a new flight does not require pairing again.</template>
+                <template v-else-if="profiles.authorizationScope === 'aircraft-control'">This browser is already paired for aircraft controls. The typed address stays safe to share because it contains no pairing credential.</template>
+                <template v-else>The QR and typed address open in viewer mode. To use aircraft controls, request them on the device and approve the matching code in FlightFabric on your simulator PC.</template>
               </div>
               <button
                 v-if="systemHost.remotePhoneEntryUrl"
@@ -390,11 +434,11 @@ onUnmounted(() => {
               </details>
             </div>
             <RemoteBrowserQr
-              v-if="systemHost.remoteBrowserUrl"
+              v-if="phoneSetupUrl"
               id="system-mobile-qr"
               class="justify-self-start sm:justify-self-end"
-              label="Private QR code for Flight Fabric phone setup"
-              :value="systemHost.remoteBrowserUrl"
+              :label="canManageHost && systemHost.shareAircraftControlPaired ? 'Private QR code for FlightFabric phone setup' : 'QR code for FlightFabric viewer access'"
+              :value="phoneSetupUrl"
             />
           </div>
 
@@ -403,10 +447,10 @@ onUnmounted(() => {
               <path d="M12 20h9" />
               <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
             </svg>
-            <p><strong class="font-medium text-gray-200">No camera?</strong> Type the short address shown above. On the device, choose <strong class="font-medium text-gray-200">Request aircraft controls</strong>, then approve the matching code here.</p>
+            <p><strong class="font-medium text-gray-200">No camera?</strong> Type the short address shown above. On the device, choose <strong class="font-medium text-gray-200">Request aircraft controls</strong>, then approve the matching code in FlightFabric on your simulator PC.</p>
           </div>
 
-          <div v-if="systemHost.remoteAccessEnabled === true && pairingRequestsEnabled" id="system-device-pairing-requests" class="mt-4 rounded-2xl border border-border bg-surface-100/80 p-4">
+          <div v-if="canManageHost && systemHost.remoteAccessEnabled === true && pairingRequestsEnabled" id="system-device-pairing-requests" class="mt-4 rounded-2xl border border-border bg-surface-100/80 p-4">
             <div class="text-sm font-semibold text-gray-100">Device approval</div>
             <p class="mt-1 text-xs leading-5 text-muted-fg">Approve only when the same six-digit code is visible on your phone or tablet.</p>
             <div
@@ -441,10 +485,10 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <section id="system-history-index" class="rounded-3xl border border-border/80 bg-panel/75 p-5">
+        <section v-if="canManageHost" id="system-history-index" class="rounded-3xl border border-border/80 bg-panel/75 p-5">
           <h3 class="text-lg font-semibold text-gray-100">Flight History Index</h3>
           <p class="mt-1 text-sm text-muted-fg">
-            The searchable catalogue is derived from versioned Flight Fabric summaries. Missing or stale summaries are rebuilt progressively from the authoritative CSVs, newest first.
+            The searchable catalogue is derived from versioned FlightFabric summaries. Missing or stale summaries are rebuilt progressively from the authoritative CSVs, newest first.
           </p>
           <div class="mt-4 rounded-2xl border border-border bg-surface-100/80 p-4">
             <div class="flex items-start gap-3">
@@ -462,7 +506,7 @@ onUnmounted(() => {
                   ></div>
                 </div>
                 <div class="mt-2 text-xs text-muted-fg">
-                  Rebuilding touches only Flight Fabric's derived SQLite database. It never edits or deletes a flight CSV.
+                  Rebuilding touches only FlightFabric's derived SQLite database. It never edits or deletes a flight CSV.
                 </div>
               </div>
             </div>

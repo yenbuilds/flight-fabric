@@ -654,7 +654,7 @@ async function main(rawArgs = process.argv.slice(2)) {
   const lock = await acquireRuntimeOwnerLock({ owner: 'standalone' });
   if (!lock.acquired) {
     const error = new Error(
-      'Another Flight Fabric launch mode is active. '
+      'Another FlightFabric launch mode is active. '
       + 'Quit the desktop app or close the other standalone backend first.',
     );
     console.error(`[start-backend-runtime] ${error.message}`);

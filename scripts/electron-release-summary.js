@@ -5,8 +5,14 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const {
+  buildExecutableFileName,
+  buildInstallerFileName,
+  buildPortableFileName,
+  publishedInstallerAssetName,
+} = require('./release-names.js');
+
 const ROOT = path.resolve(__dirname, '..');
-const WIN_UNPACKED_EXECUTABLE_NAME = 'Flight Fabric.exe';
 const PUBLISHABLE_ARTIFACT_SUFFIXES = [
   '.appimage',
   '.appx',
@@ -105,7 +111,7 @@ function findWinUnpackedExecutable(distPath) {
   const unpackedPath = path.join(distPath, 'win-unpacked');
   const executablePath = path.join(
     unpackedPath,
-    WIN_UNPACKED_EXECUTABLE_NAME
+    buildExecutableFileName()
   );
   if (!fs.existsSync(unpackedPath) || !fs.existsSync(executablePath)) return null;
   assertSafeDirectory(unpackedPath, 'win-unpacked');
@@ -227,10 +233,10 @@ async function main(argv = process.argv.slice(2)) {
     fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'),
   ).version;
   const expectedNames = [
-    `Flight Fabric Setup ${version}.exe`,
-    `Flight Fabric ${version}.exe`,
+    buildInstallerFileName(version),
+    buildPortableFileName(version),
   ];
-  const publishedInstallerName = `Flight.Fabric.Setup.${version}.exe`;
+  const publishedInstallerName = publishedInstallerAssetName(version);
 
   if (!fs.existsSync(distPath)) {
     throw new Error(`Output directory not found: ${distPath}`);
@@ -293,13 +299,13 @@ async function main(argv = process.argv.slice(2)) {
   const winUnpackedExe = findWinUnpackedExecutable(distPath);
   if (!winUnpackedExe) {
     throw new Error(
-      `Required unpacked executable is missing: win-unpacked/${WIN_UNPACKED_EXECUTABLE_NAME}`
+      `Required unpacked executable is missing: win-unpacked/${buildExecutableFileName()}`
     );
   }
   const unpackedInfo = getFileInfo(winUnpackedExe);
   if (unpackedInfo.sizeBytes <= 0) {
     throw new Error(
-      `Required unpacked executable is empty: win-unpacked/${WIN_UNPACKED_EXECUTABLE_NAME}`
+      `Required unpacked executable is empty: win-unpacked/${buildExecutableFileName()}`
     );
   }
 

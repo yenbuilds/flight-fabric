@@ -1,47 +1,73 @@
 const ASSET_ROOT = '/assets/aircraft';
 
-function asset(label) {
+// Every catalog render fills its 720 x 480 canvas edge to edge, so a 737 and a
+// 777 are drawn at the same on-screen length and become the same white tube at
+// thumbnail size. The real fuselage length lets placements that show several
+// aircraft side by side (Logbook, Recent flights, Timeline) restore the size
+// difference that actually tells airliners apart at a glance.
+function asset(label, lengthMeters) {
   return Object.freeze({
     label,
+    lengthMeters,
     width: 720,
     height: 480,
   });
 }
 
 export const AIRCRAFT_VISUAL_ASSETS = Object.freeze({
-  'airbus-a220-300': asset('Airbus A220-300'),
-  'airbus-a300-600r': asset('Airbus A300-600R'),
-  'airbus-a310-300': asset('Airbus A310-300'),
-  'airbus-a319': asset('Airbus A319'),
-  'airbus-a320ceo': asset('Airbus A320ceo'),
-  'airbus-a320neo': asset('Airbus A320neo'),
-  'airbus-a321': asset('Airbus A321'),
-  'airbus-a321lr': asset('Airbus A321LR'),
-  'airbus-a330-family': asset('Airbus A330 Family'),
-  'airbus-a330-900neo': asset('Airbus A330-900neo'),
-  'airbus-a380-800': asset('Airbus A380-800'),
-  'airbus-a400m': asset('Airbus A400M'),
-  'atr-72-600': asset('ATR 72-600'),
-  'bae-146-family': asset('BAe 146 / Avro RJ'),
-  'boeing-737-800': asset('Boeing 737-800'),
-  'boeing-737-max-8': asset('Boeing 737 MAX 8'),
-  'boeing-747-8': asset('Boeing 747-8'),
-  'boeing-777-300er': asset('Boeing 777-300ER'),
-  'boeing-787-8': asset('Boeing 787-8'),
-  'boeing-787-9': asset('Boeing 787-9'),
-  'boeing-787-10': asset('Boeing 787-10'),
-  'boeing-c17': asset('C-17 Globemaster III'),
-  'citation-cj4': asset('Citation CJ4'),
-  'citation-longitude': asset('Citation Longitude'),
-  'embraer-e170-e175': asset('Embraer E170 / E175'),
-  'general-aviation': asset('General Aviation Aircraft'),
-  'generic-aircraft': asset('Aircraft'),
-  'lockheed-l1011-500': asset('Lockheed L-1011-500'),
-  'mcdonnell-douglas-md11': asset('McDonnell Douglas MD-11'),
-  'regional-jet': asset('Regional Jet'),
-  'turboprop': asset('Regional Turboprop'),
-  'widebody': asset('Widebody Aircraft'),
+  'airbus-a220-300': asset('Airbus A220-300', 38.7),
+  'airbus-a300-600r': asset('Airbus A300-600R', 54.1),
+  'airbus-a310-300': asset('Airbus A310-300', 46.7),
+  'airbus-a319': asset('Airbus A319', 33.8),
+  'airbus-a320ceo': asset('Airbus A320ceo', 37.6),
+  'airbus-a320neo': asset('Airbus A320neo', 37.6),
+  'airbus-a321': asset('Airbus A321', 44.5),
+  'airbus-a321lr': asset('Airbus A321LR', 44.5),
+  // Family art is drawn as the -300, the longer and more common member.
+  'airbus-a330-family': asset('Airbus A330 Family', 63.7),
+  'airbus-a330-900neo': asset('Airbus A330-900neo', 63.7),
+  'airbus-a380-800': asset('Airbus A380-800', 72.7),
+  'airbus-a400m': asset('Airbus A400M', 45.1),
+  'atr-72-600': asset('ATR 72-600', 27.2),
+  // Family art is drawn as the 146-200 / RJ85, the middle of the three lengths.
+  'bae-146-family': asset('BAe 146 / Avro RJ', 28.6),
+  'boeing-737-800': asset('Boeing 737-800', 39.5),
+  'boeing-737-max-8': asset('Boeing 737 MAX 8', 39.5),
+  'boeing-747-8': asset('Boeing 747-8', 76.3),
+  'boeing-777-300er': asset('Boeing 777-300ER', 73.9),
+  'boeing-787-8': asset('Boeing 787-8', 56.7),
+  'boeing-787-9': asset('Boeing 787-9', 62.8),
+  'boeing-787-10': asset('Boeing 787-10', 68.3),
+  'boeing-c17': asset('C-17 Globemaster III', 53.0),
+  'citation-cj4': asset('Citation CJ4', 16.3),
+  'citation-longitude': asset('Citation Longitude', 22.3),
+  // Family art is drawn as the E175.
+  'embraer-e170-e175': asset('Embraer E170 / E175', 31.7),
+  // Class art is never displayed by AircraftArtwork.vue; these are the lengths
+  // of a typical member so the catalog stays complete: Cessna 172, a 737-class
+  // narrowbody, a CRJ700, a Dash 8 Q400 and a 787-9.
+  'general-aviation': asset('General Aviation Aircraft', 8.3),
+  'generic-aircraft': asset('Aircraft', 39.5),
+  'lockheed-l1011-500': asset('Lockheed L-1011-500', 50.0),
+  'mcdonnell-douglas-md11': asset('McDonnell Douglas MD-11', 61.2),
+  'regional-jet': asset('Regional Jet', 32.5),
+  'turboprop': asset('Regional Turboprop', 32.8),
+  'widebody': asset('Widebody Aircraft', 62.8),
 });
+
+const LONGEST_LENGTH_METERS = Math.max(
+  ...Object.values(AIRCRAFT_VISUAL_ASSETS).map((definition) => definition.lengthMeters),
+);
+
+// True proportion would shrink a CJ4 to a fifth of a 747 and leave nothing
+// legible in a 60px thumbnail, so the ratio is compressed: a 737 still reads at
+// two thirds of a 777, small bizjets stay recognisable.
+const RELATIVE_SCALE_EXPONENT = 0.6;
+
+function relativeScale(lengthMeters) {
+  const ratio = Math.min(1, Math.max(0, lengthMeters / LONGEST_LENGTH_METERS));
+  return Math.round((ratio ** RELATIVE_SCALE_EXPONENT) * 1000) / 1000;
+}
 
 export const AIRCRAFT_PROFILE_VISUALS = Object.freeze({
   'bundled/msfs/asobo-787': { assetKey: 'boeing-787-10', fidelity: 'exact' },
@@ -288,6 +314,7 @@ function buildResolvedVisual(assetKey, fidelity) {
     ...definition,
     assetKey: safeAssetKey,
     fidelity: safeAssetKey === assetKey ? fidelity : 'class',
+    scale: relativeScale(definition.lengthMeters),
     src: `${ASSET_ROOT}/${safeAssetKey}.png`,
   });
 }

@@ -620,7 +620,7 @@ const REPLAY_FLAP_PERCENT_SETTLE_MS = 1000;
 const REPLAY_FLAP_PERCENT_MIN_CHANGE = 2;
 
 // Documentation note attached to high_sink_rate violations so the UI can distinguish
-// the Flight Fabric stability rule from an aircraft GPWS "SINK RATE" aural callout,
+// the FlightFabric stability rule from an aircraft GPWS "SINK RATE" aural callout,
 // which uses a height-versus-rate envelope not modeled here.
 const HIGH_SINK_RATE_NOTE = 'Internal approach-stability rule (not a GPWS callout). Triggered after vertical speed remains below the configured threshold during APPROACH/FINAL, and cleared only after recovery through a hysteresis margin. Real GPWS "SINK RATE" callouts use a height-vs-rate envelope and may not fire at the same moments.';
 
@@ -2041,7 +2041,7 @@ function mergeAutomationTimelineEvents(
       lastVisibleStateByField.set(field, valueKey);
     }
     if (generatedTimeline.events.length >= MAX_GENERATED_TIMELINE_EVENTS) {
-      return 'Timeline contains more events than Flight Fabric can process safely.';
+      return 'Timeline contains more events than FlightFabric can process safely.';
     }
     generatedTimeline.events.push(event);
     eventCount += 1;
@@ -2470,6 +2470,13 @@ function buildLandingRowTouchdownDistance(
     : null;
   const recordedShortLanding = toBooleanOrNull(row.short_landing);
   const shortLanding = recordedShortLanding ?? (distanceFt !== null ? distanceFt < 0 : null);
+  // A recorded landing keeps the zone it was graded against. Rows that predate
+  // the recorded zone end were graded against a fixed 3,000 ft zone. Only the
+  // current-policy preview applies today's runway-length rule.
+  const recordedZoneEndFt = toFiniteNumber(row.touchdown_zone_end_ft);
+  const zoneEndFt = scoringMode === 'current-preview'
+    ? landingDistance.touchdownZoneEndFt(runwayLengthFt)
+    : (recordedZoneEndFt !== null && recordedZoneEndFt > 0 ? recordedZoneEndFt : landingDistance.TOUCHDOWN_ZONE_MAX_FT);
   const firstTouchdown = {
     lat: toFiniteNumber(row.first_touchdown_lat),
     lon: toFiniteNumber(row.first_touchdown_lon),
@@ -2488,9 +2495,10 @@ function buildLandingRowTouchdownDistance(
   const common = {
     distanceFt,
     shortLanding,
+    tdzEndFt: zoneEndFt,
     tdzAchieved: distanceFt === null
       ? null
-      : landingDistance.isTouchdownZoneAchieved(distanceFt, runwayLengthFt),
+      : landingDistance.isWithinTouchdownZone(distanceFt, zoneEndFt, runwayLengthFt),
     runway_condition: runwayCondition,
     runway_condition_source:
       typeof row.runway_condition_source === 'string' && row.runway_condition_source
@@ -3352,7 +3360,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
     if (generatedTimeline.events.length > MAX_GENERATED_TIMELINE_EVENTS) {
       return {
         success: false,
-        error: 'Timeline contains more events than Flight Fabric can process safely.',
+        error: 'Timeline contains more events than FlightFabric can process safely.',
       };
     }
     const row = rows[i];
@@ -4300,7 +4308,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
   if (generatedTimeline.events.length > MAX_GENERATED_TIMELINE_EVENTS) {
     return {
       success: false,
-      error: 'Timeline contains more events than Flight Fabric can process safely.',
+      error: 'Timeline contains more events than FlightFabric can process safely.',
     };
   }
 
@@ -5755,7 +5763,7 @@ function deleteFlightCsv(
     || !samePath(bundle.outputDir, dir)
     || !samePath(bundle.paths.csv, resolved)
     || !isPathInside(dir, resolved)
-  ) return { success: false, error: 'File is not a canonical Flight Fabric recording' };
+  ) return { success: false, error: 'File is not a canonical FlightFabric recording' };
   let stat: import('fs').Stats;
   try {
     stat = fs.lstatSync(resolved);
@@ -5862,7 +5870,7 @@ function deleteFlightCsv(
       return { success: false, error: 'Recording identity is missing; delete was refused' };
     }
     for (const sidecar of existingSidecars) {
-      // The history summary is a derived, schema-marked Flight Fabric cache.
+      // The history summary is a derived, schema-marked FlightFabric cache.
       // Its ownership was validated above; it need not duplicate legacy CSV
       // manifest fields in order to be removed with its source bundle.
       if (sidecar.kind === 'history-summary' || sidecar.kind === 'derived') continue;

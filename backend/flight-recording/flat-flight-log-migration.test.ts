@@ -180,11 +180,11 @@ test('migration refuses to run while any recording bundle lease exists', async (
   try {
     assert.throws(
       () => inspectFlatFlightLogs(root),
-      /close Flight Fabric and try again/,
+      /close FlightFabric and try again/,
     );
     await assert.rejects(
       () => migrateFlatFlightLogs(root),
-      /close Flight Fabric and try again/,
+      /close FlightFabric and try again/,
     );
     assert.equal(fs.existsSync(csvPath), true);
     assert.deepEqual(layout.listBundleCsvPaths(root), []);

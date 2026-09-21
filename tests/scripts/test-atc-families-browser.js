@@ -133,7 +133,7 @@ async function main() {
     optimizeDeps: { noDiscovery: true }, plugins: [vue(), { name: 'atc-fixture', configureServer(vite) {
       vite.middlewares.use('/capabilities', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(catalogues)); });
       vite.middlewares.use('/fixture', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/frontend-dist/tailwind.css"><style>body{margin:0;padding:16px;font-family:system-ui;background:rgb(var(--background));color:rgb(var(--foreground))}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/atc-families-browser.js"></script></body></html>'); });
-    } }], resolve: { alias: { vue: path.join(ROOT, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'), pinia: path.join(ROOT, 'frontend/node_modules/pinia/dist/pinia.mjs') } }, server: { host: '127.0.0.1', port: 0 } });
+    } }], resolve: { alias: { vue: path.join(ROOT, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'), pinia: path.join(ROOT, 'frontend/node_modules/pinia/dist/pinia.mjs') } }, server: { host: '127.0.0.1', port: 0, watch: null } });
   await server.listen();
   try {
     const env = { ...process.env, FF_ATC_FAMILIES_URL: `http://127.0.0.1:${server.httpServer.address().port}` }; delete env.ELECTRON_RUN_AS_NODE;

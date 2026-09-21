@@ -31,9 +31,12 @@ export declare function createSimbriefRequestLimiter({ now, cooldownMs, retentio
     acquire: (username: string, remoteAddress: string | null | undefined) => SimbriefLimiterLease | SimbriefLimiterRejection;
 };
 export declare function resolvePackagedFrontendDir(moduleDir: string, packaged: boolean): string | null;
+export declare const TOOLBAR_FRAME_ANCESTORS = "'self' coui: coui://html_ui";
 export declare function getLocalIPsFromInterfaces(nets: ReturnType<typeof os.networkInterfaces>): string[];
 export declare function isTrustedHttpRequest(req: RequestLike, remoteAccessEnable: boolean): boolean;
-export declare function buildContentSecurityPolicy(req: RequestLike, nonce: string, remoteAccessEnable: boolean): string;
+export declare function buildContentSecurityPolicy(req: RequestLike, nonce: string, remoteAccessEnable: boolean, options?: {
+    frameAncestors?: string;
+}): string;
 export declare function buildBootstrapPayload(req: RequestLike, wsAuthToken: string, aircraftControlToken: string, networkInfo?: {
     ips: string[];
     httpPort: number | null;
@@ -49,12 +52,31 @@ export declare function buildBootstrapPayload(req: RequestLike, wsAuthToken: str
         wsPort: number | null;
     };
 };
-export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, wsAuthToken, aircraftControlToken, Debug, onFatalError, }: {
+export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, wsAuthToken, aircraftControlToken, devicePairing, Debug, onFatalError, }: {
     wsPort: number;
     httpPort: number | null | undefined;
     remoteAccessEnable: boolean;
     wsAuthToken?: string;
     aircraftControlToken?: string;
+    devicePairing?: {
+        claimApprovedRequest: (id: unknown, remoteAddress: string | null | undefined) => string | null;
+        createRequest: (remoteAddress: string | null | undefined) => {
+            ok: boolean;
+            request?: {
+                confirmationCode: string;
+                createdAt: number;
+                expiresAt: number;
+                id: string;
+            };
+            error?: string;
+        };
+        getRequestStatus: (id: unknown, remoteAddress: string | null | undefined) => {
+            status: 'pending' | 'approved';
+            expiresAt: number;
+        } | {
+            status: 'expired';
+        };
+    } | null;
     Debug: DebugLike;
     onFatalError?: (error: Error) => void;
 }): {

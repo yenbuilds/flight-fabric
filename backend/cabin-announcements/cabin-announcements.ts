@@ -239,6 +239,29 @@ function startCabinAnnouncements({
     suppressPhaseAnnouncementsUntilMs = timeNow() + startupGraceMs;
   }
 
+  // A paused sim, the menu, a camera outside the cockpit or a dropped
+  // connection: stop whatever is pending and restart the grace window, but
+  // keep the phase baseline. Phases are only broadcast on change, so nulling
+  // the baseline here would make the first real transition after the sim
+  // resumes (CRUISE -> DESCENT, say) get swallowed as the new baseline and
+  // its announcement never play.
+  function suspendPhaseGate(): void {
+    cancelAllTimers();
+    eligiblePhase = null;
+    allowFirstPhaseAfterGrace = false;
+    suppressPhaseAnnouncementsUntilMs = timeNow() + startupGraceMs;
+  }
+
+  // Likewise forget the last frame but keep the flight's airborne history:
+  // after a pause during rollout there is no airborne frame left to re-earn
+  // it, and TAXI-IN would be refused as "never been airborne". A new flight
+  // clears the history through flight:started.
+  function suspendFlightContext(): void {
+    hasTelemetryFrame = false;
+    lastFrameOnGround = null;
+    lastFrameRaFt = null;
+  }
+
   function resetFlightContext({ preserveLatestFrame = false }: { preserveLatestFrame?: boolean } = {}): void {
     if (preserveLatestFrame) {
       hasBeenAirborne = false;
@@ -260,7 +283,7 @@ function startCabinAnnouncements({
   function updateFlightContext(frame: TelemetryFrame | undefined): void {
     if (!frame) return;
     if (isFrameBlockedBySimContext(frame)) {
-      resetFlightContext();
+      suspendFlightContext();
       return;
     }
 
@@ -533,9 +556,8 @@ function startCabinAnnouncements({
 
     if (isFrameBlockedBySimContext(frame)) {
       altitudeState = null;
-      cancelAllTimers();
-      resetFlightContext();
-      resetPhaseGate();
+      suspendFlightContext();
+      suspendPhaseGate();
       return;
     }
 

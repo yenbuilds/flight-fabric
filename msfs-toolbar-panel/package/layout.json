@@ -1,0 +1,39 @@
+{
+  "content": [
+    {
+      "path": "InGamePanels/flightfabric-toolbar.spb",
+      "size": 694,
+      "date": 134344488440270000
+    },
+    {
+      "path": "html_ui/InGamePanels/FlightFabric/FlightFabric.html",
+      "size": 2450,
+      "date": 134344445499760000
+    },
+    {
+      "path": "html_ui/InGamePanels/FlightFabric/FlightFabric.js",
+      "size": 8641,
+      "date": 134343960072820000
+    },
+    {
+      "path": "html_ui/InGamePanels/FlightFabric/FlightFabric.css",
+      "size": 1979,
+      "date": 134342282889440000
+    },
+    {
+      "path": "html_ui/InGamePanels/FlightFabric/FlightFabric.config.js",
+      "size": 273,
+      "date": 134344488440270000
+    },
+    {
+      "path": "html_ui/icons/toolbar/ICON_TOOLBAR_FLIGHTFABRIC.svg",
+      "size": 5326,
+      "date": 134344488440280000
+    },
+    {
+      "path": "html_ui/Textures/Menu/toolbar/ICON_TOOLBAR_FLIGHTFABRIC.svg",
+      "size": 5326,
+      "date": 134344488440280000
+    }
+  ]
+}

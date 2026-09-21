@@ -23,6 +23,7 @@ async function runElectronProbe() {
   const { app, BrowserWindow, ipcMain, session } = require('electron');
   const { isTrustedIpcSender } = require(path.join(ROOT, 'electron', 'ipc-sender-policy'));
   const { installSessionPermissionPolicy } = require(path.join(ROOT, 'electron', 'session-permission-policy'));
+  const { setAutotaxiBackgroundActivity } = require(path.join(ROOT, 'electron', 'main-window-state'));
   const resultPath = process.env.FF_IPC_RUNTIME_RESULT;
   const launcherHtmlPath = process.env.FF_IPC_RUNTIME_LAUNCHER;
   const windows = [];
@@ -104,6 +105,12 @@ async function runElectronProbe() {
     ipcMain.handle('backend-logs', () => []);
     ipcMain.handle('backend-status', () => ({ status: 'stopped' }));
     ipcMain.handle('http-status', () => ({ status: 'running', port }));
+    ipcMain.handle('autotaxi-background-set', (event, active) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      return setAutotaxiBackgroundActivity(event.sender, active);
+    });
 
     const invokeSettings = (frame) => frame.executeJavaScript('window.electronAPI.getSettings()');
     const expectRejectedDecision = async (frame) => {
@@ -117,6 +124,11 @@ async function runElectronProbe() {
     );
 
     await trustedWindow.loadURL(trustedUrl);
+    await trustedWindow.webContents.executeJavaScript('window.electronAPI.setAutotaxiBackgroundActive(true)');
+    assert.equal(trustedWindow.webContents.getBackgroundThrottling(), false);
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript('window.electronAPI.setAutotaxiBackgroundActive("true")'));
+    await trustedWindow.webContents.executeJavaScript('window.electronAPI.setAutotaxiBackgroundActive(false)');
+    assert.equal(trustedWindow.webContents.getBackgroundThrottling(), true);
     assert.equal(
       await trustedWindow.webContents.executeJavaScript(
         "typeof window.electronAPI?.getBackendWsPort === 'function'",
@@ -195,6 +207,7 @@ async function runElectronProbe() {
     const otherWindow = new BrowserWindow(windowOptions);
     windows.push(otherWindow);
     await otherWindow.loadURL(trustedUrl);
+    await assert.rejects(() => otherWindow.webContents.executeJavaScript('window.electronAPI.setAutotaxiBackgroundActive(true)'));
     await expectRejectedDecision(otherWindow.webContents);
     assert.equal(await queryPermission(otherWindow.webContents, 'clipboard-write'), 'denied');
 

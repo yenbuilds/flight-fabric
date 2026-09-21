@@ -6,11 +6,11 @@ Security fixes are prioritized for the latest release line on `main`.
 
 ## Local filesystem safety
 
-Flight Fabric stores application data and flight logs in documented locations.
-A folder name alone is not treated as proof that Flight Fabric owns everything
+FlightFabric stores application data and flight logs in documented locations.
+A folder name alone is not treated as proof that FlightFabric owns everything
 inside it. Code that writes or deletes files must validate the resolved path,
 filename, extension, and allowed root first. Cleanup must never recursively
-delete a broad `Flight Fabric` folder.
+delete a broad `FlightFabric` folder.
 
 Current protections:
 
@@ -20,7 +20,7 @@ Current protections:
 - Active recording streams and route recording renames use
   `backend/flight-recording/recording-path-guard.ts`; flight CSV and automation
   JSONL files must be direct children of the selected flight log folder.
-- Flight deletion can remove only the selected Flight Fabric recording bundle:
+- Flight deletion can remove only the selected FlightFabric recording bundle:
   its authoritative CSV, verified automation and aircraft-specific JSONL
   companions, completion status, history summary, and derived timeline. The
   delete transaction validates the bundle directory, exact member names, and

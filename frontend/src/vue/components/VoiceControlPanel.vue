@@ -6,10 +6,14 @@ import {
   watch,
 } from 'vue';
 import { shortcutFromKeyboardEvent } from '../../voice/shortcut-recorder.js';
+import { describeJoystickBinding } from '../../voice/joystick-binding.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
+import { useVoicePushToTalk } from '../composables/useVoicePushToTalk.js';
 import { canQueryAircraftState, stateQueryExamples } from '../../voice/state-queries.js';
+import { flightPlanQueryExamples } from '../../voice/flight-plan-queries.js';
+import { voiceCommandExamples } from '../../voice/command-examples.js';
 
 const props = defineProps({
   presentation: {
@@ -29,38 +33,10 @@ const shortcutRecording = ref(false);
 const shortcutSaving = ref(false);
 const shortcutError = ref('');
 const recognitionSaving = ref(false);
+const joystickDraft = ref(voice.runtime.joystick);
+const joystickSaving = ref(false);
+const joystickError = ref('');
 const isModalPresentation = computed(() => props.presentation === 'modal');
-
-function sampleSpeechValue(command = {}) {
-  if (command.input?.units === 'squawk') return '0042';
-  const commandId = String(command.id || '').toLowerCase();
-  if (commandId.includes('heading')) return '270';
-  if (commandId.includes('altitude')) return '10,000';
-  if (commandId.includes('verticalspeed')) return '1,000';
-  if (commandId.includes('speed')) return '250';
-  if (commandId.includes('mach')) return '0.78';
-  if (command.input?.kind === 'boolean') return 'on';
-  if (command.input?.kind === 'enum') return String(command.input.values?.[0] || 'on');
-  if (command.input?.kind === 'number') return String(command.input.min ?? 1);
-  return '';
-}
-
-function speechExample(command = {}) {
-  const pattern = command?.speech?.patterns?.find((candidate) => typeof candidate === 'string');
-  if (!pattern) return '';
-  const phrase = pattern.replace('{value}', sampleSpeechValue(command)).trim();
-  return phrase ? `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}` : '';
-}
-
-function prioritizeAltitudeTarget(commands = []) {
-  const altitudeIndex = commands.findIndex((command) => (
-    command?.input?.kind === 'number'
-    && command.input.units === 'feet'
-    && String(command.id || '').toLowerCase().includes('altitude')
-  ));
-  if (altitudeIndex <= 0) return commands;
-  return [commands[altitudeIndex], ...commands.filter((_, index) => index !== altitudeIndex)];
-}
 
 function compactMicrophoneLabel(value = '') {
   return String(value || '')
@@ -69,19 +45,44 @@ function compactMicrophoneLabel(value = '') {
     .trim();
 }
 
-const examples = computed(() => prioritizeAltitudeTarget(
+const examples = computed(() => voiceCommandExamples(
   Object.values(aircraftControls.aircraftCommandCatalogue.commands || {}),
-)
-  .map(speechExample)
-  .filter(Boolean)
-  .slice(0, 3));
+));
 const developmentTranscription = computed(() => voice.runtime.development
   && !queriesAvailable.value
   && (aircraftControls.availability.enabled !== true || examples.value.length === 0));
+// Flight plan questions need no aircraft data, only a session that can dispatch.
+const flightPlanExamples = flightPlanQueryExamples();
+const flightPlanQueriesAvailable = computed(() => !developmentTranscription.value
+  && (queriesAvailable.value || (aircraftControls.availability.enabled === true && examples.value.length > 0)));
 const captureLocked = computed(() => voice.listening || voice.finishing);
 const recognitionOff = computed(() => voice.runtime.enabled !== true);
 const shortcutDirty = computed(() => Boolean(shortcutDraft.value)
   && shortcutDraft.value !== voice.runtime.shortcut);
+const joystickLearning = computed(() => voice.joystickLearn?.active === true);
+const joystickDirty = computed(() => Boolean(joystickDraft.value)
+  && JSON.stringify(joystickDraft.value) !== JSON.stringify(voice.runtime.joystick));
+const joystickDraftLabel = computed(() => describeJoystickBinding(joystickDraft.value));
+const joystickBoundName = computed(() => voice.runtime.joystick?.name || 'The bound joystick');
+const joystickDetected = computed(() => (voice.joystickLearn?.devices || []).map((device) => device.name).join(', '));
+const joystickHelp = computed(() => {
+  if (recognitionOff.value) return 'Enable voice control before binding a joystick button.';
+  if (joystickLearning.value) {
+    return joystickDetected.value
+      ? `Listening on ${joystickDetected.value}. Press the button to use; Escape cancels.`
+      : 'Looking for joysticks… Press the button to use; Escape cancels.';
+  }
+  if (joystickDirty.value) return 'Save to use this button. The simulator sees it too, so choose one nothing else uses.';
+  if (voice.runtime.joystick && !voice.runtime.joystickConnected) {
+    return `${joystickBoundName.value} is not connected. The binding stays and works again once it is plugged in.`;
+  }
+  if (voice.runtime.joystick) return 'Click to choose a different button. The simulator sees this button too.';
+  return 'No joystick button is bound. Click, then press the button on your stick.';
+});
+// What the main control says it can be held with, besides itself.
+const globalHoldLabel = computed(() => [voice.runtime.shortcut, describeJoystickBinding(voice.runtime.joystick)]
+  .filter(Boolean)
+  .join(' · ') || 'On-screen only');
 const pushToTalkDisabled = computed(() => (
   recognitionOff.value
   || (!voice.ready && !voice.listening)
@@ -127,34 +128,20 @@ watch(() => voice.runtime.shortcut, (value) => {
   shortcutRecording.value = false;
   shortcutError.value = '';
 });
+watch(() => voice.runtime.joystick, (value) => {
+  joystickDraft.value = value;
+  joystickError.value = '';
+});
+watch(() => voice.joystickLearn?.captured, (captured) => {
+  if (!captured) return;
+  joystickDraft.value = { ...captured };
+  joystickError.value = '';
+});
+watch(() => voice.joystickLearn?.error, (error) => {
+  if (error) joystickError.value = error;
+});
 
-let localPress = null;
-function beginLocalPress() {
-  if (localPress || !voice.ready) return;
-  const press = {};
-  localPress = press;
-  void Promise.resolve(voice.pressToTalk()).then((started) => {
-    if (started === false && localPress === press) localPress = null;
-  });
-}
-function press(event) {
-  event.currentTarget?.setPointerCapture?.(event.pointerId);
-  beginLocalPress();
-}
-function pressWithKeyboard(event) {
-  if (!event.repeat) beginLocalPress();
-}
-function release() {
-  if (!localPress) return;
-  localPress = null;
-  void voice.releaseToTalk();
-}
-function cancelLocalPress() {
-  if (!localPress) return;
-  localPress = null;
-  void voice.cancel();
-}
-onBeforeUnmount(cancelLocalPress);
+const { press, pressWithKeyboard, release, cancelLocalPress } = useVoicePushToTalk(voice);
 function beginShortcutRecording() {
   if (recognitionOff.value || captureLocked.value || shortcutSaving.value) return;
   shortcutRecording.value = true;
@@ -198,6 +185,36 @@ async function saveShortcut() {
   if (!saved) shortcutError.value = 'That shortcut could not be registered. Choose another combination.';
   shortcutSaving.value = false;
 }
+function beginJoystickLearn() {
+  if (recognitionOff.value || captureLocked.value || joystickSaving.value || joystickLearning.value) return;
+  joystickError.value = '';
+  void voice.startJoystickLearn();
+}
+function cancelJoystickEdit() {
+  if (joystickLearning.value) void voice.stopJoystickLearn();
+  joystickDraft.value = voice.runtime.joystick;
+  joystickError.value = '';
+}
+async function saveJoystick() {
+  if (recognitionOff.value || !joystickDirty.value || joystickLearning.value || joystickSaving.value) return;
+  joystickSaving.value = true;
+  joystickError.value = '';
+  const saved = await voice.setJoystick(joystickDraft.value);
+  if (!saved) joystickError.value = 'That joystick button could not be bound. Try again.';
+  joystickSaving.value = false;
+}
+async function removeJoystick() {
+  if (recognitionOff.value || !voice.runtime.joystick || joystickLearning.value || joystickSaving.value) return;
+  joystickSaving.value = true;
+  joystickError.value = '';
+  const removed = await voice.setJoystick(null);
+  if (!removed) joystickError.value = 'The joystick button could not be removed. Try again.';
+  joystickSaving.value = false;
+}
+// A closed panel cannot show a captured button; stop the helper listening.
+onBeforeUnmount(() => {
+  if (joystickLearning.value) void voice.stopJoystickLearn();
+});
 async function toggleRecognition(event) {
   const target = event.currentTarget;
   const nextEnabled = target?.checked === true;
@@ -279,7 +296,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           </svg>
           <span class="flex flex-col">
             <span class="text-sm font-semibold">{{ pushToTalkLabel }}</span>
-            <span class="mt-0.5 font-mono text-[10px] font-normal opacity-65">{{ voice.runtime.shortcut || 'On-screen only' }}</span>
+            <span class="mt-0.5 font-mono text-[10px] font-normal opacity-65">{{ globalHoldLabel }}</span>
           </span>
         </button>
       </div>
@@ -295,6 +312,11 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
         </ul>
       </details>
       <p class="mt-1">Replies use fresh aircraft data. Enable spoken readbacks to hear the answer.</p>
+    </div>
+    <div v-if="flightPlanQueriesAvailable" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg" data-flight-plan-query-guide>
+      <p class="font-semibold">Ask about the flight plan</p>
+      <p class="mt-1">{{ flightPlanExamples.join(' · ') }}</p>
+      <p class="mt-1">Reads the airports, runways, SID, STAR, transitions and planned altitude from the OFP loaded on the SimBrief tab.</p>
     </div>
     <div v-if="examples.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3 text-xs">
       <span class="mr-1 text-muted-fg">Try saying</span>
@@ -320,7 +342,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
         </svg>
         <span class="font-medium text-gray-300">Voice settings</span>
         <span v-if="recognitionOff" class="shrink-0 text-[11px] font-medium text-gray-400">Voice off</span>
-        <span v-else-if="!voice.runtime.shortcut" class="shrink-0 text-[11px] font-medium text-amber-300">Set push-to-talk</span>
+        <span v-else-if="!voice.runtime.shortcut && !voice.runtime.joystick" class="shrink-0 text-[11px] font-medium text-amber-300">Set push-to-talk</span>
         <span class="min-w-0 flex-1 truncate text-right text-[11px]">{{ selectedInputLabel }}</span>
         <svg class="voice-settings__chevron h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m6 9 6 6 6-6" />
@@ -376,6 +398,9 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           </span>
           <span>Local spoken feedback</span>
         </label>
+        <p v-if="voice.runtime.readbackError" class="text-[11px] text-amber-300 lg:col-span-2" data-voice-readback-error>
+          Last spoken readback failed: {{ voice.runtime.readbackError }} Windows speech uses the default output device.
+        </p>
 
         <form class="flex flex-col gap-1.5 lg:col-span-2" @submit.prevent="saveShortcut">
           <label for="voice-ptt-shortcut" class="shrink-0 text-muted-fg">Push-to-talk shortcut</label>
@@ -426,6 +451,68 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           </p>
           <p v-if="shortcutError" id="voice-ptt-shortcut-error" class="text-[11px] text-amber-300" role="alert">
             {{ shortcutError }}
+          </p>
+        </form>
+
+        <form v-if="voice.runtime.joystickAvailable" class="flex flex-col gap-1.5 lg:col-span-2" data-voice-joystick-binding @submit.prevent="saveJoystick">
+          <label for="voice-ptt-joystick" class="shrink-0 text-muted-fg">Joystick push-to-talk button</label>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              id="voice-ptt-joystick"
+              type="button"
+              data-voice-joystick-recorder
+              class="min-h-10 min-w-40 rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-50"
+              :class="joystickLearning ? 'border-accent/70 bg-accent/10 text-white' : 'border-white/15 bg-black/20 text-gray-200 hover:bg-white/5'"
+              :disabled="recognitionOff || captureLocked || joystickSaving"
+              :aria-label="joystickLearning
+                ? 'Press the joystick button to use for push-to-talk'
+                : joystickDraftLabel
+                  ? `Current joystick push-to-talk button: ${joystickDraftLabel}. Click to change.`
+                  : 'No joystick push-to-talk button is bound. Click to detect one.'"
+              aria-describedby="voice-ptt-joystick-help voice-ptt-joystick-error"
+              @click="joystickLearning ? cancelJoystickEdit() : beginJoystickLearn()"
+              @keydown.escape.prevent="cancelJoystickEdit"
+            >
+              {{ joystickLearning ? 'Press a joystick button…' : (joystickDraftLabel || 'Set joystick button') }}
+            </button>
+            <button
+              v-if="joystickDirty"
+              type="submit"
+              class="min-h-10 rounded-lg border border-white/15 px-3 py-2 text-gray-200 transition-colors hover:bg-white/5 disabled:opacity-50"
+              :disabled="recognitionOff || joystickLearning || joystickSaving || captureLocked"
+            >
+              {{ joystickSaving ? 'Saving…' : 'Save' }}
+            </button>
+            <button
+              v-if="joystickLearning || joystickDirty"
+              type="button"
+              class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-white/5 hover:text-gray-200"
+              @click="cancelJoystickEdit"
+            >
+              Cancel
+            </button>
+            <button
+              v-else-if="voice.runtime.joystick"
+              type="button"
+              data-voice-joystick-remove
+              class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-white/5 hover:text-gray-200 disabled:opacity-50"
+              :disabled="recognitionOff || joystickSaving || captureLocked"
+              @click="removeJoystick"
+            >
+              Remove
+            </button>
+            <span
+              v-if="voice.runtime.joystick && !joystickLearning"
+              class="text-[11px]"
+              :class="voice.runtime.joystickConnected ? 'text-emerald-300' : 'text-amber-300'"
+              data-voice-joystick-connection
+            >
+              {{ voice.runtime.joystickConnected ? 'Connected' : 'Not connected' }}
+            </span>
+          </div>
+          <p id="voice-ptt-joystick-help" class="text-[11px] text-muted-fg">{{ joystickHelp }}</p>
+          <p v-if="joystickError" id="voice-ptt-joystick-error" class="text-[11px] text-amber-300" role="alert">
+            {{ joystickError }}
           </p>
         </form>
         <p class="text-[11px] text-muted-fg lg:col-span-2">

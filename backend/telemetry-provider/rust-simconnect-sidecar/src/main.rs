@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-//! Flight Fabric's Rust SimConnect sidecar executable.
+//! FlightFabric's Rust SimConnect sidecar executable.
 //!
 //! The sidecar is a small native bridge between the Node backend and Microsoft
 //! Flight Simulator. Node sends newline-delimited JSON commands on stdin;
@@ -684,7 +684,7 @@ mod sidecar {
 
     fn unique_mobiflight_client_name() -> String {
         // A stable machine-scoped suffix avoids leaking a fresh WASM client area on every
-        // Flight Fabric restart while remaining distinct from MobiFlight Connector clients.
+        // FlightFabric restart while remaining distinct from MobiFlight Connector clients.
         let identity = std::env::var("COMPUTERNAME")
             .or_else(|_| std::env::var("HOSTNAME"))
             .unwrap_or_else(|_| "local".to_string());
@@ -2810,10 +2810,29 @@ mod sidecar {
             Ok(ok)
         }
 
+        /// STRUCT EYEPOINT DYNAMIC OFFSET: additive head-position overlay on the
+        /// cockpit eyepoint. Y is up. Native unit is feet.
         fn eyepoint_offset(&mut self, x: f64, y: f64, z: f64, units: &str) -> bool {
+            self.set_eyepoint_xyz("STRUCT EYEPOINT DYNAMIC OFFSET", units, x, y, z)
+        }
+
+        /// STRUCT EYEPOINT DYNAMIC ANGLE: additive head-rotation overlay on the
+        /// cockpit eyepoint. The struct is body-axis ordered (x = pitch,
+        /// y = heading, z = bank) and native to radians; callers pass degrees.
+        fn eyepoint_angle(&mut self, pitch_deg: f64, bank_deg: f64, heading_deg: f64) -> bool {
+            self.set_eyepoint_xyz(
+                "STRUCT EYEPOINT DYNAMIC ANGLE",
+                "Radians",
+                pitch_deg.to_radians(),
+                heading_deg.to_radians(),
+                bank_deg.to_radians(),
+            )
+        }
+
+        fn set_eyepoint_xyz(&mut self, datum_name: &str, units: &str, x: f64, y: f64, z: f64) -> bool {
             let definition_id = self.next_definition_id;
             self.next_definition_id += 1;
-            let datum = match cstring("STRUCT EYEPOINT DYNAMIC OFFSET") {
+            let datum = match cstring(datum_name) {
                 Ok(value) => value,
                 Err(_) => return false,
             };
@@ -3470,6 +3489,29 @@ mod sidecar {
                 }
                 true
             }
+            "eyepointAngle" => {
+                let pitch = command.pitch.unwrap_or(0.0);
+                let bank = command.bank.unwrap_or(0.0);
+                let heading = command.heading.unwrap_or(0.0);
+                if !is_bounded_camera_number(pitch, MAX_CAMERA_ANGLE_DEGREES)
+                    || !is_bounded_camera_number(bank, MAX_CAMERA_ANGLE_DEGREES)
+                    || !is_bounded_camera_number(heading, MAX_CAMERA_ANGLE_DEGREES)
+                {
+                    emit_value(
+                        json!({ "type": "eyepointAngleAck", "ok": false, "error": "invalid_payload" }),
+                    );
+                    return true;
+                }
+                if let Some(session) = session {
+                    let ok = session.eyepoint_angle(pitch, bank, heading);
+                    emit_value(json!({ "type": "eyepointAngleAck", "ok": ok }));
+                } else {
+                    emit_value(
+                        json!({ "type": "eyepointAngleAck", "ok": false, "error": "not_connected" }),
+                    );
+                }
+                true
+            }
             "cameraShake" => {
                 let dx = command.dx.unwrap_or(0.0);
                 let dy = command.dy.unwrap_or(0.0);
@@ -3564,8 +3606,10 @@ mod sidecar {
         emit_ready(None);
         diag("sidecar started; awaiting setSubscriptions");
 
+        let mut next_service = Instant::now();
         loop {
-            for command in receive_command_batch(&command_rx, MAX_COMMANDS_PER_TICK) {
+            let wait = next_service.saturating_duration_since(Instant::now());
+            for command in receive_command_batch(&command_rx, MAX_COMMANDS_PER_TICK, wait) {
                 let keep_running = handle_command(
                     command,
                     session.as_mut(),
@@ -3591,6 +3635,13 @@ mod sidecar {
                 }
             }
 
+            // Commands can wake immediately; dispatch/health work retains its
+            // 200 ms cadence, including counters measured in service ticks.
+            if Instant::now() < next_service {
+                continue;
+            }
+            next_service = Instant::now() + Duration::from_millis(200);
+
             if session.is_none() && last_connect_attempt.elapsed() >= Duration::from_secs(5) {
                 last_connect_attempt = Instant::now();
                 match simconnect_connection_ready() {
@@ -3601,7 +3652,6 @@ mod sidecar {
                             None,
                             simconnect_api.as_ref().map(|api| api.library_spec.as_str()),
                         );
-                        thread::sleep(Duration::from_millis(200));
                         continue;
                     }
                     Err(error) => {
@@ -3611,7 +3661,6 @@ mod sidecar {
                             None,
                             simconnect_api.as_ref().map(|api| api.library_spec.as_str()),
                         );
-                        thread::sleep(Duration::from_millis(200));
                         continue;
                     }
                     Ok(true) => {}
@@ -3707,7 +3756,6 @@ mod sidecar {
                     dispatch_failures.record_success();
                     consecutive_all_null = 0;
                     health_error_reported = false;
-                    thread::sleep(Duration::from_millis(200));
                     continue;
                 }
                 active.poll_mobiflight();
@@ -3724,7 +3772,6 @@ mod sidecar {
                     );
                     active.close();
                     session = None;
-                    thread::sleep(Duration::from_millis(200));
                     continue;
                 }
 
@@ -3775,7 +3822,6 @@ mod sidecar {
                     dispatch_failures.record_success();
                     consecutive_all_null = 0;
                     health_error_reported = false;
-                    thread::sleep(Duration::from_millis(200));
                     continue;
                 }
                 if has_active_stream {
@@ -3867,7 +3913,6 @@ mod sidecar {
                 }
             }
 
-            thread::sleep(Duration::from_millis(200));
         }
     }
 }

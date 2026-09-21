@@ -60,7 +60,7 @@ async function main() {
 
   const frontendRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-pmdg-preview-'));
   const indexPath = path.join(frontendRoot, 'index.html');
-  const originalIndex = '<!doctype html><html><head><title>Fixture</title></head><body><main>Flight Fabric</main></body></html>';
+  const originalIndex = '<!doctype html><html><head><title>Fixture</title></head><body><main>FlightFabric</main></body></html>';
   fs.writeFileSync(indexPath, originalIndex);
 
   let runtime;

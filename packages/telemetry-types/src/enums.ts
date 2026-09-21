@@ -1,7 +1,7 @@
 /**
  * enums.ts
  *
- * Runtime constants for the Flight Fabric WebSocket protocol:
+ * Runtime constants for the FlightFabric WebSocket protocol:
  *
  *   MSG             — wire type strings for every backend broadcast message.
  *                     Mirrors backend/core/message-types.ts. Both files must
@@ -22,6 +22,8 @@ import type { PhaseMap } from '../../../shared/flight-phases';
  * Keep in sync with the backend when adding or removing message types.
  */
 export const MSG = {
+  AUTOTAXI_STATE: 'autotaxiState',
+  CDU_STATE: 'cduState',
   // Scalar streams
   IAS: 'ias',
   VS: 'vs',
@@ -47,6 +49,7 @@ export const MSG = {
   SPOILERS: 'spoilers',
   ENGINES: 'engines',
   LANDING: 'landing',
+  TOOLBAR_FLIGHT_HISTORY: 'toolbarFlightHistory',
   FLIGHT_SUMMARY: 'flightSummary',
   FLIGHT_VIOLATION: 'flightViolation',
 
@@ -68,6 +71,7 @@ export const MSG = {
   FLIGHT_ENDED: 'flightEnded',
   AIRCRAFT_CHANGED: 'aircraftChanged',
   SIM_STATE: 'simState',
+  SIM_TIME: 'simTime',
 
   // Debug
   DEBUG: 'debug',
@@ -119,6 +123,9 @@ export const MSG = {
   // Update notifications
   UPDATE_AVAILABLE: 'updateAvailable',
 
+  // Supporter goal from the update manifest
+  SUPPORT_GOAL: 'supportGoal',
+
   // Timeline / logbook
   TIMELINE: 'timeline',
   TIMELINE_ERROR: 'timelineError',
@@ -145,6 +152,9 @@ export const MSG = {
 
   // Active SimBrief OFP relay
   FLIGHT_PLAN: 'flightPlan',
+
+  // Desktop voice-control status relay (push-to-talk state, last transcript, outcome)
+  VOICE_STATUS: 'voiceStatus',
 
   // Persisted app settings
   APP_SETTINGS: 'appSettings',

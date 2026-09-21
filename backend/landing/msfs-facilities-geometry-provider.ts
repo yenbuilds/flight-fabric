@@ -31,6 +31,8 @@ type CachedAirport = {
   runways: Record<string, AnyRecord>;
   fetchedAtMs: number;
   error: string | null;
+  taxiways?: AnyRecord;
+  origin?: { lat: number; lon: number } | null;
 };
 
 type ProviderOptions = {
@@ -302,6 +304,8 @@ function createMsfsFacilitiesGeometryProvider(
       runways: {},
       fetchedAtMs: now(),
       error: null,
+      taxiways: message.taxiways,
+      origin: coordinate(airportInfo),
     };
 
     for (const rawRunway of Array.isArray(message.runways) ? message.runways : []) {
@@ -480,6 +484,33 @@ function createMsfsFacilitiesGeometryProvider(
       return requestAirport(icao, { force: true, timeoutMs: options.timeoutMs });
     },
     getDiagnosticSnapshot: diagnosticSnapshot,
+    getTaxiAirport(icao: string, runwayId: string | null): AnyRecord {
+      const airport = cache.get(normalizeIcao(icao) || '');
+      if (!airport || airport.error) throw new Error(`Live airport data for ${icao} are unavailable. Check the simulator connection and try Check route again.`);
+      if (runwayId == null) {
+        // Stand destinations need the graph and runway slabs only.
+        if (!airport.origin) throw new Error(`Simulator geometry for ${airport.icao} is incomplete.`);
+        if (airport.taxiways?.complete !== true) throw new Error(`Simulator taxiway data for ${airport.icao} are missing or incomplete. Autotaxi needs a complete taxiway network.`);
+        const runways = allUniqueRunwaysForAirport(airport).map((item) => ({
+          id: item.runway, reciprocal: item.reciprocalRunway, threshold: item.physicalThreshold || item.threshold,
+          headingDeg: item.headingTrueDeg, lengthM: (item.physicalLengthFt ?? item.lengthFt) / 3.280839895, widthM: item.widthFt / 3.280839895,
+        }));
+        return { origin: airport.origin, graph: airport.taxiways, runways, threshold: null, reciprocal: null };
+      }
+      const runway = runwayLookupKeys(runwayId).map(key => airport.runways[key]).find(Boolean);
+      if (!runway) {
+        const available = allUniqueRunwaysForAirport(airport).map(item => item.runway).sort();
+        throw new Error(`Runway ${runwayId} was not found at ${airport.icao}. Available runways: ${available.join(', ')}.`);
+      }
+      if (!airport.origin || !runway.reciprocalRunway) throw new Error(`Simulator runway geometry for ${airport.icao} runway ${runway.runway} is incomplete.`);
+      if (airport.taxiways?.complete !== true) throw new Error(`Simulator taxiway data for ${airport.icao} are missing or incomplete. Autotaxi needs a complete taxiway network.`);
+      const runways = allUniqueRunwaysForAirport(airport).map((item) => ({
+        id: item.runway, reciprocal: item.reciprocalRunway, threshold: item.physicalThreshold || item.threshold,
+        headingDeg: item.headingTrueDeg, lengthM: (item.physicalLengthFt ?? item.lengthFt) / 3.280839895, widthM: item.widthFt / 3.280839895,
+      }));
+      return { origin: airport.origin, graph: airport.taxiways, runways,
+        threshold: runway.physicalThreshold || runway.threshold, reciprocal: runway.reciprocalRunway };
+    },
     getAirport(icao: string): AnyRecord | null {
       const airport = cachedAirport(icao);
       if (!airport) return null;

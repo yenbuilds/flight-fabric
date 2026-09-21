@@ -86,7 +86,7 @@ onMounted(() => { mounted.value = true; });
                 Voice control
               </h2>
               <p id="aircraft-voice-control-description" class="mt-1 max-w-2xl text-xs leading-5 text-muted-fg sm:text-sm">
-                Keep Flight Fabric in the background and use the global push-to-talk shortcut while flying. Open this panel only when you need the on-screen button or microphone settings.
+                Keep FlightFabric in the background and use the global push-to-talk shortcut while flying. Open this panel only when you need the on-screen button or microphone settings.
               </p>
             </div>
             <button

@@ -7,13 +7,16 @@
         "tests/fixtures/*-browser.js",
         "tests/backend/**/*.test.ts",
         "tests/support/**/*.ts",
+        "msfs-toolbar-panel/tools/build-package.js",
+        "scripts/build-toolbar-voice-reference.mjs",
         "scripts/dev/pmdg-737-preview-client.js",
         "scripts/migrate-flat-flight-logs.js",
         "scripts/prepare-start-runtime.js"
       ],
       "project": [
         "*.js",
-        "scripts/**/*.js",
+        "msfs-toolbar-panel/tools/*.js",
+        "scripts/**/*.{js,mjs}",
         "shared/**/*.{js,ts}",
         "tests/**/*.{js,ts}"
       ],
@@ -68,6 +71,7 @@
         "**/*.test.js",
         "flight-phases.js",
         "telemetry-ui.js",
+        "toolbar/toolbar.js",
         "widgets-compact/widget-theme-bootstrap.js"
       ],
       "project": [

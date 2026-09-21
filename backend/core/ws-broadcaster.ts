@@ -34,7 +34,7 @@ type DebugLike = {
 
 // A paused or hung browser must not be allowed to turn the backend into an
 // unbounded outbound queue. One MiB is ample for the live telemetry stream and
-// keeps a stalled client from exhausting Flight Fabric's memory.
+// keeps a stalled client from exhausting FlightFabric's memory.
 export const MAX_WS_BUFFERED_BYTES = 1024 * 1024;
 
 export function createBroadcast({

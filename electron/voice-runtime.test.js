@@ -10,12 +10,15 @@ const { safeModelFilePath, sha256File, verifyVoiceHotwords } = require('./voice-
 const { VOICE_HOTWORDS, ZIPFORMER_MODEL } = require('./voice-model-manifest');
 const {
   DEFAULT_PUSH_TO_TALK_SHORTCUT,
+  normalizePushToTalkJoystick,
   normalizePushToTalkShortcut,
+  pushToTalkHelperArguments,
 } = require('./voice-push-to-talk');
 const {
   createPushToTalkHelperSpawnOptions,
   createPushToTalkHook,
   resolvePushToTalkHelperPath,
+  startJoystickLearnSession,
 } = require('./voice-push-to-talk-hook');
 const { AUDIO_CHANNEL, createVoiceRuntime } = require('./voice-runtime');
 const {
@@ -140,6 +143,32 @@ test('push-to-talk shortcuts require modifiers and one bounded key', () => {
   assert.throws(() => normalizePushToTalkShortcut('Control+Alt+A+B'));
 });
 
+test('joystick push-to-talk bindings are bounded and become helper arguments', () => {
+  const stickPath = '\\\\?\\hid#vid_044f&pid_b10a#9&764e407&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}';
+  const binding = normalizePushToTalkJoystick({
+    vendorId: '044f', productId: 'b10a', button: '5', name: ` T.16000M${String.fromCharCode(7)} `, path: stickPath,
+  });
+  assert.deepEqual(binding, { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: stickPath });
+  assert.equal(normalizePushToTalkJoystick(null), null, 'null means no joystick button');
+  assert.equal(normalizePushToTalkJoystick(undefined), null);
+  assert.throws(() => normalizePushToTalkJoystick({ vendorId: '44F', productId: 'B10A', button: 1 }), /hex/);
+  assert.throws(() => normalizePushToTalkJoystick({ vendorId: '044F', productId: 'B10A', button: 0 }), /1 to 512/);
+  assert.throws(() => normalizePushToTalkJoystick({ vendorId: '044F', productId: 'B10A', button: 513 }), /1 to 512/);
+  assert.throws(() => normalizePushToTalkJoystick({ vendorId: '044F', productId: 'B10A', button: 1, name: 'x'.repeat(65) }), /too long/);
+  assert.throws(() => normalizePushToTalkJoystick({ vendorId: '044F', productId: 'B10A', button: 1, path: 'a"b' }), /not usable/);
+  assert.throws(() => normalizePushToTalkJoystick('T.16000M button 5'), /object/);
+
+  assert.deepEqual(pushToTalkHelperArguments({ accelerator: 'Control+Alt+Space', joystick: null }), ['--shortcut', 'Control+Alt+Space']);
+  assert.deepEqual(
+    pushToTalkHelperArguments({ accelerator: '', joystick: binding }),
+    ['--joystick', '044F:B10A', '--button', '5', '--device-path', stickPath],
+  );
+  assert.deepEqual(
+    pushToTalkHelperArguments({ accelerator: 'Control+Alt+Space', joystick: { ...binding, path: '' } }),
+    ['--shortcut', 'Control+Alt+Space', '--joystick', '044F:B10A', '--button', '5'],
+  );
+});
+
 test('packaged PTT helper resolves only from application resources', () => {
   assert.equal(
     resolvePushToTalkHelperPath({ appDir: path.resolve('C:\\app'), isPackaged: true, resourcesPath: path.resolve('C:\\resources') }),
@@ -176,20 +205,137 @@ test('disposing a starting PTT hook cannot reactivate its helper', async () => {
   });
 
   try {
-    const registration = hook.setShortcut('Control+Alt+F12');
+    const registration = hook.setBinding({ accelerator: 'Control+Alt+F12' });
     hook.dispose();
     candidate.stdout.emit('data', Buffer.from('{"type":"ready"}\n'));
 
     await assert.rejects(registration, /disposed/i);
-    assert.deepEqual(hook.getInfo(), { accelerator: '', registered: false });
+    assert.deepEqual(hook.getInfo(), { accelerator: '', joystick: null, joystickConnected: false, registered: false });
     assert.ok(candidate.killCalls >= 1, 'dispose must stop the exact in-flight helper object');
     candidate.stdout.emit('data', Buffer.from('{"type":"down"}\n'));
     assert.equal(downEvents, 0, 'a disposed helper must not emit push-to-talk events');
-    await assert.rejects(hook.setShortcut('Control+Alt+F12'), /disposed/i);
+    await assert.rejects(hook.setBinding({ accelerator: 'Control+Alt+F12' }), /disposed/i);
   } finally {
     candidate.emit('close');
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
+});
+
+function createFakeHelperChild() {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killCalls = 0;
+  child.kill = () => { child.killCalls += 1; return true; };
+  child.say = (event) => child.stdout.emit('data', Buffer.from(`${JSON.stringify(event)}\n`));
+  return child;
+}
+
+test('PTT hook runs the helper with the keyboard shortcut and joystick button together and tracks the stick', async () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ptt-joystick-'));
+  const helperPath = path.join(fixtureDir, 'ptt-hook.exe');
+  fs.writeFileSync(helperPath, 'test fixture');
+  const spawned = [];
+  const events = [];
+  const hook = createPushToTalkHook({
+    helperPath,
+    onDown: (accelerator) => events.push(['down', accelerator]),
+    onUp: (accelerator) => events.push(['up', accelerator]),
+    onDevice: (info) => events.push(['device', info.joystickConnected]),
+    onError: (error) => events.push(['error', error.message]),
+    spawnProcess: (_path, args) => {
+      const child = createFakeHelperChild();
+      spawned.push({ args, child });
+      return child;
+    },
+  });
+  const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' };
+  const stick = { type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16 };
+
+  try {
+    const registration = hook.setBinding({ accelerator: 'Control+Alt+Space', joystick });
+    spawned[0].child.say({ type: 'ready' });
+    const info = await registration;
+    assert.deepEqual(spawned[0].args, ['--shortcut', 'Control+Alt+Space', '--joystick', '044F:B10A', '--button', '5']);
+    assert.deepEqual(info, { accelerator: 'Control+Alt+Space', joystick, joystickConnected: false, registered: true });
+
+    spawned[0].child.say({ ...stick, connected: true });
+    assert.equal(hook.getInfo().joystickConnected, true, 'a device report marks the bound stick connected');
+    spawned[0].child.say({ type: 'down' });
+    spawned[0].child.say({ type: 'up' });
+    spawned[0].child.say({ ...stick, connected: false });
+    assert.deepEqual(events, [['device', true], ['down', 'Control+Alt+Space'], ['up', 'Control+Alt+Space'], ['device', false]]);
+    assert.equal(hook.getInfo().joystickConnected, false);
+
+    const unchanged = await hook.setBinding({ accelerator: 'Control+Alt+Space', joystick });
+    assert.equal(spawned.length, 1, 'an identical binding must not restart the helper');
+    assert.equal(unchanged.registered, true);
+
+    const joystickOnly = hook.setBinding({ accelerator: '', joystick });
+    spawned[1].child.say({ type: 'ready' });
+    await joystickOnly;
+    assert.deepEqual(spawned[1].args, ['--joystick', '044F:B10A', '--button', '5']);
+    assert.equal(spawned[0].child.killCalls, 1, 'the superseded helper is stopped');
+    spawned[0].child.say({ type: 'down' });
+    assert.equal(events.length, 4, 'a superseded helper cannot press push-to-talk');
+
+    const cleared = await hook.setBinding({ accelerator: '', joystick: null });
+    assert.equal(spawned.length, 2, 'clearing both bindings launches nothing');
+    assert.equal(spawned[1].child.killCalls, 1, 'clearing both bindings stops the helper');
+    assert.deepEqual(cleared, { accelerator: '', joystick: null, joystickConnected: false, registered: false });
+  } finally {
+    hook.dispose();
+    for (const { child } of spawned) child.emit('close');
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test('joystick learn session relays sanitized device and button events until stopped', async () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ptt-learn-'));
+  const helperPath = path.join(fixtureDir, 'ptt-hook.exe');
+  fs.writeFileSync(helperPath, 'test fixture');
+  const child = createFakeHelperChild();
+  const seen = [];
+  let args = null;
+  const starting = startJoystickLearnSession({
+    helperPath,
+    onDevice: (device) => seen.push(['device', device]),
+    onButton: (press) => seen.push(['button', press]),
+    onStopped: (error) => seen.push(['stopped', error.message]),
+    spawnProcess: (_path, spawnArgs) => { args = spawnArgs; return child; },
+  });
+  child.say({ type: 'ready' });
+  const session = await starting;
+  assert.deepEqual(args, ['--learn-joystick']);
+
+  child.say({ type: 'device', connected: true, vendorId: '044f', productId: 'b10a', name: ' T.16000M ', path: 'p', buttons: 16 });
+  child.say({ type: 'device', connected: true, vendorId: 'nope', productId: 'b10a', name: 'Broken', path: 'p', buttons: 16 });
+  child.say({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 5, down: true });
+  child.say({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 0, down: true });
+  assert.deepEqual(seen, [
+    ['device', { vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true }],
+    ['button', { vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 5, down: true }],
+  ]);
+
+  session.stop();
+  assert.equal(child.killCalls, 1);
+  child.emit('exit', null);
+  assert.equal(seen.length, 2, 'an intentional stop is not reported as a failure');
+
+  const failing = createFakeHelperChild();
+  const failures = [];
+  const secondStart = startJoystickLearnSession({
+    helperPath, onDevice: () => {}, onButton: () => {},
+    onStopped: (error) => failures.push(error.message),
+    spawnProcess: () => failing,
+  });
+  failing.say({ type: 'ready' });
+  await secondStart;
+  failing.emit('exit', 3);
+  assert.deepEqual(failures, ['Push-to-talk helper stopped (3).']);
+  child.emit('close');
+  failing.emit('close');
+  fs.rmSync(fixtureDir, { recursive: true, force: true });
 });
 
 test('voice runtime exposes transcription-only development mode only when unpackaged', () => {
@@ -245,8 +391,8 @@ test('voice recognition is default-off and starts local resources only after exp
       hookCreations += 1;
       return {
         dispose() { hookDisposals += 1; },
-        getInfo: () => ({ accelerator: '', registered: false }),
-        setShortcut: async (accelerator) => ({ accelerator, registered: true }),
+        getInfo: () => ({ accelerator: '', joystick: null, joystickConnected: false, registered: false }),
+        setBinding: async ({ accelerator, joystick }) => ({ accelerator, joystick, joystickConnected: false, registered: true }),
       };
     },
     registerTrustedIpcHandler: (channel, handler) => handlers.set(channel, handler),
@@ -271,6 +417,7 @@ test('voice recognition is default-off and starts local resources only after exp
     assert.equal(engineInitializations, 1);
     assert.equal(hookCreations, 1);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(userDataDir, 'voice-control.json'), 'utf8')), {
+      pushToTalkJoystick: null,
       pushToTalkShortcut: '',
       voiceRecognitionEnabled: true,
     });
@@ -331,6 +478,8 @@ test('voice runtime exposes only its bounded local readback engine through trust
   });
   assert.deepEqual(spoken, ['Heading two seven zero set.']);
   assert.deepEqual(handlers.get('voice:readback-cancel')(), { cancelled: true });
+  assert.deepEqual(runtime.runtimeInfo().readback, readbackEngine.getInfo(),
+    'runtime state should carry the readback engine state so the renderer can show readback failures');
   await runtime.shutdown();
   assert.equal(cancellations, 2, 'runtime shutdown should stop any remaining readback');
 });
@@ -383,8 +532,8 @@ test('voice runtime authorizes microphone access only for its active renderer se
     ipcMain,
     pushToTalkHookFactory: () => ({
       dispose() {},
-      getInfo: () => ({ accelerator: '', registered: false }),
-      setShortcut: async (accelerator) => ({ accelerator, registered: true }),
+      getInfo: () => ({ accelerator: '', joystick: null, joystickConnected: false, registered: false }),
+      setBinding: async ({ accelerator, joystick }) => ({ accelerator, joystick, joystickConnected: false, registered: true }),
     }),
     registerTrustedIpcHandler: (channel, handler, options = {}) => {
       (options.listener === true ? listeners : handlers).set(channel, handler);
@@ -440,6 +589,66 @@ test('voice runtime authorizes microphone access only for its active renderer se
   await runtime.shutdown();
   fs.rmSync(userDataDir, { recursive: true, force: true });
 });
+
+for (const isPackaged of [true, false]) {
+  test(`joystick release hold blocks saved bindings and IPC in ${isPackaged ? 'packaged' : 'development'} runs`, async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-voice-joystick-disabled-'));
+    const settingsPath = path.join(userDataDir, 'voice-control.json');
+    const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: 'p' };
+    fs.writeFileSync(settingsPath, JSON.stringify({ pushToTalkJoystick: joystick, voiceRecognitionEnabled: true }));
+    const handlers = new Map();
+    const bindings = [];
+    let learnStarts = 0;
+    let hookInfo = { accelerator: '', joystick: null, joystickConnected: false, registered: false };
+    const speechEngine = {
+      cancel: () => false, finish: () => false,
+      getInfo: () => ({ activeSessionId: null, modelId: 'test-model', ready: true, state: 'ready' }),
+      initialize: async () => {}, onEvent: () => {}, pushAudio: () => {}, shutdown: async () => {},
+      start: () => ({ sessionId: 'session_12345678', sampleRate: 16000, timeoutMs: 10000 }),
+    };
+    const runtime = createVoiceRuntime({
+      app: { isPackaged, getPath: () => userDataDir }, appDir: __dirname, resourcesPath: __dirname,
+      getMainWindow: () => null, ipcMain: new EventEmitter(), speechEngine,
+      joystickLearnSessionFactory: async () => { learnStarts += 1; throw new Error('Must never start'); },
+      pushToTalkHookFactory: () => ({
+        dispose() {}, getInfo: () => hookInfo,
+        setBinding: async (binding) => {
+          bindings.push(binding);
+          hookInfo = { ...binding, joystickConnected: false, registered: true };
+          return hookInfo;
+        },
+      }),
+      registerTrustedIpcHandler: (channel, handler) => handlers.set(channel, handler),
+    });
+    try {
+      const info = await runtime.initialize();
+      assert.equal(info.pushToTalk.joystickAvailable, false);
+      assert.equal(info.pushToTalk.joystick, null);
+      assert.equal(info.pushToTalk.joystickConnected, false);
+      assert.deepEqual(bindings, [], 'a saved joystick alone must never launch the helper');
+      for (const value of [joystick, null]) {
+        await assert.rejects(handlers.get('voice:set-push-to-talk-joystick')({}, value), /disabled in this release/);
+      }
+      await assert.rejects(handlers.get('voice:joystick-learn-start')(), /disabled in this release/);
+      assert.deepEqual(await handlers.get('voice:joystick-learn-stop')(), { stopped: false });
+      assert.equal(learnStarts, 0, 'detection is blocked before any device access');
+      const keyboard = await handlers.get('voice:set-push-to-talk-shortcut')({}, 'Control+Alt+Space');
+      assert.equal(keyboard.registered, true);
+      assert.deepEqual(bindings.at(-1), { accelerator: 'Control+Alt+Space', joystick: null });
+      assert.equal(keyboard.joystick, null);
+      assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).pushToTalkJoystick, joystick,
+        'the disabled binding is retained for future use, not deleted');
+      await handlers.get('voice:set-recognition-enabled')({}, false);
+      await handlers.get('voice:set-recognition-enabled')({}, true);
+      assert.ok(bindings.every(binding => binding.joystick === null), 'voice restart cannot restore the joystick');
+      assert.deepEqual(handlers.get('voice:speech-start')({ sender: { id: 1 } }).sessionId, 'session_12345678',
+        'on-screen recognition remains usable');
+    } finally {
+      await runtime.shutdown();
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test('each push-to-talk utterance uses a fresh Zipformer stream', () => {
   const workerSource = fs.readFileSync(path.join(__dirname, 'voice-speech-worker.js'), 'utf8');

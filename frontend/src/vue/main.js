@@ -11,6 +11,7 @@ import { useFeedbackStore } from './stores/feedback.js';
 import { useLandingStore } from './stores/landing.js';
 import { useLiveMapStore } from './stores/live-map.js';
 import { useLogbookStore } from './stores/logbook.js';
+import { useSupportStore } from './stores/support.js';
 import { useLvarInspectorStore } from './stores/lvar-inspector.js';
 import { usePreferencesStore } from './stores/preferences.js';
 import { useProfilesStore } from './stores/profiles.js';
@@ -64,6 +65,7 @@ const flight = useFlightStore(pinia);
 const landing = useLandingStore(pinia);
 const liveMap = useLiveMapStore(pinia);
 const logbook = useLogbookStore(pinia);
+const support = useSupportStore(pinia);
 const lvarInspector = useLvarInspectorStore(pinia);
 const preferences = usePreferencesStore(pinia);
 const profiles = useProfilesStore(pinia);
@@ -133,6 +135,7 @@ export const vueRuntimeContext = {
     landing,
     liveMap,
     logbook,
+    support,
     lvarInspector,
     preferences,
     profiles,

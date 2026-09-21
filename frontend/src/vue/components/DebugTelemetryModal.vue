@@ -17,16 +17,22 @@ const debug = useDebugStore();
 const status = useStatusStore();
 let debugRuntime = null;
 const closeShortcutLabel = 'Press Ctrl+Shift+D to close';
-const shakeOptions = [
-  { value: '-200', label: '-200 fpm (soft)' },
-  { value: '-400', label: '-400 fpm (normal)' },
-  { value: '-700', label: '-700 fpm (firm)' },
-  { value: '-1000', label: '-1000 fpm (hard)' },
-];
 const sourceLegend = [
   { key: 'simconnect', label: 'SimConnect' },
   { key: 'lvar', label: 'LVAR' },
   { key: 'derived', label: 'Derived' },
+];
+
+const samplingDetailRowClass = 'flex justify-between gap-3';
+const samplingDetailLabelClass = 'text-muted-fg';
+const samplingDetailValueClass = 'text-right font-mono text-fg';
+
+const samplingDetails = [
+  { id: 'sampling-rate', label: 'Rate', valueKey: 'vreSamplingRateDetail' },
+  { id: 'sampling-reason', label: 'Reason', valueKey: 'vreSamplingReasonLabel' },
+  { id: 'sampling-decision', label: 'Decision', valueKey: 'vreSamplingDecisionLabel' },
+  { id: 'sampling-last', label: 'Frame', valueKey: 'vreSamplingLastLabel' },
+  { id: 'sampling-safety', label: 'Ultra', valueKey: 'vreSamplingSafetyLabel' },
 ];
 
 const filterModel = computed({
@@ -49,10 +55,6 @@ const pauseModel = computed({
   set: (value) => debug.setPaused(value),
 });
 
-const shakeVsModel = computed({
-  get: () => debug.testShakeVs,
-  set: (value) => debug.setTestShakeVs(value),
-});
 
 useBodyClass(() => debug.modalOpen, 'debug-modal-open');
 
@@ -122,7 +124,32 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="flex-none flex items-center gap-6 px-4 py-2 border-b border-gray-800 bg-gray-950 text-xs text-gray-500">
+      <div class="flex-none flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 border-b border-gray-800 bg-gray-950 text-xs text-gray-500">
+        <div id="sampling-indicator" :class="{ hidden: !status.vreSamplingVisible }">
+          <AppTooltip placement="bottom-end" tooltip-class="w-72" anchor-tag="div">
+            <div
+              id="sampling-pill"
+              class="ff-status-chip cursor-help"
+              :class="status.vreSamplingPillToneClass"
+            >
+              <div id="sampling-dot" class="h-2 w-2 rounded-full" :class="status.vreSamplingDotToneClass"></div>
+              <span id="sampling-band" class="font-medium" :class="status.vreSamplingLabelToneClass">{{ status.vreSamplingSummaryLabel }}</span>
+            </div>
+            <template #content>
+              <div class="mb-2 text-xs font-semibold text-fg">CSV Sampling</div>
+              <dl class="space-y-1 text-[10px] text-muted-fg">
+                <div
+                  v-for="detail in samplingDetails"
+                  :key="detail.id"
+                  :class="samplingDetailRowClass"
+                >
+                  <dt :class="samplingDetailLabelClass">{{ detail.label }}</dt>
+                  <dd :id="detail.id" :class="samplingDetailValueClass">{{ status[detail.valueKey] }}</dd>
+                </div>
+              </dl>
+            </template>
+          </AppTooltip>
+        </div>
         <span>Rate: <span id="debug-poll-rate" class="text-gray-300">{{ debug.pollRateLabel }}</span> msg/s</span>
         <span>Vars: <span id="debug-total-vars" class="text-gray-300">{{ debug.totalVarCount }}</span></span>
         <span>Active: <span id="debug-active-vars" class="text-gray-300">{{ debug.activeVarCount }}</span></span>
@@ -135,17 +162,8 @@ onUnmounted(() => {
         >
           IN MENU
         </span>
-        <span class="ml-auto flex items-center gap-2">
-          <select
-            id="debug-shake-vs"
-            v-model="shakeVsModel"
-            class="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none focus:border-purple-500"
-          >
-            <option v-for="option in shakeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-          <button id="debug-test-shake" class="px-2 py-0.5 bg-purple-700 hover:bg-purple-600 border border-purple-500 rounded text-xs text-white font-medium" @click="debug.requestTestShake()">Test Shake</button>
-          <span id="debug-shake-status" class="text-xs text-gray-500">{{ debug.testShakeStatus }}</span>
-        </span>
+        <!-- The Test Shake controls were removed on 2026-09-18 while the
+             touchdown shake is disabled; see touchdown-shake.ts. -->
       </div>
 
       <div class="flex-none flex items-center gap-4 px-4 py-2 border-b border-gray-800 bg-gray-950 text-xs">

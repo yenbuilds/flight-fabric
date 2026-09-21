@@ -39,7 +39,7 @@ function numberField(
 
 // There is no published exact A330 LVAR/InputEvent catalogue. This adapter is
 // intentionally limited to an explicit set of standard MSFS 2024 SimVars
-// normalized into Flight Fabric's telemetry frame. Raw names stay backend-only
+// normalized into FlightFabric's telemetry frame. Raw names stay backend-only
 // and can later be replaced by A330-specific sources without changing the UI.
 const INIBUILDS_A330_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'flightGuidance.speedValue': numberField('flightGuidance.speedValue', 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots'),

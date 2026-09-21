@@ -11,6 +11,56 @@ const { parseCookieHeader } = require('./device-pairing');
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
+// Message types a client may subscribe to with `?subscribe=a,b,c`. A
+// subscription is a narrowing filter: the socket receives only these types
+// (plus its authorization scope) and never the per-tick telemetry stream.
+// Embedded views such as the MSFS toolbar panel use it so a stalled or
+// hidden simulator browser cannot accumulate high-frequency traffic. Only
+// event-driven or once-per-second types are eligible.
+export const SUBSCRIBABLE_MESSAGE_TYPES: ReadonlyArray<string> = Object.freeze([
+  MSG.CONNECTED,
+  MSG.SIM_STATE,
+  MSG.PHASE,
+  MSG.FLIGHT_TIME,
+  MSG.SIM_TIME,
+  MSG.FLIGHT_PLAN,
+  MSG.VOICE_STATUS,
+  MSG.AIRCRAFT_PROFILE,
+  MSG.AIRCRAFT_CHANGED,
+  MSG.LANDING,
+  MSG.TOOLBAR_FLIGHT_HISTORY,
+  MSG.FLIGHT_SUMMARY,
+  MSG.FLIGHT_STATUS,
+  MSG.FLIGHT_RECORDING,
+  MSG.RECORDING_STATE,
+  MSG.RECORDING_STARTED,
+  MSG.RECORDING_STOPPED,
+  MSG.FLIGHT_STARTED,
+  MSG.FLIGHT_ENDED,
+  MSG.DATA_SOURCES,
+  MSG.SIGNAL_RELIABILITY,
+  MSG.DESTINATION_TARGET,
+  MSG.ORIGIN_TARGET,
+  MSG.FUEL_UNIT,
+  MSG.SHOW_BRANDING,
+  MSG.UPDATE_AVAILABLE,
+  MSG.SUPPORT_GOAL,
+  MSG.ULTIMATE_STABILITY_SCORE,
+  MSG.ENVELOPE_STATUS,
+  MSG.FLIGHT_VIOLATION,
+  MSG.CABIN_ANNOUNCEMENT,
+  MSG.CALLOUT,
+  MSG.OVERSPEED,
+  MSG.STALL,
+  MSG.FUEL_EXHAUSTED,
+  MSG.CABIN_ALTITUDE_WARNING,
+  MSG.DISK_WARNING,
+  MSG.APP_SETTINGS,
+]);
+const SUBSCRIBABLE_MESSAGE_TYPE_SET: ReadonlySet<string> = new Set(SUBSCRIBABLE_MESSAGE_TYPES);
+const MAX_SUBSCRIPTION_TYPES = 64;
+const SERIALIZED_TYPE_PREFIX = /^\{"type":"([^"\\]{1,64})"/;
+
 type DebugLike = {
   log: (scope: string, message: string, extra?: Record<string, unknown>) => void;
 };
@@ -22,6 +72,7 @@ type WsSocketLike = {
   __ffPrivilegedClient?: boolean;
   __ffAircraftControlClient?: boolean;
   __ffAircraftControlPairingStatus?: AircraftControlPairingStatus;
+  __ffSubscribedTypes?: ReadonlySet<string> | null;
 };
 type AircraftControlPairingStatus = 'not-requested' | 'accepted' | 'expired' | 'disabled';
 type ClientConnectedHandler = (ws: WsSocketLike) => void;
@@ -33,6 +84,7 @@ type RequestLike = import('http').IncomingMessage & {
     aircraftControlPairingStatus: AircraftControlPairingStatus;
     origin: string | null;
     remoteAddress: string | null;
+    subscribedTypes: ReadonlySet<string> | null;
   };
 };
 
@@ -71,6 +123,44 @@ function extractTokenFromRequestUrl(urlValue: string | null | undefined, paramet
   } catch {
     return '';
   }
+}
+
+/**
+ * Parse the optional `subscribe` handshake parameter. Returns null when the
+ * client did not subscribe, a Set of message types when it did, or 'invalid'
+ * when the request names an empty list or a type that is not subscribable.
+ */
+export function parseSubscriptionParameter(urlValue: string | null | undefined): ReadonlySet<string> | null | 'invalid' {
+  let raw: string | null = null;
+  try {
+    raw = new URL(urlValue || '/', 'ws://localhost').searchParams.get('subscribe');
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+  const types = raw.split(',').map((value) => value.trim()).filter(Boolean);
+  if (types.length === 0 || types.length > MAX_SUBSCRIPTION_TYPES) return 'invalid';
+  if (types.some((type) => !SUBSCRIBABLE_MESSAGE_TYPE_SET.has(type))) return 'invalid';
+  return new Set(types);
+}
+
+function serializedMessageType(payload: string): string | null {
+  const quick = SERIALIZED_TYPE_PREFIX.exec(payload);
+  if (quick) return quick[1];
+  try {
+    const parsed = JSON.parse(payload) as { type?: unknown };
+    return parsed && typeof parsed.type === 'string' ? parsed.type : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a subscribed socket should receive this serialized message. */
+export function isSubscribedMessage(subscribedTypes: ReadonlySet<string> | null | undefined, payload: string): boolean {
+  if (!subscribedTypes) return true;
+  const type = serializedMessageType(payload);
+  if (type === null) return false;
+  return type === MSG.AUTHORIZATION_SCOPE || subscribedTypes.has(type);
 }
 
 function isPrivateOrLoopbackIpv4(address: string): boolean {
@@ -169,6 +259,7 @@ export function createWsServer({
       const token = extractTokenFromRequestUrl(info.req?.url, 'token');
       const requestedAircraftControlToken = extractTokenFromRequestUrl(info.req?.url, 'aircraftControlToken');
       const devicePairingSessionId = parseCookieHeader(info.req?.headers?.cookie).ff_aircraft_pair || '';
+      const subscribedTypes = parseSubscriptionParameter(info.req?.url);
       const hasValidToken = Boolean(wsAuthToken) && token === wsAuthToken;
       const remoteAddress = info.req?.socket?.remoteAddress || null;
       const trustedOrigin = isPrivateOrLoopbackRemoteAddress(remoteAddress)
@@ -202,6 +293,15 @@ export function createWsServer({
         return;
       }
 
+      if (subscribedTypes === 'invalid') {
+        Debug.log('ws', 'Rejected websocket subscription', {
+          origin: origin || null,
+          remoteAddress,
+        });
+        done(false, 400, 'Bad Request');
+        return;
+      }
+
       if (info.req) {
         info.req.__ffWsMeta = {
           isPrivilegedClient: hasValidToken,
@@ -209,6 +309,7 @@ export function createWsServer({
           aircraftControlPairingStatus,
           origin: origin || null,
           remoteAddress,
+          subscribedTypes,
         };
       }
 
@@ -252,6 +353,7 @@ export function createWsServer({
     ws.__ffPrivilegedClient = req?.__ffWsMeta?.isPrivilegedClient === true;
     ws.__ffAircraftControlClient = req?.__ffWsMeta?.isAircraftControlClient === true;
     ws.__ffAircraftControlPairingStatus = req?.__ffWsMeta?.aircraftControlPairingStatus || 'not-requested';
+    ws.__ffSubscribedTypes = req?.__ffWsMeta?.subscribedTypes || null;
 
     // Install the outbound boundary before connection-time state is sent.
     // This covers direct replies, reconnect snapshots, cached replay, and the
@@ -260,8 +362,12 @@ export function createWsServer({
     if (typeof ws.send === 'function') {
       const rawSend = ws.send.bind(ws);
       ws.send = (payload: string, ...args: any[]) => {
+        // Avoid parsing and projecting the per-tick stream for subscribed
+        // panels that will discard it. Retain the check after projection too.
+        if (!isSubscribedMessage(ws.__ffSubscribedTypes, payload)) return;
         const projected = projectSerializedServerMessageForClient(ws, payload);
         if (projected === null) return;
+        if (!isSubscribedMessage(ws.__ffSubscribedTypes, projected)) return;
         rawSend(projected, ...args);
       };
     }

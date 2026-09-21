@@ -266,9 +266,9 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
         assert.equal(route.transport, 'simconnect-sequence');
         assert.equal(route.requiredSdkAdapter, 'clientdata-manifest');
         assert.deepEqual(route.operations, [
-          { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+          { type: 'event', name: 'ROTOR_BRAKE', value: 307 },
           { type: 'delay', milliseconds: 500 },
-          { type: 'event', name: 'ROTOR_BRAKE', value: 302 },
+          { type: 'event', name: 'ROTOR_BRAKE', value: 307 },
           { type: 'delay', milliseconds: 500 },
           { type: 'event', name: 'ROTOR_BRAKE', value: 304 },
         ]);

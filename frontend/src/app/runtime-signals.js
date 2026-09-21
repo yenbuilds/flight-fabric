@@ -8,6 +8,7 @@ const signalListeners = {
   wsConnecting: new Set(),
   wsError: new Set(),
   wsMessage: new Set(),
+  wsMessageReceived: new Set(),
   wsOpen: new Set(),
 };
 
@@ -51,6 +52,9 @@ export const subscribeWsClose = (handler) => subscribeSignal('wsClose', handler)
 export const subscribeWsConnecting = (handler) => subscribeSignal('wsConnecting', handler);
 export const subscribeWsError = (handler) => subscribeSignal('wsError', handler);
 export const subscribeWsMessage = (handler) => subscribeSignal('wsMessage', handler);
+// Ordered receipt, before display-frame coalescing. History collectors need
+// every telemetry sample even when the browser suspends animation frames.
+export const subscribeWsMessageReceived = (handler) => subscribeSignal('wsMessageReceived', handler);
 export const subscribeWsOpen = (handler) => subscribeSignal('wsOpen', handler);
 
 export const emitAppSettings = (detail) => emitSignal('appSettings', detail);
@@ -62,4 +66,5 @@ export const emitWsClose = (detail) => emitSignal('wsClose', detail);
 export const emitWsConnecting = (detail) => emitSignal('wsConnecting', detail);
 export const emitWsError = (detail) => emitSignal('wsError', detail);
 export const emitWsMessage = (detail) => emitSignal('wsMessage', detail);
+export const emitWsMessageReceived = (detail) => emitSignal('wsMessageReceived', detail);
 export const emitWsOpen = (detail) => emitSignal('wsOpen', detail);

@@ -226,16 +226,27 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="aircraft-section-ribbon-anchor" data-aircraft-section-ribbon>
+  <div class="aircraft-section-ribbon-anchor aircraft-desktop-section-anchor" data-aircraft-section-ribbon>
     <nav
       ref="sectionRibbon"
-      class="aircraft-section-ribbon"
+      class="aircraft-section-ribbon aircraft-desktop-section-nav"
       :aria-label="`${aircraftLabel} page sections`"
       data-no-swipe
       @pointerdown="handleRibbonPointerDown"
       @pointerup="handleRibbonPointerUp"
       @pointercancel="clearRibbonSwipe"
     >
+      <div class="aircraft-desktop-section-choices" @pointerdown.stop @pointerup.stop>
+        <span>Sections</span>
+        <button
+          v-for="(section, index) in sections"
+          :key="section.id"
+          type="button"
+          :aria-current="index === activeSectionIndex ? 'location' : undefined"
+          :title="section.title"
+          @click="goToSection(index)"
+        >{{ section.label }}</button>
+      </div>
       <button
         type="button"
         class="aircraft-section-ribbon__neighbor"
@@ -318,6 +329,8 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style src="./aircraft-desktop-sections.css"></style>
+
 <style scoped>
 .aircraft-section-ribbon-anchor,
 .aircraft-section-ribbon {
@@ -396,8 +409,8 @@ onBeforeUnmount(() => {
 }
 
 .aircraft-section-menu__choices > button[aria-current="location"] {
-  border-color: rgb(var(--primary) / 0.62);
-  background: rgb(var(--primary) / 0.12);
+  border-color: rgb(var(--selection) / 0.62);
+  background: rgb(var(--selection) / 0.12);
 }
 
 .aircraft-section-menu__number {
@@ -407,7 +420,7 @@ onBeforeUnmount(() => {
   place-items: center;
   border-radius: 9999px;
   background: rgb(var(--panel-elevated) / 0.9);
-  color: rgb(var(--primary));
+  color: rgb(var(--selection));
   font-family: var(--ff-font-mono);
   font-size: 0.72rem;
   font-weight: 700;
@@ -482,7 +495,7 @@ onBeforeUnmount(() => {
   }
 
   .aircraft-section-ribbon__neighbor span[aria-hidden="true"] {
-    color: rgb(var(--primary));
+    color: rgb(var(--selection));
     font-size: 1.25rem;
   }
 
@@ -509,7 +522,7 @@ onBeforeUnmount(() => {
   }
 
   .aircraft-section-ribbon__current strong {
-    color: rgb(var(--primary));
+    color: rgb(var(--selection));
     font-size: 0.78rem;
     font-weight: 750;
     letter-spacing: 0.04em;

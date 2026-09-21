@@ -1,7 +1,7 @@
 {
   "$schema": "./release-profile.schema.json",
   "name": "developer",
-  "displayName": "Flight Fabric (Developer Edition)",
+  "displayName": "FlightFabric (Developer Edition)",
   "description": "User edition plus developer tooling, diagnostics, and HUD builder. For contributors and power users.",
   "extends": "user",
   

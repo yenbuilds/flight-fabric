@@ -170,6 +170,20 @@ export type MobiFlightCalculatorActionRoute =
     /** Establish the required selector scale, then confirm it before rotating. */
     prepareCode?: string;
     precondition?: AircraftIntegrationActionPrecondition;
+    /**
+     * One code that moves `{steps}` detents at once, bounded by maxBatchSteps;
+     * both codes or neither. Every batch still lands on an exact readback
+     * before the next is sent.
+     */
+    batchDecreaseCode?: string;
+    batchIncreaseCode?: string;
+    maxBatchSteps?: number;
+    /**
+     * Written once per encoder and aircraft before its first movement. A fresh
+     * encoder's first touch is otherwise unpredictable (Fenix: a first click
+     * moved the heading 89 degrees, or nothing at all).
+     */
+    primeCode?: string;
     readback: AircraftIntegrationReadback;
     readbacks?: never;
   }>);

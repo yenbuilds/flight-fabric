@@ -776,6 +776,19 @@ test('UpdateAvailableMessage fields exactly match update-checker payload (bidire
   assert(extra.length === 0, `UpdateAvailableMessage typedef fields not in update-checker payload: ${extra.join(', ')}`);
 });
 
+test('SupportGoalMessage fields exactly match sanitizeSupportGoal output (bidirectional)', () => {
+  const src = stripComments(read('backend/core/update-checker.js'));
+  const fnIdx = findFunctionStart(src, 'sanitizeSupportGoal');
+  assert(fnIdx !== -1, 'sanitizeSupportGoal not found in update-checker.js');
+  const afterFn = src.slice(fnIdx);
+  const runtimeFields = extractObjectFields(afterFn, 'return {');
+  const documented = getTypedefProperties('SupportGoalMessage');
+  const missing = [...runtimeFields].filter(f => !documented.has(f));
+  const extra   = [...documented].filter(f => !runtimeFields.has(f));
+  assert(missing.length === 0, `sanitizeSupportGoal fields not in SupportGoalMessage typedef: ${missing.join(', ')}`);
+  assert(extra.length === 0, `SupportGoalMessage typedef fields not in sanitizeSupportGoal output: ${extra.join(', ')}`);
+});
+
 test('AirportSearchResult fields exactly match airport-search suitable-airport result object (bidirectional)', () => {
   const src = stripComments(read('backend/landing/airport-search.js'));
   const fnIdx = findFunctionStart(src, 'findSuitableAirports');

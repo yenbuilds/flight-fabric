@@ -11,7 +11,7 @@
  */
 function canStopBackendPortOwner(ownership, capabilities = {}) {
   // Port ownership is system-wide. Per-user launch locks do not prove that a
-  // matching Flight Fabric command line belongs to this Windows account.
+  // matching FlightFabric command line belongs to this Windows account.
   if (capabilities.sameWindowsOwner !== true) return false;
   if (ownership === 'stoppable') return true;
   if (ownership !== 'electron') return false;

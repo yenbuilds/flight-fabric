@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="/SCSS/common.css" />
+  <link rel="stylesheet" href="FlightFabric.css" />
+
+  <script type="text/javascript" src="/JS/coherent.js"></script>
+  <script type="text/javascript" src="/JS/common.js"></script>
+  <script type="text/javascript" src="/JS/dataStorage.js"></script>
+  <script type="text/javascript" src="/JS/buttons.js"></script>
+  <script type="text/javascript" src="/JS/Services/ToolBarPanels.js"></script>
+
+  <!-- Registers icon-button, used by the simulator's native window controls. -->
+  <link rel="import" href="/templates/NewPushButton/NewPushButton.html" />
+  <link rel="import" href="/templates/ingameUi/ingameUi.html" />
+  <link rel="import" href="/templates/ingameUiHeader/ingameUiHeader.html" />
+
+  <script type="text/javascript" src="/Pages/VCockpit/Instruments/Shared/BaseInstrument.js"></script>
+  <script type="text/javascript" src="FlightFabric.config.js"></script>
+  <script type="text/javascript" defer src="FlightFabric.js"></script>
+</head>
+<!-- This package supports MSFS 2024 only; hidden-frame styling must not
+     depend on an undocumented InputBar constant being available at startup. -->
+<body id="flightfabric-panel" class="border-box" gamestate="ingame" data-simulator="MSFS2024">
+  <flightfabric-panel>
+    <ingame-ui
+      id="flightfabric-panel-frame"
+      panel-id="FLIGHTFABRIC_TOOLBAR_PANEL"
+      title="FlightFabric"
+      class="ingameUiFrame panelInvisible"
+      content-fit="true"
+      min-width="22"
+      min-height="28"
+    >
+      <div class="ff-loader-body">
+        <iframe id="flightfabric-panel-content" class="ff-loader-frame" title="FlightFabric"></iframe>
+        <div id="flightfabric-panel-fallback" class="ff-loader-fallback">
+          <div class="ff-loader-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" width="44" height="44">
+              <path d="M24 5 8 29h11l-3 14 24-24H29l3-14z" fill="#38bdf8" />
+            </svg>
+          </div>
+          <div id="flightfabric-panel-fallback-title" class="ff-loader-title">Connecting to FlightFabric</div>
+          <div id="flightfabric-panel-fallback-text" class="ff-loader-text">Start FlightFabric on this PC. This panel reconnects on its own.</div>
+          <div id="flightfabric-panel-fallback-detail" class="ff-loader-detail"></div>
+        </div>
+      </div>
+    </ingame-ui>
+  </flightfabric-panel>
+</body>
+</html>

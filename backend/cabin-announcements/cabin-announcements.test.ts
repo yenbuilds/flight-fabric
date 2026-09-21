@@ -324,6 +324,80 @@ test('cabin announcements walk normal flight phases with dwell and telemetry gua
   );
 });
 
+test('cabin announcements keep the phase baseline across a pause so the next transition still plays', () => {
+  const { eventBus, messages, setNow } = createHarness();
+
+  setNow(1_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 420, wow: true, display: { raFt: 0 } });
+  eventBus.emit('flight:started', { flightId: 'pause-in-cruise' });
+  eventBus.emit('telemetry:phase', { value: 'TAXI' });
+  setNow(6_001);
+  setNow(11_001);
+  setNow(12_000);
+  eventBus.emit('telemetry:phase', { value: 'TAKEOFF' });
+  eventBus.emit('telemetry:frame', { alt_msl: 2_000, wow: false, display: { raFt: 1_500 } });
+  eventBus.emit('telemetry:phase', { value: 'CLIMB' });
+  setNow(43_000);
+  eventBus.emit('telemetry:phase', { value: 'CRUISE' });
+  setNow(163_000);
+  assert.deepEqual(messages.map((message) => message.phase), ['TAXI', 'CLIMB', 'CRUISE']);
+
+  // ESC pause in cruise: frames arrive with inMenu while the phase stays CRUISE.
+  setNow(200_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 35_000, wow: false, display: { raFt: 30_000 }, inMenu: true });
+  setNow(260_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 35_000, wow: false, display: { raFt: 30_000 }, inMenu: true });
+
+  // Resume, still in cruise: no phase broadcast because nothing changed.
+  setNow(261_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 35_000, wow: false, display: { raFt: 30_000 } });
+  setNow(270_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 35_000, wow: false, display: { raFt: 30_000 } });
+  assert.equal(messages.length, 3, 'resuming in the same phase must not announce anything');
+
+  // The first real transition after the pause must play, not become a new baseline.
+  setNow(300_000);
+  eventBus.emit('telemetry:phase', { value: 'DESCENT' });
+  setNow(480_000);
+  assert.deepEqual(messages.map((message) => message.phase), ['TAXI', 'CLIMB', 'CRUISE', 'DESCENT'],
+    'the descent announcement after a pause in cruise must not be swallowed');
+
+  // Same on the ground: pause during rollout, then taxi in.
+  setNow(481_000);
+  eventBus.emit('telemetry:phase', { value: 'APPROACH' });
+  setNow(482_000);
+  eventBus.emit('telemetry:phase', { value: 'LANDING' });
+  eventBus.emit('telemetry:frame', { alt_msl: 430, wow: true, display: { raFt: 0 } });
+  setNow(483_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 430, wow: true, display: { raFt: 0 }, inMenu: true });
+  setNow(484_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 430, wow: true, display: { raFt: 0 } });
+  setNow(490_000);
+  eventBus.emit('telemetry:phase', { value: 'TAXI-IN' });
+  assert.deepEqual(messages.map((message) => message.phase).slice(-2), ['APPROACH', 'TAXI-IN'],
+    'the after-landing announcement must survive a pause during rollout');
+});
+
+test('cabin announcements still treat a phase change reached inside the menu as a fresh baseline', () => {
+  const { eventBus, messages, setNow } = createHarness();
+
+  setNow(1_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 2_000, wow: false, display: { raFt: 1_500 } });
+  eventBus.emit('telemetry:phase', { value: 'CRUISE' });
+  setNow(6_000);
+
+  // Back to the main menu and load a new flight at the gate: the phase
+  // changes while blocked, and that change must be silent, then be the
+  // baseline the new flight starts from.
+  setNow(10_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 35_000, wow: false, display: { raFt: 30_000 }, inMenu: true });
+  eventBus.emit('telemetry:phase', { value: 'PARKED' });
+  setNow(11_000);
+  eventBus.emit('telemetry:frame', { alt_msl: 420, wow: true, display: { raFt: 0 } });
+  setNow(20_000);
+  assert.deepEqual(messages, [], 'loading a new flight from the menu announces nothing');
+});
+
 test('cabin announcements suppress stale taxi safety audio after takeoff', () => {
   const { eventBus, messages, setNow } = createHarness();
 

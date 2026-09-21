@@ -6,7 +6,7 @@
 //
 // Priority (highest to lowest):
 //   1. Environment variables (always win)
-//   2. User settings file (Flight Fabric app-data settings.json)
+//   2. User settings file (FlightFabric app-data settings.json)
 //   3. Built-in defaults
 //
 // The simulator telemetry poll interval is a fixed runtime safety invariant,
@@ -28,7 +28,7 @@ type CsvWriterMode = 'inline' | 'worker';
 const env = process.env as Record<string, string | undefined>;
 
 // -----------------------------------------------------------------------------
-// User Settings (loaded from the Flight Fabric app-data settings file)
+// User Settings (loaded from the FlightFabric app-data settings file)
 // -----------------------------------------------------------------------------
 const { settings: userSettings, getSetting } = require('./user-settings.js') as {
   settings: UserSettings;
@@ -405,10 +405,17 @@ const config = Object.freeze({
 
   // ---------------------------------------------------------------------------
   // Touchdown camera shake
-  // Disabled by default. Requires lvar-sidecar (LVAR_SIDECAR_AUTO_ENABLE or LVAR_SIDECAR_ENABLE).
+  // Automatic shake on landing is disabled by default; the Test Shake button in
+  // the telemetry debug modal works regardless. Requires the Rust SimConnect
+  // sidecar (LVAR_SIDECAR_AUTO_ENABLE or LVAR_SIDECAR_ENABLE).
+  //   method    'eyepoint' (additive eyepoint overlay, default) or 'camera6dof'
+  //             (legacy CameraSetRelative6DOF; snaps and holds the camera).
+  //   intensity amplitude multiplier, 0.1..3 (default 1).
   // ---------------------------------------------------------------------------
   touchdownShake: Object.freeze({
     enable: bool('TOUCHDOWN_SHAKE_ENABLE', getSetting(userSettings, 'effects.touchdownShake', 'TOUCHDOWN_SHAKE_ENABLE', false)),
+    method: str('TOUCHDOWN_SHAKE_METHOD', getSetting(userSettings, 'effects.touchdownShakeMethod', 'TOUCHDOWN_SHAKE_METHOD', 'eyepoint')),
+    intensity: float('TOUCHDOWN_SHAKE_INTENSITY', getSetting(userSettings, 'effects.touchdownShakeIntensity', 'TOUCHDOWN_SHAKE_INTENSITY', 1)),
   }),
 
   // LVAR sidecar runtime.

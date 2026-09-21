@@ -24,13 +24,12 @@ const props = defineProps({
   isCommandSupported: { type: Function, default: () => false },
   getCommand: { type: Function, default: () => null },
   isActionPending: { type: Function, default: () => false },
+  isCommandPending: { type: Function, default: () => false },
   profileKey: { type: String, default: '' },
 });
 
 const unavailableFields = computed(() => new Set(props.unavailable));
 const mcpDrafts = ref({});
-const bothCourseDraft = ref('');
-const bothNavFrequencyDraft = ref('');
 const sectionRibbon = ref(null);
 const sectionMenu = ref(null);
 const sectionMenuButton = ref(null);
@@ -50,8 +49,6 @@ const sdkSourceStatus = computed(() => (
 
 function resetControlDrafts() {
   mcpDrafts.value = {};
-  bothCourseDraft.value = '';
-  bothNavFrequencyDraft.value = '';
 }
 
 watch(
@@ -87,7 +84,7 @@ const sdkStatusNotice = computed(() => {
   const messages = {
     stale: 'PMDG SDK data stopped updating. Check EnableDataBroadcast=1 and restart the aircraft or simulator.',
     disconnected: 'The PMDG SDK data connection is offline. Check EnableDataBroadcast=1 and restart the aircraft or simulator.',
-    disabled: 'PMDG SDK data is disabled. Check EnableDataBroadcast=1, then restart Flight Fabric.',
+    disabled: 'PMDG SDK data is disabled. Check EnableDataBroadcast=1, then restart FlightFabric.',
     error: 'The PMDG SDK data connection failed. Check the desktop logs and PMDG data-broadcast setting.',
     unsupported: 'This installation cannot start the PMDG 737 SDK connector.',
     'awaiting-values': 'Waiting for the first PMDG SDK data snapshot. Confirm EnableDataBroadcast=1 if this does not clear.',
@@ -134,10 +131,10 @@ const navRadios = [
     id: 'nav2', label: 'NAV 2', active: 'radios.nav2ActiveMhz', standby: 'radios.nav2StandbyMhz',
   },
 ];
+// The paired course preset lives in the shared Presets section. Individual
+// course writes stay blocked while it is being applied.
 const bothCourseCommandId = 'flightGuidance.course.setBoth';
 const bothCourseControlGroup = 'mcp.courseBoth';
-const bothNavCommandId = 'radios.nav.setBothActive';
-const bothNavControlGroup = 'radios.navBoth';
 function booleanControl(title, fieldId, prefix = fieldId, commandId = '') {
   return {
     title,
@@ -465,7 +462,8 @@ function mcpDisabled(field) {
     || (config.commandId
       ? !props.isCommandSupported(config.commandId)
       : !actionSupported(config.actionId))
-    || groupPending(mcpControlGroup(field));
+    || groupPending(mcpControlGroup(field))
+    || (mcpControlGroup(field) === bothCourseControlGroup && props.isCommandPending(bothCourseCommandId) === true);
 }
 
 function requestMcpAction(field) {
@@ -536,87 +534,6 @@ function radioActionDisabled(radio, actionId) {
 function requestRadioAction(radio, actionId) {
   if (radioActionDisabled(radio, actionId)) return false;
   return props.requestAction(actionId, radio.id);
-}
-
-function commandNumberInput(commandId, fallback) {
-  const descriptor = props.getCommand(commandId);
-  return descriptor?.input?.kind === 'number' ? descriptor.input : fallback;
-}
-
-function steppedNumber(rawValue, input) {
-  if (typeof rawValue === 'string' && !rawValue.trim()) return null;
-  const numericValue = Number(rawValue);
-  const position = (numericValue - input.min) / input.step;
-  return Number.isFinite(numericValue)
-    && numericValue >= input.min
-    && numericValue <= input.max
-    && Math.abs(position - Math.round(position)) < 1e-7
-    ? numericValue
-    : null;
-}
-
-function bothCourseInput() {
-  return commandNumberInput(
-    bothCourseCommandId,
-    { min: 0, max: 359, step: 1 },
-  );
-}
-
-function bothCourseValue() {
-  return steppedNumber(bothCourseDraft.value, bothCourseInput());
-}
-
-function bothCourseDisabled() {
-  return props.sourceStatus !== 'connected'
-    || !hasValue('mcp.courseCaptainDeg')
-    || !hasValue('mcp.courseFirstOfficerDeg')
-    || !props.isCommandSupported(bothCourseCommandId)
-    || bothCourseValue() === null
-    || groupPending(bothCourseControlGroup);
-}
-
-function requestBothCourse() {
-  const course = bothCourseValue();
-  if (bothCourseDisabled() || course === null) return false;
-  const sent = props.requestCommand(
-    bothCourseCommandId,
-    bothCourseControlGroup,
-    { value: course },
-  );
-  if (sent !== false) bothCourseDraft.value = '';
-  return sent;
-}
-
-function bothNavInput() {
-  return commandNumberInput(
-    bothNavCommandId,
-    { min: 108, max: 117.95, step: 0.05 },
-  );
-}
-
-function bothNavFrequency() {
-  return steppedNumber(bothNavFrequencyDraft.value, bothNavInput());
-}
-
-function bothNavDisabled() {
-  return props.sourceStatus !== 'connected'
-    || !hasValue('radios.nav1ActiveMhz')
-    || !hasValue('radios.nav2ActiveMhz')
-    || !props.isCommandSupported(bothNavCommandId)
-    || bothNavFrequency() === null
-    || groupPending(bothNavControlGroup);
-}
-
-function requestBothNavFrequency() {
-  const frequency = bothNavFrequency();
-  if (bothNavDisabled() || frequency === null) return false;
-  const sent = props.requestCommand(
-    bothNavCommandId,
-    bothNavControlGroup,
-    { value: frequency },
-  );
-  if (sent !== false) bothNavFrequencyDraft.value = '';
-  return sent;
 }
 
 function controlValue(control) {
@@ -941,16 +858,27 @@ onBeforeUnmount(() => {
       <p class="mt-1 text-xs leading-relaxed text-amber-100/75">{{ sdkStatusNotice }}</p>
     </div>
 
-    <div class="pmdg-mobile-section-ribbon-anchor">
+    <div class="pmdg-mobile-section-ribbon-anchor aircraft-desktop-section-anchor">
       <nav
         ref="sectionRibbon"
-        class="pmdg-mobile-section-ribbon"
+        class="pmdg-mobile-section-ribbon aircraft-desktop-section-nav"
         aria-label="PMDG 737 page sections"
         data-no-swipe
         @pointerdown="handleRibbonPointerDown"
         @pointerup="handleRibbonPointerUp"
         @pointercancel="clearRibbonSwipe"
       >
+        <div class="aircraft-desktop-section-choices" @pointerdown.stop @pointerup.stop>
+          <span>Sections</span>
+          <button
+            v-for="(section, index) in mobileSections"
+            :key="section.id"
+            type="button"
+            :aria-current="index === activeSectionIndex ? 'location' : undefined"
+            :title="section.title"
+            @click="goToSection(index)"
+          >{{ section.label }}</button>
+        </div>
         <button
           type="button"
           class="pmdg-mobile-section-ribbon__neighbor"
@@ -1237,45 +1165,6 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </div>
-      <form
-        class="mt-3 rounded-lg border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
-        data-aircraft-control-group="mcp.courseBoth"
-        data-pmdg-course-both-control
-        @submit.prevent="requestBothCourse"
-      >
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div class="min-w-0 flex-1">
-            <div class="text-[10px] font-semibold tracking-widest text-cyan-100">SET BOTH COURSE WINDOWS</div>
-            <p class="mt-1 text-[11px] leading-relaxed text-gray-400">
-              Set the captain and first-officer MCP courses together. Voice: &ldquo;set courses two seven zero&rdquo;.
-            </p>
-          </div>
-          <div class="flex min-w-0 gap-1.5 sm:w-72">
-            <div class="relative min-w-0 flex-1">
-              <input
-                v-model="bothCourseDraft"
-                class="h-10 w-full rounded border border-surface-300 bg-surface-100 px-2 pr-8 font-mono text-sm text-gray-100 disabled:opacity-45"
-                type="number"
-                inputmode="numeric"
-                :min="bothCourseInput().min"
-                :max="bothCourseInput().max"
-                :step="bothCourseInput().step"
-                placeholder="270"
-                aria-label="Set both MCP course windows"
-              />
-              <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-gray-500">&deg;</span>
-            </div>
-            <button
-              type="submit"
-              class="h-10 rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
-              data-aircraft-command="flightGuidance.course.setBoth"
-              :disabled="bothCourseDisabled()"
-            >
-              SET BOTH
-            </button>
-          </div>
-        </div>
-      </form>
       <div class="mt-2 flex flex-wrap gap-1.5">
         <button v-for="mode in afdsModes" :key="mode.id" type="button" class="rounded border px-2 py-1 text-[10px] font-semibold tracking-wide disabled:cursor-not-allowed disabled:opacity-60" :class="indicatorClass(mode.id)" :data-aircraft-action="afdsActionId(mode) || undefined" :disabled="afdsDisabled(mode)" @click="requestAfdsAction(mode)">{{ mode.label }} <span class="opacity-70">{{ valueText(mode.id) }}</span></button>
       </div>
@@ -1307,45 +1196,6 @@ onBeforeUnmount(() => {
           <div class="mt-1.5 flex justify-between text-[9px] uppercase tracking-wider text-gray-600"><span>Active</span><span>Standby tuned by PMDG event</span></div>
         </div>
       </div>
-      <form
-        class="mt-3 rounded-lg border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
-        data-aircraft-control-group="radios.navBoth"
-        data-pmdg-nav-both-control
-        @submit.prevent="requestBothNavFrequency"
-      >
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div class="min-w-0 flex-1">
-            <div class="text-[10px] font-semibold tracking-widest text-cyan-100">SET BOTH ACTIVE</div>
-            <p class="mt-1 text-[11px] leading-relaxed text-gray-400">
-              Tune NAV 1 and NAV 2 active frequencies together. Voice: &ldquo;set nav radios one one zero decimal three&rdquo;.
-            </p>
-          </div>
-          <div class="flex min-w-0 gap-1.5 sm:w-72">
-            <div class="relative min-w-0 flex-1">
-              <input
-                v-model="bothNavFrequencyDraft"
-                class="h-10 w-full rounded border border-surface-300 bg-surface-100 px-2 pr-12 font-mono text-sm text-gray-100 disabled:opacity-45"
-                type="number"
-                inputmode="decimal"
-                :min="bothNavInput().min"
-                :max="bothNavInput().max"
-                :step="bothNavInput().step"
-                placeholder="110.30"
-                aria-label="Set both active NAV radio frequencies"
-              />
-              <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[9px] text-gray-500">MHz</span>
-            </div>
-            <button
-              type="submit"
-              class="h-10 rounded border border-cyan-400/50 bg-cyan-400/10 px-3 text-[10px] font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
-              data-aircraft-command="radios.nav.setBothActive"
-              :disabled="bothNavDisabled()"
-            >
-              SET BOTH
-            </button>
-          </div>
-        </div>
-      </form>
     </section>
 
     <slot name="avionics" />
@@ -1508,6 +1358,8 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style src="../aircraft-desktop-sections.css"></style>
+
 <style scoped>
 .pmdg-section-heading {
   display: flex;
@@ -1669,8 +1521,8 @@ onBeforeUnmount(() => {
 }
 
 .pmdg-section-menu__choices > button[aria-current="location"] {
-  border-color: rgb(var(--primary) / 0.62);
-  background: rgb(var(--primary) / 0.12);
+  border-color: rgb(var(--selection) / 0.62);
+  background: rgb(var(--selection) / 0.12);
 }
 
 .pmdg-section-menu__number {
@@ -1680,7 +1532,7 @@ onBeforeUnmount(() => {
   place-items: center;
   border-radius: 9999px;
   background: rgb(var(--panel-elevated) / 0.9);
-  color: rgb(var(--primary));
+  color: rgb(var(--selection));
   font-family: var(--ff-font-mono);
   font-size: 0.72rem;
   font-weight: 700;
@@ -1767,7 +1619,7 @@ onBeforeUnmount(() => {
 
   .pmdg-mobile-section-ribbon__neighbor span[aria-hidden="true"] {
     flex: 0 0 auto;
-    color: rgb(var(--primary));
+    color: rgb(var(--selection));
     font-size: 1.25rem;
   }
 
@@ -1794,7 +1646,7 @@ onBeforeUnmount(() => {
   }
 
   .pmdg-mobile-section-ribbon__current strong {
-    color: rgb(var(--primary));
+    color: rgb(var(--selection));
     font-size: 0.78rem;
     font-weight: 750;
     letter-spacing: 0.04em;
