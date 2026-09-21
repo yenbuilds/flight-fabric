@@ -10,7 +10,7 @@
     &nbsp;&middot;&nbsp;
     <a href="RELEASE_NOTES.md">What's new</a>
   </p>
-  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.9.9</span> · Windows 64-bit · Free</p>
+  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.10.0</span> · Windows 64-bit · Free</p>
   <p data-release-note>Still in development. Expect bugs and incomplete aircraft support.</p>
 </div>
 
@@ -32,9 +32,9 @@ touchdown, and rollout.
 
 | Live overview | Aircraft controls |
 | --- | --- |
-| ![FlightFabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![FlightFabric Fenix A320 page showing searchable flight guidance controls](readme-assets/aircraft-controls-20260815.png) |
-| **Timeline replay** | **Landing debrief** |
-| ![FlightFabric timeline inspector with events, replay map, and altitude profile](readme-assets/timeline-replay-20260815.png) | ![FlightFabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
+| ![FlightFabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![FlightFabric Aircraft page for a PMDG 737-800 with cockpit-system sections, presets and the Find controls, MCDU / CDU and Voice control tools](readme-assets/aircraft-controls-20260920.png) |
+| **Logbook and timeline** | **Landing debrief** |
+| ![FlightFabric Logbook with recent flights beside a recorded flight's events, cautions, duration, distance and Landing debrief button](readme-assets/logbook-timeline-20260920.png) | ![FlightFabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
 
 ## One app for the whole flight
 
@@ -51,15 +51,31 @@ touchdown, and rollout.
 The download is the complete Windows 64-bit installer. You do not need the
 **Source code** archives on GitHub.
 
-<details>
-<summary><strong>Installation help and optional file verification</strong></summary>
+### Expect a Windows warning
 
-Windows builds are currently unsigned, so Windows may show an **Unknown
-publisher** warning. Use the official installer linked above.
+The alpha installer is not code signed yet, so Windows cannot verify its
+publisher. The first time you open it, SmartScreen shows a red **Windows
+protected your PC** screen. That is normal for a small unsigned app and is not
+a virus report.
+
+1. Select **More info**. The screen then shows the app name and an **Unknown
+   publisher** line, as in the picture below.
+2. Check that the app is `FlightFabric.Setup.<version>.exe` and that you
+   downloaded it from the official link above, then select **Run anyway**.
+
+![Windows SmartScreen after selecting More info: App FlightFabric.Setup.exe, Publisher Unknown publisher, with Run anyway and Don't run buttons](readme-assets/windows-smartscreen-run-anyway-20260921.png)
+
+If there is no **Run anyway** option, or Windows reports a virus or other
+threat, stop and [report the exact warning](https://github.com/yenbuilds/flight-fabric/issues).
+Do not turn off antivirus, SmartScreen or Smart App Control to install
+FlightFabric. On a managed PC, ask your administrator.
+
+<details>
+<summary><strong>Optional: verify the downloaded file</strong></summary>
 
 If you want to verify your download, you can compare its SHA-256 checksum with
 the value GitHub shows beside the installer on the
-<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.9.9">release page</a>.
+<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.10.0">release page</a>.
 This is optional and is not required to install the app.
 
 </details>

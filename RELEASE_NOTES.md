@@ -112,8 +112,13 @@ Download `FlightFabric.Setup.0.10.0.exe`. The **Source code** archives in GitHub
 section are for developers; the installer is all you need to use FlightFabric.
 Existing settings and recordings stay in their current locations.
 
-The current alpha is unsigned, so Windows may show an **Unknown publisher**
-warning. Use the official installer linked at the top of this page.
+The current alpha is unsigned, so the first time you open the installer Windows
+shows a red **Windows protected your PC** screen. Select **More info**, check
+that the app is `FlightFabric.Setup.0.10.0.exe` with **Unknown publisher**, and
+select **Run anyway** if you downloaded it from the official link at the top of
+this page. If there is no **Run anyway** option, or Windows reports a threat,
+stop and report the exact warning; do not turn off antivirus, SmartScreen or
+Smart App Control.
 
 GitHub shows the installer's SHA-256 checksum beside the file in **Assets** if
 you want to verify your download.
