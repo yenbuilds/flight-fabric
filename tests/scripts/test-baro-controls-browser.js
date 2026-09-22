@@ -150,9 +150,9 @@ async function main() {
     return [id, buildAircraftControlCapabilities(loader.getActiveProfile(), { profileRevision: 1,
       capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence', 'mobiflight-calculator', 'lvar'] } })];
   }));
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error',
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error',
     cacheDir: path.join(OUTPUT, 'vite-cache'), optimizeDeps: { entries: ['tests/fixtures/baro-controls-browser.js'] }, plugins: [vue(), {
       name: 'baro-controls-fixture', configureServer(viteServer) {
         viteServer.middlewares.use('/baro-controls-capabilities', (_req, res) => {

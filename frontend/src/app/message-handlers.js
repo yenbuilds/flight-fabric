@@ -1,8 +1,10 @@
 import {
   emitAppSettingsSaved,
   emitDebugFrame,
+  emitTakeoffReceived,
   emitWsMessage,
 } from './runtime-signals.js';
+import { getFlightFabricAppSettings } from '../settings/shared-runtime.js';
 
 const FLIGHT_STORE_MESSAGE_TYPES = new Set([
   'ias',
@@ -168,6 +170,7 @@ export function createAppMessageHandler({
   aircraftSpecificStore = null,
   voiceController = null,
   landingController,
+  takeoffStore = null,
   telemetryWarnings,
   statusIndicators,
   lvarInspector,
@@ -304,6 +307,14 @@ export function createAppMessageHandler({
         break;
       case 'landing':
         landingController.handleLandingMessage(message);
+        break;
+      case 'takeoff':
+        if (getFlightFabricAppSettings().TAKEOFF_SCORING_ENABLED !== true) break;
+        if (takeoffStore?.handleTakeoffMessage?.(message)) {
+          // A scored takeoff is now in the local takeoff log; the Logbook
+          // refreshes the same way it does after a landing.
+          emitTakeoffReceived({ icao: message.icao || null, runway: message.runway || null });
+        }
         break;
       case 'flightSummary':
         landingController.handleFlightSummaryMessage(message);

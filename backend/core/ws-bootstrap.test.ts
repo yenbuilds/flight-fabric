@@ -104,9 +104,20 @@ test('toolbar history projection bounds nested data and removes paths and arbitr
   const serialized = JSON.stringify(projected);
   for (const field of ['private', 'approachProfile', 'sessionToken', 'secret', 'configPath']) assert.ok(!serialized.includes(field), field);
   assert.ok(serialized.length < 3000);
-  assert.deepEqual(projectServerMessageForClient({}, { type: 'toolbarFlightHistory', landing: [], cautions: 'invalid' }), {
-    type: 'toolbarFlightHistory', aircraft: null, flightId: '', landing: null, cautions: [],
+  assert.deepEqual(projectServerMessageForClient({}, { type: 'toolbarFlightHistory', landing: [], takeoff: 'invalid', cautions: 'invalid' }), {
+    type: 'toolbarFlightHistory', aircraft: null, flightId: '', landing: null, takeoff: null, cautions: [],
   });
+  const takeoffProjected = projectServerMessageForClient({}, {
+    type: 'toolbarFlightHistory',
+    takeoff: { final: true, grade: 'Late Liftoff', score: 55, zone: 'C:\\private\\zone', icao: 'YSSY', runway: '34L',
+      runwayUse: { remainingFt: 300, runwayLengthFt: 6000, beyondRunwayEnd: false, secret: 'private' },
+      analysis: Array(10000).fill({ secret: 'private' }), flags: [{ label: 'C:\\private\\flag' }] },
+  })!;
+  assert.equal(takeoffProjected.takeoff.grade, 'Late Liftoff');
+  assert.equal(takeoffProjected.takeoff.runwayUse.remainingFt, 300);
+  const takeoffSerialized = JSON.stringify(takeoffProjected);
+  for (const field of ['private', 'analysis', 'flags', 'secret']) assert.ok(!takeoffSerialized.includes(field), field);
+  assert.ok(takeoffSerialized.length < 1500);
 });
 
 test('every server message type has one explicit unpaired-client policy', () => {

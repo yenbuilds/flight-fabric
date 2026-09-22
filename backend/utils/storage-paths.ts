@@ -22,6 +22,7 @@ const AUDIO_DIR_NAME = 'Audio';
 const CABIN_ANNOUNCEMENTS_DIR_NAME = 'Cabin';
 const THEMES_DIR_NAME = 'Themes';
 const LOGBOOK_FILE_NAME = 'logbook.json';
+const TAKEOFF_LOG_FILE_NAME = 'takeoff-log.json';
 const DESTINATION_TARGET_FILE_NAME = 'destination-target.json';
 const ORIGIN_TARGET_FILE_NAME = 'origin-target.json';
 const APP_DATA_MARKER_FILE_NAME = '.flight-fabric-data.json';
@@ -145,6 +146,15 @@ function resolveLogbookFilePath(options: ResolveOptions = {}): string {
   return getLogbookFilePath(env);
 }
 
+function getTakeoffLogFilePath(env: EnvLike = process.env): string {
+  return path.join(getAppDataRoot(env), TAKEOFF_LOG_FILE_NAME);
+}
+
+function resolveTakeoffLogFilePath(options: ResolveOptions = {}): string {
+  const env = options.env || process.env;
+  return getTakeoffLogFilePath(env);
+}
+
 function getDestinationTargetFilePath(env: EnvLike = process.env): string {
   return path.join(getAppDataRoot(env), DESTINATION_TARGET_FILE_NAME);
 }
@@ -259,6 +269,7 @@ const storagePathsApi = {
   FLIGHT_LOGS_DIR_NAME,
   LOCAL_SDK_CONNECTORS_DIR_NAME,
   LOGBOOK_FILE_NAME,
+  TAKEOFF_LOG_FILE_NAME,
   ORIGIN_TARGET_FILE_NAME,
   SETTINGS_DIR_NAME,
   SETTINGS_FILE_NAME,
@@ -290,6 +301,7 @@ const storagePathsApi = {
   resolveAppDataMarkerFilePath,
   resolveDestinationTargetFilePath,
   resolveLogbookFilePath,
+  resolveTakeoffLogFilePath,
   resolveOriginTargetFilePath,
   resolveSettingsFilePath,
   resolveThemesDir,

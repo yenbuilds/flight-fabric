@@ -1,5 +1,5 @@
 // Shared vocabulary for the 2D/3D map switch and the 3D view options, used
-// by the live-map and timeline stores so both views persist the same shape.
+// by the live-map and timeline stores for shared defaults and saved 3D options.
 
 import { DEFAULT_TRACK_COLOR_MODE, normalizeTrackColorMode } from './track-geometry.js';
 

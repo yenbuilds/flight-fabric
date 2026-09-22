@@ -681,6 +681,10 @@ SIMCONNECT_VARS.push(...COM_RADIO_DEFINITIONS);
 const SIMCONNECT_CHUNK_SIZE = config.simconnect.chunkSize;
 
 const RUST_SIMVARS_MAX_VARS = config.simconnect.rustMaxVars || SIMCONNECT_VARS.length;
+// SDK sidecar restart watchdog (see SimConnectTelemetryProvider#_runSdkBridgeWatchdogTick).
+const SDK_BRIDGE_WATCHDOG_INTERVAL_MS = 5000;
+const SDK_BRIDGE_RESTART_BACKOFF_BASE_MS = 10000;
+const SDK_BRIDGE_RESTART_BACKOFF_MAX_MS = 120000;
 const RUST_AIRCRAFT_TITLE_KEY = 'aircraftTitle';
 const RUST_AIRCRAFT_TITLE_READBACK_DELAY_MS = 500;
 const RUST_TITLE_FALLBACK_CHANGE_DELAY_MS = 1000;
@@ -822,7 +826,11 @@ class SimConnectTelemetryProvider {
     // Optional SDK bridge (started when the active profile defines dataSource.sdk)
     this._sdkBridge = null;
     this._sdkAircraftListener = null;
-    
+    // Restarts an SDK sidecar that died unexpectedly; see _runSdkBridgeWatchdogTick.
+    this._sdkBridgeWatchdogTimer = null;
+    this._sdkBridgeRestartNotBeforeMs = 0;
+    this._sdkBridgeRestartFailures = 0;
+
     this.capabilities = {
       isMock: false,
       enableLandingRunner: true,
@@ -1093,6 +1101,74 @@ class SimConnectTelemetryProvider {
     this._broadcastDataSourcesIfLvarStatusChanged();
   }
 
+  // The SDK sidecar only restarted on the next aircraft change. When the
+  // process died (or never spawned) mid-session, the aircraft page showed a
+  // sticky "SDK not ready" error until FlightFabric itself was restarted.
+  // This watchdog re-runs the serialized SDK init with a growing back-off.
+  _startSdkBridgeWatchdog() {
+    if (this._sdkBridgeWatchdogTimer) return;
+    this._sdkBridgeWatchdogTimer = setInterval(() => {
+      try {
+        this._runSdkBridgeWatchdogTick();
+      } catch (error) {
+        console.warn(`[SDK-bridge] watchdog tick failed: ${error?.message || error}`);
+      }
+    }, SDK_BRIDGE_WATCHDOG_INTERVAL_MS);
+    try { this._sdkBridgeWatchdogTimer.unref?.(); } catch {}
+  }
+
+  _stopSdkBridgeWatchdog() {
+    if (this._sdkBridgeWatchdogTimer) {
+      clearInterval(this._sdkBridgeWatchdogTimer);
+      this._sdkBridgeWatchdogTimer = null;
+    }
+    this._sdkBridgeRestartNotBeforeMs = 0;
+    this._sdkBridgeRestartFailures = 0;
+  }
+
+  // Returns true when a restart was requested. Only a bridge whose process is
+  // gone and whose last status carries an error is restarted: a clean stop, a
+  // live process reporting an error (the sidecar retries SDK subscriptions
+  // itself every few seconds) and a pending init are left alone.
+  _runSdkBridgeWatchdogTick(nowMs = Date.now()) {
+    if (!this._canInitialize()) return false;
+    const bridge = this._sdkBridge;
+    if (!bridge || this._sdkInitPromise) return false;
+    if (this._bridgeMayBeLive(bridge)) {
+      if (bridge.getSnapshot?.()?.status === 'running') {
+        this._sdkBridgeRestartFailures = 0;
+      }
+      return false;
+    }
+    const snapshot = bridge.getSnapshot?.() || null;
+    const status = snapshot?.status || null;
+    if (status !== 'stopped' && status !== 'error') return false;
+    if (!snapshot?.error) return false;
+    // A bridge that never resolved a launch spec (binary missing or its probe
+    // failed) is not retried: resolution re-runs a blocking binary probe and
+    // the outcome does not change without an aircraft or install change.
+    if (!bridge._resolvedLaunchSpec) return false;
+    if (!this._resolveActiveSdkProfile()) return false;
+    if (nowMs < this._sdkBridgeRestartNotBeforeMs) return false;
+
+    const failures = this._sdkBridgeRestartFailures;
+    const backoffMs = Math.min(
+      SDK_BRIDGE_RESTART_BACKOFF_BASE_MS * (2 ** failures),
+      SDK_BRIDGE_RESTART_BACKOFF_MAX_MS,
+    );
+    this._sdkBridgeRestartNotBeforeMs = nowMs + backoffMs;
+    this._sdkBridgeRestartFailures = failures + 1;
+    const adapterId = bridge._adapter?.id || snapshot?.adapterId || 'unknown';
+    console.warn(
+      `[SDK-bridge:${adapterId}] sidecar ${status} (${String(snapshot.error).slice(0, 200)});`
+      + ` restarting (attempt ${failures + 1}, next retry in ${backoffMs}ms)`,
+    );
+    this._initSdkBridge().catch((error) => {
+      console.warn(`[SDK-bridge:${adapterId}] restart failed: ${error?.message || error}`);
+    });
+    return true;
+  }
+
   async _initLvarBridge() {
     const generation = this._lifecycleGeneration;
     if (!this._canInitialize(generation)) return;
@@ -1169,6 +1245,8 @@ class SimConnectTelemetryProvider {
     await this._initLvarBridge();
     if (!this._canInitialize(generation)) return;
     await this._initSdkBridge();
+    if (!this._canInitialize(generation)) return;
+    this._startSdkBridgeWatchdog();
   }
 
   async _initRustSimvarBridge(generation = this._lifecycleGeneration) {
@@ -4874,6 +4952,7 @@ class SimConnectTelemetryProvider {
 
     this._stopMsfsFacilitiesWarmup();
     this._stopMsfsFacilitiesProbe();
+    this._stopSdkBridgeWatchdog();
     this._msfsFacilitiesGeometryProvider = null;
 
     this._cancelActiveShake();

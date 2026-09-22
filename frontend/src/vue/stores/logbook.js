@@ -69,10 +69,25 @@ function normalizeHistoryIndexStatus(status) {
   };
 }
 
+const EMPTY_TAKEOFF_STATS = Object.freeze({
+  total: 0,
+  grades: {},
+  cautionCount: 0,
+  avgRollDistanceFt: null,
+  avgRunwayUsedPct: null,
+  minRunwayRemainingFt: null,
+  airports: 0,
+  aircraft: 0,
+});
+
 export const useLogbookStore = defineStore('logbook', {
   state: () => ({
     entries: [],
     stats: { ...EMPTY_STATS },
+    // Scored takeoffs travel beside the landing entries; an older backend
+    // simply omits them and the lists stay empty.
+    takeoffs: [],
+    takeoffStats: { ...EMPTY_TAKEOFF_STATS },
     historyIndexStatus: { ...EMPTY_HISTORY_INDEX_STATUS },
     historyIndexActionError: '',
     lastUpdatedAt: 0,
@@ -105,6 +120,10 @@ export const useLogbookStore = defineStore('logbook', {
       }
       if (message.type !== 'logbook') return;
       this.entries = Array.isArray(message.entries) ? message.entries.slice() : [];
+      this.takeoffs = Array.isArray(message.takeoffs) ? message.takeoffs.slice() : [];
+      this.takeoffStats = message.takeoffStats && typeof message.takeoffStats === 'object'
+        ? { ...EMPTY_TAKEOFF_STATS, ...message.takeoffStats, grades: { ...(message.takeoffStats.grades || {}) } }
+        : { ...EMPTY_TAKEOFF_STATS };
       this.stats = message.stats && typeof message.stats === 'object'
         ? { ...EMPTY_STATS, ...message.stats }
         : { ...EMPTY_STATS };

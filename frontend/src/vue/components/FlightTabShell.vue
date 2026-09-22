@@ -2,6 +2,10 @@
 import FlightStatePanel from './FlightStatePanel.vue';
 import FlightTelemetryPanel from './FlightTelemetryPanel.vue';
 import LastLandingSummary from './LastLandingSummary.vue';
+import LastTakeoffSummary from './LastTakeoffSummary.vue';
+import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+
+const { TAKEOFF_SCORING_ENABLED } = getFlightFabricAppSettings();
 </script>
 
 <template>
@@ -17,6 +21,9 @@ import LastLandingSummary from './LastLandingSummary.vue';
     </div>
     <div id="vue-flight-telemetry-root">
       <FlightTelemetryPanel />
+    </div>
+    <div v-if="TAKEOFF_SCORING_ENABLED" id="vue-last-takeoff-root">
+      <LastTakeoffSummary />
     </div>
     <div id="vue-last-landing-root">
       <LastLandingSummary />

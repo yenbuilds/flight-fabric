@@ -6,7 +6,7 @@
  * This is the SINGLE SOURCE OF TRUTH for V1 flight data output.
  * 
  * ADDING A NEW FIELD:
- *   1. Add entry to FIELD_MAP below with extract function
+ *   1. Add entry to BASE_FIELD_MAP below with extract function
  *   2. V1 CSV automatically picks it up (no other file edits needed!)
  * ═══════════════════════════════════════════════════════════════════════════
  */
@@ -14,6 +14,9 @@
 'use strict';
 
 const timeSource = require('../core/time-source') as TimeSourceModule;
+const { TAKEOFF_SCORING_ENABLED } = require('../../shared/app-settings-shared.js') as {
+  TAKEOFF_SCORING_ENABLED: boolean;
+};
 
 type TimeSourceModule = {
   now: () => number;
@@ -107,7 +110,7 @@ function assistValue(frame: FrameRecord, assistKey: string, flatKey: string): un
   return frame[flatKey];
 }
 
-const FIELD_MAP: FieldDef[] = [
+const BASE_FIELD_MAP: FieldDef[] = [
   {
     name: "record_type",
     extract: (f) => f._recordType ?? 'SAMPLE',
@@ -1815,12 +1818,131 @@ const FIELD_MAP: FieldDef[] = [
   },
 ];
 
+const TAKEOFF_FIELD_MAP: FieldDef[] = [
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Takeoff (sparse - only on TAKEOFF event rows; see takeoff-csv-contract.ts)
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    name: "takeoff_liftoff_timestamp_ms",
+    extract: (f) => f.takeoff_liftoff_timestamp_ms ?? f.takeoffLiftoffTimestampMs,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_roll_distance_ft",
+    extract: (f) => f.takeoff_roll_distance_ft ?? f.takeoffRollDistanceFt,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_roll_duration_s",
+    extract: (f) => f.takeoff_roll_duration_s ?? f.takeoffRollDurationS,
+    format: fmt.real1,
+  },
+  {
+    name: "takeoff_roll_start_source",
+    extract: (f) => f.takeoff_roll_start_source ?? f.takeoffRollStartSource,
+    format: fmt.str,
+  },
+  {
+    name: "takeoff_liftoff_distance_ft",
+    extract: (f) => f.takeoff_liftoff_distance_ft ?? f.takeoffLiftoffDistanceFt,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_runway_remaining_ft",
+    extract: (f) => f.takeoff_runway_remaining_ft ?? f.takeoffRunwayRemainingFt,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_runway_used_pct",
+    extract: (f) => f.takeoff_runway_used_pct ?? f.takeoffRunwayUsedPct,
+    format: fmt.real1,
+  },
+  {
+    name: "takeoff_runway_use_score",
+    extract: (f) => f.takeoff_runway_use_score ?? f.takeoffRunwayUseScore,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_runway_use_grade",
+    extract: (f) => f.takeoff_runway_use_grade ?? f.takeoffRunwayUseGrade,
+    format: fmt.str,
+  },
+  {
+    name: "takeoff_runway_use_zone",
+    extract: (f) => f.takeoff_runway_use_zone ?? f.takeoffRunwayUseZone,
+    format: fmt.str,
+  },
+  {
+    name: "takeoff_screen_height_ft",
+    extract: (f) => f.takeoff_screen_height_ft ?? f.takeoffScreenHeightFt,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_screen_height_distance_ft",
+    extract: (f) => f.takeoff_screen_height_distance_ft ?? f.takeoffScreenHeightDistanceFt,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_screen_height_remaining_ft",
+    extract: (f) => f.takeoff_screen_height_remaining_ft ?? f.takeoffScreenHeightRemainingFt,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_screen_height_elapsed_s",
+    extract: (f) => f.takeoff_screen_height_elapsed_s ?? f.takeoffScreenHeightElapsedS,
+    format: fmt.real1,
+  },
+  {
+    name: "takeoff_rotation_rate_deg_s",
+    extract: (f) => f.takeoff_rotation_rate_deg_s ?? f.takeoffRotationRateDegS,
+    format: fmt.real2,
+  },
+  {
+    name: "takeoff_max_pitch_deg",
+    extract: (f) => f.takeoff_max_pitch_deg ?? f.takeoffMaxPitchDeg,
+    format: fmt.real1,
+  },
+  {
+    name: "takeoff_max_lateral_offset_ft",
+    extract: (f) => f.takeoff_max_lateral_offset_ft ?? f.takeoffMaxLateralOffsetFt,
+    format: fmt.real1,
+  },
+  {
+    name: "takeoff_hop_count",
+    extract: (f) => f.takeoff_hop_count ?? f.takeoffHopCount,
+    format: fmt.int,
+  },
+  {
+    name: "takeoff_assessment",
+    extract: (f) => f.takeoff_assessment ?? f.takeoffAssessment,
+    format: fmt.str,
+  },
+  {
+    name: "takeoff_analysis",
+    extract: (f) => f.takeoff_analysis ?? f.takeoffAnalysis,
+    format: fmt.json,
+  },
+  {
+    name: "takeoff_final",
+    extract: (f) => f.takeoff_final ?? f.takeoffFinal,
+    format: fmt.bool,
+  },
+];
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Build Index for fast lookup
 // ═══════════════════════════════════════════════════════════════════════════
 
-const FIELD_BY_NAME = new Map<string, FieldDef>(FIELD_MAP.map((f): [string, FieldDef] => [f.name, f]));
+// Keep new recording output identical to 0.10.0 while takeoff scoring is off.
+// Historical readers use recorded headers; optional field definitions remain available.
+const FIELD_MAP: FieldDef[] = [
+  ...BASE_FIELD_MAP,
+  ...(TAKEOFF_SCORING_ENABLED ? TAKEOFF_FIELD_MAP : []),
+];
+const FIELD_BY_NAME = new Map<string, FieldDef>(
+  [...BASE_FIELD_MAP, ...TAKEOFF_FIELD_MAP].map((f): [string, FieldDef] => [f.name, f]),
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Public API

@@ -1,124 +1,90 @@
-# FlightFabric 0.10.0 · Public Alpha
+# FlightFabric 0.10.1 · Public Alpha
 
-## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.10.0/FlightFabric.Setup.0.10.0.exe)
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.10.1/FlightFabric.Setup.0.10.1.exe)
 
 **Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
 
 Still in development. Expect bugs and incomplete aircraft support.
 
 Finish your flight and close FlightFabric, then run the downloaded installer.
-Launch FlightFabric again with MSFS 2024 running. If you already use the
+Your settings and recordings stay in their current locations. If you use the
 FlightFabric toolbar panel, close MSFS and choose **Update** or **Reinstall** in
 **Settings > MSFS 2024 toolbar panel**, then restart the simulator.
 
 ## What's new
 
-- **A clearer app and Logbook:** consistent navigation, compact searchable flight
-  lists and a more visible Landing debrief button make it easier to find your
-  controls and review a flight.
-- **Explore flights in 3D:** switch the live map and recorded-flight replay between
-  2D and 3D, with terrain, altitude-coloured tracks and lighting that follows the
-  simulator clock.
-- **FlightFabric inside MSFS:** install the toolbar panel from Settings to see
-  your SimBrief plan, voice-command reference, recording status and last landing
-  without leaving the simulator.
-- **More aircraft tools:** use the remote CDU on supported aircraft and try
-  experimental Autotaxi with route previews, readiness checks and an explicit
-  Stop control.
-- **Better debriefs and everyday reliability:** share a landing as an image,
-  review clearer touchdown-position feedback, and benefit from fixes to
-  recording controls, voice commands and connection recovery.
+- **Maps start in 2D:** the live map and Logbook replay open in 2D, including
+  after previously using 3D. You can still switch to 3D for the current session.
+- **Clearer flight reviews:** event details stay beside the replay map on
+  desktop and open as a bottom sheet on phones, leaving the map visible.
+- **Better replay controls:** the map follows the aircraft as you scrub. Pan
+  to explore, use **Resume Follow** to return, and keep your zoom when opening
+  or closing event details.
+- **PMDG connection recovery:** FlightFabric restarts the SDK connector if
+  its background process stops, helping 737 and 777 data recover automatically.
+- **Safer toolbar typing:** searching voice commands in the MSFS panel no
+  longer sends those keystrokes to simulator controls. Update the panel from
+  Settings to get this fix.
 
 <details>
 <summary><strong>Full release notes</strong></summary>
 
-### Find controls and recordings more easily
+### Live and recorded-flight maps
 
-Desktop navigation and the phone layout keep the main views easy to reach.
-Aircraft controls are grouped by cockpit system, with presets together and
-secondary tools available from the Aircraft page. The Logbook keeps route and
-airport search visible, puts sorting and aircraft filters together, and uses
-compact flight rows. Open a saved flight to inspect events, replay its route or
-choose **Landing debrief**.
+Both maps start in 2D whenever FlightFabric opens or the page reloads. Choosing
+3D is optional, and your saved 3D settings remain available.
 
-**End Flight Manually** responds reliably to mouse and touch input, shows when
-the flight is saving and prevents repeated requests during that save. Recording
-status panels close when the recording ends or the connection is lost.
+The replay map follows the selected point as you scrub through a recording.
+Dragging the map pauses following; **Resume Follow** brings it back to the
+aircraft. Selecting an event centers the map on that event. Opening or closing
+details and resizing the window preserve a view you have already panned or
+zoomed; opening another recording frames the new flight.
 
-### Maps and landing reviews
+Desktop Logbook reviews keep the event list and map side by side, including
+on laptops. Event details use the events column, while phones retain the
+Events / Replay map switch and show details in a compact bottom sheet.
 
-The live and replay maps offer 3D terrain, flight tracks at altitude and several
-camera views. Replay follows the selected point in the recording. Both maps
-retain a 2D option, and online imagery and terrain can be disabled in Settings.
+In 3D replay, detailed ground imagery follows the aircraft as you scrub.
+The live map also rejects impossible altitude spikes during simulator loading,
+preventing an isolated bad sample from stretching the trail and its framing.
 
-Landing reviews offer **Copy image** and **Save PNG** for a shareable summary.
-Touchdown-position feedback accounts for runway length and distinguishes
-measured outcomes, optional targets and operational cautions. Previously saved
-results retain their recorded assessment.
+### Aircraft connection and toolbar fixes
 
-### MSFS toolbar panel
+When a PMDG SDK connector stops unexpectedly, FlightFabric retries the
+connection and explains the recovery status on the aircraft page.
 
-Install the optional panel from **Settings > MSFS 2024 toolbar panel**. It shows
-the loaded SimBrief plan, commands and questions for the active aircraft,
-push-to-talk status, flight and recording information, and the last landing.
-The panel reconnects when FlightFabric becomes available and has its own text
-size, theme and density settings. It is a read-only companion; aircraft controls
-remain in the desktop app or an authorized connected device.
-
-### CDU, voice and experimental Autotaxi
-
-Open **Aircraft > MCDU / CDU** for PMDG 737/777 and FlyByWire A32NX displays and
-keys. Fenix aircraft open their own web MCDU. Setup instructions are available
-from the panel's Help control. Integrated CDU keys work on paired devices with
-aircraft-control access, and the panel adapts to phone and landscape screens.
-
-Voice improvements include SimBrief questions, clearer spoken-feedback errors,
-exterior-light presets and corrections to supported APU and target controls.
-
-**Aircraft > Taxi** introduces experimental Autotaxi for compatible Generic
-aircraft, PMDG 737/777 and Fenix A319/A320/A321 when their readiness checks pass.
-Preview a route to a runway holding point or stand, monitor progress in 2D or
-3D, and use Stop when needed. A connection recovery does not automatically
-resume movement.
+The MSFS toolbar panel keeps keyboard input while a text field is focused,
+then returns it when you leave the field, click the cockpit, or hide or close
+the panel. Reinstall or update the panel from Settings to replace its loader.
 
 </details>
 
 <details>
 <summary><strong>Known limitations</strong></summary>
 
-Autotaxi remains experimental. Live validation across the listed aircraft is
-incomplete, and routes depend on the airport scenery's taxiway data. Inspect
-the route before starting and remain ready to take over. Keep a controlling
-phone or tablet page in the foreground.
+3D maps remain optional and require compatible graphics support. Online
+imagery and terrain depend on their data services; use 2D if 3D is unreliable
+on your system.
 
-Aircraft controls depend on the installed aircraft, its setup and fresh data.
-PMDG integrations require the appropriate SDK options; the FlyByWire A32NX CDU
-requires SimBridge. Unsupported controls remain unavailable. The iniBuilds
-A330 integration is readback-only.
-
-Voice recognition is available in the Windows desktop app. Phone and tablet
-control requires pairing and approval on the simulator PC.
-
-3D maps require compatible graphics support and online data for imagery and
-terrain. Runway and approach data availability varies; unavailable measurements
-remain unscored where required. MSFS 2020 and X-Plane are not currently supported.
+Autotaxi remains experimental. Aircraft controls depend on the installed
+aircraft, its setup and fresh data. Voice recognition runs in the Windows
+desktop app; phone and tablet control requires pairing and approval on the
+simulator PC. MSFS 2020 and X-Plane are not currently supported.
 
 </details>
 
 <details>
 <summary><strong>Installation help and optional file verification</strong></summary>
 
-Download `FlightFabric.Setup.0.10.0.exe`. The **Source code** archives in GitHub's Assets
+Download `FlightFabric.Setup.0.10.1.exe`. The **Source code** archives in GitHub's Assets
 section are for developers; the installer is all you need to use FlightFabric.
-Existing settings and recordings stay in their current locations.
 
-The current alpha is unsigned, so the first time you open the installer Windows
-shows a red **Windows protected your PC** screen. Select **More info**, check
-that the app is `FlightFabric.Setup.0.10.0.exe` with **Unknown publisher**, and
-select **Run anyway** if you downloaded it from the official link at the top of
-this page. If there is no **Run anyway** option, or Windows reports a threat,
-stop and report the exact warning; do not turn off antivirus, SmartScreen or
-Smart App Control.
+The current alpha is unsigned, so Windows may show **Windows protected your
+PC** when you open the installer. Select **More info**, check that the app is
+`FlightFabric.Setup.0.10.1.exe` with **Unknown publisher**, and select **Run anyway** if
+you downloaded it from the official link above. If that option is unavailable
+or Windows reports a threat, stop and report the warning; do not disable
+Windows security protections.
 
 GitHub shows the installer's SHA-256 checksum beside the file in **Assets** if
 you want to verify your download.
@@ -126,8 +92,8 @@ you want to verify your download.
 </details>
 
 [Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
-[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.10.0/LICENSE.md) ·
-[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.10.0/THIRD_PARTY_NOTICES.md)
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.10.1/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.10.1/THIRD_PARTY_NOTICES.md)
 
 Thank you to everyone supporting FlightFabric through feedback, testing and
 donations.

@@ -109,16 +109,20 @@ async function runBrowser() {
       const layout = await evaluate(`return {
         width: innerWidth, overflow: document.documentElement.scrollWidth > innerWidth,
         ribbonVisible: document.querySelector('[data-aircraft-section-ribbon]').getBoundingClientRect().height > 0,
+        desktopChoicesVisible: getComputedStyle(document.querySelector('.aircraft-desktop-section-choices')).display !== 'none',
+        compactChooserVisible: getComputedStyle(document.querySelector('.aircraft-section-ribbon__current')).display !== 'none',
         searchVisible: getComputedStyle(document.querySelector('.aircraft-find')).display !== 'none',
       };`);
       assert.ok(Math.abs(layout.width - width) <= 2);
       assert.equal(layout.overflow, false, `generic page has no horizontal scrolling at ${width}px`);
-      assert.equal(layout.ribbonVisible, width <= 760, 'generic page has the established mobile section ribbon');
+      assert.equal(layout.ribbonVisible, true, 'generic page keeps section navigation at every width');
+      assert.equal(layout.desktopChoicesVisible, width > 760, 'desktop shows direct section choices');
+      assert.equal(layout.compactChooserVisible, width <= 760, 'compact layout shows the section chooser');
       assert.equal(layout.searchVisible, true, 'generic Aircraft search remains available alongside section navigation');
       if (width <= 760) {
         await evaluate(`document.querySelector('.aircraft-section-ribbon__current').click(); await navTest.settle();`);
-        assert.equal(await evaluate('return document.querySelectorAll("[data-aircraft-section-choice]").length;'), 4);
-        await evaluate(`document.querySelectorAll('[data-aircraft-section-choice]')[3].click(); await navTest.settle();`);
+        assert.equal(await evaluate('return document.querySelectorAll("[data-aircraft-section-choice]").length;'), 6, 'navigation includes Taxi and the shared Radios & approach group');
+        await evaluate(`const radioChoice = [...document.querySelectorAll('[data-aircraft-section-choice]')].find(button => button.querySelector('strong')?.textContent.trim() === 'Navigation radios'); radioChoice.click(); await navTest.settle();`);
         assert.equal(await evaluate('return document.activeElement.id;'), 'generic-aircraft-section-radios', 'section navigation moves keyboard focus');
         await wait(350);
         assert.equal(await evaluate('return Boolean(document.querySelector("[data-aircraft-section-menu]"));'), false);
@@ -154,7 +158,8 @@ async function runBrowser() {
     assert.equal(await evaluate('return Boolean(document.querySelector("[data-aircraft-section-menu]"));'), false, 'an aircraft change closes the old section menu');
     assert.equal(await evaluate('return Boolean(document.querySelector("[data-generic-nav-radios]"));'), false, 'profiles without radio commands omit the radio section');
     await evaluate(`document.querySelector('.aircraft-section-ribbon__current').click(); await navTest.settle();`);
-    assert.equal(await evaluate('return document.querySelectorAll("[data-aircraft-section-choice]").length;'), 3, 'the new menu has no dead radio destination');
+    assert.equal(await evaluate('return document.querySelectorAll("[data-aircraft-section-choice]").length;'), 4, 'the new menu keeps Taxi and the three basic control sections');
+    assert.equal(await evaluate('return [...document.querySelectorAll("[data-aircraft-section-choice] strong")].some(el => /radios/i.test(el.textContent));'), false, 'the new menu has no dead radio destination');
     assert.deepEqual(errors, [], 'whole generic page has no browser runtime errors');
     console.log('NAV and generic page browser: 320/390/768px layouts, section jumps, focus, command feedback, edit cancellation, validation, standby/swap, double taps, receiver availability, stale data and read-only state passed.');
     app.exit(0);
@@ -176,9 +181,9 @@ async function main() {
     profile._profileKey = `bundled/msfs/${id}`;
     return [id, buildAircraftControlCapabilities(profile, { profileRevision: 1 })];
   }));
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error',
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error',
     cacheDir: path.join(OUTPUT, 'vite-cache'), optimizeDeps: { entries: ['tests/fixtures/nav-radios-browser.js'] }, plugins: [vue(), {
     name: 'nav-radio-fixture', configureServer(viteServer) {
       viteServer.middlewares.use('/nav-radio-capabilities', (req, res) => {
@@ -189,7 +194,7 @@ async function main() {
       });
       viteServer.middlewares.use('/nav-radio-test', (_req, res) => {
         res.setHeader('Content-Type', 'text/html');
-        res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/frontend/tailwind.css"><style>body{margin:0;padding:16px;background:rgb(var(--background));color:rgb(var(--foreground));font-family:system-ui}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/nav-radios-browser.js"></script></body></html>');
+        res.end('<!doctype html><html><head><script src="/shared/app-settings-shared.js"></script><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/frontend/tailwind.css"><style>body{margin:0;padding:16px;background:rgb(var(--background));color:rgb(var(--foreground));font-family:system-ui}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/nav-radios-browser.js"></script></body></html>');
       });
     },
   }], resolve: { alias: {

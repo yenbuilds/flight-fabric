@@ -34,6 +34,37 @@ export function sanitizeToolbarLanding(value: unknown): AnyRecord | null {
   };
 }
 
+export function sanitizeToolbarTakeoff(value: unknown): AnyRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const takeoff = record(value);
+  const runwayUse = record(takeoff.runwayUse);
+  const roll = record(takeoff.roll);
+  const liftoff = record(takeoff.liftoff);
+  const screen = record(takeoff.screenHeight);
+  const rotation = record(takeoff.rotation);
+  const lateral = record(takeoff.lateral);
+  return {
+    final: takeoff.final === true,
+    grade: text(takeoff.grade, 24), score: number(takeoff.score), zone: text(takeoff.zone, 48),
+    icao: text(takeoff.icao, 8), runway: text(takeoff.runway, 16),
+    runwayExcursion: takeoff.runwayExcursion === true, hopCount: number(takeoff.hopCount) ?? 0,
+    crosswind: number(takeoff.crosswind),
+    runwayUse: {
+      remainingFt: number(runwayUse.remainingFt), liftoffDistanceFt: number(runwayUse.liftoffDistanceFt),
+      usedPct: number(runwayUse.usedPct), runwayLengthFt: number(runwayUse.runwayLengthFt),
+      beyondRunwayEnd: runwayUse.beyondRunwayEnd === true,
+    },
+    roll: { distanceFt: number(roll.distanceFt), durationS: number(roll.durationS) },
+    liftoff: { iasKts: number(liftoff.iasKts), pitchDeg: number(liftoff.pitchDeg) },
+    screenHeight: { heightFt: number(screen.heightFt), reached: screen.reached === true, remainingFt: number(screen.remainingFt) },
+    rotation: { rateDegS: number(rotation.rateDegS) },
+    lateral: {
+      liftoffOffsetFt: number(lateral.liftoffOffsetFt), liftoffOffsetSide: text(lateral.liftoffOffsetSide, 16),
+      verified: lateral.verified === true,
+    },
+  };
+}
+
 export function sanitizeToolbarCaution(value: unknown): AnyRecord | null {
   const caution = record(value);
   const label = text(caution.label, 160);
@@ -50,6 +81,7 @@ export function sanitizeToolbarFlightHistory(value: unknown): AnyRecord {
     aircraft: profileKey || title ? { profileKey, title } : null,
     flightId: text(history.flightId, 128),
     landing: sanitizeToolbarLanding(history.landing),
+    takeoff: sanitizeToolbarTakeoff(history.takeoff),
     cautions: Array.isArray(history.cautions)
       ? history.cautions.slice(0, TOOLBAR_HISTORY_MAX_CAUTIONS).map(sanitizeToolbarCaution).filter(Boolean) : [],
   };

@@ -75,6 +75,33 @@ function fly(harness, steps = 5, startIndex = 0) {
   }
 }
 
+test('a loading altitude spike over a parked aircraft never reaches the trail, legend or framing', async () => {
+  const harness = createHarness();
+  // The simulator loads a flight at Nuuk and reports a six-figure altitude
+  // for its first sample before the aircraft settles on the apron.
+  harness.controller.handleAltitudeMessage({ plane: 101_932, aircraftAgl: 8 });
+  harness.controller.handlePositionMessage({ lat: 64.19, lon: -51.68, hdg: 114 });
+  harness.advance(1000);
+  harness.controller.handleAltitudeMessage({ plane: 279, aircraftAgl: 8 });
+  harness.controller.handlePositionMessage({ lat: 64.19, lon: -51.68, hdg: 114 });
+  harness.advance(1000);
+  harness.controller.handlePositionMessage({ lat: 64.19, lon: -51.68, hdg: 114 });
+  // A parked aircraft keeps a committed vertex and a live endpoint; the
+  // spike is not among them.
+  assert.equal(harness.controller.getTrackSize(), 2);
+
+  harness.controller.setActive(true);
+  await flushPromises();
+  const scene = harness.getScene();
+  assert.ok(scene);
+  assert.equal(harness.store.hud.altitudeFt, 279);
+  assert.equal(harness.store.legend.lower, 279, 'the spike does not stretch the altitude legend');
+  assert.ok(harness.store.legend.upper < 1000, `legend upper ${harness.store.legend.upper} stays at the parked altitude`);
+  assert.equal(scene.state.aircraft.altitudeFt, 279);
+  assert.equal(scene.state.aircraft.label, '279 ft · 8 AGL');
+  assert.equal(scene.state.track.pointCount, 2);
+});
+
 test('telemetry is collected before the 3D view is ever shown, and drawn once it is', async () => {
   const harness = createHarness();
   fly(harness, 5);

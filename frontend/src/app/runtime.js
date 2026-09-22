@@ -290,6 +290,8 @@ export async function initAppRuntime({
   const simbriefStore = requireRuntimeStore(runtimeStores, 'simbrief');
   const tabsStore = requireRuntimeStore(runtimeStores, 'tabs');
   const landingStore = requireRuntimeStore(runtimeStores, 'landing');
+  // Optional: older harnesses build the runtime without a takeoff store.
+  const takeoffStore = runtimeStores.takeoff || null;
   const timelineStore = requireRuntimeStore(runtimeStores, 'timeline');
   const desktopIntegration = {
     setRecordingBadge(message = {}) {
@@ -578,6 +580,7 @@ export async function initAppRuntime({
 
     // Hide stale landing card from previous flight
     landingController.resetSession();
+    takeoffStore?.resetTakeoffCard?.();
 
     // Clear data sources footer
     lvarInspector?.clearDataSourcesStatus();
@@ -703,6 +706,7 @@ export async function initAppRuntime({
     aircraftSpecificStore,
     voiceController,
     landingController,
+    takeoffStore,
     telemetryWarnings,
     statusIndicators,
     lvarInspector,

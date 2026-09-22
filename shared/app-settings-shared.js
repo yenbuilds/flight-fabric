@@ -14,6 +14,9 @@
   // Experimental Autotaxi is enabled for 0.10.0. This source-only release gate
   // is not configurable through environment, saved settings or request payloads.
   const LIVE_AUTOTAXI_ENABLED = true;
+  // Takeoff scoring is held back for 0.10.1 pending correctness validation.
+  // Source-only release gate: never restore this from user settings or env.
+  const TAKEOFF_SCORING_ENABLED = false;
 
   const APP_SETTINGS_DEFAULTS = Object.freeze({
     aircraftProfile: 'auto',
@@ -119,7 +122,7 @@
   function normalizeAppSettings(settings, options = {}) {
     const root = settings && typeof settings === 'object' ? settings : {};
     const defaults = options.defaults && typeof options.defaults === 'object'
-      ? { ...APP_SETTINGS_DEFAULTS, ...options.defaults }
+      ? Object.assign({}, APP_SETTINGS_DEFAULTS, options.defaults)
       : APP_SETTINGS_DEFAULTS;
 
     const aircraft = root.aircraft && typeof root.aircraft === 'object' ? root.aircraft : {};
@@ -191,6 +194,7 @@
     APP_SETTINGS_DEFAULTS,
     FIXED_TELEMETRY_POLL_RATE_MS,
     LIVE_AUTOTAXI_ENABLED,
+    TAKEOFF_SCORING_ENABLED,
     normalizeAppSettings,
     sanitizeAppSettingsPatch,
     sanitizeBool,

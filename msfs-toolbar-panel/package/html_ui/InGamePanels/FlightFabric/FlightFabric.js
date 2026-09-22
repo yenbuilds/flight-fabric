@@ -53,9 +53,16 @@
       this.visibilityObserver = null;
       this.attempts = 0;
       this.initialized = false;
+      // The simulator keeps handling keyboard bindings (Backspace resets the
+      // view, letters toggle systems) until a text field claims the keyboard
+      // the way the simulator's own input elements do. The page reports its
+      // text-field focus and this loader forwards it with a stable field id.
+      this.keyboardFocused = false;
+      this.keyboardFieldId = "FLIGHTFABRIC_TOOLBAR_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
       this.onDomReady = this.initialize.bind(this);
       this.onMessage = this.onMessage.bind(this);
       this.syncPanelVisibility = this.syncPanelVisibility.bind(this);
+      this.onMousePressOutsideView = this.onMousePressOutsideView.bind(this);
     }
 
     connectedCallback() {
@@ -101,6 +108,7 @@
 
     disconnectedCallback() {
       this.cancelRetry();
+      this.setKeyboardFocus(false);
       if (this.visibilityObserver) this.visibilityObserver.disconnect();
       this.visibilityObserver = null;
       document.removeEventListener("DOMContentLoaded", this.onDomReady);
@@ -130,6 +138,7 @@
     loadPage() {
       if (!this.panelActive || !this.iframe || !this.pageUrl) return;
       this.ready = false;
+      this.setKeyboardFocus(false);
       this.attempts += 1;
       // A cache-busting value so a failed navigation is retried rather than
       // served from the simulator browser cache.
@@ -168,13 +177,43 @@
       if (data.action === "ready") {
         this.ready = true;
         this.cancelRetry();
+        // A freshly loaded page has no focused field yet.
+        this.setKeyboardFocus(false);
         this.showPage();
         this.postToPage({ action: "visibility", visible: this.panelActive });
       } else if (data.action === "reload") {
         // The page saw a newer FlightFabric build and asked for a fresh copy.
         this.ready = false;
         this.loadPage();
+      } else if (data.action === "keyboard") {
+        // Only a visible, ready page may take the keyboard from the simulator.
+        this.setKeyboardFocus(data.focused === true && this.ready && this.panelActive);
       }
+    }
+
+    setKeyboardFocus(focused) {
+      if (focused === this.keyboardFocused) return;
+      var coherent = typeof Coherent !== "undefined" && Coherent && typeof Coherent.trigger === "function" ? Coherent : null;
+      if (!coherent) return;
+      this.keyboardFocused = focused;
+      try {
+        if (focused) {
+          coherent.trigger("FOCUS_INPUT_FIELD", this.keyboardFieldId, "", "", "", false);
+          if (typeof coherent.on === "function") coherent.on("mousePressOutsideView", this.onMousePressOutsideView);
+        } else {
+          if (typeof coherent.off === "function") coherent.off("mousePressOutsideView", this.onMousePressOutsideView);
+          coherent.trigger("UNFOCUS_INPUT_FIELD", this.keyboardFieldId);
+        }
+      } catch (error) { /* the simulator keeps its keyboard; typing still reaches the page */ }
+    }
+
+    onMousePressOutsideView() {
+      // The user clicked the cockpit or another panel: the simulator gets the
+      // keyboard back and the page drops its field focus so a later click on
+      // the field claims the keyboard again.
+      if (!this.keyboardFocused) return;
+      this.setKeyboardFocus(false);
+      this.postToPage({ action: "keyboardReleased" });
     }
 
     syncPanelVisibility() {
@@ -184,7 +223,11 @@
         && !classes.contains("minimized") && !classes.contains("hide");
       if (active === this.panelActive) return;
       this.panelActive = active;
-      if (!active) this.cancelRetry();
+      if (!active) {
+        this.cancelRetry();
+        // A hidden panel must never keep the simulator's keyboard.
+        this.setKeyboardFocus(false);
+      }
       this.postToPage({ action: "visibility", visible: active });
       if (active && !this.ready && this.retryTimer === null) this.loadPage();
     }

@@ -118,9 +118,9 @@ async function main() {
   profile._profileKey = 'bundled/msfs/fbw-a32nx';
   const capabilities = buildAircraftControlCapabilities(profile, { profileRevision: 1,
     capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence', 'lvar', 'simbridge-mcdu'] } });
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error',
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error',
     cacheDir: path.join(OUTPUT, 'vite-cache'), optimizeDeps: { entries: ['tests/fixtures/a32nx-approach-browser.js'] }, plugins: [vue(), {
       name: 'a32nx-approach-fixture', configureServer(viteServer) {
         viteServer.middlewares.use('/a32nx-approach-capabilities', (_req, res) => {

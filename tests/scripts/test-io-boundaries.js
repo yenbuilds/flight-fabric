@@ -50,6 +50,9 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/landing/flight-logbook.ts', 'recording-storage', 'existsSync=1,lstatSync=3,promises.open=1,promises.readFile=1,readFileSync=1'],
   ['backend/landing/ourairports-csv-cache.ts', 'release-owned-content', 'existsSync=1,readFileSync=1'],
   ['backend/stability/stability-debug-logger.ts', 'guarded-diagnostics', 'createWriteStream=2,existsSync=1,mkdirSync=1,renameSync=1,statSync=1'],
+  // Takeoff log: reads its own app-data JSON (fixed basename under the app data
+  // root); writes go through safeReplaceTextFileSync like the landing logbook.
+  ['backend/takeoff/takeoff-logbook.ts', 'recording-storage', 'readFileSync=1,statSync=2'],
   ['backend/telemetry-provider/lvar-sidecar-bridge.ts', 'release-owned-runtime', 'existsSync=1,readFileSync=1'],
   ['backend/telemetry-provider/rust-simvar-bridge.ts', 'release-owned-runtime', 'existsSync=1,readFileSync=1'],
   ['backend/telemetry-provider/sdk-adapters/rust-clientdata-launch.ts', 'release-owned-runtime', 'existsSync=1'],

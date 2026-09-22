@@ -345,8 +345,8 @@ test('the scrubber cursor drives the aircraft and the PFD, and clicking a marker
   assert.equal(scene.state.target, null, 'scrubbing does not move the camera');
 
   harness.controller.setCursorPosition({ lat: 41.33, lon: -72.84 }, { headingDeg: 47, altFt: 9800 }, true);
-  assert.ok(scene.state.target, 'an explicit pan recentres the camera on the aircraft');
-  assert.equal(scene.state.target.animate, true);
+  assert.equal(scene.state.followMode, 'chase', 'an explicit pan engages the chosen follow camera');
+  assert.equal(scene.state.snapCount, 1, 'the camera snaps to the aircraft once, then tracks it');
   assert.equal(scene.state.aircraft.label, '9,800 ft', 'no terrain height yet');
 
   scene.state.defaultGroundHeight = 800 * scene.state.aircraft.altitudeUnitsPerFoot;
@@ -495,4 +495,79 @@ test('the view switch replays the timeline and cursor onto the view the user swi
   facade.destroy();
   assert.deepEqual(calls['2d'].slice(-2), [['reset'], ['destroy']]);
   assert.deepEqual(calls['3d'].slice(-2), [['reset'], ['destroy']]);
+});
+
+test('the replay follows the aircraft after the first scrub, pauses when the user drags and resumes from Center', async () => {
+  const harness = createHarness();
+  const followStatuses = [];
+  harness.store.setMapFollowStatus = (kind) => followStatuses.push(kind);
+  harness.controller.setActive(true);
+  await flushPromises();
+  const scene = harness.getScene();
+  harness.controller.render(buildTimeline());
+  assert.equal(scene.state.followMode, 'none', 'the framed flight is an overview: follow waits for the first scrub');
+  assert.equal(followStatuses.at(-1), 'following');
+
+  harness.controller.setCursorPosition({ lat: 40.35, lon: -74.5 }, { headingDeg: 43, altFt: 28000 }, true);
+  assert.equal(scene.state.followMode, 'chase');
+  assert.equal(scene.state.snapCount, 1);
+
+  scene.options.onUserPan();
+  assert.equal(scene.state.followMode, 'none', 'dragging the camera pauses the follow');
+  assert.equal(followStatuses.at(-1), 'paused');
+  harness.controller.setCursorPosition({ lat: 41.33, lon: -72.84 }, { headingDeg: 47, altFt: 9800 }, true);
+  assert.equal(scene.state.followMode, 'none', 'scrubbing while paused moves the aircraft but not the camera');
+  assert.equal(scene.state.snapCount, 1);
+
+  harness.controller.resumeFollowAndCenter();
+  assert.equal(followStatuses.at(-1), 'following');
+  assert.equal(scene.state.followMode, 'chase');
+  assert.equal(scene.state.snapCount, 2, 'Center snaps back to the aircraft');
+
+  harness.options.cameraMode = 'orbit';
+  harness.controller.applyOptions();
+  assert.equal(scene.state.followMode, 'orbit', 'a new camera mode applies while following');
+
+  harness.controller.fitView();
+  assert.equal(scene.state.followMode, 'none', 'Fit flight shows the overview again');
+  assert.equal(followStatuses.at(-1), 'following', 'fitting is not a pause');
+  scene.options.onUserPan();
+  assert.equal(followStatuses.at(-1), 'following', 'orbiting the overview is not a pause either');
+  harness.controller.setCursorPosition({ lat: 42.36, lon: -71.0 }, { headingDeg: 44, altFt: 18 }, true);
+  assert.equal(scene.state.followMode, 'orbit', 'the next scrub re-engages follow');
+
+  scene.options.onUserPan();
+  assert.equal(followStatuses.at(-1), 'paused');
+  harness.controller.focusEvent(buildTimeline().events[1]);
+  assert.equal(followStatuses.at(-1), 'following', 'choosing an event resumes following');
+  assert.equal(scene.state.followMode, 'orbit');
+
+  harness.controller.render({ ...buildTimeline(), flightId: 'flight-2' });
+  assert.equal(scene.state.followMode, 'none', 'a new recording starts from its overview');
+  assert.equal(followStatuses.at(-1), 'following');
+});
+
+test('scrubbing re-plans the ground imagery around the followed aircraft without waiting for a user drag', async () => {
+  const harness = createHarness();
+  harness.controller.setActive(true);
+  await flushPromises();
+  const scene = harness.getScene();
+  harness.controller.render(buildTimeline());
+  const plannedAfterRender = scene.countCalls('setGroundTiles');
+
+  harness.controller.setCursorPosition({ lat: 40.35, lon: -74.5 }, { headingDeg: 43, altFt: 28000 }, true);
+  harness.windowRef.runTimers();
+  assert.equal(scene.countCalls('setGroundTiles'), plannedAfterRender + 1, 'engaging follow re-plans the tiles at once');
+
+  harness.controller.setCursorPosition({ lat: 41.33, lon: -72.84 }, { headingDeg: 47, altFt: 9800 }, true);
+  harness.controller.setCursorPosition({ lat: 42.36, lon: -71.0 }, { headingDeg: 44, altFt: 18 }, true);
+  assert.equal(scene.countCalls('setGroundTiles'), plannedAfterRender + 1, 'further scrubs wait for the throttle');
+  const pendingRefreshes = harness.windowRef.timers.filter((timer) => !timer.cleared && !timer.fired && !timer.interval);
+  assert.equal(pendingRefreshes.length, 1, 'one throttled re-plan is pending');
+  harness.windowRef.runTimers();
+  assert.equal(scene.countCalls('setGroundTiles'), plannedAfterRender + 2, 'the throttled re-plan runs once the interval elapses');
+
+  harness.controller.setCursorPosition({ lat: 40.35, lon: -74.5 }, { headingDeg: 43, altFt: 28000 }, false);
+  harness.windowRef.runTimers();
+  assert.equal(scene.countCalls('setGroundTiles'), plannedAfterRender + 2, 'a cursor update without a pan request does not re-plan');
 });

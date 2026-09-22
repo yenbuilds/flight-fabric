@@ -21,12 +21,12 @@ const descriptions = {
   livemap: 'Live position, route and map', flight: 'Flight instruments and aircraft state',
   autopilot: 'Cockpit controls, presets, voice and CDU', dispatch: 'Flight plan, fuel and briefing',
   timeline: 'Saved flights, replay and landing review', settings: 'Preferences and integrations',
-  system: 'Connection, devices and services', landing: 'Most recent landing assessment',
+  system: 'Connection, devices and services', landing: 'Most recent takeoff and landing assessment',
   cues: 'Experimental flight cues', lvars: 'Aircraft variable inspector',
 };
 const destinations = computed(() => [
   ...[...tabs.desktopPrimaryTabs, ...tabs.desktopSecondaryTabs].map((tab, index) => ({ ...tab, shortcut: String(index + 1) })),
-  { id: 'landing', label: 'Last landing', icon: 'landing' },
+  { id: 'landing', label: 'Takeoff and landing', icon: 'landing' },
   { id: 'cues', label: 'Flight cues', icon: 'cues' },
   { id: 'lvars', label: 'LVAR inspector', icon: 'system' },
 ]);

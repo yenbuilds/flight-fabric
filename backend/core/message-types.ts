@@ -45,6 +45,7 @@ const MSG = Object.freeze({
   SPOILERS: 'spoilers',
   ENGINES: 'engines',
   LANDING: 'landing',
+  TAKEOFF: 'takeoff',
   TOOLBAR_FLIGHT_HISTORY: 'toolbarFlightHistory', // opt-in reconnect snapshot, never a live landing event
   FLIGHT_SUMMARY: 'flightSummary',
   FLIGHT_VIOLATION: 'flightViolation',

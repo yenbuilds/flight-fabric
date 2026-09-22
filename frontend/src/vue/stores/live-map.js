@@ -2,9 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   readStorageJson,
-  readStorageValue,
   writeStorageJson,
-  writeStorageValue,
 } from '../../app/browser-environment.js';
 import {
   defaultMap3dOptions,
@@ -17,7 +15,6 @@ function sanitizeIcao(value) {
 }
 
 const DEFAULT_MAP_EMPTY_MESSAGE = 'No live GPS position yet';
-const VIEW_MODE_STORAGE_KEY = 'ff.liveMap.viewMode.v1';
 const MAP_3D_OPTIONS_STORAGE_KEY = 'ff.liveMap.map3d.v1';
 const DEFAULT_SCENE_3D_HUD = Object.freeze({
   lighting: null,
@@ -54,7 +51,8 @@ export const useLiveMapStore = defineStore('liveMap', () => {
   const destinationProgressTitle = ref('');
   const destinationProgressText = ref('--');
   const destinationProgressPercent = ref(0);
-  const viewMode = ref(normalizeMapViewMode(readStorageValue(VIEW_MODE_STORAGE_KEY)));
+  // Start each session in 2D, even if an older version saved a 3D preference.
+  const viewMode = ref(normalizeMapViewMode());
   const map3dOptions = ref(normalizeMap3dOptions(readStorageJson(MAP_3D_OPTIONS_STORAGE_KEY), defaultMap3dOptions()));
   const scene3dStatus = ref('');
   const scene3dHud = ref({ ...DEFAULT_SCENE_3D_HUD });
@@ -109,7 +107,6 @@ export const useLiveMapStore = defineStore('liveMap', () => {
     const next = normalizeMapViewMode(mode, viewMode.value);
     if (next === viewMode.value) return;
     viewMode.value = next;
-    writeStorageValue(VIEW_MODE_STORAGE_KEY, next);
   }
 
   function setMap3dOption(key, value) {

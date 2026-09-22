@@ -10,12 +10,15 @@ import SecondScreenGuide from './SecondScreenGuide.vue';
 import DevicePairingRequest from './DevicePairingRequest.vue';
 import SimbriefTab from './SimbriefTab.vue';
 import SystemTabShell from './SystemTabShell.vue';
+import TakeoffPanel from './TakeoffPanel.vue';
 import TimelineTabShell from './TimelineTabShell.vue';
 import FlightCuesTabShell from './FlightCuesTabShell.vue';
 import { useLandingStore } from '../stores/landing.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useFlightCuesStore } from '../stores/flight-cues.js';
+import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
 
+const { TAKEOFF_SCORING_ENABLED } = getFlightFabricAppSettings();
 const landing = useLandingStore();
 const tabs = useTabsStore();
 useFlightCuesStore();
@@ -49,6 +52,9 @@ useFlightCuesStore();
     <div id="tab-landing" class="tab-section" :class="tabs.tabSectionClass('landing')">
       <div id="vue-landing-root">
         <LandingPanel v-if="!landing.landingModalOpen" />
+      </div>
+      <div v-if="TAKEOFF_SCORING_ENABLED" id="vue-takeoff-root" class="mt-6">
+        <TakeoffPanel v-if="!landing.landingModalOpen" />
       </div>
     </div>
 

@@ -62,7 +62,19 @@ class Element extends Target {
   text() { return [this.textContent, ...this.children.map(child => child.text())].filter(Boolean).join(' | '); }
 }
 
-function loader({ parsing = false, active = false, visible = active } = {}) {
+function fakeCoherent() {
+  const triggers = [], handlers = new Map();
+  return {
+    triggers,
+    trigger(name, ...args) { triggers.push([name, ...args]); },
+    on(name, fn) { handlers.set(name, fn); },
+    off(name, fn) { if (handlers.get(name) === fn) handlers.delete(name); },
+    fire(name) { handlers.get(name)?.(); },
+    get listening() { return [...handlers.keys()]; },
+  };
+}
+
+function loader({ parsing = false, active = false, visible = active, coherent } = {}) {
   const timer = fakeClock(), document = new Target(), window = new Target(), nodes = new Map(), navigations = [];
   const ui = new Element('ingame-ui'); ui.active = active;
   if (!visible) ui.classList.add('panelInvisible');
@@ -97,10 +109,14 @@ function loader({ parsing = false, active = false, visible = active } = {}) {
   };
   vm.runInNewContext(read('msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js'), {
     TemplateElement, MutationObserver, document, window, checkAutoload() {}, setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout,
+    Coherent: coherent,
   });
   const panel = new Panel(); panel.connectedCallback();
   return {
     panel, timer, navigations, messages,
+    keyboard(focused) {
+      window.fire('message', { source: iframe.contentWindow, origin: panel.origin, data: { source: 'flightfabric-toolbar', action: 'keyboard', focused } });
+    },
     finishParsing() { attachChildren(); document.readyState = 'complete'; document.fire('DOMContentLoaded'); },
     show() { ui.active = true; mutateClass('panelInvisible', false); ui.fire('panelActive'); },
     hide() { ui.active = false; mutateClass('panelInvisible', true); ui.fire('panelInactive'); },
@@ -111,7 +127,7 @@ function loader({ parsing = false, active = false, visible = active } = {}) {
   };
 }
 
-function page({ storage = new Map() } = {}) {
+function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
   const timer = fakeClock(), sockets = [], requests = [], messages = [], nodes = [], reloads = [];
   const element = tag => { const node = new Element(tag); nodes.push(node); return node; };
   const document = Object.assign(new Target(), {
@@ -138,10 +154,15 @@ function page({ storage = new Map() } = {}) {
     succeed() { this.status = 200; this.responseText = JSON.stringify({ ok: true, wsPort: 8100, appVersion: '0.9.9' }); this.onload?.(); }
   }
   const context = { document, window, WebSocket, XMLHttpRequest, setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout };
+  vm.runInNewContext(read('shared/app-settings-shared.js'), context);
+  window.FlightFabricAppSettings = takeoffScoringEnabled === undefined
+    ? context.FlightFabricAppSettings
+    : { ...context.FlightFabricAppSettings, TAKEOFF_SCORING_ENABLED: takeoffScoringEnabled };
   // Expose the shipped functions without replacing their control flow/rendering.
   vm.runInNewContext(read('frontend/toolbar/toolbar.js').replace(/\}\)\(\);\s*$/, `
     globalThis.panel = { state: state, boot: boot, connect: connect, setVisible: setVisible, selectTab: selectTab,
-      receive: handleMessage, landingCard: renderLandingCard, restoreLanding: restoreLanding };
+      receive: handleMessage, landingCard: renderLandingCard, restoreLanding: restoreLanding,
+      takeoffCard: renderTakeoffCard, restoreTakeoff: restoreTakeoff, subscription: SUBSCRIPTION };
   })();`), context);
   return { api: context.panel, timer, sockets, requests, messages, storage, window, document, nodes, reloads };
 }
@@ -163,12 +184,13 @@ test('toolbar loader waits for parsed children and starts when the panel opens',
 test('toolbar scripts parse as ES2017 and the loader is deferred until the document is parsed', () => {
   const { Linter } = require('eslint');
   const parser = new Linter();
-  for (const file of ['frontend/toolbar/toolbar.js', 'msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js']) {
+  for (const file of ['shared/app-settings-shared.js', 'frontend/toolbar/toolbar.js', 'msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js']) {
     const errors = parser.verify(read(file), { parserOptions: { ecmaVersion: 2017, sourceType: 'script' } }).filter(message => message.fatal);
     assert.deepEqual(errors, [], file);
   }
   const html = read('msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.html');
   assert.match(html, /<script\b[^>]*\bdefer\b[^>]*src="FlightFabric\.js"/);
+  assert.match(read('frontend/toolbar/index.html'), /src="\/shared\/app-settings-shared\.js"[\s\S]*src="\/toolbar\/toolbar\.js"/, 'toolbar loads the shared gate before its consumer');
 });
 
 test('toolbar voice examples and alternatives use punctuation available in the simulator font', () => {
@@ -241,6 +263,103 @@ test('toolbar loader pauses offline retries while hidden, resumes once, and rese
   runtime.disconnect();
   runtime.panel.isConnected = true; runtime.panel.connectedCallback(); runtime.timer.advance(5000);
   assert.equal(runtime.panel.attempts, 2, 'new frame retries even if the previous frame was ready');
+});
+
+test('toolbar loader claims the simulator keyboard only for a visible ready page and always releases it', () => {
+  const coherent = fakeCoherent();
+  const runtime = loader({ active: true, coherent });
+  runtime.keyboard(true);
+  assert.equal(coherent.triggers.length, 0, 'an unready page cannot take the keyboard');
+  runtime.ready();
+  runtime.keyboard(true);
+  assert.equal(coherent.triggers.length, 1);
+  const [name, fieldId, ...rest] = coherent.triggers[0];
+  assert.equal(name, 'FOCUS_INPUT_FIELD');
+  assert.match(fieldId, /^FLIGHTFABRIC_TOOLBAR_[a-z0-9]+$/);
+  assert.deepEqual(rest, ['', '', '', false], 'same argument shape as the shipped Navigraph panel');
+  assert.deepEqual(coherent.listening, ['mousePressOutsideView']);
+  runtime.keyboard(true);
+  assert.equal(coherent.triggers.length, 1, 'repeated focus reports do not re-trigger');
+  runtime.keyboard(false);
+  assert.deepEqual(coherent.triggers.at(-1), ['UNFOCUS_INPUT_FIELD', fieldId]);
+  assert.deepEqual(coherent.listening, [], 'outside-click listener is removed with the focus');
+
+  runtime.keyboard(true);
+  const before = runtime.messages.length;
+  coherent.fire('mousePressOutsideView');
+  assert.deepEqual(coherent.triggers.at(-1), ['UNFOCUS_INPUT_FIELD', fieldId], 'clicking the cockpit returns the keyboard');
+  assert.equal(runtime.messages.at(-1).action, 'keyboardReleased', 'the page is told to drop its field focus');
+  assert.equal(runtime.messages.length, before + 1);
+  coherent.fire('mousePressOutsideView');
+  assert.equal(runtime.messages.length, before + 1, 'a stale outside click does nothing');
+
+  runtime.keyboard(true);
+  runtime.hide();
+  assert.deepEqual(coherent.triggers.at(-1), ['UNFOCUS_INPUT_FIELD', fieldId], 'hiding releases the keyboard');
+  runtime.keyboard(true);
+  assert.equal(coherent.triggers.at(-1)[0], 'UNFOCUS_INPUT_FIELD', 'a hidden page cannot take the keyboard');
+  runtime.show();
+  runtime.keyboard(true);
+  assert.equal(coherent.triggers.at(-1)[0], 'FOCUS_INPUT_FIELD');
+  runtime.ready();
+  assert.equal(coherent.triggers.at(-1)[0], 'UNFOCUS_INPUT_FIELD', 'a reloaded page starts without the keyboard');
+  runtime.keyboard(true);
+  runtime.disconnect();
+  assert.equal(coherent.triggers.at(-1)[0], 'UNFOCUS_INPUT_FIELD', 'a detached panel releases the keyboard');
+  assert.deepEqual(coherent.listening, []);
+  assert.equal(coherent.triggers.filter(([n]) => n === 'FOCUS_INPUT_FIELD').length,
+    coherent.triggers.filter(([n]) => n === 'UNFOCUS_INPUT_FIELD').length, 'every claim is balanced by a release');
+});
+
+test('toolbar loader tolerates a missing or failing Coherent bridge', () => {
+  const runtime = loader({ active: true });
+  runtime.ready();
+  assert.doesNotThrow(() => { runtime.keyboard(true); runtime.keyboard(false); runtime.hide(); runtime.disconnect(); });
+  const failing = { trigger() { throw new Error('bridge down'); } };
+  const failingRuntime = loader({ active: true, coherent: failing });
+  failingRuntime.ready();
+  assert.doesNotThrow(() => { failingRuntime.keyboard(true); failingRuntime.keyboard(false); });
+  assert.equal(failingRuntime.messages.at(-1).action, 'visibility', 'no release message without an outside click');
+});
+
+test('toolbar page reports text-field focus and drops it when hidden, released or unloading', () => {
+  const runtime = page(); runtime.api.boot();
+  const keyboard = () => runtime.messages.filter(message => message.action === 'keyboard').map(message => message.focused);
+  const search = { tagName: 'INPUT', type: 'search', blurred: 0, blur() { this.blurred += 1; runtime.document.fire('blur', { target: this }); } };
+  const button = { tagName: 'BUTTON', type: 'button' };
+  runtime.document.fire('focus', { target: button });
+  assert.deepEqual(keyboard(), [], 'buttons leave the keyboard with the simulator');
+  runtime.document.fire('focus', { target: search });
+  assert.deepEqual(keyboard(), [true]);
+  runtime.document.fire('blur', { target: search });
+  assert.deepEqual(keyboard(), [true, false]);
+
+  runtime.document.fire('focus', { target: search });
+  runtime.document.activeElement = search;
+  runtime.window.fire('message', { source: runtime.window.parent, data: { source: 'flightfabric-toolbar-loader', action: 'keyboardReleased' } });
+  assert.equal(search.blurred, 1, 'an outside click drops the field focus so the next click reclaims the keyboard');
+  assert.deepEqual(keyboard(), [true, false, true, false]);
+
+  runtime.document.fire('focus', { target: search });
+  runtime.api.setVisible(false);
+  assert.equal(search.blurred, 2, 'hiding drops the field focus');
+  assert.deepEqual(keyboard().at(-1), false);
+  runtime.document.activeElement = button;
+  runtime.api.setVisible(true);
+  runtime.api.setVisible(false);
+  assert.equal(search.blurred, 2, 'only text fields are blurred');
+
+  runtime.api.setVisible(true);
+  runtime.api.selectTab('voice');
+  runtime.document.fire('focus', { target: search });
+  runtime.document.activeElement = search;
+  runtime.api.selectTab('flight');
+  assert.equal(search.blurred, 3, 'switching tabs drops a field that would stay focused while hidden');
+  assert.deepEqual(keyboard().at(-1), false);
+
+  const count = keyboard().length;
+  runtime.window.fire('beforeunload');
+  assert.deepEqual(keyboard().slice(count), [false], 'unloading releases the keyboard');
 });
 
 test('toolbar page announces readiness before the WebSocket is available', () => {
@@ -494,6 +613,89 @@ test('toolbar renders the live landing packet, including finality, nested measur
   assert.match(runtime.api.landingCard().text(), /78%/);
   runtime.api.receive({ type: 'ultimateStabilityScore', score: null, verdict: 'no_verdict' });
   assert.match(runtime.api.landingCard().text(), /-- \| Stability/);
+});
+
+function scoredTakeoff(overrides = {}) {
+  return {
+    type: 'takeoff', final: true, grade: 'Late Liftoff', score: 55, zone: 'Little runway remaining', icao: 'YSSY', runway: '34L',
+    runwayExcursion: false, hopCount: 1, crosswind: 9,
+    runwayUse: { remainingFt: 300, liftoffDistanceFt: 5700, usedPct: 95, runwayLengthFt: 6000, beyondRunwayEnd: false },
+    roll: { distanceFt: 5500, durationS: 38 },
+    liftoff: { iasKts: 138, pitchDeg: 9.1 },
+    screenHeight: { heightFt: 35, reached: true, remainingFt: -200 },
+    rotation: { rateDegS: 2.4 },
+    lateral: { liftoffOffsetFt: 22, liftoffOffsetSide: 'left', verified: true },
+    ...overrides,
+  };
+}
+
+test('the release gate hides toolbar takeoffs from live packets, history and saved cache without deleting records', () => {
+  const cacheKey = 'ff_toolbar_last_takeoff_v1';
+  const cached = JSON.stringify({ at: Date.now(), aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: 'PMDG 737-800' }, takeoff: scoredTakeoff() });
+  const storage = new Map([[cacheKey, cached]]);
+  const runtime = page({ storage });
+  assert.equal(runtime.window.FlightFabricAppSettings.TAKEOFF_SCORING_ENABLED, false);
+  assert.equal(runtime.api.subscription.includes('takeoff'), false);
+  assert.equal(runtime.api.subscription.includes('landing'), true);
+  runtime.api.restoreTakeoff();
+  runtime.api.receive(aircraftProfile());
+  runtime.api.receive({ type: 'takeoff', final: false });
+  runtime.api.receive(scoredTakeoff());
+  assert.equal(runtime.api.state.takeoff, null);
+  runtime.api.receive({ type: 'toolbarFlightHistory', aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: 'PMDG 737-800' },
+    flightId: 'flight-a', landing: { final: true, grade: 'GOOD', vs: -180 }, takeoff: scoredTakeoff(), cautions: [] });
+  assert.equal(runtime.api.state.takeoff, null, 'history cannot restore a disabled takeoff card');
+  assert.equal(runtime.api.takeoffCard(), null);
+  assert.equal(runtime.api.state.landing.grade, 'GOOD', 'landing history still restores');
+  const rendered = runtime.document.getElementById('tab-flight').text();
+  assert.match(rendered, /Last landing/);
+  assert.doesNotMatch(rendered, /Last takeoff|Late Liftoff/);
+  runtime.api.receive(aircraftProfile('bundled/msfs/fenix-a320', 'Fenix A320'));
+  assert.equal(storage.get(cacheKey), cached, 'the disabled release leaves existing saved takeoff data intact');
+});
+
+test('toolbar renders the scored takeoff packet and ignores liftoff, settle-back and cancel packets', () => {
+  const runtime = page({ takeoffScoringEnabled: true });
+  runtime.api.receive(aircraftProfile());
+  assert.match(runtime.api.takeoffCard().text(), /after you lift off/);
+  runtime.api.receive({ type: 'takeoff', final: false, iasKts: 140 });
+  assert.match(runtime.api.takeoffCard().text(), /after you lift off/, 'a liftoff packet does not show a card');
+  runtime.api.receive(scoredTakeoff());
+  const rendered = runtime.api.takeoffCard().text();
+  for (const expected of ['Late Liftoff', 'YSSY', 'RWY 34L', 'Little runway remaining', '300 ft', 'Runway left', '5,500 ft', '138 kt',
+    '200 ft past', 'At 35 ft', '2.4 deg/s', '9 kt', 'Screen height reached beyond the runway end', 'Settled back once', 'Centerline 22 ft left']) {
+    assert.ok(rendered.includes(expected), `${expected}: ${rendered}`);
+  }
+  assert.ok(!rendered.includes('Runway excursion'));
+  runtime.api.receive({ type: 'takeoff', final: false, cancelled: true, reason: 'reset' });
+  assert.match(runtime.api.takeoffCard().text(), /Late Liftoff/, 'a cancelled later attempt keeps the scored takeoff');
+  runtime.api.receive(scoredTakeoff({ grade: 'Overrun', runwayUse: { remainingFt: -120, beyondRunwayEnd: true }, screenHeight: {}, lateral: {} }));
+  const overrun = runtime.api.takeoffCard().text();
+  assert.ok(overrun.includes('Past runway end') && overrun.includes('120 ft') && overrun.includes('Lifted off beyond the runway end'), overrun);
+  assert.ok(overrun.includes('-- | Screen height'), overrun);
+  assert.equal(runtime.api.state.landing, null, 'the takeoff never touches landing state');
+  assert.equal(runtime.storage.has('ff_toolbar_last_takeoff_v1'), true);
+  runtime.api.state.takeoff = null; runtime.api.restoreTakeoff();
+  assert.equal(runtime.api.state.takeoff.grade, 'Overrun', 'the cached takeoff survives a page reload for the same aircraft');
+});
+
+test('toolbar history snapshots and aircraft changes handle the takeoff like the landing', () => {
+  const runtime = page({ takeoffScoringEnabled: true });
+  runtime.api.receive(aircraftProfile());
+  runtime.api.receive(scoredTakeoff());
+  runtime.api.receive({ type: 'landing', final: true, grade: 'GOOD', icao: 'YSSY' });
+  runtime.api.receive({ type: 'toolbarFlightHistory', aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: 'PMDG 737-800' },
+    flightId: 'flight-a', landing: null, takeoff: scoredTakeoff({ grade: 'Good' }), cautions: [] });
+  assert.equal(runtime.api.state.takeoff.grade, 'Good', 'the backend snapshot replaces the local takeoff');
+  assert.equal(runtime.api.state.landing, null, 'an empty landing in the snapshot clears the landing');
+  runtime.api.receive({ type: 'toolbarFlightHistory', aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: 'PMDG 737-800' },
+    flightId: 'flight-a', landing: null, takeoff: null, cautions: [] });
+  assert.equal(runtime.api.state.takeoff, null, 'an empty snapshot supersedes localStorage');
+  assert.equal(runtime.storage.has('ff_toolbar_last_takeoff_v1'), false);
+  runtime.api.receive(scoredTakeoff());
+  runtime.api.receive(aircraftProfile('bundled/msfs/fenix-a320', 'Fenix A320'));
+  assert.equal(runtime.api.state.takeoff, null, 'another aircraft drops the takeoff');
+  assert.equal(runtime.storage.has('ff_toolbar_last_takeoff_v1'), false);
 });
 
 test('toolbar clears old aircraft history after an aircraft change missed while hidden or disconnected', () => {

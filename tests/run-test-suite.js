@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const { ROOT, getRepoScratchAppData, getRepoScratchPath } = require('../scripts/repo-scratch');
 
 const TEST_STEPS = [
+  ['node', ['--test', 'tests/scripts/test-vite-test-server.js']],
   ['node', ['--test', 'tests/scripts/test-support-redirect.js']],
   ['node', ['--test', 'tests/scripts/test-http-static-file-lifecycle.js']],
   ['node', ['--test', 'electron/initial-window-content.test.js']],
@@ -84,6 +85,10 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-csv-read-guard-policy.js']],
   ['node', ['--test', 'dist/backend/flight-recording/post-flight-insights-summary.test.js']],
   ['node', ['--test', 'dist/backend/landing/rollout-analysis.test.js']],
+  ['node', ['--test', 'dist/backend/takeoff/takeoff-analysis.test.js', 'frontend/src/takeoff/presentation.test.js']],
+  ['node', ['tests/scripts/test-takeoff-runner.js']],
+  ['node', ['--test', 'tests/scripts/test-recording-release-schema.js']],
+  ['node', ['tests/scripts/test-takeoff-logbook.js']],
   ['node', ['--test', 'dist/backend/analysis/landing-warning-confidence.test.js']],
   ['node', ['--test', 'dist/backend/analysis/msfs-facilities-flow.test.js']],
   ['node', ['dist/backend/flight-recording/schema-field-map.test.js']],

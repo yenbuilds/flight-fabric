@@ -48,6 +48,7 @@ export const UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = 
   MSG.SPOILERS,
   MSG.ENGINES,
   MSG.LANDING,
+  MSG.TAKEOFF,
   MSG.FLIGHT_VIOLATION,
   MSG.ATTITUDE,
   MSG.SURFACE,
@@ -1089,6 +1090,7 @@ export function projectServerMessageForClient(
       } : null;
       history.flightId = safeBoundedString(history.flightId, 128) || '';
       history.landing = stripKnownSensitiveFields(history.landing);
+      history.takeoff = stripKnownSensitiveFields(history.takeoff);
       history.cautions = stripKnownSensitiveFields(history.cautions);
       return history;
     }

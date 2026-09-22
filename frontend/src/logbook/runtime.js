@@ -11,6 +11,7 @@ export function initLogbookRuntime({
   getAuthorizationScope = null,
   sendMessage = null,
   subscribeLandingReceivedSignal = null,
+  subscribeTakeoffReceivedSignal = null,
   subscribeWsMessageSignal = null,
   subscribeWsOpenSignal = null,
   windowRef = window,
@@ -80,16 +81,21 @@ export function initLogbookRuntime({
     }
   }, 1000) ?? null;
 
+  function scheduleEventRefresh() {
+    if (landingRefreshTimer != null) {
+      windowRef.clearTimeout?.(landingRefreshTimer);
+    }
+    landingRefreshTimer = windowRef.setTimeout(() => {
+      landingRefreshTimer = null;
+      requestLogbook();
+    }, 500);
+  }
+
   if (typeof subscribeLandingReceivedSignal === 'function') {
-    cleanupFns.push(subscribeLandingReceivedSignal(() => {
-      if (landingRefreshTimer != null) {
-        windowRef.clearTimeout?.(landingRefreshTimer);
-      }
-      landingRefreshTimer = windowRef.setTimeout(() => {
-        landingRefreshTimer = null;
-        requestLogbook();
-      }, 500);
-    }));
+    cleanupFns.push(subscribeLandingReceivedSignal(scheduleEventRefresh));
+  }
+  if (typeof subscribeTakeoffReceivedSignal === 'function') {
+    cleanupFns.push(subscribeTakeoffReceivedSignal(scheduleEventRefresh));
   }
 
   if (tabsStore) {

@@ -1222,6 +1222,38 @@ async function main() {
     assert.equal(emitted[0].settingsFile, 'C:/Flight Fabric/settings.json', 'app-settings runtime signal should include the settings file path');
   });
 
+  await test('the shared release gate ignores takeoff messages while landing messages still work', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    const { subscribeTakeoffReceived } = await import(toFrontendUrl('src', 'app', 'runtime-signals.js'));
+    const takeoffs = [], landings = [], refreshes = [];
+    const unsubscribe = subscribeTakeoffReceived(detail => refreshes.push(detail));
+    const handler = createAppMessageHandler({
+      alertRef: () => {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
+      takeoffStore: { handleTakeoffMessage(message) { takeoffs.push(message); return message.final === true; } },
+      landingController: { handleLandingMessage(message) { landings.push(message); } },
+    });
+    try {
+      assert.equal(windowRef.FlightFabricAppSettings.TAKEOFF_SCORING_ENABLED, false);
+      handler({ type: 'takeoff', final: false });
+      handler({ type: 'takeoff', final: true, grade: 'Good' });
+      handler({ type: 'takeoff', final: false, cancelled: true });
+      handler({ type: 'landing', final: true, grade: 'Good' });
+      assert.deepEqual(takeoffs, [], 'disabled messages never reach the takeoff store');
+      assert.deepEqual(refreshes, [], 'disabled messages do not trigger Logbook refreshes');
+      assert.equal(landings.length, 1, 'landing publication remains independent');
+      globalThis.FlightFabricAppSettings = { ...sharedSettings, TAKEOFF_SCORING_ENABLED: true };
+      handler({ type: 'takeoff', final: true, grade: 'Good' });
+      assert.equal(takeoffs.length, 1, 'the same shared gate enables the retained path');
+      assert.equal(refreshes.length, 1);
+    } finally {
+      unsubscribe();
+      globalThis.FlightFabricAppSettings = sharedSettings;
+    }
+  });
+
   await test('app message handler routes cabin-announcement messages through an injected runtime service', () => {
     const enqueued = [];
     const handler = createAppMessageHandler({
@@ -6378,6 +6410,112 @@ async function main() {
 
     controller.reset();
     assert.equal(removedLayers.includes(cursorLayer), true, 'full map reset should still remove the replay cursor');
+  });
+
+  await test('timeline 2D map follows the cursor, keeps a user-adjusted view through resizes and details, and resumes from Center', () => {
+    setActivePinia(createPinia());
+    const timelineStore = useTimelineStore();
+    const mapEl = new FakeElement('timeline-map');
+    mapEl.clientWidth = 640;
+    mapEl.clientHeight = 360;
+    const mapEvents = new Map();
+    const pans = [];
+    const invalidations = [];
+    let fitBoundsCalls = 0;
+    let zoom = 11;
+    const fakeMap = {
+      setView(latLng, nextZoom) { pans.push({ kind: 'setView', latLng, zoom: nextZoom }); zoom = nextZoom; return this; },
+      panTo(latLng) { pans.push({ kind: 'panTo', latLng }); return this; },
+      getSize() { return { x: mapEl.clientWidth, y: mapEl.clientHeight }; },
+      invalidateSize(options) { invalidations.push(options); },
+      removeLayer() {},
+      getZoom() { return zoom; },
+      fitBounds() { fitBoundsCalls += 1; },
+      on(name, handler) { mapEvents.set(name, handler); return this; },
+    };
+    const fakeL = {
+      canvas: () => ({}),
+      map: () => fakeMap,
+      tileLayer: () => ({ once() { return this; }, on() { return this; }, addTo() { return this; } }),
+      DomEvent: { disableScrollPropagation() {}, disableClickPropagation() {} },
+      divIcon: (options) => options,
+      marker: () => ({
+        addTo() { return this; }, setLatLng() {}, getElement() { return { querySelector: () => ({ style: {} }) }; },
+        bindTooltip() { return this; }, on() { return this; },
+      }),
+      polyline: () => ({ addTo() { return this; } }),
+      layerGroup: () => ({ addTo() { return this; }, clearLayers() {} }),
+      latLngBounds: () => ({ pad() { return this; } }),
+    };
+    const controller = createTimelineMapController({
+      mapEl,
+      timelineStore,
+      windowRef: {
+        L: fakeL,
+        requestAnimationFrame: (fn) => { if (typeof fn === 'function') fn(); return 1; },
+        cancelAnimationFrame() {},
+        setTimeout: (fn) => { if (typeof fn === 'function') fn(); return 1; },
+        clearTimeout() {},
+      },
+      isTimelineTabVisible: () => true,
+      isValidCoord: (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon),
+      getEventPosition: (event) => event?.pos || null,
+      createTimelineEventIcon: () => ({ className: 'event-icon' }),
+      eventPassesMapFilter: () => true,
+    });
+    const timeline = {
+      flightId: 'FOLLOW-ME',
+      events: [{ type: 'landing', timestampMs: 3000, pos: { lat: 1.2, lon: 2.2 } }],
+      track: [
+        { lat: 1, lon: 2, timestampMs: 1000, hdgTrueDeg: 90 },
+        { lat: 1.2, lon: 2.2, timestampMs: 3000, hdgTrueDeg: 90 },
+      ],
+    };
+    controller.render(timeline);
+    assert.equal(timelineStore.mapFollowStatus, 'following', 'a fresh recording follows its cursor');
+    assert.ok(fitBoundsCalls > 0, 'a fresh recording is framed');
+
+    controller.setCursorPosition({ lat: 1.1, lon: 2.1, timestampMs: 2000 }, { headingDeg: 90 }, true);
+    // The map was created at world zoom 2, so the first follow zooms in to 10.
+    assert.equal(pans.at(-1)?.kind, 'setView', 'scrubbing brings the map to the aircraft while following');
+    assert.equal(pans.at(-1)?.zoom, 10);
+    assert.deepEqual(pans.at(-1)?.latLng, [1.1, 2.1]);
+    const fitsAfterScrub = fitBoundsCalls;
+    mapEl.clientWidth = 500;
+    controller.invalidateSizeStaggered();
+    assert.equal(fitBoundsCalls, fitsAfterScrub, 'a resize after the map was placed on the aircraft (details opening) keeps that view');
+    assert.equal(invalidations.at(-1)?.pan, true);
+    const pansBeforeDrag = pans.length;
+
+    mapEvents.get('dragstart')?.();
+    assert.equal(timelineStore.mapFollowStatus, 'paused', 'dragging pauses the follow');
+    assert.equal(timelineStore.mapFollowButtonLabel, 'Resume Follow');
+    controller.setCursorPosition({ lat: 1.15, lon: 2.15, timestampMs: 2500 }, { headingDeg: 90 }, true);
+    assert.equal(pans.length, pansBeforeDrag, 'scrubbing while paused leaves the map where the user put it');
+
+    const fitsBeforeResize = fitBoundsCalls;
+    mapEl.clientWidth = 420;
+    mapEl.clientHeight = 360;
+    controller.invalidateSizeStaggered();
+    assert.equal(fitBoundsCalls, fitsBeforeResize, 'a resize (details opening, window change) no longer re-fits a view the user adjusted');
+    assert.equal(invalidations.at(-1)?.pan, true, 'the resize keeps the map centre instead');
+    controller.render(timeline);
+    assert.equal(fitBoundsCalls, fitsBeforeResize, 'a re-render of the same recording keeps the user view too');
+
+    controller.resumeFollowAndCenter();
+    assert.equal(timelineStore.mapFollowStatus, 'following');
+    assert.equal(pans.at(-1)?.kind, 'panTo', 'Center returns to the cursor');
+    assert.deepEqual(pans.at(-1)?.latLng, [1.15, 2.15]);
+
+    mapEvents.get('dragstart')?.();
+    assert.equal(timelineStore.mapFollowStatus, 'paused');
+    controller.focusEvent(timeline.events[0]);
+    assert.equal(timelineStore.mapFollowStatus, 'following', 'choosing an event resumes following');
+    assert.deepEqual(pans.at(-1)?.latLng, [1.2, 2.2], 'and shows the event');
+
+    controller.render({ ...timeline, flightId: 'ANOTHER' });
+    assert.ok(fitBoundsCalls > fitsBeforeResize, 'a different recording is framed afresh');
+    assert.equal(timelineStore.mapFollowStatus, 'following');
   });
 
   await test('timeline map helpers cap visual-only Leaflet work without trimming replay data', () => {

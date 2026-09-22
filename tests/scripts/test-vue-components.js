@@ -52,7 +52,7 @@ function installBrowserGlobals(options = {}) {
   windowRef.matchMedia = options.matchMedia || (() => ({ matches: false }));
   windowRef.navigator = options.navigator || { clipboard: null };
   windowRef.WebSocket = { OPEN: 1 };
-  windowRef.FlightFabricAppSettings = sharedSettings;
+  windowRef.FlightFabricAppSettings = options.sharedSettings || sharedSettings;
   windowRef.FlightPhases = { PHASES, PUBLISHED_PHASES };
   windowRef.confirm = () => true;
   windowRef.alert = () => {};
@@ -233,6 +233,7 @@ async function main() {
     { useWhatsNewStore },
     { useVoiceFirstCommandStore },
     { useToolbarPanelStore },
+    { useTakeoffStore },
     { resolveAircraftSpecificTemplate },
     { mcpDraftKey, submitMcpDraft },
     { buildPmdg777CommandInput },
@@ -266,6 +267,7 @@ async function main() {
     import(toFrontendUrl('src', 'vue', 'stores', 'whats-new.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'voice-first-command.js')),
     import(toFrontendUrl('src', 'vue', 'stores', 'toolbar-panel.js')),
+    import(toFrontendUrl('src', 'vue', 'stores', 'takeoff.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'template-registry.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'pmdg777-command-routing.js')),
@@ -306,6 +308,7 @@ async function main() {
       useWhatsNewStore,
       useVoiceFirstCommandStore,
       useToolbarPanelStore,
+      useTakeoffStore,
       useFeedbackStore,
       useDebugStore,
       useLandingStore,
@@ -1930,6 +1933,8 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render from the main Vue shell`);
     }
     assert.doesNotMatch(html, /id="tab-profiles"/, 'the retired Profiles workspace should not render in the main shell');
+    assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, false);
+    assert.doesNotMatch(html, /id="vue-takeoff-root"|id="vue-last-takeoff-root"|id="takeoff-card"/, 'the release gate removes takeoff panels and their empty wrappers');
     assert.match(html, /id="tab-flight" class="tab-section active"/, 'Overview should keep the state-driven active marker for first paint');
     assert.doesNotMatch(html, /id="tab-livemap" class="tab-section active"/, 'Live should not remain the first-paint default');
   });
@@ -3475,6 +3480,7 @@ async function main() {
     assert.match(html, /id="vue-flight-telemetry-root"/, 'flight telemetry wrapper should render');
     assert.match(html, /id="flight-live-shell"/, 'embedded telemetry panel should render');
     assert.match(html, /id="vue-last-landing-root"/, 'last landing wrapper should render');
+    assert.doesNotMatch(html, /id="vue-last-takeoff-root"|Last Takeoff/, 'the release gate hides the takeoff summary');
     assert.match(html, /Latest touchdown report is ready\./, 'embedded last landing summary should render store state');
     assert.doesNotMatch(html, /id="aircraft-specific-section"/, 'Overview should no longer render aircraft-specific controls');
   });
@@ -4814,7 +4820,7 @@ async function main() {
 
   await test('PMDG panels show SDK connection guidance without an agreement step', async () => {
     for (const family of ['737', '777']) {
-      for (const sdk of ['disabled', 'stale', 'connected']) {
+      for (const sdk of ['disabled', 'stale', 'error', 'connected']) {
         const { html } = await renderComponent(
           path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', `Pmdg${family}AircraftPanel.vue`),
           () => {},
@@ -4826,6 +4832,10 @@ async function main() {
         } else {
           assert.match(html, new RegExp(`data-aircraft-sdk-notice="pmdg-${family}"`));
           assert.match(html, /EnableDataBroadcast=1/, 'SDK setup guidance remains available');
+        }
+        if (sdk === 'error') {
+          assert.match(html, /restart FlightFabric/, `${family}: a failed SDK connection tells the user to restart FlightFabric`);
+          assert.match(html, /retrying/, `${family}: a failed SDK connection says the app retries it`);
         }
       }
     }
@@ -8239,7 +8249,13 @@ async function main() {
   await test('TimelineMapShell renders the replay view toggle, Fit flight and the 3D surface', async () => {
     const flat = await renderComponent(path.join('src', 'vue', 'components', 'TimelineMapShell.vue'));
     assert.match(flat.html, /id="timeline-map-view-toggle"/, 'replay view toggle should render');
+    assert.match(flat.html, /id="timeline-map-center-btn"[^>]*data-follow-status="following"[^>]*>\s*Center\s*</, 'Center is offered on the 2D replay map');
     assert.doesNotMatch(flat.html, /id="timeline-map-3d-fit-btn"/, 'Fit flight should stay hidden in 2D mode');
+    const paused = await renderComponent(
+      path.join('src', 'vue', 'components', 'TimelineMapShell.vue'),
+      ({ useTimelineStore }) => { useTimelineStore().setMapFollowStatus('paused'); },
+    );
+    assert.match(paused.html, /id="timeline-map-center-btn"[^>]*text-accent[^>]*data-follow-status="paused"[^>]*>\s*Resume Follow\s*</, 'a paused follow offers Resume Follow with the accent treatment');
     assert.match(flat.html, /id="timeline-map-3d"[^>]*class="timeline-map-surface flight-scene-surface map-view-hidden"/, '3D surface should be hidden in 2D mode');
 
     const solid = await renderComponent(
@@ -8267,6 +8283,7 @@ async function main() {
     );
     assert.match(solid.html, /aria-controls="timeline-map-settings"/, 'replay settings should have an accessible disclosure');
     assert.match(solid.html, /id="timeline-map-3d-fit-btn"/, 'Fit flight should render in 3D mode');
+    assert.ok(solid.html.indexOf('id="timeline-map-center-btn"') < solid.html.indexOf('id="timeline-map-3d-fit-btn"'), 'Center sits before Fit flight in 3D mode');
     assert.match(solid.html, /id="timeline-map-3d-options"/, '3D options should render');
     assert.doesNotMatch(solid.html, /id="timeline-map-3d-camera-mode"/, 'replay view has no follow camera mode');
     assert.match(solid.html, /class="timeline-map-wrap map-view-3d-active"/, 'wrapper should mark the 3D view active');
@@ -8278,6 +8295,122 @@ async function main() {
   });
 
   console.log('\n--- landing panel ---\n');
+  console.log('\n--- takeoff panel ---\n');
+  const scoredTakeoffMessage = () => ({
+    type: 'takeoff',
+    final: true,
+    timestampMs: 1_700_000_000_000,
+    icao: 'YSCB',
+    runway: '35',
+    grade: 'Late Liftoff',
+    score: 55,
+    zone: 'Little runway remaining',
+    assessment: 'caution',
+    runwayExcursion: false,
+    hopCount: 0,
+    runwayUse: { grade: 'Late Liftoff', score: 55, zone: 'Little runway remaining', liftoffDistanceFt: 5700, remainingFt: 300, usedPct: 95, runwayLengthFt: 6000, beyondRunwayEnd: false },
+    roll: { distanceFt: 5500, durationS: 38, startSource: 'standstill', distanceSource: 'runway_projection' },
+    liftoff: { iasKts: 138, gsKts: 136, pitchDeg: 9.1, bankDeg: 0, headingTrueDeg: 360, flapsNotch: 2 },
+    screenHeight: { heightFt: 35, basis: 'transport_35ft', reached: true, elapsedS: 4.8, distanceFt: 6200, remainingFt: -200, beyondRunwayEnd: true },
+    rotation: { rateDegS: 2.4, maxPitchDeg: 13.2, liftoffPitchDeg: 9.1 },
+    lateral: { liftoffOffsetFt: 8, liftoffOffsetSide: 'center', score: 100, grade: 'Perfect', verified: true },
+    heading: { liftoffDeviationDeg: 0.8, liftoffDeviationSide: 'left' },
+    flags: [{ code: 'late_liftoff', label: 'Late liftoff with little runway remaining', severity: 'caution' }],
+    crosswind: -6,
+    windSpeed: 9,
+    windDirectionTrueDeg: 300,
+    runwayHdg: 360,
+    finalizeReason: 'airborne',
+  });
+
+  await test('TakeoffPanel renders waiting and takeoff-card visibility from the takeoff store', async () => {
+    const waiting = await renderComponent(path.join('src', 'vue', 'components', 'TakeoffPanel.vue'));
+    const waitingClass = waiting.html.match(/id="takeoff-waiting-state"[^>]*class="([^"]*)"/)?.[1] || '';
+    const cardClass = waiting.html.match(/id="takeoff-card"[^>]*class="([^"]*)"/)?.[1] || '';
+    assert.equal(waitingClass.split(/\s+/).includes('hidden'), false, 'waiting state shows before a takeoff');
+    assert.equal(cardClass.split(/\s+/).includes('hidden'), true, 'card hides before a takeoff');
+    assert.match(waiting.html, /Ready for the next departure/, 'waiting copy names the departure');
+    assert.match(waiting.html, /No scored takeoff in this session yet\./, 'waiting copy is honest about no data');
+
+    const pending = await renderComponent(
+      path.join('src', 'vue', 'components', 'TakeoffPanel.vue'),
+      ({ useTakeoffStore }) => {
+        useTakeoffStore().handleTakeoffMessage({ type: 'takeoff', final: false, iasKts: 140 });
+      },
+    );
+    assert.match(pending.html, /Liftoff detected\. Scoring the climb-out/, 'the liftoff packet only marks the pending state');
+    const pendingCardClass = pending.html.match(/id="takeoff-card"[^>]*class="([^"]*)"/)?.[1] || '';
+    assert.equal(pendingCardClass.split(/\s+/).includes('hidden'), true, 'no card until the takeoff is scored');
+
+    const scored = await renderComponent(
+      path.join('src', 'vue', 'components', 'TakeoffPanel.vue'),
+      ({ useTakeoffStore }) => {
+        useTakeoffStore().handleTakeoffMessage(scoredTakeoffMessage());
+      },
+    );
+    const scoredCardClass = scored.html.match(/id="takeoff-card"[^>]*class="([^"]*)"/)?.[1] || '';
+    const scoredWaitingClass = scored.html.match(/id="takeoff-waiting-state"[^>]*class="([^"]*)"/)?.[1] || '';
+    const scoredEmptyClass = scored.html.match(/id="takeoff-empty"[^>]*class="([^"]*)"/)?.[1] || '';
+    assert.equal(scoredCardClass.split(/\s+/).includes('hidden'), false, 'card shows once scored');
+    assert.equal(scoredWaitingClass.split(/\s+/).includes('hidden'), true, 'waiting state hides once scored');
+    assert.equal(scoredEmptyClass.split(/\s+/).includes('hidden'), true, 'mobile empty state hides once scored');
+  });
+
+  await test('TakeoffPanel scopes runway use, roll, screen height and rotation as equal-weight facts', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TakeoffPanel.vue'),
+      ({ useTakeoffStore }) => {
+        useTakeoffStore().handleTakeoffMessage(scoredTakeoffMessage());
+      },
+    );
+    assert.match(html, /id="takeoff-airport"[^>]*>YSCB</, 'airport renders from the store');
+    assert.match(html, /id="takeoff-runway"[^>]*>RWY 35</, 'runway renders from the store');
+    assert.match(html, /Runway use grade[\s\S]*id="takeoff-grade"[^>]*>LATE LIFTOFF</, 'the grade names runway use, not a generic verdict');
+    assert.match(html, /id="takeoff-grade"[^>]*color:\s*#fb923c/, 'a late liftoff is orange like a long landing');
+    assert.match(html, /id="takeoff-grade-detail"[^>]*>Little runway remaining</, 'the zone explains the grade');
+    assert.match(html, /id="takeoff-summary-remaining"[^>]*text-orange-400[^>]*>300 ft</, 'runway remaining carries the caution tone');
+    assert.match(html, /id="takeoff-summary-roll"[^>]*>5,500 ft</, 'ground roll is a fact');
+    assert.match(html, /id="takeoff-summary-roll-detail"[^>]*>\s*38 s · lifted off at 138 kt/, 'roll detail keeps duration and liftoff speed');
+    assert.match(html, /id="takeoff-summary-screen"[^>]*text-red-400[^>]*>200 ft past end</, 'screen height past the runway end is red');
+    assert.match(html, /id="takeoff-summary-rotation"[^>]*>2\.4 deg\/s</, 'rotation rate is a fact');
+    for (const kind of ['grade', 'liftoff', 'roll', 'climb', 'rotation']) {
+      assert.match(html, new RegExp(`data-landing-summary-watermark="${kind}"`), `${kind} tile carries its watermark`);
+    }
+    assert.match(html, /Wind at liftoff/, 'wind context is labelled for liftoff');
+    assert.match(html, /id="takeoff-wind-crosswind"[^>]*>\s*XW 6 kt from left/, 'runway-relative crosswind names its side');
+    assert.match(html, /id="takeoff-debrief-reasons"[\s\S]*Late Liftoff runway use[\s\S]*Late liftoff with little runway remaining/, 'debrief factors list the grade and the flag');
+    assert.doesNotMatch(html, /Lifted off on the centerline/, 'praise stays off a cautionary debrief');
+    assert.match(html, /id="takeoff-data-confidence"[^>]*>\s*High/, 'complete inputs give high confidence');
+    assert.match(html, /id="takeoff-detailed-metrics-attention-count"[^>]*>2 items need attention/, 'runway remaining and screen height need attention');
+    assert.match(html, /data-detail-metric="runway-screen-height"[^>]*data-attention="danger"/, 'screen height tile is escalated');
+    assert.match(html, /data-detail-metric="runway-remaining"[^>]*data-attention="warning"/, 'runway remaining tile is escalated');
+    assert.doesNotMatch(html, /data-detail-metric="control-lateral"[^>]*data-attention="/, 'a centerline liftoff is not escalated');
+    assert.match(html, /id="takeoff-lateral-value"[^>]*>ON CL</, 'lateral offset renders');
+    assert.match(html, /id="takeoff-hops"[^>]*>Clean</, 'no settle-backs reads as clean');
+    assert.match(html, /id="takeoff-wind-config"[^>]*>[^<]*Flaps 2</, 'liftoff flaps are recorded');
+  });
+
+  await test('LastTakeoffSummary renders the full-report action and preview facts', async () => {
+    const waiting = await renderComponent(path.join('src', 'vue', 'components', 'LastTakeoffSummary.vue'));
+    assert.match(waiting.html, /id="data-open-takeoff-btn"[^>]*\bdisabled\b/, 'the report action waits for a takeoff');
+    assert.match(waiting.html, /Waiting for liftoff in this session\./, 'status is honest before liftoff');
+
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LastTakeoffSummary.vue'),
+      ({ useTakeoffStore }) => {
+        useTakeoffStore().handleTakeoffMessage(scoredTakeoffMessage());
+      },
+    );
+    assert.match(html, /Last Takeoff/, 'card is labelled');
+    assert.match(html, /Latest takeoff report is ready\./, 'status reflects the scored takeoff');
+    assert.match(html, /id="data-last-takeoff-grade"[^>]*>\s*LATE LIFTOFF/, 'grade renders');
+    assert.match(html, /id="data-last-takeoff-remaining"[^>]*>300 ft</, 'runway remaining renders');
+    assert.match(html, /id="data-last-takeoff-roll"[^>]*>5,500 ft</, 'ground roll renders');
+    assert.match(html, /id="data-last-takeoff-ias"[^>]*>138 kt</, 'liftoff speed renders');
+    assert.match(html, /id="data-last-takeoff-runway"[^>]*>YSCB 35</, 'runway renders');
+    assert.doesNotMatch(html, /id="data-open-takeoff-btn"[^>]*\bdisabled\b/, 'the report action is live');
+  });
+
   await test('LandingPanel does not render a live approach monitor', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'LandingPanel.vue'));
 
@@ -8680,6 +8813,84 @@ async function main() {
     assert.match(source, /zone:\s*entry\.touchdownDistanceZone/, 'saved TDZ zone should reach the shared touchdown presentation');
     assert.match(source, /bounceScore:\s*entry\.bounceScore/, 'saved bounce score should reach the shared touchdown presentation');
     assert.match(source, /hasTouchdownData[\s\S]*entry\.touchdownDistanceZone[\s\S]*entry\.bounceScore\s*!=\s*null/, 'zone- or score-only saved results should not be discarded as empty');
+  });
+
+  await test('LogbookPanel lists scored takeoffs in their own section without changing the landing table', async () => {
+    const takeoffMessage = {
+      type: 'logbook',
+      stats: { total: 1, grades: { GOOD: 1 }, avgVsFpm: -180, bestVsFpm: -180, airports: 1, aircraft: 1, trends: { aircraft: [], airports: [], runways: [] } },
+      entries: [{ id: 'landing-1', timestamp: '2026-09-22T10:00:00.000Z', aircraft: 'PMDG 737-800', icao: 'YSSY', runway: '34L', vsFpm: -180, grade: 'GOOD' }],
+      takeoffs: [
+        {
+          id: 'takeoff-1', timestamp: '2026-09-22T08:00:00.000Z', aircraft: 'PMDG 737-800', aircraftProfileId: 'pmdg-737', icao: 'YSCB', runway: '35',
+          iasKts: 146, rollDistanceFt: 3812, rollDurationS: 30, runwayRemainingFt: 1976, runwayUsedPct: 67.1, runwayUseGrade: 'Good', runwayUseZone: 'Comfortable margin',
+          screenHeightFt: 35, screenHeightRemainingFt: 1200, screenHeightReached: true, hopCount: 0, runwayExcursion: false,
+        },
+        {
+          id: 'takeoff-2', timestamp: '2026-09-21T08:00:00.000Z', aircraft: 'Cessna 172', icao: 'YSCN', runway: '11',
+          iasKts: 58, rollDistanceFt: 2900, runwayRemainingFt: -120, runwayUsedPct: 104, runwayUseGrade: 'Overrun', runwayUseZone: 'Lifted off beyond runway end',
+          screenHeightFt: 50, screenHeightRemainingFt: -900, screenHeightReached: true, hopCount: 1, runwayExcursion: false,
+        },
+      ],
+      takeoffStats: { total: 2, grades: { Good: 1, Overrun: 1 }, cautionCount: 1, avgRollDistanceFt: 3356, avgRunwayUsedPct: 85.6, minRunwayRemainingFt: -120, airports: 2, aircraft: 2 },
+    };
+    for (const desktopLayout of [true, false]) {
+      const { html: disabled } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+        ({ useLogbookStore }) => {
+          const store = useLogbookStore();
+          store.ingestMessage(takeoffMessage);
+          assert.equal(store.takeoffs.length, 2, 'historical takeoff data still parses while scoring is disabled');
+        },
+        { matchMedia: () => ({ matches: desktopLayout }) },
+      );
+      assert.doesNotMatch(disabled, /id="logbook-takeoffs"|Scored takeoffs|RWY Overrun/, 'the disabled release hides scored takeoffs on desktop and phone');
+      assert.match(disabled, /YSSY/, 'recorded landings remain visible');
+    }
+    // Retain presentation coverage for the future enabled feature using a test-only shared module.
+    const enabledSettings = { ...sharedSettings, TAKEOFF_SCORING_ENABLED: true };
+    const desktop = { matchMedia: () => ({ matches: true }), sharedSettings: enabledSettings };
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => { useLogbookStore().ingestMessage(takeoffMessage); },
+      desktop,
+    );
+    assert.match(html, /id="logbook-takeoffs"/, 'the takeoff section renders when takeoffs exist');
+    assert.match(html, /Scored takeoffs/, 'the section is titled');
+    assert.match(html, /id="logbook-takeoffs-subtitle"[^>]*>2 takeoffs recorded · avg roll 3,356 ft · 1 with little or no runway left/, 'the subtitle summarises the takeoff stats');
+    const takeoffRows = html.match(/data-logbook-takeoff-row/g) || [];
+    assert.equal(takeoffRows.length, 2, 'one desktop row per takeoff');
+    assert.match(html, /Runway-Use Grade/, 'the takeoff table names runway use');
+    assert.match(html, /1,976 ft[\s\S]*?67% used/, 'runway remaining and percentage used render');
+    assert.match(html, /120 ft past end/, 'an overrun reports the distance past the runway end');
+    assert.match(html, /900 ft past end[\s\S]*?at 50 ft/, 'screen height past the end is reported with the light-aircraft height');
+    assert.match(html, /1,200 ft left[\s\S]*?at 35 ft/, 'screen height remaining renders');
+    assert.match(html, /settled back once/, 'a settle-back is noted beside the liftoff');
+    assert.match(html, /color:\s*#ef4444[^"]*"[^>]*>\s*Overrun/, 'an overrun grade pill is red');
+    assert.match(html, /color:\s*#10b981[^"]*"[^>]*>\s*Good/, 'a good grade pill is green');
+    const landingHeaders = ['Date', 'Aircraft · Airport', 'Touchdown Rate', 'Touchdown Rate Grade', 'TDZ', 'Approach', 'Bounce'];
+    for (const header of landingHeaders) assert.match(html, new RegExp(`<th[^>]*>${header}</th>`), `landing header ${header} remains`);
+    assert.match(html, /Recorded landing results, newest first/, 'the landing table caption is unchanged');
+    assert.ok(html.indexOf('id="logbook-takeoffs"') > html.indexOf('Recorded landing results'), 'takeoffs follow the landing table');
+
+    const { html: mobile } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => { useLogbookStore().ingestMessage(takeoffMessage); },
+      { sharedSettings: enabledSettings },
+    );
+    assert.doesNotMatch(mobile, /data-logbook-takeoff-row/, 'phones get cards, not the table');
+    assert.match(mobile, /RWY Good/, 'the phone card carries the runway-use grade pill');
+    assert.match(mobile, /RWY Overrun/, 'the phone card carries the overrun pill');
+    assert.match(mobile, /Runway left[\s\S]*?1,976 ft/, 'the phone card lists runway remaining');
+    assert.match(mobile, /TD RATE GOOD|TD RATE Good/i, 'the landing phone card is unchanged');
+
+    const { html: withoutTakeoffs } = await renderComponent(
+      path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+      ({ useLogbookStore }) => { useLogbookStore().ingestMessage({ ...takeoffMessage, takeoffs: [], takeoffStats: null }); },
+      { sharedSettings: enabledSettings },
+    );
+    assert.doesNotMatch(withoutTakeoffs, /id="logbook-takeoffs"/, 'no takeoff section without takeoffs');
+    assert.doesNotMatch(withoutTakeoffs, /Scored takeoffs/, 'no takeoff heading without takeoffs');
   });
 
   await test('LogbookPanel renders backend aggregate stats and runway text', async () => {

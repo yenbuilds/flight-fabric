@@ -92,9 +92,9 @@ async function main() {
   const profiles = Object.fromEntries(['pmdg-737', 'pmdg-777', 'fbw-a380x', 'inibuilds-a350-900', 'inibuilds-a330'].map(id =>
     [id, buildAircraftControlCapabilities(loader.loadProfile(`bundled/msfs/${id}`), { profileRevision: 1,
       capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } })]));
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
     optimizeDeps: { entries: ['tests/fixtures/command-browser.js'] }, plugins: [vue(), {
       name: 'command-browser-fixture', configureServer(server) {
         server.middlewares.use('/command-capabilities', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(profiles)); });

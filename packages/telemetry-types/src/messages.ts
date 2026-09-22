@@ -325,6 +325,64 @@ export interface TouchdownDistance {
 }
 
 /**
+ * Takeoff event payload (partial). See backend/takeoff/takeoff-runner.ts
+ * buildTakeoffBroadcast() for the full shape. `final: false` marks the liftoff
+ * itself (or, with `settled`/`cancelled`, a settle-back or an abandoned
+ * takeoff); `final: true` carries the scored result once the aircraft is airborne.
+ */
+export interface TakeoffMessage extends BaseMessage {
+  type: 'takeoff';
+  final: boolean;
+  /** With `final: false`: the aircraft settled back onto the runway after lifting off. */
+  settled?: boolean;
+  /** With `final: false`: the pending takeoff was dropped and will not be scored. */
+  cancelled?: boolean;
+  reason?: string | null;
+  timestampMs?: number | null;
+  icao?: string | null;
+  runway?: string | null;
+  /** Runway-use grade: Outstanding, Good, Acceptable, Late Liftoff, Dangerous, Overrun or Unknown */
+  grade?: string | null;
+  score?: number | null;
+  zone?: string | null;
+  assessment?: 'normal' | 'caution' | 'warning' | 'critical' | null;
+  runwayExcursion?: boolean;
+  hopCount?: number;
+  runwayUse?: {
+    grade: string | null;
+    score: number | null;
+    zone: string | null;
+    liftoffDistanceFt: number | null;
+    remainingFt: number | null;
+    usedPct: number | null;
+    runwayLengthFt: number | null;
+    beyondRunwayEnd: boolean;
+  } | null;
+  roll?: {
+    distanceFt: number | null;
+    durationS: number | null;
+    startSource: string | null;
+    distanceSource: string | null;
+  } | null;
+  liftoff?: {
+    iasKts: number | null;
+    gsKts: number | null;
+    pitchDeg: number | null;
+    bankDeg: number | null;
+    headingTrueDeg: number | null;
+    flapsNotch: number | null;
+  } | null;
+  crosswind?: number | null;
+  windSpeed?: number | null;
+  windDirectionTrueDeg?: number | null;
+  runwayHdg?: number | null;
+  iasKts?: number | null;
+  gsKts?: number | null;
+  pitchDeg?: number | null;
+  screenHeightFt?: number | null;
+}
+
+/**
  * Landing event payload (partial — the full broadcast payload has 60+ fields).
  * See backend/landing/landing-runner.js buildLandingPayload() for the full shape.
  */
@@ -980,6 +1038,7 @@ export type TelemetryMessage =
   | SpoilersMessage
   | EnginesMessage
   | LandingMessage
+  | TakeoffMessage
   | RunwayContextMessage
   | SafetyDataMessage
   | AttitudeMessage

@@ -41,6 +41,16 @@ function requestCommittedScrubOffset(event) {
             @update:model-value="timeline.setMapViewMode($event)"
           />
           <button
+            id="timeline-map-center-btn"
+            type="button"
+            :class="[fitViewButtonClass, timeline.mapFollowPaused ? 'border-accent text-accent' : '']"
+            :title="timeline.mapFollowButtonTitle"
+            :data-follow-status="timeline.mapFollowStatus"
+            @click="timeline.requestMapCenter()"
+          >
+            {{ timeline.mapFollowButtonLabel }}
+          </button>
+          <button
             v-if="timeline.is3dMapView"
             id="timeline-map-3d-fit-btn"
             type="button"

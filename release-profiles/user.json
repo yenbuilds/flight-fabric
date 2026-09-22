@@ -15,6 +15,7 @@
       "history-index",
       "flight-violations",
       "landing",
+      "takeoff",
       "stability",
       "aircraft",
       "events",

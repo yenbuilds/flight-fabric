@@ -120,6 +120,9 @@ const {
   isActiveCsvPath: (_flightCsvWriter: AnyRecord | null | undefined, _csvPath: unknown) => boolean;
   isFinalizingCsvPath: (_flightCsvWriter: AnyRecord | null | undefined, _csvPath: unknown) => boolean;
 };
+const takeoffLogbook = require('../takeoff/takeoff-logbook') as {
+  deleteEntriesForBundle: (bundleName: string | null | undefined) => number;
+};
 const { isPathInside } = require('../utils/path-guard') as {
   isPathInside: (parentDir: string | null | undefined, childPath: string | null | undefined, options?: { allowEqual?: boolean }) => boolean;
 };
@@ -1204,6 +1207,13 @@ function createFlightCsvStore(options: StoreOptions = {}) {
         storage = timelineGenerator.getFlightLogsStorageInfo();
       } catch {
         storage = null;
+      }
+      // The takeoff log is keyed by bundle; a deleted flight takes its
+      // takeoffs with it. Failure here must not undo a completed delete.
+      try {
+        takeoffLogbook.deleteEntriesForBundle(csvBundleBaseName(csvPath));
+      } catch (err) {
+        Debug?.log?.('logbook', 'takeoff log prune failed after delete', { error: (err as Error)?.message });
       }
     }
 

@@ -6,10 +6,14 @@ import CountryFlag from './CountryFlag.vue';
 import { getAuthorizationScope, sendWs } from '../../../app-shared.js';
 import {
   subscribeLandingReceived,
+  subscribeTakeoffReceived,
   subscribeWsMessage,
   subscribeWsOpen,
 } from '../../app/runtime-signals.js';
 import { buildLandingPresentation, gradeHex, gradeSeverity } from '../../landing/scoring.js';
+import { takeoffGradeHex, takeoffGradeSeverity } from '../../takeoff/presentation.js';
+import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
@@ -21,6 +25,7 @@ import { useStatusStore } from '../stores/status.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useTimelineStore } from '../stores/timeline.js';
 
+const { TAKEOFF_SCORING_ENABLED } = getFlightFabricAppSettings();
 const logbook = useLogbookStore();
 const status = useStatusStore();
 const tabs = useTabsStore();
@@ -142,6 +147,7 @@ onMounted(() => {
     getAuthorizationScope,
     sendMessage: (payload) => sendWs(payload),
     subscribeLandingReceivedSignal: subscribeLandingReceived,
+    subscribeTakeoffReceivedSignal: subscribeTakeoffReceived,
     subscribeWsMessageSignal: subscribeWsMessage,
     subscribeWsOpenSignal: subscribeWsOpen,
     windowRef: window,
@@ -704,6 +710,99 @@ function entryMobileCardVars(entry) {
   return mobileCardVars(touchdownGrade(entry));
 }
 
+// Scored takeoffs: a separate list beside the landing entries. Their grades
+// use the takeoff vocabulary and colours, never the landing maps above.
+const hasTakeoffs = computed(() => logbook.takeoffs.length > 0);
+const takeoffSubtitle = computed(() => {
+  const total = Number(logbook.takeoffStats?.total || logbook.takeoffs.length || 0);
+  const parts = [`${total} takeoff${total !== 1 ? 's' : ''} recorded`];
+  const avgRoll = Number(logbook.takeoffStats?.avgRollDistanceFt);
+  if (Number.isFinite(avgRoll) && avgRoll > 0) parts.push(`avg roll ${Math.round(avgRoll).toLocaleString()} ft`);
+  const cautions = Number(logbook.takeoffStats?.cautionCount || 0);
+  if (cautions > 0) parts.push(`${cautions} with little or no runway left`);
+  return parts.join(' · ');
+});
+
+function takeoffGradeColor(grade) {
+  const severity = takeoffGradeSeverity(grade);
+  return severity >= 0 ? takeoffGradeHex(severity) : '#64748b';
+}
+
+function takeoffGradeLabel(entry) {
+  return entry?.runwayUseGrade || 'Unknown';
+}
+
+function takeoffGradePillStyle(entry) {
+  const color = takeoffGradeColor(entry?.runwayUseGrade);
+  return {
+    color,
+    backgroundColor: `${color}1f`,
+    border: `1px solid ${color}66`,
+  };
+}
+
+function takeoffMobileCardVars(entry) {
+  const color = takeoffGradeColor(entry?.runwayUseGrade);
+  return {
+    '--logbook-border': color,
+    '--logbook-accent': color,
+  };
+}
+
+function takeoffRemainingLabel(entry) {
+  const remaining = Number(entry?.runwayRemainingFt);
+  if (!Number.isFinite(remaining)) return '--';
+  return remaining <= 0
+    ? `${Math.abs(Math.round(remaining)).toLocaleString()} ft past end`
+    : `${Math.round(remaining).toLocaleString()} ft`;
+}
+
+function takeoffRemainingSubLabel(entry) {
+  const used = Number(entry?.runwayUsedPct);
+  return Number.isFinite(used) ? `${Math.round(used)}% used` : (entry?.runwayUseZone || '');
+}
+
+function takeoffRollLabel(entry) {
+  const roll = Number(entry?.rollDistanceFt);
+  return Number.isFinite(roll) ? `${Math.round(roll).toLocaleString()} ft` : '--';
+}
+
+function takeoffRollSubLabel(entry) {
+  const duration = Number(entry?.rollDurationS);
+  return Number.isFinite(duration) ? `${Math.round(duration)} s` : '';
+}
+
+function takeoffScreenLabel(entry) {
+  const remaining = Number(entry?.screenHeightRemainingFt);
+  if (entry?.screenHeightReached !== true || !Number.isFinite(remaining)) return '--';
+  return remaining < 0
+    ? `${Math.abs(Math.round(remaining)).toLocaleString()} ft past end`
+    : `${Math.round(remaining).toLocaleString()} ft left`;
+}
+
+function takeoffScreenSubLabel(entry) {
+  const height = Number(entry?.screenHeightFt);
+  return Number.isFinite(height) ? `at ${Math.round(height)} ft` : '';
+}
+
+function takeoffScreenColor(entry) {
+  const remaining = Number(entry?.screenHeightRemainingFt);
+  return entry?.screenHeightReached === true && Number.isFinite(remaining) && remaining < 0 ? '#ef4444' : '';
+}
+
+function takeoffLiftoffLabel(entry) {
+  const ias = Number(entry?.iasKts);
+  return Number.isFinite(ias) ? `${Math.round(ias)} kt` : '--';
+}
+
+function takeoffLiftoffSubLabel(entry) {
+  const notes = [];
+  const hops = Number(entry?.hopCount);
+  if (Number.isFinite(hops) && hops > 0) notes.push(hops === 1 ? 'settled back once' : `settled back ${hops}x`);
+  if (entry?.runwayExcursion === true) notes.push('runway excursion');
+  return notes.join(' · ');
+}
+
 function trendLabel(value) {
   if (value === 'improving') return 'improving';
   if (value === 'regressing') return 'regressing';
@@ -1023,6 +1122,153 @@ function trendStabilityText(row) {
         </tbody>
       </table>
     </div>
+
+    <section v-if="TAKEOFF_SCORING_ENABLED && hasTakeoffs" id="logbook-takeoffs" class="border-t border-surface-200" aria-labelledby="logbook-takeoffs-title">
+      <div class="px-3 sm:px-4 py-3 border-b border-surface-200/60">
+        <h3 id="logbook-takeoffs-title" class="text-sm font-semibold text-gray-200">Scored takeoffs</h3>
+        <div id="logbook-takeoffs-subtitle" class="text-xs text-gray-500 mt-0.5">{{ takeoffSubtitle }}</div>
+      </div>
+
+      <div v-if="!isDesktopLayout" class="logbook-mobile-list">
+        <article
+          v-for="entry in logbook.takeoffs"
+          :key="entry.id || `${entry.timestamp}-${entry.rollDistanceFt}`"
+          class="logbook-mobile-card"
+          :style="takeoffMobileCardVars(entry)"
+        >
+          <div class="logbook-mobile-card__top">
+            <div class="logbook-aircraft-cell min-w-0">
+              <AircraftArtwork
+                class="logbook-aircraft-thumb"
+                :profile-id="entry.aircraftProfileId || ''"
+                :aircraft-name="entry.aircraft || ''"
+              />
+              <div class="min-w-0">
+                <div class="logbook-mobile-card__date">{{ formatDate(entry.timestamp) }}</div>
+                <div class="logbook-mobile-card__title" :title="entry.aircraft">{{ shortAircraft(entry.aircraft) }}</div>
+                <div class="logbook-mobile-card__meta logbook-airport">
+                  <CountryFlag :country="entry.country" />
+                  <span>{{ entry.icao || '--' }}</span>
+                  <span v-if="entry.runway" style="color:#64748b">{{ entry.runway }}</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" :style="takeoffGradePillStyle(entry)">
+                RWY {{ takeoffGradeLabel(entry) }}
+              </span>
+            </div>
+          </div>
+          <div class="logbook-mobile-card__stats">
+            <div>
+              <span class="logbook-mobile-card__stat-label">Runway left</span>
+              <span class="inline-flex flex-col">
+                <span class="logbook-mobile-card__stat-value" :style="{ color: takeoffGradeColor(entry.runwayUseGrade) }">{{ takeoffRemainingLabel(entry) }}</span>
+                <span v-if="takeoffRemainingSubLabel(entry)" class="text-[9px] font-normal opacity-75 leading-tight">{{ takeoffRemainingSubLabel(entry) }}</span>
+              </span>
+            </div>
+            <div>
+              <span class="logbook-mobile-card__stat-label">Ground roll</span>
+              <span class="inline-flex flex-col">
+                <span class="logbook-mobile-card__stat-value">{{ takeoffRollLabel(entry) }}</span>
+                <span v-if="takeoffRollSubLabel(entry)" class="text-[9px] font-normal opacity-75 leading-tight">{{ takeoffRollSubLabel(entry) }}</span>
+              </span>
+            </div>
+            <div>
+              <span class="logbook-mobile-card__stat-label">Screen height</span>
+              <span class="inline-flex flex-col">
+                <span class="logbook-mobile-card__stat-value" :style="{ color: takeoffScreenColor(entry) || undefined }">{{ takeoffScreenLabel(entry) }}</span>
+                <span v-if="takeoffScreenSubLabel(entry)" class="text-[9px] font-normal opacity-75 leading-tight">{{ takeoffScreenSubLabel(entry) }}</span>
+              </span>
+            </div>
+            <div>
+              <span class="logbook-mobile-card__stat-label">Liftoff</span>
+              <span class="inline-flex flex-col">
+                <span class="logbook-mobile-card__stat-value">{{ takeoffLiftoffLabel(entry) }}</span>
+                <span v-if="takeoffLiftoffSubLabel(entry)" class="text-[9px] font-normal leading-tight text-amber-400">{{ takeoffLiftoffSubLabel(entry) }}</span>
+              </span>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div v-else class="logbook-desktop-table overflow-x-auto">
+        <table class="w-full text-xs">
+          <caption class="sr-only">Recorded takeoff results, newest first. Dates use this device’s local time.</caption>
+          <thead>
+            <tr class="text-[10px] uppercase tracking-widest text-gray-500 border-b border-surface-200 bg-surface-50/40">
+              <th class="px-3 py-2 text-left font-medium">Date</th>
+              <th class="px-3 py-2 text-left font-medium">Aircraft · Airport</th>
+              <th class="px-3 py-2 text-center font-medium">Runway Left</th>
+              <th class="px-3 py-2 text-center font-medium">Runway-Use Grade</th>
+              <th class="px-3 py-2 text-center font-medium">Ground Roll</th>
+              <th class="px-3 py-2 text-center font-medium">Screen Height</th>
+              <th class="px-3 py-2 text-center font-medium">Liftoff</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="entry in logbook.takeoffs"
+              :key="entry.id || `${entry.timestamp}-${entry.rollDistanceFt}`"
+              class="transition-colors hover:bg-surface-50/20"
+              data-logbook-takeoff-row
+            >
+              <td class="pl-2 pr-3 py-2.5 whitespace-nowrap text-xs text-gray-400 font-mono">{{ formatDate(entry.timestamp) }}</td>
+              <td class="px-3 py-2.5 text-xs">
+                <div class="logbook-aircraft-cell">
+                  <AircraftArtwork
+                    class="logbook-aircraft-thumb logbook-aircraft-thumb--desktop"
+                    :profile-id="entry.aircraftProfileId || ''"
+                    :aircraft-name="entry.aircraft || ''"
+                  />
+                  <AppTooltip :content="entry.aircraft || ''" :disabled="!entry.aircraft" anchor-class="min-w-0 flex-1" anchor-tag="div">
+                    <div class="min-w-0">
+                      <div class="truncate text-gray-200">{{ shortAircraft(entry.aircraft) }}</div>
+                      <div class="mt-0.5 text-[10px] text-gray-500 font-mono logbook-airport">
+                        <CountryFlag :country="entry.country" />
+                        <span>{{ entry.icao || '--' }}</span>
+                        <span v-if="entry.runway" class="text-gray-600">{{ entry.runway }}</span>
+                      </div>
+                    </div>
+                  </AppTooltip>
+                </div>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap text-center">
+                <span class="inline-flex flex-col items-center text-[10px] font-semibold leading-tight" :style="{ color: takeoffGradeColor(entry.runwayUseGrade) }">
+                  <span>{{ takeoffRemainingLabel(entry) }}</span>
+                  <span v-if="takeoffRemainingSubLabel(entry)" class="font-normal opacity-75">{{ takeoffRemainingSubLabel(entry) }}</span>
+                </span>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap text-center">
+                <AppTooltip :content="entry.runwayUseZone || ''" :disabled="!entry.runwayUseZone">
+                  <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" :style="takeoffGradePillStyle(entry)">
+                    {{ takeoffGradeLabel(entry) }}
+                  </span>
+                </AppTooltip>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap text-center text-[10px] font-semibold text-gray-300">
+                <span class="inline-flex flex-col items-center leading-tight">
+                  <span>{{ takeoffRollLabel(entry) }}</span>
+                  <span v-if="takeoffRollSubLabel(entry)" class="font-normal text-gray-500">{{ takeoffRollSubLabel(entry) }}</span>
+                </span>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap text-center text-[10px] font-semibold text-gray-300">
+                <span class="inline-flex flex-col items-center leading-tight" :style="{ color: takeoffScreenColor(entry) || undefined }">
+                  <span>{{ takeoffScreenLabel(entry) }}</span>
+                  <span v-if="takeoffScreenSubLabel(entry)" class="font-normal text-gray-500">{{ takeoffScreenSubLabel(entry) }}</span>
+                </span>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap text-center text-[10px] font-semibold text-gray-300">
+                <span class="inline-flex flex-col items-center leading-tight">
+                  <span>{{ takeoffLiftoffLabel(entry) }}</span>
+                  <span v-if="takeoffLiftoffSubLabel(entry)" class="font-normal text-amber-400">{{ takeoffLiftoffSubLabel(entry) }}</span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
     </div>
   </div>
 </template>

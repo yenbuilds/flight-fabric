@@ -235,6 +235,7 @@ async function browser() {
             routeLabel: rect('#dest-progress-label'), routeProgress: rect('#dest-progress-text'),
             overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1,
             selected: workbenchTest.tabs.activeTabId,
+            takeoffUi: Boolean(document.querySelector('#vue-last-takeoff-root, #vue-takeoff-root, #logbook-takeoffs')),
             overflowing: [...document.querySelectorAll('#tab-${tab} *')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0 && r.right>innerWidth+2 && !el.closest('.leaflet-pane, .leaflet-control-container, .flight-scene-surface');}).slice(0,8).map(el=>({tag:el.tagName,id:el.id,cls:el.className})),
             targets: [...document.querySelectorAll(innerWidth > 760 ? '.desktop-tab' : '.mobile-tab')].filter(el=>el.getClientRects().length).map(el=>({label:el.getAttribute('aria-label'),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})),
           };`);
@@ -267,6 +268,7 @@ async function browser() {
           assert(await evaluate("return Boolean(document.querySelector('#live-map .leaflet-marker-icon'));"), `${name}: actual Leaflet aircraft marker rendered`);
           assert(await evaluate("const r=document.querySelector('#live-map .live-plane-icon').getBoundingClientRect(), map=document.getElementById('live-map').getBoundingClientRect(); return r.left>=map.left && r.right<=map.right && r.top>=map.top && r.bottom<=map.bottom;"), `${name}: centered aircraft is visible in the representative map capture`);
         }
+        assert.equal(layout.takeoffUi, false, `${name}/${tab}: the release gate removes takeoff scoring UI`);
         await capture(`${name}-${tab}`);
         if (tab === 'timeline' && ['desktop', 'desktop-compact', 'phone', 'phone-narrow'].includes(name)) await checkReplayLayout(name, width);
       }
@@ -474,9 +476,9 @@ async function main() {
   Object.assign(values, { 'systems.electrical.batteryMode': 'on', 'systems.electrical.standbyPowerMode': 'auto',
     'systems.electrical.busTransferAuto': true, 'systems.electrical.transferBus1Powered': true, 'systems.electrical.transferBus2Powered': true,
     'systems.irs.leftMode': 'nav', 'systems.irs.rightMode': 'nav', 'systems.irsAligned': true, 'systems.apuMode': 'off' });
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
     optimizeDeps: { entries: ['tests/fixtures/app-workbench-browser.js'] },
     plugins: [vue(), { name: 'workbench-fixture', configureServer(vite) {
       vite.middlewares.use('/workbench-tailwind.css', (_req, res) => { res.setHeader('Content-Type', 'text/css'); res.end(css); });

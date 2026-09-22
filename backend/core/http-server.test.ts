@@ -460,6 +460,9 @@ test('MSFS toolbar page is served under a frameable CSP with an allowlisted file
     const script = await requestText(port, '/toolbar/toolbar.js');
     assert.equal(script.statusCode, 200);
     assert.match(String(script.headers['content-type']), /javascript/);
+    const sharedSettings = await requestText(port, '/shared/app-settings-shared.js');
+    assert.equal(sharedSettings.statusCode, 200, 'toolbar can load the shared release gate');
+    assert.match(String(sharedSettings.headers['content-type']), /javascript/);
     const reference = await requestText(port, '/toolbar/voice-reference.json');
     assert.equal(reference.statusCode, 200);
     assert.match(String(reference.headers['content-type']), /json/);

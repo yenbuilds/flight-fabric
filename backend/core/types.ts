@@ -559,11 +559,51 @@
  */
 
 /**
+ * One scored takeoff in the local takeoff log (backend/takeoff/takeoff-logbook.ts).
+ * @typedef {Object} TakeoffLogEntry
+ * @property {string} id - Unique entry id
+ * @property {string|null} timestamp - Liftoff time (ISO)
+ * @property {number|null} timestampMs - Liftoff time (epoch ms)
+ * @property {string|null} aircraft - Aircraft title
+ * @property {string|null} aircraftProfileId - Aircraft profile id
+ * @property {string|null} icao - Departure airport
+ * @property {string|null} runway - Departure runway
+ * @property {number|null} iasKts - IAS at liftoff
+ * @property {number|null} rollDistanceFt - Ground roll distance
+ * @property {number|null} rollDurationS - Ground roll duration
+ * @property {number|null} runwayRemainingFt - Runway remaining at liftoff
+ * @property {number|null} runwayUsedPct - Percentage of runway used at liftoff
+ * @property {number|null} runwayUseScore - Runway-use score 0-100
+ * @property {string|null} runwayUseGrade - Runway-use grade
+ * @property {string|null} runwayUseZone - Runway-use zone text
+ * @property {number|null} screenHeightRemainingFt - Runway remaining at screen height
+ * @property {number|null} rotationRateDegS - Rotation rate
+ * @property {number} hopCount - Settle-backs after liftoff
+ * @property {boolean} runwayExcursion - Runway excursion during the roll
+ * @property {Object} recording - Bundle identity: bundleName, recordingSessionId, flightId
+ */
+
+/**
+ * Aggregate stats for the takeoff log.
+ * @typedef {Object} TakeoffLogStats
+ * @property {number} total - Number of takeoffs
+ * @property {Object<string, number>} grades - Runway-use grade counts
+ * @property {number} cautionCount - Late Liftoff, Dangerous and Overrun takeoffs
+ * @property {number|null} avgRollDistanceFt - Average ground roll
+ * @property {number|null} avgRunwayUsedPct - Average runway used at liftoff
+ * @property {number|null} minRunwayRemainingFt - Least runway remaining at liftoff
+ * @property {number} airports - Number of distinct departure airports
+ * @property {number} aircraft - Number of distinct aircraft
+ */
+
+/**
  * Logbook message sent over WebSocket in response to requestLogbook.
  * @typedef {Object} LogbookMessage
  * @property {LogbookEntry[]} entries - Newest-first logbook entries
  * @property {LogbookStats} stats - Aggregate stats for the returned entries
  * @property {Object} [index] - Derived history-index paging and progress metadata
+ * @property {TakeoffLogEntry[]} takeoffs - Newest-first scored takeoffs from the local takeoff log
+ * @property {TakeoffLogStats|null} takeoffStats - Aggregate takeoff stats, null when the log could not be read
  */
 
 /**

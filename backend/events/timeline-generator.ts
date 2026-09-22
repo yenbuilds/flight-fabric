@@ -83,6 +83,7 @@ const MARKER_TYPE = Object.freeze({
   ALTITUDE_100: 'altitude_100',
   ALTITUDE_50: 'altitude_50',
   GO_AROUND: 'go_around',
+  TAKEOFF: 'takeoff',
 });
 
 const recordingBundleLayout = require('../flight-recording/recording-bundle-layout') as {
@@ -3963,6 +3964,56 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           lon: eventCoordinates.lon,
           context: {
             duration_ms: row.warning_duration_ms,
+          },
+        });
+      }
+      // Takeoff events: the recorded TAKEOFF row is the scored result of the
+      // live takeoff runner. Replay shows it as a marker and never rescores it.
+      else if (recordType === 'TAKEOFF') {
+        const takeoffAnalysis = parseJsonObject(row.takeoff_analysis);
+        // The row is written when the takeoff is scored, a few seconds after
+        // liftoff; the marker belongs at the liftoff moment and position.
+        const liftoffTimestampMs = toFiniteNumber(row.takeoff_liftoff_timestamp_ms);
+        const markerTimestampMs = liftoffTimestampMs !== null && liftoffTimestampMs <= timestampMs
+          ? liftoffTimestampMs
+          : timestampMs;
+        generatedTimeline.events.push({
+          type: 'marker',
+          markerType: MARKER_TYPE.TAKEOFF,
+          timestampMs: markerTimestampMs,
+          elapsedMs: Math.max(0, elapsed - (timestampMs - markerTimestampMs)),
+          lat: eventCoordinates.lat,
+          lon: eventCoordinates.lon,
+          icao: toNonEmptyString(row.icao),
+          runway: toNonEmptyString(row.runway),
+          aircraftProfileId: toNonEmptyString(row.aircraft_profile_id),
+          context: {
+            icao: toNonEmptyString(row.icao),
+            runway: toNonEmptyString(row.runway),
+            ias_kts: toFiniteNumber(row.ias_kts),
+            gs_kts: toFiniteNumber(row.gs_kts),
+            pitch_deg: toFiniteNumber(row.pitch_deg),
+            xwind_kts: toFiniteNumber(row.xwind_kts),
+            runway_length_ft: toFiniteNumber(row.runway_physical_length_ft) ?? toFiniteNumber(row.runway_length_ft),
+            roll_distance_ft: toFiniteNumber(row.takeoff_roll_distance_ft),
+            roll_duration_s: toFiniteNumber(row.takeoff_roll_duration_s),
+            liftoff_distance_ft: toFiniteNumber(row.takeoff_liftoff_distance_ft),
+            runway_remaining_ft: toFiniteNumber(row.takeoff_runway_remaining_ft),
+            runway_used_pct: toFiniteNumber(row.takeoff_runway_used_pct),
+            runway_use_score: toFiniteNumber(row.takeoff_runway_use_score),
+            runway_use_grade: toNonEmptyString(row.takeoff_runway_use_grade),
+            runway_use_zone: toNonEmptyString(row.takeoff_runway_use_zone),
+            screen_height_ft: toFiniteNumber(row.takeoff_screen_height_ft),
+            screen_height_remaining_ft: toFiniteNumber(row.takeoff_screen_height_remaining_ft),
+            rotation_rate_deg_s: toFiniteNumber(row.takeoff_rotation_rate_deg_s),
+            max_pitch_deg: toFiniteNumber(row.takeoff_max_pitch_deg),
+            lateral_offset_ft: toFiniteNumber(row.lateral_offset_ft),
+            lateral_offset_side: toNonEmptyString(row.lateral_offset_side),
+            lateral_offset_grade: toNonEmptyString(row.lateral_offset_grade),
+            hop_count: toFiniteNumber(row.takeoff_hop_count),
+            assessment: toNonEmptyString(row.takeoff_assessment),
+            runway_excursion: toBooleanOrNull(row.runway_excursion) === true,
+            flags: Array.isArray(takeoffAnalysis?.flags) ? takeoffAnalysis.flags : [],
           },
         });
       }

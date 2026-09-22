@@ -22,6 +22,7 @@ import { useSimbriefStore } from './stores/simbrief.js';
 import { useStatusStore } from './stores/status.js';
 import { useSystemHostStore } from './stores/system-host.js';
 import { useTabsStore } from './stores/tabs.js';
+import { useTakeoffStore } from './stores/takeoff.js';
 import { useThemeStore } from './stores/theme.js';
 import { useTimelineStore } from './stores/timeline.js';
 import { useVoiceControlStore } from './stores/voice-control.js';
@@ -76,6 +77,7 @@ const settingsUi = useSettingsUiStore(pinia);
 const simbrief = useSimbriefStore(pinia);
 const systemHost = useSystemHostStore(pinia);
 const tabs = useTabsStore(pinia);
+const takeoff = useTakeoffStore(pinia);
 const theme = useThemeStore(pinia);
 const timeline = useTimelineStore(pinia);
 const voiceControl = useVoiceControlStore(pinia);
@@ -146,6 +148,7 @@ export const vueRuntimeContext = {
     status,
     systemHost,
     tabs,
+    takeoff,
     theme,
     timeline,
     voiceControl,

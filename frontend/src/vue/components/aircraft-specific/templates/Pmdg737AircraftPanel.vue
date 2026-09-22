@@ -85,7 +85,7 @@ const sdkStatusNotice = computed(() => {
     stale: 'PMDG SDK data stopped updating. Check EnableDataBroadcast=1 and restart the aircraft or simulator.',
     disconnected: 'The PMDG SDK data connection is offline. Check EnableDataBroadcast=1 and restart the aircraft or simulator.',
     disabled: 'PMDG SDK data is disabled. Check EnableDataBroadcast=1, then restart FlightFabric.',
-    error: 'The PMDG SDK data connection failed. Check the desktop logs and PMDG data-broadcast setting.',
+    error: 'The PMDG SDK data connection failed and FlightFabric is retrying it. If this does not clear within a minute, restart FlightFabric, then check EnableDataBroadcast=1 and the desktop logs.',
     unsupported: 'This installation cannot start the PMDG 737 SDK connector.',
     'awaiting-values': 'Waiting for the first PMDG SDK data snapshot. Confirm EnableDataBroadcast=1 if this does not clear.',
     paused: 'PMDG SDK data is paused while the simulator is in a menu.',

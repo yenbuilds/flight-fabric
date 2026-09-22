@@ -32,6 +32,10 @@ const Debug = optionalRequire('./debug', {
 const { tlog } = Debug;
 
 const { createLandingRunner } = require('../landing/landing-runner');
+const { createTakeoffRunner } = require('../takeoff/takeoff-runner');
+const { TAKEOFF_SCORING_ENABLED } = require('../../shared/app-settings-shared.js') as {
+  TAKEOFF_SCORING_ENABLED: boolean;
+};
 const { createFlightViolationRunner } = require('../flight-violations/flight-violation-runner');
 const { createConvectiveRiskRunner } = require('../flight-violations/convective-risk-runner');
 const { makeFlapsObj, makeFlapsObjFromLvar } = require('../aircraft/flaps');
@@ -88,6 +92,8 @@ const recordingBundleLayout = require('../flight-recording/recording-bundle-layo
   getBundlePaths: (_outputDir: string, _bundleName: string) => { csv: string };
 };
 const { buildLandingCsvEventData } = require('../flight-recording/landing-csv-contract');
+const { buildTakeoffCsvEventData } = require('../flight-recording/takeoff-csv-contract');
+const takeoffLogbook = require('../takeoff/takeoff-logbook');
 const timeSource = require('./time-source');
 const eventBus = require('./event-bus');
 const { getAppVersion } = require('./app-version');
@@ -1272,6 +1278,8 @@ async function runSimbridgeCore({
 
   // Landing runner (handles touchdown grading/logging)
   const landingRunner = createLandingRunner();
+  // Takeoff runner (liftoff detection and runway-use grading)
+  const takeoffRunner = createTakeoffRunner();
 
   // Flight violation runner (in-flight upset detection, entire flight)
   const flightViolationRunner = createFlightViolationRunner();
@@ -1313,6 +1321,9 @@ async function runSimbridgeCore({
       } else {
         Debug.log('landing', 'Preserved landing and approach scorer context on aircraft change (rollout active)');
       }
+      // Takeoff state is per aircraft; a title change mid-climb-out drops the
+      // pending takeoff rather than scoring one aircraft's roll for another.
+      takeoffRunner.reset();
 
       // Reset flight violation runner (clears any in-progress upset state)
       flightViolationRunner.reset();
@@ -1437,6 +1448,41 @@ async function runSimbridgeCore({
   };
   flightCsvStore = createFlightCsvStore({ flightCsvWriter, recordingBundleGuard, Debug });
   if (!capabilities.isMock) {
+    // Write TAKEOFF rows to the authoritative flight CSV. The payload is the
+    // canonical takeoff:final result; the CSV contract names the fields that
+    // must survive the schema-field-map boundary.
+    eventBus.on('takeoff:final', (payload) => {
+      if (!TAKEOFF_SCORING_ENABLED || !payload) return;
+      console.log(`[takeoff] takeoff:final received — icao=${payload.icao}, runway=${payload.runway}, roll_ft=${payload.takeoff_roll_distance_ft}, remaining_ft=${payload.takeoff_runway_remaining_ft}, grade=${payload.takeoff_runway_use_grade}`);
+      try {
+        if (!recordingBundleFailureHandling && flightCsvWriter.isRecording()) {
+          const writeOk = flightCsvWriter.writeEvent('TAKEOFF', buildTakeoffCsvEventData(payload, createEventId('takeoff')));
+          if (writeOk) {
+            console.log(`[takeoff] TAKEOFF row written to CSV — icao=${payload.icao}, runway=${payload.runway}, geometry=${payload.runway_geometry_source || 'none'}`);
+          } else {
+            console.warn('[takeoff] TAKEOFF row write returned false (check for earlier event write error)');
+          }
+        } else {
+          console.warn('[takeoff] takeoff:final received but CSV is not recording — TAKEOFF row will NOT be written');
+        }
+      } catch (e) {
+        console.error('[flight-csv] Takeoff event write failed:', e.message);
+      }
+
+      // Persist to the local takeoff logbook, tagged with the recording bundle
+      // so deleting the flight removes its takeoffs.
+      try {
+        const csvStats = flightCsvWriter.getStats?.() || null;
+        takeoffLogbook.addEntry(payload, {
+          bundleName: csvStats?.bundleBaseName || null,
+          recordingSessionId: csvStats?.recordingSessionId || null,
+          flightId: csvStats?.flightId || null,
+        });
+      } catch (e) {
+        console.error('[logbook] Takeoff entry write failed:', e.message);
+      }
+    });
+
     eventBus.on('landing:final', (payload) => {
       if (!payload) return;
       
@@ -2874,6 +2920,11 @@ async function runSimbridgeCore({
     
     // Reset landing runner for new flight (prevents stale WOW/touchdown state)
     landingRunner.reset();
+    // The takeoff runner is deliberately not reset here: a motion-based flight
+    // start fires during the takeoff roll (or after liftoff when recording is
+    // started by hand), and a reset would discard the roll start or cancel
+    // the pending takeoff. Its ground buffer is time-bounded; it resets on
+    // aircraft change.
 
     // Fresh approach scorer for this flight
     currentApproachScorer = createCurrentApproachScorer();
@@ -3601,6 +3652,30 @@ async function runSimbridgeCore({
         // Computed heading passed through from processTelemetryFrame — more reliable
         // than frame.simconnect.hdgTrueDeg/hdgMagDeg which may be null if the raw
         // SimConnect heading SimVar is not populated.
+        computedHdgMagDeg: hdgMagDeg,
+        computedHdgTrueDeg: hdgTrueDeg,
+      }
+    );
+
+    // Takeoff roll and liftoff grading (same frame and time context as landing)
+    takeoffRunner.update(
+      frame,
+      broadcast,
+      {
+        nowEpochMs,
+        nowIso: timestampIso,
+        flightStartEpochMs,
+        flightStartIso,
+      },
+      {
+        phase,
+        aircraftName: (sc && sc.aircraftLoadedName) || null,
+        icao: null,
+        runway: null,
+        simVersion: sc?.simVersion || null,
+        aircraftProfileId: profileLoader.getActiveProfile()?.id || 'generic',
+        simulator: airportGeometryContext.simulator,
+        dataSource: airportGeometryContext.dataSource,
         computedHdgMagDeg: hdgMagDeg,
         computedHdgTrueDeg: hdgTrueDeg,
       }

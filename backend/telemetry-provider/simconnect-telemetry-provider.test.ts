@@ -4677,4 +4677,85 @@ test('SimConnectTelemetryProvider refuses SDK bridge replacement when the prior 
   }
 });
 
+test('SDK bridge watchdog restarts a sidecar that died unexpectedly, with back-off', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  provider._resolveActiveSdkProfile = () => ({
+    adapter: { id: 'clientdata-manifest', displayName: 'PMDG 737' },
+    profileSdk: { target: { aircraft: 'pmdg-737' } },
+  });
+  let starts = 0;
+  let snapshot = { status: 'stopped', error: 'exit:1 signal:null', adapterId: 'clientdata-manifest' };
+  const bridge = {
+    _adapter: { id: 'clientdata-manifest' },
+    _resolvedLaunchSpec: { command: 'ff-rust-simconnect-sidecar.exe', args: [], source: 'rust' },
+    _started: false,
+    _proc: null,
+    async start() {
+      starts += 1;
+      this._started = true;
+      snapshot = { status: 'starting', error: null, adapterId: 'clientdata-manifest' };
+    },
+    connect() {},
+    getSnapshot() { return { ...snapshot }; },
+  };
+  provider._sdkBridge = bridge;
+
+  try {
+    const t0 = 1_000_000;
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0), true, 'a dead sidecar with an exit error is restarted');
+    await provider._sdkInitPromise;
+    assertEqual(starts, 1, 'the existing bridge is started again');
+    assertEqual(provider._sdkBridge, bridge, 'the bridge instance is reused');
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 1000), false, 'a live sidecar is left alone');
+
+    // The sidecar dies again right away: the second restart waits for the back-off.
+    bridge._started = false;
+    snapshot = { status: 'stopped', error: 'exit:1 signal:null', adapterId: 'clientdata-manifest' };
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 5000), false, 'a repeat crash inside the back-off is not restarted yet');
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 10000), true, 'the back-off elapses and the sidecar restarts');
+    await provider._sdkInitPromise;
+    assertEqual(starts, 2, 'second restart attempted after the back-off');
+
+    // Data flowing resets the back-off ladder.
+    snapshot = { status: 'running', error: null, adapterId: 'clientdata-manifest' };
+    provider._runSdkBridgeWatchdogTick(t0 + 11000);
+    assertEqual(provider._sdkBridgeRestartFailures, 0, 'a running sidecar clears the failure count');
+
+    // A clean stop (no error) and a live process reporting an error are not restarted.
+    bridge._started = false;
+    snapshot = { status: 'stopped', error: null, adapterId: 'clientdata-manifest' };
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 200000), false, 'a clean stop is not restarted');
+    bridge._started = true;
+    snapshot = { status: 'error', error: 'sdk_subscribe_failed:RequestClientData hr=0x80004005', adapterId: 'clientdata-manifest' };
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 300000), false, 'a live sidecar retrying its own subscription is not restarted');
+    assertEqual(starts, 2, 'no further starts');
+
+    // A spawn failure leaves no process behind and is retried as well.
+    bridge._started = false;
+    snapshot = { status: 'error', error: 'SDK sidecar spawn failed: ENOENT', adapterId: 'clientdata-manifest' };
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 400000), true, 'a spawn failure is retried');
+    await provider._sdkInitPromise;
+    assertEqual(starts, 3, 'spawn failure restart attempted');
+
+    // A bridge whose launch never resolved (binary missing or probe failed) is not retried.
+    bridge._started = false;
+    bridge._resolvedLaunchSpec = null;
+    snapshot = { status: 'error', error: 'No usable SDK sidecar provider found for PMDG 737.', adapterId: 'clientdata-manifest' };
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 800000), false, 'an unresolved launch spec is not retried');
+    assertEqual(starts, 3, 'no start for an unresolved launch spec');
+    bridge._resolvedLaunchSpec = { command: 'ff-rust-simconnect-sidecar.exe', args: [], source: 'rust' };
+
+    provider._stopping = true;
+    bridge._started = false;
+    snapshot = { status: 'stopped', error: 'exit:1 signal:null', adapterId: 'clientdata-manifest' };
+    assertEqual(provider._runSdkBridgeWatchdogTick(t0 + 900000), false, 'a stopping provider never restarts the sidecar');
+  } finally {
+    provider._stopSdkBridgeWatchdog();
+    if (provider._sdkAircraftListener) {
+      eventBus.off('simconnect:aircraftChanged', provider._sdkAircraftListener);
+      provider._sdkAircraftListener = null;
+    }
+  }
+});
+
 export {};

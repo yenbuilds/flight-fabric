@@ -168,6 +168,9 @@ function jumpToTimelineEvent(event, originalIndex, options = {}) {
 
   const timestampMs = Number(event?.timestampMs);
   let scrubbed = false;
+  // Choosing an event is a request to see it: the map returns to the
+  // aircraft and follows it again even if the user had panned away.
+  if (shouldPanMap) timelineMapController.resumeFollow?.();
   if (Number.isFinite(timestampMs) && Number.isFinite(timelineScrubberStartMs)) {
     const offsetMs = Math.max(0, timestampMs - timelineScrubberStartMs);
     scrubbed = !!scrubToOffset(offsetMs, shouldPanMap);
@@ -412,6 +415,9 @@ function getTimelineScrubberPoints(timeline, trackPoints = null) {
   );
   timelineStore.bindMap3dActions?.({
     onFitView: () => timelineMap3dController?.fitView(),
+  });
+  timelineStore.bindMapFollowActions?.({
+    onCenter: () => timelineMapController.resumeFollowAndCenter?.(),
   });
   const syncMap3dVisibility = () => {
     if (isTimelineMap3dVisible()) timelineMap3dController?.setActive(true);

@@ -1858,16 +1858,15 @@ async function runTimelineSmoke(windowRef) {
       const rect = detail.getBoundingClientRect();
       return {
         role: detail.getAttribute('role'),
-        centered: Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 2
-          && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 2,
-        contained: rect.left >= 10 && rect.top >= 10 && rect.right <= innerWidth - 10 && rect.bottom <= innerHeight - 10,
+        bottomSheet: Math.abs(rect.bottom - innerHeight) <= 2 && rect.height <= innerHeight * 0.6 + 2,
+        contained: rect.left >= -2 && rect.top >= -2 && rect.right <= innerWidth + 2 && rect.bottom <= innerHeight + 2,
         contentFits: detail.scrollHeight <= detail.clientHeight + 2,
       };
     })()`);
     assert.ok(layout.contained && layout.contentFits, `Event details should fit at ${width}x${height}: ${JSON.stringify(layout)}`);
     assert.equal(layout.role, width <= 1100 ? 'dialog' : 'region', 'event-detail semantics follow the responsive presentation');
     if (width <= 1100) {
-      assert.ok(layout.centered, `compact event details stay centered at ${width}x${height}`);
+      assert.ok(layout.bottomSheet, `compact event details leave room above the bottom sheet at ${width}x${height}`);
       await evaluate(windowRef, "document.getElementById('timeline-detail-close').focus()");
       await evaluate(windowRef, `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))`);
       assert.equal(await evaluate(windowRef, 'document.activeElement?.id'), 'timeline-open-landing-btn', 'compact Shift+Tab should stay inside event details');

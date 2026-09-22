@@ -191,6 +191,32 @@ test('toolbar history is bounded, merges final assessments and is opt-in rather 
   assert.ok(!getReplayMessages(state).some(message => ['toolbarFlightHistory', 'landing', 'flightViolation', 'ultimateStabilityScore'].includes(message.type)));
 });
 
+test('toolbar history keeps the scored takeoff beside the landing and clears it with the flight', () => {
+  const state = createSimbridgeRuntimeState();
+  const profile = { type: 'aircraftProfile', profile: { _profileKey: 'bundled/msfs/pmdg-737', aircraftTitle: '737' } };
+  const history = () => getReplayMessages(state, new Set(['toolbarFlightHistory'])).at(-1);
+  rememberReplayMessage(state, profile);
+  rememberReplayMessage(state, { type: 'flightTime', active: true, flightId: 'one' });
+  rememberReplayMessage(state, { type: 'takeoff', final: false, iasKts: 140 });
+  assert.equal(history()?.takeoff, null, 'a liftoff packet is not history');
+  rememberReplayMessage(state, { type: 'takeoff', final: true, grade: 'Good', score: 95, icao: 'YSSY', runway: '34L',
+    runwayUse: { remainingFt: 2000, runwayLengthFt: 6000 }, roll: { distanceFt: 3800 }, analysis: Array(10000).fill({}) });
+  assert.equal(history()?.takeoff?.grade, 'Good');
+  assert.equal(history()?.takeoff?.runwayUse.remainingFt, 2000);
+  assert.equal(history()?.takeoff?.analysis, undefined);
+  rememberReplayMessage(state, { type: 'takeoff', final: false, cancelled: true, reason: 'reset' });
+  assert.equal(history()?.takeoff?.grade, 'Good', 'a cancelled later attempt does not erase the scored takeoff');
+  rememberReplayMessage(state, { type: 'landing', final: true, grade: 'FIRM' });
+  assert.equal(history()?.takeoff?.grade, 'Good', 'the landing sits beside the takeoff');
+  assert.equal(history()?.landing?.grade, 'FIRM');
+  assert.ok(!getReplayMessages(state).some(message => message.type === 'takeoff'), 'takeoff packets are never replayed as live events');
+  rememberReplayMessage(state, { type: 'flightTime', active: true, flightId: 'two' });
+  assert.equal(history()?.takeoff, null, 'a new flight clears the takeoff');
+  rememberReplayMessage(state, { type: 'takeoff', final: true, grade: 'Outstanding' });
+  rememberReplayMessage(state, { type: 'aircraftChanged' });
+  assert.equal(history()?.takeoff, null, 'an aircraft change clears the takeoff');
+});
+
 test('toolbar history survives transient disconnects but resets for another aircraft or new flight', () => {
   const state = createSimbridgeRuntimeState();
   const profile = { type: 'aircraftProfile', profile: { _profileKey: 'bundled/msfs/pmdg-737', aircraftTitle: '737', profileRevision: 1 } };

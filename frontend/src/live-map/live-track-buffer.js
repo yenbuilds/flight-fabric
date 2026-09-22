@@ -10,6 +10,13 @@ const DEFAULT_MIN_SPACING_NM = 0.01;
 const DEFAULT_MIN_INTERVAL_MS = 1000;
 const JUMP_TOLERANCE_NM = 5;
 const MAX_PLAUSIBLE_SPEED_KTS = 1200;
+// While the simulator loads a flight it can report the aircraft at any
+// altitude for a sample or two (a six-figure altitude over a parked aircraft
+// has been seen). An altitude step no aircraft could fly is treated like a
+// reposition so the trail never shoots into the sky and the framing and
+// colour scale stay on the flight.
+const ALTITUDE_JUMP_TOLERANCE_FT = 2500;
+const MAX_PLAUSIBLE_CLIMB_FPM = 30_000;
 const MAX_CONTINUITY_GAP_MS = 5 * 60 * 1000;
 
 function finiteOrNull(value) {
@@ -34,6 +41,26 @@ export function createLiveTrackBuffer({
 
   function currentSegment() {
     return segments[segments.length - 1];
+  }
+
+  // A segment that would draw nothing: fewer than two points, or a committed
+  // vertex whose live endpoint never moved off it. A committed vertex needs
+  // movement, so any longer segment has a visible leg.
+  function isStationaryStub(segment) {
+    if (segment.length < 2) return true;
+    if (segment.length > 2) return false;
+    const [first, last] = segment;
+    const movedNm = getDistanceNm(first.lat, first.lon, last.lat, last.lon);
+    return !Number.isFinite(movedNm) || movedNm < minSpacingNm;
+  }
+
+  function recomputeMinAlt() {
+    minAltFt = null;
+    for (const segment of segments) {
+      for (const point of segment) {
+        if (point.altFt !== null && (minAltFt === null || point.altFt < minAltFt)) minAltFt = point.altFt;
+      }
+    }
   }
 
   function thin() {
@@ -98,10 +125,18 @@ export function createLiveTrackBuffer({
       const maxContinuousNm = JUMP_TOLERANCE_NM + (MAX_PLAUSIBLE_SPEED_KTS * continuityElapsedMs / 3_600_000);
       const distanceNm = getDistanceNm(lastReceived.lat, lastReceived.lon, lat, lon);
       const crossesAntimeridian = Math.abs(lon - lastReceived.lon) > 180;
-      if (crossesAntimeridian || !Number.isFinite(distanceNm) || distanceNm > maxContinuousNm) {
-        if (currentSegment().length < 2) {
+      const maxContinuousFt = ALTITUDE_JUMP_TOLERANCE_FT + (MAX_PLAUSIBLE_CLIMB_FPM * continuityElapsedMs / 60_000);
+      const altitudeJump = point.altFt !== null && lastReceived.altFt !== null
+        && Math.abs(point.altFt - lastReceived.altFt) > maxContinuousFt;
+      if (crossesAntimeridian || !Number.isFinite(distanceNm) || distanceNm > maxContinuousNm || altitudeJump) {
+        if (isStationaryStub(currentSegment())) {
+          // Nothing to draw (a lone point, or a parked endpoint over its
+          // committed vertex) so retire it. This is also where a loading
+          // spike ends up: over the parked aircraft, then repositioned away
+          // from by the first real sample.
           totalPoints -= currentSegment().length;
           currentSegment().length = 0;
+          recomputeMinAlt();
         } else {
           segments.push([]);
         }
@@ -109,7 +144,9 @@ export function createLiveTrackBuffer({
         newSegment = true;
       }
     }
-    lastReceived = { lat, lon, receivedAtMs };
+    // A sample without an altitude keeps the last known one for the
+    // continuity check so a spike cannot hide behind a missing value.
+    lastReceived = { lat, lon, altFt: point.altFt ?? lastReceived?.altFt ?? null, receivedAtMs };
 
     const segment = currentSegment();
     if (segment.length >= 2) {

@@ -28,6 +28,7 @@ import {
 } from '../maps/three-d/sun-position.js';
 
 const ACTIVATION_RETRY_INTERVAL_MS = 500;
+const GROUND_REFRESH_MIN_INTERVAL_MS = 2500;
 
 function finiteOrNull(value) {
   if (value == null || value === '') return null;
@@ -101,6 +102,16 @@ export function createTimelineMap3dController({
   let resizeObserver = null;
   let colorScale = null;
   let trackBounds = null;
+  // Follow the replay cursor with the chosen camera mode. The flight is
+  // framed first; follow engages on the first scrub or event so the overview
+  // is not snatched away, and a user drag pauses it until Resume Follow.
+  let autoFollow = true;
+  let followEngaged = false;
+  // Ground imagery is planned around the camera. User drags end with a
+  // settle event, but scrubbing and following move the camera without one,
+  // so those schedule a throttled re-plan or the detail tiles stay behind.
+  let groundRefreshTimer = null;
+  let lastGroundRefreshAt = 0;
   const badgeCache = new Map();
 
   function currentOptions() {
@@ -142,6 +153,58 @@ export function createTimelineMap3dController({
 
   function setMapEmptyState(state) {
     timelineStore.setMapEmptyState(state);
+  }
+
+  function syncFollowUiState() {
+    timelineStore.setMapFollowStatus?.(autoFollow ? 'following' : 'paused');
+  }
+
+  function applyFollowMode() {
+    if (!scene) return;
+    scene.setFollowMode(autoFollow && followEngaged ? currentOptions().cameraMode : 'none');
+  }
+
+  function engageFollow() {
+    if (!scene || !autoFollow) return;
+    followEngaged = true;
+    applyFollowMode();
+    scene.snapToFollowTarget();
+    scheduleGroundRefresh({ immediate: true });
+  }
+
+  function releaseFollow() {
+    followEngaged = false;
+    applyFollowMode();
+  }
+
+  function handleUserPan() {
+    // Orbiting the framed overview is not a pause; only dragging away from a
+    // followed aircraft is.
+    if (!autoFollow || !followEngaged) return;
+    autoFollow = false;
+    applyFollowMode();
+    syncFollowUiState();
+  }
+
+  function resumeFollow() {
+    if (autoFollow) return;
+    autoFollow = true;
+    // Re-engage on the next pan request so the camera snaps to where the
+    // cursor lands (an event, a scrub), not to where it was when paused.
+    followEngaged = false;
+    applyFollowMode();
+    syncFollowUiState();
+  }
+
+  function resumeFollowAndCenter() {
+    autoFollow = true;
+    syncFollowUiState();
+    if (!scene) {
+      ensureScene();
+      return;
+    }
+    if (!renderCursorToScene()) return;
+    engageFollow();
   }
 
   function setStatus(message) {
@@ -224,8 +287,26 @@ export function createTimelineMap3dController({
     return findNearestTimelineTrackPoint(trackPoints, trackTimestamps, timestampMs, trackTimestampsSorted);
   }
 
+  function scheduleGroundRefresh({ immediate = false } = {}) {
+    if (!scene || !projection || sceneContextLost || !active) return;
+    if (groundRefreshTimer != null) return;
+    const elapsed = Date.now() - lastGroundRefreshAt;
+    const delay = immediate ? 0 : Math.max(0, GROUND_REFRESH_MIN_INTERVAL_MS - elapsed);
+    groundRefreshTimer = windowRef.setTimeout(() => {
+      groundRefreshTimer = null;
+      refreshGround();
+    }, delay);
+  }
+
+  function cancelGroundRefresh() {
+    if (groundRefreshTimer == null) return;
+    windowRef.clearTimeout?.(groundRefreshTimer);
+    groundRefreshTimer = null;
+  }
+
   function refreshGround() {
     if (!scene || !projection || sceneContextLost || !active || !isTimelineTabVisible() || !scene.isActive()) return;
+    lastGroundRefreshAt = Date.now();
     if (allowOnlineTiles() !== true) {
       scene.setGroundTiles([]);
       scene.setGroundGrid({ size: 600000 });
@@ -327,7 +408,14 @@ export function createTimelineMap3dController({
 
       const fitKey = `${currentTimeline?.flightId || currentTimeline?.filePath || ''}|${trackPoints.length}`;
       if (refit || fitKey !== framedKey) {
+        if (fitKey !== framedKey) {
+          autoFollow = true;
+          syncFollowUiState();
+        }
         framedKey = fitKey;
+        // Framing the flight is an overview; follow re-engages on the next
+        // scrub, event or Center press.
+        releaseFollow();
         const bounds = geometry.bounds || (markers.length > 0
           ? markers.reduce((acc, marker) => ({
             minX: Math.min(acc.minX, marker.x),
@@ -408,6 +496,7 @@ export function createTimelineMap3dController({
           windowRef,
           documentRef,
           consoleRef,
+          onUserPan: handleUserPan,
           onViewSettled: handleViewSettled,
           quality: sceneQuality(),
           onMarkerClick: handleMarkerClick,
@@ -545,7 +634,11 @@ export function createTimelineMap3dController({
     };
     if (!scene || !active) return;
     const position = renderCursorToScene();
-    if (shouldPan && position) scene.moveTargetTo(position.x, position.y, position.z, { animate: true });
+    if (!shouldPan || !position || !autoFollow) return;
+    // Once engaged the scene tracks the aircraft every frame in the chosen
+    // camera mode; the first pan request engages it from the framed view.
+    if (!followEngaged) engageFollow();
+    scheduleGroundRefresh();
   }
 
   function focusEvent(event) {
@@ -558,6 +651,7 @@ export function createTimelineMap3dController({
     const rollDeg = Number(nearest?.rollDeg ?? attitude.rollDeg);
     const iasKts = Number(nearest?.iasKts ?? event?.ias_kts);
     const altFt = Number(nearest?.altFt ?? event?.alt_msl_ft ?? event?.alt_ft);
+    resumeFollow();
     setCursorPosition(pos, {
       headingDeg: Number.isFinite(headingDeg) ? headingDeg : null,
       pitchDeg: Number.isFinite(pitchDeg) ? pitchDeg : null,
@@ -583,6 +677,11 @@ export function createTimelineMap3dController({
 
   function applyOptions() {
     if (!scene || !active || sceneContextLost || !isTimelineTabVisible() || !scene.isActive()) return;
+    // A new camera mode takes effect immediately while following.
+    if (autoFollow && followEngaged) {
+      applyFollowMode();
+      scene.snapToFollowTarget();
+    }
     renderScene();
     if (lastCursor?.pos) updateLighting(lastCursor.pos, lastCursor.timestampMs, { immediate: true });
     else if (trackPoints[0]) updateLighting(trackPoints[0], trackPoints[0].timestampMs, { immediate: true });
@@ -601,6 +700,7 @@ export function createTimelineMap3dController({
   // The tab is hidden: stop the render loop but keep the scene so
   // returning is instant.
   function suspend() {
+    cancelGroundRefresh();
     scene?.stop();
   }
 
@@ -616,6 +716,9 @@ export function createTimelineMap3dController({
     lastCursor = null;
     colorScale = null;
     trackBounds = null;
+    autoFollow = true;
+    followEngaged = false;
+    scene?.setFollowMode('none');
     scene?.setTrack(null);
     scene?.setMarkers([]);
     scene?.setAircraft({ visible: false });
@@ -627,6 +730,7 @@ export function createTimelineMap3dController({
     disposed = true;
     active = false;
     sceneLoading = null;
+    cancelGroundRefresh();
     if (activationRetryTimer != null) {
       windowRef.clearInterval?.(activationRetryTimer);
       activationRetryTimer = null;
@@ -654,8 +758,11 @@ export function createTimelineMap3dController({
     invalidateSizeStaggered,
     render,
     reset,
+    resumeFollow,
+    resumeFollowAndCenter,
     setActive,
     setCursorPosition,
     suspend,
+    syncFollowUiState,
   };
 }

@@ -20,10 +20,12 @@ async function browser() {
   const win = new BrowserWindow({ show: false, width: 1920, height: 1000,
     webPreferences: { contextIsolation: true, sandbox: false, nodeIntegration: false, backgroundThrottling: false } });
   const evaluate = body => win.webContents.executeJavaScript(`(async () => { ${body} })()`);
+  const errors = [];
+  win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
   try {
     await win.loadURL(process.env.FF_LOGBOOK_TEST_URL);
     for (let n = 0; n < 150; n++) { if (await evaluate('return Boolean(window.logbookTest);')) break; await wait(50); }
-    assert(await evaluate('return Boolean(window.logbookTest);'), 'fixture is ready');
+    assert(await evaluate('return Boolean(window.logbookTest);'), `fixture is ready: ${errors.join('\n')}`);
     for (const [width, fontSize] of [[1920,16], [1255,16], [1101,16], [800,16], [390,16], [320,16], [320,20]]) {
       win.setContentSize(width, 1000);
       await evaluate(`document.documentElement.style.fontSize='${fontSize}px';`);
@@ -181,9 +183,9 @@ async function browser() {
 async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
   const css = fs.readFileSync(path.join(ROOT, 'frontend-dist/tailwind.css'), 'utf8');
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
     optimizeDeps: { entries: ['tests/fixtures/logbook-workspace-browser.js'] },
     plugins: [vue(), { name: 'logbook-fixture', configureServer(vite) {
       vite.middlewares.use('/assets/flags', (req, res, next) => {
@@ -195,7 +197,7 @@ async function main() {
       });
       vite.middlewares.use('/fixture.css', (_req, res) => { res.setHeader('Content-Type', 'text/css'); res.end(css); });
       vite.middlewares.use('/logbook-test', (_req, res) => { res.setHeader('Content-Type', 'text/html');
-        res.end('<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>body{margin:0;padding:16px;background:rgb(var(--background));color:rgb(var(--foreground));font-family:system-ui}#app{min-width:0}</style></head><body class="ff-app-shell"><div id="app"></div><script type="module" src="/tests/fixtures/logbook-workspace-browser.js"></script></body></html>'); });
+        res.end('<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/fixture.css"><script src="/shared/app-settings-shared.js"></script><style>body{margin:0;padding:16px;background:rgb(var(--background));color:rgb(var(--foreground));font-family:system-ui}#app{min-width:0}</style></head><body class="ff-app-shell"><div id="app"></div><script type="module" src="/tests/fixtures/logbook-workspace-browser.js"></script></body></html>'); });
     } }], resolve: { alias: { vue: path.join(ROOT, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'), pinia: path.join(ROOT, 'frontend/node_modules/pinia/dist/pinia.mjs') } },
     server: { host: '127.0.0.1', port: 0, watch: null } });
   await server.listen();

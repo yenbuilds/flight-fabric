@@ -710,9 +710,9 @@ async function main() {
     return [id, { templateId, capabilities, values, cdu: cduFixture(id), taxiSupport }];
   }));
   fixtures.__autotaxiFixture = AUTOTAXI_FIXTURE;
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error',
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error',
     cacheDir: path.join(OUTPUT, 'vite-cache'), optimizeDeps: { entries: ['tests/fixtures/aircraft-layout-browser.js'] },
     plugins: [vue(), { name: 'aircraft-layout-fixture', configureServer(vite) {
       vite.middlewares.use('/aircraft-layout.css', (_req, res) => { res.setHeader('Content-Type', 'text/css'); res.end(layoutCss); });

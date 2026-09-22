@@ -61,6 +61,83 @@ test('a simulator reposition starts a new segment instead of a chord', () => {
   assert.equal(buffer.getSegments().length, 2, 'an unrenderable single point segment is reused');
 });
 
+test('an altitude the aircraft could not have flown to is a reposition, not a trail', () => {
+  const clock = createClock();
+  const buffer = createLiveTrackBuffer({ now: clock.now });
+  // The simulator loads a flight at Nuuk: one sample lands at a six-figure
+  // altitude over the parked aircraft before the real altitude arrives.
+  buffer.append({ lat: 64.19, lon: -51.68, altFt: 101_932 });
+  clock.advance(1000);
+  const settled = buffer.append({ lat: 64.19, lon: -51.68, altFt: 279 });
+  assert.equal(settled.newSegment, true);
+  assert.equal(buffer.size(), 1, 'the spike is retired instead of kept as a vertex');
+  assert.equal(buffer.getSegments().length, 1);
+  assert.equal(buffer.getLatest().altFt, 279);
+  assert.equal(buffer.getMinAltFt(), 279);
+
+  // A spike that lingers for several samples over the parked aircraft is a
+  // stationary stub and is retired the same way.
+  clock.advance(1000);
+  buffer.append({ lat: 64.19, lon: -51.68, altFt: 101_932 });
+  clock.advance(1000);
+  buffer.append({ lat: 64.19, lon: -51.68, altFt: 101_932 });
+  clock.advance(1000);
+  buffer.append({ lat: 64.19, lon: -51.68, altFt: 101_932 });
+  clock.advance(1000);
+  buffer.append({ lat: 64.19, lon: -51.68, altFt: 280 });
+  assert.equal(buffer.getSegments().length, 1);
+  assert.equal(buffer.size(), 1);
+  assert.equal(buffer.getLatest().altFt, 280);
+  assert.equal(buffer.getMinAltFt(), 280);
+  for (const segment of buffer.getSegments()) {
+    assert.ok(segment.every(point => point.altFt < 1000), 'no spike survives in the trail');
+  }
+
+  // A sample with no altitude between the spike and the real value does not
+  // let the spike through.
+  const gapped = createLiveTrackBuffer({ now: clock.now });
+  gapped.append({ lat: 64.19, lon: -51.68, altFt: 101_932 });
+  clock.advance(1000);
+  gapped.append({ lat: 64.19, lon: -51.68 });
+  clock.advance(1000);
+  gapped.append({ lat: 64.19, lon: -51.68, altFt: 279 });
+  assert.ok(gapped.getSegments().flat().every(point => point.altFt === null || point.altFt < 1000));
+  assert.equal(gapped.getMinAltFt(), 279);
+});
+
+test('a fast climb, a pause and a low spike keep the trail and altitude reference honest', () => {
+  const clock = createClock();
+  const buffer = createLiveTrackBuffer({ now: clock.now });
+  buffer.append({ lat: 51.47, lon: -0.46, altFt: 1000 });
+  clock.advance(2000);
+  buffer.append({ lat: 51.49, lon: -0.46, altFt: 2000 });
+  clock.advance(1000);
+  // 1,000 ft in a second (60,000 fpm) is inside the tolerance for a zoom climb.
+  const climb = buffer.append({ lat: 51.51, lon: -0.46, altFt: 3000 });
+  assert.equal(climb.newSegment, false, 'a steep climb is continuous');
+  clock.advance(10 * 60 * 1000);
+  // After a long pause the sim resumes where it froze; the continuity budget
+  // grows with the gap so a resumed climb is not a reposition.
+  const resumed = buffer.append({ lat: 51.53, lon: -0.46, altFt: 12_000 });
+  assert.equal(resumed.newSegment, false);
+  assert.equal(buffer.getSegments().length, 1);
+  assert.equal(buffer.size(), 4);
+
+  // A brief sample at a nonsense low altitude starts a new segment; the
+  // flown trail is kept and the altitude reference ignores the spike once
+  // the real altitude returns.
+  clock.advance(1000);
+  const spike = buffer.append({ lat: 51.53, lon: -0.46, altFt: -30_000 });
+  assert.equal(spike.newSegment, true);
+  assert.equal(buffer.getSegments().length, 2, 'the flown trail stays');
+  clock.advance(1000);
+  buffer.append({ lat: 51.53, lon: -0.46, altFt: 12_050 });
+  assert.equal(buffer.getSegments().length, 2);
+  assert.equal(buffer.getSegments()[0].length, 4);
+  assert.equal(buffer.getSegments()[1].length, 1);
+  assert.equal(buffer.getMinAltFt(), 1000, 'the retired spike does not lower the ground reference');
+});
+
 test('long flights thin the oldest vertices and keep segment ends and recent detail', () => {
   const clock = createClock();
   const buffer = createLiveTrackBuffer({ now: clock.now, maxPoints: 200 });

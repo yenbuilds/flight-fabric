@@ -18,6 +18,9 @@
   var LOADER_SOURCE = 'flightfabric-toolbar-loader';
   var PREFS_KEY = 'ff_toolbar_prefs_v1';
   var LANDING_KEY = 'ff_toolbar_last_landing_v1';
+  var TAKEOFF_KEY = 'ff_toolbar_last_takeoff_v1';
+  var TAKEOFF_SCORING_ENABLED = !!(window.FlightFabricAppSettings
+    && window.FlightFabricAppSettings.TAKEOFF_SCORING_ENABLED === true);
   var LANDING_TTL_MS = 6 * 60 * 60 * 1000;
   var LOOPBACK_HOST = '127.0.0.1';
   var RECONNECT_MIN_MS = 1000;
@@ -30,6 +33,7 @@
     'aircraftProfile', 'aircraftChanged', 'dataSources', 'landing', 'ultimateStabilityScore', 'toolbarFlightHistory',
     'flightRecording', 'flightStatus', 'flightViolation', 'fuelUnit', 'updateAvailable',
   ];
+  if (TAKEOFF_SCORING_ENABLED) SUBSCRIPTION.push('takeoff');
 
   var DEFAULT_PREFS = {
     theme: 'dark',
@@ -93,6 +97,7 @@
     aircraftProfile: null,
     commands: [],
     landing: null,
+    takeoff: null,
     recording: null,
     flightStatus: null,
     cautions: [],
@@ -118,6 +123,7 @@
   var hiddenTimer = null;
   var unloading = false;
   var pendingLanding = null;
+  var pendingTakeoff = null;
   var historyFlightId = '';
   var awaitingTouchdown = false;
 
@@ -133,6 +139,10 @@
   }
 
   function clear(node) {
+    // Removing a focused text field fires no blur in Chromium-based browsers;
+    // release the simulator keyboard before the field disappears.
+    var active = document.activeElement;
+    if (isTextField(active) && typeof node.contains === 'function' && node.contains(active)) blurTextField();
     while (node.firstChild) node.removeChild(node.firstChild);
     return node;
   }
@@ -345,6 +355,28 @@
     var data = event.data;
     if (!data || typeof data !== 'object' || data.source !== LOADER_SOURCE) return;
     if (data.action === 'visibility') setVisible(data.visible === true);
+    else if (data.action === 'keyboardReleased') blurTextField();
+  }
+
+  // The simulator keeps acting on keyboard bindings while the panel is open
+  // (Backspace resets the view, letters toggle systems) unless a text field
+  // claims the keyboard. The loader forwards these reports to the simulator.
+  function isTextField(node) {
+    if (!node || typeof node.tagName !== 'string') return false;
+    var tag = node.tagName.toLowerCase();
+    if (tag === 'textarea') return true;
+    if (tag !== 'input') return false;
+    var type = String(node.type || 'text').toLowerCase();
+    return !/^(button|checkbox|radio|range|submit|reset|file|color|image|hidden)$/.test(type);
+  }
+
+  function reportKeyboardFocus(focused) {
+    postToParent({ action: 'keyboard', focused: focused === true });
+  }
+
+  function blurTextField() {
+    var active = document.activeElement;
+    if (isTextField(active) && typeof active.blur === 'function') active.blur();
   }
 
   function setVisible(visible) {
@@ -365,6 +397,8 @@
     cancelBootstrap();
     cancelVoiceReference();
     cancelPageReload();
+    // A hidden field must not keep the simulator's keyboard.
+    blurTextField();
     // A hidden panel keeps no live socket open; it reconnects when shown.
     hiddenTimer = setTimeout(function () {
       hiddenTimer = null;
@@ -568,6 +602,11 @@
           else rememberLanding(null);
           pendingLanding = null;
         }
+        if (pendingTakeoff) {
+          if (sameAircraft(pendingTakeoff.aircraft, nextAircraft)) state.takeoff = pendingTakeoff.takeoff;
+          else rememberTakeoff(null);
+          pendingTakeoff = null;
+        }
         state.commands = extractCommands(message);
         renderFlight();
         renderVoice();
@@ -599,6 +638,8 @@
           && (!currentFlightId || currentFlightId === message.flightId)) {
           historyFlightId = typeof message.flightId === 'string' ? message.flightId : '';
           state.landing = message.landing && typeof message.landing === 'object' ? message.landing : null;
+          state.takeoff = TAKEOFF_SCORING_ENABLED && message.takeoff && typeof message.takeoff === 'object' ? message.takeoff : null;
+          rememberTakeoff(state.takeoff);
           awaitingTouchdown = !state.landing;
           state.cautions = Array.isArray(message.cautions) ? message.cautions.slice(0, MAX_CAUTIONS).filter(function (caution) {
             return caution && typeof caution.label === 'string' && isFiniteNumber(caution.at);
@@ -614,6 +655,16 @@
         pendingLanding = null;
         state.landing = message;
         rememberLanding(message);
+        renderFlight();
+        return;
+      case 'takeoff':
+        if (!TAKEOFF_SCORING_ENABLED) return;
+        // Only the scored result is shown; liftoff, settle-back and cancel
+        // packets leave the previous takeoff card untouched.
+        if (message.final !== true) return;
+        pendingTakeoff = null;
+        state.takeoff = message;
+        rememberTakeoff(message);
         renderFlight();
         return;
       case 'ultimateStabilityScore':
@@ -717,11 +768,14 @@
 
   function clearFlightHistory(invalidateLanding) {
     pendingLanding = null;
+    pendingTakeoff = null;
     historyFlightId = '';
     if (invalidateLanding) awaitingTouchdown = true;
     state.landing = null;
+    state.takeoff = null;
     state.cautions = [];
     rememberLanding(null);
+    rememberTakeoff(null);
   }
 
   function flightIdentity(message) {
@@ -915,6 +969,8 @@
   function selectTab(tabId) {
     if (state.activeTab === tabId) return;
     state.activeTab = tabId;
+    // A field on the hidden tab must not keep the simulator's keyboard.
+    blurTextField();
     renderTabs();
     renderActiveTab();
     $('content').scrollTop = 0;
@@ -942,6 +998,7 @@
     panel.appendChild(status);
     renderFlightTime();
 
+    if (TAKEOFF_SCORING_ENABLED) panel.appendChild(renderTakeoffCard());
     panel.appendChild(renderLandingCard());
 
     if (state.cautions.length) {
@@ -1040,6 +1097,71 @@
     }
     if (notes.length) node.appendChild(el('div', 'kv-sub', notes.join(' | ')));
     return node;
+  }
+
+  function renderTakeoffCard() {
+    if (!TAKEOFF_SCORING_ENABLED) return null;
+    var takeoff = state.takeoff;
+    if (!takeoff) {
+      var placeholder = card('Last takeoff');
+      placeholder.appendChild(el('div', 'muted', 'Your runway-use grade, ground roll and runway remaining appear here after you lift off.'));
+      return placeholder;
+    }
+    // This is the live WebSocket packet (or its reconnect snapshot), not the CSV schema.
+    var use = takeoff.runwayUse || {};
+    var roll = takeoff.roll || {};
+    var liftoff = takeoff.liftoff || {};
+    var screen = takeoff.screenHeight || {};
+    var rotation = takeoff.rotation || {};
+    var lateral = takeoff.lateral || {};
+    var node = card('Last takeoff', 'final');
+    var grade = el('div', 'landing-grade');
+    grade.appendChild(el('div', 'landing-grade-value ' + takeoffGradeTone(takeoff.grade), dash(takeoff.grade)));
+    var where = [];
+    if (takeoff.icao) where.push(String(takeoff.icao));
+    if (takeoff.runway) where.push('RWY ' + takeoff.runway);
+    if (takeoff.zone) where.push(String(takeoff.zone));
+    grade.appendChild(el('div', 'landing-grade-tag', where.join(' | ')));
+    node.appendChild(grade);
+
+    var stats = el('div', 'stat-row');
+    var remainingLabel = use.beyondRunwayEnd === true || (isFiniteNumber(use.remainingFt) && use.remainingFt <= 0)
+      ? 'Past runway end'
+      : 'Runway left';
+    var remainingValue = isFiniteNumber(use.remainingFt) ? fmtInt(Math.abs(use.remainingFt), ' ft') : '--';
+    stats.appendChild(stat(remainingValue, remainingLabel));
+    stats.appendChild(stat(fmtInt(roll.distanceFt, ' ft'), 'Ground roll'));
+    stats.appendChild(stat(fmtInt(liftoff.iasKts, ' kt'), 'Liftoff IAS'));
+    var screenValue = screen.reached === true && isFiniteNumber(screen.remainingFt)
+      ? (screen.remainingFt < 0 ? fmtInt(Math.abs(screen.remainingFt), ' ft past') : fmtInt(screen.remainingFt, ' ft left'))
+      : '--';
+    stats.appendChild(stat(screenValue, isFiniteNumber(screen.heightFt) ? 'At ' + Math.round(screen.heightFt) + ' ft' : 'Screen height'));
+    stats.appendChild(stat(isFiniteNumber(rotation.rateDegS) ? rotation.rateDegS.toFixed(1) + ' deg/s' : '--', 'Rotation'));
+    stats.appendChild(stat(fmtInt(takeoff.crosswind, ' kt'), 'Crosswind'));
+    node.appendChild(stats);
+
+    if (use.beyondRunwayEnd === true) node.appendChild(el('div', 'kv-sub danger', 'Lifted off beyond the runway end'));
+    else if (screen.reached === true && isFiniteNumber(screen.remainingFt) && screen.remainingFt < 0) {
+      node.appendChild(el('div', 'kv-sub danger', 'Screen height reached beyond the runway end'));
+    }
+    if (takeoff.runwayExcursion === true) node.appendChild(el('div', 'kv-sub danger', 'Runway excursion'));
+    var notes = [];
+    if (isFiniteNumber(takeoff.hopCount) && takeoff.hopCount > 0) {
+      notes.push('Settled back ' + (takeoff.hopCount === 1 ? 'once' : takeoff.hopCount + ' times'));
+    }
+    if (lateral.verified === true && isFiniteNumber(lateral.liftoffOffsetFt) && Math.abs(lateral.liftoffOffsetFt) >= 1) {
+      notes.push('Centerline ' + Math.round(Math.abs(lateral.liftoffOffsetFt)) + ' ft ' + (lateral.liftoffOffsetSide ? String(lateral.liftoffOffsetSide) : ''));
+    }
+    if (notes.length) node.appendChild(el('div', 'kv-sub', notes.join(' | ')));
+    return node;
+  }
+
+  function takeoffGradeTone(grade) {
+    var value = String(grade || '').toUpperCase();
+    if (value === 'OUTSTANDING' || value === 'GOOD') return 'good';
+    if (value === 'ACCEPTABLE' || value === 'LATE LIFTOFF') return 'warn';
+    if (value === 'DANGEROUS' || value === 'OVERRUN') return 'danger';
+    return '';
   }
 
   function stat(value, label) {
@@ -1544,9 +1666,43 @@
     } catch (error) { /* ignore a corrupt entry */ }
   }
 
+  function rememberTakeoff(takeoff) {
+    if (!TAKEOFF_SCORING_ENABLED) return;
+    try {
+      if (!window.localStorage) return;
+      var aircraft = aircraftIdentity(state.aircraftProfile);
+      if (!takeoff || !aircraft) window.localStorage.removeItem(TAKEOFF_KEY);
+      else window.localStorage.setItem(TAKEOFF_KEY, JSON.stringify({ at: Date.now(), aircraft: aircraft, takeoff: takeoff }));
+    } catch (error) { /* storage unavailable */ }
+  }
+
+  function restoreTakeoff() {
+    if (!TAKEOFF_SCORING_ENABLED) return;
+    try {
+      var raw = window.localStorage ? window.localStorage.getItem(TAKEOFF_KEY) : null;
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      if (!saved || !saved.takeoff || typeof saved.takeoff !== 'object'
+        || !saved.aircraft || typeof saved.aircraft.profileKey !== 'string' || typeof saved.aircraft.title !== 'string'
+        || (!saved.aircraft.profileKey && !saved.aircraft.title)
+        || !isFiniteNumber(saved.at) || saved.at > Date.now() || Date.now() - saved.at > LANDING_TTL_MS) {
+        rememberTakeoff(null);
+        return;
+      }
+      var aircraft = aircraftIdentity(state.aircraftProfile);
+      if (aircraft) {
+        if (sameAircraft(saved.aircraft, aircraft)) state.takeoff = saved.takeoff;
+        else rememberTakeoff(null);
+      } else {
+        pendingTakeoff = saved;
+      }
+    } catch (error) { /* ignore a corrupt entry */ }
+  }
+
   function boot() {
     applyPrefs();
     restoreLanding();
+    restoreTakeoff();
     state.packageVersion = queryParam('packageVersion').slice(0, 24);
     state.activeTab = prefs.defaultTab;
 
@@ -1566,9 +1722,18 @@
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape' && state.settingsOpen) closeSettings();
     });
+    // Capture-phase focus/blur reach the document in Coherent GT, unlike the
+    // non-bubbling target events; the loader forwards them to the simulator.
+    document.addEventListener('focus', function (event) {
+      if (isTextField(event.target)) reportKeyboardFocus(true);
+    }, true);
+    document.addEventListener('blur', function (event) {
+      if (isTextField(event.target)) reportKeyboardFocus(false);
+    }, true);
     window.addEventListener('message', onParentMessage);
     window.addEventListener('beforeunload', function () {
       unloading = true;
+      reportKeyboardFocus(false);
       cancelReconnect();
       cancelBootstrap();
       cancelVoiceReference();

@@ -106,6 +106,9 @@ export function eventNames(): string[] {
 //   landing:early       - early touchdown payload for immediate effects
 //   landing:final       - { vs_fpm, grade, gforce, runwayExcursion, ... }
 //
+// Takeoff events:
+//   takeoff:final       - { takeoff_runway_use_grade, takeoff_roll_distance_ft, ... }
+//
 // Phase events:
 //   phase:changed       - { from, to, timestamp }
 //   phase:goAround      - { altitude, aircraft }

@@ -34,6 +34,7 @@ export const MARKER_LABELS = Object.freeze({
   rollout_start: 'Rollout',
   rollout_end: 'Stopped',
   go_around: 'Possible Go-Around',
+  takeoff: 'Takeoff',
   ap_disconnect: 'AP Disconnect',
   at_disconnect: 'A/T Disconnect',
 });

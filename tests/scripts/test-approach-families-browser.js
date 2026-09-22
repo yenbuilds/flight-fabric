@@ -82,9 +82,9 @@ async function main() {
       capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] },
     });
   }
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')));
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')));
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUT, 'vite-cache'),
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUT, 'vite-cache'),
     optimizeDeps: { noDiscovery: true }, plugins: [vue(), { name: 'atc-fixture', configureServer(vite) {
       vite.middlewares.use('/capabilities', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(catalogues)); });
       vite.middlewares.use('/fixture', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/frontend-dist/tailwind.css"><style>body{margin:0;padding:16px;font-family:system-ui;background:rgb(var(--background));color:rgb(var(--foreground))}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/approach-families-browser.js"></script></body></html>'); });

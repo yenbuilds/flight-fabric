@@ -400,6 +400,14 @@ export function createTimelineMapController({
   let lastLayerRenderKey = '';
   let lastFitBoundsKey = '';
   let currentFitBoundsDataKey = '';
+  // The map follows the replay cursor until the user drags it away. A user
+  // zoom or drag also means the view is theirs: later container resizes
+  // (the event details opening or closing, a window resize) keep it instead
+  // of re-fitting the whole flight.
+  let autoFollow = true;
+  let userAdjustedView = false;
+  let suppressViewEvents = false;
+  let currentFlightKey = '';
   let currentFitPositioned = [];
   let timelineMapInitErrorMessage = '';
   let timelineLongitudeReference = null;
@@ -415,22 +423,56 @@ export function createTimelineMapController({
       : String(error || 'unknown error');
   }
 
+  function syncFollowUiState() {
+    timelineStore.setMapFollowStatus?.(autoFollow ? 'following' : 'paused');
+  }
+
+  // Programmatic view changes (fits, cursor pans) fire the same Leaflet
+  // events as user input; ignore them while they run.
+  function withProgrammaticView(apply) {
+    suppressViewEvents = true;
+    try {
+      apply();
+    } finally {
+      suppressViewEvents = false;
+    }
+  }
+
+  function handleUserDrag() {
+    if (suppressViewEvents) return;
+    userAdjustedView = true;
+    if (!autoFollow) return;
+    autoFollow = false;
+    syncFollowUiState();
+  }
+
+  function handleUserZoom() {
+    if (suppressViewEvents) return;
+    userAdjustedView = true;
+  }
+
+  function invalidateTimelineMapSize() {
+    if (!timelineMap) return;
+    // Once the user owns the view a resize keeps its centre; before that the
+    // flight is re-fitted so the first real layout frames it properly.
+    withProgrammaticView(() => {
+      timelineMap.invalidateSize({ pan: userAdjustedView, animate: false });
+    });
+    refitTimelineMapForCurrentViewport();
+  }
+
   function invalidateTimelineMapSizeStaggered() {
     if (!timelineMap) return;
     if (timelineMapResizeRaf != null) windowRef.cancelAnimationFrame(timelineMapResizeRaf);
     timelineMapResizeRaf = windowRef.requestAnimationFrame(() => {
       timelineMapResizeRaf = null;
-      if (!timelineMap) return;
-      timelineMap.invalidateSize({ pan: false, animate: false });
-      refitTimelineMapForCurrentViewport();
+      invalidateTimelineMapSize();
     });
 
     if (timelineMapResizeTimer != null) windowRef.clearTimeout(timelineMapResizeTimer);
     timelineMapResizeTimer = windowRef.setTimeout(() => {
       timelineMapResizeTimer = null;
-      if (!timelineMap) return;
-      timelineMap.invalidateSize({ pan: false, animate: false });
-      refitTimelineMapForCurrentViewport();
+      invalidateTimelineMapSize();
     }, 140);
   }
 
@@ -464,6 +506,7 @@ export function createTimelineMapController({
 
   function fitTimelineMapBounds(timelineTrackPointsForBounds, positioned, fitBoundsKey) {
     if (!timelineMap || fitBoundsKey === lastFitBoundsKey) return;
+    if (userAdjustedView) return;
     const fitLatLngs = [];
     if (timelineTrackPointsForBounds.length > 0) {
       const boundsTrackPoints = downsampleTimelineMapBoundsPoints(timelineTrackPointsForBounds);
@@ -477,8 +520,37 @@ export function createTimelineMapController({
       unwrapLongitudeNear(item.pos.lon, timelineLongitudeReference),
     ]));
     const bounds = windowRef.L.latLngBounds(fitLatLngs);
-    timelineMap.fitBounds(bounds.pad(0.15), { animate: false });
+    withProgrammaticView(() => {
+      timelineMap.fitBounds(bounds.pad(0.15), { animate: false });
+    });
     lastFitBoundsKey = fitBoundsKey;
+  }
+
+  function panToCursor(pos) {
+    if (!timelineMap || !pos) return;
+    // A view placed on the aircraft is as deliberate as a user pan: a later
+    // container resize must keep it rather than re-fit the whole flight.
+    userAdjustedView = true;
+    const displayLon = unwrapLongitudeNear(pos.lon, timelineLongitudeReference);
+    withProgrammaticView(() => {
+      if (timelineMap.getZoom() < 10) {
+        timelineMap.setView([pos.lat, displayLon], 10, { animate: false });
+      } else {
+        timelineMap.panTo([pos.lat, displayLon], { animate: false });
+      }
+    });
+  }
+
+  function resumeFollow() {
+    if (autoFollow) return;
+    autoFollow = true;
+    syncFollowUiState();
+  }
+
+  function resumeFollowAndCenter() {
+    autoFollow = true;
+    syncFollowUiState();
+    if (lastCursorState?.pos) panToCursor(lastCursorState.pos);
   }
 
   function ensureTimelineMap() {
@@ -555,6 +627,9 @@ export function createTimelineMapController({
     }
 
     timelineMap.on?.('zoomend', updateTimelinePathDetail);
+    timelineMap.on?.('dragstart', handleUserDrag);
+    timelineMap.on?.('zoomstart', handleUserZoom);
+    syncFollowUiState();
     invalidateTimelineMapSizeStaggered();
 
     if (!timelineMapResizeObserver && typeof windowRef.ResizeObserver !== 'undefined') {
@@ -654,13 +729,8 @@ export function createTimelineMapController({
       glyph.style.transform = `rotate(${rotationDeg}deg)`;
     }
 
-    if (!shouldPan) return;
-
-    if (timelineMap.getZoom() < 10) {
-      timelineMap.setView([pos.lat, displayLon], 10, { animate: false });
-    } else {
-      timelineMap.panTo([pos.lat, displayLon], { animate: false });
-    }
+    if (!shouldPan || !autoFollow) return;
+    panToCursor(pos);
   }
 
   function getTimelineTrackRenderPoints(limit) {
@@ -698,6 +768,7 @@ export function createTimelineMapController({
     const rollDeg = Number(nearestTrackPoint?.rollDeg ?? attitude.rollDeg);
     const iasKts = Number(nearestTrackPoint?.iasKts ?? event?.ias_kts);
     const altFt = Number(nearestTrackPoint?.altFt ?? event?.alt_msl_ft ?? event?.alt_ft);
+    resumeFollow();
     setCursorPosition(pos, {
       headingDeg: Number.isFinite(headingDeg) ? headingDeg : null,
       pitchDeg: Number.isFinite(pitchDeg) ? pitchDeg : null,
@@ -718,6 +789,15 @@ export function createTimelineMapController({
 
   function render(timeline) {
     if (!mapEl) return timelineTrackPoints;
+
+    // A different recording is a fresh view: fit it and follow its cursor.
+    const flightKey = `${timeline?.flightId || timeline?.filePath || ''}`;
+    if (flightKey !== currentFlightKey) {
+      currentFlightKey = flightKey;
+      userAdjustedView = false;
+      autoFollow = true;
+      syncFollowUiState();
+    }
 
     if (typeof windowRef.L === 'undefined') {
       setMapEmptyState({
@@ -860,6 +940,9 @@ export function createTimelineMapController({
     timelineTrackRenderLimit = null;
     timelineLongitudeReference = null;
     lastFitBoundsKey = '';
+    currentFlightKey = '';
+    userAdjustedView = false;
+    autoFollow = true;
     currentFitBoundsDataKey = '';
     currentFitPositioned = [];
     resetTimelineMapDataLayers();
@@ -901,6 +984,9 @@ export function createTimelineMapController({
     invalidateSizeStaggered: invalidateTimelineMapSizeStaggered,
     render,
     reset,
+    resumeFollow,
+    resumeFollowAndCenter,
     setCursorPosition,
+    syncFollowUiState,
   };
 }

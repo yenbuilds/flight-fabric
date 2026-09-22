@@ -49,6 +49,7 @@ export const MSG = {
   SPOILERS: 'spoilers',
   ENGINES: 'engines',
   LANDING: 'landing',
+  TAKEOFF: 'takeoff',
   TOOLBAR_FLIGHT_HISTORY: 'toolbarFlightHistory',
   FLIGHT_SUMMARY: 'flightSummary',
   FLIGHT_VIOLATION: 'flightViolation',

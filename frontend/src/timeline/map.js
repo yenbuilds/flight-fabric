@@ -69,6 +69,7 @@ export function getTimelineEventMarkerVisual(event) {
     const markerType = String(event?.markerType || '').toLowerCase();
     if (markerType.includes('touchdown')) return { glyph: 'TD', bg: '#1e3a8a', border: '#60a5fa', fg: '#dbeafe', size: 9, shape: 'pill' };
     if (markerType.includes('go_around')) return { glyph: 'GA', bg: '#1e3a8a', border: '#60a5fa', fg: '#dbeafe', size: 9, shape: 'pill' };
+    if (markerType.includes('takeoff')) return { glyph: 'TO', bg: '#14532d', border: '#4ade80', fg: '#f0fdf4', size: 9, shape: 'pill' };
     return { glyph: 'M', bg: '#1e3a8a', border: '#60a5fa', fg: '#dbeafe', size: 10, shape: 'round' };
   }
 

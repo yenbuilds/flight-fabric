@@ -137,6 +137,7 @@ function defaultOnGroundForEvent(eventType: string): boolean | null {
   const normalized = String(eventType || '').toUpperCase();
   if (normalized === 'LANDING') return true;
   if (normalized === 'GO_AROUND') return false;
+  if (normalized === 'TAKEOFF') return false;
   return null;
 }
 

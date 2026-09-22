@@ -138,7 +138,31 @@ export function buildTimelineEventRowState(event, index, startMs, {
     if (confidenceBadge) badges.push(confidenceBadge);
   } else if (event.type === 'marker') {
     title = markerLabels[event.markerType] || event.markerType || 'Marker';
-    if (event.markerType === 'go_around') {
+    if (event.markerType === 'takeoff') {
+      const context = event.context || {};
+      const runway = context.icao ? `${context.icao}${context.runway ? ` ${context.runway}` : ''}` : '';
+      if (runway) title = `Takeoff from ${runway}`;
+      const parts = [];
+      if (context.ias_kts != null) parts.push(`Lifted off at ${Math.round(context.ias_kts)} kts`);
+      if (context.roll_distance_ft != null) parts.push(`${Math.round(context.roll_distance_ft).toLocaleString()} ft roll`);
+      if (context.runway_remaining_ft != null) {
+        parts.push(context.runway_remaining_ft <= 0
+          ? `${Math.abs(Math.round(context.runway_remaining_ft)).toLocaleString()} ft beyond runway end`
+          : `${Math.round(context.runway_remaining_ft).toLocaleString()} ft remaining`);
+      }
+      if (context.hop_count > 0) parts.push(context.hop_count === 1 ? 'Settled back once' : `Settled back ${context.hop_count}x`);
+      subtitle = parts.join(' - ');
+      if (context.runway_use_grade) {
+        const grade = String(context.runway_use_grade);
+        // Only the runway-end lines are failures; Late Liftoff and Acceptable
+        // are the app's cautions, shown as such everywhere else.
+        const negative = grade === 'Overrun' || grade === 'Dangerous';
+        const warning = grade === 'Late Liftoff' || grade === 'Acceptable';
+        const positive = grade === 'Outstanding' || grade === 'Good';
+        badges.push(createBadge(`RWY ${grade.toUpperCase()}`, negative ? 'negative' : warning ? 'warning' : positive ? 'positive' : ''));
+      }
+      if (context.runway_excursion) badges.push(createBadge('EXCURSION', 'negative'));
+    } else if (event.markerType === 'go_around') {
       const parts = [];
       const altitudeFt = Number(event.context?.altitude_ft ?? event.context?.ra);
       if (Number.isFinite(altitudeFt)) parts.push(`Initiated at ${Math.round(altitudeFt)}ft`);

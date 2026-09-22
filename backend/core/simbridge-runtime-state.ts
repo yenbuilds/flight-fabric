@@ -1,9 +1,9 @@
 type AnyRecord = Record<string, any>;
 const { projectServerMessageForClient } = require('./server-message-projection') as typeof import('./server-message-projection');
-const { sanitizeToolbarLanding, sanitizeToolbarCaution, sanitizeToolbarFlightHistory, TOOLBAR_HISTORY_MAX_CAUTIONS } = require('./toolbar-flight-history') as typeof import('./toolbar-flight-history');
+const { sanitizeToolbarLanding, sanitizeToolbarTakeoff, sanitizeToolbarCaution, sanitizeToolbarFlightHistory, TOOLBAR_HISTORY_MAX_CAUTIONS } = require('./toolbar-flight-history') as typeof import('./toolbar-flight-history');
 const timeSource = require('./time-source') as typeof import('./time-source');
 
-const TOOLBAR_HISTORY_TYPES = new Set(['aircraftChanged', 'aircraftProfile', 'flightTime', 'landing', 'ultimateStabilityScore', 'flightViolation']);
+const TOOLBAR_HISTORY_TYPES = new Set(['aircraftChanged', 'aircraftProfile', 'flightTime', 'landing', 'takeoff', 'ultimateStabilityScore', 'flightViolation']);
 
 function getToolbarHistory(runtimeState: AnyRecord): AnyRecord {
   getReplayState(runtimeState);
@@ -15,7 +15,7 @@ function rememberToolbarHistory(runtimeState: AnyRecord, message: AnyRecord) {
   if (!TOOLBAR_HISTORY_TYPES.has(message.type)) return;
   const history = getToolbarHistory(runtimeState);
   const clear = (invalidateLanding = false) => {
-    history.landing = null; history.cautions = []; history.flightId = '';
+    history.landing = null; history.takeoff = null; history.cautions = []; history.flightId = '';
     if (invalidateLanding) history.awaitingTouchdown = true;
   };
   if (message.type === 'aircraftChanged') {
@@ -41,6 +41,12 @@ function rememberToolbarHistory(runtimeState: AnyRecord, message: AnyRecord) {
       if (message.final === true && history.awaitingTouchdown) return;
       history.awaitingTouchdown = false;
       history.landing = sanitizeToolbarLanding(message);
+    }
+    else if (message.type === 'takeoff') {
+      // Only the scored result is history; liftoff, settle-back and cancel
+      // packets are live state the toolbar does not replay. The takeoff runner
+      // resets on aircraft change, so a scored takeoff cannot arrive late.
+      if (message.final === true) history.takeoff = sanitizeToolbarTakeoff(message);
     }
     else if (message.type === 'ultimateStabilityScore' && history.landing) {
       history.landing = sanitizeToolbarLanding({ ...history.landing, ultimateStability: { score: message.score, verdict: message.verdict } });

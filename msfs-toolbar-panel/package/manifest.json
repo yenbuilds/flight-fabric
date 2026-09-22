@@ -4,7 +4,7 @@
   "title": "FlightFabric Toolbar",
   "manufacturer": "FlightFabric",
   "creator": "FlightFabric",
-  "package_version": "0.10.0",
+  "package_version": "0.10.1",
   "minimum_game_version": "1.0.0",
   "package_order_hint": "CUSTOM_INSTRUMENT",
   "release_notes": {
@@ -13,5 +13,5 @@
       "OlderHistory": ""
     }
   },
-  "total_package_size": "00000000000000024689"
+  "total_package_size": "00000000000000026959"
 }

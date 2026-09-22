@@ -150,8 +150,10 @@
 .logbook-review-body #vue-timeline-detail-root { display: none; }
 .logbook-page [data-review-view='events'] #vue-timeline-map-shell-root,
 .logbook-page [data-review-view='map'] #timeline-card { display: none; }
+/* Event details never cover the replay map: on wide windows they sit beside
+   it (the map stays centred on the event), on phones they rise as a sheet
+   that leaves the map visible above it. */
 .logbook-page [data-detail-open='true'] #vue-timeline-detail-root { display: block; }
-.logbook-page [data-detail-open='true'] #vue-timeline-map-shell-root { display: none; }
 .logbook-page .timeline-detail-backdrop.is-embedded { position: relative; inset: auto; display: block; height: 100%; padding: 0; background: none; }
 .logbook-page .is-embedded .timeline-detail-drawer { width: 100%; height: 100%; max-height: 100%; border: 0; border-radius: 0; box-shadow: none; background: rgb(var(--panel)); }
 .logbook-page .is-embedded .timeline-detail-drawer-content { flex: 1; }
@@ -163,19 +165,26 @@
 .logbook-page.is-restricted .logbook-flight-filters,
 .logbook-page.is-restricted #timeline-page-refresh-btn { display: none; }
 
-/* Leave room for navigation and the flight list before opening a third pane. */
-@media (min-width: 1720px) {
-  .logbook-review-body { grid-template-columns: minmax(16rem, 0.75fr) minmax(0, 1.25fr); }
+/* Events and the replay map stay side by side on every desktop width: a
+   review with one of them hidden reads as if the other does not exist. The
+   events column gives way first; the Events/Replay map switch is for phones. */
+@media (min-width: 1101px) {
+  .logbook-review-body { grid-template-columns: minmax(15rem, 0.7fr) minmax(0, 1.3fr); }
+  .logbook-page .logbook-review-views { display: none; }
   .logbook-review-body > #timeline-card { grid-column: 1; border-right: 1px solid var(--logbook-pane-border); }
   .logbook-review-body > #vue-timeline-map-shell-root,
   .logbook-review-body > #vue-timeline-detail-root { grid-column: 2; }
   .logbook-page [data-review-view='events'] #vue-timeline-map-shell-root { display: flex; }
   .logbook-page [data-review-view='map'] #timeline-card { display: flex; }
-  .logbook-page [data-detail-open='true'] #vue-timeline-map-shell-root { display: none; }
+  /* Details take the events column; the map keeps its column and its view. */
+  .logbook-page [data-detail-open='true'] #timeline-card { display: none; }
+  .logbook-page [data-detail-open='true'] .logbook-review-body > #vue-timeline-detail-root { grid-column: 1; border-right: 1px solid var(--logbook-pane-border); }
+  .logbook-page [data-detail-open='true'] #vue-timeline-map-shell-root { display: flex; grid-column: 2; }
+  .logbook-page .logbook-review-toolbar { justify-content: flex-end; }
 }
 
-@media (min-width: 1101px) and (max-width: 1719px) {
-  .logbook-page [data-detail-open='true'] #timeline-card { display: none; }
+@media (min-width: 1720px) {
+  .logbook-review-body { grid-template-columns: minmax(16rem, 0.75fr) minmax(0, 1.25fr); }
 }
 
 @media (max-width: 1100px) {
@@ -198,7 +207,10 @@
   .logbook-page .timeline-mobile-viewer-header > div:first-child { flex: 1 1 18rem; }
   .logbook-page .timeline-mobile-viewer-header > div:last-child { margin-left: auto; }
   .logbook-page #timeline-mobile-viewer-flight-times { gap: 0.15rem 0.5rem; }
-  .logbook-page .timeline-detail-backdrop:not(.is-embedded) { position: fixed; padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem max(0.75rem, env(safe-area-inset-bottom)); z-index: 230; }
+  /* A bottom sheet: the map (or list) stays visible above it, the sheet
+     itself stays opaque so its text remains readable. */
+  .logbook-page .timeline-detail-backdrop:not(.is-embedded) { position: fixed; place-items: end center; padding: max(0.75rem, env(safe-area-inset-top)) 0 max(0, env(safe-area-inset-bottom)); z-index: 230; background: rgba(0, 0, 0, 0.28); }
+  .logbook-page .timeline-detail-backdrop:not(.is-embedded) .timeline-detail-drawer { width: 100%; max-height: min(60dvh, 100%); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4); }
   .logbook-review-body #timeline-events { min-height: 0; }
   .logbook-review-body #timeline-map-card > div:first-child { padding: 0.65rem 0.75rem; }
   .logbook-review-body .timeline-map-wrap { min-height: 8rem; }

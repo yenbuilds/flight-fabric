@@ -32,7 +32,6 @@ const MAP_FILTER_DEFAULTS = Object.freeze({
   scores: false,
 });
 const MAP_FILTER_STORAGE_KEY = 'flightFabric.timelineMapFilters.v1';
-const MAP_VIEW_MODE_STORAGE_KEY = 'flightFabric.timelineMapViewMode.v1';
 const MAP_3D_OPTIONS_STORAGE_KEY = 'flightFabric.timelineMap3d.v1';
 const INSPECTOR_FILTER_STORAGE_KEY = 'flightFabric.timelineEventFilters.v1';
 const PFD_COLLAPSED_KEY = 'ff-pfd-overlay-collapsed';
@@ -99,10 +98,6 @@ function loadMapFilters() {
 
 function saveMapFilters(mapFilters) {
   writeStorageJson(MAP_FILTER_STORAGE_KEY, mapFilters);
-}
-
-function loadMapViewMode() {
-  return normalizeMapViewMode(readStorageValue(MAP_VIEW_MODE_STORAGE_KEY));
 }
 
 function loadMap3dOptions() {
@@ -387,8 +382,12 @@ export const useTimelineStore = defineStore('timeline', {
     ...DEFAULT_PFD_STATE,
     mapFilters: loadMapFilters(),
     mapFilterMenuOpen: false,
-    mapViewMode: loadMapViewMode(),
+    // Start each session in 2D, even if an older version saved a 3D preference.
+    mapViewMode: normalizeMapViewMode(),
     map3dOptions: loadMap3dOptions(),
+    // Replay maps follow the aircraft until the user pans away; the Center
+    // button then reads Resume Follow, as on the live map.
+    mapFollowStatus: 'following',
     scene3dStatus: '',
     scene3dLegend: null,
     pfdCollapsed: loadPfdCollapsed(),
@@ -404,6 +403,20 @@ export const useTimelineStore = defineStore('timeline', {
   getters: {
     is3dMapView(state) {
       return state.mapViewMode === '3d';
+    },
+
+    mapFollowPaused(state) {
+      return state.mapFollowStatus === 'paused';
+    },
+
+    mapFollowButtonLabel(state) {
+      return state.mapFollowStatus === 'paused' ? 'Resume Follow' : 'Center';
+    },
+
+    mapFollowButtonTitle(state) {
+      return state.mapFollowStatus === 'paused'
+        ? 'Return to the aircraft and follow it again while you scrub'
+        : 'Center the map on the aircraft';
     },
 
     matchingFlights(state) {
@@ -1763,7 +1776,6 @@ export const useTimelineStore = defineStore('timeline', {
       const next = normalizeMapViewMode(mode, this.mapViewMode);
       if (next === this.mapViewMode) return;
       this.mapViewMode = next;
-      writeStorageValue(MAP_VIEW_MODE_STORAGE_KEY, next);
     },
 
     setMap3dOption(key, value) {
@@ -1788,6 +1800,20 @@ export const useTimelineStore = defineStore('timeline', {
 
     bindMap3dActions({ onFitView = null } = {}) {
       this._onMap3dFitView = typeof onFitView === 'function' ? onFitView : null;
+    },
+
+    setMapFollowStatus(kind) {
+      this.mapFollowStatus = kind === 'paused' ? 'paused' : 'following';
+    },
+
+    requestMapCenter() {
+      if (typeof this._onMapCenter !== 'function') return false;
+      this._onMapCenter();
+      return true;
+    },
+
+    bindMapFollowActions({ onCenter = null } = {}) {
+      this._onMapCenter = typeof onCenter === 'function' ? onCenter : null;
     },
 
     setPfdCollapsed(value) {

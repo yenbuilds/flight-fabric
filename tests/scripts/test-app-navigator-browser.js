@@ -120,9 +120,9 @@ async function browser() {
 
 async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')).href);
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUTPUT, 'vite-cache'),
     optimizeDeps: { entries: ['tests/fixtures/app-navigator-browser.js'] },
     plugins: [vue(), { name: 'navigator-fixture', configureServer(vite) {
       vite.middlewares.use('/navigator-test', (_request, response) => {

@@ -50,6 +50,8 @@ export type {
   // Landing
   TouchdownDistance,
   LandingMessage,
+  // Takeoff
+  TakeoffMessage,
   // Context
   RunwayContextMessage,
   SafetyAccident,

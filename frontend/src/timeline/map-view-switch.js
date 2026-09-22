@@ -43,6 +43,16 @@ export function createTimelineMapViewSwitch({
       controller?.invalidateSizeStaggered?.();
     }
     replayState(controller);
+    // Each view keeps its own follow state; the button reflects the one shown.
+    controller?.syncFollowUiState?.();
+  }
+
+  function resumeFollow() {
+    activeController()?.resumeFollow?.();
+  }
+
+  function resumeFollowAndCenter() {
+    activeController()?.resumeFollowAndCenter?.();
   }
 
   function render(timeline) {
@@ -108,6 +118,8 @@ export function createTimelineMapViewSwitch({
     applyMode,
     destroy,
     focusEvent,
+    resumeFollow,
+    resumeFollowAndCenter,
     getActiveMode: () => appliedMode,
     hasMap,
     invalidateSizeStaggered,

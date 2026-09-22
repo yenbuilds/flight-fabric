@@ -726,7 +726,7 @@ test('support asks use one untagged destination, one rule module and one prompt 
       const websitePath = path.relative(ROOT_DIR, file).replace(/\\/g, '/');
       if (websitePath === 'site/flightfabric/support/index.html') continue;
       let html = fs.readFileSync(file, 'utf8');
-      if (['site/flightfabric/index.html', 'site/flightfabric/msfs-2024-voice-control/index.html'].includes(websitePath)) {
+      if (['site/flightfabric/index.html', 'site/flightfabric/msfs-2024-voice-control/index.html', 'site/flightfabric/msfs-2024-toolbar-panel/index.html'].includes(websitePath)) {
         // The two header links go directly to the configured profile.
         // Release-tooling checks their placement and destination.
         html = html.replace(`class="header-support-link" href="${destination}"`, 'class="header-support-link"');

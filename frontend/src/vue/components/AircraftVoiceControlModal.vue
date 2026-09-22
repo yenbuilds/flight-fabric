@@ -103,7 +103,7 @@ onMounted(() => { mounted.value = true; });
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-2">
-            <span class="rounded-full border border-white/10 bg-black/15 px-3 py-1.5 font-mono text-[11px] text-gray-300">
+            <span v-if="voice.runtime.shortcut" class="rounded-full border border-white/10 bg-black/15 px-3 py-1.5 font-mono text-[11px] text-gray-300">
               {{ voice.runtime.shortcut }}
             </span>
             <button

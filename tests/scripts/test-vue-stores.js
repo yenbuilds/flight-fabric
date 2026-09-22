@@ -80,6 +80,7 @@ async function main() {
   const { useFeedbackStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'feedback.js'));
   const { useDebugStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'debug.js'));
   const { useLandingStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'landing.js'));
+  const { useTakeoffStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'takeoff.js'));
   const { useAircraftControlsStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-controls.js'));
   const { useAircraftSpecificStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-specific.js'));
   const { useLvarInspectorStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'lvar-inspector.js'));
@@ -3375,6 +3376,76 @@ async function main() {
   });
 
   console.log('\n--- landing store ---\n');
+  await test('takeoff store tracks pending liftoff, scored card and session reset', () => {
+    resetStoreTestContext();
+    const takeoff = useTakeoffStore();
+
+    assert.equal(takeoff.cardVisible, false, 'takeoff card should start hidden');
+    assert.equal(takeoff.waitingVisible, true, 'takeoff waiting state should start visible');
+    assert.equal(takeoff.preview.available, false, 'overview preview starts unavailable');
+
+    assert.equal(takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, iasKts: 141 }), false, 'the liftoff packet does not show a card');
+    assert.equal(takeoff.pending, true, 'the liftoff packet marks the climb-out as pending');
+    assert.equal(takeoff.cardVisible, false, 'no card until scored');
+    assert.match(takeoff.waitingDescription, /Scoring the climb-out/, 'waiting copy explains the pending state');
+    assert.match(takeoff.preview.status, /Scoring the climb-out/, 'overview preview explains the pending state');
+
+    takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, settled: true, hopCount: 1 });
+    assert.equal(takeoff.pending, true, 'a settle-back keeps the takeoff pending');
+    assert.match(takeoff.waitingDescription, /Settled back onto the runway/, 'waiting copy explains the settle-back');
+    assert.match(takeoff.preview.status, /Settled back onto the runway/, 'overview preview explains the settle-back');
+
+    takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, cancelled: true, reason: 'aircraft_changed' });
+    assert.equal(takeoff.pending, false, 'a cancelled takeoff clears the pending state');
+    assert.equal(takeoff.pendingSettled, false, 'a cancelled takeoff clears the settle-back state');
+    assert.match(takeoff.waitingDescription, /No scored takeoff/, 'waiting copy returns to idle after a cancel');
+
+    takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, iasKts: 141 });
+    const applied = takeoff.handleTakeoffMessage({
+      type: 'takeoff',
+      final: true,
+      timestampMs: 1_700_000_000_000,
+      icao: 'YSCB',
+      runway: '35',
+      grade: 'Good',
+      score: 95,
+      zone: 'Comfortable margin',
+      assessment: 'normal',
+      runwayUse: { grade: 'Good', score: 95, zone: 'Comfortable margin', liftoffDistanceFt: 4000, remainingFt: 2000, usedPct: 66.7, runwayLengthFt: 6000, beyondRunwayEnd: false },
+      roll: { distanceFt: 3800, durationS: 30, startSource: 'standstill' },
+      liftoff: { iasKts: 140, gsKts: 138, pitchDeg: 8.5, flapsNotch: 1 },
+      screenHeight: { heightFt: 35, reached: true, elapsedS: 4, remainingFt: 1000 },
+      rotation: { rateDegS: 2.5, maxPitchDeg: 12 },
+      lateral: { liftoffOffsetFt: 4, liftoffOffsetSide: 'center', score: 100, grade: 'Perfect', verified: true },
+      heading: { liftoffDeviationDeg: 0.4, liftoffDeviationSide: 'center' },
+      flags: [],
+      crosswind: 3,
+      windSpeed: 5,
+      windDirectionTrueDeg: 40,
+    });
+    assert.equal(applied, true, 'the scored packet applies the card');
+    assert.equal(takeoff.pending, false, 'scoring clears the pending state');
+    assert.equal(takeoff.cardVisible, true, 'card visibility is store-backed');
+    assert.equal(takeoff.waitingVisible, false, 'waiting state inverts with the card');
+    assert.equal(takeoff.takeoffCard.gradeText, 'GOOD');
+    assert.equal(takeoff.takeoffCard.gradeAnimationNonce, 1, 'the grade animates once per scored takeoff');
+    assert.equal(takeoff.takeoffCard.runwayUse.remainingText, '2,000 ft');
+    assert.equal(takeoff.takeoffGradeStyle.color, '#10b981');
+    assert.equal(takeoff.preview.available, true);
+    assert.equal(takeoff.preview.runway, 'YSCB 35');
+    assert.equal(takeoff.preview.status, 'Latest takeoff report is ready.');
+
+    assert.equal(takeoff.handleTakeoffMessage({ type: 'takeoff' }), false, 'a packet without a final flag is ignored');
+    assert.equal(takeoff.cardVisible, true, 'ignored packets do not hide the card');
+
+    takeoff.resetTakeoffCard();
+    assert.equal(takeoff.cardVisible, false, 'session reset hides the card');
+    assert.equal(takeoff.waitingVisible, true, 'session reset restores the waiting state');
+    assert.equal(takeoff.pending, false, 'session reset clears pending');
+    assert.equal(takeoff.takeoffCard.gradeText, '--', 'session reset clears the card');
+    assert.equal(takeoff.lastMessage, null, 'session reset drops the last message');
+  });
+
   await test('landing store tracks landing card and waiting-state visibility', () => {
     resetStoreTestContext();
     const landing = useLandingStore();
@@ -4067,6 +4138,35 @@ async function main() {
   });
 
   console.log('\n--- logbook store ---\n');
+  await test('logbook store carries scored takeoffs beside the landing entries without disturbing them', () => {
+    resetStoreTestContext();
+    const logbook = useLogbookStore();
+    assert.deepEqual(logbook.takeoffs, [], 'takeoffs start empty');
+    assert.equal(logbook.takeoffStats.total, 0);
+
+    logbook.ingestMessage({
+      type: 'logbook',
+      entries: [{ id: 'L1', grade: 'PERFECT', vsFpm: -92 }],
+      stats: { total: 1, grades: { PERFECT: 1 } },
+      takeoffs: [{ id: 'T1', runwayUseGrade: 'Good', rollDistanceFt: 3812, runwayRemainingFt: 1976 }],
+      takeoffStats: { total: 1, grades: { Good: 1 }, cautionCount: 0, avgRollDistanceFt: 3812, airports: 1, aircraft: 1 },
+    });
+    assert.equal(logbook.entries.length, 1, 'landing entries are untouched by takeoffs');
+    assert.equal(logbook.stats.total, 1);
+    assert.equal(logbook.takeoffs.length, 1);
+    assert.equal(logbook.takeoffs[0].runwayUseGrade, 'Good');
+    assert.equal(logbook.takeoffStats.avgRollDistanceFt, 3812);
+    assert.equal(logbook.takeoffStats.minRunwayRemainingFt, null, 'missing stat fields fall back to the empty shape');
+
+    logbook.ingestMessage({ type: 'logbook', entries: [{ id: 'L2', grade: 'GOOD', vsFpm: -200 }], stats: { total: 1 } });
+    assert.equal(logbook.entries.length, 1, 'an older backend response still hydrates landings');
+    assert.deepEqual(logbook.takeoffs, [], 'a response without takeoffs clears them rather than showing stale rows');
+    assert.equal(logbook.takeoffStats.total, 0);
+
+    logbook.ingestMessage({ type: 'logbook', entries: [], stats: { total: 0 }, takeoffs: [], takeoffStats: null });
+    assert.equal(logbook.takeoffStats.total, 0, 'a null stats block (log unreadable) degrades to empty');
+  });
+
   await test('logbook store hydrates backend entries and delegates refresh through a runtime-bound action', () => {
     resetStoreTestContext();
     const logbook = useLogbookStore();
@@ -4496,14 +4596,14 @@ async function main() {
   });
 
   console.log('\n--- live-map store ---\n');
-  await test('live-map store persists the 2D/3D view mode and normalized 3D options', () => {
+  await test('live-map store starts each session in 2D and persists normalized 3D options', () => {
     const context = resetStoreTestContext();
     const store = useLiveMapStore();
     assert.equal(store.viewMode, '2d', 'view mode should default to 2D');
     assert.equal(store.is3dView, false);
     store.setViewMode('3d');
     assert.equal(store.is3dView, true);
-    assert.equal(context.storage.getItem('ff.liveMap.viewMode.v1'), '3d', 'view mode should persist');
+    assert.equal(context.storage.getItem('ff.liveMap.viewMode.v1'), null, '3D should be a session-only choice');
     store.setViewMode('hologram');
     assert.equal(store.viewMode, '3d', 'unknown modes should be ignored');
 
@@ -4535,9 +4635,11 @@ async function main() {
     store.setScene3dLegend(null);
     assert.equal(store.scene3dLegend, null);
 
+    context.storage.setItem('ff.liveMap.viewMode.v1', '3d');
     const reopened = resetStoreTestContext({ storage: context.storage });
     const restored = useLiveMapStore();
-    assert.equal(restored.viewMode, '3d', 'a reopened store should restore the view mode');
+    assert.equal(restored.viewMode, '2d', 'a reopened store should ignore a saved 3D preference from older versions');
+    assert.equal(restored.is3dView, false);
     assert.equal(restored.map3dOptions.verticalScale, 5, 'a reopened store should restore the options');
     assert.ok(reopened);
   });
@@ -4621,20 +4723,37 @@ async function main() {
   });
 
   console.log('\n--- timeline store ---\n');
-  await test('timeline store persists the replay view mode and 3D options separately from the live map', () => {
+  await test('timeline store starts each session in 2D and persists replay 3D options separately from the live map', () => {
     const context = resetStoreTestContext();
     const store = useTimelineStore();
     assert.equal(store.mapViewMode, '2d');
     assert.equal(store.is3dMapView, false);
     store.setMapViewMode('3d');
     assert.equal(store.is3dMapView, true);
-    assert.equal(context.storage.getItem('flightFabric.timelineMapViewMode.v1'), '3d');
-    assert.equal(context.storage.getItem('ff.liveMap.viewMode.v1'), null, 'the live map keeps its own choice');
+    assert.equal(context.storage.getItem('flightFabric.timelineMapViewMode.v1'), null, '3D should be a session-only choice');
+    assert.equal(useLiveMapStore().viewMode, '2d', 'the live map keeps its own choice');
     store.setMap3dOption('colorMode', 'verticalSpeed');
     store.setMap3dOption('verticalScale', 3);
     assert.equal(store.map3dOptions.colorMode, 'verticalSpeed');
     assert.equal(store.map3dOptions.verticalScale, 3);
     assert.deepEqual(JSON.parse(context.storage.getItem('flightFabric.timelineMap3d.v1')), store.map3dOptions);
+
+    assert.equal(store.mapFollowStatus, 'following', 'replay maps start by following the cursor');
+    assert.equal(store.mapFollowButtonLabel, 'Center');
+    assert.equal(store.mapFollowPaused, false);
+    store.setMapFollowStatus('paused');
+    assert.equal(store.mapFollowButtonLabel, 'Resume Follow');
+    assert.equal(store.mapFollowPaused, true);
+    assert.match(store.mapFollowButtonTitle, /follow it again/);
+    store.setMapFollowStatus('anything-else');
+    assert.equal(store.mapFollowStatus, 'following', 'unknown states fall back to following');
+    let centers = 0;
+    assert.equal(store.requestMapCenter(), false, 'no center handler bound yet');
+    store.bindMapFollowActions({ onCenter: () => { centers += 1; } });
+    assert.equal(store.requestMapCenter(), true);
+    assert.equal(centers, 1);
+    store.bindMapFollowActions({});
+    assert.equal(store.requestMapCenter(), false);
 
     let fits = 0;
     assert.equal(store.requestMap3dFitView(), false, 'no fit handler bound yet');
@@ -4648,6 +4767,14 @@ async function main() {
     assert.equal(store.scene3dLegend.terrainElevationFt, 900);
     store.setScene3dStatus('3D view unavailable: WebGL');
     assert.equal(store.scene3dStatus, '3D view unavailable: WebGL');
+
+    context.storage.setItem('flightFabric.timelineMapViewMode.v1', '3d');
+    resetStoreTestContext({ storage: context.storage });
+    const restored = useTimelineStore();
+    assert.equal(restored.mapViewMode, '2d', 'a reopened replay should ignore a saved 3D preference from older versions');
+    assert.equal(restored.is3dMapView, false);
+    assert.equal(restored.map3dOptions.colorMode, 'verticalSpeed', 'a reopened replay should restore its 3D options');
+    assert.equal(restored.map3dOptions.verticalScale, 3);
   });
 
   await test('timeline store filters flights, persists UI state, and drives websocket actions', () => {

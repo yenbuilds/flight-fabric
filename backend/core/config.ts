@@ -454,6 +454,27 @@ const config = Object.freeze({
   }),
 
   // ---------------------------------------------------------------------------
+  // Takeoff
+  // ---------------------------------------------------------------------------
+  takeoff: Object.freeze({
+    // A liftoff needs flying speed; slower WOW drops are taxi bumps or sim loads.
+    liftoffMinIasKts: float('TAKEOFF_LIFTOFF_MIN_IAS_KTS', 35),
+    // The ground roll before liftoff must have lasted this long and gained this
+    // much ground speed, which separates a takeoff from a landing bounce.
+    minRollDurationMs: int('TAKEOFF_MIN_ROLL_DURATION_MS', 5000),
+    minRollAccelerationKts: float('TAKEOFF_MIN_ROLL_ACCELERATION_KTS', 5),
+    // Ground samples kept for roll-start detection (about 5 Hz).
+    rollSampleIntervalMs: int('TAKEOFF_ROLL_SAMPLE_INTERVAL_MS', 200),
+    rollBufferMs: int('TAKEOFF_ROLL_BUFFER_MS', 180000),
+    // The takeoff is scored once the aircraft is clearly airborne. Without a
+    // usable height source it is scored after this long instead.
+    confirmTimeoutMs: int('TAKEOFF_CONFIRM_TIMEOUT_MS', 45000),
+    // A ground contact after liftoff counts as a settle-back for this long;
+    // later contacts start a new takeoff.
+    hopWindowMs: int('TAKEOFF_HOP_WINDOW_MS', 60000),
+  }),
+
+  // ---------------------------------------------------------------------------
   // Contract Check (diagnostic tool)
   // ---------------------------------------------------------------------------
   contractCheck: Object.freeze({

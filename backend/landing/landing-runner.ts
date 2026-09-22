@@ -174,11 +174,15 @@ function buildAirportGeometryContext(ctx: LandingRunnerContext | null | undefine
   return { simulator, dataSource };
 }
 
-function isValidLatLon(lat: unknown, lon: unknown): boolean {
-  const latNum = finiteNumberOrNull(lat);
-  const lonNum = finiteNumberOrNull(lon);
-  return latNum != null && lonNum != null && Math.abs(latNum) <= 90 && Math.abs(lonNum) <= 180;
-}
+const {
+  getFramePosition,
+  getSurfaceSnapshot,
+  isValidLatLon,
+} = require('../utils/frame-snapshots') as {
+  getFramePosition: (frame: AnyRecord | null | undefined) => { lat_deg: number | null; lon_deg: number | null };
+  getSurfaceSnapshot: (surface: AnyRecord | null | undefined) => AnyRecord;
+  isValidLatLon: (lat: unknown, lon: unknown) => boolean;
+};
 
 function distanceFtBetweenLatLon(a: { lat: unknown; lon: unknown }, b: { lat: unknown; lon: unknown }): number | null {
   const latA = finiteNumberOrNull(a.lat);
@@ -300,27 +304,10 @@ import { RunwayExcursionFilter } from './runway-geometry-confidence';
  * @param {Object} input - Landing payload input
  * @returns {Object} Canonical landing event payload (snake_case field names)
  */
-function cloneAssistSnapshot(assists: unknown): AnyRecord | null {
-  if (!assists || typeof assists !== 'object') return null;
-  return { ...(assists as AnyRecord) };
-}
-
-function buildAssistCsvFields(assists: AnyRecord | null): AnyRecord {
-  return {
-    assist_unlimited_fuel: assists?.unlimitedFuel ?? null,
-    assist_landing_enabled: assists?.landingAssist ?? null,
-    assist_takeoff_enabled: assists?.takeoffAssist ?? null,
-    assist_ai_controls: assists?.aiControls ?? null,
-    assist_ai_autotrim: assists?.aiAutotrim ?? null,
-    assist_ai_delegated: assists?.aiDelegated ?? null,
-    assist_ai_antistall_state: assists?.aiAntistall ?? null,
-    assist_ai_antistall_active: assists?.aiAntistallActive ?? null,
-    assist_realism_pct: assists?.realismPercent ?? null,
-    assist_full_realism: assists?.fullRealism ?? null,
-    assist_slew_active: assists?.slewActive ?? null,
-    assist_any_active: assists?.anyAssistActive ?? null,
-  };
-}
+const { buildAssistCsvFields, cloneAssistSnapshot } = require('../utils/assist-snapshot') as {
+  buildAssistCsvFields: (assists: AnyRecord | null) => AnyRecord;
+  cloneAssistSnapshot: (assists: unknown) => AnyRecord | null;
+};
 
 function buildLandingPayload(input: AnyRecord): AnyRecord {
   const {
@@ -567,16 +554,7 @@ function isOnRunwaySurface(surface: AnyRecord | null | undefined): boolean {
 // broadcasts, final rollout scoring, and CSV/event payloads reuse these helpers
 // so touchdown-time values do not get mixed with later rollout frames.
 function getTouchdownPosition(frame: AnyRecord): { lat_deg: number | null; lon_deg: number | null } {
-  const simLat = finiteNumberOrNull(frame.simconnect?.lat);
-  const simLon = finiteNumberOrNull(frame.simconnect?.lon);
-  const frameLat = finiteNumberOrNull(frame.lat);
-  const frameLon = finiteNumberOrNull(frame.lon);
-  const useSimPosition = isValidLatLon(simLat, simLon);
-  const useFramePosition = isValidLatLon(frameLat, frameLon);
-  return {
-    lat_deg: useSimPosition ? simLat : (useFramePosition ? frameLat : null),
-    lon_deg: useSimPosition ? simLon : (useFramePosition ? frameLon : null),
-  };
+  return getFramePosition(frame);
 }
 
 function getTouchdownHeading(frame: AnyRecord, ctx: LandingRunnerContext): {
@@ -627,15 +605,7 @@ function getTouchdownConfiguration(frame: AnyRecord): { flaps_notch: number | nu
 }
 
 function getTouchdownSurfaceSnapshot(surface: AnyRecord | null | undefined): AnyRecord {
-  return {
-    surface_raw: surface && typeof surface.raw === 'number' ? surface.raw : null,
-    surface_name: surface && surface.name != null ? String(surface.name) : null,
-    surface_class: surface && surface.class != null ? String(surface.class) : null,
-    surface_runway_like: surface && typeof surface.runwayLike === 'boolean' ? surface.runwayLike : null,
-    surface_on_runway: surface && typeof surface.onRunway === 'boolean' ? surface.onRunway : null,
-    surface_on_ground: surface && typeof surface.onGround === 'boolean' ? surface.onGround : true,
-    surface_valid: surface && typeof surface.valid === 'boolean' ? surface.valid : null,
-  };
+  return getSurfaceSnapshot(surface);
 }
 
 function getFdmSurfaceSnapshot(frame: AnyRecord): AnyRecord {

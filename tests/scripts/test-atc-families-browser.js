@@ -67,11 +67,11 @@ async function browser() {
         assert.equal(await evaluate(`return Boolean(document.querySelector('[data-aircraft-template="${template}"] ${launcher}'));`), true, `${profile} template has finished mounting`);
         await wait(100);
         if (profile.startsWith('pmdg')) {
-          const presetButton = '[data-takeoff-lights-preset] button';
+          const presetButton = '[data-aircraft-preset="configuration.lights.takeoff"] button';
           const presetButtons = [presetButton,
-            '[data-aircraft-preset="configuration.lights.takeoff"] button',
             '[data-aircraft-preset="configuration.apu.start"] button'];
-          assert.equal(await evaluate(`return document.querySelector('${presetButton}').disabled;`), false, `${profile} exposes Set takeoff lights in the lighting panel`);
+          assert.equal(await evaluate(`return document.querySelectorAll('${presetButton}').length;`), 1, `${profile} has one takeoff lights preset`);
+          assert.equal(await evaluate(`return document.querySelector('${presetButton}').disabled;`), false, `${profile} exposes Set takeoff lights in Presets`);
           await evaluate(`familiesTest.specific.sourceStatuses = { sdk: 'stale', simvar: 'connected' }; await familiesTest.tick();`);
           for (const selector of presetButtons) {
             assert.equal(await evaluate(`return document.querySelector('${selector}').disabled;`), true, `${profile} stale SDK data disables ${selector}`);
@@ -90,11 +90,12 @@ async function browser() {
           assert.equal(await evaluate(`return document.querySelector('${presetButton}').disabled;`), true, 'voice requests also lock the lighting-panel preset');
           await evaluate(`familiesTest.controls.resetPendingCommands(); await familiesTest.tick(); document.querySelector('${presetButton}').click(); await familiesTest.tick(); document.querySelector('${presetButton}').click();`);
           assert.deepEqual(await evaluate('return familiesTest.sent;'), [{ type: 'canonical', commandId: 'configuration.lights.takeoff', input: {} }], 'one click dispatches the shared preset and repeat clicks cannot duplicate it');
-          assert.equal(await evaluate(`return document.querySelector('[data-aircraft-preset="configuration.lights.takeoff"] button').disabled;`), true, 'the page shortcut shares the pending state');
+          assert.equal(await evaluate(`return document.querySelector('${presetButton}').disabled;`), true, 'the preset stays disabled while its command is pending');
           await evaluate('familiesTest.controls.resetPendingCommands(); await familiesTest.publish();');
         }
-        const cards = await evaluate(`return [...document.querySelectorAll('.aircraft-page-tools [id^="aircraft-page-"]')].map(el => ({ id: el.id, title: el.getAttribute('aria-label') === 'EFIS controls' ? 'EFIS & approach' : el.getAttribute('aria-label') }));`);
-        assert.ok(cards.length > 0, `${profile} has shared cards`);
+        const cards = await evaluate(`return [...document.querySelectorAll('[data-aircraft-avionics-section]')].map(el => ({ id: el.id, title: document.getElementById(el.getAttribute('aria-labelledby'))?.textContent.trim(), controls: el.querySelectorAll('.aircraft-avionics-grid > [id^="aircraft-page-"]').length }));`);
+        assert.equal(cards.length, 1, `${profile} groups its shared cards in one Radios & approach section`);
+        assert.ok(cards[0].controls > 0, `${profile} has shared controls in the group`);
         for (const card of cards) {
           if (!directNavigation) await evaluate(`document.querySelector('${launcher}').click(); await familiesTest.tick();`);
           const found = await evaluate(`const button = [...document.querySelectorAll('[data-aircraft-section-choice], [data-pmdg-section-choice], nav[data-aircraft-section-ribbon] button')].find(el => (el.querySelector('strong')?.textContent || el.getAttribute('aria-label')) === ${JSON.stringify(card.title)}); if (!button) return false; button.click(); await familiesTest.tick(); return true;`);
@@ -127,12 +128,12 @@ async function main() {
       capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'simbridge-mcdu'] },
     });
   }
-  const { createServer } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/vite/dist/node/index.js')));
+  const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')));
-  const server = await createServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUT, 'vite-cache'),
+  const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error', cacheDir: path.join(OUT, 'vite-cache'),
     optimizeDeps: { noDiscovery: true }, plugins: [vue(), { name: 'atc-fixture', configureServer(vite) {
       vite.middlewares.use('/capabilities', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(catalogues)); });
-      vite.middlewares.use('/fixture', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/frontend-dist/tailwind.css"><style>body{margin:0;padding:16px;font-family:system-ui;background:rgb(var(--background));color:rgb(var(--foreground))}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/atc-families-browser.js"></script></body></html>'); });
+      vite.middlewares.use('/fixture', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html><head><script src="/shared/app-settings-shared.js"></script><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/frontend-dist/tailwind.css"><style>body{margin:0;padding:16px;font-family:system-ui;background:rgb(var(--background));color:rgb(var(--foreground))}</style></head><body><div id="app"></div><script type="module" src="/tests/fixtures/atc-families-browser.js"></script></body></html>'); });
     } }], resolve: { alias: { vue: path.join(ROOT, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'), pinia: path.join(ROOT, 'frontend/node_modules/pinia/dist/pinia.mjs') } }, server: { host: '127.0.0.1', port: 0, watch: null } });
   await server.listen();
   try {
