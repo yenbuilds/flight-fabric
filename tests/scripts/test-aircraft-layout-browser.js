@@ -574,21 +574,29 @@ async function browser() {
         await evaluate(`document.querySelector('.cdu-help-toggle').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return Boolean(document.querySelector('#cdu-help')) && getComputedStyle(document.querySelector('.cdu-keypad')).display === 'none';`), true, 'help replaces the keypad without expanding the dialog');
         await evaluate(`document.querySelector('.cdu-help-toggle').click(); await layoutTest.settle();`);
-        await evaluate(`document.querySelector('[aria-label="Right line select 2"]').click(); await layoutTest.settle();`);
-        assert.equal(await evaluate(`return layoutTest.cduSent.at(-1).key;`), 'R2');
+        // Periodic display reads share this transcript with key commands. Only
+        // inspect commands sent after the action, even if a read finishes last.
+        const lineKeyStart = await evaluate(`const start = layoutTest.cduSent.length;
+          document.querySelector('[aria-label="Right line select 2"]').click(); await layoutTest.settle(); return start;`);
+        assert.equal(await settled(`return layoutTest.cduSent.slice(${lineKeyStart}).at(-1)?.type === 'requestCduState';`, Boolean), true, 'display refresh continues after a key press');
+        const lineCommand = await settled(`return layoutTest.cduSent.slice(${lineKeyStart}).find(message => message.type === 'sendCduKey');`, Boolean);
+        assert.equal(lineCommand?.key, 'R2');
         await evaluate(`const select = document.querySelector('[aria-label="CDU unit"]'); select.value = 'right'; select.dispatchEvent(new Event('change', { bubbles: true })); await layoutTest.settle();`);
-        await wait(50);
-        await evaluate(`const button = [...document.querySelectorAll('.cdu-entry-keys button')].find(el => el.textContent === 'A'); button.click(); await layoutTest.settle();`);
-        assert.equal(await evaluate(`return layoutTest.cduSent.at(-1).side;`), 'right');
-        await evaluate(`const button = document.querySelector('[data-cdu-modal] button[aria-pressed]'); button.click(); button.focus(); button.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true })); await layoutTest.settle();`);
-        await wait(80);
-        assert.equal(await evaluate(`return layoutTest.cduSent.filter(message => message.type === 'sendCduKey').at(-1).key;`), 'B');
-        await evaluate(`for (const key of ['K', 'L', 'A', 'X']) {
+        assert.equal(await settled(`return !document.querySelector('.cdu-entry-keys [data-key="A"]').disabled;`, Boolean), true, 'right CDU is ready for input');
+        const entryKeyStart = await evaluate(`const start = layoutTest.cduSent.length;
+          document.querySelector('.cdu-entry-keys [data-key="A"]').click(); await layoutTest.settle(); return start;`);
+        const entryCommand = await settled(`return layoutTest.cduSent.slice(${entryKeyStart}).find(message => message.type === 'sendCduKey');`, Boolean);
+        assert.equal(entryCommand?.key, 'A');
+        assert.equal(entryCommand?.side, 'right');
+        const keyboardStart = await evaluate(`const start = layoutTest.cduSent.length;
+          const button = document.querySelector('[data-cdu-modal] button[aria-pressed]'); button.click(); button.focus(); button.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', bubbles: true })); await layoutTest.settle(); return start;`);
+        const keyboardCommand = await settled(`return layoutTest.cduSent.slice(${keyboardStart}).find(message => message.type === 'sendCduKey');`, Boolean);
+        assert.equal(keyboardCommand?.key, 'B');
+        const typeAheadStart = await evaluate(`const start = layoutTest.cduSent.length; for (const key of ['K', 'L', 'A', 'X']) {
           document.querySelector('.cdu-entry-keys [data-key="' + key + '"]').click(); await layoutTest.settle();
-        }`);
+        } return start;`);
         assert.equal(await evaluate(`return [...document.querySelectorAll('.cdu-entry-keys button')].every(button => !button.disabled);`), true, 'type-ahead leaves the touch keypad enabled');
-        await wait(300);
-        assert.deepEqual(await evaluate(`return layoutTest.cduSent.filter(message => message.type === 'sendCduKey').slice(-4).map(message => message.key);`), ['K', 'L', 'A', 'X'], 'fast taps arrive in order');
+        assert.deepEqual(await settled(`return layoutTest.cduSent.slice(${typeAheadStart}).filter(message => message.type === 'sendCduKey').map(message => message.key);`, keys => keys.length >= 4), ['K', 'L', 'A', 'X'], 'fast taps arrive in order');
         win.setContentSize(320, 568);
         await win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: 320, height: 568, deviceScaleFactor: 1, mobile: false });
         await win.webContents.capturePage(); await wait(100);
