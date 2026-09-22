@@ -483,11 +483,16 @@ async function browser() {
           win.setContentSize(width, height);
           // Hidden Electron windows can defer viewport-unit/media-query updates.
           await win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-          // Drive a compositor frame before checking styles in the hidden window.
           await win.webContents.capturePage();
-          await wait(100);
-          const measurements = await evaluate(`return {
+          // One frame applies layout and delivers ResizeObserver; the next
+          // commits Vue's resulting font update before geometry is inspected.
+          await evaluate(`await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));`);
+          // The viewport can resize before media queries and ResizeObserver
+          // settle. Wait for the requested geometry/readability, then retain all
+          // assertions below (including the last measurement on timeout).
+          const measurements = await settled(`return {
             viewport: innerWidth,
+            viewportHeight: innerHeight,
             fontSize: getComputedStyle(document.querySelector('.cdu-screen-row')).fontSize,
             smallFontSize: document.querySelector('.cdu-cell.small') ? getComputedStyle(document.querySelector('.cdu-cell.small')).fontSize : null,
             screenWidth: document.querySelector('.cdu-screen').getBoundingClientRect().width,
@@ -519,10 +524,12 @@ async function browser() {
             minKey: [...document.querySelectorAll('.cdu-keypad .cdu-key')].reduce((min, el) => { const r = el.getBoundingClientRect(); return [Math.min(min[0], r.width), Math.min(min[1], r.height)]; }, [Infinity, Infinity]),
             minLineKey: [...document.querySelectorAll('.cdu-line-key')].reduce((min, el) => { const r = el.getBoundingClientRect(); return [Math.min(min[0], r.width), Math.min(min[1], r.height)]; }, [Infinity, Infinity]),
             screen: document.querySelector('.cdu-screen').getAttribute('aria-label'),
-          };`);
+          };`, value => value.viewport === width && value.viewportHeight === height
+            && (width !== 1440 || height !== 1000 || parseFloat(value.fontSize) >= 18));
           assert.equal(measurements.overflow, false, `${id} CDU fits ${width}px: ${JSON.stringify(measurements.pageOverflow)}`);
           assert.equal(measurements.verticalOverflow, false, `${id} CDU dialog needs no scrolling at ${width}x${height}: ${JSON.stringify(measurements)}`);
           assert.equal(measurements.viewport, width, 'CDU uses the requested viewport');
+          assert.equal(measurements.viewportHeight, height, 'CDU uses the requested viewport height');
           if (compact) {
             assert.equal(measurements.keysFitWidth, true, `${id} CDU keys fit the width at ${width}x${height}`);
             if (!scrollPanel) assert.equal(measurements.screenVisible, true, `${id} CDU display stays on screen at ${width}x${height}`);
@@ -730,9 +737,13 @@ async function main() {
     const env = { ...process.env, FF_AIRCRAFT_LAYOUT_TEST_URL: `http://127.0.0.1:${server.httpServer.address().port}/aircraft-layout-test` };
     delete env.ELECTRON_RUN_AS_NODE;
     const child = require('node:child_process').spawn(require('../../electron/node_modules/electron'), [__filename], { env, cwd: ROOT, windowsHide: true, stdio: 'inherit' });
-    const timer = setTimeout(() => child.kill(), 90000);
+    // This covers the complete multi-aircraft/viewport suite, including native
+    // screenshot capture. Individual rendering waits remain bounded above.
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 180000);
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', resolve); });
     clearTimeout(timer);
+    assert.equal(timedOut, false, 'aircraft layout browser checks exceeded 180 seconds');
     assert.equal(code, 0, 'aircraft layout browser checks');
   } finally { await server.close(); }
 }

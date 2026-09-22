@@ -50,7 +50,9 @@ function startExactProcessExitObserver(pid, expectedPath) {
   );
   observer.stderr.on('data', (chunk) => stderrChunks.push(Buffer.from(chunk).toString('utf8')));
   const ready = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('PTT helper exit observer did not become ready.')), 5000);
+    // Cold PowerShell startup is fixture setup, not the helper-exit deadline.
+    // Keep the actual process WaitForExit limit at five seconds above.
+    const timer = setTimeout(() => reject(new Error('PTT helper exit observer did not become ready.')), 15000);
     let output = '';
     const finish = (callback, value) => {
       clearTimeout(timer);
