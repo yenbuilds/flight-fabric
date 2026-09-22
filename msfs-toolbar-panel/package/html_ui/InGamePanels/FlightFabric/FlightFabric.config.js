@@ -3,5 +3,5 @@
 window.FLIGHTFABRIC_TOOLBAR_CONFIG = Object.freeze({
   httpPort: __FF_HTTP_PORT__,
   wsPort: __FF_WS_PORT__,
-  packageVersion: "0.10.1",
+  packageVersion: "0.10.2",
 });

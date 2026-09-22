@@ -419,6 +419,7 @@ export const useLandingStore = defineStore('landing', {
     landingModalOpen: false,
     landingModalLoading: false,
     landingModalError: '',
+    landingModalContextSections: [],
     landingCard: createDefaultLandingCardState(),
     stabilityBreakdownVisible: false,
     stabilityMetrics: [],
@@ -453,16 +454,18 @@ export const useLandingStore = defineStore('landing', {
       this.waitingVisible = this.cardVisible !== true;
     },
 
-    openLandingModal({ loading = false, error = '' } = {}) {
+    openLandingModal({ loading = false, error = '', contextSections = [] } = {}) {
       this.landingModalOpen = true;
       this.landingModalLoading = loading === true;
       this.landingModalError = String(error || '');
+      this.landingModalContextSections = contextSections;
     },
 
     closeLandingModal() {
       this.landingModalOpen = false;
       this.landingModalLoading = false;
       this.landingModalError = '';
+      this.landingModalContextSections = [];
     },
 
     setLandingModalLoading(loading) {

@@ -1726,6 +1726,9 @@ async function runLiveMapSmoke(windowRef) {
 }
 
 async function runTimelineSmoke(windowRef) {
+  await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'Timeline desktop review');
+  await windowRef.webContents.capturePage();
+  await waitFor(windowRef, "document.querySelector('#tab-timeline .timeline-split')?.getAttribute('aria-modal') !== 'true'", 'desktop review media query');
   await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"timeline\"]')", 'Timeline tab');
   await waitFor(
     windowRef,
@@ -1754,6 +1757,14 @@ async function runTimelineSmoke(windowRef) {
     "document.querySelectorAll('#timeline-event-list .timeline-event').length >= 4",
     'loaded Timeline events',
   );
+  const scoredHistory = await evaluate(windowRef, `(() => {
+    const clip=document.getElementById('vue-main-root').getBoundingClientRect();
+    const summary=document.getElementById('vue-logbook-root').getBoundingClientRect();
+    const button=document.getElementById('logbook-panel-toggle').getBoundingClientRect();
+    const workspace=document.querySelector('.logbook-workspace').getBoundingClientRect();
+    return { visible:summary.top>=clip.top && summary.bottom<=clip.bottom, reachable:button.top>=clip.top && button.bottom<=clip.bottom, above:summary.bottom<=workspace.top };
+  })()`);
+  assert.ok(scoredHistory.visible && scoredHistory.reachable && scoredHistory.above, `scored landings are visible without scrolling the app: ${JSON.stringify(scoredHistory)}`);
   const workspaceLayout = await evaluate(windowRef, `(() => {
     const list = document.getElementById('vue-timeline-flights-root').getBoundingClientRect();
     const review = document.querySelector('#tab-timeline .timeline-split');
@@ -1763,6 +1774,23 @@ async function runTimelineSmoke(windowRef) {
   assert.equal(workspaceLayout.modal, null, 'desktop Logbook review should preserve access to application navigation');
   assert.ok(workspaceLayout.reviewLeft >= workspaceLayout.listRight - 2, 'desktop flight selection should remain beside review');
   assert.equal(workspaceLayout.context, 'Recorded flight', 'historical measurements should be identified before users inspect them');
+  for (const [width, height] of [[viewportWidth, viewportHeight], [390, 844], [viewportWidth, viewportHeight]]) {
+    await setContentSizeAndWait(windowRef, width, height, 'Direct landing debrief');
+    await windowRef.webContents.capturePage();
+    await waitFor(windowRef, `document.querySelector('#tab-timeline .timeline-split')?.getAttribute('aria-modal') ${width <= 1100 ? "=== 'true'" : '=== null'}`, 'debrief responsive review');
+    await evaluate(windowRef, "document.getElementById('timeline-mobile-viewer-landing-shortcut').focus()");
+    await click(windowRef, "document.getElementById('timeline-mobile-viewer-landing-shortcut')", 'direct Landing debrief shortcut');
+    await waitFor(windowRef, "document.querySelector('#landing-modal #landing-airport')?.textContent.includes('KBOS') && document.querySelector('#landing-modal #landing-grade')?.textContent.includes('PERFECT')", 'direct debrief has complete landing data');
+    assert.ok(await evaluate(windowRef, "!document.getElementById('timeline-detail') && document.getElementById('landing-modal-recorded-context')"), 'direct debrief retains recorded context without opening an intermediate event detail');
+    if (process.env.FF_BROWSER_SMOKE_TIMELINE_SCREENSHOT) {
+      await windowRef.webContents.capturePage();
+      await wait(100);
+      fs.writeFileSync(`${process.env.FF_BROWSER_SMOKE_TIMELINE_SCREENSHOT}-direct-debrief-${width}x${height}.png`, (await windowRef.webContents.capturePage()).toPNG());
+    }
+    await click(windowRef, "document.getElementById('landing-modal-close')", 'close direct landing debrief');
+    await waitFor(windowRef, "!document.getElementById('landing-modal') && document.activeElement?.id === 'timeline-mobile-viewer-landing-shortcut'", 'direct debrief returns focus to the shortcut');
+    assert.ok(await evaluate(windowRef, "document.getElementById('timeline-mobile-viewer-title')?.textContent.includes('KPHL -> KBOS') && document.querySelector('.timeline-mobile-viewer-open')"), 'closing the debrief retains the selected flight review');
+  }
   await click(windowRef, "Array.from(document.querySelectorAll('.logbook-review-views button')).find(button => button.textContent === 'Replay map')", 'Timeline replay view');
   const replayColumnLayout = await evaluate(
     windowRef,
@@ -1794,7 +1822,8 @@ async function runTimelineSmoke(windowRef) {
     'Timeline landing row shows scoped touchdown-rate grade, failed approach, and bounce',
   );
   await assertTimelineEventLayout(windowRef);
-  await click(windowRef, "document.getElementById('timeline-open-analysis-rescore-btn')", 'Timeline scoring review button');
+  assert.ok(await evaluate(windowRef, "document.getElementById('timeline-open-analysis-rescore-btn').textContent.includes('Compare scoring rules')"), 'comparison action explains its purpose');
+  await click(windowRef, "document.getElementById('timeline-open-analysis-rescore-btn')", 'Timeline scoring comparison button');
   await waitFor(
     windowRef,
     "document.getElementById('timeline-analysis-rescore-modal')?.getAttribute('role') === 'dialog'",
@@ -1811,19 +1840,24 @@ async function runTimelineSmoke(windowRef) {
     "!document.getElementById('timeline-analysis-rescore-modal')",
     'closed Timeline scoring review modal',
   );
+  await waitFor(windowRef, "document.querySelector('#timeline-map .timeline-event-marker-icon')", 'replay event marker');
+  await click(windowRef, "document.querySelector('#timeline-map .timeline-event-marker-icon')", 'desktop replay event marker');
+  await waitFor(windowRef, "document.querySelector('.timeline-event.selected[aria-expanded=\"false\"]') && document.activeElement?.classList.contains('timeline-event') && !document.getElementById('timeline-detail')", 'map marker locates the event without expanding details');
+  await evaluate(windowRef, "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find(element => element.textContent.includes('Landing at')).focus()");
   await click(windowRef, "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at'))", 'Timeline landing event row');
   await waitFor(
     windowRef,
     "document.getElementById('timeline-detail') && document.getElementById('timeline-detail-title')?.textContent.includes('Landing at KBOS 27')",
-    'Timeline landing detail dialog',
+    'Timeline inline landing detail',
   );
+  await waitFor(windowRef, "(() => { const row = document.querySelector('.timeline-event[aria-expanded=\"true\"]').getBoundingClientRect(), detail = document.getElementById('timeline-detail').getBoundingClientRect(), clip = document.getElementById('timeline-events').getBoundingClientRect(); return row.top >= clip.top && row.bottom <= clip.bottom && Math.min(detail.bottom, clip.bottom) - Math.max(detail.top, clip.top) > 80; })()", 'expanding a landing naturally reveals its heading and detail in the event pane');
   const detailLayout = await evaluate(
     windowRef,
     `(() => {
       const viewer = document.querySelector('#tab-timeline .timeline-split')?.getBoundingClientRect();
       const drawer = document.getElementById('timeline-detail')?.getBoundingClientRect();
       return {
-        contained: drawer.left >= viewer.left && drawer.right <= viewer.right + 2 && drawer.bottom <= viewer.bottom + 2,
+        contained: drawer.left >= viewer.left && drawer.right <= viewer.right + 2 && drawer.top < viewer.bottom,
         role: document.getElementById('timeline-detail')?.getAttribute('role'),
         flightContext: document.getElementById('timeline-mobile-viewer-title')?.textContent,
       };
@@ -1831,12 +1865,14 @@ async function runTimelineSmoke(windowRef) {
   );
   assert.ok(detailLayout.contained, 'desktop event details should remain in the selected flight review');
   assert.equal(detailLayout.role, 'region', 'desktop event details must not introduce a modal focus trap');
+  assert.ok(await evaluate(windowRef, "document.getElementById('timeline-detail').scrollWidth <= document.getElementById('timeline-detail').clientWidth + 1"), 'inline detail contents fit their event column');
+  assert.ok(await evaluate(windowRef, "document.querySelector('.timeline-event-item').parentElement.contains(document.getElementById('timeline-detail')) && getComputedStyle(document.getElementById('timeline-card')).display !== 'none' && getComputedStyle(document.getElementById('vue-timeline-map-shell-root')).display !== 'none'"), 'inline details retain both the timeline and replay map');
   assert.ok(detailLayout.flightContext.includes('KPHL -> KBOS'), 'event details retain recorded-flight context');
   await assertUsableLayout(windowRef, 'Timeline tab', [
     '#tab-timeline.active',
     '#tab-timeline .timeline-split',
     '#vue-timeline-flights-root',
-    '#timeline-detail',
+    '#timeline-card',
   ]);
   await waitFor(
     windowRef,
@@ -1845,14 +1881,15 @@ async function runTimelineSmoke(windowRef) {
   );
   await waitFor(
     windowRef,
-    "document.activeElement?.id === 'timeline-detail-close'",
-    'Event details receive keyboard focus',
+    "document.activeElement?.matches('.timeline-event[aria-expanded=\"true\"]')",
+    'Desktop expansion retains focus on its disclosure',
   );
   for (const [width, height] of [[390, 844], [844, 390], [viewportWidth, viewportHeight]]) {
     await setContentSizeAndWait(windowRef, width, height, 'Event details');
     await waitFor(windowRef,
       `document.getElementById('timeline-detail')?.getAttribute('role') === '${width <= 1100 ? 'dialog' : 'region'}'`,
       'event detail media-query and Vue update after resize', 3000);
+    if (width > 1100) await evaluate(windowRef, "document.getElementById('timeline-detail').scrollIntoView({ block: 'nearest' })");
     const layout = await evaluate(windowRef, `(() => {
       const detail = document.getElementById('timeline-detail');
       const rect = detail.getBoundingClientRect();
@@ -1884,11 +1921,11 @@ async function runTimelineSmoke(windowRef) {
   const landingRowExpression = "Array.from(document.querySelectorAll('#timeline-event-list .timeline-event')).find((element) => element.textContent.includes('Landing at'))";
   await evaluate(windowRef, `(${landingRowExpression}).focus()`);
   await click(windowRef, landingRowExpression, 'Timeline landing event row');
-  await waitFor(windowRef, "document.activeElement?.id === 'timeline-detail-close'", 'Reopened event details');
+  await waitFor(windowRef, "document.activeElement?.getAttribute('aria-expanded') === 'true'", 'Reopened inline event details');
   await click(windowRef, "document.getElementById('timeline-detail-close')", 'Close desktop event details');
   await waitFor(windowRef, "!document.getElementById('timeline-detail') && document.activeElement?.classList.contains('timeline-event')", 'Closing contextual details returns focus to the event');
   await click(windowRef, landingRowExpression, 'Timeline landing event row');
-  await waitFor(windowRef, "document.activeElement?.id === 'timeline-detail-close'", 'Event details before opening landing debrief');
+  await waitFor(windowRef, "document.activeElement?.getAttribute('aria-expanded') === 'true'", 'Inline details before opening landing debrief');
   await click(windowRef, "document.getElementById('timeline-open-landing-btn')", 'Timeline Open Landing Debrief button');
   await waitFor(
     windowRef,

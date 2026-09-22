@@ -106,7 +106,7 @@ function previewUnavailableReason(value) {
           <div class="min-w-0">
             <div class="timeline-analysis-modal-kicker">Timeline analysis</div>
             <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 id="timeline-analysis-rescore-title" class="timeline-analysis-modal-title">Review current scoring</h2>
+              <h2 id="timeline-analysis-rescore-title" class="timeline-analysis-modal-title">Compare scoring rules</h2>
               <span
                 v-if="timeline.analysisRescore.applied"
                 id="timeline-analysis-rescore-applied-status"
@@ -122,7 +122,7 @@ function previewUnavailableReason(value) {
             id="timeline-analysis-rescore-close"
             type="button"
             class="timeline-analysis-modal-close"
-            aria-label="Close scoring review"
+            aria-label="Close scoring comparison"
             @click="timeline.closeAnalysisRescoreModal()"
           >
             Close
@@ -132,7 +132,7 @@ function previewUnavailableReason(value) {
         <div id="timeline-analysis-rescore-content" class="timeline-analysis-modal-content">
           <div class="flex flex-wrap items-start justify-between gap-3 border-b border-surface-200/60 pb-4">
             <p class="max-w-3xl text-xs leading-relaxed text-gray-400">
-              Recalculates touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout scoring with today's rules and each landing's recorded aircraft profile. The original recording and recorded results remain unchanged.
+              Compare recorded scores with results from today's rules and each landing's recorded aircraft profile. Preview changes to touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout before choosing whether to save them. The original recording and recorded results remain unchanged.
             </p>
             <div class="flex flex-wrap items-center gap-2">
               <button
@@ -142,7 +142,7 @@ function previewUnavailableReason(value) {
                 :disabled="!timeline.canRequestAnalysisRescorePreview"
                 @click="timeline.requestAnalysisRescorePreview()"
               >
-                {{ timeline.analysisRescorePreviewStatus === 'loading' ? 'Reviewing current scoring...' : 'Review current scoring' }}
+                {{ timeline.analysisRescorePreviewStatus === 'loading' ? 'Comparing scoring rules...' : 'Preview comparison' }}
               </button>
               <button
                 v-if="timeline.analysisRescore.applied"

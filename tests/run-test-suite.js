@@ -118,6 +118,7 @@ const TEST_STEPS = [
   ['node', ['dist/backend/landing/airport-search.test.js']],
   ['node', ['--test', 'dist/backend/landing/airport-country.test.js', 'frontend/src/timeline/country-flags.test.js']],
   ['npm', ['run', 'test:map-3d']],
+  ['npm', ['run', 'test:map-3d-terrain-browser']],
   ['node', ['dist/backend/utils/aviation-frames.test.js']],
   ['node', ['tests/scripts/test-core-modules.js']],
   ['node', ['tests/scripts/test-user-settings.js']],

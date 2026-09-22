@@ -9,6 +9,7 @@ import { buildAircraftModel, disposeAircraftModel } from './aircraft-model.js';
 import { createLabelCanvas } from './marker-sprites.js';
 import { daylightLighting, directionFromSky, moonDirectionForSun } from './sun-position.js';
 import { buildTileElevationGrid, terrainTileForMapTile } from './terrain-tiles.js';
+import { buildGroundSkirt, createGroundCoverageMask, groundCoverageRects, GROUND_LAYER_PRIORITY, sampleGroundTileHeight } from './ground-coverage.js';
 
 export const WEBGL_CONTEXT_LOST_STATUS = '3D graphics were interrupted. Switch to 2D while graphics recover.';
 
@@ -27,6 +28,8 @@ const QUALITY_PROFILES = Object.freeze({
   compact: Object.freeze({ textureCacheLimit: 96, maxPixelRatio: 1.5, terrainSegments: Object.freeze({ detail: 24, base: 16, horizon: 8 }) }),
 });
 const TILE_LOAD_CONCURRENCY = 6;
+const TILE_LOAD_MAX_ATTEMPTS = 3;
+const TILE_RETRY_DELAY_MS = 1000;
 const HORIZON_TILE_Y = -4;
 const BASE_TILE_Y = -2;
 const DETAIL_TILE_Y = 0;
@@ -59,7 +62,6 @@ const FOLLOW_POSITION_SMOOTHING = 0.35;
 // so the correction sticks.
 const CAMERA_TERRAIN_CLEARANCE = 60;
 // Mesh resolution per tile layer when terrain displaces the ground.
-const TERRAIN_LAYER_PRIORITY = Object.freeze({ detail: 3, base: 2, horizon: 1 });
 // The altitude ruler under the aircraft: a tick every 1,000 ft, longer every 5,000 ft.
 const RULER_TICK_FT = 1000;
 const RULER_MAJOR_TICK_FT = 5000;
@@ -276,8 +278,11 @@ export function createFlightScene({
   let rulerKey = '';
 
   const tileMeshes = new Map();
+  let groundCoverageDirty = false;
   const tileTextures = new Map();
   const tileLoadsPending = new Set();
+  const tileLoadAttempts = new Map();
+  const tileRetryTimers = new Map();
   // Terrain: `{ provider, unitsPerMeter, floorMeters }` while elevation
   // displacement is on, null for the flat ground plane.
   let terrain = null;
@@ -303,6 +308,8 @@ export function createFlightScene({
   let rafId = null;
   let disposed = false;
   let contextLost = false;
+  let previousCameraView = null;
+  let cameraViewPending = false;
 
   let followMode = 'none';
   let followTarget = null;
@@ -332,6 +339,7 @@ export function createFlightScene({
     lineResolution.set(width, height);
     for (const material of lineMaterials) material.resolution.set(width, height);
     requestRender();
+    if (active) onViewSettled(getViewInfo());
     return true;
   }
 
@@ -397,10 +405,14 @@ export function createFlightScene({
       polygonOffset: mesh.userData.layer !== 'detail',
       polygonOffsetFactor: mesh.userData.layer === 'horizon' ? 2 : 1,
       polygonOffsetUnits: 1,
+      side: THREE.DoubleSide,
     });
+    mesh.userData.setCoverage = mesh.userData.layer === 'detail' ? null : createGroundCoverageMask(mesh.material);
+    groundCoverageDirty = true;
     const entry = tileTextures.get(key);
     if (entry) entry.inUse = true;
     requestRender();
+    if (terrain) scheduleTerrainNotification();
   }
 
   function createTileGeometry(tile) {
@@ -432,6 +444,7 @@ export function createFlightScene({
     geometry.computeBoundingSphere();
     mesh.userData.heights = heights;
     mesh.userData.count = count;
+    groundCoverageDirty = true;
     requestRender();
     scheduleTerrainNotification();
   }
@@ -469,7 +482,7 @@ export function createFlightScene({
   }
 
   /**
-   * Ground height in scene units under (x, z) from the finest loaded tile,
+   * Ground height in scene units under (x, z) from the finest visible tile,
    * or null where no displaced tile covers the point yet.
    */
   function groundHeightAt(x, z) {
@@ -477,27 +490,27 @@ export function createFlightScene({
     let best = null;
     for (const mesh of tileMeshes.values()) {
       const data = mesh.userData;
-      if (!data.heights) continue;
+      if (!mesh.visible || !data.heights) continue;
       if (x < data.minX || x > data.maxX || z < data.minZ || z > data.maxZ) continue;
-      if (!best || TERRAIN_LAYER_PRIORITY[data.layer] > TERRAIN_LAYER_PRIORITY[best.userData.layer]) best = mesh;
+      if (!best || GROUND_LAYER_PRIORITY[data.layer] > GROUND_LAYER_PRIORITY[best.userData.layer]) best = mesh;
     }
     if (!best) return null;
-    const data = best.userData;
-    const segments = data.count - 1;
-    const u = ((x - data.minX) / (data.maxX - data.minX)) * segments;
-    const v = ((z - data.minZ) / (data.maxZ - data.minZ)) * segments;
-    const column = Math.max(0, Math.min(segments - 1, Math.floor(u)));
-    const row = Math.max(0, Math.min(segments - 1, Math.floor(v)));
-    const fx = Math.max(0, Math.min(1, u - column));
-    const fz = Math.max(0, Math.min(1, v - row));
-    const heights = data.heights;
-    const count = data.count;
-    const top = (heights[(row * count) + column] * (1 - fx)) + (heights[(row * count) + column + 1] * fx);
-    const bottom = (heights[((row + 1) * count) + column] * (1 - fx)) + (heights[((row + 1) * count) + column + 1] * fx);
-    return best.position.y + (top * (1 - fz)) + (bottom * fz);
+    return sampleGroundTileHeight(best, x, z);
   }
 
   const TILE_LOAD_PRIORITY = { detail: 0, base: 1, horizon: 2 };
+
+  function cancelTileRetry(key) {
+    if (!tileRetryTimers.has(key)) return;
+    windowRef.clearTimeout(tileRetryTimers.get(key));
+    tileRetryTimers.delete(key);
+  }
+
+  function queueTileImage(tile) {
+    if (!tile.url || tileTextures.has(tile.key) || tileLoadsPending.has(tile.key)
+      || tileRetryTimers.has(tile.key) || (tileLoadAttempts.get(tile.key) || 0) >= TILE_LOAD_MAX_ATTEMPTS) return;
+    tileLoadQueue.set(tile.key, { key: tile.key, url: tile.url, layer: tile.layer });
+  }
 
   function pumpTileQueue() {
     if (disposed || tileLoadsSuspended || contextLost) return;
@@ -509,11 +522,14 @@ export function createFlightScene({
       if (!tileMeshes.has(job.key) || tileLoadsPending.has(job.key)) continue;
       tileLoadsInFlight += 1;
       tileLoadsPending.add(job.key);
+      const attempt = (tileLoadAttempts.get(job.key) || 0) + 1;
+      tileLoadAttempts.set(job.key, attempt);
       textureLoader.load(
         job.url,
         (texture) => {
           tileLoadsInFlight -= 1;
           tileLoadsPending.delete(job.key);
+          tileLoadAttempts.delete(job.key);
           if (disposed) {
             texture.dispose();
             return;
@@ -544,6 +560,15 @@ export function createFlightScene({
           tileLoadsInFlight -= 1;
           tileLoadsPending.delete(job.key);
           consoleRef.warn?.('[FlightScene] Ground tile could not load', job.url, error?.message || error);
+          if (!disposed && !tileLoadsSuspended && !contextLost && tileMeshes.has(job.key) && attempt < TILE_LOAD_MAX_ATTEMPTS) {
+            const timer = windowRef.setTimeout(() => {
+              tileRetryTimers.delete(job.key);
+              if (disposed || tileLoadsSuspended || contextLost || !tileMeshes.has(job.key)) return;
+              queueTileImage(job);
+              pumpTileQueue();
+            }, TILE_RETRY_DELAY_MS * (2 ** (attempt - 1)));
+            tileRetryTimers.set(job.key, timer);
+          }
           pumpTileQueue();
         },
       );
@@ -556,6 +581,10 @@ export function createFlightScene({
    * removed; textures stay cached for a while so panning back is instant.
    */
   function removeTileMesh(key, mesh) {
+    groundCoverageDirty = true;
+    removeGroundSkirt(mesh);
+    cancelTileRetry(key);
+    tileLoadAttempts.delete(key);
     groundGroup.remove(mesh);
     mesh.geometry.dispose();
     if (mesh.material !== placeholderTileMaterial) mesh.material.dispose?.();
@@ -599,7 +628,11 @@ export function createFlightScene({
     }
 
     for (const [key, tile] of wanted) {
-      if (tileMeshes.has(key)) { requestTerrainForTile(tileMeshes.get(key), tile); continue; }
+      if (tileMeshes.has(key)) {
+        requestTerrainForTile(tileMeshes.get(key), tile);
+        queueTileImage(tile);
+        continue;
+      }
       const tileWidth = tile.maxX - tile.minX;
       const tileDepth = tile.maxZ - tile.minZ;
       if (!(tileWidth > 0) || !(tileDepth > 0)) continue;
@@ -626,15 +659,44 @@ export function createFlightScene({
       const cached = touchTexture(key);
       if (cached) {
         applyTextureToTile(key, cached.texture);
-      } else if (tile.url && !tileLoadsPending.has(key)) {
-        tileLoadQueue.set(key, { key, url: tile.url, layer: tile.layer });
-      }
+      } else queueTileImage(tile);
       requestTerrainForTile(mesh, tile);
     }
 
     trimTextureCache();
     pumpTileQueue();
     requestRender();
+    if (terrain) scheduleTerrainNotification();
+  }
+
+  function updateGroundCoverage() {
+    if (!groundCoverageDirty) return;
+    groundCoverageDirty = false;
+    const readyMeshes = [...tileMeshes.values()].filter(mesh => mesh.visible && (!terrain || mesh.userData.heights));
+    const ready = readyMeshes.map(mesh => mesh.userData);
+    for (const mesh of tileMeshes.values()) {
+      mesh.userData.setCoverage?.(groundCoverageRects(mesh.userData, ready));
+      removeGroundSkirt(mesh);
+      const skirt = mesh.visible && terrain ? buildGroundSkirt(mesh, readyMeshes) : null;
+      if (!skirt) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(skirt.positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(skirt.uvs, 2));
+      geometry.computeVertexNormals();
+      const edge = new THREE.Mesh(geometry, mesh.material);
+      edge.renderOrder = mesh.renderOrder;
+      groundGroup.add(edge);
+      mesh.userData.skirt = edge;
+    }
+  }
+
+  function removeGroundSkirt(mesh) {
+    const skirt = mesh.userData.skirt;
+    if (!skirt) return;
+    groundGroup.remove(skirt);
+    skirt.geometry.dispose();
+    // The parent tile owns the shared material and texture.
+    mesh.userData.skirt = null;
   }
 
   /** Fallback ground when online tiles are disabled: a muted plane and grid. */
@@ -1306,6 +1368,22 @@ export function createFlightScene({
     onViewSettled(getViewInfo());
   }
 
+  // Orbit damping, animated moves and following can keep moving the camera
+  // after a pointer's end event or the controller's initial tile request.
+  // Re-plan once the rendered view settles, including terrain clearance.
+  function refreshSettledCameraView() {
+    const view = getViewInfo();
+    const moved = previousCameraView && ['cameraX', 'cameraY', 'cameraZ', 'targetX', 'targetZ', 'distance']
+      .some(key => Math.abs(view[key] - previousCameraView[key]) > 0.01);
+    if (!previousCameraView || moved) {
+      previousCameraView = view;
+      if (moved) cameraViewPending = true;
+    } else if (cameraViewPending) {
+      cameraViewPending = false;
+      onViewSettled(view);
+    }
+  }
+
   controls.addEventListener('change', handleControlsChange);
   controls.addEventListener('end', handleControlsEnd);
 
@@ -1394,6 +1472,8 @@ export function createFlightScene({
       reconcileFollowAfterUserChange();
     }
     if (keepCameraAboveTerrain()) needsRender = true;
+    refreshSettledCameraView();
+    updateGroundCoverage();
 
     if (!needsRender) return;
     needsRender = false;
@@ -1416,8 +1496,11 @@ export function createFlightScene({
 
   function stop() {
     active = false;
+    previousCameraView = null;
+    cameraViewPending = false;
     terrainSuspended = true;
     tileLoadsSuspended = true;
+    for (const key of tileRetryTimers.keys()) cancelTileRetry(key);
     terrainGeneration += 1;
     terrain?.provider.retainTiles([]);
     for (const mesh of tileMeshes.values()) mesh.userData.terrainRequest = null;

@@ -13,10 +13,13 @@ function createHarness(options = {}) {
   const frames = new Map();
   let nextFrame = 0;
   let renders = 0;
+  let renderedScene = null;
   let controls;
   const imageLoads = [];
   const liveTextures = new Set();
   const notifications = [];
+  const timers = new Map();
+  let nextTimer = 0;
   const canvas = Object.assign(new EventTarget(), {
     classList: { add() {} },
     style: {},
@@ -25,7 +28,7 @@ function createHarness(options = {}) {
     domElement = canvas;
     setPixelRatio() {}
     setSize() {}
-    render() { renders += 1; }
+    render(scene) { renders += 1; renderedScene = scene; }
     dispose() {}
     forceContextLoss() { canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true })); }
   }
@@ -60,17 +63,24 @@ function createHarness(options = {}) {
     windowRef: {
       requestAnimationFrame(callback) { const id = ++nextFrame; frames.set(id, callback); return id; },
       cancelAnimationFrame(id) { frames.delete(id); },
+      setTimeout(callback) { const id = ++nextTimer; timers.set(id, callback); return id; },
+      clearTimeout(id) { timers.delete(id); },
     },
     documentRef: { createElement: createFakeCanvas },
     consoleRef: { warn() {} },
     onContextLost() { notifications.push({ type: 'lost', active: scene.isActive() }); },
     onContextRestored() { notifications.push({ type: 'restored', active: scene.isActive() }); },
     onTerrainUpdated() { notifications.push({ type: 'terrain' }); },
+    onViewSettled(view) { notifications.push({ type: 'view', view }); },
     ...options,
   });
   return {
-    scene, canvas, controls, frames, notifications, imageLoads, liveTextures,
+    scene, canvas, controls, frames, notifications, imageLoads, liveTextures, containerEl, timers,
+    getRenderedScene: () => renderedScene,
     renderCount: () => renders,
+    runTimers() {
+      for (const [id, callback] of [...timers]) { timers.delete(id); callback(); }
+    },
     runFrames() {
       const pending = [...frames.entries()];
       for (const [id, callback] of pending) { frames.delete(id); callback(); }
@@ -121,6 +131,109 @@ const imageryTiles = (prefix, count = 12) => Array.from({ length: count }, (_, x
   key: `${prefix}/${x}`, url: `https://tiles.invalid/${prefix}/${x}.png`, layer: 'base',
   minX: x * 100, maxX: (x + 1) * 100, minZ: 0, maxZ: 100,
 }));
+
+test('imagery arriving after the scene settles paints without a resize or camera gesture', () => {
+  const harness = createHarness();
+  try {
+    harness.scene.start();
+    harness.scene.setGroundTiles(imageryTiles('delayed', 1));
+    for (let frame = 0; frame < 150; frame += 1) harness.runFrames();
+    const before = harness.renderCount();
+    harness.imageLoads[0].finish();
+    harness.runFrames();
+    assert.equal(harness.renderCount(), before + 1);
+    const meshes = [];
+    harness.getRenderedScene().traverse(object => {
+      if (object.userData.layer) meshes.push(object);
+    });
+    assert.equal(meshes.length, 1);
+    assert.ok(meshes[0].visible && meshes[0].material.map);
+  } finally { harness.scene.dispose(); }
+});
+
+test('a resized scene requests imagery for its new viewport without a camera gesture', () => {
+  const harness = createHarness();
+  try {
+    harness.scene.start();
+    harness.runFrames();
+    harness.notifications.length = 0;
+    harness.containerEl.clientWidth = 390;
+    harness.containerEl.clientHeight = 844;
+    harness.scene.resize();
+    harness.runFrames();
+    const views = harness.notifications.filter(item => item.type === 'view');
+    assert.equal(views.length, 1);
+    assert.equal(views[0].view.width, 390);
+    assert.equal(views[0].view.height, 844);
+    harness.scene.resize();
+    harness.runFrames();
+    assert.equal(harness.notifications.filter(item => item.type === 'view').length, 1, 'unchanged size does not restart tile planning');
+  } finally { harness.scene.dispose(); }
+});
+
+test('an animated camera move refreshes imagery at its final target without a resize', () => {
+  const harness = createHarness();
+  try {
+    harness.scene.start();
+    harness.runFrames();
+    harness.notifications.length = 0;
+    harness.scene.moveTargetTo(20000, 0, 10000, { animate: true });
+    for (let frame = 0; frame < 80; frame += 1) harness.runFrames();
+    const views = harness.notifications.filter(item => item.type === 'view');
+    assert.ok(views.length > 0, 'the settled camera requests the map at its destination');
+    assert.equal(views.at(-1).view.targetX, 20000);
+    assert.equal(views.at(-1).view.targetZ, 10000);
+  } finally { harness.scene.dispose(); }
+});
+
+test('a temporary imagery failure retries without a resize and paints when it recovers', () => {
+  const harness = createHarness();
+  try {
+    harness.scene.start();
+    harness.scene.setGroundTiles(imageryTiles('retry', 1));
+    harness.imageLoads[0].fail();
+    assert.equal(harness.imageLoads.length, 1, 'retry waits instead of looping on failure');
+    harness.runTimers();
+    assert.equal(harness.imageLoads.length, 2);
+    harness.imageLoads[1].finish();
+    harness.runFrames();
+    harness.runTimers();
+    assert.equal(harness.imageLoads.length, 2, 'success ends the retry sequence');
+    assert.equal(harness.liveTextures.size, 1);
+  } finally { harness.scene.dispose(); }
+});
+
+test('imagery retries are bounded and suspended views or removed tiles cancel them', () => {
+  for (const action of ['exhaust', 'hide', 'context-lost', 'remove', 'dispose']) {
+    const harness = createHarness();
+    try {
+      harness.scene.start();
+      const tiles = imageryTiles('retry-limit', 1);
+      harness.scene.setGroundTiles(tiles);
+      harness.imageLoads[0].fail();
+      if (action === 'hide') harness.scene.stop();
+      if (action === 'context-lost') harness.canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+      if (action === 'remove') harness.scene.setGroundTiles([]);
+      if (action === 'dispose') harness.scene.dispose();
+      if (action === 'exhaust') {
+        for (let attempt = 1; attempt < 3; attempt += 1) {
+          harness.runTimers();
+          assert.equal(harness.imageLoads.length, attempt + 1);
+          harness.imageLoads[attempt].fail();
+        }
+        harness.scene.setGroundTiles(tiles);
+      }
+      harness.runTimers();
+      assert.equal(harness.imageLoads.length, action === 'exhaust' ? 3 : 1, action);
+      assert.equal(harness.timers.size, 0, `${action} leaves no retry timer`);
+      if (action === 'hide') {
+        harness.scene.start();
+        harness.scene.setGroundTiles(tiles);
+        assert.equal(harness.imageLoads.length, 2, 'resuming retries the still-wanted failed tile');
+      }
+    } finally { harness.scene.dispose(); }
+  }
+});
 
 for (const suspend of ['hidden', 'context-lost']) {
   test(`${suspend} scenes stop queued imagery until the visible view resumes`, () => {

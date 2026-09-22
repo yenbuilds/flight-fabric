@@ -37,15 +37,19 @@ function terrainScene(documentRef) {
     target = new THREE.Vector3();
     dispose() {}
   }
+  class TextureLoader {
+    setCrossOrigin() {}
+    load(_url, onLoad) { onLoad(new THREE.Texture()); }
+  }
   return createFlightScene({
     containerEl: { clientWidth: 800, clientHeight: 600, appendChild() {} }, documentRef,
     windowRef: { requestAnimationFrame: () => 1, cancelAnimationFrame() {} },
-    three: { THREE: { ...THREE, WebGLRenderer: Renderer }, OrbitControls: Controls, LineSegments2, LineSegmentsGeometry, LineMaterial },
+    three: { THREE: { ...THREE, WebGLRenderer: Renderer, TextureLoader }, OrbitControls: Controls, LineSegments2, LineSegmentsGeometry, LineMaterial },
   });
 }
 
 const mapTiles = () => Array.from({ length: 12 }, (_, x) => ({ z: 5, x, y: 0, key: `5/${x}/0`,
-  minX: x * 100, maxX: (x + 1) * 100, minZ: 0, maxZ: 100, layer: 'base' }));
+  url: `imagery:${x}`, minX: x * 100, maxX: (x + 1) * 100, minZ: 0, maxZ: 100, layer: 'base' }));
 const flushLoads = () => new Promise(resolve => setImmediate(resolve));
 
 test('removing online ground from the real scene prevents queued elevation downloads', async () => {

@@ -6,7 +6,6 @@ export function createTimelinePageController({
   buildTimelineSummaryState,
   buildTimelineEventDetailState,
   buildTimelineEventRows,
-  documentRef = document,
   typeLabels = {},
   markerLabels = {},
   formatTimeOffset = (ms) => String(ms),
@@ -61,26 +60,6 @@ export function createTimelinePageController({
     }));
   }
 
-  function findRenderedRowElement(rowKey) {
-    if (!documentRef || typeof documentRef.querySelector !== 'function' || !rowKey) return null;
-    return documentRef.querySelector(`[data-row-key="${rowKey}"]`);
-  }
-
-  function scrollRenderedRowIntoView(rowKey) {
-    const element = findRenderedRowElement(rowKey);
-    if (element) {
-      element.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-
-    const windowRef = documentRef?.defaultView;
-    if (typeof windowRef?.setTimeout === 'function') {
-      windowRef.setTimeout(() => {
-        findRenderedRowElement(rowKey)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-      }, 0);
-    }
-  }
-
   function selectTimelineRowByOriginalIndex(originalIndex, options = {}) {
     if (!Number.isFinite(originalIndex) || originalIndex < 0) return;
     if (!Array.isArray(displayedTimelineRows) || displayedTimelineRows.length === 0) return;
@@ -100,9 +79,13 @@ export function createTimelinePageController({
 
     if (!row) return;
 
-    timelineStore.ensureInspectorRowVisible?.(row.rowKey);
-    scrollRenderedRowIntoView(row.rowKey);
-    showEventDetail(row.event, row.rowKey, options);
+    if (options.openDetail === true) {
+      timelineStore.ensureInspectorRowVisible?.(row.rowKey);
+      showEventDetail(row.event, row.rowKey, options);
+      return;
+    }
+    if (options.focusMap !== false) timelineMapController.focusEvent(row.event);
+    timelineStore.revealEventRow(row.rowKey);
   }
 
   function handleStoreRowSelection(row) {

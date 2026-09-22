@@ -11,7 +11,8 @@
   grid-template-columns: clamp(15rem, 24%, 18rem) minmax(0, 1fr);
   min-width: 0;
   min-height: 34rem;
-  height: max(34rem, calc(100dvh - 9rem));
+  /* Reserve space for the scored-landing summary above the flight workspace. */
+  height: max(34rem, calc(100dvh - 15rem));
   overflow: hidden;
   border: 1px solid var(--logbook-pane-border);
   border-radius: var(--ff-radius-lg, 0.75rem);
@@ -144,19 +145,22 @@
 .logbook-review-body #timeline-map-card { display: flex; flex: 1; flex-direction: column; width: 100%; height: auto; min-height: 100%; border: 0; border-radius: 0; overflow: visible; }
 .logbook-review-body #timeline-map-card > * { flex-shrink: 0; }
 .logbook-review-body #timeline-map-card > div:first-child { padding: 0.65rem 0.85rem; }
+.logbook-review-body .timeline-map-header,
+.logbook-review-body .timeline-map-controls { flex-wrap: wrap; }
 /* A short window scrolls the replay tools instead of flattening the flight. */
 .logbook-review-body .timeline-map-wrap { flex: 1 0 20rem; height: auto; min-height: 20rem; }
 .logbook-review-body .timeline-map-surface { min-height: 0; }
-.logbook-review-body #vue-timeline-detail-root { display: none; }
 .logbook-page [data-review-view='events'] #vue-timeline-map-shell-root,
 .logbook-page [data-review-view='map'] #timeline-card { display: none; }
-/* Event details never cover the replay map: on wide windows they sit beside
-   it (the map stays centred on the event), on phones they rise as a sheet
-   that leaves the map visible above it. */
-.logbook-page [data-detail-open='true'] #vue-timeline-detail-root { display: block; }
-.logbook-page .timeline-detail-backdrop.is-embedded { position: relative; inset: auto; display: block; height: 100%; padding: 0; background: none; }
-.logbook-page .is-embedded .timeline-detail-drawer { width: 100%; height: 100%; max-height: 100%; border: 0; border-radius: 0; box-shadow: none; background: rgb(var(--panel)); }
-.logbook-page .is-embedded .timeline-detail-drawer-content { flex: 1; }
+/* Event details expand in the timeline, preserving neighbouring events. */
+.logbook-page .timeline-event-disclosure { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; color: rgb(var(--muted-foreground)); font-size: 0.6875rem; }
+.logbook-page .timeline-event-disclosure svg.is-expanded { transform: rotate(180deg); }
+.logbook-page .timeline-event.selected { background: rgb(var(--selection) / 0.12) !important; box-shadow: inset 3px 0 rgb(var(--selection)); }
+.logbook-page .timeline-event:focus-visible { outline: 2px solid rgb(var(--selection)); outline-offset: -2px; }
+.logbook-page .timeline-event-detail { position: relative; margin: 0.1rem 0.4rem 0.65rem 0.65rem; padding: 0.65rem; border: 1px solid rgb(var(--border)); border-radius: 0.5rem; background: rgb(var(--panel)); overflow-wrap: anywhere; }
+.logbook-page .timeline-event-metric { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.125rem 0.75rem; font-size: 0.75rem; }
+.logbook-page .timeline-event-metric > * { min-width: 0; }
+.logbook-page .timeline-event-collapse { margin-top: 0.75rem; min-height: 2.75rem; font-size: 0.75rem; }
 .logbook-page .logbook-history-summary { min-width: 0; }
 .logbook-page.is-restricted .timeline-split,
 .logbook-page.is-restricted .logbook-history-summary { display: none; }
@@ -172,14 +176,9 @@
   .logbook-review-body { grid-template-columns: minmax(15rem, 0.7fr) minmax(0, 1.3fr); }
   .logbook-page .logbook-review-views { display: none; }
   .logbook-review-body > #timeline-card { grid-column: 1; border-right: 1px solid var(--logbook-pane-border); }
-  .logbook-review-body > #vue-timeline-map-shell-root,
-  .logbook-review-body > #vue-timeline-detail-root { grid-column: 2; }
+  .logbook-review-body > #vue-timeline-map-shell-root { grid-column: 2; }
   .logbook-page [data-review-view='events'] #vue-timeline-map-shell-root { display: flex; }
   .logbook-page [data-review-view='map'] #timeline-card { display: flex; }
-  /* Details take the events column; the map keeps its column and its view. */
-  .logbook-page [data-detail-open='true'] #timeline-card { display: none; }
-  .logbook-page [data-detail-open='true'] .logbook-review-body > #vue-timeline-detail-root { grid-column: 1; border-right: 1px solid var(--logbook-pane-border); }
-  .logbook-page [data-detail-open='true'] #vue-timeline-map-shell-root { display: flex; grid-column: 2; }
   .logbook-page .logbook-review-toolbar { justify-content: flex-end; }
 }
 
@@ -209,8 +208,8 @@
   .logbook-page #timeline-mobile-viewer-flight-times { gap: 0.15rem 0.5rem; }
   /* A bottom sheet: the map (or list) stays visible above it, the sheet
      itself stays opaque so its text remains readable. */
-  .logbook-page .timeline-detail-backdrop:not(.is-embedded) { position: fixed; place-items: end center; padding: max(0.75rem, env(safe-area-inset-top)) 0 max(0, env(safe-area-inset-bottom)); z-index: 230; background: rgba(0, 0, 0, 0.28); }
-  .logbook-page .timeline-detail-backdrop:not(.is-embedded) .timeline-detail-drawer { width: 100%; max-height: min(60dvh, 100%); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4); }
+  .logbook-page .timeline-detail-backdrop { position: fixed; place-items: end center; padding: max(0.75rem, env(safe-area-inset-top)) 0 max(0, env(safe-area-inset-bottom)); z-index: 230; background: rgba(0, 0, 0, 0.28); }
+  .logbook-page .timeline-detail-backdrop .timeline-detail-drawer { width: 100%; max-height: min(60dvh, 100%); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4); }
   .logbook-review-body #timeline-events { min-height: 0; }
   .logbook-review-body #timeline-map-card > div:first-child { padding: 0.65rem 0.75rem; }
   .logbook-review-body .timeline-map-wrap { min-height: 8rem; }

@@ -4,7 +4,7 @@ import { containDialogFocus } from '../../ui/dialog-focus.js';
 import { useLandingStore } from '../stores/landing.js';
 import { useTimelineStore } from '../stores/timeline.js';
 
-const props = defineProps({ embedded: { type: Boolean, default: false } });
+const props = defineProps({ inline: { type: Boolean, default: false }, labelledBy: { type: String, default: 'timeline-detail-title' } });
 const landing = useLandingStore();
 const timeline = useTimelineStore();
 const dialog = ref(null);
@@ -19,11 +19,11 @@ function handleKeydown(event) {
     timeline.clearDetail();
     return;
   }
-  if (!props.embedded) containDialogFocus(event, dialog.value);
+  if (!props.inline) containDialogFocus(event, dialog.value);
 }
 
 watch(() => timeline.detailVisible, async (isOpen) => {
-  if (typeof document === 'undefined') return;
+  if (props.inline || typeof document === 'undefined') return;
   if (isOpen) {
     returnFocus = document.activeElement;
     await nextTick();
@@ -34,7 +34,7 @@ watch(() => timeline.detailVisible, async (isOpen) => {
   returnFocus = null;
   await nextTick();
   if (timeline.timelineMobileViewerOpen && target?.isConnected) target.focus?.({ preventScroll: true });
-});
+}, { immediate: true });
 
 const isLandingDetail = computed(() => (
   timeline.selectedLandingEvent?.type === 'landing'
@@ -76,21 +76,21 @@ const landingEssentialRows = computed(() => {
 <template>
   <div
     v-if="timeline.detailVisible"
-    class="timeline-detail-backdrop"
-    :class="{ 'is-embedded': embedded }"
-    @click.self="timeline.clearDetail()"
+    :class="inline ? 'timeline-event-detail' : 'timeline-detail-backdrop'"
+    @click.self="!inline && timeline.clearDetail()"
   >
     <section
       ref="dialog"
       id="timeline-detail"
-      class="timeline-detail-drawer"
-      :role="embedded ? 'region' : 'dialog'"
-      :aria-modal="embedded ? undefined : 'true'"
-      aria-labelledby="timeline-detail-title"
+      :class="{ 'timeline-detail-drawer': !inline }"
+      :role="inline ? 'region' : 'dialog'"
+      :aria-modal="inline ? undefined : 'true'"
+      :aria-labelledby="inline ? labelledBy : 'timeline-detail-title'"
       tabindex="-1"
       @keydown="handleKeydown"
     >
-      <header class="timeline-detail-drawer-header">
+      <h3 v-if="inline" id="timeline-detail-title" class="sr-only">{{ timeline.detailTitle }}</h3>
+      <header v-if="!inline" class="timeline-detail-drawer-header">
         <div class="min-w-0">
           <div id="timeline-detail-type" class="timeline-detail-drawer-kicker">{{ timeline.detailType }}</div>
           <h2 id="timeline-detail-title" class="timeline-detail-drawer-title">{{ timeline.detailTitle }}</h2>
@@ -107,7 +107,7 @@ const landingEssentialRows = computed(() => {
         </button>
       </header>
 
-      <div id="timeline-detail-content" class="timeline-detail-drawer-content">
+      <div id="timeline-detail-content" :class="{ 'timeline-detail-drawer-content': !inline }">
         <div id="timeline-detail-metrics" class="space-y-4">
           <template v-if="isLandingDetail">
             <dl v-if="landingEssentialRows.length > 0" class="grid grid-cols-2 gap-2">
@@ -138,7 +138,7 @@ const landingEssentialRows = computed(() => {
                 <div
                   v-for="row in section.rows"
                   :key="row.key"
-                  class="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] items-baseline gap-x-3 gap-y-0.5 text-xs"
+                  :class="inline ? 'timeline-event-metric' : 'grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] items-baseline gap-x-3 gap-y-0.5 text-xs'"
                 >
                   <dt class="text-gray-500">{{ row.label }}</dt>
                   <dd class="min-w-0 break-words" :class="row.valueClass || 'text-gray-300 font-mono'">{{ row.value }}</dd>
@@ -148,7 +148,7 @@ const landingEssentialRows = computed(() => {
               <p v-if="section.noteText" class="mt-2 text-xs italic leading-snug text-gray-400">{{ section.noteText }}</p>
             </section>
         </template>
-        <div v-else class="text-xs text-gray-500">No metrics</div>
+        <div v-else class="text-xs text-gray-500">No additional measurements were recorded for this event.</div>
       </div>
 
       <div
@@ -173,6 +173,7 @@ const landingEssentialRows = computed(() => {
         Open Landing Debrief
       </button>
     </div>
+    <button v-if="inline" id="timeline-detail-close" type="button" class="timeline-event-collapse ff-button-secondary" @click="timeline.clearDetail()">Hide details</button>
   </section>
   </div>
 </template>

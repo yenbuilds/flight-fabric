@@ -5125,14 +5125,21 @@ async function main() {
         { rowKey: 'phase-row', event: { type: 'phase_start' } },
         { rowKey: 'first-landing-row', event: { type: 'landing' } },
         { rowKey: 'taxi-row', event: { type: 'phase_start' } },
-        { rowKey: 'latest-landing-row', event: { type: 'landing' } },
+        { rowKey: 'latest-landing-row', event: { type: 'landing', id: 'latest', approach: { verdict: 'MARGINAL' } } },
       ],
       emptyVisible: false,
     });
     assert.equal(store.latestLandingInspectorRow?.rowKey, 'latest-landing-row', 'landing shortcut should target the most recent landing in the full inspector list');
-    assert.equal(store.selectLatestLandingRow(), true, 'landing shortcut should reuse normal inspector row selection');
-    assert.equal(store.inspectorSelectedRowKey, 'latest-landing-row', 'landing shortcut should select the landing row');
-    assert.deepEqual(selectedRows, ['landing-row', 'latest-landing-row'], 'landing shortcut should call the same inspector selection handler as a timeline row click');
+    store.setSelectedEventRowKey('taxi-row');
+    store.setDetail({ visible: true, title: 'Taxi' });
+    assert.equal(store.openLatestLanding(), true, 'landing shortcut opens the debrief directly');
+    assert.deepEqual(selectedLanding, store.latestLandingInspectorRow.event, 'the full latest landing and its assessment reach the debrief');
+    assert.equal(store.inspectorSelectedRowKey, 'taxi-row', 'direct debrief preserves the current event selection');
+    assert.equal(store.detailTitle, 'Taxi', 'direct debrief preserves existing details');
+    assert.deepEqual(selectedRows, ['landing-row'], 'direct debrief does not open an intermediate event summary');
+    store.bindDetailActions({});
+    assert.equal(store.openLatestLanding(), false, 'an unbound debrief action is unavailable');
+
 
     store.setDetail({
       visible: true,
@@ -5166,7 +5173,7 @@ async function main() {
     assert.equal(store.inspectorEventListVisible, false, 'clearInspector should remove timeline rows from the store');
     assert.equal(store.inspectorEmptyVisible, true, 'clearInspector should restore the empty inspector state');
     assert.equal(store.inspectorEmptyMessage, 'No timeline loaded', 'clearInspector should restore the default empty copy');
-    assert.equal(store.selectLatestLandingRow(), false, 'landing shortcut should be unavailable without a landing row');
+    assert.equal(store.openLatestLanding(), false, 'landing shortcut should be unavailable without a landing row');
   });
 
   await test('timeline event filters default on, persist and paginate the visible rows without changing the recording or scores', () => {
@@ -5202,7 +5209,7 @@ async function main() {
     store.setInspectorFilter('automation_event', false);
     store.setInspectorFilter('flight_guidance_event', false);
     assert.equal(store.inspectorHiddenRowCount, 302);
-    assert.equal(store.selectLatestLandingRow(), true);
+    assert.equal(store.selectEventRow('landing'), true);
     assert.equal(store.inspectorRows.at(-1).rowKey, 'landing', 'landing selection expands the filtered page');
     assert.equal(store.ensureInspectorRowVisible('flap-0'), false, 'map/replay selection must not silently enable hidden event types');
     assert.deepEqual(store.inspectorAllRows, rows);

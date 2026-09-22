@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -44,7 +44,8 @@
     "test:approach-profile-renderer": "node tests/scripts/test-approach-profile-renderer.js",
     "test:browser-smoke": "npm run frontend:build && node tests/scripts/test-browser-smoke.js",
     "test:pmdg-737-preview": "node tests/scripts/test-pmdg-737-preview.js",
-    "test:map-3d": "node --test frontend/src/maps/three-d/projection.test.js frontend/src/maps/three-d/track-geometry.test.js frontend/src/maps/three-d/ground-tiles.test.js frontend/src/maps/three-d/terrain-tiles.test.js frontend/src/maps/three-d/view-mode.test.js frontend/src/maps/three-d/sun-position.test.js frontend/src/maps/three-d/aircraft-model.test.js frontend/src/maps/three-d/scene.test.js frontend/src/live-map/live-track-buffer.test.js frontend/src/live-map/map-3d-controller.test.js frontend/src/live-map/runtime.test.js frontend/src/timeline/map-3d-controller.test.js",
+    "test:map-3d-terrain-browser": "node tests/scripts/test-map-3d-terrain-browser.js",
+    "test:map-3d": "node --test frontend/src/maps/three-d/projection.test.js frontend/src/maps/three-d/track-geometry.test.js frontend/src/maps/three-d/ground-tiles.test.js frontend/src/maps/three-d/ground-coverage.test.js frontend/src/maps/three-d/terrain-tiles.test.js frontend/src/maps/three-d/view-mode.test.js frontend/src/maps/three-d/sun-position.test.js frontend/src/maps/three-d/aircraft-model.test.js frontend/src/maps/three-d/scene.test.js frontend/src/live-map/live-track-buffer.test.js frontend/src/live-map/map-3d-controller.test.js frontend/src/live-map/runtime.test.js frontend/src/timeline/map-3d-controller.test.js",
     "test:msfs-toolbar-panel": "npm run build:backend:runtime && node --test tests/scripts/test-msfs-toolbar-panel.js",
     "build:msfs-toolbar-panel": "node msfs-toolbar-panel/tools/build-package.js && node scripts/build-toolbar-voice-reference.mjs",
     "test:user-settings": "node tests/scripts/test-user-settings.js",

@@ -1,6 +1,7 @@
 import { createLandingCardRenderer, replaceLandingMessageUltimateStability } from './card.js';
 import { approachProfileApi } from './approach-profile-global.js';
 import { gradeHex, gradeSeverity, normalizeLandingData } from './scoring.js';
+import { buildLandingDetailSections } from '../timeline/landing-detail.js';
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
@@ -202,7 +203,10 @@ export function createLandingController({
     if (!event || event.type !== 'landing') return;
     const openModal = options.openModal === true;
     if (openModal) {
-      getLandingStore()?.openLandingModal?.({ loading: false });
+      getLandingStore()?.openLandingModal?.({
+        loading: false,
+        contextSections: buildLandingDetailSections(event),
+      });
     }
 
     const observedVerticalSpeed = typeof event.vs_fpm === 'number' && Number.isFinite(event.vs_fpm)

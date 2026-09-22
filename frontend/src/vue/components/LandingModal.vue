@@ -2,10 +2,8 @@
 import { computed } from 'vue';
 import LandingPanel from './LandingPanel.vue';
 import { useLandingStore } from '../stores/landing.js';
-import { useTimelineStore } from '../stores/timeline.js';
 
 const landing = useLandingStore();
-const timeline = useTimelineStore();
 
 const RECORDED_CONTEXT_ROWS = {
   'landing-snapshot': {
@@ -27,9 +25,7 @@ const RECORDED_CONTEXT_ROWS = {
 };
 
 const recordedContextSections = computed(() => {
-  if (!timeline.detailVisible || timeline.selectedLandingEvent?.type !== 'landing') return [];
-
-  return timeline.detailMetricSections.flatMap((section) => {
+  return landing.landingModalContextSections.flatMap((section) => {
     const config = RECORDED_CONTEXT_ROWS[section?.key];
     if (!config) return [];
     const allowedKeys = new Set(config.keys);

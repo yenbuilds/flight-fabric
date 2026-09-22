@@ -351,6 +351,8 @@ export const useTimelineStore = defineStore('timeline', {
     inspectorRowLimit: INSPECTOR_RENDER_INITIAL_LIMIT,
     inspectorTotalRowCount: 0,
     inspectorSelectedRowKey: '',
+    inspectorRevealedRowKey: '',
+    inspectorRevealRequest: 0,
     detailVisible: false,
     detailType: '--',
     detailTitle: '--',
@@ -493,7 +495,7 @@ export const useTimelineStore = defineStore('timeline', {
     inspectorEventListVisible: (state) => state.inspectorRows.length > 0,
 
     filteredInspectorRows: (state) => state.inspectorAllRows.filter(row => (
-      state.inspectorFilters[row?.event?.type] !== false
+      state.inspectorFilters[row?.event?.type] !== false || row.rowKey === state.inspectorRevealedRowKey
     )),
 
     inspectorHiddenRowCount() {
@@ -1152,6 +1154,7 @@ export const useTimelineStore = defineStore('timeline', {
       this.inspectorRouteText = state.routeText || '';
       this.inspectorRouteVisible = state.routeVisible === true;
       this.inspectorAllRows = allRows;
+      this.inspectorRevealedRowKey = '';
       this.inspectorRowLimit = INSPECTOR_RENDER_INITIAL_LIMIT;
       this.refreshInspectorRows();
       this.inspectorSelectedRowKey = state.selectedRowKey || '';
@@ -1168,6 +1171,7 @@ export const useTimelineStore = defineStore('timeline', {
       this.inspectorRowLimit = INSPECTOR_RENDER_INITIAL_LIMIT;
       this.inspectorTotalRowCount = 0;
       this.inspectorSelectedRowKey = '';
+      this.inspectorRevealedRowKey = '';
       this.inspectorEmptyVisible = true;
       this.inspectorEmptyMessage = DEFAULT_INSPECTOR_EMPTY_MESSAGE;
     },
@@ -1186,9 +1190,31 @@ export const useTimelineStore = defineStore('timeline', {
       return true;
     },
 
-    selectLatestLandingRow() {
-      const rowKey = this.latestLandingInspectorRow?.rowKey;
-      return rowKey ? this.selectEventRow(rowKey) : false;
+    toggleEventRowDetail(rowKey) {
+      if (this.detailVisible && this.inspectorSelectedRowKey === rowKey) {
+        this.clearDetail();
+        return true;
+      }
+      return this.selectEventRow(rowKey);
+    },
+
+    revealEventRow(rowKey) {
+      if (!this.inspectorAllRows.some(row => row.rowKey === rowKey)) return false;
+      // Reveal only this event when its category is filtered, without changing
+      // the user's saved filter preferences.
+      this.inspectorRevealedRowKey = rowKey;
+      this.refreshInspectorRows();
+      this.ensureInspectorRowVisible(rowKey);
+      this.clearDetail();
+      this.inspectorSelectedRowKey = rowKey;
+      this.inspectorRevealRequest += 1;
+      return true;
+    },
+
+    openLatestLanding() {
+      const event = this.latestLandingInspectorRow?.event;
+      if (!event || typeof this._onOpenSelectedLanding !== 'function') return false;
+      return this._onOpenSelectedLanding(event) !== false;
     },
 
     refreshInspectorRows() {
@@ -1200,6 +1226,7 @@ export const useTimelineStore = defineStore('timeline', {
     setInspectorFilter(key, enabled) {
       if (!INSPECTOR_FILTER_OPTIONS.some(option => option.key === key) || typeof enabled !== 'boolean') return;
       this.inspectorFilters[key] = enabled;
+      this.inspectorRevealedRowKey = '';
       writeStorageJson(INSPECTOR_FILTER_STORAGE_KEY, this.inspectorFilters);
       this.inspectorRowLimit = INSPECTOR_RENDER_INITIAL_LIMIT;
       this.refreshInspectorRows();

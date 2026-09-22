@@ -6825,8 +6825,13 @@ async function main() {
     const focusCountBeforeSkip = focusedEvents.length;
     page.selectTimelineRowByOriginalIndex(0, { focusMap: false });
     assert.equal(timelineStore.inspectorSelectedRowKey, 'row-0', 'original-index selection should still select the matching row');
-    assert.equal(timelineStore.detailTitle, 'Phase: APPROACH', 'original-index selection should still publish detail state');
-    assert.equal(focusedEvents.length, focusCountBeforeSkip, 'original-index selection should be able to skip redundant map focus');
+    assert.equal(timelineStore.detailVisible, false, 'desktop map selection locates an event without opening details');
+    assert.equal(focusedEvents.length, focusCountBeforeSkip, 'map selection skips redundant map focus');
+    assert.equal(timelineStore.inspectorRevealRequest, 1, 'selection requests scrolling after rendering');
+    timelineStore.toggleEventRowDetail('row-0');
+    assert.equal(timelineStore.detailTitle, 'Phase: APPROACH');
+    timelineStore.toggleEventRowDetail('row-0');
+    assert.equal(timelineStore.detailVisible, false, 'the same disclosure collapses the detail');
 
     page.loadTimeline({ flightId: 'filtered-flight', events: [
       { type: 'configuration_event', timestampMs: 1000, eventType: 'flaps_changed' },
@@ -6836,12 +6841,20 @@ async function main() {
     timelineStore.setInspectorFilter('configuration_event', false);
     assert.deepEqual(timelineStore.inspectorRows.map(row => row.rowKey), ['row-1', 'row-2']);
     page.selectTimelineRowByOriginalIndex(2);
-    assert.equal(timelineStore.detailLandingActionVisible, true, 'map selection must retain original indexes after filtering');
+    assert.equal(timelineStore.detailVisible, false, 'map selection keeps the landing summary collapsed');
     assert.equal(timelineStore.inspectorSelectedRowKey, 'row-2');
     page.selectTimelineRowByOriginalIndex(0);
-    assert.equal(timelineStore.detailType, 'configuration_event', 'a hidden map event can still open its details');
+    assert.equal(timelineStore.detailVisible, false, 'a filtered map event is revealed without details');
     assert.equal(timelineStore.inspectorFilters.configuration_event, false, 'map selection must not change list filters');
-    assert.deepEqual(timelineStore.inspectorRows.map(row => row.rowKey), ['row-1', 'row-2']);
+    assert.deepEqual(timelineStore.inspectorRows.map(row => row.rowKey), ['row-0', 'row-1', 'row-2']);
+    const revealRequest = timelineStore.inspectorRevealRequest;
+    page.selectTimelineRowByOriginalIndex(0);
+    assert.equal(timelineStore.inspectorRevealRequest, revealRequest + 1, 'a repeated click requests another scroll');
+    page.selectTimelineRowByOriginalIndex(2);
+    assert.deepEqual(timelineStore.inspectorRows.map(row => row.rowKey), ['row-1', 'row-2'], 'the temporary filter exception follows selection');
+    page.selectTimelineRowByOriginalIndex(0, { openDetail: true });
+    assert.equal(timelineStore.detailType, 'configuration_event', 'compact map selection keeps its existing detail sheet');
+    assert.equal(timelineStore.detailVisible, true);
 
     page.showEmpty();
     assert.equal(timelineStore.inspectorRows.length, 0, 'showEmpty should clear inspector rows through the store');
@@ -6927,6 +6940,7 @@ async function main() {
 
     assert.equal(tabsStore.activeTabId, 'timeline', 'timeline landing action should keep the current page active');
     assert.equal(landingStore.landingModalOpen, true, 'timeline landing action should open the landing debrief modal');
+    assert.ok(landingStore.landingModalContextSections.some(section => section.rows?.some(row => row.key === 'runway' && row.value.includes('34L'))), 'debrief context is built from the opened landing');
     assert.equal(landingStore.cardVisible, true, 'timeline landing action should reveal the landing card through the store');
     assert.equal(landingStore.waitingVisible, false, 'timeline landing action should hide the waiting state through the store');
     assert.equal(landingStore.landingCard.rollout.visible, true, 'timeline landing handoff should preserve rollout analysis');

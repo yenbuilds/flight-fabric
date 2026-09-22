@@ -6,5 +6,3 @@ export const SUPPORT_NOTE = 'I’m Yen, and I work on FlightFabric in my spare t
 export const SUPPORT_NOTE_SHORT = 'I’m Yen, and I build this in my spare time. If it has earned a place on your second screen, a coffee keeps the next improvement coming.';
 
 export const SUPPORT_THANKS = 'Thank you to everyone who has bought a coffee. It genuinely keeps this going.';
-
-export const SUPPORT_MADE_BY = 'Built in evenings by one person.';

@@ -6,6 +6,8 @@ import TimelineTabShell from '../../frontend/src/vue/components/TimelineTabShell
 import { useTimelineStore } from '../../frontend/src/vue/stores/timeline.js';
 import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
 import { useStatusStore } from '../../frontend/src/vue/stores/status.js';
+import { createTimelinePageController } from '../../frontend/src/timeline/page-controller.js';
+import { buildTimelineEventDetailState } from '../../frontend/src/timeline/detail-state.js';
 import { setAppService } from '../../frontend/app-shared.js';
 
 const pinia = createPinia();
@@ -32,22 +34,38 @@ const flights = Array.from({ length: 18 }, (_, index) => ({
 Object.assign(flights[2], { displayRouteLabel: 'NEAR TA61 → NEAR K90F', departureCountry: 'US', arrivalCountry: 'US', aircraft: '' });
 Object.assign(flights[3], { displayRouteLabel: 'NEAR A VERY LONG AIRPORT NAME → NEAR ANOTHER LONG AIRPORT', aircraft: 'A very long recorded aircraft variant and livery name' });
 const storage = { dir: 'C:/Users/Pilot/Documents/Flight Fabric/Flight Logs', exists: true, fileCount: 18, totalBytes: 18874368 };
-const actions = { landing: '', deletePrompt: '', deleted: '', storage: '' };
+const actions = { debrief: null, landing: '', deletePrompt: '', deleted: '', storage: '' };
 let requests = 0;
 let holdResponse = false;
-function loadFlight(flight = flights[0]) {
+const page = createTimelinePageController({
+  timelineStore: timeline,
+  timelineMapController: { render: () => [], focusEvent() {}, reset() {} },
+  normalizeTimelineForUI: value => value,
+  compactTimelineEvents: events => events,
+  buildTimelineSummaryState: () => ({ visible: true, eventCountText: '24', cautionCountText: '1', violationCountText: '0', durationText: '1h 30m', distanceText: '384 NM', fuelBurnText: '--' }),
+  buildTimelineEventDetailState,
+  buildTimelineEventRows: events => events.map((event, index) => ({
+    rowKey: `event-${index}`, index, originalIndexStart: index, originalIndexEnd: index,
+    event, type: event.type === 'phase_start' ? 'phase' : 'marker',
+    title: event.type === 'landing' ? 'Landing at YMML 16' : event.newPhase || 'Flaps extended',
+    subtitle: event.type === 'landing' ? 'Recorded touchdown \u00b7 138 kt' : 'Recorded flight phase',
+    timeOffsetText: `${index * 4}m`, badges: [],
+  })),
+});
+function loadFlight(flight = flights[0], count = 24) {
   timeline.clearTimelineLoading();
-  timeline.setLoadedTimelineIdentity({ ...flight, startTime: flight.recordingStartIso,
-    simDateTimeLocal: '2026-09-19T12:35:00', simDateTimeUtc: '2026-09-19T02:35:00Z' });
-  timeline.setInspectorState({ flightIdText: '1h 30m', routeText: flight.route, routeVisible: true,
-    emptyVisible: false, eventListVisible: true,
-    rows: Array.from({ length: 24 }, (_, index) => ({ rowKey: `event-${index}`, index,
-      type: index === 22 ? 'landing' : 'phase_start', event: { type: index === 22 ? 'landing' : 'phase_start' },
-      title: index === 22 ? 'Landing at YMML 16' : ['Pushback', 'Taxi', 'Takeoff', 'Climb', 'Cruise', 'Descent'][index % 6],
-      subtitle: index === 22 ? 'Recorded touchdown · 138 kt' : 'Recorded flight phase', timeOffsetText: `${index * 4}m`, badges: [] })),
+  page.loadTimeline({ ...flight, startTime: flight.recordingStartIso,
+    simDateTimeLocal: '2026-09-19T12:35:00', simDateTimeUtc: '2026-09-19T02:35:00Z',
+    events: Array.from({ length: count }, (_, index) => ({
+      type: index === 22 ? 'landing' : index === 299 ? 'configuration_event' : 'phase_start',
+      timestampMs: 1000 + index * 240000,
+      newPhase: ['Pushback', 'Taxi', 'Takeoff', 'Climb', 'Cruise', 'Descent'][index % 6],
+      previousPhase: index ? ['Pushback', 'Taxi', 'Takeoff', 'Climb', 'Cruise', 'Descent'][(index - 1) % 6] : '',
+      context: index === 299 ? { flap_position: 1 } : {},
+    })),
   });
-  timeline.setSummary({ visible: true, eventCountText: '24', cautionCountText: '1', violationCountText: '0', durationText: '1h 30m', distanceText: '384 NM', fuelBurnText: '--' });
 }
+
 timeline.bindRequestActions({
   onRequestList: payload => { queueMicrotask(() => timeline.ingestMessage({ type: 'timelineList', flights, requestId: payload.requestId })); return true; },
   onRequestTimeline: payload => { requests++; if (!holdResponse) loadFlight(flights.find(f => f.filePath === payload.filePath) || flights[0]); return true; },
@@ -58,16 +76,14 @@ timeline.bindPanelActions({
   openStorageFolder: dir => { actions.storage = dir; return true; },
 });
 timeline.bindDetailActions({
-  onOpenSelectedLanding: () => true,
+  onOpenSelectedLanding: event => { actions.debrief = event.timestampMs; return true; },
   onOpenFlightLanding: flight => { actions.landing = flight.filePath; return true; },
 });
-timeline.bindInspectorActions({ onSelectRow: () => {
-  timeline.setDetail({ visible: true, type: 'phase_start', title: 'Recorded climb', metricSections: [
-    { key: 'recorded', title: 'Recorded measurements', rows: [{ key: 'alt', label: 'Altitude', value: '12,000 ft' }], noteText: '', emptyText: '' },
-  ] });
-} });
 timeline.ingestMessage({ type: 'timelineList', flights, storage });
-window.logbookTest = { timeline, actions, settle: nextTick, requests: () => requests,
+window.logbookTest = { timeline, actions,
+  locateMapEvent: index => page.selectTimelineRowByOriginalIndex(index, { focusMap: false, openDetail: matchMedia('(max-width: 1100px)').matches }),
+  loadManyEvents: () => loadFlight(flights[0], 320),
+  loadFlight, settle: nextTick, requests: () => requests,
   restricted() { timeline.markListRestricted(); },
   restore() { status.setWebsocket('ready'); timeline.ingestMessage({ type: 'timelineList', flights }); },
   holdResponse(value) { holdResponse = value; },

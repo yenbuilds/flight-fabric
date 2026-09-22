@@ -26,6 +26,18 @@ async function browser() {
     await win.loadURL(process.env.FF_LOGBOOK_TEST_URL);
     for (let n = 0; n < 150; n++) { if (await evaluate('return Boolean(window.logbookTest);')) break; await wait(50); }
     assert(await evaluate('return Boolean(window.logbookTest);'), `fixture is ready: ${errors.join('\n')}`);
+    for (const [width, height] of [[1920,1080], [1440,900], [1280,720], [1101,700], [390,844]]) {
+      win.setContentSize(width, height);
+      await win.webContents.capturePage();
+      await wait(100);
+      const history = await evaluate(`window.scrollTo(0,0);
+        const toggle=document.getElementById('logbook-panel-toggle'), r=toggle.getBoundingClientRect();
+        const summary=document.getElementById('vue-logbook-root').getBoundingClientRect();
+        const workspace=document.querySelector('.logbook-workspace').getBoundingClientRect();
+        return { visible:r.top>=0 && r.bottom<=innerHeight, above:summary.bottom<=workspace.top, collapsed:toggle.getAttribute('aria-expanded')==='false', count:document.querySelectorAll('#logbook-panel-toggle').length };`);
+      assert(history.visible && history.above && history.collapsed && history.count===1, `${width}x${height}: scored landings are discoverable before scrolling: ${JSON.stringify(history)}`);
+      fs.writeFileSync(path.join(OUTPUT, `history-visible-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
     for (const [width, fontSize] of [[1920,16], [1255,16], [1101,16], [800,16], [390,16], [320,16], [320,20]]) {
       win.setContentSize(width, 1000);
       await evaluate(`document.documentElement.style.fontSize='${fontSize}px';`);
@@ -71,6 +83,7 @@ async function browser() {
     await win.webContents.capturePage(); await wait(80);
     fs.writeFileSync(path.join(OUTPUT, 'flight-options-1255.png'), (await win.webContents.capturePage()).toPNG());
     win.setContentSize(390, 1000);
+    await win.webContents.capturePage();
     await wait(150);
     assert(await evaluate("const options=document.querySelector('.timeline-flight-options'); const buttons=[...options.querySelectorAll('button')]; return document.documentElement.scrollWidth<=innerWidth && buttons.every(el=>{const r=el.getBoundingClientRect();return r.height>=44 && r.left>=0 && r.right<=innerWidth;});"), 'expanded flight actions fit the phone and retain touch targets');
     await win.webContents.capturePage(); await wait(60);
@@ -92,7 +105,16 @@ async function browser() {
     await evaluate("document.querySelector('.logbook-storage summary').click();");
     await evaluate("const search=document.querySelector('.logbook-flight-search input'); search.value='YSSY'; search.dispatchEvent(new Event('input',{bubbles:true})); await logbookTest.settle();");
     await evaluate("document.querySelector('.timeline-flight-open').click(); await logbookTest.settle();");
-    for (const width of [1920, 1440, 1100, 800, 390, 320]) {
+    await evaluate("window.retainedReplay=document.querySelector('#timeline-map'); document.getElementById('logbook-panel-toggle').focus();");
+    win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Return' });
+    win.webContents.sendInputEvent({ type:'char', keyCode:'Return' });
+    win.webContents.sendInputEvent({ type:'keyUp', keyCode:'Return' });
+    await wait(100);
+    assert(await evaluate("return document.getElementById('logbook-panel-toggle').getAttribute('aria-expanded')==='true' && document.getElementById('logbook-panel-body').getBoundingClientRect().height>0;"), 'View history expands scored landings using the keyboard');
+    await evaluate("document.getElementById('logbook-panel-toggle').click(); await logbookTest.settle();");
+    assert(await evaluate("return document.querySelector('#timeline-map')===retainedReplay && logbookTest.timeline.loadedTimelineFlightId==='RECORDED-0';"), 'opening and closing history preserves the selected flight and replay surface');
+    await evaluate('logbookTest.timeline.analysisRescore.applied=true; await logbookTest.settle();');
+    for (const width of [1920, 1440, 1255, 1101, 1100, 800, 390, 320]) {
       win.setContentSize(width, 1000);
       await wait(180);
       const state = await evaluate(`const viewer = document.querySelector('.timeline-split'); const list = document.querySelector('#vue-timeline-flights-root');
@@ -108,6 +130,7 @@ async function browser() {
       assert.equal(state.overflow, false, `${width}: no horizontal overflow`);
       assert.deepEqual(state.duplicates, [], `${width}: unique runtime IDs`);
       assert.equal(state.selected, 'RECORDED-0', `${width}: rotation retains selected flight`);
+      assert(await evaluate("return document.getElementById('timeline-open-analysis-rescore-btn').textContent.includes('Compare scoring rules') && document.getElementById('timeline-analysis-rescore-applied-badge').textContent==='Saved';"), 'saved scoring is visible without changing the comparison action label');
       assert.equal(state.search, 'YSSY', `${width}: review and resizing retain flight search`);
       assert(state.eventsVisible, `${width}: events have usable space`);
       assert(state.summaryWidth >= (width > 1100 ? state.viewerWidth : state.contentWidth) - 2, `${width}: summary fills the available review width without collapsing measurements`);
@@ -118,18 +141,26 @@ async function browser() {
         assert.equal(state.modal, 'true', `${width}: compact review has modal semantics`);
         assert.equal(state.mapDisplay, 'none', `${width}: map does not crowd events`);
       }
-      await evaluate("document.querySelector('.timeline-event').click(); await logbookTest.settle();");
+      await evaluate("document.querySelector('.timeline-event').focus(); document.querySelector('.timeline-event').click(); await logbookTest.settle();");
       assert.equal(await evaluate("return document.querySelector('#timeline-detail').getAttribute('role');"), width > 1100 ? 'region' : 'dialog');
       assert.equal(await evaluate("return logbookTest.timeline.loadedTimelineFlightId;"), 'RECORDED-0');
       if (width === 1920) {
         for (const rotatedWidth of [390, 1920]) {
           win.setContentSize(rotatedWidth, 1000);
+          await win.webContents.capturePage();
           await wait(150);
-          assert.equal(await evaluate('return document.activeElement.id;'), 'timeline-detail-close', 'resizing an open event detail retains focus inside the detail');
+          assert.equal(await evaluate('return document.activeElement.id;'), rotatedWidth <= 1100 ? 'timeline-detail-close' : 'timeline-event-event-0', 'resizing retains focus on the sheet or inline disclosure');
           assert.equal(await evaluate('return logbookTest.timeline.inspectorSelectedRowKey;'), 'event-0', 'resizing does not discard the selected event');
         }
       }
-      await evaluate("document.querySelector('#timeline-detail-close').click(); await logbookTest.settle();");
+      if (width > 1100) {
+        assert(await evaluate("return document.querySelector('.timeline-event').getAttribute('aria-expanded') === 'true' && document.querySelector('.timeline-event-item').contains(document.querySelector('#timeline-detail')) && getComputedStyle(document.querySelector('#timeline-card')).display !== 'none';"), 'desktop details expand beneath the row while keeping the list');
+        assert.equal(await evaluate("return getComputedStyle(document.querySelector('#vue-timeline-map-shell-root')).display;"), 'flex', 'desktop detail preserves the map');
+        assert(await evaluate("return document.documentElement.scrollWidth <= innerWidth && document.querySelector('#timeline-detail').getBoundingClientRect().right <= document.querySelector('#timeline-events').getBoundingClientRect().right;"), 'inline details fit the event column');
+        fs.writeFileSync(path.join(OUTPUT, `inline-detail-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      }
+      await evaluate("document.querySelector('#timeline-detail-close').focus(); document.querySelector('#timeline-detail-close').click(); await logbookTest.settle();");
+      assert.equal(await evaluate("return document.activeElement.dataset.rowKey;"), 'event-0', 'collapsing details restores event focus');
       await evaluate("[...document.querySelectorAll('.logbook-review-views button')].find(e => e.textContent === 'Replay map').click(); await logbookTest.settle();");
       assert.equal(await evaluate("return getComputedStyle(document.querySelector('#vue-timeline-map-shell-root')).display;"), 'flex');
       assert.equal(await evaluate("return localStorage.getItem('flightFabric.logbookReviewView.v1');"), 'map', 'preferred review surface is remembered on this device');
@@ -137,6 +168,73 @@ async function browser() {
       await win.webContents.capturePage(); await wait(80);
       fs.writeFileSync(path.join(OUTPUT, `review-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
+    win.webContents.debugger.attach('1.3');
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    for (const [width, height] of [[1440, 1000], [1101, 700], [390, 844], [700, 390]]) {
+      win.setContentSize(width, height);
+      await win.webContents.capturePage();
+      await wait(100);
+      await evaluate("[...document.querySelectorAll('.logbook-review-views button')].find(button=>button.textContent==='Replay map').click(); await logbookTest.settle(); document.querySelector('#map-filter-toggle').scrollIntoView({block:'center',behavior:'instant'}); document.querySelector('#map-filter-toggle').click(); await logbookTest.settle(); window.beforeMapFilter=JSON.stringify(logbookTest.timeline.inspectorFilters); window.beforeMapHidden=Object.values(logbookTest.timeline.mapFilters).filter(value=>!value).length;");
+      assert(await evaluate("return document.querySelector('#map-filter-toggle').getAttribute('aria-expanded')==='true' && document.querySelector('#map-filter-dropdown').textContent.includes('event list is filtered separately');"), 'map filters explain their independent scope');
+      assert(await evaluate("return document.querySelector('.logbook-review-views button[aria-pressed=true]').textContent==='Replay map';"), 'the selected view label matches the visible replay map');
+      await evaluate("document.querySelector('[data-timeline-map-filter=markers]').click(); await logbookTest.settle();");
+      assert(await evaluate("return JSON.stringify(logbookTest.timeline.inspectorFilters)===beforeMapFilter && Object.values(logbookTest.timeline.mapFilters).filter(value=>!value).length!==beforeMapHidden && document.querySelector('#map-filter-toggle').textContent.includes(Object.values(logbookTest.timeline.mapFilters).filter(value=>!value).length+' types off');"), 'map filter changes update their indicator without changing event-list filters');
+      await evaluate("const last=document.querySelector('[data-timeline-map-filter=scores]'); last.scrollIntoView({block:'center',behavior:'instant'}); last.focus({preventScroll:true});");
+      const mapFilter = await evaluate("const last=document.querySelector('[data-timeline-map-filter=scores]'), r=last.getBoundingClientRect(); return { reachable: r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight && document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)===last, overflow:document.documentElement.scrollWidth>innerWidth }; ");
+      assert(mapFilter.reachable && !mapFilter.overflow, `${width}x${height}: last map filter remains reachable and unobscured: ${JSON.stringify(mapFilter)}`);
+      fs.writeFileSync(path.join(OUTPUT, `map-filters-${width}x${height}.png`), (await win.webContents.capturePage()).toPNG());
+      win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Escape' });
+      win.webContents.sendInputEvent({ type:'keyUp', keyCode:'Escape' });
+      await wait(60);
+      assert(await evaluate("return !logbookTest.timeline.mapFilterMenuOpen && document.activeElement.id==='map-filter-toggle' && logbookTest.timeline.timelineMobileViewerOpen;"), 'Escape closes map filters and returns focus without dismissing the flight');
+      await evaluate("document.querySelector('.logbook-review-views button').click(); await logbookTest.settle();");
+    }
+    win.setContentSize(1440, 1000);
+    await win.webContents.capturePage();
+    await wait(150);
+    await evaluate("logbookTest.loadManyEvents(); logbookTest.timeline.setInspectorFilter('configuration_event', false); await logbookTest.settle(); logbookTest.locateMapEvent(299); await logbookTest.settle();");
+    await win.webContents.capturePage();
+    await wait(80);
+    const revealState = await evaluate("const row=document.querySelector('[data-row-key=event-299]'), r=row.getBoundingClientRect(), clip=document.querySelector('#timeline-events').getBoundingClientRect(); return { visible:r.top>=clip.top && r.bottom<=clip.bottom, selected:row.classList.contains('selected'), focused:row===document.activeElement, expanded:row.getAttribute('aria-expanded'), detail:!!document.querySelector('#timeline-detail'), filter:logbookTest.timeline.inspectorFilters.configuration_event, text:row.textContent, rows:logbookTest.timeline.inspectorRows.length };");
+    assert(revealState.visible && revealState.selected && revealState.focused && !revealState.detail && revealState.expanded === 'false' && !revealState.filter && revealState.rows > 250 && revealState.text.includes('Shown from map'), `map reveals a paginated, filtered event without opening detail: ${JSON.stringify(revealState)}`);
+    fs.writeFileSync(path.join(OUTPUT, 'map-event-highlight-1440.png'), (await win.webContents.capturePage()).toPNG());
+    await evaluate("document.querySelector('[data-row-key=event-299]').click(); await logbookTest.settle();");
+    assert(await evaluate("return document.querySelector('#timeline-detail').textContent.includes('Flap Position');"), 'details remain available from the revealed row');
+    win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Escape' });
+    win.webContents.sendInputEvent({ type:'keyUp', keyCode:'Escape' });
+    await wait(80);
+    assert(await evaluate("return !logbookTest.timeline.detailVisible && logbookTest.timeline.timelineMobileViewerOpen;"), 'Escape collapses inline details without leaving the flight');
+    await evaluate("document.querySelector('#timeline-events').scrollTop=0; logbookTest.locateMapEvent(299); await logbookTest.settle();");
+    await win.webContents.capturePage();
+    await wait(80);
+    assert(await evaluate("const r=document.querySelector('[data-row-key=event-299]').getBoundingClientRect(), clip=document.querySelector('#timeline-events').getBoundingClientRect(); return r.top>=clip.top && r.bottom<=clip.bottom;"), 'repeated marker selection scrolls again');
+    await evaluate("document.querySelector('#timeline-events').scrollTop=0; [...document.querySelectorAll('.timeline-mobile-viewer-header button')].find(button=>button.textContent.trim()==='Landing debrief').click(); await logbookTest.settle();");
+    await win.webContents.capturePage();
+    assert(await evaluate("return logbookTest.actions.debrief===1000+22*240000 && !logbookTest.timeline.detailVisible && logbookTest.timeline.inspectorSelectedRowKey==='event-299';"), 'the landing shortcut opens the full latest landing directly without an intermediate detail');
+    for (const [index, tall] of [[297, false], [298, true]]) {
+      await evaluate(`logbookTest.timeline.clearDetail();
+        const event=logbookTest.timeline.inspectorAllRows.find(row=>row.rowKey==='event-${index}').event;
+        if (${tall}) event.context=Object.fromEntries(Array.from({length:24},(_,i)=>['measurement_'+i, i]));
+        await logbookTest.settle(); const row=document.querySelector('[data-row-key=event-${index}]');
+        row.scrollIntoView({block:'end',behavior:'instant'}); window.beforeExpansionScroll=window.scrollY;
+        row.focus({preventScroll:true}); row.click(); await logbookTest.settle();`);
+      await win.webContents.capturePage();
+      const expanded = await evaluate(`const row=document.querySelector('[data-row-key=event-${index}]').getBoundingClientRect(), detail=document.querySelector('#timeline-detail').getBoundingClientRect(), clip=document.querySelector('#timeline-events').getBoundingClientRect();
+        return { rowVisible:row.top>=clip.top && row.bottom<=clip.bottom, visibleDetailPixels:Math.min(detail.bottom,clip.bottom)-Math.max(detail.top,clip.top), fits:detail.bottom<=clip.bottom, appScroll:window.scrollY===beforeExpansionScroll };`);
+      assert(expanded.rowVisible && expanded.visibleDetailPixels>80 && expanded.appScroll && (tall || expanded.fits), `opening an event at the bottom reveals its ${tall?'tall':'short'} detail and retains its heading: ${JSON.stringify(expanded)}`);
+      fs.writeFileSync(path.join(OUTPUT, `revealed-${tall?'tall':'short'}-detail.png`), (await win.webContents.capturePage()).toPNG());
+      await evaluate("const close=document.getElementById('timeline-detail-close'); close.scrollIntoView({block:'nearest',behavior:'instant'}); close.focus({preventScroll:true}); close.click(); await logbookTest.settle();");
+      await win.webContents.capturePage();
+      assert(await evaluate(`const row=document.querySelector('[data-row-key=event-${index}]'), r=row.getBoundingClientRect(), clip=document.querySelector('#timeline-events').getBoundingClientRect(); return row===document.activeElement && r.top>=clip.top && r.bottom<=clip.bottom;`), 'collapsing from the bottom returns to a visible event heading');
+    }
+    await evaluate("logbookTest.locateMapEvent(0); await logbookTest.settle();");
+    assert.equal(await evaluate("return document.querySelector('[data-row-key=event-299]');"), null, 'temporary filter exception disappears on the next map selection');
+    win.setContentSize(390, 1000);
+    await win.webContents.capturePage();
+    await wait(150);
+    await evaluate("logbookTest.loadFlight(); logbookTest.locateMapEvent(2); await logbookTest.settle();");
+    assert.equal(await evaluate("return document.querySelector('#timeline-detail').getAttribute('role');"), 'dialog', 'mobile marker clicks retain the detail sheet');
+    await evaluate("document.querySelector('#timeline-detail-close').click(); await logbookTest.settle();");
     await evaluate("document.querySelector('#timeline-mobile-viewer-close').click(); await logbookTest.settle(); document.querySelector('.timeline-flight-open').click(); await logbookTest.settle();");
     assert.equal(await evaluate('return logbookTest.requests();'), 1, 'returning to the selected flight preserves review rather than requesting it again');
     for (const [width, height, fontSize] of [[700,390,16], [320,700,16], [700,390,20]]) {
@@ -144,7 +242,7 @@ async function browser() {
       await evaluate(`document.documentElement.style.fontSize='${fontSize}px';`); await wait(150);
       for (const filtersOpen of [false, true]) {
         await evaluate(`document.querySelector('#vue-timeline-inspector-shell-root details').open=${filtersOpen}; document.querySelector('.logbook-review-content').scrollTop=0; await logbookTest.settle();`);
-        const targets = filtersOpen ? ['[data-timeline-event-filter="configuration_event"]', '[data-timeline-event-filter="flight_guidance_event"]', '.timeline-event:last-child'] : ['.timeline-event', '.timeline-event:last-child'];
+        const targets = filtersOpen ? ['[data-timeline-event-filter="configuration_event"]', '[data-timeline-event-filter="flight_guidance_event"]', '.timeline-event-item:last-child .timeline-event'] : ['.timeline-event', '.timeline-event-item:last-child .timeline-event'];
         for (const selector of targets) {
           const visible = await evaluate(`const target=document.querySelector(${JSON.stringify(selector)}); target.scrollIntoView({block:'center'}); await logbookTest.settle(); const r=target.getBoundingClientRect(), clip=document.querySelector('.logbook-review-content').getBoundingClientRect(); return {top:r.top,bottom:r.bottom,clipTop:clip.top,clipBottom:clip.bottom,scroll:document.querySelector('.logbook-review-content').scrollTop};`);
           assert(visible.top >= visible.clipTop-1 && visible.bottom <= visible.clipBottom+1, `${width}x${height}/${fontSize}px filters=${filtersOpen}: ${selector} is reachable without clipping: ${JSON.stringify(visible)}`);

@@ -1,5 +1,4 @@
 <script setup>
-import { SUPPORT_MADE_BY } from '../../support/copy.js';
 import { useWhatsNewStore } from '../stores/whats-new.js';
 
 // Release highlights never carry a support ask: updates must respect the
@@ -24,9 +23,6 @@ const whatsNew = useWhatsNewStore();
           {{ item.text }}
         </li>
       </ul>
-      <div class="app-prompt-footnote">
-        {{ SUPPORT_MADE_BY }}
-      </div>
     </div>
     <div class="app-prompt-actions">
       <button

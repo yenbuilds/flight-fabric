@@ -124,6 +124,10 @@ function handleTimelineViewerKeydown(event) {
   if (isReviewModal.value) closeTimelineMobileViewer();
 }
 
+watch(() => timeline.inspectorRevealRequest, () => {
+  if (!isCompactReview.value) reviewView.value = 'events';
+});
+
 watch(
   () => timelineViewerDocumentLockActive.value,
   async (isActive) => {
@@ -132,10 +136,9 @@ watch(
       const target = viewerReturnFocus;
       viewerReturnFocus = null;
       await nextTick();
-      // A wider window changes presentation, not the task. Keep focus in an
-      // open event detail instead of restoring it to a now-hidden event row.
+      // A wider window keeps the current event and keyboard focus in place.
       if (!isCompactReview.value && timeline.timelineMobileViewerOpen && tabs.activeTabId === 'timeline') {
-        if (timeline.detailVisible) document.getElementById('timeline-detail-close')?.focus?.({ preventScroll: true });
+        if (timeline.detailVisible) document.getElementById(`timeline-event-${timeline.inspectorSelectedRowKey}`)?.focus?.({ preventScroll: true });
         return;
       }
       if (target?.isConnected && tabs.activeTabId === 'timeline') target.focus?.({ preventScroll: true });
@@ -191,6 +194,10 @@ onUnmounted(() => {
 
 <template>
   <div class="timeline-section-stack logbook-page" :class="{ 'is-restricted': timeline.listStatus === 'restricted' }">
+    <div id="vue-logbook-root" class="logbook-history-summary">
+      <LogbookPanel />
+    </div>
+
     <div class="logbook-workspace">
     <div id="vue-timeline-flights-root">
       <TimelineFlightsPanel />
@@ -201,7 +208,6 @@ onUnmounted(() => {
       :class="timelineViewerClass"
       :data-review-view="reviewView"
       :data-has-review="hasReview"
-      :data-detail-open="timeline.detailVisible"
       tabindex="-1"
       :role="isReviewModal ? 'dialog' : 'region'"
       :aria-modal="isReviewModal ? 'true' : undefined"
@@ -273,11 +279,12 @@ onUnmounted(() => {
         </div>
         <div class="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <button
-            v-if="timeline.latestLandingInspectorRow"
+            v-if="timeline.latestLandingInspectorRow && timeline.detailLandingActionBound"
             id="timeline-mobile-viewer-landing-shortcut"
             type="button"
             class="ff-button-primary logbook-landing-shortcut"
-            @click="timeline.selectLatestLandingRow()"
+            aria-haspopup="dialog"
+            @click="timeline.openLatestLanding()"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
               <path d="M2 22h20M2 9.5l7 2-1-7 3 1 4 8 5 1.5a2 2 0 0 1-1 4L5 15 2 9.5Z" />
@@ -312,8 +319,8 @@ onUnmounted(() => {
 
       <div v-show="hasReview && !timeline.timelineLoadError" class="logbook-review-toolbar" role="group" aria-label="Recorded flight views">
         <div class="logbook-review-views">
-          <button type="button" :aria-pressed="reviewView === 'events' && !timeline.detailVisible" @click="setReviewView('events')">Events</button>
-          <button type="button" :aria-pressed="reviewView === 'map' && !timeline.detailVisible" @click="setReviewView('map')">Replay map</button>
+          <button type="button" :aria-pressed="reviewView === 'events'" @click="setReviewView('events')">Events</button>
+          <button type="button" :aria-pressed="reviewView === 'map'" @click="setReviewView('map')">Replay map</button>
         </div>
         <span class="logbook-history-label">Historical measurements</span>
       </div>
@@ -326,7 +333,7 @@ onUnmounted(() => {
 
       <div id="timeline-card" class="ff-card overflow-hidden">
         <div id="vue-timeline-inspector-shell-root">
-          <TimelineInspectorShell />
+          <TimelineInspectorShell :inline-details="!isCompactReview" />
         </div>
 
       </div>
@@ -335,16 +342,13 @@ onUnmounted(() => {
         <TimelineMapShell />
       </div>
 
-      <div id="vue-timeline-detail-root">
-        <TimelineDetailPanel :embedded="!isCompactReview" />
+      <div v-if="isCompactReview" v-show="timeline.detailVisible" id="vue-timeline-detail-root">
+        <TimelineDetailPanel />
       </div>
-      </div>
-      </div>
-    </div>
-    </div>
 
-    <div id="vue-logbook-root" class="logbook-history-summary">
-      <LogbookPanel />
+      </div>
+      </div>
+    </div>
     </div>
 
     <TimelineAnalysisRescoreModal />

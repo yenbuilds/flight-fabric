@@ -1767,7 +1767,7 @@ async function main() {
     assert.match(html, /app-prompt-reason">Updated to 0\.9\.9</);
     assert.match(html, /app-prompt-list-label">Easier pairing<\/span>\s*approve the matching code\./, 'labelled highlights render label then text');
     assert.match(html, /<li>\s*Strobe fixes\.\s*<\/li>/, 'unlabelled highlights render plainly');
-    assert.match(html, /Built in evenings by one person\./);
+    assert.doesNotMatch(html, /Built in evenings by one person\./);
     assert.doesNotMatch(html, /whats-new-coffee|Buy Yen a coffee|ko-fi/, 'updates must not bypass support opt-outs, cooldowns or the lifetime limit');
     assert.match(html, /id="whats-new-dismiss"[^>]*>\s*Got it\s*</);
     assert.match(html, /id="whats-new-release-notes"[^>]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases\/tag\/v0\.9\.9"/);
@@ -1915,7 +1915,6 @@ async function main() {
       'vue-timeline-flights-root',
       'vue-timeline-inspector-shell-root',
       'vue-timeline-summary-root',
-      'vue-timeline-detail-root',
       'vue-timeline-map-shell-root',
       'tab-livemap',
       'vue-live-map-tab-root',
@@ -8757,13 +8756,9 @@ async function main() {
           vs: -210,
           grade: 'Good',
         });
-        landing.openLandingModal({ loading: false });
-        useTimelineStore().setDetail({
-          visible: true,
-          type: 'Landing',
-          title: 'Landing at LFPB 07',
-          selectedLandingEvent: { type: 'landing' },
-          metricSections: [
+        useTimelineStore().setDetail({ visible: true, selectedLandingEvent: { type: 'landing' }, metricSections: [{ key: 'landing-snapshot', rows: [{ key: 'heading', label: 'Stale heading', value: '999 deg' }] }] });
+        landing.openLandingModal({
+          contextSections: [
             {
               key: 'landing-snapshot',
               rows: [
@@ -8790,6 +8785,7 @@ async function main() {
     assert.match(html, /id="landing-card"/, 'landing debrief modal should embed the landing panel content');
     assert.match(html, /id="landing-modal-recorded-context"/, 'timeline-only saved-event context should move into a collapsed modal section');
     assert.match(html, /Recorded Context[\s\S]*Heading[\s\S]*072 deg[\s\S]*TDZ Score[\s\S]*91\/100/, 'the modal should retain detailed saved-event fields omitted from the compact timeline panel');
+    assert.doesNotMatch(html, /Stale heading|999 deg/, 'debrief context comes from the opened landing, independently of the selected timeline event');
     assert.doesNotMatch(html, /id="landing-modal-recorded-context"[^>]*\sopen(?:\s|>)/, 'additional recorded context should stay collapsed by default');
 
     const loading = await renderComponent(
@@ -9663,7 +9659,7 @@ async function main() {
       timeline.setInspectorState({ rows: [{ rowKey: 'flaps', event: { type: 'configuration_event' }, title: 'Flaps extended' }] });
       timeline.setInspectorFilter('configuration_event', false);
     });
-    assert.match(html, /Event filters/);
+    assert.match(html, /Filter event list/);
     assert.match(html, /1 hidden/);
     assert.match(html, /No events match these filters/);
     assert.match(html, /Enable an event type above/);
@@ -9825,7 +9821,8 @@ async function main() {
     );
 
     assert.match(html, /id="timeline-open-analysis-rescore-btn"/, 'summary should expose one compact scoring-review launcher');
-    assert.match(html, /Scoring saved/, 'saved analysis state should remain visible without expanding the Timeline column');
+    assert.match(html, /Compare scoring rules/, 'the action explains its comparison purpose even after saving');
+    assert.match(html, /Current scoring is saved/, 'saved analysis state should remain visible without expanding the Timeline column');
     assert.match(html, /aria-haspopup="dialog"/, 'scoring review launcher should identify its modal behavior');
     assert.doesNotMatch(html, /id="timeline-analysis-rescore-content"|id="timeline-analysis-rescore-preview-result"/, 'scoring results must not render inline below the event list');
   });
@@ -9876,8 +9873,8 @@ async function main() {
     assert.match(html, /id="timeline-analysis-rescore-modal"[^>]*role="dialog"/, 'flight-level scoring should render in a dedicated modal');
     assert.match(html, /id="timeline-analysis-rescore-close"[^>]*>\s*Close\s*</, 'scoring modal should provide a dedicated close action');
     assert.match(html, /id="timeline-analysis-rescore-content"[^>]*timeline-analysis-modal-content/, 'large scoring comparisons should own a separate scrolling surface');
-    assert.match(html, /id="timeline-preview-analysis-rescore-btn"[^>]*>\s*Review current scoring\s*</);
-    assert.match(html, /touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout scoring/);
+    assert.match(html, /id="timeline-preview-analysis-rescore-btn"[^>]*>\s*Preview comparison\s*</);
+    assert.match(html, /touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout/);
     assert.match(html, /original recording and recorded results remain unchanged/i);
     assert.match(html, /id="timeline-analysis-rescore-applied-status"[\s\S]*Saved/);
     assert.match(html, /id="timeline-analysis-rescore-preview-result"[\s\S]*2 scoring results change across 1 landing/);
@@ -9893,6 +9890,7 @@ async function main() {
       path.join('src', 'vue', 'components', 'TimelineTabShell.vue'),
       ({ useTimelineStore }) => {
         const timeline = useTimelineStore();
+        timeline.bindDetailActions({ onOpenSelectedLanding: () => true });
         timeline.setLoadedTimelineIdentity({
           flightId: 'F1',
           route: 'YSSY-KJFK',
@@ -9974,6 +9972,7 @@ async function main() {
         const timeline = useTimelineStore();
         timeline.setLoadedTimelineIdentity({ flightId: 'REVIEW', route: 'YSSY-YMML' });
         timeline.openTimelineMobileViewer();
+        timeline.setInspectorState({ rows: [{ rowKey: 'gear-down', event: { type: 'configuration_event' }, title: 'Gear down', badges: [] }], selectedRowKey: 'gear-down' });
         timeline.setDetail({ visible: true, type: 'configuration_event', title: 'Gear down', metricSections: [] });
       },
       { matchMedia: () => ({ matches: false }) },
@@ -9981,6 +9980,8 @@ async function main() {
     assert.match(html, /class="logbook-workspace"[\s\S]*id="vue-timeline-flights-root"[\s\S]*data-has-review="true"/, 'desktop review should keep the flight list mounted alongside the selected flight');
     assert.match(html, /data-review-view="events"[^>]*role="region"/, 'desktop review must not trap focus or cover application navigation');
     assert.match(html, /id="timeline-detail"[^>]*role="region"/, 'desktop event detail should be a contextual region, not a second modal');
+    assert.match(html, /data-row-key="gear-down"[^>]*aria-expanded="true"[^>]*aria-controls="timeline-detail"/, 'the selected row controls its inline detail');
+    assert.equal((html.match(/id="timeline-detail-close"/g) || []).length, 1, 'one inline collapse action is available');
     assert.doesNotMatch(html, /aria-modal="true"|id="timeline-mobile-viewer-close"/, 'desktop review stays open without modal close controls');
     assert.match(html, /Recorded flight[\s\S]*YSSY-YMML/, 'selected-flight context survives event inspection');
   });

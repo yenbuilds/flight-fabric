@@ -181,7 +181,10 @@ function jumpToTimelineEvent(event, originalIndex, options = {}) {
   }
 
   if (timelinePage && Number.isFinite(originalIndex)) {
-    timelinePage.selectTimelineRowByOriginalIndex(originalIndex, { focusMap: false });
+    timelinePage.selectTimelineRowByOriginalIndex(originalIndex, {
+      focusMap: false,
+      openDetail: windowRef.matchMedia?.('(max-width: 1100px)').matches === true,
+    });
   }
 }
 
@@ -361,7 +364,6 @@ function getTimelineScrubberPoints(timeline, trackPoints = null) {
     buildTimelineSummaryState,
     buildTimelineEventDetailState,
     buildTimelineEventRows,
-    documentRef,
     typeLabels: TYPE_LABELS,
     markerLabels: MARKER_LABELS,
     formatTimeOffset: formatTimelineOffset,
@@ -449,5 +451,3 @@ function getTimelineScrubberPoints(timeline, trackPoints = null) {
     timelineStore.clearDetail?.();
   };
 }
-
-

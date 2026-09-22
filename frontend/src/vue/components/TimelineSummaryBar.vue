@@ -1,12 +1,7 @@
 <script setup>
-import { computed } from 'vue';
 import { useTimelineStore } from '../stores/timeline.js';
 
 const timeline = useTimelineStore();
-
-const analysisActionText = computed(() => (
-  timeline.analysisRescore.applied ? 'Scoring saved' : 'Review scoring'
-));
 </script>
 
 <template>
@@ -51,18 +46,19 @@ const analysisActionText = computed(() => (
         v-if="timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId"
         id="timeline-open-analysis-rescore-btn"
         type="button"
-        class="timeline-summary-action flex items-center justify-center gap-2 border-l border-surface-200/70 px-4 py-3 text-xs font-semibold text-gray-300 transition-colors hover:bg-surface-200/40 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        class="timeline-summary-action flex flex-wrap items-center justify-center gap-2 border-l border-surface-200/70 px-4 py-3 text-xs font-semibold text-gray-300 transition-colors hover:bg-surface-200/40 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         aria-haspopup="dialog"
         :aria-expanded="timeline.analysisRescoreModalOpen ? 'true' : 'false'"
         @click="timeline.openAnalysisRescoreModal()"
       >
-        <span>{{ analysisActionText }}</span>
+        <span>Compare scoring rules…</span>
         <span
           v-if="timeline.analysisRescore.applied"
           id="timeline-analysis-rescore-applied-badge"
-          class="h-2 w-2 rounded-full bg-emerald-400"
+          class="text-[10px] font-normal text-accent"
           aria-label="Current scoring is saved"
-        ></span>
+          title="Current scoring is saved"
+        >Saved</span>
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7" />
         </svg>
