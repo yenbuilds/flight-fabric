@@ -198,6 +198,18 @@ test('X-Plane 737 handle ratio is not mapped through profile detents without an 
   assertEqual(obj.fraction, 0.875);
 });
 
+test('TFDi MD-11 uses observed flap angle instead of an assumed handle slot table', () => {
+  setProfile('tfdi-md-11');
+  const observed = flaps.makeFlapsObj(100 / 7, 1, 14.95);
+  assertEqual(observed.source, 'angle-generic');
+  assertEqual(observed.notch, 15);
+  assertEqual(observed.label, '15 deg');
+  assertEqual(observed.percent, 14);
+  const missingAngle = flaps.makeFlapsObj(100 / 7, 1, null);
+  assertEqual(missingAngle.source, 'percent');
+  assertEqual(missingAngle.label, '14%');
+});
+
 test('all bundled MSFS flap profiles map discrete handle indexes by slot', () => {
   const profiles = profilesWithFlapNotches({ source: 'bundled', simulator: 'msfs' });
   assertEqual(profiles.length > 10, true, 'expected broad MSFS flap profile coverage.');

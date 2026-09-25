@@ -251,13 +251,28 @@ backend\telemetry-provider\simconnect\SimConnect.dll
 or set `FF_SIMCONNECT_DLL_PATH` before building:
 
 ```powershell
-$env:FF_SIMCONNECT_DLL_PATH = 'D:\path\to\SimConnect.dll'
+$env:FF_MSFS2024_SDK_ROOT = 'D:\MSFS 2024 SDK'
+$env:FF_SIMCONNECT_DLL_PATH = Join-Path $env:FF_MSFS2024_SDK_ROOT 'SimConnect SDK\lib\SimConnect.dll'
 npm run build
 ```
 
-The repository DLL takes priority; otherwise the build checks
-`FF_SIMCONNECT_DLL_PATH`, then installed SDK locations. It logs the selected
-source and SHA-256 checksum.
+The repository DLL takes priority, followed by the compiled backend copy,
+`FF_SIMCONNECT_DLL_PATH`, then installed SDK locations. Windows packaging
+requires the DLL from the latest **retail** MSFS 2024 SDK and access to
+Microsoft's SDK release feed. The reviewed version and SHA-256 checksum in
+`scripts/simconnect-runtime.json` identify the DLL extracted from Microsoft's
+official SDK archive. The selected, staged and packaged DLLs must match that
+record. Preview SDKs are excluded. A stale repository or compiled copy fails
+the build even when a newer fallback is available.
+
+For a custom SDK installation, set `FF_MSFS2024_SDK_ROOT` to its root directory
+(containing `version.txt` and `SimConnect SDK`). An SDK installation is optional
+when the DLL matches the current provenance record. Without that record, the
+guard checks the installed SDK's version and DLL instead. A stale or invalid
+record must be refreshed after verifying the new official archive; it cannot
+be bypassed by a fallback. Run `npm run release:simconnect:check` for
+the read-only online check before building; `npm run test:simconnect-sdk` runs
+the offline regression tests without requiring an installed SDK.
 
 Do not commit the DLL to a public fork. Review the
 [Microsoft Flight Simulator SDK licence](https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_EULA.htm)
@@ -269,21 +284,22 @@ that applies to your installation.
 <summary><strong>Provide the offline voice model</strong></summary>
 
 Offline voice recognition uses the Apache-2.0
-`sherpa-onnx-streaming-zipformer-en-2023-06-26` model. Its weights are build
+`sherpa-onnx-streaming-zipformer-en-2023-06-21` English LibriSpeech + GigaSpeech
+model. Its weights are build
 inputs, pinned to an immutable upstream revision, and are not stored in Git.
 
-The first `npm run electron` or `npm run build` downloads the roughly 70 MiB
+The first `npm run electron` or `npm run build` downloads the roughly 181 MiB
 runtime subset from a pinned upstream revision, checks every file against the
 sizes and SHA-256 values in `electron/voice-model-manifest.js`, then caches it
 under `electron/resources/models/`. Later builds reuse the verified cache.
 Packaged apps include that model and never download it at runtime.
 
 For an offline build, download and extract Sherpa's
-[`sherpa-onnx-streaming-zipformer-en-2023-06-26` archive](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2),
+[`sherpa-onnx-streaming-zipformer-en-2023-06-21` archive](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-21.tar.bz2),
 then point `FF_VOICE_MODEL_DIR` at the extracted directory:
 
 ```powershell
-$env:FF_VOICE_MODEL_DIR = 'D:\models\sherpa-onnx-streaming-zipformer-en-2023-06-26'
+$env:FF_VOICE_MODEL_DIR = 'D:\models\sherpa-onnx-streaming-zipformer-en-2023-06-21'
 npm --prefix electron run provision:voice-model
 ```
 

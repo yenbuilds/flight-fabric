@@ -14,6 +14,12 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const crypto = require('crypto');
+const {
+  getSdkDllPath,
+  SIMCONNECT_DLL_RELATIVE,
+  verifyLatestSimConnectRuntime,
+  assertSimConnectDllMatches,
+} = require('../scripts/simconnect-sdk');
 
 // Import release profile loader
 const { resolveProfile, validateProfile } = require('../scripts/release-profile-loader');
@@ -69,10 +75,9 @@ const RUST_SIDECAR_BINARY_SRC = path.join(
   RUST_SIDECAR_BINARY_NAME
 );
 const SIMCONNECT_DLL_NAME = 'SimConnect.dll';
-const SIMCONNECT_DLL_RELATIVE = path.join('telemetry-provider', 'simconnect', SIMCONNECT_DLL_NAME);
 const SIMCONNECT_DEFAULT_SDK_PATHS = process.platform === 'win32'
   ? [
-      'C:\\MSFS 2024 SDK\\SimConnect SDK\\lib\\SimConnect.dll',
+      getSdkDllPath(),
       'C:\\MSFS SDK\\SimConnect SDK\\lib\\SimConnect.dll',
     ]
   : [];
@@ -811,7 +816,7 @@ function loadReleaseProfile() {
 /**
  * Step 1: Copy backend (filtered by profile)
  */
-async function copyBackend() {
+async function copyBackend(simConnectSdk) {
   // Clean output directory
   if (fs.existsSync(BACKEND_BUILD)) {
     fs.rmSync(BACKEND_BUILD, { recursive: true });
@@ -819,7 +824,7 @@ async function copyBackend() {
   fs.mkdirSync(BACKEND_BUILD, { recursive: true });
 
   log('Copying backend...');
-  copyBackendFiltered();
+  copyBackendFiltered(simConnectSdk);
 }
 
 function createBackendStagingError(message) {
@@ -976,7 +981,7 @@ function assertBackendRuntimeInventoriesMatch(expected, actual, message) {
 /**
  * Copy backend files without obfuscation (filtered by profile)
  */
-function copyBackendFiltered() {
+function copyBackendFiltered(simConnectSdk) {
   log('Copying backend files (filtered by profile)...');
   let count = 0;
 
@@ -1053,7 +1058,7 @@ function copyBackendFiltered() {
   copyPackagedBackendPackageJson(pkgSrc, path.join(BACKEND_BUILD, 'package.json'));
 
   buildRustSidecar();
-  copySimConnectRuntime();
+  copySimConnectRuntime(simConnectSdk);
 
   // Copy only the exact production package inventory locked for the backend.
   copyLockedBackendNodeModules(path.join(BACKEND_BUILD, 'node_modules'));
@@ -1239,7 +1244,7 @@ function selectSimConnectDllSource(options = {}) {
   return null;
 }
 
-function copySimConnectRuntime() {
+function copySimConnectRuntime(simConnectSdk) {
   if (process.platform !== 'win32') {
     return;
   }
@@ -1266,9 +1271,10 @@ function copySimConnectRuntime() {
     process.exit(1);
   }
 
+  assertSimConnectDllMatches(source.path, simConnectSdk);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(source.path, dest);
-  const sha256 = crypto.createHash('sha256').update(fs.readFileSync(dest)).digest('hex');
+  const sha256 = assertSimConnectDllMatches(dest, simConnectSdk);
   log(
     `Copied SimConnect runtime from ${source.label}: ${source.path} `
     + `(SHA-256 ${sha256})`
@@ -1671,16 +1677,27 @@ async function main() {
     ),
   });
   ensureCleanElectronOutput();
+  const simConnectSdk = process.platform === 'win32'
+    && resolvedProfile?.include?.backend_dirs?.includes('telemetry-provider')
+    ? await verifyLatestSimConnectRuntime({ dllPath: selectSimConnectDllSource()?.path })
+    : null;
+  if (simConnectSdk) log(`Verified latest MSFS 2024 retail SDK ${simConnectSdk.version} (SHA-256 ${simConnectSdk.sha256}).`);
   ensureOurAirportsData();
   syncElectronVersion();
   installDependencies();
   buildBackendRuntime();
-  await copyBackend();
+  await copyBackend(simConnectSdk);
   buildFrontendBundle();
   buildDashboard();
   logSigningMode();
   buildTailwindCss();
   buildElectron();
+  if (simConnectSdk) {
+    assertSimConnectDllMatches(
+      path.join(ELECTRON_OUTPUT_DIR, 'win-unpacked', 'resources', 'backend', SIMCONNECT_DLL_RELATIVE),
+      simConnectSdk,
+    );
+  }
   verifyPackagedOurAirportsData();
   verifyPackagedLegalNotices();
   verifyPackagedRustSidecar();

@@ -15,6 +15,18 @@ const MAX_CONTROL_NAME_LEN: usize = 160;
 const MAX_CONTROL_UNIT_LEN: usize = 48;
 const MAX_CONTROL_NUMERIC_ABS: f64 = 1_000_000.0;
 
+// MSFS 2024 rejects the documentation's unprefixed names for these two
+// events with SIMCONNECT_EXCEPTION_UNRECOGNIZED_ID. Keep the application
+// command names (and their DWORD validation/lease) but map the actual names
+// accepted by SimConnect. TUG_DISABLE is already accepted without KEY_.
+pub(crate) fn simconnect_event_name(name: &str) -> &str {
+    match name {
+        "TUG_HEADING" => "KEY_TUG_HEADING",
+        "TUG_SPEED" => "KEY_TUG_SPEED",
+        _ => name,
+    }
+}
+
 fn is_safe_control_char(ch: char, allow_hash: bool) -> bool {
     ch.is_ascii_alphanumeric()
         || matches!(
@@ -58,6 +70,14 @@ pub(crate) fn bounded_named_event_data(
     value: f64,
     parameter_count: usize,
 ) -> Option<u32> {
+    // A negative speed becomes a huge positive DWORD in MSFS 2024. Never
+    // dispatch nonzero tug speed; normal pushback owns its reverse speed.
+    if matches!(name, "TUG_SPEED" | "KEY_TUG_SPEED") {
+        return if value == 0.0 && parameter_count == 0 { Some(0) } else { None };
+    }
+    if name == "TUG_HEADING" {
+        return if parameter_count == 0 { bounded_sdk_event_data(value) } else { None };
+    }
     if !matches!(name, "COM_STBY_RADIO_SET_HZ" | "COM2_STBY_RADIO_SET_HZ") {
         return bounded_event_data(value);
     }
@@ -95,6 +115,33 @@ pub(crate) fn is_bounded_camera_number(value: f64, max_abs: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tug_mapping_uses_simconnect_names_without_rewriting_other_events() {
+        assert_eq!(simconnect_event_name("TUG_HEADING"), "KEY_TUG_HEADING");
+        assert_eq!(simconnect_event_name("TUG_SPEED"), "KEY_TUG_SPEED");
+        for name in ["TUG_DISABLE", "TOGGLE_PUSHBACK", "AP_MASTER", "#70361"] {
+            assert_eq!(simconnect_event_name(name), name);
+        }
+    }
+
+    #[test]
+    fn tug_heading_accepts_exact_unsigned_dword_without_widening_other_events() {
+        for value in [0_u32, 0x40000000, 0x80000000, 0xc0000000, u32::MAX] {
+            assert_eq!(bounded_named_event_data("TUG_HEADING", value as f64, 0), Some(value));
+        }
+        for value in [-1.0, 0.5, 4294967296.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(bounded_named_event_data("TUG_HEADING", value, 0), None);
+        }
+        assert_eq!(bounded_named_event_data("TUG_HEADING", 0.0, 1), None);
+        assert_eq!(bounded_named_event_data("HEADING_BUG_SET", 2147483648.0, 0), None);
+        for name in ["TUG_SPEED", "KEY_TUG_SPEED"] {
+            for value in [-4.0, 1.0, 4294967292.0] {
+                assert_eq!(bounded_named_event_data(name, value, 0), None);
+            }
+            assert_eq!(bounded_named_event_data(name, 0.0, 0), Some(0));
+        }
+    }
 
     #[test]
     fn com_hz_events_have_an_exact_channel_bounded_exception() {

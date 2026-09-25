@@ -37,10 +37,14 @@ mod dll_loader;
 mod event_transmit;
 #[cfg(windows)]
 mod facilities;
+#[cfg(any(windows, test))]
+mod input_events;
 #[cfg(windows)]
 mod mobiflight;
 #[cfg(windows)]
 mod owner_lifeline;
+#[cfg(windows)]
+mod tug_lease;
 #[cfg(windows)]
 mod process_guardian;
 #[cfg(windows)]
@@ -51,6 +55,16 @@ mod simconnect_ffi;
 mod subscriptions;
 #[cfg(windows)]
 mod windows_job;
+#[cfg(windows)]
+mod replay;
+#[cfg(windows)]
+mod replay_exclusion;
+#[cfg(windows)]
+mod replay_journal;
+#[cfg(windows)]
+mod replay_transport;
+#[cfg(any(windows, test))]
+mod replay_model;
 
 fn emit_value(value: Value) {
     let _ = writeln!(io::stdout(), "{value}");
@@ -117,6 +131,22 @@ mod sidecar {
         last_requested_at: Instant,
     }
 
+    fn clear_subscription_requests(
+        requests: &mut Vec<ActiveRequest>,
+        mut stop_stream: impl FnMut(Dword, Dword),
+        mut clear_definition: impl FnMut(Dword),
+    ) {
+        for request in requests.drain(..) {
+            // ONCE requests finish on delivery and have no persistent stream
+            // to cancel. Sending NEVER for an expired request produces
+            // UNRECOGNIZED_ID on aircraft/profile refresh in MSFS 2024.
+            if request.mode == RequestMode::SimFrame {
+                stop_stream(request.request_id, request.definition_id);
+            }
+            clear_definition(request.definition_id);
+        }
+    }
+
     // SimConnect invokes `dispatch_proc` with this mutable context. The callback
     // decodes and records state, queues completed responses for the main loop,
     // and emits only callback-specific diagnostics directly.
@@ -136,6 +166,7 @@ mod sidecar {
         library_spec: String,
         facility_airport_requests: HashMap<Dword, facilities::AirportFacilityRequest>,
         pending_messages: Vec<Value>,
+        input_event_write: Option<input_events::PendingWrite>,
     }
 
     impl DispatchContext {
@@ -255,6 +286,9 @@ mod sidecar {
                     return;
                 }
                 let exception = unsafe { &*(data as *const SimConnectRecvException) };
+                if let Some(write) = ctx.input_event_write.as_mut() {
+                    write.exception(exception.dw_send_id);
+                }
                 ctx.push_pending_message(json!({
                     "type": "exception",
                     "exception": exception.dw_exception,
@@ -265,6 +299,9 @@ mod sidecar {
                 }));
             }
             SIMCONNECT_RECV_ID_QUIT => {
+                if let Some(write) = ctx.input_event_write.as_mut() {
+                    write.invalidate();
+                }
                 ctx.connected = false;
                 ctx.quit = true;
                 if let Some(client) = ctx.mobiflight.as_mut() {
@@ -288,6 +325,9 @@ mod sidecar {
                     _ => None,
                 };
                 if let Some(name) = name {
+                    if let Some(write) = ctx.input_event_write.as_mut() {
+                        write.invalidate();
+                    }
                     ctx.push_pending_message(json!({
                         "type": "systemEvent",
                         "name": name,
@@ -399,6 +439,19 @@ mod sidecar {
                     return;
                 }
                 let state = unsafe { &*(data as *const SimConnectRecvSystemState) };
+                if let Some(write) = ctx.input_event_write.as_mut() {
+                    let raw = unsafe {
+                        slice::from_raw_parts(
+                            state.sz_string.as_ptr() as *const u8,
+                            state.sz_string.len(),
+                        )
+                    };
+                    if let Some(end) = raw.iter().position(|byte| *byte == 0) {
+                        if let Ok(path) = std::str::from_utf8(&raw[..end]) {
+                            write.identity(state.dw_request_id, path);
+                        }
+                    }
+                }
                 let name = match state.dw_request_id {
                     SYSTEM_REQUEST_AIRCRAFT_LOADED => Some("AircraftLoaded"),
                     SYSTEM_REQUEST_SIM => Some("Sim"),
@@ -425,6 +478,14 @@ mod sidecar {
                         "backend": "rust",
                         "timestampIso": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                     }));
+                }
+            }
+            input_events::ENUMERATE_RECV | input_events::PARAMS_RECV => {
+                if let Some(write) = ctx.input_event_write.as_mut() {
+                    // The callback owns cb_data readable bytes for this invocation.
+                    // The packed SDK payload is decoded with checked byte slices.
+                    let raw = unsafe { slice::from_raw_parts(data as *const u8, cb_data as usize) };
+                    write.packet(recv_id, raw);
                 }
             }
             SIMCONNECT_RECV_ID_FACILITY_DATA | SIMCONNECT_RECV_ID_FACILITY_DATA_END => {
@@ -729,6 +790,34 @@ mod sidecar {
     mod tests {
         use super::*;
 
+        #[test]
+        fn subscription_cleanup_stops_streams_but_only_clears_one_shot_definitions() {
+            let mut requests = [RequestMode::PollOnce, RequestMode::SimFrame]
+                .into_iter()
+                .enumerate()
+                .map(|(index, mode)| ActiveRequest {
+                    request_id: index as Dword + 10,
+                    definition_id: index as Dword + 20,
+                    mode,
+                    poll_interval: Duration::from_millis(200),
+                    last_requested_at: Instant::now(),
+                })
+                .collect();
+            let calls = std::cell::RefCell::new(Vec::new());
+            for _ in 0..2 {
+                clear_subscription_requests(
+                    &mut requests,
+                    |request, definition| calls.borrow_mut().push(("stop", request, definition)),
+                    |definition| calls.borrow_mut().push(("clear", 0, definition)),
+                );
+                assert!(requests.is_empty(), "retired requests must never be polled again");
+            }
+            assert_eq!(
+                *calls.borrow(),
+                vec![("clear", 0, 20), ("stop", 11, 21), ("clear", 0, 21)]
+            );
+        }
+
         fn test_subscription(key: &str, expression: &str) -> Subscription {
             Subscription {
                 key: key.to_string(),
@@ -787,6 +876,7 @@ mod sidecar {
                 library_spec: "test-simconnect".to_string(),
                 facility_airport_requests: HashMap::new(),
                 pending_messages: Vec::new(),
+                input_event_write: None,
             }
         }
 
@@ -851,6 +941,58 @@ mod sidecar {
                 assert_eq!(self.sdk_aircraft.as_deref(), Some("test-clientdata"));
                 assert_eq!(self.subscription_generation, Some(4));
             }
+        }
+
+        #[test]
+        fn input_event_callbacks_enforce_bounds_and_preserve_full_hashes() {
+            use input_events::{Operation, PendingWrite, ENUMERATE_RECV, PARAMS_RECV};
+            let mut context = test_dispatch_context();
+            let mut write = PendingWrite::new("KNOB".into(), -1.0, Some(7), 100, Instant::now());
+            write.expected_aircraft = Some("aircraft.cfg".into());
+            assert_eq!(write.next_operation(Instant::now()), Some(Operation::Identity(100)));
+            context.input_event_write = Some(write);
+            let context_ptr = &mut context as *mut DispatchContext as *mut c_void;
+            let mut identity: SimConnectRecvSystemState = unsafe { std::mem::zeroed() };
+            identity.dw_id = SIMCONNECT_RECV_ID_SYSTEM_STATE;
+            identity.dw_request_id = 100;
+            for (dst, src) in identity.sz_string.iter_mut().zip(b"aircraft.cfg") {
+                *dst = *src as _;
+            }
+            // SAFETY: complete initialized headers; the short length must be ignored.
+            unsafe {
+                dispatch_proc((&mut identity as *mut SimConnectRecvSystemState).cast(),
+                    (size_of::<SimConnectRecvSystemState>() - 1) as Dword, context_ptr);
+            }
+            assert_eq!(context.input_event_write.as_mut().unwrap().next_operation(Instant::now()), None);
+            unsafe {
+                dispatch_proc((&mut identity as *mut SimConnectRecvSystemState).cast(),
+                    size_of::<SimConnectRecvSystemState>() as Dword, context_ptr);
+            }
+            assert_eq!(context.input_event_write.as_mut().unwrap().next_operation(Instant::now()), Some(Operation::Enumerate(101)));
+            let hash = 18_277_121_765_366_520_672_u64;
+            let mut storage = aligned_callback_storage(104);
+            let bytes = callback_bytes_mut(&mut storage);
+            for (offset, value) in [(8, ENUMERATE_RECV), (12, 101), (16, 1), (24, 1)] {
+                bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            bytes[28..32].copy_from_slice(b"KNOB");
+            bytes[92..100].copy_from_slice(&hash.to_le_bytes());
+            // SAFETY: aligned allocation contains the entire declared callback payload.
+            unsafe { dispatch_proc(storage.as_mut_ptr().cast(), 104, context_ptr); }
+            assert_eq!(context.input_event_write.as_mut().unwrap().next_operation(Instant::now()), Some(Operation::Parameters(hash)));
+            let mut storage = aligned_callback_storage(29);
+            let bytes = callback_bytes_mut(&mut storage);
+            bytes[8..12].copy_from_slice(&PARAMS_RECV.to_le_bytes());
+            bytes[12..20].copy_from_slice(&hash.to_le_bytes());
+            bytes[20..29].copy_from_slice(b";FLOAT64\0");
+            unsafe { dispatch_proc(storage.as_mut_ptr().cast(), 29, context_ptr); }
+            assert_eq!(context.input_event_write.as_mut().unwrap().next_operation(Instant::now()), Some(Operation::Identity(102)));
+            identity.dw_request_id = 102;
+            unsafe {
+                dispatch_proc((&mut identity as *mut SimConnectRecvSystemState).cast(),
+                    size_of::<SimConnectRecvSystemState>() as Dword, context_ptr);
+            }
+            assert_eq!(context.input_event_write.as_mut().unwrap().next_operation(Instant::now()), Some(Operation::Write(hash, -1.0)));
         }
 
         #[test]
@@ -1680,6 +1822,8 @@ mod sidecar {
         mobiflight_init_configured: bool,
         mobiflight_runtime_configured: bool,
         last_emitted_telemetry_sequence: u64,
+        next_input_event_request: Dword,
+        tug_lease: crate::tug_lease::TugLease,
     }
 
     impl SimSession {
@@ -1718,6 +1862,7 @@ mod sidecar {
                         .then(|| mobiflight::ClientState::new(unique_mobiflight_client_name())),
                     facility_airport_requests: HashMap::new(),
                     pending_messages: Vec::new(),
+                    input_event_write: None,
                 },
                 api,
                 handle,
@@ -1737,6 +1882,8 @@ mod sidecar {
                 mobiflight_init_configured: false,
                 mobiflight_runtime_configured: false,
                 last_emitted_telemetry_sequence: 0,
+                next_input_event_request: 0x4950_0000,
+                tug_lease: crate::tug_lease::TugLease::default(),
             };
             let deadline = Instant::now() + Duration::from_secs(5);
             let mut dispatch_failures = DispatchFailureGuard::default();
@@ -1762,6 +1909,12 @@ mod sidecar {
             if enable_mobiflight {
                 session.initialize_mobiflight();
             }
+            session.context.push_pending_message(json!({
+                "type": "inputEventStatus",
+                "available": session.api.enumerate_input_events.is_some()
+                    && session.api.enumerate_input_event_params.is_some()
+                    && session.api.set_input_event.is_some(),
+            }));
             Ok(session)
         }
 
@@ -1773,6 +1926,7 @@ mod sidecar {
             if self.handle.is_null() {
                 return;
             }
+            if self.tug_lease.active() { self.stop_tug(); }
             let handle = self.handle;
             self.handle = ptr::null_mut();
             let _ = unsafe { (self.api.close)(handle) };
@@ -1805,6 +1959,111 @@ mod sidecar {
 
         fn drain_pending_messages(&mut self) -> Vec<Value> {
             self.context.pending_messages.drain(..).collect()
+        }
+
+        fn begin_input_event(
+            &mut self,
+            name: &str,
+            value: f64,
+            request_id: Option<u64>,
+            aircraft: &str,
+            inventory: bool,
+        ) -> Result<(), String> {
+            if self.api.enumerate_input_events.is_none()
+                || (!inventory
+                    && (self.api.enumerate_input_event_params.is_none()
+                        || self.api.set_input_event.is_none()))
+            {
+                return Err("input_event_api_unavailable".into());
+            }
+            if !self.context.connected || self.context.quit {
+                return Err("not_connected".into());
+            }
+            if self.context.input_event_write.is_some() {
+                return Err("input_event_busy".into());
+            }
+            let request = self.next_input_event_request;
+            self.next_input_event_request =
+                request.checked_add(3).ok_or("input_event_request_limit")?;
+            self.context.input_event_write = Some(if inventory {
+                input_events::PendingWrite::inventory(request_id, request, Instant::now())
+            } else {
+                input_events::PendingWrite::new(
+                    name.to_owned(), value, request_id, request, Instant::now(),
+                )
+            });
+            self.context
+                .input_event_write
+                .as_mut()
+                .unwrap()
+                .expected_aircraft = Some(aircraft.to_owned());
+            self.poll_input_event();
+            Ok(())
+        }
+
+        fn poll_input_event(&mut self) {
+            use input_events::Operation;
+            let Some(mut write) = self.context.input_event_write.take() else {
+                return;
+            };
+            if !self.context.connected || self.context.quit {
+                write.fail("not_connected");
+            }
+            let operation = write.next_operation(Instant::now());
+            let hr = match operation {
+                Some(Operation::Identity(request)) => unsafe {
+                    (self.api.request_system_state)(
+                        self.handle,
+                        request,
+                        b"AircraftLoaded\0".as_ptr().cast(),
+                    )
+                },
+                Some(Operation::Enumerate(request)) => unsafe {
+                    (self.api.enumerate_input_events.expect("checked at begin"))(
+                        self.handle,
+                        request,
+                    )
+                },
+                Some(Operation::Parameters(hash)) => unsafe {
+                    (self
+                        .api
+                        .enumerate_input_event_params
+                        .expect("checked at begin"))(self.handle, hash)
+                },
+                Some(Operation::Write(hash, value)) => {
+                    let mut payload = value;
+                    unsafe {
+                        (self.api.set_input_event.expect("checked at begin"))(
+                            self.handle,
+                            hash,
+                            size_of::<f64>() as Dword,
+                            (&mut payload as *mut f64).cast(),
+                        )
+                    }
+                }
+                None => 0,
+            };
+            if !hresult_ok(hr) {
+                write.fail(format!("input_event_api_failed:0x{:08X}", hr as u32));
+            }
+            let send_id = operation.and_then(|_| self.last_sent_packet_id());
+            if let Some(packet) = send_id {
+                write.record_packet(packet);
+            }
+            let sent = matches!(operation, Some(Operation::Write(..)));
+            if write.error.is_some() || sent || write.inventory_complete() {
+                if let Some(events) = write.inventory {
+                    emit_value(json!({"type":"inputEventInventory", "requestId":write.request_id,
+                        "aircraft":write.expected_aircraft,"ok":write.error.is_none(),"error":write.error,
+                        "complete":write.error.is_none(),"events":if write.error.is_none() { events } else { Vec::new() }}));
+                } else {
+                    emit_value(json!({ "type": "sendInputEventAck", "name": write.name,
+                        "requestId": write.request_id, "ok": write.error.is_none(), "error": write.error,
+                        "sendId": if sent { send_id } else { None }, "transport": "SimConnect_SetInputEvent" }));
+                }
+            } else {
+                self.context.input_event_write = Some(write);
+            }
         }
 
         fn initialize_mobiflight(&mut self) {
@@ -2097,6 +2356,12 @@ mod sidecar {
         }
 
         fn subscribe_system_state(&mut self) -> Vec<String> {
+            // These events belong to the connection, not a telemetry profile.
+            // Reusing their IDs on a profile refresh raises EVENT_ID_DUPLICATE.
+            if self.system_state_enabled {
+                self.request_system_states_now();
+                return Vec::new();
+            }
             let mut errors = Vec::new();
             for (event_id, event_name) in
                 [(EVENT_SIM_START, "SimStart"), (EVENT_SIM_STOP, "SimStop")]
@@ -2304,12 +2569,12 @@ mod sidecar {
         }
 
         fn clear_subscriptions(&mut self) {
-            for request in self.active_requests.drain(..) {
+            clear_subscription_requests(&mut self.active_requests, |request_id, definition_id| {
                 let _ = unsafe {
                     (self.api.request_data_on_sim_object)(
                         self.handle,
-                        request.request_id,
-                        request.definition_id,
+                        request_id,
+                        definition_id,
                         SIMCONNECT_OBJECT_ID_USER_AIRCRAFT,
                         SIMCONNECT_PERIOD_NEVER,
                         SIMCONNECT_DATA_REQUEST_FLAG_DEFAULT,
@@ -2318,9 +2583,10 @@ mod sidecar {
                         0,
                     )
                 };
+            }, |definition_id| {
                 let _ =
-                    unsafe { (self.api.clear_data_definition)(self.handle, request.definition_id) };
-            }
+                    unsafe { (self.api.clear_data_definition)(self.handle, definition_id) };
+            });
             self.context.definitions.clear();
             self.context.values.clear();
             self.reset_telemetry_stream();
@@ -2684,7 +2950,7 @@ mod sidecar {
             }
             let event_id = self.next_event_id;
             self.next_event_id += 1;
-            let Ok(event_name) = cstring(name) else {
+            let Ok(event_name) = cstring(simconnect_event_name(name)) else {
                 return None;
             };
             let hr = unsafe {
@@ -2713,6 +2979,46 @@ mod sidecar {
             view_event: bool,
             data: [u32; 5],
             parameter_count: usize,
+            pushback_start: bool,
+        ) -> Result<(bool, Option<Dword>, Vec<Dword>, Value), String> {
+            if matches!(name, "TUG_HEADING" | "KEY_TUG_HEADING")
+                && (crate::tug_lease::owner_exited() || !self.tug_lease.active() || self.tug_lease.blocked(Instant::now())) {
+                self.tug_lease.expire(); self.stop_tug();
+                return Err("pushback_lease_expired".to_string());
+            }
+            // Arm before transport: a partial send or owner exit still needs
+            // cleanup even when the call never returns a successful ack.
+            if pushback_start {
+                if name != "TOGGLE_PUSHBACK" || data[0] != 0 || parameter_count != 1
+                    || crate::tug_lease::owner_exited() || !self.tug_lease.start(Instant::now()) {
+                    return Err("pushback_start_rejected".to_string());
+                }
+                crate::tug_lease::ARMED.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            let result = self.send_event_raw(name, view_event, data, parameter_count)?;
+            if result.0 {
+                self.tug_lease.command(name, data[0], Instant::now());
+                crate::tug_lease::ARMED.store(self.tug_lease.active(), std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(result)
+        }
+
+        fn stop_tug(&mut self) {
+            let disable = self.send_event_raw("TUG_DISABLE", false, [0; 5], 1);
+            if matches!(disable, Ok((true, ..))) {
+                self.tug_lease.stopped();
+                crate::tug_lease::ARMED.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        fn poll_tug(&mut self) {
+            if self.tug_lease.active() && (self.tug_lease.due(Instant::now()) || crate::tug_lease::owner_exited()) {
+                self.tug_lease.expire(); self.stop_tug();
+            }
+        }
+
+        fn send_event_raw(
+            &mut self, name: &str, view_event: bool, data: [u32; 5], parameter_count: usize,
         ) -> Result<(bool, Option<Dword>, Vec<Dword>, Value), String> {
             let Some((event_id, mapping_send_id)) = self.map_event(name) else {
                 return Err(format!("Could not map SimConnect event {name}"));
@@ -3314,8 +3620,55 @@ mod sidecar {
                 }
                 true
             }
-            "sendEvent" | "sendSdkEvent" | "sendViewEvent" => {
-                let Some(name) = command.name.as_deref() else {
+            "listInputEvents" => {
+                let aircraft = command.aircraft.as_deref().unwrap_or_default();
+                let result = if aircraft.is_empty() || aircraft.len() > 259 || aircraft.contains('\0') {
+                    Err("input_event_aircraft_required".to_string())
+                } else if command.value.is_some() || !command.parameters.is_empty() {
+                    Err("invalid_payload".to_string())
+                } else if let Some(session) = session {
+                    session.begin_input_event("", 0.0, command.request_id, aircraft, true)
+                } else {
+                    Err("not_connected".to_string())
+                };
+                if let Err(error) = result {
+                    emit_value(json!({"type":"inputEventInventory",
+                        "requestId":command.request_id,"ok":false,"complete":false,"error":error,"events":[]}));
+                }
+                true
+            }
+            "sendInputEvent" => {
+                let name = command.name.as_deref().unwrap_or_default();
+                let aircraft = command.aircraft.as_deref().unwrap_or_default();
+                let result = if !is_safe_control_name(name) {
+                    Err("invalid_name".to_string())
+                } else if !command.parameters.is_empty()
+                    || !command.value.is_some_and(f64::is_finite)
+                {
+                    Err("invalid_payload".to_string())
+                } else if aircraft.is_empty() || aircraft.len() > 259 || aircraft.contains('\0') {
+                    Err("input_event_aircraft_required".to_string())
+                } else if let Some(session) = session {
+                    session.begin_input_event(
+                        name,
+                        command.value.unwrap(),
+                        command.request_id,
+                        aircraft,
+                        false,
+                    )
+                } else {
+                    Err("not_connected".to_string())
+                };
+                if let Err(error) = result {
+                    emit_value(
+                        json!({ "type": "sendInputEventAck", "name": name, "ok": false,
+                        "error": error, "requestId": command.request_id }),
+                    );
+                }
+                true
+            }
+            "startPushback" | "sendEvent" | "sendSdkEvent" | "sendViewEvent" => {
+                let Some(name) = (if command.command_type == "startPushback" { Some("TOGGLE_PUSHBACK") } else { command.name.as_deref() }) else {
                     return true;
                 };
                 let ack_type = match command.command_type.as_str() {
@@ -3325,6 +3678,8 @@ mod sidecar {
                 };
                 if command.parameters.len() > 4
                     || (command.command_type != "sendEvent" && !command.parameters.is_empty())
+                    || (matches!(name, "TUG_SPEED" | "KEY_TUG_SPEED")
+                        && (command.value.unwrap_or(0.0) != 0.0 || !command.parameters.is_empty()))
                 {
                     emit_value(
                         json!({ "type": ack_type, "name": name, "ok": false, "error": "invalid_payload", "requestId": command.request_id }),
@@ -3335,7 +3690,7 @@ mod sidecar {
                 let value = command.value.unwrap_or(0.0);
                 let primary_data = if command.command_type == "sendSdkEvent" {
                     bounded_sdk_event_data(value)
-                } else if command.command_type == "sendEvent" {
+                } else if command.command_type == "sendEvent" || command.command_type == "startPushback" {
                     bounded_named_event_data(name, value, command.parameters.len())
                 } else {
                     bounded_event_data(value)
@@ -3375,6 +3730,7 @@ mod sidecar {
                         command.command_type == "sendViewEvent",
                         event_data,
                         command.parameters.len() + 1,
+                        command.command_type == "startPushback",
                     );
                     match result {
                         Ok((ok, send_id, send_ids, transport)) => emit_value(
@@ -3608,6 +3964,10 @@ mod sidecar {
 
         let mut next_service = Instant::now();
         loop {
+            if crate::tug_lease::owner_exited() {
+                if let Some(active) = session.as_mut() { active.close(); }
+                return 0;
+            }
             let wait = next_service.saturating_duration_since(Instant::now());
             for command in receive_command_batch(&command_rx, MAX_COMMANDS_PER_TICK, wait) {
                 let keep_running = handle_command(
@@ -3732,6 +4092,7 @@ mod sidecar {
             }
 
             if let Some(active) = session.as_mut() {
+                active.poll_tug();
                 active.poll_due_requests();
                 active.poll_system_state();
                 let dispatch_error = match active.dispatch_once() {
@@ -3759,6 +4120,7 @@ mod sidecar {
                     continue;
                 }
                 active.poll_mobiflight();
+                active.poll_input_event();
                 active.expire_stale_facility_requests();
                 for message in active.drain_pending_messages() {
                     emit_value(message);
@@ -4069,6 +4431,27 @@ fn start_owner_lifeline(args: &[String]) -> Result<(), String> {
 // owner watcher, while all regular bridge/probe modes share one dispatch point.
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(windows)]
+    let _live_simulator_lease = {
+        if let Some(path) = args.iter().find_map(|a| a.strip_prefix("--validate-replay-clip=")) {
+            let result = replay::validate_file(path);
+            if let Err(error) = &result { eprintln!("[FlightFabric replay] {error}"); }
+            std::process::exit(if result.is_ok() { 0 } else { 3 });
+        }
+        if args.iter().any(|a| a == "--dedicated-replay") {
+            let result = replay::run(&args);
+            if let Err(error) = &result { eprintln!("[FlightFabric replay] {error}"); }
+            std::process::exit(if result.is_ok() { 0 } else { 3 });
+        }
+        // Probes/guardians do not operate the simulator. Every real live
+        // bridge takes a shared lease for its entire native lifetime.
+        if !args.iter().any(|a| a == "--probe" || a == "--connection-probe" || a == "--process-guardian") {
+            match replay_exclusion::acquire(false) {
+                Ok(lease) => Some(lease),
+                Err(error) => { eprintln!("[FlightFabric replay] {error}"); std::process::exit(3); }
+            }
+        } else { None }
+    };
     let code = if should_run_process_guardian(&args) {
         match run_process_guardian(&args) {
             Ok(()) => 0,

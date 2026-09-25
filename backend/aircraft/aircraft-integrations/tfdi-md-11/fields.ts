@@ -69,10 +69,9 @@ function simvarBoolean(id: string, name: string): AircraftIntegrationField {
 }
 
 // TFDi publishes the MD11_AFS_*, AP/ATS, mode-flag, V-speed, and APU rows as
-// read/integration variables. The remaining fields are conservative standard
-// MSFS readbacks already normalized into FlightFabric. Exterior-light switch
-// LVAR value semantics are not asserted here: standard light readbacks fail
-// closed if a particular build does not mirror them. Speedbrake telemetry is
+// read/integration variables. Light switch semantics were confirmed through
+// reversible live transitions; see MD11-CONTROL-VALIDATION.md. Standard light
+// bits did not follow those switches and must not confirm controls. Speedbrake telemetry is
 // deliberately absent because the MD-11's Direct Lift Control can move spoiler
 // panels during a normal approach.
 const TFDI_MD_11_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
@@ -120,13 +119,28 @@ const TFDI_MD_11_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'systems.apuN1': lvarNumber('systems.apuN1', 'MD11_APU_N1', 1),
   'systems.apuN2': lvarNumber('systems.apuN2', 'MD11_APU_N2', 1),
 
-  'lights.strobe': simvarBoolean('lights.strobe', 'LIGHT STROBE'),
-  'lights.beacon': simvarBoolean('lights.beacon', 'LIGHT BEACON'),
-  'lights.nav': simvarBoolean('lights.nav', 'LIGHT NAV'),
-  'lights.logo': simvarBoolean('lights.logo', 'LIGHT LOGO'),
-  'lights.landing': simvarBoolean('lights.landing', 'LIGHT LANDING'),
-  'lights.taxi': simvarBoolean('lights.taxi', 'LIGHT TAXI'),
-  'lights.runwayTurnoff': simvarBoolean('lights.runwayTurnoff', 'LIGHT TAXI:2'),
+  // NAV/BCN/HI INT annunciators illuminate OFF; turnoff annunciators illuminate ON.
+  // Flashing bulb-output LVARs cannot confirm a steady switch selection.
+  'lights.strobe': lvarBoolean('lights.strobe', 'MD11_OVHD_LTS_HI_INT_LT', [0], [1]),
+  'lights.beacon': lvarBoolean('lights.beacon', 'MD11_OVHD_LTS_BCN_LT', [0], [1]),
+  'lights.nav': lvarBoolean('lights.nav', 'MD11_OVHD_LTS_NAV_LT', [0], [1]),
+  'lights.logo': lvarBoolean('lights.logo', 'MD11_OVHD_LTS_LOGO_ON_LT'),
+  'lights.turnoffLeft': lvarBoolean('lights.turnoffLeft', 'MD11_OVHD_LTS_RWY_TURNOFF_L_LT'),
+  'lights.turnoffRight': lvarBoolean('lights.turnoffRight', 'MD11_OVHD_LTS_RWY_TURNOFF_R_LT'),
+  'lights.landingLeftPosition': lvarNumber('lights.landingLeftPosition', 'MD11_OVHD_LTS_LDG_L_SW'),
+  'lights.landingRightPosition': lvarNumber('lights.landingRightPosition', 'MD11_OVHD_LTS_LDG_R_SW'),
+  'lights.nosePosition': lvarNumber('lights.nosePosition', 'MD11_OVHD_LTS_NOSE_SW'),
+
+  'systems.busVoltage': field('systems.busVoltage',
+    { type: 'lvar', name: 'A:ELECTRICAL MAIN BUS VOLTAGE:1', unit: 'Volts' }, { type: 'number', precision: 1 }),
+  'baro.captain.value': lvarNumber('baro.captain.value', 'MD11_CAP_ALTIMETER', 2),
+  'baro.firstOfficer.value': lvarNumber('baro.firstOfficer.value', 'MD11_FO_ALTIMETER', 2),
+  'cabin.seatBeltsPosition': lvarNumber('cabin.seatBeltsPosition', 'MD11_OVHD_LTS_SEAT_BELTS_SW'),
+  'cabin.noSmokingPosition': lvarNumber('cabin.noSmokingPosition', 'MD11_OVHD_LTS_NO_SMOKE_SW'),
+  'approach.captain.minimums': lvarNumber('approach.captain.minimums', 'MD11_CAP_MINIMUMS'),
+  'approach.firstOfficer.minimums': lvarNumber('approach.firstOfficer.minimums', 'MD11_FO_MINIMUMS'),
+  'approach.captain.minimumsMode': lvarEnum('approach.captain.minimumsMode', 'MD11_LECP_MINIMUMS_KB', { 0: 'radio', 1: 'baro' }),
+  'approach.firstOfficer.minimumsMode': lvarEnum('approach.firstOfficer.minimumsMode', 'MD11_RECP_MINIMUMS_KB', { 0: 'radio', 1: 'baro' }),
 
   'controls.flapsPercent': simvarNumber('controls.flapsPercent', 'FLAPS HANDLE PERCENT', 'Percent'),
   'controls.flapAngleDeg': simvarNumber('controls.flapAngleDeg', 'TRAILING EDGE FLAPS LEFT ANGLE', 'Degrees', 1),

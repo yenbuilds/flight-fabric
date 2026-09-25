@@ -5,10 +5,13 @@ import { containDialogFocus } from '../../ui/dialog-focus.js';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
+import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
+import { focusToolbarPanelSettings } from '../toolbar-panel-navigation.js';
 import { SUPPORT_URL as supportHref } from '../../support/links.js';
 
 const shell = useShellStore();
 const tabs = useTabsStore();
+const toolbarPanel = useToolbarPanelStore();
 const panel = ref(null);
 const query = ref('');
 const selected = ref(0);
@@ -23,9 +26,11 @@ const descriptions = {
   timeline: 'Saved flights, replay and landing review', settings: 'Preferences and integrations',
   system: 'Connection, devices and services', landing: 'Most recent takeoff and landing assessment',
   cues: 'Experimental flight cues', lvars: 'Aircraft variable inspector',
+  'toolbar-panel': 'Install, update or repair the in-sim toolbar',
 };
 const destinations = computed(() => [
   ...[...tabs.desktopPrimaryTabs, ...tabs.desktopSecondaryTabs].map((tab, index) => ({ ...tab, shortcut: String(index + 1) })),
+  ...(toolbarPanel.available ? [{ id: 'toolbar-panel', tabId: 'settings', label: 'MSFS 2024 toolbar panel', icon: 'settings' }] : []),
   { id: 'landing', label: 'Takeoff and landing', icon: 'landing' },
   { id: 'cues', label: 'Flight cues', icon: 'cues' },
   { id: 'lvars', label: 'LVAR inspector', icon: 'system' },
@@ -41,15 +46,17 @@ const results = computed(() => {
 function close() { shell.closeNavigator(); }
 async function navigate(tab) {
   if (!tab || navigating) return;
-  if (!tabs.requestTabChange(tab.id)) {
+  const targetTab = tab.tabId || tab.id;
+  if (!tabs.requestTabChange(targetTab)) {
     panel.value?.querySelector('input')?.focus({ preventScroll: true });
     return;
   }
   navigating = true;
   close();
   await nextTick();
-  if (!shell.navigatorOpen && tabs.activeTabId === tab.id) {
-    document.getElementById('vue-main-root')?.focus({ preventScroll: true });
+  if (!shell.navigatorOpen && tabs.activeTabId === targetTab) {
+    if (tab.id === 'toolbar-panel') await focusToolbarPanelSettings(tabs);
+    else document.getElementById('vue-main-root')?.focus({ preventScroll: true });
   }
   navigating = false;
 }

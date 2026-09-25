@@ -87,6 +87,8 @@ type AircraftIntegrationRegistry = {
   ) => Record<string, unknown> | null;
 };
 type ResolveOptions = {
+  presetsOnly?: boolean;
+  canExecute?: () => boolean;
   capabilities?: unknown;
   getSimState?: () => unknown;
   profile?: GenericRecord | null;
@@ -1729,6 +1731,10 @@ async function executeAircraftCommandSteps(
     };
   }
 
+  if (options.presetsOnly === true && translated.definition.kind !== 'preset') return {
+    ok: false, code: 'preset_required', error: 'The toolbar can apply aircraft presets only.',
+  };
+
   const providerCapabilities = getProviderAircraftControlCapabilities(provider);
   const executionOptions = {
     ...options,
@@ -1768,7 +1774,9 @@ async function executeAircraftCommandSteps(
   let lastExecutionResult: GenericRecord | null = null;
   for (let index = 0; index < preflightSteps.length; index += 1) {
     const step = preflightSteps[index];
-    const result = await executeAircraftControl(provider, step.resolved.request, executionOptions);
+    const result = options.canExecute && !options.canExecute()
+      ? { ok: false, code: 'auth_required', error: 'The requesting panel is no longer connected.' }
+      : await executeAircraftControl(provider, step.resolved.request, executionOptions);
     const stepResult = {
       index,
       label: step.label,

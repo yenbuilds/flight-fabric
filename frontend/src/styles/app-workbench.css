@@ -39,6 +39,22 @@
 .sidebar-nav-group { display: flex; flex-direction: column; gap: .2rem; }
 .sidebar-group-label { margin: 0; padding: .4rem .65rem; color: rgb(var(--muted-foreground)); font-size: .66rem; font-weight: 600; }
 .sidebar-nav-utilities { margin-top: auto; padding-top: .5rem; }
+.toolbar-setup-task { flex: none; min-width: 0; padding: .65rem; border: 1px solid rgb(var(--primary) / .3); border-radius: .5rem; background: rgb(var(--primary) / .04); }
+.toolbar-setup-kicker { margin: 0 0 .5rem; font-size: .66rem; font-weight: 600; color: rgb(var(--muted-foreground)); }
+.toolbar-setup-open { display: flex; gap: .5rem; width: 100%; min-height: 2.75rem; text-align: left; border-radius: .3rem; }
+.toolbar-setup-open > svg { flex: none; width: 1.15rem; height: 1.15rem; margin-top: .1rem; color: rgb(var(--primary)); }
+.toolbar-setup-open strong { display: block; font-size: .78rem; font-weight: 600; color: rgb(var(--foreground)); }
+.toolbar-setup-open .toolbar-setup-copy > span { display: block; margin-top: .35rem; font-size: .7rem; line-height: 1.5; color: rgb(var(--muted-foreground)); }
+.toolbar-setup-open b { display: block; margin-top: .5rem; font-size: .72rem; font-weight: 600; color: rgb(var(--primary)); }
+.toolbar-setup-open:hover b { text-decoration: underline; }
+.toolbar-setup-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin-top: .5rem; font-size: .62rem; color: rgb(var(--muted-foreground)); }
+.toolbar-setup-meta button { min-height: 2.75rem; text-decoration: underline; text-underline-offset: .15rem; }
+.toolbar-setup-open:focus-visible, .toolbar-setup-meta button:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: 3px; }
+.sidebar-collapsed .app-sidebar .toolbar-setup-copy { display: none; }
+.sidebar-collapsed .app-sidebar .toolbar-setup-task { padding: .2rem; }
+.sidebar-collapsed .app-sidebar .toolbar-setup-open { justify-content: center; align-items: center; }
+.sidebar-collapsed .app-sidebar .toolbar-setup-open > svg { margin: 0; }
+.mobile-toolbar-setup-task { margin: 0 1rem .6rem; }
 .desktop-tab { position: relative; display: flex; align-items: center; flex: none; gap: .65rem; min-width: 0; width: 100%; min-height: 2.5rem; padding: .5rem .65rem; border: 1px solid transparent; border-radius: .4rem; background: transparent; color: rgb(var(--muted-foreground)); font-family: var(--ff-font-ui); font-size: .8125rem; font-weight: 500; text-transform: none; letter-spacing: 0; text-align: left; box-shadow: none; }
 .desktop-tab svg { width: 1.1rem; height: 1.1rem; flex: none; }
 .desktop-tab:hover { color: rgb(var(--foreground)); background: rgb(var(--muted) / .55); }

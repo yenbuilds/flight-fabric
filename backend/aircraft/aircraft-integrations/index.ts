@@ -198,7 +198,12 @@ const HEADWIND_A330_INTEGRATION = defineAircraftIntegration({
   actions: { ...headwindLighting.actions, ...indexedExteriorLights('headwind-a330').actions, ...headwindStrobeLights().actions },
 });
 
+const { INIBUILDS_A380_INTEGRATION } = require('./inibuilds-a380') as {
+  INIBUILDS_A380_INTEGRATION: AircraftIntegrationDefinition;
+};
+
 const defaultAircraftIntegrationRegistry = createAircraftIntegrationRegistry([
+  INIBUILDS_A380_INTEGRATION,
   HEADWIND_A330_INTEGRATION,
   FENIX_A32X_INTEGRATION,
   FBW_A32NX_INTEGRATION,

@@ -15,6 +15,7 @@ const { sanitizeToolbarFlightHistory } = require('./toolbar-flight-history') as 
 type ClientScopeFlags = {
   __ffPrivilegedClient?: boolean;
   __ffAircraftControlClient?: boolean;
+  __ffToolbarPresetClient?: boolean;
 };
 
 type ServerMessage = Record<string, any>;
@@ -77,6 +78,7 @@ export const UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = 
   MSG.FUEL_UNIT,
   MSG.SHOW_BRANDING,
   MSG.AUTHORIZATION_SCOPE,
+  MSG.TOOLBAR_PRESET_STATE,
 ]);
 
 export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Object.freeze([
@@ -94,6 +96,8 @@ export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Ob
   MSG.AIRCRAFT_COMMAND_RESULT,
   MSG.AIRCRAFT_CONTROL_RESULT,
   MSG.AUTOTAXI_STATE,
+  MSG.PUSHBACK_STATE,
+  MSG.TOOLBAR_TAXI_STATE,
   MSG.CDU_STATE,
   MSG.FLIGHT_PLAN,
   MSG.VOICE_STATUS,
@@ -790,7 +794,7 @@ function projectAircraftControlResult(
   message: ServerMessage,
 ): ServerMessage | null {
   const requestId = safeRequestId(message.requestId);
-  if (client?.__ffAircraftControlClient !== true) {
+  if (client?.__ffAircraftControlClient !== true && !(client?.__ffToolbarPresetClient === true && message.type === MSG.AIRCRAFT_COMMAND_RESULT)) {
     if (
       message.ok !== false
       || message.code !== 'auth_required'
@@ -868,7 +872,7 @@ function projectAircraftCommandResult(
     ...message,
     request: message.controlRequest,
   });
-  if (!projected || client?.__ffAircraftControlClient !== true) return projected;
+  if (!projected || (client?.__ffAircraftControlClient !== true && client?.__ffToolbarPresetClient !== true)) return projected;
 
   const command = sanitizeAircraftCommandRequest(message.request || message.command);
   const controlRequest = sanitizeControlRequest(message.controlRequest);
@@ -904,12 +908,37 @@ function projectAircraftCommandResult(
   return projected;
 }
 
+function projectPushbackState(client: ClientScopeFlags | null | undefined, message: ServerMessage): ServerMessage | null {
+  const projected: ServerMessage = { type: MSG.PUSHBACK_STATE, requestId: safeRequestId(message.requestId), ok: message.ok === true };
+  if (client?.__ffAircraftControlClient !== true && client?.__ffToolbarPresetClient !== true) return message.ok === false ? { ...projected, error: AIRCRAFT_CONTROL_AUTH_ERROR } : null;
+  for (const key of ['status', 'active', 'canStart', 'reason', 'unavailableReason', 'currentProfileKey', 'currentProfileRevision', 'icao', 'runway', 'headingDeg', 'remainingM']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key]);
+  }
+  if (message.error) projected.error = safeBoundedString(message.error, 300) || 'Pushback request failed.';
+  return projected;
+}
+
+function projectToolbarTaxiState(client: ClientScopeFlags | null | undefined, message: ServerMessage): ServerMessage | null {
+  const projected: ServerMessage = { type: MSG.TOOLBAR_TAXI_STATE, requestId: safeRequestId(message.requestId), ok: message.ok === true };
+  if (client?.__ffToolbarPresetClient !== true && client?.__ffAircraftControlClient !== true) {
+    return message.ok === false ? { ...projected, error: AIRCRAFT_CONTROL_AUTH_ERROR } : null;
+  }
+  for (const key of ['canGuide', 'guidanceUnavailableReason', 'currentProfileKey', 'currentProfileRevision', 'aircraft', 'sceneKey']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key]);
+  }
+  for (const key of ['preview', 'pushbackPreview', 'scene', 'stands', 'standOptions']) {
+    if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key], 0, 5, 20000);
+  }
+  if (message.error) projected.error = safeBoundedString(message.error, 300) || 'Taxi guidance request failed.';
+  return projected;
+}
+
 function projectAutotaxiState(client: ClientScopeFlags | null | undefined, message: ServerMessage): ServerMessage | null {
   const projected: ServerMessage = { type: message.type, requestId: safeRequestId(message.requestId), ok: message.ok === true };
   if (client?.__ffAircraftControlClient !== true) {
     return message.ok === false ? { ...projected, error: AIRCRAFT_CONTROL_AUTH_ERROR } : null;
   }
-  for (const key of ['status', 'reason', 'active', 'canStart', 'unavailableReason', 'remainingM', 'runwayTravelM', 'joinM',
+  for (const key of ['status', 'reason', 'active', 'canStart', 'unavailableReason', 'canGuide', 'guidanceUnavailableReason', 'remainingM', 'runwayTravelM', 'joinM',
     'handedOver', 'steeringReversed', 'probing', 'runway', 'profileKey', 'profileRevision', 'currentProfileKey',
     'currentProfileRevision', 'observedSpeedKts', 'commanded']) {
     if (hasOwn(message, key)) projected[key] = sanitizeMetadataValue(message[key]);
@@ -938,7 +967,7 @@ function projectAutotaxiState(client: ClientScopeFlags | null | undefined, messa
       projected[key] = sanitizeMetadataValue(selected);
     }
   }
-  if (message.error) projected.error = safeBoundedString(message.error, 300) || 'Autotaxi request failed.';
+  if (message.error) projected.error = safeBoundedString(message.error, 300) || 'Taxi assistant request failed.';
   return projected;
 }
 
@@ -1114,6 +1143,10 @@ export function projectServerMessageForClient(
       return projectAircraftControlResult(client, value);
     case MSG.AIRCRAFT_COMMAND_RESULT:
       return projectAircraftCommandResult(client, value);
+    case MSG.TOOLBAR_TAXI_STATE:
+      return projectToolbarTaxiState(client, value);
+    case MSG.PUSHBACK_STATE:
+      return projectPushbackState(client, value);
     case MSG.AUTOTAXI_STATE:
       return projectAutotaxiState(client, value);
     case MSG.CDU_STATE:

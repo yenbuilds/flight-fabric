@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { resolveCargo } = require('./rust-toolchain');
 const {
   getRepoScratchPath,
   resetRepoScratchDirectory,
@@ -46,38 +47,6 @@ const RUST_SIDECAR_PENDING_BINARY = path.join(
 
 function log(message) {
   console.log(`[build-backend-runtime] ${message}`);
-}
-
-function candidateCargoPaths() {
-  const names = process.platform === 'win32' ? ['cargo.exe', 'cargo.cmd', 'cargo'] : ['cargo'];
-  const dirs = [];
-  if (process.env.CARGO_HOME) dirs.push(path.join(process.env.CARGO_HOME, 'bin'));
-  if (process.env.USERPROFILE) dirs.push(path.join(process.env.USERPROFILE, '.cargo', 'bin'));
-  if (process.env.HOME) dirs.push(path.join(process.env.HOME, '.cargo', 'bin'));
-  for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
-    if (dir) dirs.push(dir);
-  }
-
-  const seen = new Set();
-  const paths = [];
-  for (const dir of dirs) {
-    for (const name of names) {
-      const candidate = path.join(dir, name);
-      const key = candidate.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        paths.push(candidate);
-      }
-    }
-  }
-  return paths;
-}
-
-function resolveCargo() {
-  for (const candidate of candidateCargoPaths()) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return process.platform === 'win32' ? 'cargo.exe' : 'cargo';
 }
 
 function isFileBusyError(err) {

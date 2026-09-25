@@ -1,4 +1,4 @@
-import { freshAircraftValue } from '../voice/state-queries.js';
+import { freshAircraftValue } from './fresh-aircraft-value.js';
 
 const PAIRED_PRESET_FIELDS = Object.freeze({
   'flightGuidance.course.setBoth': {
@@ -16,11 +16,37 @@ const PAIRED_PRESET_FIELDS = Object.freeze({
 export function presetSourceUnavailableReason(command, snapshot, catalogue, now = Date.now()) {
   const templateId = snapshot?.templateId || catalogue?.configurationId;
   const lightPreset = String(command?.id || '').startsWith('configuration.lights.');
-  if (templateId === 'inibuilds-a350' && lightPreset) {
+  // Capabilities may outlive a telemetry disconnect or profile transition.
+  // Every aircraft-specific phase/APU preset needs the same current context.
+  if (catalogue?.configurationId && catalogue.configurationId !== 'generic'
+    && (lightPreset || command?.id === 'configuration.apu.start')) {
+    if (snapshot?.activeProfileKey !== catalogue.profileKey || snapshot?.activeProfileRevision !== catalogue.profileRevision)
+      return 'Waiting for live aircraft data.';
+    if (snapshot?.sourceStatus !== 'connected') return ['pmdg-737', 'pmdg-777'].includes(templateId)
+      ? 'Waiting for live PMDG SDK data.' : 'Waiting for live aircraft data.';
+  }
+  if (templateId === 'tfdi-md-11' && lightPreset) {
     if (snapshot?.sourceStatus !== 'connected' || snapshot.activeProfileKey !== catalogue?.profileKey
       || snapshot.activeProfileRevision !== catalogue?.profileRevision) return 'Waiting for live aircraft data.';
-    return ['lights.landing', 'lights.noseMode', 'lights.strobeMode', 'lights.navMode']
+    const power = freshAircraftValue(snapshot, 'systems.busVoltage', now);
+    if (typeof power !== 'number' || !Number.isFinite(power) || power < 90 || power > 130) return 'Fresh aircraft electrical power required.';
+    const selectors = ['lights.landingLeftPosition', 'lights.landingRightPosition', 'lights.nosePosition'];
+    const switches = ['lights.turnoffLeft', 'lights.turnoffRight', 'lights.strobe', 'lights.nav'];
+    return selectors.some(id => ![0, 1, 2].includes(freshAircraftValue(snapshot, id, now)))
+      || switches.some(id => typeof freshAircraftValue(snapshot, id, now) !== 'boolean')
+      ? 'Waiting for live exterior light readings.' : '';
+  }
+  if (['inibuilds-a350', 'inibuilds-a380'].includes(templateId) && lightPreset) {
+    if (snapshot?.sourceStatus !== 'connected' || snapshot.activeProfileKey !== catalogue?.profileKey
+      || snapshot.activeProfileRevision !== catalogue?.profileRevision) return 'Waiting for live aircraft data.';
+    return ['lights.landing', 'lights.noseMode', 'lights.strobeMode', templateId === 'inibuilds-a380' ? 'lights.nav' : 'lights.navMode']
       .some(id => freshAircraftValue(snapshot, id, now) === null) ? 'Waiting for live exterior light readings.' : '';
+  }
+  if (templateId === 'inibuilds-a380' && command.id === 'configuration.apu.start') {
+    if (snapshot?.sourceStatus !== 'connected' || snapshot.activeProfileKey !== catalogue?.profileKey
+      || snapshot.activeProfileRevision !== catalogue?.profileRevision) return 'Waiting for live aircraft data.';
+    return ['systems.apuMaster', 'systems.apuStart', 'systems.apuAvailable', 'systems.apuMasterFault']
+      .some(id => freshAircraftValue(snapshot, id, now) === null) ? 'Waiting for live APU readings.' : '';
   }
   const paired = PAIRED_PRESET_FIELDS[command.id];
   if (templateId === 'pmdg-737' && paired) {
@@ -35,6 +61,17 @@ export function presetSourceUnavailableReason(command, snapshot, catalogue, now 
     || !(lightPreset || command.id === 'configuration.apu.start')) return '';
   const sdkStatus = snapshot?.sourceStatuses?.sdk || snapshot?.sourceStatus;
   return snapshot?.sourceStatus !== 'connected' || sdkStatus !== 'connected' ? 'Waiting for live PMDG SDK data.' : '';
+}
+
+export function presetPendingReason(command, catalogue, isPending) {
+  if (catalogue?.configurationId !== 'tfdi-md-11'
+    || !String(command?.id || '').startsWith('configuration.lights.')) return '';
+  // Lights, signs and minimums share the same aircraft event mailbox.
+  return isPending('aircraft-specific-group:md11.cevent')
+    || Object.values(catalogue.commands || {}).some(candidate => (
+      /^(lights\.|configuration\.lights\.|cabin\.)/.test(candidate.id)
+        || /^approach\.(captain|firstOfficer)\.radioMinimums$/.test(candidate.id)
+    ) && isPending(candidate.id)) ? 'Waiting for another aircraft control to finish.' : '';
 }
 
 // The backend catalogue owns which aircraft fields mean starting/available.

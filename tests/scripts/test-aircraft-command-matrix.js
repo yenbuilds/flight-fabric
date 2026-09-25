@@ -7,7 +7,7 @@ const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(run
 const msfsCapabilities = {
   simulator: 'msfs',
   actionTypes: ['aircraft-integration', 'key-event', 'simvar', 'lvar'],
-  integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'],
+  integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'input-event'],
 };
 const liveState = { simconnectConnected: true, inMenu: false };
 
@@ -19,6 +19,8 @@ const takeoffLightsProfiles = new Set([
   'pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900',
   'pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f',
   'inibuilds-a350-900', 'inibuilds-a350-1000',
+  'inibuilds-a380-800-rr',
+  'tfdi-md-11',
   'microsoft-737-max-8', 'inibuilds-a320neo-v2', 'inibuilds-a321lr', 'inibuilds-tristar',
 ]);
 
@@ -65,9 +67,9 @@ for (const entry of loader.listProfiles()) {
         : { simulator: 'xplane', actionTypes: [], integrationTransports: [] },
     };
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
-    const mainLights = entry.simulator === 'msfs' && (takeoffLightsProfiles.has(entry.id) || entry.id === 'headwind-a330');
+    const mainLights = entry.simulator === 'msfs' && (takeoffLightsProfiles.has(entry.id) || ['headwind-a330', 'inibuilds-a380-800-rr', 'tfdi-md-11'].includes(entry.id));
     const strobeMode = ['fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'headwind-a330',
-      'inibuilds-a350-900', 'inibuilds-a350-1000'].includes(entry.id);
+      'inibuilds-a350-900', 'inibuilds-a350-1000', 'inibuilds-a380-800-rr'].includes(entry.id);
     for (const state of ['on', 'off']) {
       for (const phrase of [`set strobe lights ${state}`, `set strobe light ${state}`,
         `strobe lights ${state}`, `turn ${state} strobe lights`, `switch strobe lights ${state}`]) {
@@ -86,7 +88,7 @@ for (const entry of loader.listProfiles()) {
     for (const phrase of ['set strobe lights', 'strobe lights maybe on', 'do not set strobe lights off',
       'set strobe lights on and start apu']) assert.equal(interpret(phrase, catalogue).ok, false, phrase);
     const supportsApuStart = entry.simulator === 'msfs' &&
-      /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|inibuilds-a350-(?:900|1000))$/.test(entry.id);
+      /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|inibuilds-a350-(?:900|1000)|inibuilds-a380-800-rr)$/.test(entry.id);
     for (const phrase of ['start apu', 'start the A P U', 'start auxiliary power unit']) {
       const voice = interpret(phrase, catalogue);
       assert.equal(voice.ok, supportsApuStart, `${profileKey}: ${phrase}`);
@@ -97,7 +99,7 @@ for (const entry of loader.listProfiles()) {
       }
     }
     const turnoffLights = entry.simulator === 'msfs'
-      && /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330)$/.test(entry.id);
+      && /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330|inibuilds-a380-800-rr|tfdi-md-11)$/.test(entry.id);
     for (const [target, names] of [['landing', ['landing']], ['taxi', ['taxi']],
       ['runwayTurnoff', ['runway turnoff', 'runway turn off']]]) {
       const available = target === 'runwayTurnoff' ? turnoffLights : mainLights;
@@ -148,7 +150,7 @@ for (const entry of loader.listProfiles()) {
       }
     }
     assert.equal(catalogue.inventory.find(command => command.id === 'configuration.lights.takeoff')?.supported,
-      supportsTakeoffLights, `${profileKey}: inventory explains whether the preset is available`);
+      supportsTakeoffLights, `${profileKey}: inventory preserves declared presets`);
     // The other phase presets are composed from the same reviewed light actions,
     // so they are available exactly where the takeoff preset is.
     for (const [preset, phrase, minimumSteps] of [

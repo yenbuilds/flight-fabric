@@ -12,6 +12,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
+const { validateProfile: validateProfileCompleteness } = require('../../scripts/validate-profile-completeness');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flight-fabric-profile-loader-'));
 const tempAppData = path.join(tempRoot, 'AppData', 'Roaming');
@@ -126,6 +127,7 @@ const VENDOR_SPECIFIC_MATCH_TOKENS = new Map([
   ['inibuilds-a330', ['inibuilds', 'microsoft']],
   ['inibuilds-a350-900', ['inibuilds']],
   ['inibuilds-a350-1000', ['inibuilds']],
+  ['inibuilds-a380-800-rr', ['inibuilds']],
   ['inibuilds-a400m', ['inibuilds', 'microsoft']],
   ['inibuilds-tristar', ['inibuilds']],
   ['justflight-146', ['justflight', 'just', 'jf', 'jfa']],
@@ -505,6 +507,13 @@ test('TFDi Design MD-11 preserves the canonical product and vendor names', tfdiM
 test('TFDi Design MD-11 activates its exact trusted adapter', tfdiMd11?.integration?.aircraftSpecific?.adapter === 'tfdi-md-11');
 test('TFDi Design MD-11 uses narrow surface fallback only', tfdiMd11?.integration?.controls?.genericFallback === false && tfdiMd11?.integration?.controls?.standardSurfaceFallback === true);
 test('TFDi Design MD-11 exposes no profile-level autopilot writes', tfdiMd11?.integration?.controls?.autopilot === undefined);
+test('Profile completeness accepts explicitly unverified MD-11 flap handle slots',
+  Array.isArray(tfdiMd11?.aircraft?.flaps?.notches) && tfdiMd11.aircraft.flaps.notches.length === 0
+    && validateProfileCompleteness(tfdiMd11, []).every(issue => issue.field !== 'flaps'));
+test('Profile completeness still rejects missing or malformed flap notch arrays',
+  [undefined, null, {}, 'unknown'].every(notches => validateProfileCompleteness({
+    aircraft: { flaps: { notches } },
+  }, []).some(issue => issue.field === 'flaps')));
 
 const ifly737Max8 = loader.loadProfile('ifly-737-max-8');
 test('Can load ifly-737-max-8 profile', ifly737Max8 !== null);
@@ -763,11 +772,14 @@ test(
 const vendorProfilesWithLooseTitleRegex = vendorSpecificBundledProfiles
   .filter(profile => {
     const tokens = VENDOR_SPECIFIC_MATCH_TOKENS.get(profile.id) || [];
-    return !matchingTextHasEvidence(profile.integration?.matching?.titleRegex, tokens);
+    const regex = profile.integration?.matching?.titleRegex;
+    // Some installed titles omit the vendor. A path-only profile must be able
+    // to clear its broad inherited title regex and require exact path identity.
+    return String(regex || '').trim().length > 0 && !matchingTextHasEvidence(regex, tokens);
   })
   .map(profile => profile.id);
 test(
-  'Vendor-specific bundled profile titleRegex values require vendor/product evidence',
+  'Vendor-specific bundled profile titleRegex values require vendor/product evidence when present',
   vendorProfilesWithLooseTitleRegex.length === 0
 );
 
@@ -775,10 +787,9 @@ const vendorProfilesWithLooseConfigPathIdentity = vendorSpecificBundledProfiles
   .filter(profile => {
     const tokens = VENDOR_SPECIFIC_MATCH_TOKENS.get(profile.id) || [];
     const matching = profile.integration?.matching || {};
-    return !(
-      matchingArrayHasEvidence(matching.configPathContains, tokens) &&
-      matchingTextHasEvidence(matching.configPathRegex, tokens)
-    );
+    const matchers = [...(matching.configPathContains || []), matching.configPathRegex]
+      .filter(value => String(value || '').trim().length > 0);
+    return matchers.length === 0 || !matchers.every(value => matchingTextHasEvidence(value, tokens));
   })
   .map(profile => profile.id);
 test(
@@ -939,6 +950,13 @@ const detectedIniBuildsA350900 = loader.detectProfile('iniBuilds Airbus A350-900
 const detectedIniBuildsA3501000 = loader.detectProfile('iniBuilds Airbus A350-1000');
 test('Detects iniBuilds A350-900 specifically', detectedIniBuildsA350900?.id === 'inibuilds-a350-900');
 test('Detects iniBuilds A350-1000 specifically', detectedIniBuildsA3501000?.id === 'inibuilds-a350-1000');
+
+test(
+  'Detects the live MSFS 2024 A350-900 title through its vendor-qualified preset path',
+  loader.detectProfile('A350-900 (Default Cabin)', {
+    hint: 'SimObjects\\Airplanes\\a350\\presets\\inibuilds\\a350-900_default_cabin\\config\\aircraft.CFG',
+  })?.id === 'inibuilds-a350-900',
+);
 test(
   'iniBuilds A350 variants do not cross-match each other or an unqualified Airbus title',
   detectedIniBuildsA350900?.id !== 'inibuilds-a350-1000'
@@ -3062,13 +3080,37 @@ test(
 
 loader.setActiveProfile('tfdi-md-11');
 const md11Lvars = loader.getLvarConfig();
+
+test(
+  'MD-11 live PW4462 Low Poly Cabin title selects the dedicated profile',
+  loader.detectProfile('TFDi Design MD-11 PW4462 (Low Poly Cabin)')?.id === 'tfdi-md-11',
+);
+const { createSourceOverlayContext, resolveLightsForBroadcast } = require(
+  resolveBackendRuntimeFile('telemetry-provider', 'source-overlays.js'),
+);
+const md11LightProfile = loader.getActiveProfile();
+const md11StandardLights = { nav: true, beacon: true, strobe: true, turnoff: true, landing: true, taxi: true, logo: true };
+const md11ObservedLights = resolveLightsForBroadcast({
+  baseLights: md11StandardLights,
+  profile: md11LightProfile,
+  sourceContext: createSourceOverlayContext({
+    profile: md11LightProfile,
+    dataSourceInfo: { secondary: [{ type: 'lvar-sidecar', connected: true }] },
+    frame: { lvars: { values: { light_nav: 0, light_beacon: 0, light_strobe: 0, light_turnoff_left: 0, light_turnoff_right: 0 } } },
+  }),
+});
+test(
+  'MD-11 overview rejects unverified standard lights when fresh vendor selections are missing',
+  md11ObservedLights?.available === false
+    && !md11Lvars.subscriptions.some(subscription => subscription.key.startsWith('light_')),
+);
 test('MD-11 LVAR config is enabled', md11Lvars?.enabled === true);
 test(
-  'TFDi MD-11 activates its exact trusted tri-jet monitoring page',
+  'TFDi MD-11 activates its exact trusted tri-jet controls page',
   md11Lvars?.aircraftSpecific?.templateId === 'tfdi-md-11' &&
     md11Lvars?.aircraftSpecific?.integrationId === 'tfdi-md-11' &&
     md11Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/tfdi-md-11' &&
-    md11Lvars?.aircraftSpecific?.fields?.length === 47 &&
+    md11Lvars?.aircraftSpecific?.fields?.length === 58 &&
     md11Lvars.aircraftSpecific.fields.some(field => (
       field.id === 'afs.apState' &&
       field.source?.type === 'lvar' &&
@@ -3099,10 +3141,10 @@ test(
       field.source?.path === 'fdm.eng3N1'
     )) &&
     !md11Lvars.aircraftSpecific.fields.some(field => field.id === 'controls.speedbrakePercent') &&
-    md11Lvars.aircraftSpecific.confirmationFields.length === 0
+    md11Lvars.aircraftSpecific.confirmationFields.length > 0
 );
 test(
-  'TFDi MD-11 keeps CEVENT/state writes disabled and rejects untrusted local profiles',
+  'TFDi MD-11 keeps generic and undocumented AP writes disabled and rejects untrusted local profiles',
   loader.getActiveProfile()?.integration?.controls?.genericFallback === false &&
     loader.getActiveProfile()?.integration?.controls?.standardSurfaceFallback === true &&
     loader.getActiveProfile()?.integration?.controls?.autopilot === undefined &&
@@ -3127,20 +3169,7 @@ test(
     md11Lvars.subscriptions.some(s => s.expression === '(L:MD11_APU_STATE)')
 );
 test(
-  'MD-11 subscribes vendor-published overhead nav light LVAR',
-  md11Lvars?.subscriptions?.some(s => s.key === 'light_nav' && s.expression === '(L:MD11_OVHD_LTS_NAV_LT)') === true
-);
-test(
-  'MD-11 subscribes verified light LVARs from dataSource',
-  md11Lvars?.subscriptions?.some(s => s.key === 'light_logo' && s.sourcePath === 'integration.telemetry.lvars.lights.logo') === true
-);
-test(
-  'MD-11 subscribes paired turnoff light LVARs',
-  md11Lvars?.subscriptions?.some(s => s.key === 'light_turnoff_left') === true &&
-    md11Lvars?.subscriptions?.some(s => s.key === 'light_turnoff_right') === true
-);
-test(
-  'MD-11 does not subscribe removed guessed light LVAR names',
+  'MD-11 does not use bulb-output LVARs as stable light switch readback',
   md11Lvars?.subscriptions?.every(s => !s.expression.includes('MD11_LTS_EXT')) === true
 );
 

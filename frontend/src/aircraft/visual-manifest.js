@@ -73,6 +73,7 @@ export const AIRCRAFT_PROFILE_VISUALS = Object.freeze({
   'bundled/msfs/asobo-787': { assetKey: 'boeing-787-10', fidelity: 'exact' },
   'bundled/msfs/fbw-a32nx': { assetKey: 'airbus-a320neo', fidelity: 'exact' },
   'bundled/msfs/fbw-a380x': { assetKey: 'airbus-a380-800', fidelity: 'exact' },
+  'bundled/msfs/inibuilds-a380-800-rr': { assetKey: 'airbus-a380-800', fidelity: 'exact' },
   'bundled/msfs/fenix-a319': { assetKey: 'airbus-a319', fidelity: 'exact' },
   'bundled/msfs/fenix-a320': { assetKey: 'airbus-a320ceo', fidelity: 'exact' },
   'bundled/msfs/fenix-a321': { assetKey: 'airbus-a321', fidelity: 'exact' },

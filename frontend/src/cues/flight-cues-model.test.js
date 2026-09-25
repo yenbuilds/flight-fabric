@@ -36,18 +36,19 @@ test('Flight cues show takeoff lights during taxi, before the detected takeoff p
   const takeoffPreset = command('configuration.lights.takeoff', 'preset', ['set lights for takeoff']);
   const landingLights = command('lights.landing.set', 'action', ['landing lights {value}'], { kind: 'boolean' });
   const telemetry = { lights: { available: true, landing: false }, observedAt: { lights: Date.now() } };
-  const preferred = chooseFlightVoiceCue({ phase: 'TAXI', telemetry, catalogue: catalogue([takeoffPreset, landingLights]), available: true, live: true });
+  const aircraftSnapshot = { activeProfileKey: 'active-profile', sourceStatus: 'connected' };
+  const preferred = chooseFlightVoiceCue({ phase: 'TAXI', telemetry, aircraftSnapshot, catalogue: catalogue([takeoffPreset, landingLights]), available: true, live: true });
   assert.equal(preferred.id, takeoffPreset.id);
   assert.equal(preferred.phrase, 'set lights for takeoff');
   assert.equal(preferred.title, 'Before takeoff');
   const fallback = chooseFlightVoiceCue({ phase: 'TAXI', telemetry, catalogue: catalogue([landingLights]), available: true, live: true });
   assert.equal(fallback.id, landingLights.id);
   assert.equal(fallback.phrase, 'landing lights on');
-  assert.equal(chooseFlightVoiceCue({ phase: 'TAKEOFF', telemetry, catalogue: catalogue([takeoffPreset, landingLights]), available: true, live: true }), null,
+  assert.equal(chooseFlightVoiceCue({ phase: 'TAKEOFF', telemetry, aircraftSnapshot, catalogue: catalogue([takeoffPreset, landingLights]), available: true, live: true }), null,
     'the detected takeoff phase is already too late for setup lights');
   assert.equal(chooseFlightVoiceCue({ phase: 'TAXI', telemetry: { ...telemetry, observedAt: { lights: Date.now() - 7000 } }, catalogue: catalogue([landingLights]), available: true, live: true }), null,
     'an individual light cue needs fresh observed light state');
-  assert.equal(chooseFlightVoiceCue({ phase: 'TAXI', telemetry, catalogue: catalogue([takeoffPreset]), available: true, live: true,
+  assert.equal(chooseFlightVoiceCue({ phase: 'TAXI', telemetry, aircraftSnapshot, catalogue: catalogue([takeoffPreset]), available: true, live: true,
     pendingCommands: { 'aircraft-command:configuration.lights.takeoff': true } }), null,
   'a preset already pending should not be suggested again');
 });
@@ -120,7 +121,11 @@ test('APU cues honor shared fault/starting/available observations only for the a
     valueUpdatedAt: { 'systems.apuAvailable': new Date(now).toISOString() }, values: { 'systems.apuAvailable': true } };
   const base = { phase: 'PARKED', catalogue: { ...catalogue([apu]), profileRevision: 1 }, aircraftSnapshot: snapshot, available: true, live: true, now };
   assert.equal(chooseFlightVoiceCue(base), null);
-  assert.ok(chooseFlightVoiceCue({ ...base, aircraftSnapshot: { ...snapshot, activeProfileKey: 'old-aircraft' } }));
+  assert.ok(chooseFlightVoiceCue({ ...base, aircraftSnapshot: { ...snapshot, values: { 'systems.apuAvailable': false } } }));
+  for (const patch of [{ activeProfileKey: 'old-aircraft' }, { activeProfileRevision: 2 }, { sourceStatus: 'disconnected' }]) {
+    assert.equal(chooseFlightVoiceCue({ ...base, aircraftSnapshot: { ...snapshot, ...patch } }), null,
+      'a preset cue needs the same matching connected aircraft context as the Aircraft page');
+  }
   assert.ok(chooseFlightVoiceCue({ ...base, now: now + 3000 }), 'old data must not be treated as an observed outcome');
 });
 

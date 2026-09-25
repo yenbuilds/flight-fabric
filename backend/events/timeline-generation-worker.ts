@@ -1,14 +1,12 @@
 'use strict';
+import type { RecordingReadRequest, RecordingReadResult } from './timeline-generator';
 
 const { parentPort, workerData } = require('node:worker_threads') as typeof import('node:worker_threads');
 const timelineGenerator = require('./timeline-generator') as {
-  _generateFromCSVInProcess: (
+  processRecordingInProcess: (
     _csvPath: string,
-    _options?: Record<string, any>,
-  ) => Promise<
-    | { success: false; error: string }
-    | { success: true; timeline: Record<string, any> }
-  >;
+    _request: RecordingReadRequest,
+  ) => Promise<RecordingReadResult>;
 };
 
 async function main() {
@@ -16,19 +14,16 @@ async function main() {
 
   try {
     const csvPath = typeof workerData?.csvPath === 'string' ? workerData.csvPath : '';
-    const options = (
-      workerData?.options
-      && typeof workerData.options === 'object'
-      && !Array.isArray(workerData.options)
-    )
-      ? workerData.options
-      : {};
-    if (!csvPath) {
+    const request = workerData?.request;
+    const validRequest = request?.kind === 'timeline'
+      ? request.options && typeof request.options === 'object' && !Array.isArray(request.options)
+      : request?.kind === 'replay-clip' && Number.isSafeInteger(request.landingIndex) && request.landingIndex >= 0;
+    if (!csvPath || !validRequest) {
       parentPort.postMessage({ success: false, error: 'Timeline worker received an invalid request.' });
       return;
     }
 
-    const result = await timelineGenerator._generateFromCSVInProcess(csvPath, options);
+    const result = await timelineGenerator.processRecordingInProcess(csvPath, request);
     parentPort.postMessage(result);
   } catch {
     parentPort.postMessage({

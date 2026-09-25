@@ -18,6 +18,7 @@ const { restoreMainWindowState } = require('./main-window-bounds');
 const { trackMainWindowState, showMainWindow, setAutotaxiBackgroundActivity } = require('./main-window-state');
 const { createDesktopMenuTemplate } = require('./desktop-menu');
 const { detectMsfsInstalls } = require('./msfs-detect');
+const { createPmdgSdkSetup } = require('./pmdg-sdk-setup');
 const { createToolbarPanelInstaller } = require('./msfs-toolbar-panel-installer');
 const { getLocalIPv4AddressesFromInterfaces } = require('./network-info');
 const { resolveAllowedExternalUrl } = require('./external-url-policy');
@@ -1509,7 +1510,10 @@ function killProcessOnPort(port, options = {}) {
     let killedCount = 0;
     for (const pid of pids) {
       const initialIdentity = readWindowsProcessIdentity(pid);
-      const ownership = classifyFlightFabricBackendIdentity(initialIdentity);
+      const ownership = classifyFlightFabricBackendIdentity(initialIdentity, {
+        backendScript: BACKEND_SCRIPT,
+        executablePath: process.execPath,
+      });
       const cleanupCapabilities = {
         ...baseCleanupCapabilities,
         sameWindowsOwner: hasSameWindowsOwner(initialIdentity, currentWindowsOwnerSid),
@@ -2978,6 +2982,18 @@ registerTrustedIpcHandler('startup-health', () => startupHealth);
 
 // MSFS install detection - read-only filesystem probe, no traversal
 registerTrustedIpcHandler('msfs-detect-installs', () => detectMsfsInstalls());
+
+const pmdgSdkSetup = createPmdgSdkSetup({
+  showItemInFolder: file => shell.showItemInFolder(file),
+  chooseOptionsFile: () => dialog.showOpenDialog(mainWindow, {
+    title: 'Choose PMDG options file', buttonLabel: 'Use this file',
+    properties: ['openFile', 'showHiddenFiles', 'dontAddToRecent'],
+    filters: [{ name: 'PMDG options INI', extensions: ['ini'] }],
+  }),
+});
+registerTrustedIpcHandler('pmdg-sdk-status', (_, family, profileId) => pmdgSdkSetup.getStatus(family, profileId));
+registerTrustedIpcHandler('pmdg-sdk-reveal', (_, family, id) => pmdgSdkSetup.revealFile(family, id));
+registerTrustedIpcHandler('pmdg-sdk-choose', (_, family, profileId) => pmdgSdkSetup.chooseFile(family, profileId));
 
 // MSFS 2024 toolbar package. The renderer only names a detected install id;
 // paths are resolved here from the detector and the bundled package.

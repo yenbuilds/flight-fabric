@@ -17,6 +17,8 @@ const { PHASES } = require('../lifecycle/phases.js') as {
  */
 const MSG = Object.freeze({
   AUTOTAXI_STATE: 'autotaxiState',
+  PUSHBACK_STATE: 'pushbackState',
+  TOOLBAR_TAXI_STATE: 'toolbarTaxiState',
   CDU_STATE: 'cduState',
   // Scalar streams
   IAS: 'ias',
@@ -46,6 +48,7 @@ const MSG = Object.freeze({
   ENGINES: 'engines',
   LANDING: 'landing',
   TAKEOFF: 'takeoff',
+  TOOLBAR_PRESET_STATE: 'toolbarPresetState', // bounded preset readback, at most 2 Hz per subscribed socket
   TOOLBAR_FLIGHT_HISTORY: 'toolbarFlightHistory', // opt-in reconnect snapshot, never a live landing event
   FLIGHT_SUMMARY: 'flightSummary',
   FLIGHT_VIOLATION: 'flightViolation',

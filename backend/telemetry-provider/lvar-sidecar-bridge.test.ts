@@ -28,6 +28,7 @@ type LvarSidecarBridgeTestInstance = {
   isEnabled: () => boolean;
   getSnapshot: () => {
     source: string;
+    inputEventsAvailable?: boolean;
     error: string | null;
     snapshotSequence?: number;
     profileId?: string;
@@ -37,7 +38,9 @@ type LvarSidecarBridgeTestInstance = {
   };
   setSubscriptions: (subscriptions?: Array<Record<string, unknown>>, profileId?: string) => void;
   sendEvent: (eventName: string, value?: unknown, parameters?: unknown[]) => Promise<{ ok?: boolean; error?: string | null }>;
+  startPushback: () => Promise<{ ok?: boolean; error?: string | null }>;
   sendSdkEvent: (eventName: string, value?: unknown) => Promise<{ ok?: boolean; error?: string | null }>;
+  sendInputEvent: (eventName: string, value?: number, aircraft?: string) => Promise<{ ok?: boolean; error?: string | null }>;
   setNamedVar: (options?: Record<string, unknown>) => Promise<{ ok?: boolean; error?: string | null }>;
   executeMobiFlightCode: (code: string) => Promise<{ ok?: boolean; error?: string | null }>;
   findRecentSimConnectException: (
@@ -730,6 +733,33 @@ test('LvarSidecarBridge accepts only exact COM standby Hz channels above the gen
   ]);
 });
 
+test('LvarSidecarBridge preserves unsigned tug headings without widening generic events', async () => {
+  const calls = []; let replies = [];
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    bridge._sendWithAck = async message => { calls.push(message); return { ok: true }; };
+    replies = [0, 1073741824, 2147483648, 3221225471, 4294967295].map(value => bridge.sendEvent('TUG_HEADING', value));
+    replies.push(...[-1, 0.5, 4294967296, NaN, Infinity].map(value => bridge.sendEvent('TUG_HEADING', value)),
+      bridge.sendEvent('TUG_HEADING', 0, [0]), bridge.sendEvent('HEADING_BUG_SET', 2147483648));
+  });
+  const results = await Promise.all(replies);
+  assert.ok(results.slice(0, 5).every(r => r.ok)); assert.ok(results.slice(5).every(r => r.ok === false));
+  assert.deepEqual(calls.map(c => c.value), [0, 1073741824, 2147483648, 3221225471, 4294967295]);
+});
+
+test('pushback start uses a leased protocol command and nonzero tug speeds never reach native transport', async () => {
+  const calls = []; let replies = [];
+  withPatchedBridge({}, LvarSidecarBridge => {
+    const bridge = new LvarSidecarBridge();
+    bridge._sendWithAck = async message => {calls.push(message);return {ok:true};};
+    replies = [bridge.startPushback(), ...['TUG_SPEED','KEY_TUG_SPEED'].flatMap(name=>
+      [-4,1,4294967292].map(value=>bridge.sendEvent(name,value)))];
+  });
+  const acks=await Promise.all(replies);
+  assert.equal(acks[0].ok,true);assert.ok(acks.slice(1).every(ack=>ack.ok===false));
+  assert.deepEqual(calls,[{type:'startPushback'}]);
+});
+
 test('LvarSidecarBridge sends bounded multi-parameter generic events only', async () => {
   const calls = [];
   let results = [];
@@ -927,6 +957,39 @@ test('LvarSidecarBridge tracks MobiFlight health and uses the bounded ACK comman
     code: '0 (L:switch_117_73X, number) == if{ 11701 (>K:ROTOR_BRAKE) }',
   });
   assert.equal(capturedAckType, 'executeMobiFlightCodeAck');
+});
+
+test('LvarSidecarBridge clears native Input Event availability across disconnects', () => {
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, false);
+    bridge._onStdout('{"type":"inputEventStatus","available":true}\n');
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, true);
+    bridge._onStdout('{"type":"status","state":"disconnected"}\n');
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, false);
+    bridge._onStdout('{"type":"status","state":"connected"}\n');
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, false);
+  });
+});
+
+test('LvarSidecarBridge sends signed Input Events with exact aircraft identity and rejects malformed payloads', async () => {
+  const results: Array<Promise<{ ok?: boolean; error?: string | null }>> = [];
+  const sent: unknown[][] = [];
+  const aircraft = 'SimObjects\\Airplanes\\test\\aircraft.CFG';
+  withPatchedBridge({}, (Bridge) => {
+    const bridge = new Bridge();
+    bridge._sendWithAck = async (...args: unknown[]) => { sent.push(args); return { ok: true }; };
+    results.push(bridge.sendInputEvent('TEST_KNOB', -1, aircraft));
+    for (const identity of ['', 'a'.repeat(260), 'bad\0path']) {
+      results.push(bridge.sendInputEvent('TEST_KNOB', 1, identity));
+    }
+    results.push(bridge.sendInputEvent('TEST_KNOB', Infinity, aircraft));
+    results.push(bridge.sendInputEvent('BAD;NAME', 1, aircraft));
+  });
+  const acknowledgements = await Promise.all(results);
+  assert.deepEqual(sent, [[{ type: 'sendInputEvent', name: 'TEST_KNOB', value: -1, aircraft }, 'sendInputEventAck']]);
+  assert.equal(acknowledgements[0].ok, true);
+  assert.equal(acknowledgements.slice(1).every((ack) => ack.ok === false), true);
 });
 
 test('LvarSidecarBridge accepts snapshots only for the latest overlapping subscription generation', () => {

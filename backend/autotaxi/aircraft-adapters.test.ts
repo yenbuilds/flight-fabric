@@ -145,6 +145,111 @@ function fixture(family: TaxiFamily = 'generic', engineCount = 2) {
     setProfile: (next: string) => { profileKey = next; }, now: () => now };
 }
 
+test('dedicated manual sessions reject every control operation and cannot disturb an active controller', async () => {
+  const f = fixture();
+  const viewer = createAutotaxi(f.provider, f.profiles, f.now, { readOnly: true });
+  const secondViewer = createAutotaxi(f.provider, f.profiles, f.now, { readOnly: true });
+  try {
+    await f.session.request(f.request('start'), {});
+    const before = f.events.length;
+    for (const operation of ['start', 'stop', 'release', 'unknown']) {
+      await assert.rejects(viewer.request(f.request(operation), {}), /guidance supports/);
+    }
+    const preview = await viewer.request(f.request('preview'), {});
+    assert.ok('preview' in preview && preview.preview.points.length > 1);
+    assert.equal(viewer.state().canStart, false);
+    assert.equal(secondViewer.state().sceneKey, null, 'independent viewer has no borrowed route');
+    assert.equal((await viewer.request(f.request('status'), {})).sceneKey, preview.sceneKey);
+    await viewer.request(f.request('parkings'), {});
+    assert.equal(f.events.length, before, 'manual reads never write axes or brakes');
+    assert.equal(f.session.isActive(), true, 'automatic controller ownership survives all reads');
+    assert.equal(f.variables.length, 0); assert.equal(f.actions.length, 0);
+  } finally { await f.session.dispose(); }
+});
+
+test('taxi guidance works without automatic-control readiness and never writes controls', async () => {
+  for (const family of ['generic', 'pmdg-737', 'pmdg-777', 'fenix-a32x'] as const) {
+    const f = fixture(family);
+    f.values.parkingBrake = true; f.values.eng1Combustion = false; f.values.athrArmed = true;
+    f.lvarValues.fenixParking = 1;
+    f.sdk.normalized.brakes.parking = true;
+    try {
+      assert.equal(f.session.state().canGuide, true, family);
+      assert.equal(f.session.state().canStart, false, family);
+      const preview = await f.session.request(f.request('preview'), {});
+      assert.ok('preview' in preview && preview.preview.points.length > 1, family);
+      assert.equal(preview.active, false);
+      f.values.lat += 30 / 6371000 * 180 / Math.PI; f.values.gs = 18; f.advance();
+      assert.ok(f.session.state().aircraft!.z > preview.aircraft!.z + 29, 'manual taxi tracks live position beyond the Autotaxi start speed');
+      await assert.rejects(f.session.request(f.request('start'), {}));
+      await f.session.request({ operation: 'release' }, {});
+      assert.deepEqual([f.events, f.variables, f.actions], [[], [], []]);
+    } finally { await f.session.dispose(); }
+  }
+});
+
+test('guidance remains available without a control adapter or installed aircraft geometry', async () => {
+  for (const unsupported of ['adapter', 'geometry', 'sdk']) {
+    const f = fixture('pmdg-737');
+    if (unsupported === 'adapter') f.setProfile('bundled/msfs/unsupported');
+    if (unsupported === 'geometry') f.setModel({ ok: false, reason: 'Installed geometry unavailable.' });
+    if (unsupported === 'sdk') f.provider._sdkBridge = null;
+    try {
+      assert.equal(f.session.state().canGuide, true, unsupported);
+      assert.equal(f.session.state().canStart, false, unsupported);
+      const result = await f.session.request(f.request('preview'), {});
+      assert.ok(result.sceneKey && result.aircraft);
+      await assert.rejects(f.session.request(f.request('start'), {}));
+      assert.deepEqual([f.events, f.variables, f.actions], [[], [], []]);
+    } finally { await f.session.dispose(); }
+  }
+});
+
+test('guidance suppresses stale or invalid live positions and rejects planning until ground data returns', async () => {
+  for (const change of ['stale', 'missing', 'airborne', 'paused', 'slew', 'disconnected', 'profile']) {
+    const f = fixture();
+    try {
+      const preview = await f.session.request(f.request('preview'), {});
+      assert.ok(preview.aircraft);
+      if (change === 'stale') { f.nativeTimes.lat = new Date(f.now()).toISOString(); f.advance(1100); }
+      if (change === 'missing') f.values.heading = null;
+      if (change === 'airborne') f.values.wow = false;
+      if (change === 'paused') f.values.paused = true;
+      if (change === 'slew') f.values.slewActive = true;
+      if (change === 'disconnected') f.provider._connected = false;
+      if (change === 'profile') f.setProfile('bundled/msfs/unsupported');
+      const status = f.session.state();
+      assert.equal(status.aircraft, null, change);
+      if (change === 'profile') assert.equal(status.sceneKey, null);
+      else {
+        assert.equal(status.canGuide, false, change);
+        await assert.rejects(f.session.request(f.request('preview'), {}));
+      }
+      assert.deepEqual([f.events, f.variables, f.actions], [[], [], []]);
+    } finally { await f.session.dispose(); }
+  }
+});
+
+test('manual route loading rechecks guidance data and aircraft identity before publishing a ribbon', async () => {
+  for (const change of ['stale', 'aircraft', 'disconnect', 'cancel']) {
+    const f = fixture();
+    f.values.parkingBrake = true;
+    let finish!: () => void;
+    f.provider._msfsFacilitiesGeometryProvider.probeAirport = () => new Promise(resolve => { finish = () => resolve({ ok: true }); });
+    try {
+      const loading = f.session.request(f.request('preview'), {});
+      const rejected = assert.rejects(loading, /changed|cancelled/);
+      if (change === 'stale') f.nativeTimes.lat = new Date(f.now() - 1100).toISOString();
+      if (change === 'aircraft') f.setProfile('bundled/msfs/unsupported');
+      if (change === 'disconnect') f.provider._connected = false;
+      if (change === 'cancel') await f.session.request({ operation: 'stop' }, {});
+      finish(); await rejected;
+      assert.equal(f.session.state().sceneKey, null, change);
+      assert.deepEqual([f.events, f.variables, f.actions], [[], [], []]);
+    } finally { await f.session.dispose(); }
+  }
+});
+
 test('Generic sessions use fresh installed engine count rather than the profile default', async () => {
   for (const count of [1, 2, 3, 4]) {
     const f = fixture('generic', count);
@@ -260,7 +365,7 @@ test('unknown aircraft configurations and unsupported profiles do not inherit Ge
   try {
     f.setModel({ ok: false, reason: 'Wheel geometry is encrypted.' });
     assert.equal(f.session.state().canStart, false);
-    await assert.rejects(f.session.request(f.request('preview'), {}));
+    await assert.rejects(f.session.request(f.request('start'), {}));
     f.setProfile('bundled/msfs/flybywire-a32nx');
     assert.equal(f.session.state().canStart, false);
     assert.equal(taxiAdapterFor('bundled/msfs/flybywire-a32nx'), null);

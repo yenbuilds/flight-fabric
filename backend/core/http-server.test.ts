@@ -95,7 +95,7 @@ function requireRejection(result: ReturnType<ReturnType<typeof createSimbriefReq
   return result;
 }
 
-function requestText(port: number, pathname: string): Promise<{
+function requestText(port: number, pathname: string, headers: Record<string, string> = {}): Promise<{
   statusCode: number | undefined;
   headers: import('node:http').IncomingHttpHeaders;
   body: string;
@@ -106,6 +106,7 @@ function requestText(port: number, pathname: string): Promise<{
       port,
       path: pathname,
       method: 'GET',
+      headers,
     }, (response) => {
       let body = '';
       response.setEncoding('utf8');
@@ -460,6 +461,10 @@ test('MSFS toolbar page is served under a frameable CSP with an allowlisted file
     const script = await requestText(port, '/toolbar/toolbar.js');
     assert.equal(script.statusCode, 200);
     assert.match(String(script.headers['content-type']), /javascript/);
+    const taxiScript = await requestText(port, '/toolbar/taxi.js');
+    assert.equal(taxiScript.statusCode, 200);
+    assert.match(String(taxiScript.headers['content-type']), /javascript/);
+    assert.match(taxiScript.body, /FlightFabricToolbarTaxi/);
     const sharedSettings = await requestText(port, '/shared/app-settings-shared.js');
     assert.equal(sharedSettings.statusCode, 200, 'toolbar can load the shared release gate');
     assert.match(String(sharedSettings.headers['content-type']), /javascript/);
@@ -492,6 +497,11 @@ test('MSFS toolbar page is served under a frameable CSP with an allowlisted file
     assert.equal(bootstrap.body.includes('top-secret'), false, 'toolbar bootstrap never carries session tokens');
     assert.equal('wsAuthToken' in payload, false);
     assert.equal('aircraftControlToken' in payload, false);
+    assert.match(String(payload.toolbarPresetToken), /^[a-f0-9]{64}$/);
+    for (const origin of ['http://127.0.0.1:9999', 'http://evil.example', 'null']) {
+      const crossOrigin = await requestText(port, '/api/toolbar/bootstrap', { Origin: origin });
+      assert.equal(JSON.parse(crossOrigin.body).toolbarPresetToken, '', origin);
+    }
   } finally {
     await closeServer(server);
   }

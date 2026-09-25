@@ -217,10 +217,13 @@ const FENIX_ENCODER_BATCH_STEPS = 50;
 function batchCode(lvar: string, operator: '+' | '-'): string {
   return `(L:${lvar}, Number) {steps} ${operator} (>L:${lvar}, Number)`;
 }
-// A fresh encoder's first touch from MobiFlight is unpredictable (live: the
-// first heading click moved 89 degrees, the first speed click nothing).
-// Writing its current value back once settles it.
+// Prime before sizing relative movement, then re-read the aircraft's value.
+// Heading needs a real detent: live A320 2.4.0.4720 (2026-09-25) ignored an
+// unchanged counter write, then initialized its heading from 0 to 161 on ++.
+// The provider absorbs that initialization only here; later batches must
+// still land exactly before another write is allowed.
 function primeCode(lvar: string): string {
+  if (lvar === 'E_FCU_HEADING') return calculatorCode(lvar, '++');
   return `(L:${lvar}, Number) (>L:${lvar}, Number)`;
 }
 

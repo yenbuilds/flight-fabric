@@ -7,7 +7,9 @@ const { MSG } = require('./message-types');
 const {
   projectSerializedServerMessageForClient,
 } = require('./server-message-projection');
+const { toolbarPresetToken, createToolbarPresetStream } = require('./toolbar-presets') as typeof import('./toolbar-presets');
 const { parseCookieHeader } = require('./device-pairing');
+const { MAX_WS_BUFFERED_BYTES } = require('./ws-broadcaster') as typeof import('./ws-broadcaster');
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
@@ -30,6 +32,10 @@ export const SUBSCRIBABLE_MESSAGE_TYPES: ReadonlyArray<string> = Object.freeze([
   MSG.LANDING,
   MSG.TAKEOFF,
   MSG.TOOLBAR_FLIGHT_HISTORY,
+  MSG.TOOLBAR_PRESET_STATE,
+  MSG.TOOLBAR_TAXI_STATE,
+  MSG.PUSHBACK_STATE,
+  MSG.AIRCRAFT_COMMAND_RESULT,
   MSG.FLIGHT_SUMMARY,
   MSG.FLIGHT_STATUS,
   MSG.FLIGHT_RECORDING,
@@ -70,8 +76,12 @@ type LoggerFn = (...args: unknown[]) => void;
 type WsSocketLike = {
   on: (eventName: string, handler: (...args: any[]) => void | Promise<void>) => void;
   send?: (payload: string, ...args: any[]) => void;
+  bufferedAmount?: number;
+  readyState?: number;
+  terminate?: () => void;
   __ffPrivilegedClient?: boolean;
   __ffAircraftControlClient?: boolean;
+  __ffToolbarPresetClient?: boolean;
   __ffAircraftControlPairingStatus?: AircraftControlPairingStatus;
   __ffSubscribedTypes?: ReadonlySet<string> | null;
 };
@@ -82,6 +92,7 @@ type RequestLike = import('http').IncomingMessage & {
   __ffWsMeta?: {
     isPrivilegedClient: boolean;
     isAircraftControlClient: boolean;
+    isToolbarPresetClient: boolean;
     aircraftControlPairingStatus: AircraftControlPairingStatus;
     origin: string | null;
     remoteAddress: string | null;
@@ -265,6 +276,10 @@ export function createWsServer({
       const remoteAddress = info.req?.socket?.remoteAddress || null;
       const trustedOrigin = isPrivateOrLoopbackRemoteAddress(remoteAddress)
         && isTrustedWsOrigin(origin, requestHost, remoteAccessEnable);
+      const requestedPresetToken = extractTokenFromRequestUrl(info.req?.url, 'toolbarPresetToken');
+      const hasToolbarPresetScope = trustedOrigin && isLoopbackHost(requestHost)
+        && isLoopbackHost(String(remoteAddress || '').replace(/^::ffff:/, ''))
+        && Boolean(wsAuthToken) && requestedPresetToken === toolbarPresetToken(wsAuthToken);
       const hasPairedDeviceSession = remoteAccessEnable
         && remoteAircraftControlEnable
         && trustedOrigin
@@ -305,8 +320,9 @@ export function createWsServer({
 
       if (info.req) {
         info.req.__ffWsMeta = {
-          isPrivilegedClient: hasValidToken,
-          isAircraftControlClient: hasAircraftControlScope,
+          isPrivilegedClient: hasValidToken && !hasToolbarPresetScope,
+          isAircraftControlClient: hasAircraftControlScope && !hasToolbarPresetScope,
+          isToolbarPresetClient: hasToolbarPresetScope,
           aircraftControlPairingStatus,
           origin: origin || null,
           remoteAddress,
@@ -352,6 +368,7 @@ export function createWsServer({
     });
 
     ws.__ffPrivilegedClient = req?.__ffWsMeta?.isPrivilegedClient === true;
+    ws.__ffToolbarPresetClient = req?.__ffWsMeta?.isToolbarPresetClient === true;
     ws.__ffAircraftControlClient = req?.__ffWsMeta?.isAircraftControlClient === true;
     ws.__ffAircraftControlPairingStatus = req?.__ffWsMeta?.aircraftControlPairingStatus || 'not-requested';
     ws.__ffSubscribedTypes = req?.__ffWsMeta?.subscribedTypes || null;
@@ -362,7 +379,26 @@ export function createWsServer({
     // client's authorization scope.
     if (typeof ws.send === 'function') {
       const rawSend = ws.send.bind(ws);
+      const presetStream = ws.__ffSubscribedTypes?.has(MSG.TOOLBAR_PRESET_STATE) ? createToolbarPresetStream() : null;
+      let outboundClosed = false;
       ws.send = (payload: string, ...args: any[]) => {
+        if (outboundClosed || (ws.readyState !== undefined && ws.readyState !== WebSocket.OPEN)) return;
+        // Direct replies and reconnect snapshots must not build an unbounded
+        // queue when a client stops reading. Permit one large history reply on
+        // an empty transport, but never add more replies behind a full queue.
+        // Broadcasts retain their stricter per-message one-MiB limit.
+        if (Number(ws.bufferedAmount || 0) >= MAX_WS_BUFFERED_BYTES) {
+          outboundClosed = true;
+          try {
+            Debug.log('ws', 'Slow websocket client exceeded direct reply buffer limit - terminating', {
+              bufferedBytes: ws.bufferedAmount,
+              limitBytes: MAX_WS_BUFFERED_BYTES,
+            });
+          } catch {}
+          try { ws.terminate?.(); } catch {}
+          return;
+        }
+        if (presetStream) payload = presetStream(payload);
         // Avoid parsing and projecting the per-tick stream for subscribed
         // panels that will discard it. Retain the check after projection too.
         if (!isSubscribedMessage(ws.__ffSubscribedTypes, payload)) return;
@@ -377,7 +413,7 @@ export function createWsServer({
       type: MSG.AUTHORIZATION_SCOPE,
       scope: ws.__ffPrivilegedClient === true
         ? 'full-control'
-        : (ws.__ffAircraftControlClient === true ? 'aircraft-control' : 'read-only'),
+        : (ws.__ffAircraftControlClient === true ? 'aircraft-control' : (ws.__ffToolbarPresetClient === true ? 'toolbar-presets' : 'read-only')),
       aircraftControlPairingStatus: ws.__ffAircraftControlPairingStatus,
     }));
 

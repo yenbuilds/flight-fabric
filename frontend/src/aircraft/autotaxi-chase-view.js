@@ -11,7 +11,7 @@ export const TAXI_VIEW_STORAGE_KEY = 'ff-autotaxi-view';
 const TAXI_VIEWS = ['2d', '3d'];
 
 export function readTaxiView(storage) {
-  try { const view = storage?.getItem(TAXI_VIEW_STORAGE_KEY); return TAXI_VIEWS.includes(view) ? view : '2d'; } catch { return '2d'; }
+  try { const view = storage?.getItem(TAXI_VIEW_STORAGE_KEY); return TAXI_VIEWS.includes(view) ? view : '3d'; } catch { return '3d'; }
 }
 export function writeTaxiView(storage, view) {
   try { storage?.setItem(TAXI_VIEW_STORAGE_KEY, TAXI_VIEWS.includes(view) ? view : '2d'); } catch {}
@@ -135,7 +135,7 @@ export function smoothRoute(points, radiusM = 25) {
       out.push({ x: w0 * start.x + w1 * p.x + w2 * end.x, z: w0 * start.z + w1 * p.z + w2 * end.z });
     }
   }
-  out.push(points.at(-1));
+  out.push(points[points.length - 1]);
   return out;
 }
 
@@ -170,7 +170,7 @@ export function projectTaxiScene(cam, { scene, route, aircraft, done = [], ahead
   const stands = (scene?.stands || []).map(st => ({ d: ground(disc(st, st.radiusM, 16)), label: label(cam, frame, st, st.label, 9) })).filter(st => st.d);
   let hold = null;
   if (route.kind !== 'stand') {
-    const from = route.points.at(-1), to = route.holdShort;
+    const from = route.points[route.points.length - 1], to = route.holdShort;
     const len = Math.hypot(to.x - from.x, to.z - from.z) || 1;
     const ux = (to.x - from.x) / len, uz = (to.z - from.z) / len, nx = -uz, nz = ux;
     hold = { dash: join(dashes(from, to, 4, 4, 0.7).map(ground)),
@@ -185,7 +185,7 @@ export function projectTaxiScene(cam, { scene, route, aircraft, done = [], ahead
     destinationStand: route.stand ? ground(disc(route.stand, route.stand.radiusM, 16)) : null,
     route: { done: ribbon(done, 3.5), glow: ribbon(ahead, 5), ahead: ribbon(ahead, 1.8) },
     hold,
-    stop: ground(disc(route.points.at(-1), 2.2, 10)),
+    stop: ground(disc(route.points[route.points.length - 1], 2.2, 10)),
   };
 }
 
@@ -246,7 +246,7 @@ function shade(n, toCam) {
 export function aircraftSprite(cam) {
   const camPos = [0, cam.upM, -cam.backM];
   const flat = pts => ({ pts, n: normal(pts), solid: false });
-  const faces = [...loft(FUSELAGE), cap(FUSELAGE.at(-1), 0), ...[5.5, -5.5].flatMap(r => [...loft(ENGINE, r), cap(ENGINE.at(-1), r)]),
+  const faces = [...loft(FUSELAGE), cap(FUSELAGE[FUSELAGE.length - 1], 0), ...[].concat(...[5.5, -5.5].map(r => [...loft(ENGINE, r), cap(ENGINE[ENGINE.length - 1], r)])),
     ...[WING, mirror(WING), WINGLET, mirror(WINGLET), STABILISER, mirror(STABILISER), FIN(1), FIN(-1), FIN_EDGE].map(flat),
     // Painted on the nose: nudged nearer so it sorts above the skin it sits on.
     { ...flat(WINDSCREEN), fill: DARK, overlay: true }];

@@ -1,11 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { presetObservation } from './preset-observation.js';
+import { presetObservation, presetSourceUnavailableReason } from './preset-observation.js';
 import { interpretAircraftVoiceCommand } from '../voice/command-interpreter.js';
 import { formatAviationReadback } from '../voice/local-readback.js';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAircraftControlsStore } from '../vue/stores/aircraft-controls.js';
 import { createAircraftControlController } from './control-controller.js';
+
+test('A380 presets require current profile and independently fresh system fields', () => {
+  const now = Date.now(), stamp = new Date(now).toISOString();
+  const fields = ['systems.apuMaster', 'systems.apuStart', 'systems.apuAvailable', 'systems.apuMasterFault',
+    'lights.landing', 'lights.noseMode', 'lights.strobeMode', 'lights.nav'];
+  const snapshot = { templateId: 'inibuilds-a380', available: true, sourceStatus: 'connected',
+    activeProfileKey: 'bundled/msfs/inibuilds-a380-800-rr', activeProfileRevision: 4,
+    updatedAt: stamp, receivedAt: now, unavailable: [],
+    values: Object.fromEntries(fields.map(field => [field, false])),
+    valueUpdatedAt: Object.fromEntries(fields.map(field => [field, stamp])) };
+  const catalogue = { profileKey: snapshot.activeProfileKey, profileRevision: 4 };
+  for (const id of ['configuration.apu.start', 'configuration.lights.takeoff']) {
+    assert.equal(presetSourceUnavailableReason({ id }, snapshot, catalogue, now), '');
+    assert.match(presetSourceUnavailableReason({ id }, { ...snapshot, activeProfileRevision: 3 }, catalogue, now), /Waiting/);
+    assert.match(presetSourceUnavailableReason({ id }, { ...snapshot, valueUpdatedAt: {} }, catalogue, now), /Waiting/);
+    assert.match(presetSourceUnavailableReason({ id }, snapshot, catalogue, now + 6000), /Waiting/);
+  }
+});
 
 const apu = { id: 'configuration.apu.start', label: 'Start APU', input: { kind: 'none' },
   speech: { patterns: ['start apu', 'start the apu', 'apu start', 'start a p u', 'start the a p u',

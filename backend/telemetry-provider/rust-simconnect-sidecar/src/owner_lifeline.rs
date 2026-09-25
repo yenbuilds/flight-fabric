@@ -1,8 +1,9 @@
 //! In-process lifetime coupling between the sidecar and the process that owns it.
 //!
 //! Every non-probe sidecar mode receives an exact owner PID. A dedicated thread
-//! waits on that Windows process handle and terminates this process immediately
-//! when the owner exits, even if the main thread is blocked inside SimConnect.
+//! waits on that Windows process handle and terminates this process when the
+//! owner exits, even if the main thread is blocked inside SimConnect. An active
+//! tug gets at most 1.5 seconds for the main loop to send its stop commands.
 //! This is intentionally smaller than `process_guardian.rs`, whose separate
 //! process mode watches and can terminate a different target process.
 
@@ -89,6 +90,7 @@ pub(crate) fn start(process_id: Dword) -> Result<(), String> {
         .name("ff-owner-lifeline".to_string())
         .spawn(move || match owner.wait(INFINITE) {
             Ok(WaitOutcome::Signaled) => {
+                crate::tug_lease::before_owner_exit();
                 // Terminate the entire sidecar even if its main thread is blocked in SimConnect.
                 std::process::exit(0);
             }

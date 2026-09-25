@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
+import { brightnessLabel } from '../../aircraft/preset-presentation.js';
 import { freshAircraftValue } from '../../voice/state-queries.js';
 
 const props = defineProps({
@@ -52,7 +53,7 @@ async function apply(target) {
   try { return await controls.requestControlCommand({ type: 'canonical', commandId: id(target), input: { value: value(target) } }); }
   finally { if (context.value === sentContext) sending.value = false; }
 }
-const label = target => target === 'cockpit' ? 'Global cockpit lighting' : 'All flight displays';
+const label = target => brightnessLabel(id(target));
 const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty percent' : 'set display brightness seventy five percent';
 </script>
 

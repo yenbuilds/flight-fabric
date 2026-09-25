@@ -1,6 +1,7 @@
 <script setup>
 import { watch } from 'vue';
 import HelpTooltip from './HelpTooltip.vue';
+import SettingsSectionWatermark from './SettingsSectionWatermark.vue';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 
 const toolbarPanel = useToolbarPanelStore();
@@ -41,7 +42,8 @@ async function remove(row) {
 </script>
 
 <template>
-  <section id="settings-toolbar-panel" class="settings-panel settings-panel--wide" aria-labelledby="settings-toolbar-panel-title">
+  <section id="settings-toolbar-panel" class="settings-panel settings-panel--wide settings-panel--illustrated scroll-mt-4" aria-labelledby="settings-toolbar-panel-title" tabindex="-1">
+    <SettingsSectionWatermark kind="toolbar" />
     <div class="settings-panel-header">
       <div class="settings-panel-kicker">In the simulator</div>
       <div class="settings-panel-title-row">
@@ -51,19 +53,23 @@ async function remove(row) {
     </div>
 
     <p class="text-xs leading-relaxed text-muted-fg">
-      Your SimBrief plan, voice command reference, last landing and push-to-talk status, without leaving the simulator. The panel is read-only: it talks to FlightFabric on this PC only and never gets settings, recordings or aircraft-control access.
+      Your SimBrief plan, aircraft presets, voice command reference, last landing and push-to-talk status, without leaving the simulator. Apply the same presets as the Aircraft page, with live availability checks. The panel connects to FlightFabric on this PC and has no settings, recording or logbook access.
     </p>
-
-    <div class="mt-4 rounded-r-lg border-l-2 border-warning/70 bg-warning/5 px-4 py-3 text-xs leading-relaxed">
-      <h3 class="font-semibold text-warning">Experimental</h3>
-      <p class="mt-1 text-fg">This toolbar panel may be unstable. If you experience problems, close MSFS and use Remove in this section of the desktop app.</p>
-    </div>
 
     <div v-if="!toolbarPanel.available" id="toolbar-panel-desktop-only" class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/60 px-4 py-3 text-xs leading-relaxed text-muted-fg">
       Install the toolbar package from the FlightFabric desktop app on your simulator PC. This browser view cannot write to the MSFS Community folder.
     </div>
 
     <template v-else>
+      <div class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/40 px-4 py-3 text-xs leading-relaxed">
+        <h3 class="font-semibold text-fg">Get started in three steps</h3>
+        <ol class="mt-2 list-decimal space-y-1 pl-5 text-muted-fg">
+          <li>Close Microsoft Flight Simulator 2024 before installing or updating.</li>
+          <li>Choose Install below for your simulator. If it is already installed, use the Update or Repair action shown when needed.</li>
+          <li>Start MSFS again, load a flight and open <strong class="text-fg">FlightFabric</strong> from the in-flight toolbar. Keep the FlightFabric desktop app running.</li>
+        </ol>
+      </div>
+
       <div id="toolbar-panel-source-error" v-if="toolbarPanel.sourceError" class="mt-4 rounded-r-lg border-l-2 border-danger/70 bg-danger/5 px-4 py-3 text-xs leading-relaxed text-danger">
         {{ toolbarPanel.sourceError }}
       </div>

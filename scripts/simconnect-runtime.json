@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sdkVersion": "1.7.3",
+  "dllSha256": "b10de7adf4c62e5f66c89dd6d01b64091bbbcec83411cfe191d6b85fbee61d15",
+  "source": {
+    "url": "https://sdk.flightsimulator.com/msfs2024/files/installers/1.7.3/MSFS2024_SDK_Core_Installer_1.7.3.zip",
+    "archiveSha256": "aae63270c9420e099ffa2d21565c267f0603f8e226cf2c8ab2ca8966f6a052bf",
+    "installerSha256": "837b6002f1c9486e084f6b3073fa740c321731d9aaeb6ab05e91428d7c02a7d5"
+  },
+  "verification": {
+    "date": "2026-09-24",
+    "archiveContentMd5Matched": true,
+    "installerSignatureStatus": "Valid",
+    "installerSigner": "CN=Microsoft Flight Simulator, O=Microsoft Flight Simulator, L=Redmond, S=Washington, C=US",
+    "installerSignerThumbprint": "56F451016047C7718510DC804441C32A77875EB5",
+    "installerSignerIssuer": "CN=Microsoft ID Verified CS AOC CA 03, O=Microsoft Corporation, C=US",
+    "signToolVerification": "Passed Authenticode policy, signing chain and timestamp; zero warnings and errors.",
+    "dllMatchedSignedMsiFileHash": true,
+    "nativeWindowsInstallerFileHashMatched": true,
+    "defenderScan": "Targeted scan completed on 2026-09-24 with no threats found; remediation disabled.",
+    "architecture": "x64",
+    "method": "Read-only ZIP/CAB extraction; installer and DLL were not executed."
+  }
+}

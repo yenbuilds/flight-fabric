@@ -350,6 +350,9 @@ function isLegacySidecarDemonstrablyOrphaned(
   metadataReader: (pid: number) => ProcessMetadata | null = readProcessMetadata,
 ): boolean {
   if (!child || !child.parentPid) return false;
+  // A replay worker intentionally survives its controller to complete reload
+  // recovery. It is never a legacy LVAR orphan, even without an owner PID.
+  if (/(?:^|\s)--dedicated-replay(?:\s|$)/i.test(child.commandLine || '')) return false;
   const parent = metadataReader(child.parentPid);
   if (!parent) return !isProcessAlive(child.parentPid);
 
@@ -378,7 +381,7 @@ function buildParentSafeWindowsCleanupScript(cleanupToken: string, role: Sidecar
     '$all=@(Get-CimInstance Win32_Process)',
     '$byPid=@{}',
     'foreach ($item in $all) { $byPid[[int]$item.ProcessId]=$item }',
-    `$procs=$all | Where-Object { $_.CommandLine -and $_.CommandLine -match $target -and ${roleClause} -and $_.ProcessId -ne $PID }`,
+    `$procs=$all | Where-Object { $_.CommandLine -and $_.CommandLine -match $target -and ${roleClause} -and $_.CommandLine -notmatch '(?i)(^|\\s)--dedicated-replay(\\s|$)' -and $_.ProcessId -ne $PID }`,
     "foreach ($p in $procs) { $candidateSid=$null; try { $sidResult=Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid -ErrorAction Stop; if ([int]$sidResult.ReturnValue -eq 0 -and $sidResult.Sid) { $candidateSid=[string]$sidResult.Sid } } catch {}; if (-not $currentSid -or -not $candidateSid -or -not [string]::Equals($currentSid, $candidateSid, [System.StringComparison]::OrdinalIgnoreCase)) { continue }; $actualParent=$byPid[[int]$p.ParentProcessId]; $actualParentCouldOwn=[bool]$actualParent; if ($actualParent -and $actualParent.CreationDate -and $p.CreationDate -and $actualParent.CreationDate -gt $p.CreationDate) { $actualParentCouldOwn=$false }; $declaredOwnerCouldOwn=$false; $hasOwnerMetadata=$false; if ($p.CommandLine -match '(?i)(^|\\s)--ff-owner-pid=(\\d+)(\\s|$)') { $hasOwnerMetadata=$true; $declaredOwner=$byPid[[int]$Matches[2]]; $declaredOwnerCouldOwn=[bool]$declaredOwner; if ($declaredOwner -and $declaredOwner.CreationDate -and $p.CreationDate -and $declaredOwner.CreationDate -gt $p.CreationDate) { $declaredOwnerCouldOwn=$false } }; if ($p.CommandLine -match '(?i)(^|\\s)--ff-owner-token=([^\\s]+)(\\s|$)') { $hasOwnerMetadata=$true }; $ownershipDisproved=if ($hasOwnerMetadata) { -not $declaredOwnerCouldOwn -and -not $actualParentCouldOwn } else { -not $actualParentCouldOwn }; if ($ownershipDisproved) { $confirmed=Get-CimInstance Win32_Process -Filter ('ProcessId = {0}' -f [int]$p.ProcessId) -ErrorAction SilentlyContinue; if (-not $confirmed -or -not $p.CreationDate -or -not $confirmed.CreationDate -or $p.CreationDate -ne $confirmed.CreationDate -or -not [string]::Equals([string]$p.CommandLine, [string]$confirmed.CommandLine, [System.StringComparison]::Ordinal)) { continue }; $confirmedSid=$null; try { $confirmedSidResult=Invoke-CimMethod -InputObject $confirmed -MethodName GetOwnerSid -ErrorAction Stop; if ([int]$confirmedSidResult.ReturnValue -eq 0 -and $confirmedSidResult.Sid) { $confirmedSid=[string]$confirmedSidResult.Sid } } catch {}; if (-not $confirmedSid -or -not [string]::Equals($currentSid, $confirmedSid, [System.StringComparison]::OrdinalIgnoreCase)) { continue }; try { Stop-Process -Id $confirmed.ProcessId -Force -ErrorAction Stop } catch {} } }",
   ].join('; ');
 }

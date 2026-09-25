@@ -206,6 +206,52 @@ function setActiveAircraftSpecificControlProfile(profileLoader) {
   return profile;
 }
 
+test('toolbar taxi guidance only reaches its read provider and returns a narrow correlated response', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const calls = [];
+    const provider = { requestAutotaxi: () => assert.fail('must never borrow the control session'),
+      requestTaxiGuidance: async (message, _client, connected) => {
+        assert.equal(connected(), true); calls.push(message.operation);
+        return { currentProfileKey: 'test', currentProfileRevision: 1, canGuide: true,
+          canStart: true, active: true, commanded: { throttle: 1 }, secret: '/private/path', sceneKey: 3,
+          pushbackPreview: { id: 'shown-plan', headingDeg: 90, phase: 'preview', points: [{ x: 0, z: 0 }, { x: -15, z: -60 }] } };
+      } };
+    const denied = buildWs();
+    await handleClientMessage(denied, { type: 'requestTaxiGuidance', operation: 'status', requestId: 'denied' }, buildContext(provider));
+    assert.equal(calls.length, 0); assert.equal(denied.messages[0].ok, false);
+    const client = Object.assign(buildWs(), { __ffToolbarPresetClient: true });
+    for (const operation of ['start', 'stop', 'release', 'status', 'preview', 'parkings']) {
+      await handleClientMessage(client, { type: 'requestTaxiGuidance', operation, requestId: operation }, buildContext(provider));
+      const reply = client.messages.at(-1);
+      assert.equal(reply.type, 'toolbarTaxiState'); assert.equal(reply.requestId, operation);
+      assert.equal(reply.ok, ['status', 'preview', 'parkings'].includes(operation));
+      if (reply.ok) assert.equal(reply.pushbackPreview.id, 'shown-plan');
+      for (const key of ['canStart', 'active', 'commanded', 'secret']) assert.equal(key in reply, false);
+    }
+    assert.deepEqual(calls, ['status', 'preview', 'parkings']);
+  });
+});
+
+test('taxi reads use per-viewer sessions without touching the provider Autotaxi release path', async () => {
+  await withTempAppData(async () => {
+    const { SimConnectTelemetryProvider } = require(resolveBackendPath('telemetry-provider', 'simconnect-telemetry-provider.js'));
+    const provider = Object.create(SimConnectTelemetryProvider.prototype);
+    provider._autotaxi = { request: () => assert.fail('read must never stop or release Autotaxi') };
+    const first = {}, second = {};
+    await provider.requestTaxiGuidance({ operation: 'status' }, first, () => true);
+    await provider.requestTaxiGuidance({ operation: 'status' }, second, () => true);
+    assert.notEqual(provider._taxiGuidanceSessions.get(first), provider._taxiGuidanceSessions.get(second));
+    for (const operation of ['start', 'stop', 'release']) await assert.rejects(provider.requestTaxiGuidance({ operation }, first, () => true), /Unsupported/);
+    let previews = 0;
+    provider._pushback = { request: () => assert.fail('read must never enter pushback controls'),
+      preview: async () => { previews++; return { pushbackPreview: { id: 'shown' } }; } };
+    await provider.requestTaxiGuidance({ operation: 'preview', pushback: true }, first, () => true);
+    assert.equal(previews, 1);
+    for (const operation of ['start', 'stop', 'release']) await assert.rejects(provider.requestTaxiGuidance({ operation, pushback: true }, first, () => true), /Unsupported/);
+  });
+});
+
 test('autotaxi messages enforce aircraft-control scope and preserve correlated errors', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
@@ -227,6 +273,56 @@ test('autotaxi messages enforce aircraft-control scope and preserve correlated e
     await handleClientMessage(allowed, { type: 'autotaxi', operation: 'start', requestId: 'start' }, buildContext(provider));
     assert.equal(allowed.messages.at(-1).requestId, 'start');
     assert.equal(allowed.messages.at(-1).error, 'No holding point found.');
+  });
+});
+
+test('pushback accepts paired or toolbar controls, returns correlated errors and rejects unknown operations', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const calls = [];
+    const provider = { async requestPushback(message, client, connected) {
+      assert.equal(connected(), true); calls.push(message.operation);
+      if (message.operation === 'start') throw new Error('No simple pushback found.');
+      return { active: false, status: 'idle' };
+    } };
+    for (const client of [buildWs()]) {
+      await handleClientMessage(client, { type: 'pushback', operation: 'start', requestId: 'denied' }, buildContext(provider));
+      assert.equal(client.messages.at(-1).ok, false); assert.equal(client.messages.at(-1).requestId, 'denied');
+    }
+    assert.deepEqual(calls, []);
+    for (const client of [{ ...buildWs({ aircraftControl: true }), readyState: 1 }, { ...buildWs(), __ffToolbarPresetClient: true, readyState: 1 }]) {
+      for (const operation of ['status', 'start', 'stop', 'toggle']) {
+        await handleClientMessage(client, { type: 'pushback', operation, requestId: operation }, buildContext(provider));
+        assert.equal(client.messages.at(-1).requestId, operation);
+        assert.equal(client.messages.at(-1).ok, ['status', 'stop'].includes(operation));
+      }
+      assert.deepEqual(calls, ['status', 'start', 'stop']);
+      calls.length = 0;
+    }
+  });
+});
+
+test('a stop bypasses the control queue and cancels an earlier queued pushback start', async () => {
+  for (const interruption of ['stop', 'closed', 'revoked', 'expired']) await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    let finish!: () => void, now = 1000;
+    const calls = [];
+    const provider = {
+      async requestAutotaxi() { await new Promise<void>(resolve => { finish = resolve; }); return {}; },
+      async requestPushback(message) { calls.push(message.operation); return { active: false }; },
+    };
+    const context = buildContext(provider, { timeNow: () => now });
+    const blocker = handleClientMessage(buildWs({ privileged: true }), { type: 'autotaxi', operation: 'preview' }, context);
+    await Promise.resolve();
+    const client = { ...buildWs({ aircraftControl: true }), readyState: 1 };
+    const start = handleClientMessage(client, { type: 'pushback', operation: 'start', requestId: 'start' }, context);
+    if (interruption === 'stop') await handleClientMessage(client, { type: 'pushback', operation: 'stop', requestId: 'stop' }, context);
+    if (interruption === 'closed') client.readyState = 3;
+    if (interruption === 'revoked') client.__ffAircraftControlClient = false;
+    if (interruption === 'expired') now += 3001;
+    finish(); await Promise.all([blocker, start]);
+    assert.deepEqual(calls, interruption === 'stop' ? ['stop'] : [], interruption);
+    assert.equal(client.messages.find(m => m.requestId === 'start').ok, false);
   });
 });
 
@@ -2035,7 +2131,7 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
   ];
   assert.deepEqual(
     [...AIRCRAFT_CONTROL_MESSAGE_TYPES],
-    ['autotaxi', 'sendCduKey', 'executeAircraftCommand', 'executeAircraftControl'],
+    ['pushback', 'autotaxi', 'sendCduKey', 'executeAircraftCommand', 'executeAircraftControl'],
   );
   assert.deepEqual(
     [...PRIVILEGED_CLIENT_MESSAGE_TYPES],
@@ -2264,3 +2360,36 @@ test('CDU handler keeps screen reads separate from paired, live, serialized key 
 });
 
 export {};
+
+
+test('toolbar preset capability rejects ordinary controls and preserves guarded preset execution', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const profileLoader = require(resolveBackendPath('aircraft', 'aircraft-profile-loader.js'));
+    setActiveBroadGenericControlProfile(profileLoader);
+    const calls = [];
+    const provider = { aircraftControlCapabilities: { actionTypes: ['key-event'] },
+      async executeAircraftControlAction(action) { calls.push(action); return { ok: true }; } };
+    const ws = { ...buildWs(), __ffToolbarPresetClient: true, readyState: 1 };
+    const context = buildContext(provider, { lastSimState: buildStableSimState() });
+    await handleClientMessage(ws, { type: 'executeAircraftCommand', ...buildProfileToken(profileLoader),
+      commandId: 'surfaces.gear.set', input: { value: 'down' } }, context);
+    assert.equal(ws.messages.at(-1).code, 'preset_required');
+    assert.equal(calls.length, 0);
+    await handleClientMessage(ws, { type: 'executeAircraftControl', ...buildProfileToken(profileLoader), control: 'gear', value: 'down' }, context);
+    assert.equal(ws.messages.at(-1).code, 'auth_required');
+    assert.equal(calls.length, 0);
+    profileLoader.setActiveProfile('bundled/msfs/generic');
+    const preset = { type: 'executeAircraftCommand', ...buildProfileToken(profileLoader), commandId: 'configuration.lights.takeoff', input: {} };
+    await handleClientMessage(ws, { ...preset, profileRevision: -1 }, context);
+    assert.equal(ws.messages.at(-1).ok, false);
+    assert.equal(calls.length, 0);
+    await handleClientMessage(ws, preset, context);
+    assert.equal(ws.messages.at(-1).ok, true);
+    assert.ok(calls.length > 1);
+    calls.length = 0; ws.readyState = 3;
+    await handleClientMessage(ws, preset, context);
+    assert.equal(ws.messages.at(-1).code, 'auth_required');
+    assert.equal(calls.length, 0, 'a closed toolbar cannot execute queued commands');
+  });
+});

@@ -4,6 +4,10 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
 const timelineGenerator = require('./timeline-generator') as {
+  prepareReplayClipFromCSV: (
+    _csvPath: string,
+    _landingIndex: number,
+  ) => Promise<{ success: boolean; error?: string }>;
   _generateFromCSVIsolated: (
     _csvPath: string,
     _options?: Record<string, any>,
@@ -26,6 +30,14 @@ test('isolated timeline generation bounds concurrent work and its queue', async 
     timelineGenerator._generateFromCSVIsolated(missingPath),
   ]);
 
+  assert.equal(results.filter((result) => /already busy/i.test(result.error || '')).length, 1);
+  assert.equal(results.every((result) => result.success === false), true);
+});
+
+test('development replay preparation uses the bounded isolated worker queue', async () => {
+  const missingPath = path.join(__dirname, 'missing-replay-fixture.csv');
+  const results = await Promise.all(Array.from({ length: 3 }, () =>
+    timelineGenerator.prepareReplayClipFromCSV(missingPath, 0)));
   assert.equal(results.filter((result) => /already busy/i.test(result.error || '')).length, 1);
   assert.equal(results.every((result) => result.success === false), true);
 });

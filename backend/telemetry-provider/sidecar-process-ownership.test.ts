@@ -243,6 +243,7 @@ test('Windows cleanup scripts are role-strict and require disproved parent owner
   assert.match(lvarScript, /-notmatch '\(\?i\)\(\^\|\\s\)--simvars-bridge/);
   assert.match(simvarScript, /-match '\(\?i\)\(\^\|\\s\)--simvars-bridge/);
   for (const script of [sdkScript, lvarScript, simvarScript]) {
+    assert.match(script, /-notmatch '\(\?i\)\(\^\|\\s\)--dedicated-replay/);
     assert.match(script, /WindowsIdentity\]::GetCurrent\(\)\.User\.Value/);
     assert.match(script, /GetOwnerSid/);
     assert.match(script, /StringComparison\]::OrdinalIgnoreCase/);
@@ -256,6 +257,16 @@ test('Windows cleanup scripts are role-strict and require disproved parent owner
     assert.match(script, /\$declaredOwnerCouldOwn/);
     assert.match(script, /\$ownershipDisproved/);
   }
+});
+
+test('a dedicated replay worker is protected after its controller disappears', () => {
+  const child = {
+    ...processMetadata(731050, { parentPid: 731051 }),
+    commandLine: 'ff-rust-simconnect-sidecar.exe --dedicated-replay --replay-session=test',
+  };
+  assert.equal(isLegacySidecarDemonstrablyOrphaned(child, () => {
+    assert.fail('replay recovery must not depend on its former controller being alive');
+  }), false);
 });
 
 export {};

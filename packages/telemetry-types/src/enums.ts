@@ -23,6 +23,8 @@ import type { PhaseMap } from '../../../shared/flight-phases';
  */
 export const MSG = {
   AUTOTAXI_STATE: 'autotaxiState',
+  PUSHBACK_STATE: 'pushbackState',
+  TOOLBAR_TAXI_STATE: 'toolbarTaxiState',
   CDU_STATE: 'cduState',
   // Scalar streams
   IAS: 'ias',
@@ -50,6 +52,7 @@ export const MSG = {
   ENGINES: 'engines',
   LANDING: 'landing',
   TAKEOFF: 'takeoff',
+  TOOLBAR_PRESET_STATE: 'toolbarPresetState',
   TOOLBAR_FLIGHT_HISTORY: 'toolbarFlightHistory',
   FLIGHT_SUMMARY: 'flightSummary',
   FLIGHT_VIOLATION: 'flightViolation',

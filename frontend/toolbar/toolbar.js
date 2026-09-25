@@ -3,8 +3,8 @@
  *
  * Served by the FlightFabric backend at /toolbar/ and hosted inside the
  * simulator's Coherent GT browser by the Community package loader. It is a
- * read-only loopback WebSocket client with a narrowed subscription: no
- * per-tick telemetry, no session token, no aircraft control.
+ * loopback client with a narrowed subscription and a preset-only capability.
+ * No per-tick telemetry, desktop session token or raw aircraft control.
  *
  * Coherent GT is an older WebKit: keep this file to ES2017 syntax (no
  * optional chaining, no nullish coalescing, no class fields) and render with
@@ -31,7 +31,7 @@
   var SUBSCRIPTION = [
     'simState', 'phase', 'flightTime', 'simTime', 'flightPlan', 'voiceStatus',
     'aircraftProfile', 'aircraftChanged', 'dataSources', 'landing', 'ultimateStabilityScore', 'toolbarFlightHistory',
-    'flightRecording', 'flightStatus', 'flightViolation', 'fuelUnit', 'updateAvailable',
+    'toolbarPresetState', 'toolbarTaxiState', 'pushbackState', 'aircraftCommandResult', 'flightRecording', 'flightStatus', 'flightViolation', 'fuelUnit', 'updateAvailable',
   ];
   if (TAKEOFF_SCORING_ENABLED) SUBSCRIPTION.push('takeoff');
 
@@ -49,6 +49,7 @@
     { id: 'flight', label: 'Flight', icon: 'M4 14l3-1 4-6 6-3 2 2-3 6-6 4-1 3-2-2 1-3-3-1z' },
     { id: 'plan', label: 'Plan', icon: 'M6 3h9l4 4v14H6z M15 3v4h4 M9 12h6 M9 16h6' },
     { id: 'voice', label: 'Voice', icon: 'M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z M6 11a6 6 0 0 0 12 0 M12 17v4 M9 21h6' },
+    { id: 'taxi', label: 'Taxi', icon: 'M5 21V7a4 4 0 0 1 8 0v10a3 3 0 0 0 6 0V3 M16 6l3-3 3 3' },
   ];
 
   var GROUP_LABELS = {
@@ -113,6 +114,31 @@
 
   var prefs = loadPrefs();
   var socket = null;
+  var presetToken = '';
+  var presetPanel = FlightFabricToolbarPresets.createPresetPanel({
+    document: document, setTimeout: setTimeout, clearTimeout: clearTimeout,
+    send: function (message) {
+      if (!socket || socket.readyState !== 1 || !state.visible || state.connection !== 'connected') return false;
+      try { socket.send(JSON.stringify(message)); return true; } catch (error) { return false; }
+    },
+  });
+
+  var taxiPanel = FlightFabricToolbarTaxi.createTaxiPanel({
+    document: document, setTimeout: setTimeout, clearTimeout: clearTimeout,
+    send: function (message) {
+      var stopping = message.type === 'pushback' && message.operation === 'stop';
+      if (!socket || socket.readyState !== 1 || (!state.visible && !stopping) || state.connection !== 'connected') return false;
+      try { socket.send(JSON.stringify(message)); return true; } catch (error) { return false; }
+    },
+  });
+
+  function updateAircraftPanels() {
+    taxiPanel.update({ profile: state.aircraftProfile, simState: state.simState, scope: state.scope, plan: state.plan,
+      connected: state.connection === 'connected', visible: state.visible && state.activeTab === 'taxi' });
+    presetPanel.update({ profile: state.aircraftProfile, simState: state.simState, scope: state.scope,
+      connected: state.connection === 'connected', visible: state.visible && state.activeTab === 'flight' });
+  }
+
   var bootstrapRequest = null;
   var voiceReferenceRequest = null;
   var socketConnectTimer = null;
@@ -139,12 +165,27 @@
   }
 
   function clear(node) {
-    // Removing a focused text field fires no blur in Chromium-based browsers;
-    // release the simulator keyboard before the field disappears.
+    // DOM removal does not fire blur consistently. Drop the stale control
+    // focus, but keep keyboard capture until the user leaves the panel.
     var active = document.activeElement;
-    if (isTextField(active) && typeof node.contains === 'function' && node.contains(active)) blurTextField();
+    if (isKeyboardControl(active) && typeof node.contains === 'function' && node.contains(active)) blurKeyboardControl();
     while (node.firstChild) node.removeChild(node.firstChild);
     return node;
+  }
+
+  function rememberControlFocus(root) {
+    var active = document.activeElement;
+    if (!active || !active.id || typeof root.contains !== 'function' || !root.contains(active)) return function () {};
+    var id = active.id;
+    var start = active.selectionStart, end = active.selectionEnd, direction = active.selectionDirection;
+    return function () {
+      var replacement = $(id);
+      if (!state.visible || !replacement || !root.contains(replacement)) return;
+      replacement.focus();
+      if (typeof start === 'number' && typeof replacement.setSelectionRange === 'function') {
+        try { replacement.setSelectionRange(start, end, direction); } catch (error) { /* not a text input */ }
+      }
+    };
   }
 
   function svgIcon(pathData, className) {
@@ -195,6 +236,7 @@
     var wrap = el('div', 'section');
     var toggle = el('button', 'section-toggle');
     toggle.type = 'button';
+    toggle.id = 'section-toggle-' + id;
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     toggle.setAttribute('aria-controls', 'section-' + id);
     var labelWrap = el('span');
@@ -310,7 +352,7 @@
     var pick = function (key, allowed) {
       return allowed.indexOf(source[key]) >= 0 ? source[key] : defaults[key];
     };
-    // Legacy tab-visibility preferences are ignored: all three sections remain available.
+    // Legacy tab-visibility preferences are ignored: all sections remain available.
     var openSections = {};
     if (source.openSections && typeof source.openSections === 'object') {
       Object.keys(source.openSections).slice(0, 64).forEach(function (key) {
@@ -323,7 +365,7 @@
       density: pick('density', ['comfortable', 'compact']),
       timeZone: pick('timeZone', ['utc', 'local']),
       weightUnit: pick('weightUnit', ['plan', 'kg', 'lbs']),
-      defaultTab: pick('defaultTab', ['flight', 'plan', 'voice']),
+      defaultTab: pick('defaultTab', ['flight', 'plan', 'voice', 'taxi']),
       openSections: openSections,
     };
   }
@@ -343,6 +385,8 @@
 
   // ------------------------------------------------------------------ parent frame
 
+  var keyboardSequence = 0;
+
   function postToParent(message) {
     if (!window.parent || window.parent === window) return;
     try {
@@ -355,34 +399,44 @@
     var data = event.data;
     if (!data || typeof data !== 'object' || data.source !== LOADER_SOURCE) return;
     if (data.action === 'visibility') setVisible(data.visible === true);
-    else if (data.action === 'keyboardReleased') blurTextField();
+    else if (data.action === 'keyboardReleased'
+      && (typeof data.sequence !== 'number' || data.sequence === keyboardSequence)) releaseKeyboardFocus();
   }
 
   // The simulator keeps acting on keyboard bindings while the panel is open
-  // (Backspace resets the view, letters toggle systems) unless a text field
-  // claims the keyboard. The loader forwards these reports to the simulator.
-  function isTextField(node) {
+  // (Backspace resets the view, letters toggle systems) unless the panel
+  // claims the keyboard. Sliders, buttons and keyboard navigation need the
+  // same protection as typing. DOM event cancellation alone cannot do this.
+  function isKeyboardControl(node) {
     if (!node || typeof node.tagName !== 'string') return false;
     var tag = node.tagName.toLowerCase();
-    if (tag === 'textarea') return true;
-    if (tag !== 'input') return false;
-    var type = String(node.type || 'text').toLowerCase();
-    return !/^(button|checkbox|radio|range|submit|reset|file|color|image|hidden)$/.test(type);
+    if (/^(button|select|textarea|summary)$/.test(tag)) return true;
+    if (tag === 'input') return String(node.type || 'text').toLowerCase() !== 'hidden';
+    return node.isContentEditable === true || node.tabIndex >= 0;
   }
 
   function reportKeyboardFocus(focused) {
-    postToParent({ action: 'keyboard', focused: focused === true });
+    // postMessage is asynchronous: a delayed outside-click release must not
+    // blur a control the user has already clicked back into.
+    keyboardSequence += 1;
+    postToParent({ action: 'keyboard', focused: focused === true, sequence: keyboardSequence });
   }
 
-  function blurTextField() {
+  function blurKeyboardControl() {
     var active = document.activeElement;
-    if (isTextField(active) && typeof active.blur === 'function') active.blur();
+    if (isKeyboardControl(active) && typeof active.blur === 'function') active.blur();
+  }
+
+  function releaseKeyboardFocus() {
+    blurKeyboardControl();
+    reportKeyboardFocus(false);
   }
 
   function setVisible(visible) {
     if (unloading) return;
     if (state.visible === visible) return;
     state.visible = visible;
+    updateAircraftPanels();
     if (hiddenTimer !== null) { clearTimeout(hiddenTimer); hiddenTimer = null; }
     if (visible) {
       if (reloadPending) { requestPageReload(); return; }
@@ -397,8 +451,8 @@
     cancelBootstrap();
     cancelVoiceReference();
     cancelPageReload();
-    // A hidden field must not keep the simulator's keyboard.
-    blurTextField();
+    // A hidden panel must not keep the simulator's keyboard.
+    releaseKeyboardFocus();
     // A hidden panel keeps no live socket open; it reconnects when shown.
     hiddenTimer = setTimeout(function () {
       hiddenTimer = null;
@@ -456,6 +510,7 @@
         requestPageReload();
         return;
       }
+      presetToken = typeof payload.toolbarPresetToken === 'string' ? payload.toolbarPresetToken : '';
       state.appVersion = version;
       state.wsPort = payload.wsPort;
       renderSettingsVersion();
@@ -490,6 +545,7 @@
     if (unloading || !state.visible) return;
     closeSocket();
     var url = 'ws://' + LOOPBACK_HOST + ':' + state.wsPort + '/?subscribe=' + encodeURIComponent(SUBSCRIPTION.join(','));
+    if (presetToken) url += '&toolbarPresetToken=' + encodeURIComponent(presetToken);
     var ws;
     try {
       ws = new WebSocket(url);
@@ -509,6 +565,7 @@
       clearSocketConnectTimer();
       reconnectDelay = RECONNECT_MIN_MS;
       state.connection = 'connected';
+      updateAircraftPanels();
       renderConnection();
       ws.send(JSON.stringify({ type: 'requestState' }));
     };
@@ -524,6 +581,8 @@
       socket = null;
       if (state.connection !== 'paused') {
         state.connection = 'waiting';
+        state.scope = '';
+        updateAircraftPanels();
         renderConnection();
         scheduleReconnect();
       }
@@ -533,6 +592,9 @@
 
   function closeSocket() {
     clearSocketConnectTimer();
+    state.scope = '';
+    presetPanel.update({ connected: false, visible: false, profile: state.aircraftProfile });
+    taxiPanel.update({ connected: false, visible: false, profile: state.aircraftProfile });
     if (!socket) return;
     var ws = socket;
     socket = null;
@@ -568,9 +630,19 @@
     switch (message.type) {
       case 'authorizationScope':
         state.scope = typeof message.scope === 'string' ? message.scope : '';
+        updateAircraftPanels();
+        return;
+      case 'toolbarTaxiState':
+      case 'pushbackState':
+        taxiPanel.receive(message);
+        return;
+      case 'toolbarPresetState':
+      case 'aircraftCommandResult':
+        presetPanel.receive(message);
         return;
       case 'simState':
         state.simState = message;
+        updateAircraftPanels();
         renderConnection();
         renderFlight();
         return;
@@ -597,6 +669,7 @@
         // Reconcile the replayed identity before showing any flight history.
         if (previousAircraft && !sameAircraft(previousAircraft, nextAircraft)) clearFlightHistory(true);
         state.aircraftProfile = message;
+        updateAircraftPanels();
         if (pendingLanding) {
           if (sameAircraft(pendingLanding.aircraft, nextAircraft)) state.landing = pendingLanding.landing;
           else rememberLanding(null);
@@ -620,14 +693,22 @@
           || !message.profileKey.trim() || message.profileKey.trim() !== profileKey()
           || !Number.isSafeInteger(revision) || revision < 0 || revision !== Number(profile.profileRevision)) return;
         state.aircraftProfile = Object.assign({}, state.aircraftProfile, { controlCapabilities: message.controlCapabilities });
+        updateAircraftPanels();
         state.commands = extractCommands(state.aircraftProfile);
         renderVoice();
         renderTabs();
         return;
       }
       case 'aircraftChanged':
+        presetPanel.reset();
+        taxiPanel.reset();
+        state.aircraftProfile = null;
+        state.commands = [];
+        updateAircraftPanels();
         clearFlightHistory(true);
         renderFlight();
+        renderVoice();
+        renderTabs();
         return;
       case 'toolbarFlightHistory': {
         // A replacement snapshot, not live landing/caution events. Empty
@@ -700,6 +781,7 @@
         state.plan = message.cleared === true ? null : message;
         renderPlan();
         renderTabs();
+        updateAircraftPanels();
         return;
       case 'voiceStatus':
         state.voice = message;
@@ -924,23 +1006,22 @@
 
   function renderTabs() {
     if (!state.visible) return;
-    var nav = clear($('tabs'));
+    var nav = $('tabs');
     var tabs = TABS;
     if (tabs.length && !tabs.some(function (tab) { return tab.id === state.activeTab; })) {
       state.activeTab = tabs[0].id;
     }
-    tabs.forEach(function (tab) {
-      var button = el('button', 'tab-button' + (tab.id === state.activeTab ? ' active' : ''));
+    // The tabs are permanent controls. Updating a badge or replaying state must
+    // not replace the button under a mouse press or keyboard focus.
+    if (!nav.firstChild) tabs.forEach(function (tab) {
+      var button = el('button', 'tab-button');
       button.type = 'button';
       button.id = 'tab-button-' + tab.id;
       button.setAttribute('role', 'tab');
-      button.setAttribute('aria-selected', tab.id === state.activeTab ? 'true' : 'false');
       button.setAttribute('aria-controls', 'tab-' + tab.id);
-      button.tabIndex = tab.id === state.activeTab ? 0 : -1;
       button.appendChild(svgIcon(tab.icon));
       button.appendChild(el('span', '', tab.label));
-      var badge = tabBadge(tab.id);
-      if (badge) button.appendChild(el('span', 'tab-badge', badge));
+      button.appendChild(el('span', 'tab-badge'));
       button.addEventListener('click', function () { selectTab(tab.id); });
       button.addEventListener('keydown', function (event) {
         var index = tabs.indexOf(tab);
@@ -954,7 +1035,14 @@
       });
       nav.appendChild(button);
     });
-    TABS.forEach(function (tab) {
+    tabs.forEach(function (tab, index) {
+      var button = nav.children[index];
+      button.className = 'tab-button' + (tab.id === state.activeTab ? ' active' : '');
+      button.setAttribute('aria-selected', tab.id === state.activeTab ? 'true' : 'false');
+      button.tabIndex = tab.id === state.activeTab ? 0 : -1;
+      var badge = button.querySelector('.tab-badge'), text = tabBadge(tab.id);
+      badge.textContent = text;
+      badge.hidden = !text;
       var panel = $('tab-' + tab.id);
       panel.hidden = tab.id !== state.activeTab;
     });
@@ -968,9 +1056,12 @@
 
   function selectTab(tabId) {
     if (state.activeTab === tabId) return;
+    var previous = $('tab-' + state.activeTab);
+    // Only blur a control inside the panel being hidden, not the tab button
+    // that was just clicked. Navigation stays focused for the next key press.
+    if (typeof previous.contains === 'function' && previous.contains(document.activeElement)) blurKeyboardControl();
     state.activeTab = tabId;
-    // A field on the hidden tab must not keep the simulator's keyboard.
-    blurTextField();
+    updateAircraftPanels();
     renderTabs();
     renderActiveTab();
     $('content').scrollTop = 0;
@@ -980,7 +1071,16 @@
 
   function renderFlight() {
     if (!state.visible || state.activeTab !== 'flight') return;
-    var panel = clear($('tab-flight'));
+    var root = $('tab-flight');
+    var summary = root.querySelector('.flight-summary');
+    var panel = root.querySelector('.flight-details');
+    if (!summary) {
+      summary = el('div', 'flight-summary'); root.appendChild(summary);
+      root.appendChild(presetPanel.element);
+      panel = el('div', 'flight-details'); root.appendChild(panel);
+    }
+    clear(summary); clear(panel);
+    updateAircraftPanels();
 
     var status = card('Flight', state.flightStatus && typeof state.flightStatus.status === 'string' ? humanize(state.flightStatus.status) : '');
     var list = el('div', 'kv-list');
@@ -995,7 +1095,7 @@
     clockBox.id = 'sim-clock-box';
     list.appendChild(clockBox);
     status.appendChild(list);
-    panel.appendChild(status);
+    summary.appendChild(status);
     renderFlightTime();
 
     if (TAKEOFF_SCORING_ENABLED) panel.appendChild(renderTakeoffCard());
@@ -1104,7 +1204,7 @@
     var takeoff = state.takeoff;
     if (!takeoff) {
       var placeholder = card('Last takeoff');
-      placeholder.appendChild(el('div', 'muted', 'Your runway-use grade, ground roll and runway remaining appear here after you lift off.'));
+      placeholder.appendChild(el('div', 'muted', 'Your ground roll, runway remaining and rotation measurements appear here after you lift off.'));
       return placeholder;
     }
     // This is the live WebSocket packet (or its reconnect snapshot), not the CSV schema.
@@ -1118,6 +1218,7 @@
     var grade = el('div', 'landing-grade');
     grade.appendChild(el('div', 'landing-grade-value ' + takeoffGradeTone(takeoff.grade), dash(takeoff.grade)));
     var where = [];
+    if (isFiniteNumber(takeoff.score)) where.push('Recorded runway-use grade');
     if (takeoff.icao) where.push(String(takeoff.icao));
     if (takeoff.runway) where.push('RWY ' + takeoff.runway);
     if (takeoff.zone) where.push(String(takeoff.zone));
@@ -1125,10 +1226,11 @@
     node.appendChild(grade);
 
     var stats = el('div', 'stat-row');
-    var remainingLabel = use.beyondRunwayEnd === true || (isFiniteNumber(use.remainingFt) && use.remainingFt <= 0)
+    var remainingLabel = use.beyondRunwayEnd === true || (isFiniteNumber(use.remainingFt) && use.remainingFt < 0)
       ? 'Past runway end'
       : 'Runway left';
-    var remainingValue = isFiniteNumber(use.remainingFt) ? fmtInt(Math.abs(use.remainingFt), ' ft') : '--';
+    var positionUncertain = Array.isArray(takeoff.flags) && takeoff.flags.some(function (flag) { return flag && flag.code === 'liftoff_position_uncertain'; });
+    var remainingValue = positionUncertain ? 'Uncertain' : isFiniteNumber(use.remainingFt) ? fmtInt(Math.abs(use.remainingFt), ' ft') : '--';
     stats.appendChild(stat(remainingValue, remainingLabel));
     stats.appendChild(stat(fmtInt(roll.distanceFt, ' ft'), 'Ground roll'));
     stats.appendChild(stat(fmtInt(liftoff.iasKts, ' kt'), 'Liftoff IAS'));
@@ -1136,15 +1238,29 @@
       ? (screen.remainingFt < 0 ? fmtInt(Math.abs(screen.remainingFt), ' ft past') : fmtInt(screen.remainingFt, ' ft left'))
       : '--';
     stats.appendChild(stat(screenValue, isFiniteNumber(screen.heightFt) ? 'At ' + Math.round(screen.heightFt) + ' ft' : 'Screen height'));
-    stats.appendChild(stat(isFiniteNumber(rotation.rateDegS) ? rotation.rateDegS.toFixed(1) + ' deg/s' : '--', 'Rotation'));
+    stats.appendChild(stat(isFiniteNumber(rotation.rateDegS) ? rotation.rateDegS.toFixed(1) + ' deg/s' : '--', 'Avg rotation'));
     stats.appendChild(stat(fmtInt(takeoff.crosswind, ' kt'), 'Crosswind'));
     node.appendChild(stats);
 
-    if (use.beyondRunwayEnd === true) node.appendChild(el('div', 'kv-sub danger', 'Lifted off beyond the runway end'));
+    if (use.beyondRunwayEnd === true) node.appendChild(el('div', 'kv-sub danger', isFiniteNumber(takeoff.score)
+      ? 'Lifted off beyond the runway end' : 'Ground contact beyond the runway end'));
     else if (screen.reached === true && isFiniteNumber(screen.remainingFt) && screen.remainingFt < 0) {
-      node.appendChild(el('div', 'kv-sub danger', 'Screen height reached beyond the runway end'));
+      node.appendChild(el('div', 'kv-sub', 'Screen height reached beyond the runway end'));
     }
     if (takeoff.runwayExcursion === true) node.appendChild(el('div', 'kv-sub danger', 'Runway excursion'));
+    var flags = Array.isArray(takeoff.flags) ? takeoff.flags : [];
+    flags.forEach(function (flag) {
+      if (!flag || !flag.label || (flag.code === 'runway_excursion' && takeoff.runwayExcursion === true)
+        || (flag.code === 'liftoff_beyond_runway_end' && use.beyondRunwayEnd === true)) return;
+      node.appendChild(el('div', 'kv-sub' + (flag.severity === 'critical' || flag.severity === 'warning' ? ' danger' : ''), flag.label));
+    });
+    if ((takeoff.assessment === 'critical' || takeoff.assessment === 'warning') && !flags.length && !takeoff.runwayExcursion) {
+      node.appendChild(el('div', 'kv-sub danger', humanize(takeoff.assessment) + ' assessment recorded'));
+    }
+    if (use.verified === false) node.appendChild(el('div', 'kv-sub', 'Runway geometry unverified or conflicting'));
+    if (screen.reached !== true) node.appendChild(el('div', 'kv-sub', 'Climb-out incomplete: screen height not observed'));
+    if (takeoff.finalizeReason === 'telemetry_gap') node.appendChild(el('div', 'kv-sub', 'Telemetry gap during climb-out'));
+    if (roll.startSource === 'runway_aligned') node.appendChild(el('div', 'kv-sub', 'Rolling start; measured from runway alignment'));
     var notes = [];
     if (isFiniteNumber(takeoff.hopCount) && takeoff.hopCount > 0) {
       notes.push('Settled back ' + (takeoff.hopCount === 1 ? 'once' : takeoff.hopCount + ' times'));
@@ -1183,12 +1299,15 @@
 
   function renderPlan() {
     if (!state.visible || state.activeTab !== 'plan') return;
+    var restoreFocus = rememberControlFocus($('tab-plan'));
     var panel = clear($('tab-plan'));
+    panel.appendChild(el('p', 'notice notice-accent plan-setup-note',
+      'In the main FlightFabric app, open SimBrief, enter your username or pilot ID, then select Fetch latest OFP.'));
     var plan = state.plan;
     if (!plan) {
       panel.appendChild(emptyState(
         'No SimBrief plan loaded',
-        'Fetch your latest OFP on the FlightFabric SimBrief tab. It appears here automatically.',
+        'Your flight plan appears here automatically once fetched in the main app.',
       ));
       return;
     }
@@ -1329,6 +1448,7 @@
       }));
     }
     panel.appendChild(details);
+    restoreFocus();
   }
 
   function chip(label, value) {
@@ -1400,6 +1520,7 @@
   function renderVoice() {
     if (!state.visible || state.activeTab !== 'voice') return;
     loadVoiceReference();
+    var restoreFocus = rememberControlFocus($('tab-voice'));
     var panel = clear($('tab-voice'));
     panel.appendChild(voiceStatusCard());
 
@@ -1427,6 +1548,7 @@
       var reference = card('Commands', commands.length + ' voice-enabled');
       var search = el('input', 'search');
       search.type = 'search';
+      search.id = 'voice-search';
       search.placeholder = 'Filter commands';
       search.setAttribute('aria-label', 'Filter voice commands');
       search.value = state.voiceSearch;
@@ -1442,6 +1564,7 @@
     }
 
     panel.appendChild(renderQuestions());
+    restoreFocus();
   }
 
   function renderCommandList(container, commands) {
@@ -1529,6 +1652,7 @@
   }
 
   function renderSettings() {
+    var restoreFocus = rememberControlFocus($('settings-body'));
     var body = clear($('settings-body'));
     body.appendChild(segmentedSetting('Theme', 'Dark suits the simulator; light suits a bright desk.', 'theme', [['dark', 'Dark'], ['light', 'Light']]));
     body.appendChild(segmentedSetting('Text size', '', 'scale', [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']]));
@@ -1538,6 +1662,7 @@
 
     body.appendChild(segmentedSetting('Open on', 'The section shown when the panel opens.', 'defaultTab',
       TABS.map(function (tab) { return [tab.id, tab.label]; })));
+    restoreFocus();
   }
 
   function segmentedSetting(label, help, key, options) {
@@ -1550,6 +1675,7 @@
     options.forEach(function (option) {
       var button = el('button', 'segment', option[1]);
       button.type = 'button';
+      button.id = 'setting-' + key + '-' + option[0];
       button.setAttribute('aria-pressed', prefs[key] === option[0] ? 'true' : 'false');
       button.addEventListener('click', function () {
         if (prefs[key] === option[0]) return;
@@ -1581,10 +1707,32 @@
     $('settings-button').focus();
   }
 
+  function settingsFocusables() {
+    return Array.prototype.filter.call($('settings-sheet').querySelectorAll('button, input, select, textarea, [tabindex]'), function (node) {
+      return !node.disabled && node.tabIndex >= 0 && node.getClientRects().length > 0;
+    });
+  }
+
+  function containSettingsFocus(event) {
+    if (!state.visible || !state.settingsOpen || event.key !== 'Tab') return;
+    var controls = settingsFocusables();
+    if (!controls.length) return;
+    var index = controls.indexOf(document.activeElement);
+    if (index < 0 || (event.shiftKey ? index === 0 : index === controls.length - 1)) {
+      event.preventDefault();
+      controls[event.shiftKey ? controls.length - 1 : 0].focus();
+    }
+  }
+
   function renderActiveTab() {
     if (state.activeTab === 'flight') renderFlight();
     else if (state.activeTab === 'plan') renderPlan();
     else if (state.activeTab === 'voice') renderVoice();
+    else if (state.activeTab === 'taxi') {
+      var root = $('tab-taxi');
+      if (!root.firstChild) root.appendChild(taxiPanel.element);
+      updateAircraftPanels();
+    }
   }
 
   function renderAll() {
@@ -1720,19 +1868,40 @@
       renderAll();
     });
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && state.settingsOpen) closeSettings();
+      if (event.key === 'Escape' && state.settingsOpen) {
+        event.preventDefault();
+        closeSettings();
+      }
+      containSettingsFocus(event);
     });
-    // Capture-phase focus/blur reach the document in Coherent GT, unlike the
-    // non-bubbling target events; the loader forwards them to the simulator.
+    // Keep the claim across Tab navigation, rerenders and controls disabled by
+    // a pending command. Otherwise the rest of a held Enter/Space/arrow press
+    // can reach the simulator. Release on leaving the iframe, an outside click,
+    // hiding or unloading, rather than an individual control's blur.
     document.addEventListener('focus', function (event) {
-      if (isTextField(event.target)) reportKeyboardFocus(true);
+      if (state.visible && state.settingsOpen && !$('settings-sheet').contains(event.target)) {
+        var controls = settingsFocusables();
+        if (controls.length) controls[0].focus();
+        return;
+      }
+      if (state.visible && isKeyboardControl(event.target)) reportKeyboardFocus(true);
     }, true);
-    document.addEventListener('blur', function (event) {
-      if (isTextField(event.target)) reportKeyboardFocus(false);
+    document.addEventListener('mousedown', function () {
+      // Clicking panel whitespace also starts keyboard scrolling/navigation.
+      if (state.visible) reportKeyboardFocus(true);
     }, true);
+    document.addEventListener('keydown', function (event) {
+      // A held activation key must not reapply a fast-completing preset. Keep
+      // native text editing, slider arrows and Tab navigation working.
+      if (event.repeat && (event.key === 'Enter' || ((event.key === ' ' || event.key === 'Spacebar')
+        && event.target && event.target.tagName === 'BUTTON'))) event.preventDefault();
+    }, true);
+    window.addEventListener('blur', releaseKeyboardFocus);
     window.addEventListener('message', onParentMessage);
     window.addEventListener('beforeunload', function () {
       unloading = true;
+      presetPanel.destroy();
+      taxiPanel.destroy();
       reportKeyboardFocus(false);
       cancelReconnect();
       cancelBootstrap();

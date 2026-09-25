@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { resolveCargo } = require('./rust-toolchain');
 
 const ROOT = path.resolve(__dirname, '..');
 const MANIFEST_PATH = path.join(
@@ -19,39 +20,6 @@ const BUNDLED_CONNECTORS_DIR = path.join(
   'telemetry-provider',
   'sdk-connectors',
 );
-
-function candidateCargoPaths() {
-  const names = process.platform === 'win32' ? ['cargo.exe', 'cargo.cmd', 'cargo'] : ['cargo'];
-  const dirs = [];
-  const cargoHome = process.env.CARGO_HOME;
-  if (cargoHome) dirs.push(path.join(cargoHome, 'bin'));
-  if (process.env.USERPROFILE) dirs.push(path.join(process.env.USERPROFILE, '.cargo', 'bin'));
-  if (process.env.HOME) dirs.push(path.join(process.env.HOME, '.cargo', 'bin'));
-  for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
-    if (dir) dirs.push(dir);
-  }
-
-  const seen = new Set();
-  const paths = [];
-  for (const dir of dirs) {
-    for (const name of names) {
-      const candidate = path.join(dir, name);
-      const key = candidate.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        paths.push(candidate);
-      }
-    }
-  }
-  return paths;
-}
-
-function resolveCargo() {
-  for (const candidate of candidateCargoPaths()) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return process.platform === 'win32' ? 'cargo.exe' : 'cargo';
-}
 
 const cargo = resolveCargo();
 const connectorFiles = fs.existsSync(BUNDLED_CONNECTORS_DIR)

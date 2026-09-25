@@ -16,7 +16,7 @@ const validEngineCount = (value: unknown): value is number => Number.isInteger(v
 // those kinds changes ownership; an out-of-range/malformed value is data loss.
 const validEngineKind = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 6;
 const ownershipError = () => new Error('Autotaxi control ownership changed.');
-export type AutotaxiOptions = { resolveModel?: (aircraftCfgPath: string) => TaxiAircraftConfigResult };
+export type AutotaxiOptions = { resolveModel?: (aircraftCfgPath: string) => TaxiAircraftConfigResult; readOnly?: boolean };
 
 export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now: () => number, options: AutotaxiOptions = {}) {
   const resolveModel = options.resolveModel || resolveTaxiAircraftConfig;
@@ -127,6 +127,14 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
     const flightState = computeMenuState({ systemSim: provider._systemState?.sim, simRunningRaw: provider._simRunning,
       cameraState: d.cameraState, crashFlag: d.crashFlag, crashSequence: d.crashSequence,
       userInput: isOff(d.userInput) ? false : d.userInput, paused: isOn(d.paused) });
+    // A ribbon can guide manual taxi even with engines off, the parking brake
+    // set, no control adapter, or missing add-on SDK/control readbacks.
+    let guidanceReason = '';
+    if (!provider._connected || provider._stopping || !['running', 'connected'].includes(native.status)) guidanceReason = 'Simulator disconnected.';
+    else if (!['lat', 'lon', 'heading', 'gs', 'wow', 'paused', 'slewActive'].every(key => freshAt(native.valueUpdatedAt?.[key]))
+      || ![d.lat, d.lon, d.heading, d.gs].every(finite)) guidanceReason = 'Waiting for fresh aircraft position.';
+    else if (!isOn(d.wow) || !isOff(d.paused) || !isOff(d.slewActive) || provider._systemState?.sim !== 1
+      || !flightState.inFlightContext) guidanceReason = 'Taxi guidance needs an aircraft on the ground with the flight running.';
     const athr = sdk?.normalized?.automation?.athr;
     const parking = adapter?.family === 'fenix-a32x' ? ownValue('systems.parkingBrake', s)
       : adapter?.family === 'pmdg-777' ? sdk?.normalized?.brakes?.parking : d.parkingBrake;
@@ -156,7 +164,7 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
     }
     return { x: 0, z: 0, lat: d.lat, lon: d.lon, headingDeg: d.heading, speedKts: d.gs,
       timeMs: Math.min(...['lat', 'lon', 'heading', 'gs'].map(key => Date.parse(native.valueUpdatedAt?.[key] || ''))),
-      ready: !reason, reason, profileKey, profileRevision, generation: identity };
+      ready: !reason, reason, guidanceReady: !guidanceReason, guidanceReason, profileKey, profileRevision, generation: identity };
   }
   function parked(): boolean | null {
     const s = selection();
@@ -176,6 +184,14 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
     } else if (freshAt(s.native.valueUpdatedAt?.parkingBrake)) value = s.d.parkingBrake;
     return isOn(value) ? true : isOff(value) ? false : null;
   }
+  async function loadAirport(icao: string, runway: string | null) {
+    const geometry = provider._msfsFacilitiesGeometryProvider;
+    const outcome = await geometry?.probeAirport?.(icao);
+    if (outcome?.ok !== true) throw new Error('Could not load live simulator taxiways. ' + (outcome?.error || 'Facilities unavailable.'));
+    const data = geometry.getTaxiAirport(icao, runway);
+    if (!data) throw new Error(`Simulator taxiway data for ${icao}${runway ? ` runway ${runway}` : ''} are unavailable.`);
+    return data;
+  }
   // Unbounded diagnostic JSONL remains disconnected from live sessions.
   const session = createTaxiSession({ now, capture, handling: () => selection().handling, parked,
     recover: (error, valid) => recoverTaxiControlBridge(error, valid, {
@@ -183,14 +199,7 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
       ensure: () => provider._ensureControlWriteBridge?.() || Promise.resolve(null),
       now: Date.now, wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
     }),
-    async airport(icao, runway) {
-      const geometry = provider._msfsFacilitiesGeometryProvider;
-      const outcome = await geometry?.probeAirport?.(icao);
-      if (outcome?.ok !== true) throw new Error('Could not load live simulator taxiways. ' + (outcome?.error || 'Facilities unavailable.'));
-      const data = geometry.getTaxiAirport(icao, runway);
-      if (!data) throw new Error(`Simulator taxiway data for ${icao}${runway ? ` runway ${runway}` : ''} are unavailable.`);
-      return data;
-    },
+    airport: loadAirport,
     async park(valid) {
       if (!valid()) throw ownershipError();
       const s = selection();
@@ -241,6 +250,10 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
         { family: s.adapter.family, engineCount: s.engineCount, maxThrottle: s.handling.maxThrottle });
       } finally { writeModel = null; }
     },
+    // Manual guidance owns an independent session with no control dependencies.
+    // Even a future internal controller call cannot reach the simulator writes.
+    ...(options.readOnly ? { handling: () => null, parked: undefined, recover: undefined, park: undefined,
+      write: async () => { throw new Error('Taxi guidance cannot control the aircraft.'); } } : {}),
   });
   function support() {
     const s = selection();
@@ -249,7 +262,29 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
       setupInstructions: s.adapter?.setupInstructions || [], reason: s.reason || null };
   }
   return { ...session,
+    // Internal observation boundary shared with the simulator-tug controller.
+    groundContext: { capture, parked, tug: () => {
+      const s = selection();
+      if (!provider._connected || !['running', 'connected'].includes(s.native.status)
+        || !['pushbackState', 'bodyVelocityZ'].every(key => freshAt(s.native.valueUpdatedAt?.[key]))) return null;
+      const state = s.d.pushbackState, forwardSpeedFps = s.d.bodyVelocityZ;
+      return [0, 1, 2, 3].includes(state) && Number.isFinite(forwardSpeedFps) ? { state, forwardSpeedFps } : null;
+    }, airport: loadAirport, dimensions: () => {
+      // Tug geometry does not require an Autotaxi adapter or running engines.
+      try {
+        const model = resolveModel(provider._lastDetectedAircraftTitle || '');
+        return model.ok === true ? { wheelbaseM: model.wheelbaseM, lengthM: model.lengthM } : null;
+      } catch { return null; }
+    } },
     state: (includeScene = false) => ({ ...session.state(includeScene), support: support() }),
-    request: async (...args: Parameters<typeof session.request>) => ({ ...await session.request(...args), support: support() }),
+    request: async (...args: Parameters<typeof session.request>) => {
+      if (options.readOnly && !['status', 'preview', 'parkings'].includes(args[0].operation)) {
+        throw new Error('Taxi guidance supports status, preview and parkings only.');
+      }
+      if (options.readOnly && args[0].operation === 'preview' && session.isActive()) {
+        throw new Error('A taxi route is already being prepared. Try again shortly.');
+      }
+      return { ...await session.request(...args), ...(options.readOnly ? {} : { support: support() }) };
+    },
   };
 }

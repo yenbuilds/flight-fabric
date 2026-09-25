@@ -5,6 +5,7 @@ const childProcess = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { SIMCONNECT_DLL_RELATIVE } = require('../../scripts/simconnect-sdk');
 const {
   REQUIRED_PACKAGED_BACKEND_STARTUP_FILES,
 } = require('./electron-packaged-startup-files');
@@ -18,6 +19,7 @@ const EXTRACT_ROOT = getRepoScratchPath('electron-installer-payload');
 const REQUIRED_PAYLOAD_FILES = [
   buildExecutableFileName(),
   path.join('resources', 'app.asar'),
+  path.join('resources', 'backend', SIMCONNECT_DLL_RELATIVE),
   ...REQUIRED_PACKAGED_BACKEND_STARTUP_FILES.map((relativePath) => (
     path.join('resources', 'backend', ...relativePath.split('/'))
   )),

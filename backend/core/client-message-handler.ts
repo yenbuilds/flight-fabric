@@ -54,6 +54,7 @@ type DebugLike = { log: (_scope: string, _event: string, _payload?: AnyRecord) =
 
 let aircraftControlRequestTail: Promise<void> = Promise.resolve();
 let autotaxiRequestGeneration = 0;
+let pushbackRequestGeneration = 0;
 
 function serializeAircraftControlRequest<T>(operation: () => Promise<T>): Promise<T> {
   const result = aircraftControlRequestTail.then(operation, operation);
@@ -339,9 +340,17 @@ function sendPrivilegeDenied(ws: WsLike, msg: AnyRecord) {
       ws.send(JSON.stringify({ type: 'cduState', requestId: msg.requestId || null, ok: false,
         error: 'Pair this device for aircraft controls before using CDU keys.' }));
       return;
+    case 'pushback':
+      ws.send(JSON.stringify({ type: 'pushbackState', requestId: sanitizeTimelineRequestId(msg.requestId), ok: false,
+        error: 'Aircraft control permission is required for pushback.' }));
+      return;
+    case 'requestTaxiGuidance':
+      ws.send(JSON.stringify({ type: 'toolbarTaxiState', requestId: sanitizeTimelineRequestId(msg.requestId), ok: false,
+        error: 'Open Taxi guidance from the local toolbar or a paired device.' }));
+      return;
     case 'autotaxi':
       ws.send(JSON.stringify({ type: 'autotaxiState', requestId: msg.requestId || null, ok: false,
-        error: 'Aircraft control permission is required for autotaxi.' }));
+        error: 'Aircraft control permission is required for Taxi assistant.' }));
       return;
     case 'saveAppSettings':
       ws.send(JSON.stringify({
@@ -724,9 +733,47 @@ async function handleClientMessage(ws, msg, context) {
       break;
     }
     // Request current state (for page refresh/reconnect)
+    case 'pushback': {
+      const requestId = sanitizeTimelineRequestId(msg.requestId);
+      try {
+        if (!['status', 'start', 'stop'].includes(msg.operation)) throw new Error('Unsupported pushback request.');
+        if (typeof provider?.requestPushback !== 'function') throw new Error('Pushback is available with MSFS only.');
+        const receivedAt = timeNow(), connected = () => isClientMessageAuthorized(ws, 'pushback') && (ws.readyState === undefined || ws.readyState === 1);
+        const generation = msg.operation === 'status' ? pushbackRequestGeneration : ++pushbackRequestGeneration;
+        const result = msg.operation === 'start' ? await serializeAircraftControlRequest(() => {
+          if (generation !== pushbackRequestGeneration || !connected() || timeNow() - receivedAt > 3000) throw new Error('Pushback request cancelled or expired.');
+          return provider.requestPushback(msg, ws, connected);
+        }) : await provider.requestPushback(msg, ws, connected);
+        ws.send(JSON.stringify({ ...result, type: 'pushbackState', requestId, ok: true }));
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'pushbackState', requestId, ok: false,
+          error: err instanceof Error ? err.message : 'Pushback request failed.' }));
+      }
+      break;
+    }
+    case 'requestTaxiGuidance': {
+      const requestId = sanitizeTimelineRequestId(msg.requestId);
+      try {
+        if (!['status', 'preview', 'parkings'].includes(msg.operation)) throw new Error('Unsupported taxi guidance request.');
+        if (typeof provider?.requestTaxiGuidance !== 'function') throw new Error('Taxi guidance is available with the MSFS provider only.');
+        const connected = () => isClientMessageAuthorized(ws, 'requestTaxiGuidance') && (ws.readyState === undefined || ws.readyState === 1);
+        if (!connected()) throw new Error('Taxi guidance connection lost.');
+        const result = await provider.requestTaxiGuidance(msg, ws, connected);
+        const reply: AnyRecord = { type: 'toolbarTaxiState', requestId, ok: true };
+        for (const key of ['canGuide', 'guidanceUnavailableReason', 'currentProfileKey', 'currentProfileRevision',
+          'aircraft', 'sceneKey', 'scene', 'preview', 'pushbackPreview', 'stands', 'standOptions']) {
+          if (Object.prototype.hasOwnProperty.call(result, key)) reply[key] = result[key];
+        }
+        if (connected()) ws.send(JSON.stringify(reply));
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'toolbarTaxiState', requestId, ok: false,
+          error: err instanceof Error ? err.message : 'Taxi guidance request failed.' }));
+      }
+      break;
+    }
     case 'autotaxi': {
       try {
-        if (typeof provider?.requestAutotaxi !== 'function') throw new Error('Autotaxi is available with the MSFS provider only.');
+        if (typeof provider?.requestAutotaxi !== 'function') throw new Error('Taxi assistant is available with the MSFS provider only.');
         const receivedAt = timeNow();
         const ownerConnected = () => isClientMessageAuthorized(ws, 'autotaxi')
           && (ws.readyState === undefined || ws.readyState === 1);
@@ -742,7 +789,7 @@ async function handleClientMessage(ws, msg, context) {
         ws.send(JSON.stringify({ ...result, requestId: msg.requestId || null, ok: true }));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'autotaxiState', requestId: msg.requestId || null, ok: false,
-          error: err instanceof Error ? err.message : 'Autotaxi request failed.' }));
+          error: err instanceof Error ? err.message : 'Taxi assistant request failed.' }));
       }
       break;
     }
@@ -1132,6 +1179,8 @@ async function handleClientMessage(ws, msg, context) {
         const result = await serializeAircraftControlRequest(async () => {
           const activeProfile = profileLoader.getActiveProfile();
           return aircraftControlService.executeAircraftCommand(provider, msg, {
+            presetsOnly: ws.__ffToolbarPresetClient === true && ws.__ffPrivilegedClient !== true && ws.__ffAircraftControlClient !== true,
+            canExecute: () => isClientMessageAuthorized(ws, 'executeAircraftCommand') && (ws.readyState === undefined || ws.readyState === 1),
             profile: activeProfile,
             profileRevision: typeof profileLoader.getActiveProfileRevision === 'function'
               ? profileLoader.getActiveProfileRevision()

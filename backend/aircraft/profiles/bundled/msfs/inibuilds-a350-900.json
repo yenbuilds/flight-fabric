@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2026-05-04T00:00:00Z",
-  "updatedAt": "2026-09-02T00:00:00Z",
+  "updatedAt": "2026-09-25T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/inibuilds-a350-base",
   "abstract": false,
@@ -37,7 +37,7 @@
     "developer": "iniBuilds",
     "platforms": ["msfs2020", "msfs2024"],
     "contributor": "YenBuilds",
-    "updated": "2026-09-02",
+    "updated": "2026-09-25",
     "status": "partial",
     "variant": "A350-900",
     "notes": "iniBuilds Airbus A350-900 (ICAO A359). Extends the shared trusted A350 adapter and activates the dedicated page and voice command catalogue."
@@ -52,7 +52,7 @@
         "name": "Original HubHop A350 ND range mappings",
         "url": "https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc",
         "retrievedAt": "2026-09-07",
-        "notes": "HubHop presets map INI_MAP_RANGE_CAPT_SWITCH and INI_MAP_RANGE_FO_SWITCH positions 5..11 to the normal 10..640 NM range detents. This differs from INI_MAP_MODE_RANGE_* in the official LVar PDF. The adapter uses the original integration spelling with same-field confirmation, never writes both names, and leaves airport zoom selection unavailable. A350 is not installed locally; live validation of names and ND mode-dependent displayed scale is required. See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md."
+        "notes": "HubHop presets map INI_MAP_RANGE_CAPT_SWITCH and INI_MAP_RANGE_FO_SWITCH positions 5..11 to the normal 10..640 NM range detents. This differs from INI_MAP_MODE_RANGE_* in the official LVar PDF. The adapter uses the original integration spelling with same-field confirmation, never writes both names, and leaves airport zoom selection unavailable. Installed MSFS 2024 A350 1.2.6 cockpit behavior confirms the MAP_RANGE names and 0-11 detents. On 2026-09-25 the -900 passed same-field 10-20-10 range checks on both sides; displayed scale and -1000 live acceptance remain pending. See docs/A350-PROFILE-VALIDATION.md. See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md."
       },
       {
         "type": "official-sdk",
@@ -97,9 +97,9 @@
     ],
     "verification": {
       "status": "partial",
-      "lastVerified": "2026-09-02",
+      "lastVerified": "2026-09-25",
       "knownIssues": [
-        "Exact A350-900 simulator title and package path strings still require confirmation across current MSFS 2020 and MSFS 2024 builds."
+        "MSFS 2024 A350 1.2.6 Default Cabin title and vendor-qualified preset path were captured live and select this profile in the production matcher. Other liveries, presets and MSFS 2020 identities remain untested. Scoped ground checks and limits: docs/A350-PROFILE-VALIDATION.md."
       ]
     }
   }

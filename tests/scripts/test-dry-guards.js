@@ -722,13 +722,21 @@ test('support asks use one untagged destination, one rule module and one prompt 
   }
   if (repoFileExists('site/flightfabric')) {
     const destination = JSON.parse(readRepoFile('site/support-link.json')).destination;
+    const aircraftPages = JSON.parse(readRepoFile('site/flightfabric/aircraft/pages.json')).pages;
+    const directHeaderPages = new Set([
+      'site/flightfabric/index.html',
+      'site/flightfabric/msfs-2024-voice-control/index.html',
+      'site/flightfabric/msfs-2024-toolbar-panel/index.html',
+      'site/flightfabric/aircraft/index.html',
+      ...Object.keys(aircraftPages).map(slug => `site/flightfabric/aircraft/${slug}/index.html`),
+    ]);
     for (const file of listRepoFiles(path.join(ROOT_DIR, 'site/flightfabric'), file => file.endsWith('.html'))) {
       const websitePath = path.relative(ROOT_DIR, file).replace(/\\/g, '/');
       if (websitePath === 'site/flightfabric/support/index.html') continue;
       let html = fs.readFileSync(file, 'utf8');
-      if (['site/flightfabric/index.html', 'site/flightfabric/msfs-2024-voice-control/index.html', 'site/flightfabric/msfs-2024-toolbar-panel/index.html'].includes(websitePath)) {
-        // The two header links go directly to the configured profile.
-        // Release-tooling checks their placement and destination.
+      if (directHeaderPages.has(websitePath)) {
+        // These pages allow one header link to the configured profile.
+        // Release-tooling and aircraft-page tests check placement and destination.
         html = html.replace(`class="header-support-link" href="${destination}"`, 'class="header-support-link"');
       }
       if (websitePath === 'site/flightfabric/index.html') {

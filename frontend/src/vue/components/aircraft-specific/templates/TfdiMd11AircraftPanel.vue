@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { submitMcpDraft } from '../mcp-input.js';
 
 const props = defineProps({
   profileKey: { type: String, default: '' },
@@ -9,10 +10,76 @@ const props = defineProps({
   sourceStatuses: { type: Object, default: () => ({}) },
   actionCapabilities: { type: Object, default: () => ({}) },
   requestAction: { type: Function, default: () => false },
+  requestCommand: { type: Function, default: () => false },
   isActionPending: { type: Function, default: () => false },
+  isCommandPending: { type: Function, default: () => false },
+  controlsEnabled: { type: Boolean, default: false },
+  controlsDisabledReason: { type: String, default: '' },
 });
 
 const unavailableFields = computed(() => new Set(props.unavailable));
+
+const drafts = ref({});
+watch(() => [props.profileKey, props.sourceStatus, props.controlsEnabled], () => { drafts.value = {}; });
+const targets = [
+  { id: 'speed', label: 'IAS', fieldId: 'afs.speedValue', modeField: 'afs.speedMode', mode: 'ias', min: 100, max: 399, step: 1, unit: 'kt' },
+  { id: 'heading', label: 'Heading', fieldId: 'afs.headingValue', modeField: 'afs.headingMode', mode: 'heading', min: 0, max: 359, step: 1, unit: 'deg' },
+  { id: 'altitude', label: 'Altitude', fieldId: 'afs.altitudeValue', modeField: 'afs.altitudeUnit', mode: 'feet', min: 0, max: 50000, step: 100, unit: 'ft' },
+].map(c => ({ ...c, actionId: 'flightGuidance.' + c.id + '.set', commandId: 'flightGuidance.' + c.id + '.set', groupId: 'md11.fcp' }));
+const approachTargets = ['captain', 'firstOfficer'].flatMap(side => [
+  { id: 'baro.' + side, label: (side === 'captain' ? 'Captain' : 'First officer') + ' pressure', fieldId: 'baro.' + side + '.value', actionId: 'baro.' + side + '.inHg.set', commandId: 'baro.' + side + '.qnhInHg', min: 28, max: 31, step: .01, unit: 'inHg', groupId: 'md11.fcp' },
+  { id: 'minimums.' + side, label: (side === 'captain' ? 'Captain' : 'First officer') + ' radio minimums', fieldId: 'approach.' + side + '.minimums', actionId: 'approach.' + side + '.minimums.set', commandId: 'approach.' + side + '.radioMinimums', modeField: 'approach.' + side + '.minimumsMode', mode: 'radio', min: 0, max: 1000, step: 10, unit: 'ft', groupId: 'md11.cevent' },
+]);
+const targetGroups = [{ label: 'Flight guidance targets', controls: targets }, { label: 'Altimeters & radio minimums', controls: approachTargets }];
+const switches = ['nav', 'beacon', 'strobe', 'logo', 'turnoffLeft', 'turnoffRight'].map(light => ({
+  label: ({turnoffLeft: 'Left turnoff', turnoffRight: 'Right turnoff'})[light] || light.toUpperCase(),
+  fieldId: 'lights.' + light,
+  options: [false, true].map(v => ({ label: v ? 'ON' : 'OFF', value: v, id: 'lights.' + light + '.' + (v ? 'on' : 'off'), commandId: 'lights.' + light + '.set' })),
+}));
+const selectors = [
+  ...['Left', 'Right'].map(side => ({label: side + ' landing', fieldId: 'lights.landing' + side + 'Position', actionId: 'lights.landing' + side + '.set', labels: ['RETRACT', 'EXT OFF', 'ON']})),
+  {label: 'Nose light', fieldId: 'lights.nosePosition', actionId: 'lights.nose.set', labels: ['OFF', 'TAXI', 'LAND']},
+];
+const signs = [
+  {label: 'Seat belts', fieldId: 'cabin.seatBeltsPosition', actionId: 'cabin.seatBelts.set', labels: ['OFF', 'AUTO', 'ON']},
+  {label: 'No smoking', fieldId: 'cabin.noSmokingPosition', actionId: 'cabin.noSmoking.set', labels: ['OFF', 'AUTO', 'ON']},
+];
+const switchGroups = [{label: 'Exterior lights', controls: [...switches, ...selectors]}, {label: 'Cabin signs', controls: signs}];
+// Voice and Control library requests hold canonical keys instead of this
+// panel's physical-group key. They must disable the same shared channels.
+const pendingCommands = {
+  'md11.fcp': [...targets, ...approachTargets].filter(c => c.groupId === 'md11.fcp').map(c => c.commandId),
+  'md11.cevent': [
+    ...switches.map(c => c.options[0].commandId),
+    ...selectors.filter(c => c.actionId !== 'lights.nose.set').map(c => c.actionId),
+    ...signs.map(c => c.actionId),
+    ...approachTargets.filter(c => c.groupId === 'md11.cevent').map(c => c.commandId),
+    'lights.landing.set', 'lights.runwayTurnoff.set', 'lights.noseMode.set', 'lights.taxi.set',
+    ...['takeoff', 'afterTakeoff', 'landing', 'afterLanding'].map(phase => `configuration.lights.${phase}`),
+  ],
+};
+function options(control) { return control.options || control.labels.map((label, value) => ({label, value, id: control.actionId})); }
+function disabledReason(control, actionId = control.actionId) {
+  if (!props.controlsEnabled) return props.controlsDisabledReason || 'Aircraft controls unavailable.';
+  if (props.sourceStatus !== 'connected') return 'Waiting for live aircraft data.';
+  if (!hasValue(control.fieldId)) return 'Current setting unavailable.';
+  if (props.actionCapabilities[actionId] !== true) return 'Control connection unavailable.';
+  const groupId = control.groupId || 'md11.cevent';
+  if (props.isActionPending(groupId) || pendingCommands[groupId].some(id => props.isCommandPending(id))) return 'Waiting for confirmation.';
+  if (numberValue('systems.busVoltage') === null || numberValue('systems.busVoltage') < 90 || numberValue('systems.busVoltage') > 130) return 'Aircraft electrical power required.';
+  if (control.modeField && value(control.modeField) !== control.mode) return 'Select ' + control.mode.toUpperCase() + ' in the cockpit first.';
+  if (Number.isFinite(control.min) && (numberValue(control.fieldId) === null || value(control.fieldId) < control.min || value(control.fieldId) > control.max)) return 'Current units or target unavailable.';
+  return '';
+}
+function submitTarget(control) {
+  const sent = submitMcpDraft({ config: control, rawValue: drafts.value[control.id] ?? '', disabled: Boolean(disabledReason(control)), groupId: control.groupId, requestAction: props.requestAction, requestCommand: props.requestCommand });
+  if (sent !== false) delete drafts.value[control.id];
+}
+function select(control, option) {
+  if (disabledReason(control, option.id)) return false;
+  return option.commandId ? props.requestCommand(option.commandId, 'md11.cevent', {value: option.value})
+    : props.requestAction(option.id, 'md11.cevent', option.value);
+}
 
 const engines = Object.freeze([
   { number: 1, station: 'LEFT WING', n1Id: 'systems.engine1N1', runningId: 'systems.engine1Running' },
@@ -28,15 +95,6 @@ const vSpeeds = Object.freeze([
   { id: 'performance.vfr', label: 'VFR' },
 ]);
 
-const lights = Object.freeze([
-  { id: 'lights.strobe', label: 'STROBE' },
-  { id: 'lights.beacon', label: 'BEACON' },
-  { id: 'lights.nav', label: 'NAV' },
-  { id: 'lights.logo', label: 'LOGO' },
-  { id: 'lights.landing', label: 'LANDING' },
-  { id: 'lights.taxi', label: 'NOSE' },
-  { id: 'lights.runwayTurnoff', label: 'TURN OFF' },
-]);
 
 function hasValue(id) {
   return !unavailableFields.value.has(id)
@@ -178,17 +236,17 @@ function tonnesText(id) {
   <div
     class="p-3 sm:p-4 space-y-5"
     data-aircraft-template="tfdi-md-11"
-    data-tfdi-md11-scope="monitoring-only"
+    data-tfdi-md11-scope="guarded-controls"
   >
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h3 class="text-base font-semibold text-gray-100">TFDi Design MD-11</h3>
-        <p class="text-xs text-gray-500">Passenger/freighter, GE/PW tri-jet monitoring for MSFS 2020 and 2024.</p>
+        <p class="text-xs text-gray-500">Flight guidance targets, exterior lights, cabin signs and approach settings.</p>
       </div>
       <div class="flex flex-wrap justify-end gap-1.5">
         <span class="rounded border border-surface-300 px-2 py-1 text-[9px] uppercase tracking-widest text-gray-400">{{ props.sourceStatus }}</span>
         <span class="rounded border border-cyan-500/35 bg-cyan-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-cyan-300">TFDi integration LVARs</span>
-        <span class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300">Monitoring only</span>
+        <span class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300">Controls and live data</span>
       </div>
     </div>
 
@@ -229,6 +287,23 @@ function tonnesText(id) {
       <p class="mt-2 text-[10px] leading-relaxed text-gray-500">
         Dashes indicate that no target is set.
       </p>
+    </section>
+
+    <slot name="presets" />
+    <section v-for="group in targetGroups" :key="group.label">
+      <div class="dashboard-section-kicker">{{ group.label }}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+        <form v-for="control in group.controls" :key="control.id" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.actionId" @submit.prevent="submitTarget(control)">
+          <label :for="'md11-' + control.id" class="text-xs font-semibold text-gray-300">{{ control.label }}</label>
+          <p class="mt-1 text-xs text-gray-400">Aircraft: <span class="font-mono text-gray-100">{{ value(control.fieldId) ?? '--' }} {{ control.unit }}</span></p>
+          <div class="mt-2 flex gap-1.5">
+            <input :id="'md11-' + control.id" v-model="drafts[control.id]" type="number" :min="control.min" :max="control.max" :step="control.step" placeholder="Target" :disabled="Boolean(disabledReason(control))" :aria-label="control.label + ' target'" class="min-h-11 min-w-0 flex-1 rounded border border-surface-300 bg-surface-100 px-2 text-sm text-gray-100 disabled:opacity-45" />
+            <button type="submit" :disabled="Boolean(disabledReason(control)) || drafts[control.id] == null || drafts[control.id] === ''" class="min-h-11 rounded border border-surface-300 px-3 text-xs text-gray-100 disabled:opacity-45">SET</button>
+          </div>
+          <p v-if="disabledReason(control)" class="mt-1 text-[10px] text-gray-500">{{ disabledReason(control) }}</p>
+        </form>
+      </div>
+      <p v-if="group.controls === approachTargets" class="mt-2 text-[10px] text-gray-500">Keep barometers in inHg. Minimums require RADIO reference; linked cockpit settings may update both sides.</p>
     </section>
 
     <section>
@@ -273,7 +348,7 @@ function tonnesText(id) {
       <p class="mt-2 text-[10px] leading-relaxed text-gray-500">N1 is a standard simulator spool indication; the MD-11's primary thrust reference remains EPR.</p>
     </section>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div>
       <section>
         <div class="dashboard-section-kicker">Dial-a-Flap &amp; Gear</div>
         <div class="grid grid-cols-2 gap-2">
@@ -296,22 +371,21 @@ function tonnesText(id) {
         <p class="mt-2 text-[10px] leading-relaxed text-gray-500">Centre gear status is unavailable.</p>
       </section>
 
-      <section>
-        <div class="dashboard-section-kicker">Exterior Lights</div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <div
-            v-for="light in lights"
-            :key="light.id"
-            class="rounded border px-2.5 py-2 text-[10px] font-semibold"
-            :class="indicatorClass(light.id)"
-            :data-tfdi-light="light.id"
-          >
-            {{ light.label }} <span class="float-right opacity-70">{{ booleanText(light.id) }}</span>
-          </div>
-        </div>
-        <p class="mt-2 text-[10px] leading-relaxed text-gray-500">Exterior lights are read-only. Unavailable values are shown as --.</p>
-      </section>
+
     </div>
+
+    <section v-for="group in switchGroups" :key="group.label">
+      <div class="dashboard-section-kicker">{{ group.label }}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+        <div v-for="control in group.controls" :key="control.fieldId" class="rounded-lg border border-surface-200 bg-surface-50 p-3" :data-aircraft-control-group="control.fieldId">
+          <div class="text-xs font-semibold text-gray-300">{{ control.label }}</div>
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            <button v-for="option in options(control)" :key="option.label" type="button" :aria-pressed="value(control.fieldId) === option.value" :data-aircraft-action="option.id" :disabled="Boolean(disabledReason(control, option.id))" class="min-h-11 flex-1 rounded border px-2 text-[10px] font-semibold disabled:opacity-45" :class="value(control.fieldId) === option.value ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300' : 'border-surface-300 text-gray-400'" @click="select(control, option)">{{ option.label }}</button>
+          </div>
+          <p v-if="disabledReason(control, options(control)[0].id)" class="mt-1 text-[10px] text-gray-500">{{ disabledReason(control, options(control)[0].id) }}</p>
+        </div>
+      </div>
+    </section>
 
     <section>
       <div class="dashboard-section-kicker">APU, Fuel, Weight &amp; Pressurization</div>

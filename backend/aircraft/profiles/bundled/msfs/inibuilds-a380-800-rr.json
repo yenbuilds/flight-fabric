@@ -1,0 +1,165 @@
+{
+  "$schema": "../../aircraft-profile.schema.json",
+  "version": 2,
+  "id": "inibuilds-a380-800-rr",
+  "name": "iniBuilds Airbus A380-800 RR",
+  "simulator": "msfs",
+  "namespace": "bundled",
+  "author": null,
+  "authorAccount": null,
+  "createdAt": "2026-09-23T00:00:00Z",
+  "updatedAt": "2026-09-23T00:00:00Z",
+  "visibility": "public",
+  "extends": "bundled/msfs/airbus-base",
+  "abstract": false,
+  "aircraft": {
+    "engines": {
+      "count": 4,
+      "type": "jet"
+    }
+  },
+  "integration": {
+    "matching": {
+      "priority": 95,
+      "titleContains": [],
+      "titleRegex": "",
+      "configPathContains": [],
+      "configPathRegex": "(?:^|[\\\\/])SimObjects[\\\\/]Airplanes[\\\\/]inibuilds-a380[\\\\/]presets[\\\\/]inibuilds[\\\\/]a380-800_rr_basic[\\\\/]config[\\\\/]aircraft\\.cfg$"
+    },
+    "aircraftSpecific": {
+      "adapter": "inibuilds-a380"
+    },
+    "telemetry": {
+      "preferred": "simconnect",
+      "lights": {
+        "source": "simconnect"
+      }
+    },
+    "controls": {
+      "backend": "simconnect",
+      "genericFallback": false,
+      "standardSurfaceFallback": false
+    },
+    "presentation": {
+      "visualSupport": "basic",
+      "lights": {
+        "available": [
+          "beacon",
+          "nav",
+          "strobe",
+          "landing",
+          "taxi",
+          "logo",
+          "wing"
+        ],
+        "labels": {
+          "beacon": "BCN",
+          "nav": "NAV",
+          "strobe": "STRB",
+          "landing": "LND",
+          "taxi": "NOSE",
+          "logo": "LOGO",
+          "wing": "WING"
+        }
+      }
+    }
+  },
+  "meta": {
+    "developer": "iniBuilds",
+    "platforms": [
+      "msfs2024"
+    ],
+    "contributor": "YenBuilds",
+    "updated": "2026-09-23",
+    "status": "partial",
+    "variant": "A380-800 RR Basic",
+    "notes": "Selected FCU numeric targets have powered-ground validation with independent confirmation. Flight director, exterior lights, lighting presets, COM1/COM2 tuning and swapping, cabin signs, seven air-system buttons and flap/speedbrake/ground-spoiler lever selections validated on A380 AIRLINER 1.0.0. APU startup has separate confirmation and restart limitations. Only RR Basic is matched; flight engagement, managed/Mach/TRK/FPA modes, automatic surface behavior and other variants remain under validation."
+  },
+  "provenance": {
+    "sources": [
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 documented LVAR read/write surface, with A380-specific live validation",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimConnect/API_Reference/Events_And_Data/SimConnect_AddToDataDefinition.htm",
+        "retrievedAt": "2026-09-23",
+        "notes": "The simulator SDK documents FLOAT64 Number reads/writes of named LVARs; it does not publish an A380-specific target recipe. Reproducible in-simulator verification established exact discovered variables INI_AIRSPEED_DIAL (selected knots 100-350), INI_HEADING_DIAL (HDG 0-359 degrees), INI_ALTITUDE_DIAL (100-49000 feet, 100-foot targets independent of knob scale), INI_VVI_DIAL (visible V/S -6000 to 6000 ft/min in 100-foot increments). Both calculator and SimConnect named-variable writes changed the FCU/PFD, independent autopilot targets and subsequent native knob movement. They are not accepted on self-echo alone. Read-only guards: INI_FCU_POWERED_VAR, INI_TRACK_FPA_STATE, INI_FCU_SPD_DASHED, INI_FCU_HDG_DASHED, INI_FCU_VS_DASHED, INI_FCU_SPD_DOT, INI_FCU_HDG_DOT. Exact source inventory, simulator/package identity, mode rejections, cycles, boundaries and restoration are recorded in docs/aircraft-intake/inibuilds-a380-fcu.evidence.json. Ground selector scope only; flight engagement and managed/Mach/TRK/FPA writes are excluded."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 independent autopilot target readbacks",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_AutopilotAssistant_Variables.htm",
+        "retrievedAt": "2026-09-23",
+        "notes": "AUTOPILOT AIRSPEED HOLD VAR knots, AUTOPILOT HEADING LOCK DIR degrees, AUTOPILOT ALTITUDE LOCK VAR feet, AUTOPILOT VERTICAL HOLD VAR feet per minute. These readbacks agreed with visible A380 targets after the recorded direct-variable writes and native knob steps. V/S is only meaningful for this transaction when INI_FCU_VS_DASHED is 0 and INI_TRACK_FPA_STATE is 0. The generic managed-Mach flag failed the A380 mode test and is not used. These are readback contracts, not authority to use standard autopilot setter events; those setters were rejected by earlier A380 trials."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 COM1/COM2 standby tuning and swap events",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm",
+        "retrievedAt": "2026-09-23",
+        "notes": "COM_STBY_RADIO_SET_HZ and COM2_STBY_RADIO_SET_HZ take exact Hz; COM1_RADIO_SWAP and COM2_RADIO_SWAP exchange banks. A380 package 1.0.0 applicability was independently established against both cockpit RMPs and INI_VHF1/2_ACTIVE_FREQ and STANDBY_FREQ (kHz). Twenty complete production requests included 18 confirmed successes (six no-ops) and two invalid-channel rejections without writes; both radios restored. The shared transaction confirms standby before one swap and both resulting banks afterward, with fresh power/status/spacing checks and no automatic retry. Source, observations, hashes and live samples: docs/aircraft-intake/inibuilds-a380-radios.evidence.json. COM3 and audio/ATC synchronization are outside this evidence."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "simulator-vendor",
+        "access": "public",
+        "supportsActiveMappings": true,
+        "name": "MSFS 2024 radio state variables",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_RadioNavigation_Variables.htm",
+        "retrievedAt": "2026-09-23",
+        "notes": "COM AVAILABLE:n Bool, COM STATUS:n Number (0 OK), COM SPACING MODE:n Number (0 25 kHz, 1 8.33 kHz), COM ACTIVE FREQUENCY:n and COM STANDBY FREQUENCY:n MHz for indices 1 and 2. A380 vendor-state and both-RMP agreement in external-power ground conditions is recorded in docs/aircraft-intake/inibuilds-a380-radios.evidence.json. A generic variable's presence alone does not establish support for other indices or systems."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "iniBuilds A380 1.0.0 loaded flap and spoiler behavior",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/2_DevMode/Menus/Tools/Behaviours_Debug/Behaviors_Debug.htm",
+        "retrievedAt": "2026-09-23",
+        "notes": "The URL documents the simulator inspection tool; the mapping source is the installed vendor behavior. Loaded interior export SHA256 5dd0b57e906e9c537c64411264fc39f41100a08d57e36fd0c9ef2b7647276700. AIRLINER_FLAPS sends INI.FLAPS_SET with payload 0/4096/8192/12288/16384 for UP/1/2/3/FULL, independently confirmed by FLAPS HANDLE INDEX. AIRLINER_PED_SPOILERS is animation-only and is not used. The mouse behavior (String ID 1163488971869229644) sends INI.SPOILERS_SET 0/8192/16384 for STOW/HALF/FULL and INI.SPOILERS_ARM_ON and INI.SPOILERS_ARM_OFF with payload 0. Stable readbacks are INI_SPOILERS_HANDLE_POSITION 0/0.5/1 and INI_SPOILERS_ARMED 0/1. Independent pedestal observations, both-wing powered flap/slat settling, spoiler surface response, 43 production requests and restoration are recorded in docs/aircraft-intake/inibuilds-a380-surfaces.evidence.json. Readbacks confirm lever selection, not completed surface travel or automatic landing deployment."
+      },
+      {
+        "type": "official-sdk",
+        "authority": "aircraft-vendor",
+        "access": "vendor-install",
+        "supportsActiveMappings": true,
+        "name": "iniBuilds A380 AIRLINER 1.0.0 loaded interior behavior, MSFS Behaviors export",
+        "url": "https://docs.flightsimulator.com/msfs2024/html/2_DevMode/Menus/Tools/Behaviours_Debug/Behaviors_Debug.htm",
+        "retrievedAt": "2026-09-23",
+        "notes": "The URL documents the simulator inspection tool; the mapping source is the installed vendor behavior exported from function_a388_interior - a388_interior.xml[0]. SHA256 5dd0b57e906e9c537c64411264fc39f41100a08d57e36fd0c9ef2b7647276700. Exact excerpts and live evidence: docs/aircraft-intake/inibuilds-a380-behavior.evidence.json. AIRLINER_LIGHTS_EXT_BEACON / INI_LIGHTS_BEACON; AIRLINER_LIGHTS_EXT_NAV / INI_LIGHTS_NAV; AIRLINER_LIGHTS_EXT_LANDING / INI_LIGHTS_LANDING; AIRLINER_LIGHTS_EXT_WING / INI_LIGHTS_WING; AIRLINER_LIGHTS_EXT_TURNOFF / INI_TURNOFF_LIGHT_SWITCH: payload 0 ON, 1 OFF. AIRLINER_LIGHTS_EXT_STROBE / INI_LIGHTS_STROBE and AIRLINER_LIGHTS_EXT_LOGO / INI_LIGHTS_LOGO: 0 ON, 1 AUTO, 2 OFF. AIRLINER_LIGHTS_EXT_NOSE / INI_LIGHTS_NOSE: 0 TAKEOFF, 1 TAXI, 2 OFF. Stable APU state: INI_APU_MASTER_SWITCH, INI_APU_START_BUTTON, INI_APU_AVAILABLE, INI_APU_MASTER_FAULT. Selector meanings independently observed in the cockpit; command ACK is never considered state confirmation. AIRLINER_APU_MASTER_SWITCH and AIRLINER_APU_START take payload 1 to pulse INI_APU_MASTER_SWITCH_CMD and INI_APU_START_BUTTON_CMD. Stable readback remains separate. The master is a toggle; repeated target intents require same-state no-op handling. The vendor manual printed page 183 specifies a minimum five-second delay. Both five- and ten-second recent-shutdown trials failed. A five-second sequence after a longer shutdown interval confirmed START and later AVAIL. The preset follows the manual minimum; restart-readiness telemetry remains unresolved. See the acceptance evidence for repeats and limits. Two startups reached AVAIL; production-path evidence: docs/aircraft-intake/inibuilds-a380-acceptance.evidence.json. Cabin selectors: AIRLINER_SIGNS_SEAT_BELTS / INI_SEATBELTS_SWITCH and AIRLINER_SIGNS_NO_MOBILE / INI_SIGNS_NO_MOBILE: 0 ON, 1 AUTO, 2 OFF. AIRLINER_SIGNS_EMER_EXIT / INI_EMER_EXIT_SWITCH: 0 ON, 1 ARM, 2 OFF. Loaded Set recipes and 21 native writes: docs/aircraft-intake/inibuilds-a380-cabin.evidence.json. Air-system buttons: AIRLINER_AIR_APU_BLEED / INI_AIR_BLEED_APU; AIRLINER_AIR_BLEED_ENG_1, AIRLINER_AIR_BLEED_ENG_2, AIRLINER_AIR_BLEED_ENG_3, AIRLINER_AIR_BLEED_ENG_4 / INI_AIR_BLEED_ENG1, INI_AIR_BLEED_ENG2, INI_AIR_BLEED_ENG3, INI_AIR_BLEED_ENG4; AIRLINER_AIR_PACK_1, AIRLINER_AIR_PACK_2 / INI_AIR_PACK1_BUTTON, INI_AIR_PACK2_BUTTON. Each payload 1 toggles stable state; raw 0 OFF, 1 ON selection, not airflow. Source excerpts and repeated live checks: docs/aircraft-intake/inibuilds-a380-air.evidence.json. Flight director: AIRLINER_FCU_FD payload 1 toggles INI_FD_ON; 0 OFF, 1 ON, verified against FCU and PFD in two cycles. Generic AUTOPILOT FLIGHT DIRECTOR ACTIVE stayed true in the OFF states and is not used for this control. Source and observations: docs/aircraft-intake/inibuilds-a380-guidance.evidence.json. AIRLINER_FCU_VS_KNOB positive Set payload writes 1 to INI_VVI_DIAL_UP_COMMAND; the accepted reveal action uses this loaded behavior only when INI_FCU_VS_DASHED is true and confirms false. Repeated reveal while already visible is a no-op. Exact source and live tests: docs/aircraft-intake/inibuilds-a380-fcu.evidence.json."
+      },
+      {
+        "type": "manual-testing",
+        "authority": "community",
+        "access": "vendor-install",
+        "supportsActiveMappings": false,
+        "name": "A380 RR Basic live ground acceptance, MSFS 2024 1.8.16.0",
+        "retrievedAt": "2026-09-23",
+        "notes": "46 native exterior-light writes, independent fresh LVAR readbacks, all positions visually checked and repeated, original positions restored. APU master, start and availability observed against blue ON and green AVAIL cockpit indications. See docs/INIBUILDS-A380-ONBOARDING.md."
+      }
+    ],
+    "verification": {
+      "status": "partial",
+      "lastVerified": "2026-09-23",
+      "knownIssues": [
+        "COM1/COM2 tuning and swapping passed on external power in 8.33 kHz spacing mode. Audio/transmit selection, COM3, NAV/TCAS, ATC-client synchronization, live power-loss/reload/interference and microphone recognition were not covered by this acceptance group.",
+        "Only the installed A380-800 RR Basic preset on package 1.0.0 is matched. Other packages, engines and liveries need identity and behavior checks.",
+        "Exterior selector positions were verified on the ground with external power. AUTO output behavior in flight is not yet verified.",
+        "Standard APU RPM and external-power SimVars disagree with cockpit state; they are not used for APU confirmation.",
+        "Selected IAS/HDG/altitude/visible V/S targets passed powered-ground acceptance with independent confirmation. In-flight target behavior, managed/Mach/TRK/FPA writes, flight modes and automatic surface behavior remain under validation. General fallback writes are disabled.",
+        "Flap, speedbrake and ground-spoiler controls confirm lever selection. Ground hydraulic movement was checked; flight-dependent inhibition, load relief and landing deployment remain unverified. Parking-brake handle animation needs further acceptance.",
+        "APU START did not confirm in two recent-shutdown trials. Five seconds after master ON succeeded after a longer shutdown interval; reliable shutdown-complete/readiness telemetry remains unresolved. START confirmation is not AVAIL.",
+        "Generic flight-director active SimVar disagrees with the cockpit; the dedicated FD control uses INI_FD_ON. AP1/AP2/A-THR engagement remains unverified."
+      ]
+    }
+  }
+}

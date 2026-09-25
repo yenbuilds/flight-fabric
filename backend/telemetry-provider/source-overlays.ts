@@ -1,5 +1,7 @@
 'use strict';
 
+import { resolveTfdiMd11Lights } from '../aircraft/aircraft-integrations/tfdi-md-11/lights.js';
+
 const { isSdkSourceType } = require('./sdk-registry') as {
   isSdkSourceType: (value: unknown) => boolean;
 };
@@ -32,6 +34,7 @@ const { decodeLights } = require('../utils/helpers') as {
 type AnyRecord = Record<string, any>;
 
 type SourceOverlayContext = {
+  lvarSnapshot: AnyRecord | null;
   lvarSidecarSource: AnyRecord | null;
   lvarSidecarConnected: boolean;
   lvarHasData: boolean;
@@ -159,6 +162,7 @@ function createSourceOverlayContext({
   const sdkHasAutomationData = sdkConnected && hasSdkAutomationData(sdkNormalized, sdkValues);
 
   return {
+    lvarSnapshot: frame?.lvars || null,
     lvarSidecarSource,
     lvarSidecarConnected,
     lvarHasData,
@@ -412,6 +416,11 @@ function resolveLightsForBroadcast({
   sourceContext: SourceOverlayContext;
 }): AnyRecord | null | undefined {
   const lightsProfile = profile?.lights;
+  if (profile?.integration?.aircraftSpecific?.adapter === 'tfdi-md-11') {
+    const lights = resolveTfdiMd11Lights(sourceContext.lvarSnapshot);
+    return lights ? { ...baseLights, ...lights, raw: null, available: true }
+      : { ...baseLights, available: false };
+  }
   const lightLvarConfig = profile?.dataSource?.lvars?.lights || null;
   const standardLightStates = coerceSdkNumber(sourceContext.lvarValues.standard_light_states);
 

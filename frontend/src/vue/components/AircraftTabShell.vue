@@ -9,6 +9,7 @@ import { AIRCRAFT_PAGE_SECTIONS } from './aircraft-specific/aircraft-page-sectio
 import AircraftIntegrationCheatSheetModal from './AircraftIntegrationCheatSheetModal.vue';
 import AircraftPageSearch from './AircraftPageSearch.vue';
 import AircraftPresets from './AircraftPresets.vue';
+import PmdgSdkSetup from './PmdgSdkSetup.vue';
 import AircraftAvionics from './AircraftAvionics.vue';
 import ExteriorLightControls from './ExteriorLightControls.vue';
 import AircraftControlsModal from './AircraftControlsModal.vue';
@@ -33,7 +34,7 @@ const pageSections = computed(() => [
   ...(Object.values(controls.aircraftCommandCatalogue.commands || {}).some(command => command.kind === 'preset')
     ? [{ id: 'page-presets', label: 'Presets', title: 'Presets', targetId: 'aircraft-page-presets' }] : []),
   ...(LIVE_AUTOTAXI_ENABLED
-    ? [{ id: 'page-autotaxi', label: 'Taxi', title: 'Autotaxi', detail: 'Taxi to a runway holding point or stand.', targetId: 'aircraft-page-autotaxi' }] : []),
+    ? [{ id: 'page-autotaxi', label: 'Taxi', title: 'Taxi assistant', detail: 'Push back, then follow a route ribbon to your runway or stand. Optional Autotaxi.', targetId: 'aircraft-page-autotaxi' }] : []),
   ...(['radios.com1.setStandby', 'radios.com2.setStandby', 'baro.both.qnhHpa',
     'surveillance.squawk.set', 'surveillance.ident.activate', 'approach.minimums.baro',
     'navigation.captain.range', 'navigation.firstOfficer.range'].some(id => controls.isAircraftCommandSupported(id))
@@ -279,11 +280,14 @@ function openVoiceCommandGuide() {
           </div>
         </div>
       </div>
+      <PmdgSdkSetup v-if="['pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId)"
+        :key="aircraftSpecific.activeProfileKey" :family="aircraftSpecific.templateId" :profile-key="aircraftSpecific.activeProfileKey"
+        :sdk-connected="aircraftSpecific.sourceStatuses.sdk === 'connected'" />
       <AircraftPresets v-if="hasResolvedAircraftTemplate && !hasStructuredLayout" class="mb-5" />
       <AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED && hasResolvedAircraftTemplate && !hasStructuredLayout" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section mb-5" tabindex="-1" />
       <AircraftSpecificSection v-if="hasResolvedAircraftTemplate">
         <template #presets>
-          <AircraftPresets />
+          <AircraftPresets v-if="hasStructuredLayout" />
           <AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED && hasStructuredLayout" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section" tabindex="-1" />
         </template>
         <template #avionics><AircraftAvionics /></template>

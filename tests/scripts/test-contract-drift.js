@@ -834,6 +834,10 @@ test('every inbound WebSocket command belongs to exactly one authorization tier'
       getFrozenArrayStringValues(authorizationSource, 'AIRCRAFT_CONTROL_MESSAGE_TYPES'),
     ],
     [
+      'authenticated taxi guidance read',
+      getFrozenArrayStringValues(authorizationSource, 'TAXI_GUIDANCE_READ_MESSAGE_TYPES'),
+    ],
+    [
       'privileged client',
       getFrozenArrayStringValues(authorizationSource, 'PRIVILEGED_CLIENT_MESSAGE_TYPES'),
     ],

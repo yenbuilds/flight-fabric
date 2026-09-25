@@ -128,6 +128,7 @@ type SnapshotState = {
   values: Record<string, unknown>;
   valueUpdatedAt: Record<string, unknown> | null;
   snapshotSequence: number;
+  inputEventsAvailable: boolean;
   updatedAt: string | null;
   error: string | null;
   mobiflight: {
@@ -384,6 +385,7 @@ class LvarSidecarBridge {
       values: {},
       valueUpdatedAt: null,
       snapshotSequence: 0,
+      inputEventsAvailable: false,
       updatedAt: null,
       error: null,
       mobiflight: {
@@ -397,6 +399,9 @@ class LvarSidecarBridge {
   }
 
   _setStatus(status: BridgeStatus, error: string | null = null): void {
+    if (['disabled', 'starting', 'connecting', 'disconnected', 'error', 'stopped'].includes(status)) {
+      this._snapshot.inputEventsAvailable = false;
+    }
     const prevStatus = this._snapshot.status;
     const prevError = this._snapshot.error;
     this._snapshot.status = status;
@@ -1060,10 +1065,16 @@ class LvarSidecarBridge {
    */
   sendEvent(eventName: string, value = 0, parameters: unknown[] = []): Promise<PendingAckMessage> {
     const name = typeof eventName === 'string' ? eventName.trim() : '';
+    if ((name === 'TUG_SPEED' || name === 'KEY_TUG_SPEED') && (value !== 0 || parameters.length !== 0)) {
+      return Promise.resolve(buildRejectedAck('sendEventAck', 'invalid_payload'));
+    }
     // COM setters take Hz, above the general event ceiling. Only these two
     // exact names accept whole-Hz channel designators, with no extra parameters.
     const comHzEvent = name === 'COM_STBY_RADIO_SET_HZ' || name === 'COM2_STBY_RADIO_SET_HZ';
-    const numericValue = comHzEvent
+    const tugHeadingEvent = name === 'TUG_HEADING';
+    const numericValue = tugHeadingEvent
+      ? (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 0xffffffff ? value : null)
+      : comHzEvent
       ? (typeof value === 'number' && Number.isSafeInteger(value) && normalizeComFrequencyMhz(value / 1_000_000) != null ? value : null)
       : normalizeFiniteSidecarNumber(value, MAX_SIDECAR_EVENT_DATA_ABS);
     const numericParameters = Array.isArray(parameters) && parameters.length <= 4
@@ -1073,7 +1084,7 @@ class LvarSidecarBridge {
       !isSafeSidecarToken(name, MAX_SIDECAR_NAME_LENGTH, SIDECAR_NAME_RE)
       || numericValue == null
       || numericParameters == null
-      || (comHzEvent && numericParameters.length !== 0)
+      || ((comHzEvent || tugHeadingEvent) && numericParameters.length !== 0)
       || numericParameters.some((parameter) => parameter == null)
     ) {
       return Promise.resolve(buildRejectedAck('sendEventAck', 'invalid_payload'));
@@ -1082,6 +1093,14 @@ class LvarSidecarBridge {
       ? { name, value: numericValue, parameters: numericParameters }
       : { name, value: numericValue };
     return this._sendWithAck({ type: 'sendEvent', ...eventPayload }, 'sendEventAck');
+  }
+
+  // Explicit one-shot activation, covered by the native owner/command lease.
+  // The pushback controller must confirm fresh inactive tug state before this.
+  startPushback(): Promise<PendingAckMessage> {
+    // A distinct protocol command makes an older native bridge fail closed;
+    // it must not silently ignore a lease flag and leave a tug running.
+    return this._sendWithAck({ type: 'startPushback' }, 'sendEventAck');
   }
 
   /**
@@ -1141,16 +1160,21 @@ class LvarSidecarBridge {
     }, 'setNamedVarAck');
   }
 
-  sendInputEvent(eventName: string, value = 1): Promise<PendingAckMessage> {
+  sendInputEvent(eventName: string, value = 1, aircraftConfigPath = ''): Promise<PendingAckMessage> {
     const name = typeof eventName === 'string' ? eventName.trim() : '';
     const numericValue = normalizeFiniteSidecarNumber(value, MAX_SIDECAR_EVENT_DATA_ABS);
     if (!isSafeSidecarToken(name, MAX_SIDECAR_NAME_LENGTH, SIDECAR_NAME_RE) || numericValue == null) {
       return Promise.resolve(buildRejectedAck('sendInputEventAck', 'invalid_payload'));
     }
+    if (typeof aircraftConfigPath !== 'string' || !aircraftConfigPath
+      || aircraftConfigPath.length > 259 || aircraftConfigPath.includes('\0')) {
+      return Promise.resolve(buildRejectedAck('sendInputEventAck', 'input_event_aircraft_required'));
+    }
     return this._sendWithAck({
       type: 'sendInputEvent',
       name,
       value: numericValue,
+      aircraft: aircraftConfigPath,
     }, 'sendInputEventAck');
   }
 
@@ -1362,6 +1386,8 @@ class LvarSidecarBridge {
           this._awaitingSubscriptionRefresh = false;
         }
         this._setStatus(state, errorText);
+      } else if (msg.type === 'inputEventStatus') {
+        this._snapshot.inputEventsAvailable = msg.available === true;
       } else if (msg.type === 'mobiflightStatus') {
         const stateValue = typeof msg.state === 'string' && msg.state.trim()
           ? msg.state.trim().toLowerCase()

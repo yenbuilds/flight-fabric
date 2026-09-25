@@ -15,6 +15,7 @@ function fakeClock() {
     setTimeout(fn, delay = 0) { const id = ++next; tasks.set(id, { fn, at: now + delay }); return id; },
     clearTimeout(id) { tasks.delete(id); },
     get pending() { return tasks.size; },
+    get now() { return now; },
     advance(ms) {
       const end = now + ms;
       for (;;) {
@@ -47,10 +48,12 @@ class Element extends Target {
     };
   }
   setAttribute(key, value) { this[key] = value; }
+  removeAttribute(key) { delete this[key]; }
   appendChild(node) { this.children.push(node); return node; }
   removeChild(node) { this.children.splice(this.children.indexOf(node), 1); }
   replaceChild(node, previous) { this.children[this.children.indexOf(previous)] = node; return previous; }
   get firstChild() { return this.children[0]; }
+  contains(node) { return this === node || this.children.some(child => child === node || (typeof child.contains === 'function' && child.contains(node))); }
   querySelector(selector) {
     for (const child of this.children) {
       if (selector.startsWith('.') ? child.classList.contains(selector.slice(1)) : child.tag === selector) return child;
@@ -114,8 +117,8 @@ function loader({ parsing = false, active = false, visible = active, coherent } 
   const panel = new Panel(); panel.connectedCallback();
   return {
     panel, timer, navigations, messages,
-    keyboard(focused) {
-      window.fire('message', { source: iframe.contentWindow, origin: panel.origin, data: { source: 'flightfabric-toolbar', action: 'keyboard', focused } });
+    keyboard(focused, sequence = 1) {
+      window.fire('message', { source: iframe.contentWindow, origin: panel.origin, data: { source: 'flightfabric-toolbar', action: 'keyboard', focused, sequence } });
     },
     finishParsing() { attachChildren(); document.readyState = 'complete'; document.fire('DOMContentLoaded'); },
     show() { ui.active = true; mutateClass('panelInvisible', false); ui.fire('panelActive'); },
@@ -142,22 +145,24 @@ function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
   });
   class WebSocket {
-    constructor(url) { this.url = url; this.closed = false; sockets.push(this); }
-    send() {}
-    close() { this.closed = true; }
+    constructor(url) { this.url = url; this.closed = false; this.readyState = 1; this.sent = []; sockets.push(this); }
+    send(payload) { this.sent.push(JSON.parse(payload)); }
+    close() { this.closed = true; this.readyState = 3; }
   }
   class XMLHttpRequest {
     constructor() { requests.push(this); }
     open(_method, url) { this.url = url; }
     send() {}
     abort() { this.aborted = true; }
-    succeed() { this.status = 200; this.responseText = JSON.stringify({ ok: true, wsPort: 8100, appVersion: '0.9.9' }); this.onload?.(); }
+    succeed() { this.status = 200; this.responseText = JSON.stringify({ ok: true, wsPort: 8100, appVersion: '0.9.9', toolbarPresetToken: 'fixture-presets' }); this.onload?.(); }
   }
   const context = { document, window, WebSocket, XMLHttpRequest, setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout };
   vm.runInNewContext(read('shared/app-settings-shared.js'), context);
   window.FlightFabricAppSettings = takeoffScoringEnabled === undefined
     ? context.FlightFabricAppSettings
     : { ...context.FlightFabricAppSettings, TAKEOFF_SCORING_ENABLED: takeoffScoringEnabled };
+  vm.runInNewContext(read('frontend/toolbar/presets.js'), context);
+  vm.runInNewContext(read('frontend/toolbar/taxi.js'), context);
   // Expose the shipped functions without replacing their control flow/rendering.
   vm.runInNewContext(read('frontend/toolbar/toolbar.js').replace(/\}\)\(\);\s*$/, `
     globalThis.panel = { state: state, boot: boot, connect: connect, setVisible: setVisible, selectTab: selectTab,
@@ -167,9 +172,237 @@ function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
   return { api: context.panel, timer, sockets, requests, messages, storage, window, document, nodes, reloads };
 }
 
+function taxiFixture() {
+  const timer = fakeClock(), nodes = [], requests = [], departureRequests = [], pushbackRequests = [];
+  const create = tag => { const n = new Element(tag); n.value = ''; n.ownerDocument = document; nodes.push(n); return n; };
+  const document = { createElement: create, createElementNS: (_ns, tag) => create(tag) };
+  const context = {}; vm.runInNewContext(read('frontend/toolbar/taxi.js'), context);
+  const panel = context.FlightFabricToolbarTaxi.createTaxiPanel({ document, send: m => { (m.type === 'pushback' ? pushbackRequests : m.pushback ? departureRequests : requests).push(m); return true; },
+    now: () => timer.now, setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout });
+  const connection = { visible: true, connected: true, scope: 'toolbar-presets', simState: { simconnectConnected: true },
+    profile: { controlCapabilities: { aircraftCommands: { profileKey: 'fixture', profileRevision: 1 } } } };
+  const get = id => nodes.find(n => n.id === id);
+  const reply = (request, values = {}) => panel.receive({ type: 'toolbarTaxiState', requestId: request.requestId, ok: true,
+    currentProfileKey: 'fixture', currentProfileRevision: 1, canGuide: true, sceneKey: null, ...values });
+  panel.update(connection); reply(requests.at(-1));
+  get('taxi-airport').value = 'TEST'; get('taxi-airport').fire('input');
+  get('taxi-runway').value = '09'; get('taxi-runway').fire('input');
+  const route = { kind: 'runway', runway: '09', label: '09', points: [{ x: 0, z: 0 }, { x: 0, z: 200 }], holdShort: { x: 0, z: 230 }, lengthM: 200 };
+  const scene = { key: 1, links: [], runways: [], stands: [] };
+  function preview() {
+    get('taxi-show-route').fire('click');
+    reply(requests.at(-1), { preview: route, scene, sceneKey: 1, aircraft: { x: 0, z: 10, headingDeg: 0 } });
+  }
+  return { panel, timer, nodes, requests, departureRequests, pushbackRequests, connection, get, reply, preview, route, scene,
+    figure: () => nodes.find(n => n.tag === 'figure'), caption: () => nodes.find(n => n.tag === 'figcaption').textContent };
+}
+
+test('manual Taxi planning stays read-only and expires live guidance while preserving a labelled reference', () => {
+  const f = taxiFixture(); f.preview();
+  assert.match(f.caption(), /190 m/);
+  assert.equal(f.figure().hidden, false);
+  const airport = f.get('taxi-airport');
+  f.timer.advance(2500);
+  assert.match(f.caption(), /Reference only/);
+  assert.equal(f.get('taxi-airport'), airport, 'refreshes retain the input node');
+  assert.equal(f.get('taxi-show-route').disabled, true);
+  const requests = f.requests.length;
+  f.panel.update({ ...f.connection, visible: false }); f.timer.advance(10000);
+  assert.equal(f.requests.length, requests, 'hidden tab neither polls nor writes');
+  f.panel.update(f.connection);
+  f.reply(f.requests.at(-1), { sceneKey: 1, aircraft: { x: 40, z: 30, headingDeg: 0 } });
+  assert.match(f.caption(), /Off route/);
+  f.timer.advance(1000); f.reply(f.requests.at(-1), { sceneKey: 1, aircraft: { x: 0, z: 198, headingDeg: 0 } });
+  assert.match(f.caption(), /At holding point/);
+  f.panel.update({ ...f.connection, simState: { simconnectConnected: true, paused: true } });
+  assert.match(f.caption(), /Reference only/);
+  f.panel.destroy(); assert.equal(f.timer.pending, 0);
+  assert.ok(f.requests.every(r => r.type === 'requestTaxiGuidance' && ['status', 'preview', 'parkings'].includes(r.operation)));
+});
+
+test('toolbar can explicitly stop an observed pushback even when Stand / gate was selected', () => {
+  const f = taxiFixture();
+  f.get('taxi-mode').value = 'stand'; f.get('taxi-mode').fire('change');
+  f.panel.receive({ type: 'pushbackState', requestId: f.pushbackRequests.at(-1).requestId, ok: true,
+    currentProfileKey: 'fixture', currentProfileRevision: 1, active: true, status: 'pushing', runway: '09', remainingM: 40 });
+  const stop = f.get('taxi-pushback-action');
+  assert.equal(stop.hidden, false); assert.equal(stop.disabled, false); assert.equal(stop.textContent, 'Stop pushback');
+  assert.equal(f.get('taxi-pushback-reason').hidden, false);
+  stop.fire('click'); assert.equal(f.pushbackRequests.at(-1).operation, 'stop');
+  f.panel.destroy();
+});
+
+test('Taxi view ignores late previews and stand lists after edits, hide and reconnect', () => {
+  const f = taxiFixture();
+  f.get('taxi-show-route').fire('click'); const oldPreview = f.requests.at(-1);
+  f.get('taxi-runway').value = '27'; f.get('taxi-runway').fire('input');
+  f.reply(oldPreview, { preview: f.route, scene: f.scene, sceneKey: 1 });
+  assert.equal(f.figure().hidden, true);
+  f.get('taxi-mode').value = 'stand'; f.get('taxi-mode').fire('change');
+  f.get('taxi-load-stands').fire('click'); const oldStands = f.requests.at(-1);
+  f.get('taxi-airport').value = 'OTHER'; f.get('taxi-airport').fire('input');
+  f.reply(oldStands, { standOptions: [{ label: 'Gate 1', typeLabel: 'Heavy' }] });
+  assert.equal(f.get('taxi-stand').children.length, 1);
+  f.get('taxi-load-stands').fire('click'); f.reply(f.requests.at(-1), { standOptions: [{ label: 'Gate 2', typeLabel: 'Heavy' }] });
+  f.get('taxi-stand').value = 'Gate 2'; f.get('taxi-stand').fire('change');
+  f.get('taxi-show-route').fire('click'); const standRequest = f.requests.at(-1);
+  assert.equal(standRequest.parking, 'Gate 2'); assert.equal(standRequest.runway, undefined);
+  f.panel.update({ ...f.connection, visible: false });
+  f.reply(standRequest, { preview: f.route, scene: f.scene, sceneKey: 1 });
+  f.panel.update(f.connection); assert.equal(f.figure().hidden, true);
+  f.reply(f.requests.at(-1)); f.preview();
+  f.get('taxi-hide-route').fire('click'); assert.equal(f.figure().hidden, true);
+  f.preview(); f.panel.update({ ...f.connection, connected: false });
+  assert.equal(f.figure().hidden, true); assert.equal(f.get('taxi-stand').children.length, 1);
+  f.panel.destroy();
+});
+
+test('Taxi clears old geometry on aircraft changes and rejects mismatched status', () => {
+  const f = taxiFixture(); f.preview(); f.timer.advance(1000);
+  f.reply(f.requests.at(-1), { currentProfileKey: 'other', sceneKey: 1 });
+  assert.equal(f.figure().hidden, true);
+  f.timer.advance(1000); f.reply(f.requests.at(-1)); f.preview();
+  f.panel.update({ ...f.connection, profile: { controlCapabilities: { aircraftCommands: { profileKey: 'new', profileRevision: 2 } } } });
+  assert.equal(f.figure().hidden, true);
+  f.panel.destroy();
+});
+
+test('a delayed Taxi preview cannot refresh an old aircraft position', () => {
+  const f = taxiFixture(); f.get('taxi-show-route').fire('click');
+  const request = f.requests.at(-1); f.timer.advance(2500);
+  f.reply(request, { preview: f.route, scene: f.scene, sceneKey: 1, aircraft: { x: 0, z: 10, headingDeg: 0 } });
+  assert.equal(f.figure().hidden, false);
+  assert.match(f.caption(), /Reference only/);
+  f.panel.destroy();
+});
+
+test('toolbar departure defaults preserve overrides and share one preview map through pushback completion', () => {
+  const f = taxiFixture();
+  f.get('taxi-airport').value = ''; f.get('taxi-runway').value = '';
+  f.panel.update({ ...f.connection, plan: { origin: 'TEST', departureRunway: '09' } });
+  assert.equal(f.get('taxi-runway').value, '09');
+  f.get('taxi-runway').value = '27'; f.get('taxi-runway').fire('input');
+  f.preview();
+  const manualCaption = f.caption();
+  f.panel.update({ ...f.connection, plan: { origin: 'TEST', departureRunway: '18' } });
+  assert.equal(f.get('taxi-runway').value, '27');
+  assert.equal(f.figure().hidden, false, 'plan changes preserve a displayed manual override');
+  assert.equal(f.caption(), manualCaption);
+  f.get('taxi-hide-route').fire('click');
+  f.timer.advance(600);
+  const values = { pushbackPreview: { id: 'shown', icao: 'TEST', runway: '27', phase: 'preview', valid: true,
+    lengthM: 60, remainingM: 60, headingDeg: 0, points: [{ x: 30, z: 40 }, { x: 0, z: 0 }] },
+    preview: { ...f.route, runway: '27' }, scene: f.scene, aircraft: { x: 30, z: 40, headingDeg: 0 } };
+  f.reply(f.departureRequests.at(-1), values);
+  assert.match(f.caption(), /Pushback preview/);
+  assert.equal(f.nodes.filter(n => n.tag === 'figure').length, 1);
+  f.get('taxi-view').fire('click'); assert.match(f.caption(), /Taxi route after pushback/);
+  f.timer.advance(1000);
+  f.reply(f.departureRequests.at(-1), { ...values, aircraft: null });
+  assert.match(f.caption(), /Reference only/, 'future taxi route also expires its live position');
+  f.timer.advance(1000);
+  f.reply(f.departureRequests.at(-1), { ...values, pushbackPreview: { ...values.pushbackPreview, phase: 'pushing', valid: false } });
+  assert.match(f.caption(), /Pushback in progress/);
+  f.timer.advance(500);
+  f.reply(f.departureRequests.at(-1), { ...values, pushbackPreview: { ...values.pushbackPreview, phase: 'complete', valid: false }, aircraft: { x: 0, z: 0, headingDeg: 0 } });
+  assert.match(f.caption(), /200 m to holding point/);
+  f.get('taxi-pushback-view').fire('click'); f.timer.advance(250);
+  assert.match(f.caption(), /Pushback complete/, 'the completed path remains available for inspection');
+  assert.doesNotMatch(f.caption(), /m reverse|Finish facing/, 'completion does not tell the pilot to reverse again');
+  f.panel.update({ ...f.connection, visible: false }); assert.equal(f.timer.pending, 0);
+  f.panel.destroy(); assert.equal(f.timer.pending, 0);
+  assert.ok(f.departureRequests.every(m => m.type === 'requestTaxiGuidance' && ['preview', 'status'].includes(m.operation)));
+});
+
 function aircraftProfile(key = 'bundled/msfs/pmdg-737', title = 'PMDG 737-800', revision = 1) {
   return { type: 'aircraftProfile', profile: { _profileKey: key, aircraftTitle: title, profileRevision: revision, name: title } };
 }
+
+function presetFixture() {
+  const runtime = page(); runtime.api.boot();
+  runtime.requests.find(request => request.url.startsWith('/api/toolbar/bootstrap')).succeed(); runtime.sockets[0].onopen();
+  const profile = aircraftProfile();
+  profile.controlCapabilities = { aircraftCommands: { profileKey: profile.profile._profileKey, profileRevision: 1, configurationId: 'pmdg-737', commands: [
+    { id: 'configuration.apu.start', kind: 'preset', label: 'Start APU', description: 'Start the APU.', input: { kind: 'none' },
+      observations: [{ fieldId: 'systems.apuAvailable', expectedValue: true, label: 'APU available', inhibitsRequest: true }] },
+    { id: 'configuration.lights.afterLanding', kind: 'preset', label: 'After landing lights', input: { kind: 'none' } },
+    { id: 'configuration.lights.takeoff', kind: 'preset', label: 'Takeoff lights', input: { kind: 'none' } },
+    { id: 'radios.nav.setBothActive', kind: 'preset', label: 'NAV 1 + NAV 2 active frequency', input: { kind: 'number', min: 108, max: 117.95, step: 0.05 } },
+    { id: 'configuration.lighting.cockpit', kind: 'preset', label: 'Cockpit lighting', input: { kind: 'number', min: 0, max: 100, step: 1 }, brightnessFields: ['lighting.panel'] },
+    { id: 'lights.landing.on', kind: 'action', label: 'Individual landing lights', input: { kind: 'none' } },
+  ] } };
+  runtime.api.receive(profile);
+  runtime.api.receive({ type: 'authorizationScope', scope: 'toolbar-presets' });
+  runtime.api.receive({ type: 'simState', simconnectConnected: true, inMenu: false });
+  const at = new Date().toISOString();
+  const snapshot = { type: 'toolbarPresetState', profileKey: profile.profile._profileKey, profileRevision: 1, templateId: 'pmdg-737',
+    available: true, sourceStatus: { overall: 'connected', sources: { sdk: 'connected' } }, updatedAt: at,
+    values: { 'systems.apuAvailable': false, 'lighting.panel': 25, 'radios.nav1ActiveMhz': 110, 'radios.nav2ActiveMhz': 111 },
+    valueUpdatedAt: { 'systems.apuAvailable': at, 'lighting.panel': at }, unavailable: [] };
+  runtime.api.receive(snapshot);
+  const row = id => runtime.nodes.findLast(node => node['data-preset'] === id);
+  const submit = id => row(id).fire('submit', { preventDefault() {} });
+  return { ...runtime, row, submit, profile, snapshot, commands: () => runtime.sockets.at(-1).sent.filter(message => message.type === 'executeAircraftCommand') };
+}
+
+test('toolbar presets match catalogue classification, grouping and validated numeric targets', () => {
+  const runtime = presetFixture();
+  const section = runtime.document.getElementById('toolbar-presets');
+  assert.ok(section.text().includes('Global cockpit lighting'));
+  assert.equal(runtime.row('lights.landing.on'), undefined);
+  const lights = section.querySelector('.preset-group');
+  assert.ok(lights.text().indexOf('Takeoff lights') < lights.text().indexOf('After landing lights'));
+  const nav = runtime.row('radios.nav.setBothActive'), input = nav.querySelector('input'), button = nav.querySelector('button');
+  assert.equal(button.disabled, true);
+  input.value = '110.32'; input.fire('input'); assert.equal(button.disabled, true);
+  input.value = '110.30'; input.fire('input'); assert.equal(button.disabled, false);
+  runtime.api.receive({ type: 'simState', simconnectConnected: true, inMenu: false });
+  assert.equal(runtime.row('radios.nav.setBothActive'), nav, 'telemetry keeps the input mounted');
+  assert.equal(input.value, '110.30');
+  runtime.submit('radios.nav.setBothActive'); runtime.submit('radios.nav.setBothActive');
+  assert.equal(runtime.commands().length, 1);
+  assert.equal(runtime.commands()[0].input.value, 110.3);
+  assert.equal(runtime.commands()[0].profileRevision, 1);
+  assert.equal(runtime.row('configuration.apu.start').querySelector('button').disabled, true, 'other presets stay blocked while pending');
+});
+
+test('toolbar preset readbacks enforce freshness, capability loss, APU inhibition and profile revision', () => {
+  const runtime = presetFixture();
+  const apu = 'configuration.apu.start';
+  runtime.api.receive({ ...runtime.snapshot, values: { ...runtime.snapshot.values, 'systems.apuAvailable': true } });
+  assert.equal(runtime.row(apu).querySelector('button').disabled, true);
+  assert.match(runtime.row(apu).text(), /APU available/);
+  runtime.api.receive({ ...runtime.snapshot, updatedAt: new Date(Date.now() - 10000).toISOString() });
+  assert.equal(runtime.row('configuration.lights.takeoff').querySelector('button').disabled, true);
+  runtime.api.receive({ ...runtime.snapshot, profileRevision: 0 });
+  assert.equal(runtime.row('configuration.lights.takeoff').querySelector('button').disabled, true);
+  runtime.api.receive(runtime.snapshot);
+  assert.equal(runtime.row('configuration.lights.takeoff').querySelector('button').disabled, false);
+  runtime.api.receive({ type: 'dataSources', profileKey: runtime.snapshot.profileKey, profileRevision: 1,
+    controlCapabilities: { aircraftCommands: { ...runtime.profile.controlCapabilities.aircraftCommands, commands: [] } } });
+  assert.equal(runtime.document.getElementById('toolbar-presets').hidden, true);
+  assert.equal(runtime.commands().length, 0);
+});
+
+test('toolbar preset results distinguish confirmation, partial failure and lost outcomes without replay', () => {
+  const runtime = presetFixture(), id = 'configuration.apu.start';
+  runtime.submit(id);
+  const request = runtime.commands()[0];
+  runtime.api.receive({ type: 'aircraftCommandResult', requestId: 'unrelated', ok: true });
+  assert.match(runtime.row(id).querySelector('button').textContent, /Requesting/);
+  runtime.api.receive({ type: 'aircraftCommandResult', requestId: request.requestId, ok: true, code: 'sent_unconfirmed' });
+  assert.match(runtime.row(id).text(), /not confirmed/);
+  runtime.submit(id);
+  runtime.api.receive({ type: 'aircraftCommandResult', requestId: runtime.commands()[1].requestId, ok: false, completedStepCount: 1, failedStepLabel: 'APU start' });
+  assert.match(runtime.row(id).text(), /stopped after some changes at APU start/);
+  runtime.submit(id); runtime.sockets[0].onclose();
+  assert.match(runtime.row(id).text(), /Outcome unknown/);
+  runtime.timer.advance(1000); runtime.requests.at(-1).succeed(); runtime.sockets.at(-1).onopen();
+  assert.equal(runtime.commands().length, 0, 'reconnect sends state requests only');
+  assert.equal(runtime.row(id).querySelector('button').disabled, true, 'must regain scope and fresh state');
+  runtime.api.setVisible(false); runtime.timer.advance(20000);
+  assert.equal(runtime.timer.pending, 0, 'hidden preset UI retains no timers');
+});
 
 test('toolbar loader waits for parsed children and starts when the panel opens', () => {
   const runtime = loader({ parsing: true });
@@ -184,7 +417,7 @@ test('toolbar loader waits for parsed children and starts when the panel opens',
 test('toolbar scripts parse as ES2017 and the loader is deferred until the document is parsed', () => {
   const { Linter } = require('eslint');
   const parser = new Linter();
-  for (const file of ['shared/app-settings-shared.js', 'frontend/toolbar/toolbar.js', 'msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js']) {
+  for (const file of ['shared/app-settings-shared.js', 'shared/aircraft-presets.js', 'frontend/toolbar/presets.js', 'frontend/toolbar/taxi.js', 'frontend/toolbar/toolbar.js', 'msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js']) {
     const errors = parser.verify(read(file), { parserOptions: { ecmaVersion: 2017, sourceType: 'script' } }).filter(message => message.fatal);
     assert.deepEqual(errors, [], file);
   }
@@ -284,11 +517,12 @@ test('toolbar loader claims the simulator keyboard only for a visible ready page
   assert.deepEqual(coherent.triggers.at(-1), ['UNFOCUS_INPUT_FIELD', fieldId]);
   assert.deepEqual(coherent.listening, [], 'outside-click listener is removed with the focus');
 
-  runtime.keyboard(true);
+  runtime.keyboard(true, 7);
   const before = runtime.messages.length;
   coherent.fire('mousePressOutsideView');
   assert.deepEqual(coherent.triggers.at(-1), ['UNFOCUS_INPUT_FIELD', fieldId], 'clicking the cockpit returns the keyboard');
   assert.equal(runtime.messages.at(-1).action, 'keyboardReleased', 'the page is told to drop its field focus');
+  assert.equal(runtime.messages.at(-1).sequence, 7, 'release identifies the interaction that ended');
   assert.equal(runtime.messages.length, before + 1);
   coherent.fire('mousePressOutsideView');
   assert.equal(runtime.messages.length, before + 1, 'a stale outside click does nothing');
@@ -322,23 +556,66 @@ test('toolbar loader tolerates a missing or failing Coherent bridge', () => {
   assert.equal(failingRuntime.messages.at(-1).action, 'visibility', 'no release message without an outside click');
 });
 
-test('toolbar page reports text-field focus and drops it when hidden, released or unloading', () => {
+test('toolbar loader rejects focus messages from a different frame or origin', () => {
+  const coherent = fakeCoherent(), runtime = loader({ active: true, coherent }); runtime.ready();
+  const event = { source: runtime.panel.iframe.contentWindow, origin: runtime.panel.origin,
+    data: { source: 'flightfabric-toolbar', action: 'keyboard', focused: true, sequence: 99 } };
+  runtime.panel.onMessage({ ...event, source: {} });
+  runtime.panel.onMessage({ ...event, origin: 'http://untrusted.example' });
+  runtime.panel.onMessage({ ...event, data: { ...event.data, source: 'untrusted' } });
+  assert.deepEqual(coherent.triggers, []);
+  assert.equal(runtime.panel.keyboardSequence, null, 'rejected messages cannot supersede an interaction');
+  runtime.keyboard(true, 7);
+  runtime.panel.onMessage({ ...event, origin: 'http://untrusted.example', data: { ...event.data, focused: false } });
+  assert.equal(runtime.panel.keyboardFocused, true);
+  assert.equal(runtime.panel.keyboardSequence, 7);
+});
+
+test('toolbar loader retries bridge failures and releases even if listener cleanup fails', () => {
+  const coherent = fakeCoherent(), trigger = coherent.trigger;
+  const runtime = loader({ active: true, coherent }); runtime.ready();
+  coherent.trigger = () => { throw new Error('temporary native failure'); };
+  runtime.keyboard(true);
+  assert.equal(runtime.panel.keyboardFocused, false, 'a failed claim must be retried');
+  coherent.trigger = trigger; runtime.keyboard(true);
+  assert.equal(runtime.panel.keyboardFocused, true);
+  coherent.off = () => { throw new Error('listener cleanup failure'); };
+  runtime.keyboard(false);
+  assert.equal(coherent.triggers.at(-1)[0], 'UNFOCUS_INPUT_FIELD', 'listener failure cannot strand native focus');
+  assert.equal(runtime.panel.keyboardFocused, false);
+  coherent.off = () => {};
+  runtime.keyboard(false);
+  assert.equal(runtime.panel.keyboardOutsideListening, false, 'cleanup is retried');
+  runtime.keyboard(true);
+  coherent.trigger = () => { throw new Error('temporary release failure'); };
+  runtime.keyboard(false);
+  assert.equal(runtime.panel.keyboardFocused, true, 'failed release retains state for retry');
+  coherent.trigger = trigger; runtime.hide();
+  assert.equal(runtime.panel.keyboardFocused, false, 'hide retries release');
+});
+
+test('toolbar page protects all controls, keeps capture through blur, and releases on leaving the panel', () => {
   const runtime = page(); runtime.api.boot();
   const keyboard = () => runtime.messages.filter(message => message.action === 'keyboard').map(message => message.focused);
   const search = { tagName: 'INPUT', type: 'search', blurred: 0, blur() { this.blurred += 1; runtime.document.fire('blur', { target: this }); } };
   const button = { tagName: 'BUTTON', type: 'button' };
-  runtime.document.fire('focus', { target: button });
-  assert.deepEqual(keyboard(), [], 'buttons leave the keyboard with the simulator');
-  runtime.document.fire('focus', { target: search });
-  assert.deepEqual(keyboard(), [true]);
+  for (const target of [button, search, { tagName: 'INPUT', type: 'range' }, { tagName: 'SELECT' }, { tagName: 'SUMMARY' }]) {
+    runtime.document.fire('focus', { target });
+    assert.equal(keyboard().at(-1), true);
+  }
+  const beforeBlur = keyboard().length;
   runtime.document.fire('blur', { target: search });
-  assert.deepEqual(keyboard(), [true, false]);
+  assert.equal(keyboard().length, beforeBlur, 'disabling or rerendering a control cannot release a held key to the simulator');
 
-  runtime.document.fire('focus', { target: search });
   runtime.document.activeElement = search;
+  const oldSequence = runtime.messages.at(-1).sequence;
+  runtime.document.fire('mousedown'); runtime.document.fire('focus', { target: search });
+  runtime.window.fire('message', { source: runtime.window.parent,
+    data: { source: 'flightfabric-toolbar-loader', action: 'keyboardReleased', sequence: oldSequence } });
+  assert.equal(search.blurred, 0, 'a delayed release cannot cancel a newer interaction');
   runtime.window.fire('message', { source: runtime.window.parent, data: { source: 'flightfabric-toolbar-loader', action: 'keyboardReleased' } });
   assert.equal(search.blurred, 1, 'an outside click drops the field focus so the next click reclaims the keyboard');
-  assert.deepEqual(keyboard(), [true, false, true, false]);
+  assert.equal(keyboard().at(-1), false);
 
   runtime.document.fire('focus', { target: search });
   runtime.api.setVisible(false);
@@ -347,19 +624,40 @@ test('toolbar page reports text-field focus and drops it when hidden, released o
   runtime.document.activeElement = button;
   runtime.api.setVisible(true);
   runtime.api.setVisible(false);
-  assert.equal(search.blurred, 2, 'only text fields are blurred');
+  assert.equal(search.blurred, 2);
 
   runtime.api.setVisible(true);
   runtime.api.selectTab('voice');
   runtime.document.fire('focus', { target: search });
   runtime.document.activeElement = search;
+  runtime.document.getElementById('tab-voice').appendChild(search);
   runtime.api.selectTab('flight');
   assert.equal(search.blurred, 3, 'switching tabs drops a field that would stay focused while hidden');
-  assert.deepEqual(keyboard().at(-1), false);
+  assert.equal(keyboard().at(-1), true, 'switching tabs keeps the keyboard inside the panel');
+  runtime.window.fire('blur');
+  assert.equal(keyboard().at(-1), false, 'moving to the native header or another window releases capture');
+  runtime.document.fire('mousedown');
+  assert.equal(keyboard().at(-1), true, 'clicking whitespace captures keyboard scrolling too');
 
   const count = keyboard().length;
   runtime.window.fire('beforeunload');
   assert.deepEqual(keyboard().slice(count), [false], 'unloading releases the keyboard');
+});
+
+test('toolbar prevents repeated activation without breaking text editing or slider arrows', () => {
+  const runtime = page(); runtime.api.boot();
+  const key = (tagName, value, repeat) => {
+    let prevented = false;
+    runtime.document.fire('keydown', { target: { tagName }, key: value, repeat, preventDefault() { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(key('BUTTON', 'Enter', true), true);
+  assert.equal(key('BUTTON', ' ', true), true);
+  assert.equal(key('INPUT', 'Enter', true), true);
+  assert.equal(key('BUTTON', 'Enter', false), false);
+  assert.equal(key('INPUT', ' ', true), false);
+  assert.equal(key('INPUT', 'ArrowRight', true), false);
+  assert.equal(key('BUTTON', 'Tab', false), false);
 });
 
 test('toolbar page announces readiness before the WebSocket is available', () => {
@@ -561,11 +859,33 @@ test('toolbar voice status updates preserve the searchable command catalogue', (
   assert.ok(runtime.nodes.length - count < 20, 'a status update only rebuilds its small status card');
 });
 
+test('toolbar keeps tab buttons mounted across plan, catalogue and visibility updates', () => {
+  const runtime = page(); runtime.api.boot();
+  const nav = runtime.document.getElementById('tabs'), buttons = nav.children.slice();
+  runtime.api.receive({ type: 'flightPlan', origin: 'YSSY', destination: 'YMML' });
+  runtime.api.receive(aircraftProfile());
+  runtime.api.selectTab('plan');
+  runtime.api.setVisible(false); runtime.api.setVisible(true);
+  assert.deepEqual(nav.children, buttons, 'updates change badges/selection without replacing controls');
+  assert.match(buttons[1].text(), /YSSY-YMML/);
+  assert.equal(buttons[1]['aria-selected'], 'true');
+  assert.equal(buttons[0].tabIndex, -1);
+  assert.equal(buttons[1].tabIndex, 0);
+});
+
+test('toolbar clears the old voice catalogue as soon as the aircraft changes', () => {
+  const runtime = presetFixture(); runtime.api.selectTab('voice');
+  runtime.api.state.commands = [{ id: 'old', patterns: ['old command'], label: 'Old aircraft command' }];
+  runtime.api.receive({ type: 'aircraftChanged' });
+  assert.equal(runtime.api.state.commands.length, 0);
+  assert.match(runtime.document.getElementById('tab-voice').text(), /Waiting for an aircraft/);
+});
+
 test('toolbar keeps every section available despite old hidden-tab preferences', () => {
   for (const tabs of [{ flight: false, plan: true, voice: false }, { flight: false, plan: false, voice: false }]) {
     const storage = new Map([['ff_toolbar_prefs_v1', JSON.stringify({ tabs, defaultTab: 'voice', theme: 'light', scale: 'l' })]]);
     const runtime = page({ storage }); runtime.api.boot();
-    const tabIds = ['flight', 'plan', 'voice'];
+    const tabIds = ['flight', 'plan', 'voice', 'taxi'];
     assert.deepEqual(runtime.document.getElementById('tabs').children.map(node => node.id), tabIds.map(id => 'tab-button-' + id));
     assert.equal(runtime.api.state.activeTab, 'voice', 'the chosen opening section remains available');
     assert.equal(runtime.document.documentElement['data-theme'], 'light');
@@ -580,14 +900,14 @@ test('toolbar keeps every section available despite old hidden-tab preferences',
     runtime.document.getElementById('settings-button').fire('click');
     assert.equal(runtime.nodes.some(node => node.tag === 'input' && node.type === 'checkbox'), false);
     const opening = runtime.nodes.find(node => node['aria-label'] === 'Open on');
-    assert.deepEqual(opening.children.map(node => node.textContent), ['Flight', 'Plan', 'Voice']);
+    assert.deepEqual(opening.children.map(node => node.textContent), ['Flight', 'Plan', 'Voice', 'Taxi']);
     opening.children[1].fire('click');
     const saved = JSON.parse(storage.get('ff_toolbar_prefs_v1'));
     assert.equal(saved.defaultTab, 'plan');
     assert.equal(saved.tabs, undefined, 'saving preferences retires the old visibility flags');
     const reopened = page({ storage }); reopened.api.boot();
     assert.equal(reopened.api.state.activeTab, 'plan');
-    assert.equal(reopened.document.getElementById('tabs').children.length, 3);
+    assert.equal(reopened.document.getElementById('tabs').children.length, 4);
   }
 });
 
@@ -654,6 +974,21 @@ test('the release gate hides toolbar takeoffs from live packets, history and sav
   assert.equal(storage.get(cacheKey), cached, 'the disabled release leaves existing saved takeoff data intact');
 });
 
+test('toolbar history keeps critical takeoff findings and qualifications beside high scores', () => {
+  const runtime = page({ takeoffScoringEnabled: true });
+  runtime.api.receive(aircraftProfile());
+  runtime.api.receive({ type: 'toolbarFlightHistory', aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: 'PMDG 737-800' },
+    flightId: 'flight-a', takeoff: scoredTakeoff({ grade: 'Outstanding', score: 100, assessment: 'critical',
+      flags: [{ code: 'heading_deviation', label: 'Major runway-heading deviation during the roll', severity: 'warning' }],
+      runwayUse: { remainingFt: 3000, verified: false }, screenHeight: { heightFt: 35, reached: false }, finalizeReason: 'telemetry_gap' }), cautions: [] });
+  const rendered = runtime.api.takeoffCard().text();
+  assert.match(rendered, /Outstanding/);
+  assert.match(rendered, /Major runway-heading deviation/);
+  assert.match(rendered, /geometry unverified/);
+  assert.match(rendered, /Climb-out incomplete/);
+  assert.match(rendered, /Telemetry gap/);
+});
+
 test('toolbar renders the scored takeoff packet and ignores liftoff, settle-back and cancel packets', () => {
   const runtime = page({ takeoffScoringEnabled: true });
   runtime.api.receive(aircraftProfile());
@@ -677,6 +1012,26 @@ test('toolbar renders the scored takeoff packet and ignores liftoff, settle-back
   assert.equal(runtime.storage.has('ff_toolbar_last_takeoff_v1'), true);
   runtime.api.state.takeoff = null; runtime.api.restoreTakeoff();
   assert.equal(runtime.api.state.takeoff.grade, 'Overrun', 'the cached takeoff survives a page reload for the same aircraft');
+});
+
+test('toolbar reports measurements and keeps uncertain runway-end evidence after reconnect', () => {
+  const runtime = page({ takeoffScoringEnabled: true });
+  runtime.api.receive(aircraftProfile());
+  runtime.api.receive(scoredTakeoff({ grade: 'Recorded', score: null, zone: 'Observed runway remaining',
+    rotation: { rateDegS: 5 }, flags: [] }));
+  const normal = runtime.api.takeoffCard().text();
+  assert.match(normal, /Recorded/);
+  assert.match(normal, /5.0 deg\/s/);
+  assert.doesNotMatch(normal, /Steady rotation|Rapid rotation|Recorded runway-use grade/);
+  const uncertain = scoredTakeoff({ grade: 'Unknown', score: null, zone: 'Liftoff position uncertain at runway end',
+    runwayUse: { remainingFt: null, verified: true, beyondRunwayEnd: false },
+    flags: [{ code: 'liftoff_position_uncertain', label: 'Liftoff position uncertain at the runway end', severity: 'caution' }] });
+  runtime.api.receive({ type: 'toolbarFlightHistory', flightId: 'flight-a',
+    aircraft: { profileKey: 'bundled/msfs/pmdg-737', title: 'PMDG 737-800' }, takeoff: uncertain });
+  const rendered = runtime.api.takeoffCard().text();
+  assert.match(rendered, /Uncertain/);
+  assert.match(rendered, /Liftoff position uncertain at the runway end/);
+  assert.doesNotMatch(rendered, /Overrun|Lifted off beyond/);
 });
 
 test('toolbar history snapshots and aircraft changes handle the takeoff like the landing', () => {

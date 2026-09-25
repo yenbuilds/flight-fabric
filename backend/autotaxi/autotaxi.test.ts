@@ -1096,7 +1096,7 @@ test('stop interrupts a partially acknowledged motion batch and prevents late po
   } finally { unblock(); await session.dispose(); }
 });
 
-test('sessions reject missing handling and use the selected start-speed limit', async () => {
+test('manual guidance is independent of handling and automatic start-speed limits', async () => {
   let handling: TaxiHandling | null = null;
   let speedKts = 5;
   let loads = 0;
@@ -1111,12 +1111,14 @@ test('sessions reject missing handling and use the selected start-speed limit', 
     assert.equal(session.state().handling, null);
     assert.equal(session.state().currentProfileKey, 'generic');
     assert.equal(session.state().currentProfileRevision, 3);
-    await assert.rejects(session.request(request, {}), /not configured/);
+    assert.equal(session.state().canGuide, true);
+    assert.ok((await session.request(request, {})).sceneKey);
     await assert.rejects(session.request({ ...request, operation: 'start' }, {}), /not configured/);
-    assert.equal(loads, 0);
+    assert.equal(loads, 1);
     handling = { ...DEFAULT_TAXI_HANDLING, id: 'small', label: 'Small aircraft', maxStartKts: 4 };
     assert.equal(session.state().canStart, false);
-    await assert.rejects(session.request(request, {}), /Slow below 4 kt/);
+    assert.ok((await session.request(request, {})).sceneKey);
+    await assert.rejects(session.request({ ...request, operation: 'start' }, {}), /Slow below 4 kt/);
     speedKts = 3;
     const preview: any = await session.request(request, {});
     assert.equal(preview.canStart, true);

@@ -3,6 +3,7 @@ import { StallWarningFilter } from './stall-warning-filter';
 import { executeA32nxMinimums } from './a32nx-minimums-control.js';
 import { createProviderCdu } from './cdu/provider.js';
 import { createAutotaxi } from './aircraft-autotaxi.js';
+import { createAircraftPushback } from './aircraft-pushback.js';
 import { computeMenuState } from './simconnect-menu-state.js';
 const { LIVE_AUTOTAXI_ENABLED } = require('../../shared/app-settings-shared.js') as { LIVE_AUTOTAXI_ENABLED: boolean };
 // telemetry-provider/simconnect-telemetry-provider.js
@@ -490,6 +491,8 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   // Brakes (moved up from PRIORITY 4 - critical for gear state)
   // SDK: "BRAKE PARKING POSITION - Gets the parking brake position - either on (true) or off (false). Unit: Bool"
   { name: 'parkingBrake', simvar: 'BRAKE PARKING POSITION', unit: 'bool' },
+  { name: 'pushbackState', simvar: 'PUSHBACK STATE', unit: 'enum' },
+  { name: 'bodyVelocityZ', simvar: 'VELOCITY BODY Z', unit: 'feet per second' },
   
   // Sim state
   { name: 'paused', simvar: 'SIM DISABLED', unit: 'bool' },
@@ -583,7 +586,11 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   // NOTE: cabinAltFt is kept earlier with the core display probes; these extra
   // pressurization values may be trimmed by reduced SimVar caps.
   { name: 'cabinAltRateFps', simvar: 'PRESSURIZATION CABIN ALTITUDE RATE', unit: 'feet per second' },
-  { name: 'cabinDeltaPPsf', simvar: 'PRESSURIZATION PRESSURE DIFFERENTIAL', unit: 'pounds per square foot' },
+  // Use the SDK unit token, not its prose description. MSFS 2024 rejected
+  // "pounds per square foot" and silenced the whole numeric batch. Keep this
+  // optional pressure reading isolated so an unsupported build cannot also
+  // suppress cabin rate, engine and navigation readings in that batch.
+  { name: 'cabinDeltaPPsf', simvar: 'PRESSURIZATION PRESSURE DIFFERENTIAL', unit: 'psf', isolated: true },
 
   // ILS deviations are included in the Rust SimVar set. Frame normalization
   // maps the native values to dots.
@@ -873,12 +880,20 @@ class SimConnectTelemetryProvider {
       lvar: directLvarConnected,
       sdk: sdkConnected,
       'simconnect-sequence': simconnectSequenceConnected,
+      'input-event': this._bridgeMayBeLive(this._lvarBridge)
+        && this._lvarBridge?.getSnapshot?.().inputEventsAvailable === true
+        && typeof this._lvarBridge?.sendInputEvent === 'function',
     };
     const actionTypes = [
       'key-event',
       'lvar',
       'simvar',
     ];
+    if (this._bridgeMayBeLive(this._lvarBridge)
+      && this._lvarBridge?.getSnapshot?.().inputEventsAvailable === true
+      && typeof this._lvarBridge?.sendInputEvent === 'function') {
+      actionTypes.push('input-event');
+    }
     if (Object.values(integrationTransports).some(Boolean)) {
       actionTypes.push('aircraft-integration');
     }
@@ -890,7 +905,30 @@ class SimConnectTelemetryProvider {
     };
   }
 
+  async requestTaxiGuidance(message, client, connected: () => boolean) {
+    if (!['status', 'preview', 'parkings'].includes(message.operation)) throw new Error('Unsupported taxi guidance request.');
+    if (message.pushback === true && message.operation !== 'parkings') {
+      this._pushback ??= createAircraftPushback(this, profileLoader, Date.now);
+      return this._pushback.preview(message, client, connected);
+    }
+    // Never borrow the Autotaxi owner/session, including its release-gate cleanup.
+    // Weak keys retire each viewer's geometry when its socket is collected.
+    this._taxiGuidanceSessions ??= new WeakMap();
+    let session = this._taxiGuidanceSessions.get(client);
+    if (!session) {
+      session = createAutotaxi(this, profileLoader, Date.now, { readOnly: true });
+      this._taxiGuidanceSessions.set(client, session);
+    }
+    return session.request(message, client, connected);
+  }
+
+  async requestPushback(message, client, connected: () => boolean) {
+    this._pushback ??= createAircraftPushback(this, profileLoader, Date.now);
+    return this._pushback.request(message, client, connected);
+  }
+
   async requestAutotaxi(message, client, ownerConnected: () => boolean) {
+    if (message.operation === 'start' && this._pushback?.isActive()) throw new Error('Stop pushback before starting Autotaxi.');
     if (LIVE_AUTOTAXI_ENABLED !== true) {
       const reason = 'Autotaxi is unavailable in this release pending live aircraft validation.';
       const operation = message?.operation;
@@ -945,7 +983,8 @@ class SimConnectTelemetryProvider {
     const backendSource = bridge.getSnapshot?.().source || null;
     const writesThroughGenericProfile = action.type === 'key-event'
       || action.type === 'simvar'
-      || action.type === 'lvar';
+      || action.type === 'lvar'
+      || action.type === 'input-event';
     if (writesThroughGenericProfile) {
       const profileGenerationError = this._validateAircraftControlProfileGeneration(options);
       if (profileGenerationError) {
@@ -964,7 +1003,7 @@ class SimConnectTelemetryProvider {
         case 'lvar':
           return this._executeNamedVarAction(bridge, action, backendSource);
         case 'input-event':
-          return this._executeInputEventAction(action, backendSource);
+          return this._executeInputEventAction(bridge, action, backendSource);
         case 'aircraft-integration':
           return this._executeAircraftIntegrationAction(bridge, action, backendSource, options);
         case 'html-event':
@@ -1976,6 +2015,9 @@ class SimConnectTelemetryProvider {
     const sdkSnapshot = this._sdkBridge?.getSnapshot?.() || null;
     return {
       'simbridge-mcdu': this._connected && !this._stopping,
+      'input-event': this._bridgeMayBeLive(bridge)
+        && bridge?.getSnapshot?.()?.inputEventsAvailable === true
+        && typeof bridge?.sendInputEvent === 'function',
       'mobiflight-calculator': this._getMobiFlightHealth(bridge).connected,
       lvar: typeof bridge?.setNamedVar === 'function',
       sdk: this._sdkBridge?.isDataConnected?.() === true
@@ -2169,8 +2211,10 @@ class SimConnectTelemetryProvider {
       const decodedValue = decodeAircraftSpecificValue(rawValue, field?.decode);
       const observed = decodedValue === undefined ? null : decodedValue;
       const snapshot = this._rustSimvarBridge?.getSnapshot?.() || {};
-      const updatedAtMs = typeof snapshot.updatedAt === 'string' && snapshot.updatedAt
-        ? Date.parse(snapshot.updatedAt)
+      const updatedAt = readback?.freshness === 'field'
+        ? snapshot.valueUpdatedAt?.[definition?.name] : snapshot.updatedAt;
+      const updatedAtMs = typeof updatedAt === 'string' && updatedAt
+        ? Date.parse(updatedAt)
         : Number.NaN;
       const ageMs = Date.now() - updatedAtMs;
       const sequence = Number.isSafeInteger(this._rustSimvarSnapshotSequence)
@@ -2178,6 +2222,13 @@ class SimConnectTelemetryProvider {
         ? this._rustSimvarSnapshotSequence
         : null;
       const fresh = (snapshot.status === 'running' || snapshot.status === 'connected')
+        && (readback?.freshness !== 'field' || (
+          !this._stopping && this._connected && this._simRunning !== false
+          && this._systemState?.sim !== 0 && this._data?.userInput !== false
+          && Boolean(this._getActiveAircraftIntegrationConfig(
+            context.profileKey, context.adapterId, context.profileRevision,
+          ))
+        ))
         && sequence != null
         && Number.isFinite(updatedAtMs)
         && ageMs >= -5000
@@ -2249,6 +2300,7 @@ class SimConnectTelemetryProvider {
         : Object.is(sample.observed, readback?.expectedValue)),
       observed: sample.observed,
       sequence: sample.sequence,
+      updatedAtMs: sample.updatedAtMs,
       fresh: sample.fresh,
       sourceId: sample.sourceId,
       sequenceAdvanced,
@@ -2273,6 +2325,22 @@ class SimConnectTelemetryProvider {
       confirmation = captureConfirmation();
     }
     return confirmation;
+  }
+
+  _checkAircraftIntegrationActionConditions(bridge, conditions: readonly AnyRecord[] = [], context: AnyRecord = {}) {
+    for (const condition of conditions) {
+      const sample = this._captureAircraftIntegrationReadback(bridge, condition, context);
+      if (!sample.fresh || sample.observed == null) return { ok: false,
+        code: 'aircraft_integration_precondition_unavailable',
+        error: `A fresh ${condition.fieldId} readback is required for this control.` };
+      const matches = Object.prototype.hasOwnProperty.call(condition, 'expectedValue')
+        ? Object.is(sample.observed, condition.expectedValue)
+        : typeof sample.observed === 'number' && Number.isFinite(sample.observed)
+          && sample.observed >= condition.min && sample.observed <= condition.max;
+      if (!matches) return { ok: false, code: 'aircraft_integration_precondition_failed',
+        error: `The current ${condition.fieldId} state does not support this control.` };
+    }
+    return { ok: true };
   }
 
   async _executeAircraftIntegrationSimConnectSequence(
@@ -2320,6 +2388,8 @@ class SimConnectTelemetryProvider {
 
     for (let index = 0; index < operations.length; index += 1) {
       const operation = operations[index];
+      const conditions = this._checkAircraftIntegrationActionConditions(bridge, generationContext.requiredConditions, generationContext);
+      if (!conditions.ok) return withExecutionState(conditions);
       if (generationContext.requiredSdkAdapter && (
         this._sdkBridge?.isDataConnected?.() !== true
         || this._sdkBridge?.getSnapshot?.()?.adapterId !== generationContext.requiredSdkAdapter
@@ -2439,6 +2509,26 @@ class SimConnectTelemetryProvider {
     return withExecutionState({ ok: true, sendIds });
   }
 
+  async _prepareAircraftIntegrationSequence(bridge, route, context) {
+    const baseline = this._captureAircraftIntegrationReadback(bridge, route.precondition, context);
+    if (!baseline.fresh || baseline.observed == null) {
+      return { ok: false, error: 'Altitude increment readback became unavailable before preparation.' };
+    }
+    if (Object.is(baseline.observed, route.precondition.expectedValue)) return { ok: true };
+    const ack = await this._executeAircraftIntegrationSimConnectSequence(
+      bridge, [{ type: 'event', ...route.prepareEvent }], context,
+    );
+    if (!ack.ok) return ack;
+    const confirmation = await this._waitForAircraftIntegrationReadback(
+      bridge, { ...route.precondition, timeoutMs: route.readback.timeoutMs }, context, baseline,
+    );
+    if (!confirmation.confirmed) {
+      return { ok: false, executionStarted: true,
+        error: 'The altitude increment did not confirm 100-foot resolution; no altitude target was sent.' };
+    }
+    return ack;
+  }
+
   _resolveAircraftIntegrationSimConnectOperations(route: AnyRecord, action: AnyRecord, rawInput: unknown) {
     const inputResult = normalizeAircraftIntegrationActionInput(action, rawInput);
     if (inputResult.ok === false) {
@@ -2552,6 +2642,12 @@ class SimConnectTelemetryProvider {
       error: 'The aircraft profile changed before the calculator control sequence completed.',
     });
     const capturePrecondition = () => {
+      // Power and mode can change while a long rotary target is stepping.
+      // Recheck the action guards before each write, not only at entry/exit.
+      const requiredState = this._checkAircraftIntegrationActionConditions(
+        bridge, action?.guard?.requires || [], generationContext,
+      );
+      if (!requiredState.ok) return requiredState;
       if (!route?.precondition) return { ok: true };
       const sample = this._captureAircraftIntegrationReadback(
         bridge,
@@ -3216,6 +3312,7 @@ class SimConnectTelemetryProvider {
       && route.transport !== 'lvar'
       && route.transport !== 'sdk'
       && route.transport !== 'simconnect-sequence'
+      && route.transport !== 'input-event'
     ) {
       return {
         ok: false,
@@ -3225,7 +3322,17 @@ class SimConnectTelemetryProvider {
       };
     }
 
-    if (route.transport === 'mobiflight-calculator') {
+    if (route.transport === 'input-event') {
+      if (!transportCapabilities['input-event']) {
+        return { ok: false, code: 'input_event_transport_unavailable',
+          error: 'The current SimConnect connection does not support native Input Events.', backendSource };
+      }
+      if (typeof this._lastDetectedAircraftTitle !== 'string'
+        || !/[\\/]aircraft\.cfg$/i.test(this._lastDetectedAircraftTitle)) {
+        return { ok: false, code: 'aircraft_identity_required',
+          error: 'Waiting for the loaded aircraft configuration.', backendSource };
+      }
+    } else if (route.transport === 'mobiflight-calculator') {
       const health = this._getMobiFlightHealth(bridge);
       if (!health.connected) {
         return this._buildMobiFlightUnavailableResult(health, backendSource);
@@ -3305,7 +3412,10 @@ class SimConnectTelemetryProvider {
       adapterId,
       profileRevision: options.profileRevision,
     };
-    if (route.transport === 'simconnect-sequence' && route.precondition) {
+    const requiredConditions = [...(integrationAction.guard.requires || [])];
+    const requiredState = this._checkAircraftIntegrationActionConditions(bridge, requiredConditions, readbackContext);
+    if (!requiredState.ok) return { ...requiredState, backendSource };
+    if ((route.transport === 'simconnect-sequence' || route.transport === 'input-event') && route.precondition) {
       const precondition = this._captureAircraftIntegrationReadback(
         bridge,
         route.precondition,
@@ -3319,7 +3429,8 @@ class SimConnectTelemetryProvider {
           backendSource,
         };
       }
-      if (!Object.is(precondition.observed, route.precondition.expectedValue)) {
+      if (!Object.is(precondition.observed, route.precondition.expectedValue)
+        && !(route.transport === 'simconnect-sequence' && route.prepareEvent)) {
         return {
           ok: false,
           code: 'aircraft_integration_precondition_failed',
@@ -3434,6 +3545,18 @@ class SimConnectTelemetryProvider {
     this._aircraftIntegrationActionLastAttemptAt.set(guardKey, now);
     this._aircraftIntegrationActionsInFlight.add(guardKey);
     try {
+      let preparationStarted = false;
+      if (route.transport === 'simconnect-sequence' && route.prepareEvent) {
+        const preparation = await this._prepareAircraftIntegrationSequence(
+          bridge, route, { ...readbackContext, requiredConditions },
+        );
+        preparationStarted = preparation.executionStarted === true;
+        if (!preparation.ok) return { ok: false, code: 'simconnect_sequence_preparation_failed',
+          error: preparation.error, backendSource, ...(preparationStarted ? { executionStarted: true } : {}) };
+        // Keep the confirmed resolution valid through target dispatch and
+        // final confirmation, under the same lock as the resolution selector.
+        requiredConditions.push(route.precondition);
+      }
       const dispatchedAtMs = Date.now();
       const ack: AnyRecord = route.transport === 'sdk'
         ? await this._executeAircraftIntegrationSdkValues(
@@ -3441,11 +3564,13 @@ class SimConnectTelemetryProvider {
           route.command,
           resolvedSdkValues,
         )
+        : route.transport === 'input-event'
+          ? await bridge.sendInputEvent(route.inputEvent, route.value, this._lastDetectedAircraftTitle)
         : route.transport === 'simconnect-sequence'
           ? await this._executeAircraftIntegrationSimConnectSequence(
             bridge,
             resolvedSequenceOperations,
-            { ...readbackContext, requiredSdkAdapter },
+            { ...readbackContext, requiredSdkAdapter, requiredConditions },
           )
           : route.transport === 'lvar'
             ? await this._executeAircraftIntegrationLvar(bridge, route)
@@ -3457,10 +3582,16 @@ class SimConnectTelemetryProvider {
               baselineReadback,
               readbackContext,
             );
-      const executionState = ack?.executionStarted === true
+      const executionState = preparationStarted || ack?.executionStarted === true || (route.transport === 'input-event' && ack?.ok === true)
         ? { executionStarted: true }
         : {};
       if (!ack || ack.ok !== true) {
+        if (route.transport === 'input-event') {
+          return { ok: false, code: 'input_event_execution_failed',
+            error: typeof ack?.error === 'string' && ack.error.trim()
+              ? ack.error.trim() : 'The SimConnect sidecar did not accept the native Input Event.',
+            backendSource, ...executionState };
+        }
         if (route.transport === 'mobiflight-calculator') {
           return {
             ...this._mapMobiFlightAckFailure(ack, backendSource),
@@ -3541,6 +3672,23 @@ class SimConnectTelemetryProvider {
           baselineReadbacks[index],
         )
       )));
+      const finalRequiredState = this._checkAircraftIntegrationActionConditions(bridge, requiredConditions, readbackContext);
+      if (!finalRequiredState.ok) return { ...finalRequiredState, backendSource, ...executionState };
+      if (route.transport === 'input-event') {
+        const exception = bridge.findRecentSimConnectException?.([ack.sendId], dispatchedAtMs);
+        if (exception) {
+          return { ok: false, code: 'aircraft_integration_simconnect_exception',
+            error: 'SimConnect rejected the native Input Event after initial acknowledgement.',
+            simConnectException: exception, backendSource, ...executionState };
+        }
+        if (!this._getActiveAircraftIntegrationConfig(profileKey, adapterId, options.profileRevision)
+          || !this._connected || this._stopping || this._simRunning === false
+          || this._systemState?.sim === 0 || this._data?.userInput === false) {
+          return { ok: false, code: 'stale_profile',
+            error: 'Aircraft or simulator state changed during the native Input Event request.',
+            backendSource, ...executionState };
+        }
+      }
       // Individual fields can match at different times. Before claiming a
       // coordinated result, require every field to still match in the current
       // state, with the same source and freshness guarantees as its waiter.
@@ -3861,18 +4009,27 @@ class SimConnectTelemetryProvider {
     return this._buildSidecarResult(ack, backendSource, `Failed to set variable ${varName}.`);
   }
 
-  async _executeInputEventAction(action, backendSource) {
+  async _executeInputEventAction(bridge, action, backendSource) {
     const eventName = typeof action.name === 'string' ? action.name.trim() : '';
     if (!eventName) {
       return { ok: false, code: 'invalid_action', error: 'Input-event action is missing a name.', backendSource };
     }
 
-    return {
-      ok: false,
-      code: 'unsupported_action',
-      error: `Input-event actions are not supported by the Rust sidecar runtime yet (${eventName}).`,
-      backendSource,
-    };
+    if (!this._isSafeControlToken(eventName, MAX_CONTROL_ACTION_NAME_LENGTH, CONTROL_ACTION_NAME_RE)) {
+      return { ok: false, code: 'invalid_action', error: 'Invalid Input Event name.', backendSource };
+    }
+    const value = this._normalizeActionNumber(action.value ?? 1);
+    if (value == null || (Array.isArray(action.parameters) && action.parameters.length > 0)) {
+      return { ok: false, code: 'invalid_value', error: 'Input Events require one finite numeric value.', backendSource };
+    }
+    // Preserve the exact AircraftLoaded string for the sidecar's pre-dispatch
+    // identity check. A TITLE-only fallback cannot authorize native Input Events.
+    const aircraft = this._lastDetectedAircraftTitle;
+    if (typeof aircraft !== 'string' || !/[\\/]aircraft\.cfg$/i.test(aircraft)) {
+      return { ok: false, code: 'aircraft_identity_required', error: 'Waiting for the loaded aircraft configuration.', backendSource };
+    }
+    const ack = await bridge.sendInputEvent(eventName, value, aircraft);
+    return this._buildSidecarResult(ack, backendSource, `Failed to send Input Event ${eventName}.`);
   }
 
   _reloadLvarSubscriptions(reason = 'unknown') {
@@ -4939,6 +5096,7 @@ class SimConnectTelemetryProvider {
   }
 
   async _stopOnce() {
+    if (this._pushback) await this._pushback.dispose();
     await this._autotaxi?.dispose();
     if (this._lvarAircraftListener) {
       eventBus.off('simconnect:aircraftChanged', this._lvarAircraftListener);

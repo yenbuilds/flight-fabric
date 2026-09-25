@@ -15,6 +15,7 @@ export const useTakeoffStore = defineStore('takeoff', {
     // at the next liftoff.
     pendingSettled: false,
     lastMessage: null,
+    flightId: '',
     takeoffCard: createDefaultTakeoffCardState(),
   }),
 
@@ -27,8 +28,8 @@ export const useTakeoffStore = defineStore('takeoff', {
       state.pending
         ? (state.pendingSettled
           ? 'Settled back onto the runway. Waiting for the next liftoff…'
-          : 'Liftoff detected. Scoring the climb-out…')
-        : 'No scored takeoff in this session yet.'
+          : 'Liftoff detected. Measuring the climb-out…')
+        : 'No takeoff recorded in this session yet.'
     ),
 
     preview: (state) => buildTakeoffPreview(state.takeoffCard, {
@@ -39,6 +40,14 @@ export const useTakeoffStore = defineStore('takeoff', {
   },
 
   actions: {
+    handleFlightTime(message) {
+      if (message?.active === false) return;
+      const flightId = String(message?.startedAt || message?.flightId || '');
+      if (!flightId) return;
+      if (flightId !== this.flightId) this.resetTakeoffCard();
+      this.flightId = flightId;
+    },
+
     setTakeoffCardVisible(visible) {
       this.cardVisible = visible === true;
       this.waitingVisible = this.cardVisible !== true;

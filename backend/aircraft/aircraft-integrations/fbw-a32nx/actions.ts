@@ -118,6 +118,7 @@ function setCustomEventInputAction(params: {
   input: AircraftIntegrationNumberInput;
   inputOffset?: number;
   inputScale?: number;
+  prepareEvent?: Readonly<{ name: string; value: number }>;
   precondition?: AircraftIntegrationActionPrecondition;
 }): AircraftIntegrationAction {
   return {
@@ -141,6 +142,7 @@ function setCustomEventInputAction(params: {
         },
       }],
       ...(params.precondition ? { precondition: params.precondition } : {}),
+      ...(params.prepareEvent ? { prepareEvent: params.prepareEvent } : {}),
       readback: {
         fieldId: params.fieldId,
         expectedInput: true,
@@ -333,7 +335,7 @@ actions['lights.strobe.on'] = strobeAction({
 
 for (const [prefix, fieldId, event] of [
   ['lights.beacon', 'lights.beacon', 'BEACON_SET'],
-  ['lights.wing', 'lights.wing', 'WING_SET'],
+  ['lights.wing', 'lights.wing', 'WING_LIGHTS_SET'],
   ['lights.nav', 'lights.nav', 'NAV_LIGHTS_SET'],
   ['lights.logo', 'lights.logo', 'LOGO_LIGHTS_SET'],
 ] as const) {
@@ -568,6 +570,7 @@ addStandardDetents({
   fieldId: 'flightGuidance.altitudeIncrementMode',
   lvar: 'A32NX_FCU_ALT_INCREMENT_1000',
   prefix: 'flightGuidance.altitudeIncrement',
+  groupId: 'flightGuidance.altitudeSelector',
   positions: [
     ['hundred', 0, 'hundred'],
     ['thousand', 1, 'thousand'],
@@ -609,6 +612,10 @@ for (const params of [
     groupId: 'flightGuidance.altitudeSelector',
     input: { type: 'number', min: 100, max: 49_000, step: 100 },
     event: 'A32NX.FCU_ALT_SET',
+    // The installed FCU rounds SET to the current knob increment. Confirm
+    // hundred-foot resolution first so e.g. 15100 is not rounded to 15000.
+    prepareEvent: { name: 'A32NX.FCU_ALT_INCREMENT_SET', value: 100 },
+    precondition: { fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'hundred' },
   },
   {
     actionId: 'flightGuidance.verticalSpeed.set',

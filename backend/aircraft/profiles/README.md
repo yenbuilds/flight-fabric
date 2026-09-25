@@ -266,6 +266,11 @@ aircraft. Keep `airbus-base`, `boeing-base`, `widebody-base`, `regional-jet`,
 `aircraft.flaps.notches`; put detents supported by source evidence on a specific
 aircraft or narrow family profile instead.
 
+Use an explicitly empty `notches` array when handle slots are unverified but
+the flap block retains other metadata, such as provisional landing angles.
+The completeness check accepts this deliberate measured-angle/percent fallback;
+profiles with active flap LVARs still require verified nonempty notch tables.
+
 Generic fallback profiles should not assert flap detents. Runtime helpers may
 still expose permissive percent fallback values for display/API compatibility,
 but those values are not source evidence for any aircraft.

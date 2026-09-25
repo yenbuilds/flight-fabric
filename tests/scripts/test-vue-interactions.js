@@ -1227,16 +1227,20 @@ async function main() {
     const windowRef = new FakeWindow(documentRef);
     resetGlobals(windowRef, documentRef, createStorage());
     const { subscribeTakeoffReceived } = await import(toFrontendUrl('src', 'app', 'runtime-signals.js'));
-    const takeoffs = [], landings = [], refreshes = [];
+    const takeoffs = [], landings = [], refreshes = [], flightTimes = [];
     const unsubscribe = subscribeTakeoffReceived(detail => refreshes.push(detail));
     const handler = createAppMessageHandler({
       alertRef: () => {},
       LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
-      takeoffStore: { handleTakeoffMessage(message) { takeoffs.push(message); return message.final === true; } },
+      takeoffStore: {
+        handleTakeoffMessage(message) { takeoffs.push(message); return message.final === true; },
+        handleFlightTime(message) { flightTimes.push(message); },
+      },
       landingController: { handleLandingMessage(message) { landings.push(message); } },
     });
     try {
       assert.equal(windowRef.FlightFabricAppSettings.TAKEOFF_SCORING_ENABLED, false);
+      globalThis.FlightFabricAppSettings = { ...sharedSettings, TAKEOFF_SCORING_ENABLED: false };
       handler({ type: 'takeoff', final: false });
       handler({ type: 'takeoff', final: true, grade: 'Good' });
       handler({ type: 'takeoff', final: false, cancelled: true });
@@ -1248,6 +1252,8 @@ async function main() {
       handler({ type: 'takeoff', final: true, grade: 'Good' });
       assert.equal(takeoffs.length, 1, 'the same shared gate enables the retained path');
       assert.equal(refreshes.length, 1);
+      handler({ type: 'flightTime', active: true, startedAt: 'new-flight' });
+      assert.equal(flightTimes[0]?.startedAt, 'new-flight', 'session changes reach the takeoff store');
     } finally {
       unsubscribe();
       globalThis.FlightFabricAppSettings = sharedSettings;

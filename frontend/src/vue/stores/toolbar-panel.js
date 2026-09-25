@@ -1,4 +1,13 @@
 import { defineStore } from 'pinia';
+import { readStorageValue, writeStorageValue } from '../../app/browser-environment.js';
+
+const SETUP_DISMISSED_KEY = 'ff_toolbar_setup_dismissed_v1';
+const SETUP_TASKS = Object.freeze({
+  repair_required: { title: 'Repair your toolbar', action: 'Review repair', detail: 'Restore the FlightFabric panel in MSFS 2024.' },
+  configuration_update_required: { title: 'Reconnect your toolbar', action: 'Update toolbar ports', detail: 'Your toolbar needs the new FlightFabric connection settings.' },
+  update_available: { title: 'Update your toolbar', action: 'Review update', detail: 'A newer MSFS 2024 toolbar package is ready to install.' },
+  not_installed: { title: 'Add FlightFabric to MSFS', action: 'Set up toolbar', detail: 'See your plan, voice reference and last landing inside MSFS 2024.' },
+});
 
 // Presentation of the desktop installer's status model. The main process
 // owns every path and decision; this store only renders what it reports and
@@ -62,6 +71,7 @@ export const useToolbarPanelStore = defineStore('toolbarPanel', {
     ports: null,
     installs: [],
     result: null,
+    setupDismissed: readStorageValue(SETUP_DISMISSED_KEY, { fallback: '' }) === 'yes',
     _actions: null,
   }),
 
@@ -70,6 +80,18 @@ export const useToolbarPanelStore = defineStore('toolbarPanel', {
     rows: (state) => state.installs.map((entry) => normalizeInstallRow(entry)),
     hasFoundInstall: (state) => state.installs.some((entry) => entry && entry.found === true),
     busy: (state) => state.loading || Boolean(state.busyInstallId),
+    setupTask() {
+      if (!this.available || !this.hasLoaded || !this.hasFoundInstall) return null;
+      if (this.error || this.sourceError) return {
+        kind: 'error', title: 'Check your toolbar', action: 'Review setup',
+        detail: 'FlightFabric could not confirm the toolbar setup. Open it to review the details.',
+      };
+      for (const [kind, task] of Object.entries(SETUP_TASKS)) {
+        if (kind === 'not_installed' && this.setupDismissed) continue;
+        if (this.rows.some(row => row.canInstall && row.status === kind)) return { kind, ...task };
+      }
+      return null;
+    },
     restartNotice: (state) => (
       state.result && state.result.restartRequired === true
         ? 'Restart Microsoft Flight Simulator 2024 to pick up the change.'
@@ -78,6 +100,11 @@ export const useToolbarPanelStore = defineStore('toolbarPanel', {
   },
 
   actions: {
+    dismissSetup() {
+      this.setupDismissed = true;
+      writeStorageValue(SETUP_DISMISSED_KEY, 'yes');
+    },
+
     bindDesktopActions(actions = null) {
       const getStatus = typeof actions?.getStatus === 'function' ? actions.getStatus : null;
       const install = typeof actions?.install === 'function' ? actions.install : null;
@@ -131,6 +158,7 @@ export const useToolbarPanelStore = defineStore('toolbarPanel', {
             ? (response.removed === true ? 'Toolbar package removed.' : 'No toolbar package was installed.')
             : 'Toolbar package installed. Open the FlightFabric button in the MSFS toolbar after the restart.',
         };
+        if (action === 'uninstall') this.dismissSetup();
         return true;
       } catch (err) {
         this.error = `The toolbar package ${action} failed: ${err?.message || 'unknown error'}`;

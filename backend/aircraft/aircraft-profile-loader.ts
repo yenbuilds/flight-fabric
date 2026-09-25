@@ -1666,6 +1666,9 @@ function getLvarConfig(): {
       for (const condition of (action as GenericRecord).guard?.skipWhen || []) {
         confirmationFieldIds.add(condition.fieldId);
       }
+      for (const condition of (action as GenericRecord).guard?.requires || []) {
+        confirmationFieldIds.add(condition.fieldId);
+      }
       for (const route of (action as GenericRecord).routes) {
         if (route.comRadio) {
           for (const property of ['installed', 'status', 'spacingMode', 'activeMhz', 'standbyMhz']) {

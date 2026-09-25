@@ -1,5 +1,6 @@
 import { isRunwayGeometryScorable, RunwayExcursionFilter } from '../landing/runway-geometry-confidence';
 import { transientStallRows } from '../telemetry-provider/stall-warning-filter';
+import type { ReplayClipResult } from '../replay/landing-clip';
 /**
  * Timeline Generator - Reconstruct timelines from CSV flight logs
  *
@@ -499,6 +500,10 @@ type GeneratedTimeline = {
 type TimelineResult =
   | { success: false; error: string }
   | { success: true; timeline: GeneratedTimeline };
+export type RecordingReadRequest =
+  | { kind: 'timeline'; options: AnyRecord }
+  | { kind: 'replay-clip'; landingIndex: number };
+export type RecordingReadResult = TimelineResult | ReplayClipResult;
 type TimelineSaveResult =
   | { success: false; error: string }
   | { success: true; filePath: string; timeline: GeneratedTimeline };
@@ -2858,12 +2863,11 @@ function attachRolloutLateralDiagnostics(
 }
 
 /**
- * Generate a timeline from a CSV file.
- * @param {string} csvPath - Path to the CSV file
- * @param {Object} options - Generation options
- * @returns {{ success: boolean, timeline?: Object, error?: string }}
+ * Shared validated recording pipeline for Timeline and native replay clips.
+ * Read the bundle and reconstruct touchdown once, then return the requested
+ * projection. Replay always uses recorded scoring and returns only its clip.
  */
-async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {}): Promise<TimelineResult> {
+async function processRecordingInProcess(csvPath: string, request: RecordingReadRequest): Promise<RecordingReadResult> {
   const { headers, rows, fileSizeBytes: csvSizeBytes, sha256: csvSha256, error } = await parseCSV(
     csvPath,
     { sparseRows: true },
@@ -2877,7 +2881,7 @@ async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {
     return { success: false, error: 'No data rows in CSV' };
   }
 
-  const options = { ..._options };
+  const options: AnyRecord = request.kind === 'timeline' ? { ...request.options } : { scoringMode: 'recorded' };
   const strictBundle = headers.includes('recording_session_id') || isRecordingManifestRow(rows[0]);
   const bundleStatusRequired = rows[0]?.bundle_status_required === true
     || rows[0]?.bundle_status_required === 1
@@ -3030,7 +3034,25 @@ async function generateFromCSVInProcess(csvPath: string, _options: AnyRecord = {
     return { success: false, error: 'CSV has no flight telemetry or event rows' };
   }
 
-  return generateTimelineFromRows(csvPath, timelineRows, options);
+  const result = generateTimelineFromRows(csvPath, timelineRows, options);
+  if (result.success && request.kind === 'replay-clip') {
+    const { buildLandingReplayClip } = require('../replay/landing-clip') as typeof import('../replay/landing-clip');
+    try {
+      return { success: true, clip: buildLandingReplayClip(timelineRows, result.timeline, request.landingIndex) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Replay clip is unavailable' };
+    }
+  }
+  return result;
+}
+
+function timelineResult(result: RecordingReadResult): TimelineResult {
+  if (result.success === false) return result;
+  return 'timeline' in result ? result : { success: false, error: 'Recording worker returned the wrong result kind.' };
+}
+
+async function generateFromCSVInProcess(csvPath: string, options: AnyRecord = {}): Promise<TimelineResult> {
+  return timelineResult(await processRecordingInProcess(csvPath, { kind: 'timeline', options }));
 }
 
 const TIMELINE_WORKER_TIMEOUT_MS = 3 * 60 * 1000;
@@ -3038,13 +3060,13 @@ const MAX_QUEUED_TIMELINE_WORKERS = 2;
 let queuedTimelineWorkerCount = 0;
 let timelineWorkerTail: Promise<void> = Promise.resolve();
 
-function runTimelineWorker(csvPath: string, options: AnyRecord): Promise<TimelineResult> {
+function runTimelineWorker(csvPath: string, request: RecordingReadRequest): Promise<RecordingReadResult> {
   return new Promise((resolve) => {
     let settled = false;
     let worker: import('node:worker_threads').Worker;
     let timeout: NodeJS.Timeout | null = null;
 
-    const finish = (result: TimelineResult) => {
+    const finish = (result: RecordingReadResult) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
@@ -3053,7 +3075,7 @@ function runTimelineWorker(csvPath: string, options: AnyRecord): Promise<Timelin
 
     try {
       worker = new Worker(path.join(__dirname, 'timeline-generation-worker.js'), {
-        workerData: { csvPath, options },
+        workerData: { csvPath, request },
         resourceLimits: {
           maxOldGenerationSizeMb: 384,
           maxYoungGenerationSizeMb: 32,
@@ -3078,7 +3100,7 @@ function runTimelineWorker(csvPath: string, options: AnyRecord): Promise<Timelin
     }, TIMELINE_WORKER_TIMEOUT_MS);
 
     worker.once('message', (message: unknown) => {
-      const result = message as TimelineResult;
+      const result = message as RecordingReadResult;
       if (
         !result
         || typeof result !== 'object'
@@ -3111,10 +3133,10 @@ function runTimelineWorker(csvPath: string, options: AnyRecord): Promise<Timelin
   });
 }
 
-async function generateFromCSVIsolated(
+async function processRecordingIsolated(
   csvPath: string,
-  options: AnyRecord = {},
-): Promise<TimelineResult> {
+  request: RecordingReadRequest,
+): Promise<RecordingReadResult> {
   if (queuedTimelineWorkerCount >= MAX_QUEUED_TIMELINE_WORKERS) {
     return {
       success: false,
@@ -3123,13 +3145,28 @@ async function generateFromCSVIsolated(
   }
 
   queuedTimelineWorkerCount += 1;
-  const scheduled = timelineWorkerTail.then(() => runTimelineWorker(csvPath, options));
+  const scheduled = timelineWorkerTail.then(() => runTimelineWorker(csvPath, request));
   timelineWorkerTail = scheduled.then(() => undefined, () => undefined);
   try {
     return await scheduled;
   } finally {
     queuedTimelineWorkerCount -= 1;
   }
+}
+
+async function generateFromCSVIsolated(csvPath: string, options: AnyRecord = {}): Promise<TimelineResult> {
+  return timelineResult(await processRecordingIsolated(csvPath, { kind: 'timeline', options }));
+}
+
+// A separate result contract keeps native poses out of saved/map Timeline DTOs
+// and avoids cloning the full Timeline back to a caller that needs only a clip.
+async function prepareReplayClipFromCSV(csvPath: string, landingIndex: number): Promise<ReplayClipResult> {
+  if (!Number.isSafeInteger(landingIndex) || landingIndex < 0) {
+    return { success: false, error: 'Invalid replay landing index' };
+  }
+  const result = await processRecordingIsolated(csvPath, { kind: 'replay-clip', landingIndex });
+  if (result.success === false) return result;
+  return 'clip' in result ? result : { success: false, error: 'Recording worker returned the wrong result kind.' };
 }
 
 /**
@@ -3282,7 +3319,7 @@ function applyRolloutAnalysis(
 }
 
 async function generateFromCSV(csvPath: string, options: AnyRecord = {}): Promise<TimelineResult> {
-  if (config.env?.isPackaged && isMainThread) {
+  if (isMainThread && config.env?.isPackaged) {
     return generateFromCSVIsolated(csvPath, options);
   }
   return generateFromCSVInProcess(csvPath, options);
@@ -5999,6 +6036,9 @@ module.exports = {
   ),
   parseCSV,
   generateFromCSV,
+  prepareReplayClipFromCSV,
+  // Internal entry point shared by the bounded recording worker operations.
+  processRecordingInProcess,
   generateAndSave,
   generateMissing,
   listCSVFlights,

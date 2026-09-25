@@ -6,6 +6,8 @@ import { DEFAULT_TAXI_HANDLING, taxiHandlingKey, validateTaxiHandling, type Taxi
 type Position = { lat: number; lon: number };
 export type TaxiAirport = { origin: Position; graph: TaxiGraph; threshold: Position | null; reciprocal: string | null; runways?: TaxiRunwayRecord[] };
 export type TaxiObservation = TaxiSample & Position & { profileKey: string; profileRevision: number; generation: unknown;
+  /** Read-only route guidance needs position/context, not engine or control readiness. */
+  guidanceReady?: boolean; guidanceReason?: string;
   /** Extra simulator readbacks for the session log only; the controller never reads them. */
   sim?: Record<string, number | boolean | null> };
 /** One line of the session log, in the shape of the other JSONL sidecars: a prefixed `type` and epoch `timeMs` from `deps.now`. */
@@ -20,7 +22,7 @@ export type TaxiRecord = { timeMs: number } & (
 export type TaxiSessionDependencies = {
   now: () => number;
   capture: () => TaxiObservation;
-  /** Resolve the actual loaded aircraft. Explicit null blocks preview/start;
+  /** Resolve the actual loaded aircraft. Explicit null blocks automatic control;
    * omitted only preserves legacy standalone callers and test fixtures. */
   handling?: () => TaxiHandling | null;
   /** Airport geometry; runway is null for a stand destination. */
@@ -38,6 +40,10 @@ export type TaxiSessionDependencies = {
 const RELEASE_INPUT: TaxiInput = Object.freeze({ throttle: 0, brake: 0, steering: 0 });
 // How long after the pedals go to zero the lever is watched before writes end.
 const HANDOVER_WATCH_MS = 1500;
+// Only minPathWidthM and holdShortOffsetM are consumed by the route planner.
+// This fallback is for a displayed route, never for controller creation or writes.
+const GUIDANCE_HANDLING: TaxiHandling = Object.freeze({ ...DEFAULT_TAXI_HANDLING,
+  id: 'guidance', label: 'Route guidance', minPathWidthM: 2, holdShortOffsetM: 30 });
 
 /** One owner, one serial write loop, no auto-resume after any interruption. */
 export function createTaxiSession(deps: TaxiSessionDependencies) {
@@ -67,6 +73,7 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
   let steeringIdentity: AircraftIdentity | null = null;
   let baselineHandlingKey: string | null = null;
   let sceneIdentity: AircraftIdentity | null = null;
+  let guidanceScene = false;
   // Diagram context outlives a preview so the panel can keep showing the aircraft on it.
   let scene: TaxiScene | null = null;
   // Session log bookkeeping: one session_start per controller, transitions on status change, one session_end.
@@ -104,7 +111,7 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     && saved.generation === sample.generation && saved.handlingKey === taxiHandlingKey(handling);
   function forgetChangedAircraft(sample: TaxiObservation, handling: TaxiHandling | null) {
     if (!matches(steeringIdentity, sample, handling)) { steeringSign = null; steeringIdentity = null; }
-    if (sceneIdentity && !matches(sceneIdentity, sample, handling)) { scene = null; sceneIdentity = null; }
+    if (sceneIdentity && !matches(sceneIdentity, sample, guidanceScene ? handling || GUIDANCE_HANDLING : handling)) { scene = null; sceneIdentity = null; }
   }
   const sameAircraft = () => {
     const sample = deps.capture();
@@ -114,8 +121,11 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
       && sample.profileKey === baseline.profileKey && sample.profileRevision === baseline.profileRevision && sample.generation === baseline.generation;
   };
   const controlling = () => !!controller && !handedOver;
+  const guidanceReady = (sample: TaxiObservation) => (sample.guidanceReady ?? sample.ready)
+    && [sample.lat, sample.lon, sample.headingDeg, sample.speedKts, sample.timeMs].every(Number.isFinite)
+    && sample.timeMs <= deps.now() && deps.now() - sample.timeMs <= 1000;
   function aircraft(observed: TaxiObservation) {
-    if (!scene || ![observed.lat, observed.lon, observed.headingDeg].every(Number.isFinite)) return null;
+    if (!scene || !guidanceReady(observed)) return null;
     return { ...localPosition(observed.lat, observed.lon, scene.origin), headingDeg: observed.headingDeg,
       speedKts: Number.isFinite(observed.speedKts) ? observed.speedKts : 0 };
   }
@@ -144,6 +154,8 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
       runwayTravelM: route?.runwayTravelM ?? 0, joinM: route?.joinM ?? 0,
       observedSpeedKts: Number.isFinite(observed.speedKts) ? observed.speedKts : null, commanded,
       canStart: !!handling && observed.ready && observed.speedKts <= handling.maxStartKts && !controlling() && !planning,
+      canGuide: guidanceReady(observed) && !controlling() && !planning,
+      guidanceUnavailableReason: guidanceReady(observed) ? null : observed.guidanceReason || 'Waiting for fresh aircraft position on the ground.',
       unavailableReason: observed.reason || resolved.reason || (handling && observed.speedKts > handling.maxStartKts ? `Slow below ${handling.maxStartKts} kt before starting.` : null),
       handling: handling ? { id: handling.id, label: handling.label } : null,
       currentProfileKey: observed.profileKey, currentProfileRevision: observed.profileRevision,
@@ -308,11 +320,14 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     const runway = parking ? null : normalizeRunway(message.runway);
     const initial = deps.capture();
     const resolved = resolveHandling();
-    const handling = resolved.value;
+    const guidance = message.operation === 'preview';
+    const handling = resolved.value || (guidance ? GUIDANCE_HANDLING : null);
     if (!handling) throw new Error(initial.reason || resolved.reason!);
     forgetChangedAircraft(initial, handling);
+    if (guidance) {
+      if (!guidanceReady(initial)) throw new Error(initial.guidanceReason || 'Waiting for fresh aircraft position on the ground.');
+    } else if (!initial.ready || initial.speedKts > handling.maxStartKts) throw new Error(initial.reason || `Slow below ${handling.maxStartKts} kt before starting autotaxi.`);
     if (message.profileKey !== initial.profileKey || message.profileRevision !== initial.profileRevision) throw new Error('Aircraft changed. Wait for current aircraft data.');
-    if (!initial.ready || initial.speedKts > handling.maxStartKts) throw new Error(initial.reason || `Slow below ${handling.maxStartKts} kt before starting autotaxi.`);
     // A handed-over session has nothing left to release; a new plan replaces it.
     if (controller) clearSession();
     const generation = ++requestGeneration;
@@ -325,7 +340,9 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
       if (generation !== requestGeneration) throw new Error('Taxi request cancelled.');
       if (!ownerConnected() || deps.now() - heartbeat > 3000) throw new Error('Control connection lost or heartbeat expired. Taxi request cancelled.');
       const current = deps.capture();
-      if (!current.ready || current.speedKts > handling.maxStartKts || !matches(identity(initial, handling), current, resolveHandling().value)) {
+      const currentHandling = resolveHandling().value || (guidance ? GUIDANCE_HANDLING : null);
+      if (!(guidance ? guidanceReady(current) : current.ready && current.speedKts <= handling.maxStartKts)
+        || !matches(identity(initial, handling), current, currentHandling)) {
         steeringSign = null; steeringIdentity = null;
         throw new Error('Aircraft or handling configuration changed while loading taxiways.');
       }
@@ -336,6 +353,7 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
         : planTaxiToStand(data.graph, position, current.headingDeg, parking, handling);
       scene = buildTaxiScene(data.graph, planned, data.origin, data.runways || []);
       sceneIdentity = identity(current, handling);
+      guidanceScene = guidance;
       if (message.operation === 'preview') {
         planning = false;
         const join = planned.joinM >= 1 ? ` The first ${Math.round(planned.joinM)} m cross open ground to the centreline.` : '';

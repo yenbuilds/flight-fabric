@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue';
 import AircraftArtwork from './AircraftArtwork.vue';
 import LandingSummaryWatermark from './LandingSummaryWatermark.vue';
-import LandingGradeCard from './LandingGradeCard.vue';
 import { useTakeoffStore } from '../stores/takeoff.js';
 import { useStatusStore } from '../stores/status.js';
 
@@ -76,7 +75,7 @@ const detailedAttention = computed(() => {
       <span
         class="landing-waiting-status-text"
         style="font-family:'B612 Mono',monospace;"
-      >{{ takeoff.pending ? 'Scoring climb-out' : 'SimConnect monitoring' }}</span>
+      >{{ takeoff.pending ? 'Measuring climb-out' : 'SimConnect monitoring' }}</span>
     </div>
   </div>
 
@@ -133,6 +132,8 @@ const detailedAttention = computed(() => {
         </div>
       </div>
 
+      <p class="text-xs text-muted-fg mb-4">Runway use and rotation are measured observations. More runway remaining does not mean a better takeoff.</p>
+
       <section
         v-if="takeoff.takeoffCard.wind.available"
         id="takeoff-wind-context"
@@ -155,9 +156,9 @@ const detailedAttention = computed(() => {
       </section>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-px overflow-hidden rounded-lg border border-surface-200/50 bg-surface-200/50">
-        <LandingGradeCard>
+        <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <div class="relative z-10">
-            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Runway use grade</div>
+            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.takeoffCard.gradeLabel }}</div>
             <div
               id="takeoff-grade"
               :key="takeoff.takeoffCard.gradeAnimationNonce"
@@ -166,7 +167,7 @@ const detailedAttention = computed(() => {
             >{{ takeoff.takeoffCard.gradeText }}</div>
             <div id="takeoff-grade-detail" class="mt-1 text-xs text-gray-500">{{ takeoff.takeoffCard.gradeDetailText }}</div>
           </div>
-        </LandingGradeCard>
+        </div>
 
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="liftoff" />
@@ -326,7 +327,7 @@ const detailedAttention = computed(() => {
             </div>
             <div :class="detailedMetricClass" data-detail-metric="runway-length">
               <div class="text-[11px] text-gray-500 mb-0.5">Runway length</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Available for takeoff</div>
+              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Physical runway length</div>
               <div id="takeoff-runway-length" class="text-xl font-semibold tabular text-gray-100">{{ takeoff.takeoffCard.runwayUse.runwayLengthText }}</div>
             </div>
             <div
@@ -432,6 +433,15 @@ const detailedAttention = computed(() => {
 </template>
 
 <style scoped>
+@media (max-width: 640px) {
+  .landing-aircraft-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landing-aircraft-hero__copy {
+    max-width: 100%;
+  }
+}
 .landing-detail-metric {
   position: relative;
   min-width: 0;

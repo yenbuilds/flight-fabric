@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
-import { presetObservation, presetSourceUnavailableReason } from '../../aircraft/preset-observation.js';
+import { presetGroups, presetNumberValue } from '../../aircraft/preset-presentation.js';
+import { presetObservation, presetPendingReason, presetSourceUnavailableReason } from '../../aircraft/preset-observation.js';
 
 const aircraftControls = useAircraftControlsStore();
 const aircraftSpecific = useAircraftSpecificStore();
@@ -35,15 +36,9 @@ const presets = computed(() => Object.values(aircraftControls.aircraftCommandCat
   .filter((command) => command?.kind === 'preset'
     && !String(command.id).startsWith('configuration.lighting.')
     && ['none', 'number'].includes(command?.input?.kind)));
-const LIGHT_PRESET_ORDER = Object.freeze(['configuration.lights.takeoff', 'configuration.lights.afterTakeoff',
-  'configuration.lights.landing', 'configuration.lights.afterLanding']);
-const isLightPreset = (command) => String(command?.id || '').startsWith('configuration.lights.');
-const cardPresets = computed(() => presets.value.filter((command) => !isLightPreset(command)));
-const lightPresets = computed(() => presets.value.filter(isLightPreset)
-  .sort((left, right) => {
-    const order = (command) => { const index = LIGHT_PRESET_ORDER.indexOf(command.id); return index === -1 ? LIGHT_PRESET_ORDER.length : index; };
-    return order(left) - order(right) || String(left.id).localeCompare(String(right.id));
-  }));
+const groupedPresets = computed(() => presetGroups(aircraftControls.aircraftCommandCatalogue.commands));
+const cardPresets = computed(() => groupedPresets.value.cards);
+const lightPresets = computed(() => groupedPresets.value.lights);
 
 function takesNumber(command) {
   return command?.input?.kind === 'number';
@@ -54,13 +49,7 @@ function unitSymbol(command) {
 }
 
 function draftValue(command) {
-  const input = command.input;
-  const text = String(drafts[command.id] ?? '').trim();
-  if (!text) return null;
-  const numeric = Number(text);
-  if (!Number.isFinite(numeric) || numeric < input.min || numeric > input.max) return null;
-  const position = (numeric - input.min) / input.step;
-  return Math.abs(position - Math.round(position)) < 1e-7 ? numeric : null;
+  return presetNumberValue(command, drafts[command.id]);
 }
 
 function controlCommand(command) {
@@ -82,9 +71,15 @@ function sourceUnavailableReason(command) {
 
 function isDisabled(command) {
   return aircraftControls.isCommandDisabled(controlCommand(command))
+    || Boolean(pendingReason(command))
     || Boolean(sourceUnavailableReason(command))
     || observation(command)?.inhibitsRequest === true
     || (takesNumber(command) && draftValue(command) === null);
+}
+
+function pendingReason(command) {
+  return presetPendingReason(command, aircraftControls.aircraftCommandCatalogue,
+    key => aircraftControls.isCommandPending(key));
 }
 
 function hasTypedValue(command) {
@@ -97,6 +92,7 @@ function disabledReason(command) {
     return 'This preset is not available for the active aircraft.';
   }
   if (isPending(command)) return 'This preset is already being applied.';
+  if (pendingReason(command)) return pendingReason(command);
   if (sourceUnavailableReason(command)) return sourceUnavailableReason(command);
   if (observation(command)?.inhibitsRequest === true) return observation(command).label;
   if (hasTypedValue(command) && draftValue(command) === null) {
@@ -258,7 +254,7 @@ function inputPlaceholder(command) {
               <div class="aircraft-preset-row__action flex shrink-0 items-center">
                 <button
                   type="button"
-                  class="min-h-10 w-full rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-4 py-1.5 text-xs font-semibold text-emerald-200 transition-colors hover:border-emerald-300/70 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.03] disabled:text-gray-500"
+                  class="min-h-11 w-full rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-4 py-1.5 text-xs font-semibold text-emerald-200 transition-colors hover:border-emerald-300/70 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.03] disabled:text-gray-500"
                   :disabled="isDisabled(command)"
                   :title="disabledReason(command) || actionAriaLabel(command)"
                   :aria-label="actionAriaLabel(command)"

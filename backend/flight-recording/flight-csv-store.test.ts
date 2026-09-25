@@ -899,6 +899,113 @@ test('generateTimelineFromFile refuses an active three-artifact bundle without a
   });
 });
 
+test('native replay refuses active and finalizing recordings before parsing', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const logsDir = timelineGenerator.getFlightLogsDir();
+    const paths = makeBundlePaths(logsDir, '2026-05-25T00-00-00_replay-active');
+    writeTimelineCsv(paths.csv);
+    const original = timelineGenerator.prepareReplayClipFromCSV;
+    timelineGenerator.prepareReplayClipFromCSV = () => assert.fail('active replay source must not be parsed');
+    try {
+      const active = createFlightCsvStore({ flightCsvWriter: buildWriter(paths.csv) });
+      assert.equal((await active.prepareInSimReplayClip(paths.csv)).success, false);
+      const finalizing = createFlightCsvStore({ recordingBundleGuard: { isOwnedCsvPath: () => true } });
+      assert.equal((await finalizing.prepareInSimReplayClip(paths.csv)).success, false);
+      assert.equal((await createFlightCsvStore().prepareInSimReplayClip(path.join(logsDir, '..', 'outside.csv'))).success, false);
+      for (const invalid of [-1, 1.5, NaN, Infinity]) {
+        assert.match((await createFlightCsvStore().prepareInSimReplayClip(paths.csv, invalid)).error, /index/);
+      }
+    } finally { timelineGenerator.prepareReplayClipFromCSV = original; }
+  });
+});
+
+test('native replay reads original data under a bundle lease and propagates integrity failures', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const leases = require(resolveBackendPath('flight-recording', 'recording-bundle-lease.js'));
+    const logsDir = timelineGenerator.getFlightLogsDir();
+    const baseName = '2026-05-25T00-00-00_replay-guard';
+    const paths = makeBundlePaths(logsDir, baseName);
+    writeTimelineCsv(paths.csv);
+    const original = timelineGenerator.prepareReplayClipFromCSV;
+    timelineGenerator.prepareReplayClipFromCSV = async (file, landingIndex) => {
+      assert.equal(file, path.resolve(paths.csv));
+      assert.equal(landingIndex, 1);
+      assert.equal(leases.acquireBundleMutationLease({ outputDir: logsDir, baseName, purpose: 'test-delete-during-replay' }).acquired, false);
+      return { success: false, error: 'Recording bundle integrity failed' };
+    };
+    try {
+      const result = await createFlightCsvStore().prepareInSimReplayClip(paths.csv, 1);
+      assert.equal(result.success, false);
+      assert.match(result.error, /integrity failed/);
+      const mutation = leases.acquireBundleMutationLease({ outputDir: logsDir, baseName, purpose: 'test-after-replay-read' });
+      assert.equal(mutation.acquired, true, 'the read lease must be released after failure');
+      mutation.release();
+    } finally { timelineGenerator.prepareReplayClipFromCSV = original; }
+  });
+});
+
+test('native replay rejects a bundle junction escaping the recording catalogue', async () => {
+  await withTempAppData(async () => {
+    const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const logsDir = timelineGenerator.getFlightLogsDir();
+    fs.mkdirSync(logsDir, { recursive: true });
+    const outside = fs.mkdtempSync(path.join(logsDir, '..', 'outside-replay-'));
+    const linkedBundle = path.join(logsDir, 'linked-replay-bundle');
+    fs.writeFileSync(path.join(outside, 'telemetry.csv'), 'untrusted outside data');
+    fs.symlinkSync(outside, linkedBundle, process.platform === 'win32' ? 'junction' : 'dir');
+    const original = timelineGenerator.prepareReplayClipFromCSV;
+    timelineGenerator.prepareReplayClipFromCSV = () => assert.fail('junction target must not be parsed');
+    try {
+      const result = await createFlightCsvStore().prepareInSimReplayClip(path.join(linkedBundle, 'telemetry.csv'));
+      assert.equal(result.success, false);
+      assert.match(result.error, /regular recording bundle/);
+      assert.equal(fs.readFileSync(path.join(outside, 'telemetry.csv'), 'utf8'), 'untrusted outside data');
+    } finally {
+      timelineGenerator.prepareReplayClipFromCSV = original;
+      fs.unlinkSync(linkedBundle);
+      fs.unlinkSync(path.join(outside, 'telemetry.csv'));
+      fs.rmdirSync(outside);
+    }
+  });
+});
+
+test('replay and Timeline share recording analysis but return separate result contracts', async () => {
+  await withTempAppData(async () => {
+    const generator = require(resolveBackendPath('events', 'timeline-generator.js'));
+    const { createFlightCsvStore } = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const paths = makeBundlePaths(generator.getFlightLogsDir(), '2026-05-25T00-00-00_replay-result');
+    const headers = ['record_type', 'timestamp_utc', 'ts', 'timestamp_monotonic', 'aircraft', 'aircraft_profile_id',
+      'lat_deg', 'lon_deg', 'alt_plane_ft', 'pitch_deg', 'bank_deg', 'hdg_true_deg', 'ra_ft', 'on_ground', 'phase', 'ias_kts', 'vs_fpm'];
+    const start = Date.parse('2026-05-25T00:00:00.000Z');
+    const rows = Array.from({ length: 121 }, (_, second) => {
+      const ra = Math.max(0, 900 - second * 10);
+      return ['SAMPLE', new Date(start + second * 1000).toISOString(), start + second * 1000, second * 1000,
+        'PMDG 737-800', 'pmdg-737', 47.45, -122.31, 200 + ra, 3, 0, 359,
+        ra, second >= 90 ? 1 : 0, second >= 90 ? 'ROLLOUT' : 'APPROACH', 140, -600].join(',');
+    });
+    const csv = [headers.join(','), ...rows].join('\n') + '\n';
+    fs.writeFileSync(paths.csv, csv);
+    const store = createFlightCsvStore();
+    try {
+      const timeline = await generator.generateFromCSV(paths.csv);
+      const replay = await store.prepareInSimReplayClip(paths.csv);
+      assert.equal(timeline.success, true, timeline.error);
+      assert.equal(replay.success, true, replay.error);
+      assert.deepEqual(Object.keys(replay).sort(), ['clip', 'success']);
+      assert.equal(Object.hasOwn(timeline.timeline, 'inSimReplayClip'), false);
+      assert.equal(replay.clip.title, 'PMDG 737-800');
+      assert.equal(replay.clip.sourceTouchdownTimestampMs,
+        timeline.timeline.events.find(event => event.type === 'landing').timestampMs);
+      assert.equal(fs.readFileSync(paths.csv, 'utf8'), csv);
+    } finally { await store.stop(); }
+  });
+});
+
 test('startup rollback ownership blocks list, Timeline reads, and deletion until all three files are released', async () => {
   await withTempAppData(async () => {
     const timelineGenerator = require(resolveBackendPath('events', 'timeline-generator.js'));

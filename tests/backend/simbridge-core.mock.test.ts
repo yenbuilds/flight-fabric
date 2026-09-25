@@ -343,4 +343,62 @@ test('simbridge-core: aircraft change during accepted rollout waits for frozen l
   assert.doesNotMatch(outStr, /TEST:runner_error/);
 });
 
+for (const scenario of ['normal', 'disconnect', 'inactive', 'release-disabled']) {
+  test(`simbridge-core: takeoff recording lifecycle (${scenario})`, async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-core-takeoff-'));
+    const child = spawn(process.execPath, [
+      path.join(__dirname, '..', 'support', 'simbridge-takeoff-runner.js'),
+      ...(scenario === 'release-disabled' ? [] : ['--enable-takeoff-fixture']),
+      ...(scenario === 'disconnect' ? ['--disconnect'] : []),
+    ], {
+      env: {
+        ...process.env,
+        USERPROFILE: tempRoot,
+        APPDATA: path.join(tempRoot, 'AppData', 'Roaming'),
+        LOCALAPPDATA: path.join(tempRoot, 'AppData', 'Local'),
+        XDG_CONFIG_HOME: path.join(tempRoot, '.config'),
+        OneDrive: path.join(tempRoot, 'OneDrive'),
+        FLIGHT_FABRIC_SKIP_WINDOWS_KNOWN_DOCUMENTS: '1',
+        FLIGHT_START_REQUIRE_MOVEMENT: '1',
+        FLIGHT_START_MOVE_WINDOW_MS: '15000',
+        FLIGHT_START_REQUIRE_TELEMETRY_ACTIVITY: scenario === 'inactive' ? '1' : '0',
+        FLIGHT_START_MIN_ACTIVE_FIELDS: '1000',
+        FLIGHT_START_IAS_KTS: scenario === 'inactive' ? '1000' : '40',
+        FLIGHT_START_GS_KTS: scenario === 'inactive' ? '1000' : '20',
+        FLIGHT_START_RA_FT: scenario === 'inactive' ? '1000' : '10',
+        FLIGHT_END_PARKED_ENGINES_OFF_ENABLE: '0',
+        UPDATE_CHECKS_ENABLED: '0',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+    child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+    try {
+      const code = await new Promise<number>((resolve) => {
+        const timer = setTimeout(() => { child.kill(); resolve(-1); }, 10000);
+        child.on('exit', (value: number | null) => { clearTimeout(timer); resolve(value ?? -1); });
+      });
+      assert.equal(code, 0, output);
+      assert.match(output, /TEST:scenario_done/);
+      const finals = [...output.matchAll(/TEST:takeoff_final:(\{[^\r\n]+\})/g)];
+      if (scenario === 'normal') {
+        assert.equal(finals.length, 1, output);
+        const payload = JSON.parse(finals[0][1]);
+        assert.equal(payload.startSource, 'standstill', output);
+        assert.ok(payload.durationS > 28, 'must include the roll before recording started');
+        assert.equal(payload.recordingActive, true);
+        const startMs = Number(output.match(/TEST:flight_started:(\d+)/)?.[1]);
+        assert.ok(startMs >= 15000, `fixture must start recording after the roll begins: ${startMs}`);
+      } else {
+        assert.equal(finals.length, 0, output);
+        if (scenario === 'inactive') assert.doesNotMatch(output, /TEST:flight_started/);
+        if (scenario === 'release-disabled') assert.match(output, /TEST:flight_started/, 'normal recording remains active with takeoff disabled');
+      }
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+}
+
 export {};

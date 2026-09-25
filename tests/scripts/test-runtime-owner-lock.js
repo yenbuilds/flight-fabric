@@ -134,7 +134,10 @@ async function waitForDefaultLock(timeoutMs = 5000) {
 }
 
 function isExpectedTestBackendIdentity(identity) {
-  return classifyFlightFabricBackendIdentity(identity) === 'stoppable'
+  return classifyFlightFabricBackendIdentity(identity, {
+    backendScript: path.resolve(__dirname, '../../dist/backend/core/simbridge.js'),
+    executablePath: process.execPath,
+  }) === 'stoppable'
     && hasExactCommandLineArgument(identity.commandLine, '--ff-launch-owner=batch')
     && hasExactCommandLineArgument(
       identity.commandLine,

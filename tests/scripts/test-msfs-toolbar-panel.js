@@ -71,7 +71,9 @@ test('toolbar refreshes voice commands on matching capability updates, including
     renderFlight = renderVoice = renderTabs = function () {};
     globalThis.panel = { receive: handleMessage, state: state, subscriptions: SUBSCRIPTION };
   })();`);
-  const context = { window: { localStorage: null }, document: { readyState: 'loading', addEventListener() {} } };
+  const context = { window: { localStorage: null }, document: { readyState: 'loading', addEventListener() {} },
+    FlightFabricToolbarTaxi: { createTaxiPanel() { return { update() {}, reset() {} }; } },
+    setTimeout() {}, clearTimeout() {}, FlightFabricToolbarPresets: { createPresetPanel() { return { update() {}, reset() {} }; } } };
   vm.runInNewContext(source, context);
   const { panel } = context;
   const profile = { _profileKey: 'bundled/msfs/pmdg-737', profileRevision: 4 };
@@ -585,7 +587,7 @@ test('toolbar page subscribes only to subscribable low-rate message types', () =
 });
 
 test('toolbar page files are Coherent-safe and complete', () => {
-  for (const name of ['index.html', 'toolbar.js', 'toolbar.css', 'voice-reference.json', 'ping.svg']) {
+  for (const name of ['index.html', 'toolbar.js', 'presets.js', 'taxi.js', 'toolbar.css', 'voice-reference.json', 'ping.svg']) {
     assert.ok(fs.existsSync(path.join(TOOLBAR_PAGE_DIR, name)), `${name} exists`);
   }
   const js = fs.readFileSync(path.join(TOOLBAR_PAGE_DIR, 'toolbar.js'), 'utf8');
@@ -594,7 +596,7 @@ test('toolbar page files are Coherent-safe and complete', () => {
   assert.match(js, /new WebSocket\(url\)/);
   assert.match(js, /\/api\/toolbar\/bootstrap/);
   assert.doesNotMatch(js, /\/api\/bootstrap['"?]/, 'the panel never requests the privileged session bootstrap');
-  assert.doesNotMatch(js, /token=/, 'the panel never sends a session token');
+  assert.doesNotMatch(js, /token=/, 'the panel never sends a desktop session token');
   const html = fs.readFileSync(path.join(TOOLBAR_PAGE_DIR, 'index.html'), 'utf8');
   assert.doesNotMatch(html, /<script>[^<]/, 'no inline scripts under the strict CSP');
   assert.doesNotMatch(html, / on[a-z]+="/, 'no inline event handlers');
@@ -669,4 +671,13 @@ test('voice status relay is bounded and projected for unpaired clients', () => {
   assert.equal(projected.updatedAt, 123);
   assert.equal(projected.status, 'sent');
   assert.equal('secretPath' in projected, false);
+});
+
+
+test('toolbar bundles match the shared app rules and DOM views', async () => {
+  const { buildToolbarPresets, buildToolbarTaxi } = await import(pathToFileURL(path.join(ROOT, 'scripts/build-toolbar-presets.mjs')).href);
+  assert.equal(read('frontend/toolbar/presets.js').replace(/\r\n/g, '\n'), await buildToolbarPresets());
+  const taxi = read('frontend/toolbar/taxi.js').replace(/\r\n/g, '\n');
+  assert.equal(taxi, await buildToolbarTaxi());
+  assert.doesNotMatch(taxi, /\.at\(|\.flatMap\(|\.flat\(|Object\.fromEntries|\.replaceAll\(/, 'Coherent runtime has no modern array polyfills');
 });

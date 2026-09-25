@@ -9,8 +9,7 @@ const WARNING_COLOR = '#f59e0b';
 const ORANGE_COLOR = '#fb923c';
 const DANGER_COLOR = '#ef4444';
 
-// Severity ranks for the backend runway-use grades
-// (backend/takeoff/takeoff-analysis.ts RUNWAY_USE_BANDS).
+// Historical runway-use grades stay readable; new records have no quality score.
 export const TAKEOFF_GRADE_SEVERITY = Object.freeze({
   Outstanding: 0,
   Good: 0,
@@ -96,9 +95,12 @@ export function createDefaultTakeoffCardState() {
     gradeAnimationNonce: 0,
     capturedAtMs: null,
     excursionVisible: false,
+    assessmentText: '',
+    assessmentTone: 'text-muted-fg',
     airportText: '--',
     runwayText: '--',
     gradeText: '--',
+    gradeLabel: 'Takeoff record',
     gradeColor: DEFAULT_GRADE_COLOR,
     gradeDetailText: '--',
     scoreText: '',
@@ -163,13 +165,15 @@ export function createDefaultTakeoffCardState() {
 
 function buildRunwayUseState(msg, severity) {
   const use = msg.runwayUse || {};
+  const positionUncertain = use.notScoredReason === 'liftoff_position_uncertain'
+    || (Array.isArray(msg.flags) && msg.flags.some((flag) => flag?.code === 'liftoff_position_uncertain'));
   const remainingFt = finiteNumber(use.remainingFt);
   const lengthFt = finiteNumber(use.runwayLengthFt);
   const usedPct = finiteNumber(use.usedPct);
   const liftoffDistanceFt = finiteNumber(use.liftoffDistanceFt);
-  const beyondEnd = use.beyondRunwayEnd === true || (remainingFt !== null && remainingFt <= 0);
+  const beyondEnd = use.beyondRunwayEnd === true || (remainingFt !== null && remainingFt < 0);
   const state = {
-    remainingText: remainingFt === null
+    remainingText: positionUncertain ? 'Uncertain' : remainingFt === null
       ? '-- ft'
       : beyondEnd
         ? `${Math.abs(Math.round(remainingFt)).toLocaleString()} ft past end`
@@ -191,6 +195,8 @@ function buildClimbState(msg) {
   const screenRemainingFt = finiteNumber(screen.remainingFt);
   const screenElapsedS = finiteNumber(screen.elapsedS);
   const rateDegS = finiteNumber(rotation.rateDegS);
+  const priorRateDegS = finiteNumber(rotation.priorMaxRateDegS);
+  const recordedRotationCaution = Array.isArray(msg.flags) && msg.flags.some((flag) => flag?.code === 'rapid_rotation');
   const maxPitchDeg = finiteNumber(rotation.maxPitchDeg);
   const heightLabel = heightFt === null ? 'Screen height' : `${Math.round(heightFt)} ft`;
 
@@ -203,11 +209,9 @@ function buildClimbState(msg) {
       screenText = screenRemainingFt < 0
         ? `${Math.abs(Math.round(screenRemainingFt)).toLocaleString()} ft past end`
         : `${Math.round(screenRemainingFt).toLocaleString()} ft left`;
-      screenTone = screenRemainingFt < 0 ? 'text-red-400' : 'text-gray-100';
       screenDetailText = screenRemainingFt < 0
         ? `${heightLabel} reached beyond the runway end`
         : `Runway left at ${heightLabel}`;
-      screenDetailTone = screenRemainingFt < 0 ? 'text-red-400' : 'text-gray-500';
     } else {
       screenText = screenElapsedS === null ? 'Reached' : `${screenElapsedS.toFixed(1)} s`;
       screenDetailText = `${heightLabel} after liftoff · runway position unavailable`;
@@ -216,8 +220,8 @@ function buildClimbState(msg) {
       screenDetailText += ` · ${screenElapsedS.toFixed(1)} s after liftoff`;
     }
   } else if (heightFt !== null) {
-    screenText = 'Not reached';
-    screenDetailText = `${heightLabel} not observed before scoring`;
+    screenText = 'Not observed';
+    screenDetailText = `${heightLabel} not observed during capture`;
   }
 
   return {
@@ -226,14 +230,12 @@ function buildClimbState(msg) {
     screenDetailText,
     screenDetailTone,
     rotationText: rateDegS === null ? '-- deg/s' : `${rateDegS.toFixed(1)} deg/s`,
-    rotationTone: rateDegS !== null && rateDegS >= 5 ? 'text-amber-400' : 'text-gray-100',
-    rotationDetailText: rateDegS === null
-      ? 'Rotation not resolved'
-      : rateDegS >= 5
-        ? 'Rapid rotation'
-        : rateDegS < 1.5
-          ? 'Gentle rotation'
-          : 'Steady rotation',
+    rotationTone: recordedRotationCaution ? 'text-amber-400' : 'text-gray-100',
+    rotationDetailText: priorRateDegS !== null
+      ? `Earlier liftoff: ${priorRateDegS.toFixed(1)} deg/s`
+      : rateDegS === null
+        ? 'Rotation not resolved'
+        : 'Measured average to liftoff',
     maxPitchText: maxPitchDeg === null ? '-- deg' : `${maxPitchDeg > 0 ? '+' : ''}${maxPitchDeg.toFixed(1)} deg`,
   };
 }
@@ -251,15 +253,13 @@ function buildAlignmentState(msg, wind) {
   return {
     lateralText: offsetFt === null
       ? '-- ft'
-      : offsetFt < 15
-        ? 'ON CL'
-        : `${Math.round(offsetFt)} ft ${formatSide(lateral.liftoffOffsetSide)}`.trim(),
-    lateralTone: lateralGrade === 'Poor'
+      : `${Math.round(offsetFt)} ft ${formatSide(lateral.liftoffOffsetSide)}`.trim(),
+    lateralTone: !verified ? 'text-gray-100' : lateralGrade === 'Poor'
       ? 'text-amber-400'
       : lateralScore !== null && lateralScore < 70
         ? 'text-red-400'
         : 'text-gray-100',
-    lateralGradeText: verified ? lateralGrade : 'Unverified',
+    lateralGradeText: !verified ? 'Unverified' : lateralScore === null ? 'Measured at liftoff' : `Recorded grade: ${lateralGrade}`,
     lateralGradeTone: !verified
       ? 'text-gray-500'
       : lateralScore === null
@@ -271,25 +271,14 @@ function buildAlignmentState(msg, wind) {
             : 'text-red-400',
     headingText: deviationDeg === null
       ? '-- deg'
-      : deviationDeg < 0.5
-        ? 'ALIGNED'
-        : `${deviationDeg.toFixed(1)} deg ${deviationSide}`.trim(),
-    headingTone: deviationDeg === null
-      ? 'text-gray-100'
-      : deviationDeg <= 5
-        ? 'text-gray-100'
-        : deviationDeg <= 10
-          ? 'text-amber-400'
-          : 'text-red-400',
-    headingGradeText: deviationDeg === null
+      : `${deviationDeg.toFixed(1)} deg ${deviationSide}`.trim(),
+    // Liftoff heading is not ground track; roll findings are shown separately.
+    headingTone: 'text-gray-100',
+    headingGradeText: !verified
+      ? 'Unverified'
+      : deviationDeg === null
       ? '--'
-      : deviationDeg <= 3
-        ? 'Runway aligned'
-        : deviationDeg <= 5
-          ? 'Slight heading error'
-          : deviationDeg <= 10
-            ? 'Heading misaligned'
-            : 'Major heading error',
+      : 'Measured at liftoff',
     crosswindText: wind.crosswindText,
     crosswindTone: wind.crosswindText === '-- kt' ? 'text-gray-500' : 'text-gray-100',
     windTotalText: wind.totalText,
@@ -301,7 +290,12 @@ export function buildTakeoffDebriefReasons(msg, { limit = 6 } = {}) {
   if (!msg || typeof msg !== 'object') return reasons;
   const grade = msg.grade || msg.runwayUse?.grade || null;
   const severity = takeoffGradeSeverity(grade);
-  if (grade && severity >= 0) {
+  const flags = Array.isArray(msg.flags) ? msg.flags : [];
+  const assessment = String(msg.assessment || '').toLowerCase();
+  const serious = severity >= 2 || msg.runwayExcursion === true
+    || assessment === 'warning' || assessment === 'critical'
+    || flags.some((flag) => flag?.severity === 'warning' || flag?.severity === 'critical');
+  if (grade && severity >= 0 && (!serious || severity > 0)) {
     // Late Liftoff is the app's orange caution band, not an aviation-standard
     // failure; only the runway-end lines (severity 3) paint danger red.
     const color = severity >= 3
@@ -314,7 +308,6 @@ export function buildTakeoffDebriefReasons(msg, { limit = 6 } = {}) {
     const tone = severity >= 3 ? 'danger' : severity >= 1 ? 'warning' : 'good';
     reasons.push(buildReasonTag(`${grade} runway use`, color, reasons.length, tone));
   }
-  const flags = Array.isArray(msg.flags) ? msg.flags : [];
   for (const flag of flags) {
     if (!flag || !flag.label) continue;
     reasons.push(buildReasonTag(
@@ -326,16 +319,10 @@ export function buildTakeoffDebriefReasons(msg, { limit = 6 } = {}) {
   }
   // Praise never sits beside a serious warning; the landing debrief keeps the
   // same rule so a critical card cannot read as mixed news.
-  const assessment = String(msg.assessment || '').toLowerCase();
-  const serious = severity >= 2 || assessment === 'warning' || assessment === 'critical';
   if (!serious) {
     const lateral = msg.lateral || {};
     if (lateral.verified === true && (lateral.grade === 'Perfect' || lateral.grade === 'Good')) {
       reasons.push(buildReasonTag('Lifted off on the centerline', GOOD_COLOR, reasons.length, 'good'));
-    }
-    const rotation = finiteNumber(msg.rotation?.rateDegS);
-    if (rotation !== null && rotation >= 1.5 && rotation < 5) {
-      reasons.push(buildReasonTag('Steady rotation', GOOD_COLOR, reasons.length, 'good'));
     }
   }
   return reasons.slice(0, limit);
@@ -348,11 +335,17 @@ export function buildTakeoffDebriefConfidence(msg) {
     rank = Math.max(rank, nextRank);
     if (reason) reasons.push(reason);
   }
-  if (finiteNumber(msg?.runwayUse?.remainingFt) === null) lower(2, 'No runway geometry');
+  const positionUncertain = msg?.runwayUse?.notScoredReason === 'liftoff_position_uncertain'
+    || (Array.isArray(msg?.flags) && msg.flags.some((flag) => flag?.code === 'liftoff_position_uncertain'));
+  if (positionUncertain) lower(2, 'Liftoff position uncertain at runway end');
+  else if (finiteNumber(msg?.runwayUse?.remainingFt) === null) lower(2, 'No runway geometry');
+  if (msg?.runwayUse?.verified === false) lower(2, 'Runway geometry unverified or conflicting');
   if (msg?.lateral && msg.lateral.verified !== true) lower(1, 'Runway alignment unverified');
   if (msg?.roll?.startSource === 'runway_aligned') lower(1, 'Rolling start; roll measured from runway alignment');
-  if (msg?.screenHeight && msg.screenHeight.reached !== true) lower(1, 'Screen height not observed');
-  if (String(msg?.finalizeReason || '').startsWith('timeout')) lower(1, 'Scored after a timeout');
+  if (msg?.screenHeight?.reached !== true) lower(1, 'Climb-out incomplete: screen height not observed');
+  if (msg?.finalizeReason === 'telemetry_gap') lower(2, 'Telemetry gap during climb-out');
+  if (Array.isArray(msg?.flags) && msg.flags.some((flag) => flag?.code === 'ground_contact_uncertain')) lower(1, 'Brief ground contact not confirmed');
+  if (String(msg?.finalizeReason || '').startsWith('timeout')) lower(1, 'Capture ended after a timeout');
 
   if (rank >= 2) {
     return { confidenceText: 'Low', confidenceReason: reasons.join(', '), confidenceToneClass: 'text-red-400' };
@@ -378,12 +371,24 @@ export function buildTakeoffPresentation(msg, { previousNonce = 0, capturedAtMs 
   card.gradeAnimationNonce = previousNonce + 1;
   card.capturedAtMs = timestampMs !== null && timestampMs > 0 ? timestampMs : Date.now();
   card.excursionVisible = msg.runwayExcursion === true;
+  const flags = Array.isArray(msg.flags) ? msg.flags : [];
+  const rank = { critical: 3, warning: 2, caution: 1 };
+  const findings = flags.filter((flag) => flag?.label && rank[flag.severity])
+    .sort((left, right) => rank[right.severity] - rank[left.severity]);
+  if (msg.runwayExcursion === true && !findings.some((flag) => flag.code === 'runway_excursion')) {
+    findings.unshift({ label: 'Runway excursion', severity: 'critical' });
+  }
+  card.assessmentText = findings.map((flag) => flag.label).join(' · ')
+    || (rank[msg.assessment] ? `${msg.assessment} assessment recorded` : '');
+  card.assessmentTone = Math.max(rank[msg.assessment] || 0, ...findings.map((flag) => rank[flag.severity])) >= 2
+    ? 'text-danger' : 'text-warning';
   card.airportText = msg.icao || '--';
   card.runwayText = msg.runway ? `RWY ${msg.runway}` : '--';
-  card.gradeText = grade && severity >= 0 ? String(grade).toUpperCase() : 'NO GRADE';
-  card.gradeColor = severity >= 0 ? takeoffGradeHex(severity) : DEFAULT_GRADE_COLOR;
+  card.gradeText = grade === 'Recorded' ? 'RECORDED' : grade && severity >= 0 ? String(grade).toUpperCase() : 'NO GRADE';
+  card.gradeLabel = score === null ? 'Takeoff record' : 'Recorded runway-use grade';
+  card.gradeColor = grade === 'Recorded' ? 'rgb(var(--foreground))' : severity >= 0 ? takeoffGradeHex(severity) : DEFAULT_GRADE_COLOR;
   card.gradeDetailText = msg.zone || msg.runwayUse?.zone || (severity >= 0 ? '--' : 'Runway geometry unavailable');
-  card.scoreText = score === null ? '' : `Runway use ${Math.round(score)}%`;
+  card.scoreText = score === null ? '' : `Recorded runway-use score ${Math.round(score)}%`;
 
   card.runwayUse = buildRunwayUseState(msg, severity);
 
@@ -406,20 +411,21 @@ export function buildTakeoffPresentation(msg, { previousNonce = 0, capturedAtMs 
   const pitchDeg = finiteNumber(liftoff.pitchDeg);
   const flapsNotch = finiteNumber(liftoff.flapsNotch);
   const hopCount = Math.max(0, Math.round(finiteNumber(msg.hopCount) ?? 0));
+  const contactUncertain = flags.some((flag) => flag?.code === 'ground_contact_uncertain');
   card.liftoff = {
     iasText: iasKts === null ? '-- kt' : `${Math.round(iasKts)} kt`,
     gsText: gsKts === null ? 'GS: --' : `GS: ${Math.round(gsKts)}`,
     pitchText: pitchDeg === null ? '-- deg' : `${pitchDeg > 0 ? '+' : ''}${pitchDeg.toFixed(1)} deg`,
     pitchTone: pitchDeg !== null && pitchDeg < 0 ? 'text-amber-400' : 'text-gray-100',
     flapsText: flapsNotch === null ? '--' : `Flaps ${Math.round(flapsNotch)}`,
-    hopText: hopCount === 0 ? 'Clean' : `${hopCount}x`,
-    hopTone: hopCount === 0 ? 'text-gray-100' : 'text-amber-400',
+    hopText: hopCount === 0 ? (contactUncertain ? 'Uncertain' : 'Clean') : `${hopCount}x`,
+    hopTone: hopCount === 0 && !contactUncertain ? 'text-gray-100' : 'text-amber-400',
     hopDetailText: hopCount === 0
-      ? 'Stayed airborne'
+      ? (contactUncertain ? 'Brief ground contact not confirmed' : 'Stayed airborne')
       : hopCount === 1
         ? 'Settled back once'
         : `Settled back ${hopCount} times`,
-    hopDetailTone: hopCount === 0 ? 'text-green-400' : 'text-amber-500',
+    hopDetailTone: hopCount === 0 && !contactUncertain ? 'text-green-400' : 'text-amber-500',
   };
 
   card.climb = buildClimbState(msg);
@@ -451,7 +457,7 @@ export function buildTakeoffPreview(card, { available = false, pending = false, 
       status: pending
         ? (settled
           ? 'Settled back onto the runway. Waiting for the next liftoff…'
-          : 'Liftoff detected. Scoring the climb-out…')
+          : 'Liftoff detected. Measuring the climb-out…')
         : 'Waiting for liftoff in this session.',
       grade: '--',
       gradeColor: DEFAULT_GRADE_COLOR,
@@ -468,7 +474,11 @@ export function buildTakeoffPreview(card, { available = false, pending = false, 
   return {
     available: true,
     status: 'Latest takeoff report is ready.',
+    assessment: card.assessmentText,
+    assessmentTone: card.assessmentTone,
+    confidence: `${card.debrief.confidenceText} confidence${card.debrief.confidenceReason ? ` · ${card.debrief.confidenceReason}` : ''}`,
     grade: card.gradeText,
+    gradeLabel: card.gradeLabel,
     gradeColor: card.gradeColor,
     remaining: card.runwayUse.remainingText,
     remainingTone: card.runwayUse.remainingTone,

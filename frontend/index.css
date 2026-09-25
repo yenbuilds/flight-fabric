@@ -2401,6 +2401,11 @@ body.sim-in-menu .menu-overlay {
   padding: 1rem;
 }
 
+.settings-panel--illustrated {
+  position: relative;
+  isolation: isolate;
+}
+
 .settings-panel-header {
   display: grid;
   gap: 0.35rem;

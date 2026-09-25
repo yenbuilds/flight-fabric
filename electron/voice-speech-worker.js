@@ -5,7 +5,7 @@ const path = require('node:path');
 const { parentPort, workerData } = require('node:worker_threads');
 const { ZIPFORMER_MODEL } = require('./voice-model-manifest');
 
-const MAX_SESSION_SAMPLES = ZIPFORMER_MODEL.sampleRate * 10;
+const MAX_SESSION_SECONDS = 10;
 const MAX_TRANSCRIPT_CHARACTERS = 4096;
 const FINAL_SILENCE_SECONDS = 0.5;
 const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
@@ -97,6 +97,10 @@ function drain(session) {
 }
 
 function currentTranscript(session) {
+  // A muted/disconnected input can supply only digital zeros. The language
+  // model can still invent words from that input; never surface those words.
+  // This is exact silence detection, not a threshold that clips quiet speech.
+  if (!session.hasAudioSignal) return '';
   return transcriptFromResult(recognizer.getResult(session.stream));
 }
 
@@ -133,6 +137,7 @@ function handleMessage(message) {
         stream,
         nextSequence: 0,
         totalSamples: 0,
+        hasAudioSignal: false,
         sampleRate: null,
         lastText: '',
       };
@@ -156,13 +161,15 @@ function handleMessage(message) {
       }
       for (const sample of message.samples) {
         if (!Number.isFinite(sample) || sample < -1 || sample > 1) throw new Error('Invalid voice sample');
+        if (sample !== 0) session.hasAudioSignal = true;
       }
-      const projectedAtModelRate = session.totalSamples
-        + Math.ceil(message.samples.length * ZIPFORMER_MODEL.sampleRate / message.sampleRate);
-      if (projectedAtModelRate > MAX_SESSION_SAMPLES) throw new Error('Voice session audio exceeded ten seconds');
+      // The input rate is fixed for this session. Count captured frames exactly:
+      // rounding each chunk to the model rate accumulates artificial duration.
+      const projectedSamples = session.totalSamples + message.samples.length;
+      if (projectedSamples > message.sampleRate * MAX_SESSION_SECONDS) throw new Error('Voice session audio exceeded ten seconds');
       session.stream.acceptWaveform({ samples: message.samples, sampleRate: message.sampleRate });
       session.sampleRate = message.sampleRate;
-      session.totalSamples = projectedAtModelRate;
+      session.totalSamples = projectedSamples;
       session.nextSequence += 1;
       drain(session);
       post('chunk-accepted', {

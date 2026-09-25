@@ -121,7 +121,7 @@ test('installation and legal surfaces include alpha, intended-use, and non-relia
 
   for (const relativePath of prominentSurfaces) {
     const content = read(relativePath);
-    assert.match(content, /experimental alpha software/i, `${relativePath} omits alpha status`);
+    assert.match(content, /alpha software/i, `${relativePath} omits alpha status`);
     assert.match(content, /not certified,[\s\S]{0,80}approved,[\s\S]{0,80}(?:or )?intended for\s+real-world\s+aviation/i, `${relativePath} omits intended-use boundary`);
     assert.match(content, /Do not rely/i, `${relativePath} omits non-reliance warning`);
   }

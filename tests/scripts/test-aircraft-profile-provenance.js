@@ -419,7 +419,8 @@ function collectAdapterRouteTokens(route) {
     )))];
   }
   if (route.transport === 'simconnect-sequence') {
-    return (route.operations || []).map((operation) => {
+    return [...(route.prepareEvent ? [{ type: 'event', ...route.prepareEvent }] : []),
+      ...(route.operations || [])].map((operation) => {
       if (operation?.type === 'lvar') return String(operation.name || '').replace(/^L:/i, '');
       if (operation?.type === 'event') return operation.name;
       return null;

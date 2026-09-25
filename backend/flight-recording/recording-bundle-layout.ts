@@ -92,6 +92,22 @@ function getArtifactPathForCsv(csvPath: unknown, role: BundleArtifactRole): stri
   return bundle ? bundle.paths[role] : null;
 }
 
+// A lexical catalogue path may point through a junction to an unrelated
+// directory. Direct replay requests must validate the bundle itself, just as
+// catalogue enumeration does, before acquiring leases or reading its members.
+function isSafeBundleCsvPath(csvPath: string, outputDir: string): boolean {
+  const bundle = getBundleFromCsvPath(csvPath);
+  if (!bundle || comparablePath(bundle.outputDir) !== comparablePath(outputDir)) return false;
+  try {
+    for (const directory of [bundle.outputDir, bundle.paths.dir]) {
+      const stat = fs.lstatSync(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+    }
+    const stat = fs.lstatSync(bundle.paths.csv);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch { return false; }
+}
+
 function listBundleCsvPaths(outputDir: string): string[] {
   const root = path.resolve(outputDir);
   if (!fs.existsSync(root)) return [];
@@ -142,6 +158,7 @@ module.exports = {
   getBundleDir,
   getBundleFromCsvPath,
   getBundlePaths,
+  isSafeBundleCsvPath,
   listBundleCsvPaths,
 };
 

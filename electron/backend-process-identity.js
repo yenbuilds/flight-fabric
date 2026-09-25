@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('node:path');
+
 function normalizeWindowsSid(value) {
   if (typeof value !== 'string') return '';
   const sid = value.trim().toUpperCase();
@@ -16,14 +18,53 @@ function normalizeWindowsProcessIdentity(value) {
   return Object.freeze({ pid, commandLine, creationToken, ownerSid });
 }
 
-function classifyFlightFabricBackendIdentity(value) {
+function normalizeAbsoluteWindowsLaunchPath(value) {
+  if (typeof value !== 'string' || /["\x00-\x1f]/.test(value)) return '';
+  const windowsPath = value.replace(/\//g, '\\');
+  // Do not resolve relative paths, device namespaces or parent traversal using
+  // this process's working directory. The launchers supply absolute paths.
+  if (!/^(?:[a-z]:\\|\\\\[^\\]+\\[^\\]+\\)/i.test(windowsPath)
+    || /^\\\\[?.]\\/.test(windowsPath)
+    || windowsPath.split('\\').some((part) => part === '.' || part === '..')) return '';
+  return path.win32.normalize(windowsPath).toLowerCase();
+}
+
+function parseCanonicalWindowsLaunchArguments(commandLine) {
+  // Accept the simple quoting emitted for our executable/script paths. Reject
+  // embedded/escaped quotes rather than guessing how Windows would parse them.
+  // Unsupported manual launches can be stopped manually instead of risking an
+  // unrelated process when recovering an occupied port.
+  if (/[\x00-\x08\x0a-\x1f]/.test(commandLine)) return null;
+  const tokens = [];
+  const argument = /(?:"([^"\r\n]*)"|([^"\s]+))(?:[ \t]+|$)/gy;
+  while (argument.lastIndex < commandLine.length) {
+    const match = argument.exec(commandLine);
+    if (!match) return null;
+    if (match[1] !== undefined && /\\$/.test(match[1])) return null;
+    tokens.push(match[1] ?? match[2]);
+  }
+  return tokens;
+}
+
+function classifyFlightFabricBackendIdentity(value, { backendScript, executablePath } = {}) {
   const identity = normalizeWindowsProcessIdentity(value);
-  if (!identity) return 'unverified';
-  const commandLine = identity.commandLine.toLowerCase();
-  if (!commandLine.includes('core\\simbridge.js') && !commandLine.includes('core/simbridge.js')) {
+  const expectedScript = normalizeAbsoluteWindowsLaunchPath(backendScript);
+  if (!identity || !expectedScript) return 'unverified';
+  const args = parseCanonicalWindowsLaunchArguments(identity.commandLine);
+  if (!args || args.length < 2
+    || normalizeAbsoluteWindowsLaunchPath(args[1]) !== expectedScript) return 'unverified';
+
+  const runtimePath = normalizeAbsoluteWindowsLaunchPath(args[0]);
+  const expectedRuntime = normalizeAbsoluteWindowsLaunchPath(executablePath);
+  const isNode = /^(?:node|node\.exe)$/i.test(args[0])
+    || (runtimePath && path.win32.basename(runtimePath) === 'node.exe');
+  if (!isNode && !(runtimePath && expectedRuntime && runtimePath === expectedRuntime)) return 'unverified';
+
+  const ownerArgs = args.slice(2).filter((arg) => arg.toLowerCase().startsWith('--ff-launch-owner'));
+  if (ownerArgs.length === 1 && ownerArgs[0] === '--ff-launch-owner=electron') return 'electron';
+  if (ownerArgs.length > 0 && !(ownerArgs.length === 1 && ownerArgs[0] === '--ff-launch-owner=batch')) {
     return 'unverified';
   }
-  if (commandLine.includes('--ff-launch-owner=electron')) return 'electron';
   return 'stoppable';
 }
 

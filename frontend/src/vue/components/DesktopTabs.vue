@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import TabIcon from './TabIcon.vue';
 import SupportLink from './SupportLink.vue';
+import ToolbarPanelSetupTask from './ToolbarPanelSetupTask.vue';
 import { navigationTabId } from '../tab-config.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useShellStore } from '../stores/shell.js';
@@ -37,18 +38,21 @@ const groups = computed(() => {
     <span class="sidebar-label">Go to...</span><kbd class="sidebar-label">Ctrl K</kbd>
   </button>
   <nav class="desktop-tab-bar sidebar-navigation" aria-label="Primary navigation">
-    <div v-for="group in groups" :key="group.id" class="sidebar-nav-group" :class="'sidebar-nav-' + group.id">
-      <p class="sidebar-group-label">{{ group.label }}</p>
-      <button v-for="tab in group.tabs" :key="tab.id" class="desktop-tab" :class="{ active: tabs.activeNavigationTabId === tab.id }" :data-tab="tab.id"
-        :aria-label="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired ? tab.label + ', setup required' : tab.label"
-        :aria-current="tabs.activeNavigationTabId === tab.id ? 'page' : undefined" :aria-controls="tab.id === 'livemap' ? 'tab-livemap tab-flight' : 'tab-' + tab.id"
-        :aria-keyshortcuts="tab.shortcuts.join(' ')" :title="tab.label + ' (' + tab.shortcuts.join(' / ') + ')'" type="button" @click="tabs.requestNavigationTabChange(tab.id)">
-        <TabIcon :kind="tab.icon" />
-        <span class="sidebar-label">{{ tab.label }}</span>
-        <span v-if="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired" class="sidebar-attention" data-aircraft-setup-indicator title="Aircraft controls require setup" aria-hidden="true"></span>
-        <kbd class="desktop-tab-keycap sidebar-label" aria-hidden="true">{{ tab.shortcuts.join(' / ') }}</kbd>
-      </button>
-    </div>
+    <template v-for="group in groups" :key="group.id">
+      <ToolbarPanelSetupTask v-if="group.id === 'utilities'" />
+      <div class="sidebar-nav-group" :class="'sidebar-nav-' + group.id">
+        <p class="sidebar-group-label">{{ group.label }}</p>
+        <button v-for="tab in group.tabs" :key="tab.id" class="desktop-tab" :class="{ active: tabs.activeNavigationTabId === tab.id }" :data-tab="tab.id"
+          :aria-label="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired ? tab.label + ', setup required' : tab.label"
+          :aria-current="tabs.activeNavigationTabId === tab.id ? 'page' : undefined" :aria-controls="tab.id === 'livemap' ? 'tab-livemap tab-flight' : 'tab-' + tab.id"
+          :aria-keyshortcuts="tab.shortcuts.join(' ')" :title="tab.label + ' (' + tab.shortcuts.join(' / ') + ')'" type="button" @click="tabs.requestNavigationTabChange(tab.id)">
+          <TabIcon :kind="tab.icon" />
+          <span class="sidebar-label">{{ tab.label }}</span>
+          <span v-if="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired" class="sidebar-attention" data-aircraft-setup-indicator title="Aircraft controls require setup" aria-hidden="true"></span>
+          <kbd class="desktop-tab-keycap sidebar-label" aria-hidden="true">{{ tab.shortcuts.join(' / ') }}</kbd>
+        </button>
+      </div>
+    </template>
   </nav>
   <div class="sidebar-bottom">
     <SupportLink />

@@ -79,6 +79,14 @@ function normalizeMarkdownLinkTarget(rawTarget) {
 
 function assertTrackedMarkdownLinksResolve() {
   const markdownFiles = listTrackedFiles('*.md', '*.mdx');
+  // A maintainer's ignored artifacts must not hide broken fresh-checkout links.
+  const trackedTargets = new Set(['']);
+  for (const file of listTrackedFiles()) {
+    trackedTargets.add(file);
+    for (let directory = path.posix.dirname(file); directory !== '.'; directory = path.posix.dirname(directory)) {
+      trackedTargets.add(directory);
+    }
+  }
   const errors = [];
   const linkPattern = /!?\[[^\]]*\]\(([^)]+)\)/gu;
 
@@ -96,7 +104,7 @@ function assertTrackedMarkdownLinksResolve() {
         : path.resolve(path.dirname(absoluteFile), target);
       const relativeResolved = path.relative(ROOT, resolved);
       if (
-        relativeResolved.startsWith(`..${path.sep}`) ||
+        relativeResolved === '..' || relativeResolved.startsWith(`..${path.sep}`) ||
         path.isAbsolute(relativeResolved)
       ) {
         errors.push(
@@ -108,6 +116,10 @@ function assertTrackedMarkdownLinksResolve() {
       if (!fs.existsSync(resolved)) {
         errors.push(
           `${relativeFile}:${lineNumberAt(markdown, match.index)} missing local link target: ${target}`,
+        );
+      } else if (!trackedTargets.has(relativeResolved.replaceAll(path.sep, '/'))) {
+        errors.push(
+          `${relativeFile}:${lineNumberAt(markdown, match.index)} untracked local link target: ${target}`,
         );
       }
     }

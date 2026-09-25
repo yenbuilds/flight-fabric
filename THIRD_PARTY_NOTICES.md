@@ -274,10 +274,14 @@ source as third-party code.
 - The Windows package includes ONNX Runtime libraries used by sherpa-onnx.
   ONNX Runtime is Copyright Microsoft Corporation and licensed under the MIT
   License: https://github.com/microsoft/onnxruntime
-- The bundled `sherpa-onnx-streaming-zipformer-en-2023-06-26` English
-  LibriSpeech model is distributed under Apache License 2.0. Its upstream model
+- The bundled `sherpa-onnx-streaming-zipformer-en-2023-06-21` English
+  LibriSpeech + GigaSpeech model is distributed under Apache License 2.0. Its upstream model
   repository is
-  https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26.
+  https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21.
+  The training checkpoint and BPE vocabulary are published under Apache License
+  2.0 at https://huggingface.co/marcoyang/icefall-libri-giga-pruned-transducer-stateless7-streaming-2023-04-04.
+  The model was trained on LibriSpeech and SpeechColab's GigaSpeech corpus:
+  https://github.com/SpeechColab/GigaSpeech. Training audio is not bundled.
 - The LibriSpeech corpus was prepared by Vassil Panayotov with assistance from
   Daniel Povey and is available under the Creative Commons Attribution 4.0
   International licence: https://www.openslr.org/12.

@@ -54,10 +54,12 @@
       this.attempts = 0;
       this.initialized = false;
       // The simulator keeps handling keyboard bindings (Backspace resets the
-      // view, letters toggle systems) until a text field claims the keyboard
-      // the way the simulator's own input elements do. The page reports its
-      // text-field focus and this loader forwards it with a stable field id.
+      // view, letters toggle systems) until the panel claims the keyboard
+      // the way the simulator's own input elements do. This also protects
+      // sliders and buttons, using one stable id for the page's interaction.
       this.keyboardFocused = false;
+      this.keyboardOutsideListening = false;
+      this.keyboardSequence = null;
       this.keyboardFieldId = "FLIGHTFABRIC_TOOLBAR_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
       this.onDomReady = this.initialize.bind(this);
       this.onMessage = this.onMessage.bind(this);
@@ -187,24 +189,32 @@
         this.loadPage();
       } else if (data.action === "keyboard") {
         // Only a visible, ready page may take the keyboard from the simulator.
+        this.keyboardSequence = typeof data.sequence === "number" && isFinite(data.sequence) ? data.sequence : null;
         this.setKeyboardFocus(data.focused === true && this.ready && this.panelActive);
       }
     }
 
     setKeyboardFocus(focused) {
-      if (focused === this.keyboardFocused) return;
       var coherent = typeof Coherent !== "undefined" && Coherent && typeof Coherent.trigger === "function" ? Coherent : null;
       if (!coherent) return;
-      this.keyboardFocused = focused;
+      if (focused !== this.keyboardFocused) {
+        try {
+          if (focused) coherent.trigger("FOCUS_INPUT_FIELD", this.keyboardFieldId, "", "", "", false);
+          else coherent.trigger("UNFOCUS_INPUT_FIELD", this.keyboardFieldId);
+          this.keyboardFocused = focused;
+        } catch (error) { /* keep the last known state so the next report retries */ }
+      }
+      // A listener failure must never skip UNFOCUS_INPUT_FIELD, or prevent a
+      // later retry. Keep listener bookkeeping separate from the native claim.
       try {
-        if (focused) {
-          coherent.trigger("FOCUS_INPUT_FIELD", this.keyboardFieldId, "", "", "", false);
-          if (typeof coherent.on === "function") coherent.on("mousePressOutsideView", this.onMousePressOutsideView);
-        } else {
-          if (typeof coherent.off === "function") coherent.off("mousePressOutsideView", this.onMousePressOutsideView);
-          coherent.trigger("UNFOCUS_INPUT_FIELD", this.keyboardFieldId);
+        if (this.keyboardFocused && !this.keyboardOutsideListening && typeof coherent.on === "function") {
+          coherent.on("mousePressOutsideView", this.onMousePressOutsideView);
+          this.keyboardOutsideListening = true;
+        } else if (!this.keyboardFocused && this.keyboardOutsideListening && typeof coherent.off === "function") {
+          coherent.off("mousePressOutsideView", this.onMousePressOutsideView);
+          this.keyboardOutsideListening = false;
         }
-      } catch (error) { /* the simulator keeps its keyboard; typing still reaches the page */ }
+      } catch (error) { /* the next focus/lifecycle report retries listener cleanup */ }
     }
 
     onMousePressOutsideView() {
@@ -213,7 +223,7 @@
       // the field claims the keyboard again.
       if (!this.keyboardFocused) return;
       this.setKeyboardFocus(false);
-      this.postToPage({ action: "keyboardReleased" });
+      this.postToPage({ action: "keyboardReleased", sequence: this.keyboardSequence });
     }
 
     syncPanelVisibility() {

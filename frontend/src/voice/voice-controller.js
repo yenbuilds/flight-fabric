@@ -484,7 +484,10 @@ export function createVoiceControlController({
   async function handleRecognitionEvent(event = {}) {
     const session = active;
     if (event.type === 'ready') return;
-    if (!session || event.sessionId !== session.sessionId) return;
+    const fatalError = event.type === 'error' && event.fatal === true;
+    // A worker crash affects the current microphone even when the engine
+    // cannot attach a session ID. Keep ignoring stale session-scoped events.
+    if (!session || (event.sessionId !== session.sessionId && !(fatalError && !event.sessionId))) return;
     if (event.type === 'partial') {
       voiceStore.setTranscript(event.text || '');
       return;
@@ -492,8 +495,8 @@ export function createVoiceControlController({
     if (event.type === 'error') {
       active = null;
       voiceStore.setSession('');
-      try { await session.capture.cancel(); } catch {}
-      voiceStore.setState('error', event.message || 'Voice recognition failed.');
+      voiceStore.setState(fatalError ? 'unavailable' : 'error', event.message || 'Voice recognition failed.');
+      try { await session.capture?.cancel?.(); } catch {}
       return;
     }
     if (event.type === 'cancelled') {
@@ -750,7 +753,10 @@ export function createVoiceControlController({
     unsubscribers.push(api.onRuntimeState((info) => {
       voiceStore.applyRuntimeInfo(info);
       if (voiceStore.runtime.enabled !== true) voiceStore.setInputDevices?.([]);
-      refreshReadyState();
+      // Also retire startup attempts whose recognition IPC reply has not yet
+      // arrived; a session-scoped failure cannot be correlated there yet.
+      if (voiceStore.runtime.available !== true && active) void cancel('runtime-unavailable');
+      else refreshReadyState();
     }));
     try {
       const info = await api.getRuntimeInfo();

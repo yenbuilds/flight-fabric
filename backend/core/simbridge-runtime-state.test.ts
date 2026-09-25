@@ -200,16 +200,22 @@ test('toolbar history keeps the scored takeoff beside the landing and clears it 
   rememberReplayMessage(state, { type: 'takeoff', final: false, iasKts: 140 });
   assert.equal(history()?.takeoff, null, 'a liftoff packet is not history');
   rememberReplayMessage(state, { type: 'takeoff', final: true, grade: 'Good', score: 95, icao: 'YSSY', runway: '34L',
-    runwayUse: { remainingFt: 2000, runwayLengthFt: 6000 }, roll: { distanceFt: 3800 }, analysis: Array(10000).fill({}) });
+    assessment: 'critical', flags: [{ code: 'runway_excursion', label: 'Runway excursion', severity: 'critical' }],
+    finalizeReason: 'telemetry_gap', screenHeight: { reached: false },
+    runwayUse: { remainingFt: 2000, runwayLengthFt: 6000, verified: false }, roll: { distanceFt: 3800 }, analysis: Array(10000).fill({}) });
   assert.equal(history()?.takeoff?.grade, 'Good');
   assert.equal(history()?.takeoff?.runwayUse.remainingFt, 2000);
   assert.equal(history()?.takeoff?.analysis, undefined);
+  assert.equal(history()?.takeoff?.assessment, 'critical');
+  assert.equal(history()?.takeoff?.flags[0].label, 'Runway excursion');
+  assert.equal(history()?.takeoff?.runwayUse.verified, false);
+  assert.equal(history()?.takeoff?.finalizeReason, 'telemetry_gap');
   rememberReplayMessage(state, { type: 'takeoff', final: false, cancelled: true, reason: 'reset' });
   assert.equal(history()?.takeoff?.grade, 'Good', 'a cancelled later attempt does not erase the scored takeoff');
   rememberReplayMessage(state, { type: 'landing', final: true, grade: 'FIRM' });
   assert.equal(history()?.takeoff?.grade, 'Good', 'the landing sits beside the takeoff');
   assert.equal(history()?.landing?.grade, 'FIRM');
-  assert.ok(!getReplayMessages(state).some(message => message.type === 'takeoff'), 'takeoff packets are never replayed as live events');
+  assert.equal(getReplayMessages(state).find(message => message.type === 'takeoff')?.grade, 'Good', 'desktop reconnect restores the scored takeoff');
   rememberReplayMessage(state, { type: 'flightTime', active: true, flightId: 'two' });
   assert.equal(history()?.takeoff, null, 'a new flight clears the takeoff');
   rememberReplayMessage(state, { type: 'takeoff', final: true, grade: 'Outstanding' });
@@ -275,6 +281,24 @@ test('a late rollout final after an aircraft change is ignored until the next to
   rememberReplayMessage(state, { type: 'landing', final: true, grade: 'FIRM' });
   assert.equal(history()?.landing?.final, true);
   assert.equal(history()?.landing?.grade, 'FIRM');
+});
+
+test('scored takeoff replays across reconnects with findings and clears on new flight or aircraft', () => {
+  const state = createSimbridgeRuntimeState();
+  const final = { type: 'takeoff', final: true, grade: 'Outstanding', assessment: 'critical',
+    flags: [{ code: 'runway_excursion', severity: 'critical', label: 'Runway excursion' }],
+    runwayUse: { verified: true }, screenHeight: { reached: false }, finalizeReason: 'telemetry_gap' };
+  rememberReplayMessage(state, { type: 'flightTime', active: true, startedAt: 'flight-a' });
+  rememberReplayMessage(state, final);
+  rememberReplayMessage(state, { type: 'takeoff', final: false, cancelled: true });
+  rememberReplayMessage(state, { type: 'simState', simconnectConnected: false });
+  rememberReplayMessage(state, { type: 'flightTime', active: true, startedAt: 'flight-a' });
+  assert.deepEqual(getReplayMessages(state).find((message) => message.type === 'takeoff'), final);
+  rememberReplayMessage(state, { type: 'flightTime', active: true, startedAt: 'flight-b' });
+  assert.equal(getReplayMessages(state).some((message) => message.type === 'takeoff'), false);
+  rememberReplayMessage(state, final);
+  rememberReplayMessage(state, { type: 'aircraftChanged' });
+  assert.equal(getReplayMessages(state).some((message) => message.type === 'takeoff'), false);
 });
 
 console.log(`PASS simbridge-runtime-state ${passed}`);

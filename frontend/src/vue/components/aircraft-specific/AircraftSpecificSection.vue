@@ -26,11 +26,13 @@ const directLvarFallbackActive = computed(() => (
   aircraftSpecific.dependencies.mobiflightEventModule?.fallbackActive === true
 ));
 const mobiflightNoticeElement = ref(null);
-const controlDependencyProps = computed(() => (
-  aircraftSpecific.controlsSetupRequired
-    ? { controlSetupRequired: true }
-    : {}
-));
+const controlDependencyProps = computed(() => ({
+  ...(aircraftSpecific.controlsSetupRequired ? { controlSetupRequired: true } : {}),
+  ...(['inibuilds-a380', 'tfdi-md-11'].includes(aircraftSpecific.templateId) ? {
+    controlsEnabled: aircraftControls.availability.enabled,
+    controlsDisabledReason: aircraftControls.availability.reason,
+  } : {}),
+}));
 
 const MOBIFLIGHT_INSTALL_URL = 'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/';
 const MOBIFLIGHT_ENABLE_URL = 'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/';

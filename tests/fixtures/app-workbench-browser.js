@@ -10,6 +10,7 @@ import { useAppSettingsStore } from '../../frontend/src/vue/stores/app-settings.
 import { useAircraftControlsStore } from '../../frontend/src/vue/stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../frontend/src/vue/stores/aircraft-specific.js';
 import { useFlightStore } from '../../frontend/src/vue/stores/flight.js';
+import { useTakeoffStore } from '../../frontend/src/vue/stores/takeoff.js';
 import { useSettingsEditorStore } from '../../frontend/src/vue/stores/settings-editor.js';
 import { useSimbriefStore } from '../../frontend/src/vue/stores/simbrief.js';
 import { useStatusStore } from '../../frontend/src/vue/stores/status.js';
@@ -17,11 +18,24 @@ import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
 import { useTimelineStore } from '../../frontend/src/vue/stores/timeline.js';
 import { useShellStore } from '../../frontend/src/vue/stores/shell.js';
 import { useProfilesStore } from '../../frontend/src/vue/stores/profiles.js';
+import { useToolbarPanelStore } from '../../frontend/src/vue/stores/toolbar-panel.js';
 
 const fixture = await (await fetch('/workbench-fixture')).json();
 const query = new URLSearchParams(location.search);
 let scope = query.get('scope') || 'full-control';
 const disconnected = query.get('disconnected') === '1';
+const toolbarFixture = { status: 'not_installed', reads: 0, writes: [] };
+if (query.get('toolbar') === '1') window.electronAPI = {
+  toolbarPanel: {
+    async getStatus() {
+      toolbarFixture.reads++;
+      return { ok: true, packageVersion: '0.10.2', installs: [{ installId: 'msfs2024-steam', label: 'MSFS 2024 — Steam', found: true,
+        status: toolbarFixture.status, canInstall: true, communityFolder: 'C:/MSFS/Packages/Community' }] };
+    },
+    async install(id) { toolbarFixture.writes.push(['install', id]); toolbarFixture.status = 'installed'; return { ok: true, restartRequired: true }; },
+    async uninstall(id) { toolbarFixture.writes.push(['uninstall', id]); toolbarFixture.status = 'not_installed'; return { ok: true, removed: true }; },
+  },
+};
 // Simulate upgrading a browser that previously chose a different navigation order.
 localStorage.setItem('ff_workspace_v1', 'planning');
 localStorage.setItem('ff_workspace_suggestions_v1', 'on');
@@ -141,7 +155,8 @@ for (const point of (disconnected ? [] : track.slice(0, 30))) {
 if (scope === 'full-control') timeline.ingestMessage({ type: 'timelineList', flights });
 else timeline.markListRestricted();
 setInterval(publishTelemetry, 800);
-window.workbenchTest = { tabs, status, flight, controls, profiles: useProfilesStore(), timeline, shell: useShellStore(), sent, nextTick,
+window.workbenchTest = { tabs, status, flight, controls, takeoff: useTakeoffStore(), profiles: useProfilesStore(), timeline, shell: useShellStore(), sent, nextTick,
+  toolbar: useToolbarPanelStore(), toolbarFixture,
   async open(tab) { timeline.closeTimelineMobileViewer(); tabs.requestTabChange(tab); await nextTick(); },
   async review() { timeline.requestTimeline(flights[0].filePath, flights[0].flightId, { flightLabel: flights[0].route }); await nextTick(); },
   async authorize(nextScope, pairing = 'not-requested') {

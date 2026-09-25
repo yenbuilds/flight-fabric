@@ -205,4 +205,4 @@ function detectMsfsInstalls(env) {
   return results;
 }
 
-module.exports = { detectMsfsInstalls };
+module.exports = { detectMsfsInstalls, INSTALL_CANDIDATES };

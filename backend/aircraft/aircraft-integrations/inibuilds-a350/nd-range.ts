@@ -1,7 +1,8 @@
 import type { AircraftIntegrationAction, AircraftIntegrationField } from '../types.js';
 
-// HubHop's original A350 mapping uses MAP_RANGE (the vendor PDF says MAP_MODE_RANGE).
-// See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md for this source discrepancy.
+// Installed A350 1.2.6 cockpit behavior and HubHop use MAP_RANGE;
+// the older vendor PDF says MAP_MODE_RANGE. Both sides passed parked readback
+// checks on the -900; see docs/A350-PROFILE-VALIDATION.md for scope and limits.
 // The selector has twelve positions. Only the seven normal
 // navigation detents are exposed; airport zoom and mode-dependent scale are not.
 const ranges = ['10', '20', '40', '80', '160', '320', '640'];

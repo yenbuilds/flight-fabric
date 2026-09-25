@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "description": "FlightFabric - airline flying telemetry and debrief app",
   "main": "main.js",
   "author": "FlightFabric",
@@ -62,6 +62,7 @@
       "process-liveness.js",
       "runtime-owner-lock.js",
       "msfs-detect.js",
+      "pmdg-sdk-setup.js",
       "msfs-toolbar-panel-installer.js",
       "msfs-toolbar-panel-package.js",
       "safe-directory-removal.js",
@@ -207,12 +208,12 @@
         ]
       },
       {
-        "from": "resources/models/sherpa-onnx-streaming-zipformer-en-2023-06-26",
-        "to": "models/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+        "from": "resources/models/sherpa-onnx-streaming-zipformer-en-2023-06-21",
+        "to": "models/sherpa-onnx-streaming-zipformer-en-2023-06-21",
         "filter": [
-          "decoder-epoch-99-avg-1-chunk-16-left-128.onnx",
-          "encoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
-          "joiner-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
+          "decoder-epoch-99-avg-1.onnx",
+          "encoder-epoch-99-avg-1.int8.onnx",
+          "joiner-epoch-99-avg-1.int8.onnx",
           "bpe.vocab",
           "tokens.txt"
         ]

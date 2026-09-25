@@ -158,6 +158,11 @@ function matchPattern(transcript, pattern, input) {
   const end = suffix ? transcript.length - suffix.length - 1 : transcript.length;
   if (end < start) return null;
   const capturedValue = transcript.slice(start, end);
+  if (hasAmbiguousLeadingTo(capturedValue, prefix, input)) return null;
+  return parsePatternValue(capturedValue, prefix, input);
+}
+
+function parsePatternValue(capturedValue, prefix, input) {
   // Flight levels are hundreds of feet. Keep that unit conversion in the
   // deterministic number parser even when the pattern, rather than the slot,
   // owns the spoken "flight level" prefix.
@@ -170,6 +175,30 @@ function matchPattern(transcript, pattern, input) {
     && input.units === 'feet'
     && /(?:^| )(?:altitude|flight level)(?: |$)/.test(prefix);
   return parseValue(valueText, input, { allowFlightLevelShorthand });
+}
+
+function hasAmbiguousLeadingTo(capturedValue, prefix, input) {
+  if (input?.kind !== 'number') return false;
+  // Some catalogues put the connective in the pattern; others leave it in
+  // the value slot. Check both before exact matching or correction drops it.
+  const prefixHasTo = /(?:^| )to$/.test(prefix);
+  if (!prefixHasTo && !capturedValue.startsWith('to ')) return false;
+  const valueWithoutTo = prefixHasTo ? capturedValue : capturedValue.slice(3);
+  // Evaluate the same bounded word repairs as command matching. Otherwise a
+  // trailing "zer" can hide the ambiguity until after "to" has been removed.
+  const rawTokens = valueWithoutTo.split(' ');
+  const valueTokens = correctedNumericSlot(rawTokens, input) || rawTokens;
+  const digits = stripMatchingUnitSuffix(valueTokens, input.units);
+  if (digits.length < 2 || !digits.every(token => DIGIT_SEQUENCE_TOKENS.has(token) || /^\d$/.test(token))) {
+    return false;
+  }
+  const numericPrefix = prefixHasTo ? prefix.replace(/(?:^| )to$/, '') : prefix;
+  const repairedValue = valueTokens.join(' ');
+  const connective = parsePatternValue(repairedValue, numericPrefix, input);
+  const spokenTwo = parsePatternValue(`two ${repairedValue}`, numericPrefix, input);
+  // "Altitude to zero zero zero" could be 0 or a misheard 2000. Neither
+  // interpretation is permission to silently choose a different target.
+  return connective !== null && spokenTwo !== null && connective.value !== spokenTwo.value;
 }
 
 function literalTokenMatches(actual, expected) {
@@ -230,6 +259,7 @@ function correctedTranscriptForPattern(rawTranscript, pattern, input) {
   if (!suffix.every((token, index) => literalTokenMatches(spoken[suffixOffset + index], token))) return null;
 
   let valueOffset = offset + prefix.length;
+  if (hasAmbiguousLeadingTo(spoken.slice(valueOffset, suffixOffset).join(' '), parts.prefix, input)) return null;
   // Permit the harmless connective only after a complete command prefix.
   if (prefix.length > 0 && spoken[valueOffset] === 'to') valueOffset += 1;
   if (valueOffset >= suffixOffset) return null;

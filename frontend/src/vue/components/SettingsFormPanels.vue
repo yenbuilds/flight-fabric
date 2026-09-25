@@ -1,13 +1,15 @@
 <script setup>
 import HelpTooltip from './HelpTooltip.vue';
 import ToolbarPanelSettingsPanel from './ToolbarPanelSettingsPanel.vue';
+import SettingsSectionWatermark from './SettingsSectionWatermark.vue';
 import { useSettingsEditorStore } from '../stores/settings-editor.js';
 const settings = useSettingsEditorStore();
 </script>
 
 <template>
   <div class="settings-panel-grid">
-    <section id="settings-phone-tablet-access" class="settings-panel settings-panel--wide">
+    <section id="settings-phone-tablet-access" class="settings-panel settings-panel--wide settings-panel--illustrated">
+      <SettingsSectionWatermark kind="devices" />
       <div class="settings-panel-header">
         <div class="settings-panel-kicker">Second screen</div>
         <div class="settings-panel-title-row">
@@ -53,7 +55,8 @@ const settings = useSettingsEditorStore();
 
     <ToolbarPanelSettingsPanel />
 
-    <section class="settings-panel">
+    <section class="settings-panel settings-panel--illustrated">
+      <SettingsSectionWatermark kind="recording" />
       <div class="settings-panel-header">
         <div class="settings-panel-kicker">Flying</div>
         <div class="settings-panel-title-row">
@@ -121,7 +124,8 @@ const settings = useSettingsEditorStore();
       </div>
     </section>
 
-    <section class="settings-panel">
+    <section class="settings-panel settings-panel--illustrated">
+      <SettingsSectionWatermark kind="audio" />
       <div class="settings-panel-header">
         <div class="settings-panel-kicker">Cabin Announcements</div>
         <div class="settings-panel-title-row">

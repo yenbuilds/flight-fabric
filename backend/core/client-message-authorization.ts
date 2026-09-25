@@ -8,6 +8,7 @@
 type ClientAuthorizationFlags = {
   __ffPrivilegedClient?: boolean;
   __ffAircraftControlClient?: boolean;
+  __ffToolbarPresetClient?: boolean;
 };
 
 export const TRUSTED_LAN_SAFE_READ_MESSAGE_TYPES = Object.freeze([
@@ -22,10 +23,16 @@ export const TRUSTED_LAN_SAFE_READ_MESSAGE_TYPES = Object.freeze([
 ] as const);
 
 export const AIRCRAFT_CONTROL_MESSAGE_TYPES = Object.freeze([
+  'pushback',
   'autotaxi',
   'sendCduKey',
   'executeAircraftCommand',
   'executeAircraftControl',
+] as const);
+
+// Read-only planning still needs an authenticated toolbar or paired device.
+export const TAXI_GUIDANCE_READ_MESSAGE_TYPES = Object.freeze([
+  'requestTaxiGuidance',
 ] as const);
 
 export const PRIVILEGED_CLIENT_MESSAGE_TYPES = Object.freeze([
@@ -74,6 +81,11 @@ export function isClientMessageAuthorized(
 ): boolean {
   if (typeof messageType !== 'string' || messageType.length === 0) return false;
   if (TRUSTED_LAN_SAFE_READ_MESSAGE_TYPE_SET.has(messageType)) return true;
+  if ((TAXI_GUIDANCE_READ_MESSAGE_TYPES as readonly string[]).includes(messageType)) return client?.__ffToolbarPresetClient === true
+    || client?.__ffAircraftControlClient === true || client?.__ffPrivilegedClient === true;
+  // The toolbar may run reviewed presets and the bounded pushback session.
+  // It still has no Autotaxi, arbitrary cockpit-control, or settings permission.
+  if (['executeAircraftCommand', 'pushback'].includes(messageType) && client?.__ffToolbarPresetClient === true) return true;
   if (AIRCRAFT_CONTROL_MESSAGE_TYPE_SET.has(messageType)) {
     return client?.__ffPrivilegedClient === true
       || client?.__ffAircraftControlClient === true;

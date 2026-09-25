@@ -290,6 +290,7 @@ export function createAppMessageHandler({
         updateEngines(message.data, { updateFlightStore: false });
         break;
       case 'flightTime':
+        takeoffStore?.handleFlightTime?.(message);
         break;
       case 'aircraftProfile':
         updateAircraftProfileDisplay(aircraftProfileDeps, message);

@@ -70,6 +70,12 @@ pub(crate) type DispatchProc = unsafe extern "system" fn(*mut SimConnectRecv, Dw
 pub(crate) type SimConnectOpen =
     unsafe extern "system" fn(*mut Handle, *const c_char, Hwnd, Dword, Handle, Dword) -> Hresult;
 pub(crate) type SimConnectClose = unsafe extern "system" fn(Handle) -> Hresult;
+pub(crate) type SimConnectEnumerateInputEvents =
+    unsafe extern "system" fn(Handle, Dword) -> Hresult;
+pub(crate) type SimConnectEnumerateInputEventParams =
+    unsafe extern "system" fn(Handle, u64) -> Hresult;
+pub(crate) type SimConnectSetInputEvent =
+    unsafe extern "system" fn(Handle, u64, Dword, *mut c_void) -> Hresult;
 pub(crate) type SimConnectCallDispatch =
     unsafe extern "system" fn(Handle, DispatchProc, *mut c_void) -> Hresult;
 pub(crate) type SimConnectAddToDataDefinition = unsafe extern "system" fn(

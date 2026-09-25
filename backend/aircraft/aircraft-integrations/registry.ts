@@ -228,6 +228,17 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
     )) {
       throw new TypeError(`Aircraft integration "${adapterId}" has an invalid dispatch guard.`);
     }
+    if (action.guard.requires !== undefined && (
+      !Array.isArray(action.guard.requires) || action.guard.requires.length < 1 || action.guard.requires.length > 8
+      || new Set(action.guard.requires.map(condition => condition?.fieldId)).size !== action.guard.requires.length
+      || action.guard.requires.some(condition => !condition || condition.freshness !== 'field'
+        || !Object.prototype.hasOwnProperty.call(definition.fields, condition.fieldId)
+        || ('expectedValue' in condition
+          ? !isPrimitive(condition.expectedValue)
+            || Object.keys(condition).some(key => !['fieldId', 'freshness', 'expectedValue'].includes(key))
+          : !Number.isFinite(condition.min) || !Number.isFinite(condition.max) || condition.min > condition.max
+            || Object.keys(condition).some(key => !['fieldId', 'freshness', 'min', 'max'].includes(key))))
+    )) throw new TypeError(`Aircraft integration "${adapterId}" has invalid required control conditions.`);
     const routeIds = new Set<string>();
     for (const route of action.routes) {
       const routeRecord = route as unknown as Record<string, unknown>;
@@ -291,6 +302,25 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         ))
       ) {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action route.`);
+      }
+      if (route.transport === 'input-event' && (
+        typeof route.inputEvent !== 'string'
+        || !/^[A-Za-z0-9_:.]{1,63}$/.test(route.inputEvent)
+        || typeof route.value !== 'number' || !Number.isFinite(route.value)
+        || !route.readback || route.readback.freshness !== 'field' || action.input !== undefined
+        || Object.keys(routeRecord).some((key) => !['id', 'transport', 'inputEvent', 'value', 'readback', 'precondition'].includes(key))
+      )) {
+        throw new TypeError(`Aircraft integration "${adapterId}" has an invalid native Input Event route.`);
+      }
+      if (route.transport === 'input-event' && route.precondition !== undefined) {
+        const prerequisite = route.precondition;
+        if (!prerequisite || typeof prerequisite !== 'object'
+          || !SAFE_LOGICAL_ID_RE.test(normalizeString(prerequisite.fieldId))
+          || !Object.prototype.hasOwnProperty.call(definition.fields, prerequisite.fieldId)
+          || !isPrimitive(prerequisite.expectedValue) || prerequisite.freshness !== 'field'
+          || Object.keys(prerequisite).some(key => !['fieldId', 'expectedValue', 'freshness'].includes(key))) {
+          throw new TypeError(`Aircraft integration "${adapterId}" has an invalid native Input Event precondition.`);
+        }
       }
       if (route.transport === 'mobiflight-calculator' && routeRecord.mode !== 'fenix-baro') {
         const calculatorRoute = route as unknown as Record<string, unknown>;
@@ -430,6 +460,19 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid SDK route.`);
       }
       if (route.transport === 'simconnect-sequence') {
+        if (route.prepareEvent !== undefined && (
+          adapterId !== 'fbw-a32nx' || action.id !== 'flightGuidance.altitude.set'
+          || route.prepareEvent?.name !== 'A32NX.FCU_ALT_INCREMENT_SET'
+          || route.prepareEvent.value !== 100
+          || Object.keys(route.prepareEvent).some(key => !['name', 'value'].includes(key))
+          || route.precondition?.fieldId !== 'flightGuidance.altitudeIncrementMode'
+          || route.precondition.expectedValue !== 'hundred'
+          || route.readback?.fieldId !== 'flightGuidance.altitudeFt'
+          || route.readback.expectedInput !== true
+          || action.guard.groupId !== 'fbwA32nx.flightGuidance.altitudeSelector'
+        )) {
+          throw new TypeError('Invalid A32NX altitude preparation contract.');
+        }
         const sequencePrecondition = route.precondition as Record<string, unknown> | undefined;
         const validSequencePrecondition = sequencePrecondition === undefined || (
           sequencePrecondition !== null

@@ -9,6 +9,7 @@ const trustedAircraftSpecificTemplates = Object.freeze({
   'inibuilds-a310': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftIniBuildsA310AircraftPanel.vue')),
   'inibuilds-a330': defineAsyncComponent(() => import('../components/aircraft-specific/templates/IniBuildsA330AircraftPanel.vue')),
   'inibuilds-a350': defineAsyncComponent(() => import('../components/aircraft-specific/templates/IniBuildsA350AircraftPanel.vue')),
+  'inibuilds-a380': defineAsyncComponent(() => import('../components/aircraft-specific/templates/IniBuildsA380AircraftPanel.vue')),
   'inibuilds-tristar': defineAsyncComponent(() => import('../components/aircraft-specific/templates/IniBuildsTriStarAircraftPanel.vue')),
   'microsoft-737-max-8': defineAsyncComponent(() => import('../components/aircraft-specific/templates/Microsoft737Max8AircraftPanel.vue')),
   'microsoft-atr-72-600': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftAtr72_600AircraftPanel.vue')),

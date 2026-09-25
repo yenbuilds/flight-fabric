@@ -59,6 +59,74 @@
 
 * { box-sizing: border-box; }
 
+/* The taxi map keeps the app's subdued night-map palette in either panel theme. */
+.taxi-section { --taxi-ground: #141d28; --taxi-pavement: #293748; --taxi-runway: #1b2633; --taxi-marking: #94a3b8; --taxi-route: #5aa2ff; --taxi-hold: #ff7373; --taxi-pushback: #e8b35c; --taxi-aircraft: #e8eef5; --taxi-success: var(--good); }
+@media (prefers-reduced-motion: reduce) { .taxi-section { --taxi-motion-duration: 0ms; } }
+.taxi-section h2 { margin: 0; }
+.taxi-section > p { font-size: 0.85em; line-height: 1.5; }
+.taxi-fields { display: flex; flex-wrap: wrap; margin: 0 -5px; }
+.taxi-field { display: flex; flex-direction: column; flex: 1 1 140px; min-width: 0; padding: 5px; font-size: 0.85em; color: var(--fg-muted); }
+.taxi-field[hidden] { display: none; }
+.taxi-value { width: 100%; min-width: 0; height: 44px; margin-top: 6px; padding: 6px 8px; color: var(--fg); background: var(--bg-sunken); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); }
+.taxi-value:focus, .taxi-section button:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.taxi-actions { display: flex; flex-wrap: wrap; margin: 8px -4px 0; }
+.taxi-actions .button { margin: 4px; min-height: 44px; }
+.taxi-actions .taxi-pushback-action { min-height: 48px; border-color: var(--accent); background: var(--accent-soft); color: var(--fg); }
+.taxi-actions .taxi-pushback-stop { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+.taxi-section button:disabled { opacity: 0.55; cursor: not-allowed; }
+.taxi-figure { margin: 12px 0 0; }
+.taxi-complete { color: var(--good); font-weight: 500; }
+.taxi-figure > button { margin-right: 6px; min-height: 44px; }
+.taxi-figure > button[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); background: var(--accent-soft); }
+.taxi-figure svg { display: block; width: 100%; max-width: 720px; max-height: 440px; margin: 8px auto; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--taxi-ground); pointer-events: none; }
+.taxi-caption { font-size: 0.9em; line-height: 1.5; }
+.taxi-cautions { color: var(--warn); }
+.taxi-pavement, .taxi-stand { fill: var(--taxi-pavement); }
+.taxi-runway { fill: var(--taxi-runway); }
+.taxi-marking, .taxi-map-label { fill: var(--taxi-marking); }
+.taxi-centreline { fill: none; stroke: var(--warn); stroke-width: 0.8; opacity: 0.6; }
+.taxi-done { fill: var(--taxi-route); opacity: 0.3; }
+.taxi-glow { fill: var(--taxi-route); opacity: 0.25; }
+.taxi-ahead { fill: var(--taxi-route); }
+.taxi-hold { fill: var(--taxi-hold); }
+.taxi-destination { fill: none; stroke: var(--taxi-hold); stroke-width: 2.5; }
+.taxi-stop { fill: var(--taxi-ground); stroke: #e8eef5; stroke-width: 2; }
+.taxi-shadow { fill: #000; opacity: 0.3; }
+.taxi-overview-pavement { fill: none; stroke: var(--taxi-pavement); }
+.taxi-overview-route { fill: none; stroke: var(--taxi-route); stroke-width: 3; }
+.taxi-marker { fill: #e8eef5; stroke: var(--taxi-ground); stroke-width: 1; }
+
+/* Presets share the Aircraft page's grouping, icon, accent rail and artwork. */
+.presets-section.card { position: relative; border-left: 3px solid var(--accent); }
+.preset-watermark { position: absolute; top: 0; right: 0; width: 100%; max-width: 560px; opacity: 0.45; pointer-events: none; user-select: none; }
+.preset-heading, .preset-row, .preset-group { position: relative; }
+.preset-heading { display: flex; align-items: center; margin-bottom: 12px; }
+.preset-heading svg { width: 30px; height: 30px; margin-right: 12px; flex-shrink: 0; fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.presets-section h3, .presets-section h4, .presets-section p { margin: 0; }
+.presets-section h3 { font-size: 1em; }
+.preset-heading p, .preset-group > p { font-size: 0.8em; margin-top: 3px; }
+.preset-row { background: var(--bg-elevated); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); padding: 12px; margin-top: 10px; min-width: 0; }
+.preset-group { margin-top: 10px; padding: 12px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.preset-group .preset-row { border: 0; border-top: 1px solid var(--panel-border); border-radius: 0; padding: 10px 0 0; }
+.preset-label { font-size: 0.9em; font-weight: 600; }
+.presets-section .preset-description { margin-top: 4px; color: var(--fg-muted); font-size: 0.8em; }
+.presets-section .preset-voice, .presets-section .preset-observed { margin-top: 5px; font-size: 0.8em; }
+.preset-actions { display: flex; align-items: center; margin-top: 10px; }
+.preset-actions > * + * { margin-left: 8px; }
+.preset-value { width: 100%; min-width: 0; flex: 1 1 0; height: 44px; padding: 6px 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--bg-sunken); }
+.preset-apply { min-height: 44px; padding: 8px 14px; border: 1px solid var(--good); border-radius: var(--radius-sm); color: var(--good); background: var(--good-soft); font-weight: 600; flex: 0 0 auto; }
+.preset-apply:only-child { width: 100%; }
+.preset-apply:disabled { color: var(--fg-faint); background: var(--bg-sunken); border-color: var(--panel-border); cursor: not-allowed; }
+.preset-apply:focus, .preset-value:focus, .preset-range:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.preset-target { display: block; margin-top: 10px; font-size: 0.85em; color: var(--fg-muted); }
+.preset-range { width: 100%; height: 44px; margin: 0; background: transparent; -webkit-appearance: none; }
+.preset-range::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--panel-border); }
+.preset-range::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7px; border-radius: 50%; border: 1px solid var(--focus); background: var(--accent); }
+.preset-range:disabled::-webkit-slider-thumb { background: var(--fg-faint); border-color: var(--panel-border); }
+.presets-section .preset-reason, .presets-section .preset-result { margin-top: 8px; font-size: 0.8em; overflow-wrap: break-word; }
+@media (max-width: 400px) { .preset-watermark { opacity: 0.25; } }
+@media (forced-colors: active) { .preset-watermark { display: none; } }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -176,6 +244,13 @@ button { cursor: pointer; }
 
 .notice.notice-danger { background: var(--danger-soft); color: var(--danger); }
 .notice.notice-accent { background: var(--accent-soft); color: var(--accent); }
+
+.notice.plan-setup-note {
+  margin: 0 0 var(--gap);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
 
 /* ---------- tabs ---------- */
 

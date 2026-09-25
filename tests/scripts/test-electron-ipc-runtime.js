@@ -103,6 +103,19 @@ async function runElectronProbe() {
       return { runtimeProbe: true };
     });
     ipcMain.handle('backend-logs', () => []);
+    let pmdgPickerCalls = 0;
+    const pmdgSdk = require(path.join(ROOT, 'electron', 'pmdg-sdk-setup')).createPmdgSdkSetup({
+      env: {}, platform: 'win32', showItemInFolder: () => { throw new Error('No fixture files should be revealed'); },
+      chooseOptionsFile: async () => { pmdgPickerCalls++; return { canceled: true }; },
+    });
+    for (const [channel, method] of [['pmdg-sdk-status', 'getStatus'], ['pmdg-sdk-reveal', 'revealFile'], ['pmdg-sdk-choose', 'chooseFile']]) {
+      ipcMain.handle(channel, (event, ...args) => {
+        if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+          throw new Error('Untrusted Electron IPC sender');
+        }
+        return pmdgSdk[method](...args);
+      });
+    }
     ipcMain.handle('backend-status', () => ({ status: 'stopped' }));
     ipcMain.handle('http-status', () => ({ status: 'running', port }));
     ipcMain.handle('autotaxi-background-set', (event, active) => {
@@ -118,12 +131,22 @@ async function runElectronProbe() {
       await assert.rejects(() => invokeSettings(frame));
       assert.equal(decisions.length, before + 1, 'rejected invocation must reach the IPC policy');
       assert.equal(decisions.at(-1).trusted, false);
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.pmdgSdk.getStatus('pmdg-737')"));
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.pmdgSdk.revealFile('pmdg-737', 'unknown-id')"));
+      const pickerCallsBefore = pmdgPickerCalls;
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.pmdgSdk.chooseFile('pmdg-737', 'pmdg-737')"));
+      assert.equal(pmdgPickerCalls, pickerCallsBefore, 'untrusted pages never reach the native picker');
     };
     const queryPermission = (frame, name) => frame.executeJavaScript(
       `navigator.permissions.query({ name: ${JSON.stringify(name)} }).then((result) => result.state)`,
     );
 
     await trustedWindow.loadURL(trustedUrl);
+    assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.getStatus('pmdg-737')"), { supported: true, files: [] });
+    assert.equal((await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.revealFile('pmdg-777', 'unknown-id')")).success, false);
+    assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.chooseFile('pmdg-737', 'pmdg-737')"), { canceled: true });
+    assert.equal(pmdgPickerCalls, 1);
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.getStatus('../arbitrary')"));
     await trustedWindow.webContents.executeJavaScript('window.electronAPI.setAutotaxiBackgroundActive(true)');
     assert.equal(trustedWindow.webContents.getBackgroundThrottling(), false);
     await assert.rejects(() => trustedWindow.webContents.executeJavaScript('window.electronAPI.setAutotaxiBackgroundActive("true")'));
@@ -277,7 +300,7 @@ async function runElectronProbe() {
     });
     process.exitCode = 1;
   } finally {
-    for (const channel of ['settings-get', 'backend-logs', 'backend-status', 'http-status']) {
+    for (const channel of ['settings-get', 'backend-logs', 'backend-status', 'http-status', 'pmdg-sdk-status', 'pmdg-sdk-reveal', 'pmdg-sdk-choose']) {
       ipcMain.removeHandler(channel);
     }
     for (const window of windows) {

@@ -84,8 +84,11 @@ function isLifecycleElectronIdentity(identity, nonce) {
   return hasExactCommandLineArgument(identity.commandLine, `--ff-lifecycle-smoke=${nonce}`);
 }
 
-function isLifecycleBackendIdentity(identity) {
-  return classifyFlightFabricBackendIdentity(identity) === 'electron';
+function isLifecycleBackendIdentity(identity, executablePath) {
+  return classifyFlightFabricBackendIdentity(identity, {
+    backendScript: path.join(path.dirname(executablePath), 'resources', 'backend', 'core', 'simbridge.js'),
+    executablePath,
+  }) === 'electron';
 }
 
 function isLifecycleGuardianIdentity(identity, electronPid, backendPid) {
@@ -307,7 +310,7 @@ async function runPackagedLifecycleScenario(action) {
     });
     backendIdentity = captureCurrentUserWindowsProcessIdentity(backendPid, {
       ownerSid: currentWindowsOwnerSid,
-      predicate: isLifecycleBackendIdentity,
+      predicate: (identity) => isLifecycleBackendIdentity(identity, exePath),
     });
     guardianIdentity = captureCurrentUserWindowsProcessIdentity(guardianPid, {
       ownerSid: currentWindowsOwnerSid,
@@ -392,7 +395,7 @@ async function runPackagedLifecycleScenario(action) {
     });
     forceStopPid(backendPid, backendIdentity, {
       ownerSid: currentWindowsOwnerSid,
-      predicate: isLifecycleBackendIdentity,
+      predicate: (identity) => isLifecycleBackendIdentity(identity, exePath),
     });
     forceStopPid(guardianPid, guardianIdentity, {
       ownerSid: currentWindowsOwnerSid,

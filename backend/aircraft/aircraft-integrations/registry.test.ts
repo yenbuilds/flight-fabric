@@ -438,7 +438,7 @@ test('Microsoft ATR 72-600 adapter exposes only documented read candidates', () 
   }), null);
 });
 
-test('TFDi Design MD-11 adapter is exact-profile trusted and monitoring-only', () => {
+test('TFDi Design MD-11 adapter is exact-profile trusted with guarded documented controls', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     TFDI_MD_11_ADAPTER_ID,
     { profileKey: TFDI_MD_11_PROFILE_KEY },
@@ -449,8 +449,8 @@ test('TFDi Design MD-11 adapter is exact-profile trusted and monitoring-only', (
   assert.equal(integration.aircraft.family, 'McDonnell Douglas MD-11');
   assert.equal(integration.presentation.templateId, 'tfdi-md-11');
   assert.deepEqual(integration.trustedProfileKeys, [TFDI_MD_11_PROFILE_KEY]);
-  assert.equal(Object.keys(integration.fields).length, 47);
-  assert.equal(Object.keys(integration.actions).length, 0);
+  assert.equal(Object.keys(integration.fields).length, 58);
+  assert.equal(Object.keys(integration.actions).length, 24);
   assert.deepEqual(integration.fields['afs.apState'].sources[0], {
     route: { type: 'lvar', name: 'L:MD11_AP_STATE', unit: 'Number' },
     decode: { type: 'enum', values: { 0: 'off', 1: 'ap1', 2: 'ap2', 3: 'dual' } },
@@ -931,6 +931,21 @@ test('iniBuilds TriStar adapter exposes its bounded read/write contract only for
   }), null, 'another bundled iniBuilds profile must not activate the trusted TriStar adapter');
 });
 
+test('A32NX altitude preparation accepts only its reviewed event and resolution', () => {
+  for (const change of [
+    route => { route.prepareEvent.value = 1000; },
+    route => { route.prepareEvent.name = 'A32NX.FCU_ALT_PULL'; },
+    route => { route.prepareEvent.extra = true; },
+    route => { delete route.precondition; },
+    route => { route.precondition.expectedValue = 'thousand'; },
+    route => { route.readback.fieldId = 'flightGuidance.headingDeg'; },
+  ]) {
+    const invalid = structuredClone(FBW_A32NX_INTEGRATION);
+    change(invalid.actions['flightGuidance.altitude.set'].routes[0]);
+    assert.throws(() => createAircraftIntegrationRegistry([invalid]), /altitude preparation contract/);
+  }
+});
+
 test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profile guards and readback', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     FBW_A32NX_ADAPTER_ID,
@@ -946,7 +961,7 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
     ['flightGuidance.speed.set', 'A32NX.FCU_SPD_SET', 'flightGuidance.speedValue', { type: 'number', min: 100, max: 399, step: 1 }, { fieldId: 'flightGuidance.machMode', expectedValue: false }, undefined],
     ['flightGuidance.mach.set', 'A32NX.FCU_SPD_SET', 'flightGuidance.speedValue', { type: 'number', min: 0.4, max: 0.99, step: 0.01 }, { fieldId: 'flightGuidance.machMode', expectedValue: true }, 100],
     ['flightGuidance.heading.set', 'A32NX.FCU_HDG_SET', 'flightGuidance.headingDeg', { type: 'number', min: 0, max: 359, step: 1 }, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false }, undefined],
-    ['flightGuidance.altitude.set', 'A32NX.FCU_ALT_SET', 'flightGuidance.altitudeFt', { type: 'number', min: 100, max: 49_000, step: 100 }, undefined, undefined],
+    ['flightGuidance.altitude.set', 'A32NX.FCU_ALT_SET', 'flightGuidance.altitudeFt', { type: 'number', min: 100, max: 49_000, step: 100 }, { fieldId: 'flightGuidance.altitudeIncrementMode', expectedValue: 'hundred' }, undefined],
     ['flightGuidance.verticalSpeed.set', 'A32NX.FCU_VS_SET', 'flightGuidance.verticalValue', { type: 'number', min: -6_000, max: 6_000, step: 100 }, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: false }, undefined],
     ['flightGuidance.flightPathAngle.set', 'A32NX.FCU_VS_SET', 'flightGuidance.verticalValue', { type: 'number', min: -9.9, max: 9.9, step: 0.1 }, { fieldId: 'flightGuidance.trkFpaMode', expectedValue: true }, 10],
   ] as const) {
@@ -963,6 +978,11 @@ test('FlyByWire A32NX adapter exposes broad documented writes behind exact-profi
       },
     }]);
     assert.deepEqual(route.precondition, precondition);
+    if (actionId === 'flightGuidance.altitude.set') {
+      assert.deepEqual(route.prepareEvent, { name: 'A32NX.FCU_ALT_INCREMENT_SET', value: 100 });
+      assert.equal(action.guard.groupId, integration.actions['flightGuidance.altitudeIncrement.hundred'].guard.groupId);
+      assert.equal(action.guard.groupId, integration.actions['flightGuidance.altitudeIncrement.thousand'].guard.groupId);
+    }
     assert.deepEqual(route.readback, {
       fieldId,
       expectedInput: true,

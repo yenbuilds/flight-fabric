@@ -6,6 +6,7 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const { safeModelFilePath, sha256File, verifyVoiceHotwords } = require('./voice-model-integrity');
 const { VOICE_HOTWORDS, ZIPFORMER_MODEL } = require('./voice-model-manifest');
 const {
@@ -27,7 +28,7 @@ const {
   resolveVoiceModelDir,
 } = require('./voice-speech-engine');
 
-test('voice manifest pins the compact Zipformer runtime subset', () => {
+test('voice manifest pins the streaming Zipformer runtime subset', () => {
   assert.equal(ZIPFORMER_MODEL.engineVersion, '1.13.5');
   assert.equal(ZIPFORMER_MODEL.sampleRate, 16000);
   assert.equal(ZIPFORMER_MODEL.files.length, 5);
@@ -490,6 +491,8 @@ test('voice runtime authorizes microphone access only for its active renderer se
   const handlers = new Map();
   const listeners = new Map();
   let activeSessionId = null;
+  let engineReady = true;
+  const outgoing = [];
   let eventListener = () => {};
   let sessionSequence = 0;
   let acceptedAudioChunks = 0;
@@ -508,10 +511,10 @@ test('voice runtime authorizes microphone access only for its active renderer se
     getInfo: () => ({
       activeSessionId,
       modelId: 'test-model',
-      ready: true,
-      state: 'ready',
+      ready: engineReady,
+      state: engineReady ? 'ready' : 'failed',
     }),
-    initialize: async () => {},
+    initialize: async () => { engineReady = true; },
     onEvent(listener) { eventListener = listener; },
     pushAudio() { acceptedAudioChunks += 1; },
     shutdown: async () => { activeSessionId = null; },
@@ -528,7 +531,13 @@ test('voice runtime authorizes microphone access only for its active renderer se
       getPath: () => userDataDir,
     },
     appDir: path.resolve('C:\\app'),
-    getMainWindow: () => null,
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: (channel, payload) => outgoing.push({ channel, payload }),
+      },
+    }),
     ipcMain,
     pushToTalkHookFactory: () => ({
       dispose() {},
@@ -586,6 +595,23 @@ test('voice runtime authorizes microphone access only for its active renderer se
   startRecognition({ sender: owner });
   assert.equal(runtime.cancelActiveSession(), true);
   assert.equal(runtime.isAudioCaptureAuthorized(owner), false, 'navigation-style cancellation must revoke microphone access');
+  for (const withSessionId of [false, true]) {
+    const failed = startRecognition({ sender: owner });
+    activeSessionId = null;
+    engineReady = false;
+    eventListener({
+      type: 'error', fatal: true, code: 'WORKER_FAILED', message: 'Local voice worker stopped.',
+      ...(withSessionId ? { sessionId: failed.sessionId } : {}),
+    });
+    assert.equal(runtime.isAudioCaptureAuthorized(owner), false);
+    assert.equal(runtime.runtimeInfo().available, false);
+    assert.equal(runtime.runtimeInfo().error, 'Local voice worker stopped.');
+    assert.equal(outgoing.at(-1).channel, 'voice:runtime-state');
+    assert.equal(outgoing.at(-1).payload.error, 'Local voice worker stopped.');
+    const recovered = await handlers.get('voice:set-recognition-enabled')({}, true);
+    assert.equal(recovered.available, true);
+    assert.equal(recovered.error, '');
+  }
   await runtime.shutdown();
   fs.rmSync(userDataDir, { recursive: true, force: true });
 });
@@ -650,6 +676,85 @@ for (const isPackaged of [true, false]) {
   });
 }
 
+function speechWorkerHarness() {
+  const events = [];
+  const streams = [];
+  let handleMessage;
+  class Recognizer {
+    createStream() {
+      const stream = {
+        frames: 0,
+        acceptWaveform({ samples }) { this.frames += samples.length; },
+        inputFinished() {},
+      };
+      streams.push(stream);
+      return stream;
+    }
+    isReady() { return false; }
+    getResult() { return { text: 'START APU' }; }
+  }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'voice-speech-worker.js'), 'utf8'), {
+    Float32Array,
+    require(name) {
+      if (name === 'node:worker_threads') return {
+        parentPort: {
+          on(_event, callback) { handleMessage = callback; },
+          postMessage(event) { events.push(event); },
+          close() {},
+        },
+        workerData: {
+          modelDir: path.resolve('voice-model-fixture'),
+          hotwordsPath: path.resolve('voice-hotwords-fixture.txt'),
+        },
+      };
+      if (name === 'node:fs') return {
+        lstatSync: () => ({ isFile: () => true, isSymbolicLink: () => false, size: 1 }),
+      };
+      if (name === 'sherpa-onnx-node') return { OnlineRecognizer: Recognizer };
+      return require(name);
+    },
+  });
+  assert.ok(events.some(event => event.type === 'ready'));
+  return { events, streams, send: message => handleMessage(message) };
+}
+
+test('worker accepts exactly ten seconds regardless of PCM rate and chunk boundaries', () => {
+  for (const sampleRate of [16000, 22050, 44100, 48000]) {
+    for (const chunkFrames of [128, 2048, 8192]) {
+      const worker = speechWorkerHarness();
+      const sessionId = 'boundary_session';
+      worker.send({ type: 'start', sessionId });
+      const totalFrames = sampleRate * 10;
+      let sequence = 0;
+      for (let offset = 0; offset < totalFrames; offset += chunkFrames) {
+        worker.send({
+          type: 'audio', sessionId, sampleRate, sequence: sequence++,
+          samples: new Float32Array(Math.min(chunkFrames, totalFrames - offset)),
+        });
+      }
+      worker.send({ type: 'finish', sessionId });
+      const context = `${sampleRate} Hz with ${chunkFrames}-frame chunks`;
+      assert.equal(worker.events.filter(event => event.type === 'error').length, 0, context);
+      assert.equal(worker.events.filter(event => event.type === 'final').length, 1, context);
+      assert.equal(worker.streams[0].frames, sampleRate * 10.5, context);
+    }
+  }
+});
+
+test('worker rejects audio beyond ten seconds without producing a command', () => {
+  const worker = speechWorkerHarness();
+  const sessionId = 'overflow_session';
+  const sampleRate = 44100;
+  worker.send({ type: 'start', sessionId });
+  for (let sequence = 0; sequence < 10; sequence += 1) {
+    worker.send({ type: 'audio', sessionId, sampleRate, sequence, samples: new Float32Array(sampleRate) });
+  }
+  worker.send({ type: 'audio', sessionId, sampleRate, sequence: 10, samples: new Float32Array([0.1]) });
+  worker.send({ type: 'finish', sessionId });
+  assert.equal(worker.events.filter(event => event.type === 'error').length, 1);
+  assert.equal(worker.events.filter(event => event.type === 'final').length, 0);
+});
+
 test('each push-to-talk utterance uses a fresh Zipformer stream', () => {
   const workerSource = fs.readFileSync(path.join(__dirname, 'voice-speech-worker.js'), 'utf8');
   assert.match(workerSource, /const stream = recognizer\.createStream\(\);/);
@@ -658,7 +763,7 @@ test('each push-to-talk utterance uses a fresh Zipformer stream', () => {
   assert.doesNotMatch(workerSource, /recognizer\.reset\(|reusableStream/);
 });
 
-test('native Zipformer recognizes NAV 109.50 with decimal and point and keeps silence empty', {
+test('native Zipformer preserves final APU letters and heading digits, recognizes NAV and keeps silence empty', {
   timeout: 30_000,
 }, async (t) => {
   if (process.platform !== 'win32' || process.arch !== 'x64') {
@@ -675,6 +780,12 @@ test('native Zipformer recognizes NAV 109.50 with decimal and point and keeps si
     return;
   }
   const { readWave } = require('sherpa-onnx-node');
+  const { normalizeAviationAcronyms } = await import('../frontend/src/voice/aviation-acronyms.js');
+  const { interpretAircraftVoiceCommand } = await import('../frontend/src/voice/command-interpreter.js');
+  const headingCatalogue = { commands: [{
+    id: 'heading', speech: { patterns: ['set heading {value}'] },
+    input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+  }] };
   const engine = createVoiceSpeechEngine();
   t.after(() => engine.shutdown());
   await engine.initialize();
@@ -682,15 +793,53 @@ test('native Zipformer recognizes NAV 109.50 with decimal and point and keeps si
     ...readWave(path.join(__dirname, '..', 'tests', 'fixtures', 'voice', `nav-109-${separator}-five.wav`)),
     expected: `SET NAV RADIOS ONE ZERO NINE ${separator.toUpperCase()} FIVE`,
   }));
-  fixtures.push({ samples: new Float32Array(1600), sampleRate: 16000, expected: '' });
-  for (const { samples, sampleRate, expected } of fixtures) {
+  for (const voice of ['david', 'zira']) {
+    for (const [phrase, expectedAcronyms] of [
+      ['apu-start', 'start apu'],
+      ['apu-incomplete', 'start ap'],
+      ['heading-270', 'set heading two seven zero'],
+      ['heading-070', 'set heading zero seven zero'],
+      ['heading-incomplete', null],
+    ]) {
+      const { samples, sampleRate } = readWave(path.join(
+        __dirname, '..', 'tests', 'fixtures', 'voice', `${phrase}-${voice}.wav`,
+      ));
+      // SAPI adds about 700 ms of digital silence. Keeping it would conceal
+      // truncated final tokens in short PTT recordings. Retain every non-zero
+      // sample, vary alignment within the model's decoding chunks, and append
+      // only the controller's 250 ms captured release tail.
+      let end = samples.length;
+      while (end > 0 && samples[end - 1] === 0) end -= 1;
+      for (const prefixMs of [0, 80, 160, 240]) {
+        const prefixFrames = Math.round(sampleRate * prefixMs / 1000);
+        const aligned = new Float32Array(prefixFrames + end + Math.round(sampleRate * 0.25));
+        aligned.set(samples.subarray(0, end), prefixFrames);
+        fixtures.push({
+          samples: aligned, sampleRate, expectedAcronyms,
+          incompleteApu: phrase === 'apu-incomplete',
+          incompleteHeading: phrase === 'heading-incomplete',
+          label: `${phrase}-${voice}, prefix ${prefixMs} ms, captured tail 250 ms`,
+        });
+      }
+    }
+  }
+  for (const durationMs of [0, 100, 1000, 3000]) {
+    fixtures.push({ samples: new Float32Array(durationMs * 16), sampleRate: 16000, expected: '',
+      silent: true, label: `digital silence, ${durationMs} ms` });
+  }
+  fixtures.push({ samples: new Float32Array(48000), sampleRate: 48000, expected: '',
+    silent: true, label: 'digital silence at microphone sample rate, 1000 ms' });
+  fixtures.push({ ...fixtures[0], label: 'speech after silent sessions' });
+  for (const { samples, sampleRate, expected, expectedAcronyms, incompleteApu, incompleteHeading, silent, label } of fixtures) {
     const { sessionId } = engine.start();
     let unsubscribe;
     let timer;
+    const partials = [];
     const final = new Promise((resolve, reject) => {
       timer = setTimeout(() => reject(new Error('Native recognition did not finalize')), 10_000);
       unsubscribe = engine.onEvent((event) => {
         if (event.sessionId !== sessionId) return;
+        if (event.type === 'partial') partials.push(event.text);
         if (event.type === 'error') reject(new Error(event.message));
         if (event.type === 'final') resolve(event);
       });
@@ -702,7 +851,19 @@ test('native Zipformer recognizes NAV 109.50 with decimal and point and keeps si
         assert.equal(engine.finish(sessionId), true);
       } catch (error) { reject(error); }
     });
-    try { assert.equal((await final).text, expected); } finally {
+    try {
+      const text = (await final).text;
+      if (incompleteHeading) {
+        // "Two seven" must not acquire an unspoken zero or become heading 27.
+        assert.equal(interpretAircraftVoiceCommand(text, headingCatalogue).ok, false, `${label}: ${text}`);
+      } else if (incompleteApu) {
+        // Padding/bias changes must not turn an unspoken U into an executable
+        // APU command. Missing P is also incomplete, so it remains rejected.
+        assert.ok(['start a', 'start ap'].includes(normalizeAviationAcronyms(text.toLowerCase())), `${label}: ${text}`);
+      } else if (expectedAcronyms) assert.equal(normalizeAviationAcronyms(text.toLowerCase()), expectedAcronyms, label);
+      else assert.equal(text, expected, label);
+      if (silent) assert.ok(partials.every(partial => partial === ''), `${label}: ${partials.join(', ')}`);
+    } finally {
       clearTimeout(timer);
       unsubscribe();
     }

@@ -49,12 +49,17 @@ export function sanitizeToolbarTakeoff(value: unknown): AnyRecord | null {
     icao: text(takeoff.icao, 8), runway: text(takeoff.runway, 16),
     runwayExcursion: takeoff.runwayExcursion === true, hopCount: number(takeoff.hopCount) ?? 0,
     crosswind: number(takeoff.crosswind),
+    assessment: text(takeoff.assessment, 16), finalizeReason: text(takeoff.finalizeReason, 32),
+    flags: Array.isArray(takeoff.flags) ? takeoff.flags.slice(0, 16).map((flag: AnyRecord) => ({
+      code: text(flag?.code, 64), label: text(flag?.label, 160), severity: text(flag?.severity, 16),
+    })) : [],
     runwayUse: {
       remainingFt: number(runwayUse.remainingFt), liftoffDistanceFt: number(runwayUse.liftoffDistanceFt),
       usedPct: number(runwayUse.usedPct), runwayLengthFt: number(runwayUse.runwayLengthFt),
       beyondRunwayEnd: runwayUse.beyondRunwayEnd === true,
+      verified: typeof runwayUse.verified === 'boolean' ? runwayUse.verified : null,
     },
-    roll: { distanceFt: number(roll.distanceFt), durationS: number(roll.durationS) },
+    roll: { distanceFt: number(roll.distanceFt), durationS: number(roll.durationS), startSource: text(roll.startSource, 32) },
     liftoff: { iasKts: number(liftoff.iasKts), pitchDeg: number(liftoff.pitchDeg) },
     screenHeight: { heightFt: number(screen.heightFt), reached: screen.reached === true, remainingFt: number(screen.remainingFt) },
     rotation: { rateDegS: number(rotation.rateDegS) },

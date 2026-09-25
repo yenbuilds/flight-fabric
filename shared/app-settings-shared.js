@@ -14,7 +14,7 @@
   // Experimental Autotaxi is enabled for 0.10.0. This source-only release gate
   // is not configurable through environment, saved settings or request payloads.
   const LIVE_AUTOTAXI_ENABLED = true;
-  // Takeoff scoring is held back for 0.10.1 pending correctness validation.
+  // Takeoff capture and debrief are disabled for the next release.
   // Source-only release gate: never restore this from user settings or env.
   const TAKEOFF_SCORING_ENABLED = false;
 

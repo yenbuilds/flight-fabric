@@ -464,6 +464,36 @@ test('aviation number parser accepts digit sequences, cardinal values, flight le
   assert.equal(parseAviationNumber('one twenty feet', { units: 'degrees' }), null);
 });
 
+test('ambiguous leading to cannot remove a spoken digit from numeric targets', () => {
+  const explicitConnective = { commands: [{
+    ...catalogue.commands.altitude,
+    speech: { patterns: ['set altitude to {value}'] },
+  }] };
+  for (const active of [catalogue, explicitConnective]) {
+    for (const phrase of [
+      'set altitude to zero zero zero',
+      'set altitude to one zero zero zero',
+      'set altitude to one zero zero zero feet',
+      'set altitude to one zero zer',
+      'set altitude to one zero nearer',
+      "set altitude to one's zero zero",
+      'set altitude to one zero zer feet',
+    ]) assert.equal(interpretAircraftVoiceCommand(phrase, active).ok, false, phrase);
+  }
+  for (const phrase of ['set speed to eight zero', 'said altitude to zero zero zero']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, catalogue).ok, false, phrase);
+  }
+  for (const [phrase, value] of [
+    ['set altitude two zero zero zero', 2000],
+    ['set altitude to ten thousand', 10000],
+    ['set altitude to 10000', 10000],
+    ['set heading to zero seven zero', 70],
+    ['set heading to two seven zero', 270],
+    ['set speed to one eight zero', 180],
+    ['set speed to one zero zer', 100],
+  ]) assert.deepEqual(interpretAircraftVoiceCommand(phrase, catalogue).input, { value }, phrase);
+});
+
 test('interpreter resolves only exact active-catalogue patterns', () => {
   assert.deepEqual(interpretAircraftVoiceCommand('Set heading two seven zero', catalogue), {
     ok: true, transcript: 'set heading two seven zero', commandId: 'flightGuidance.heading.set',

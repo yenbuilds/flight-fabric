@@ -11,14 +11,16 @@ const TEST_STEPS = [
   ['node', ['--test', 'tests/scripts/test-support-redirect.js']],
   ['node', ['--test', 'tests/scripts/test-http-static-file-lifecycle.js']],
   ['node', ['--test', 'electron/initial-window-content.test.js']],
+  ['node', ['--test', 'electron/pmdg-sdk-setup.test.js']],
   ['node', ['--test', 'tests/scripts/test-run-test-suite-isolation.js']],
   ['npm', ['run', 'build:backend:runtime']],
   ['npm', ['run', 'test:backend:companions']],
   ['npm', ['run', 'test:cabin-announcements']],
   ['npm', ['run', 'test:backend:compiled-units']],
-  ['node', ['--test', 'dist/backend/autotaxi/autotaxi.test.js', 'dist/backend/autotaxi/controller-motion.test.js', 'dist/backend/autotaxi/pmdg-readiness.test.js', 'dist/backend/autotaxi/aircraft-config.test.js', 'dist/backend/autotaxi/aircraft-adapters.test.js', 'frontend/src/aircraft/autotaxi-chase-view.test.js']],
+  ['node', ['--test', 'dist/backend/replay/landing-clip.test.js', 'tests/scripts/test-dedicated-replay.js']],
+  ['node', ['--test', 'dist/backend/autotaxi/pushback.test.js', 'dist/backend/autotaxi/autotaxi.test.js', 'dist/backend/autotaxi/controller-motion.test.js', 'dist/backend/autotaxi/pmdg-readiness.test.js', 'dist/backend/autotaxi/aircraft-config.test.js', 'dist/backend/autotaxi/aircraft-adapters.test.js', 'frontend/src/aircraft/autotaxi-chase-view.test.js', 'frontend/src/aircraft/departure-preview.test.js', 'frontend/src/aircraft/pushback-controls.test.js', 'frontend/src/aircraft/pushback-map.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/cdu/cdu.test.js', 'frontend/src/aircraft/cdu-controller.test.js', 'frontend/src/aircraft/cdu-skins.test.js']],
-  ['node', ['--test', 'dist/backend/core/device-pairing.test.js']],
+  ['node', ['--test', 'dist/backend/core/device-pairing.test.js', 'dist/backend/core/toolbar-presets.test.js']],
   ['node', ['--test', 'dist/backend/stability/approach-assessment.test.js', 'frontend/src/timeline/approach-alerts.test.js']],
   ['node', ['--test', 'dist/backend/landing/landing-replay-analysis.test.js']],
   ['node', [
@@ -53,7 +55,9 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-type-drift.js']],
   ['node', ['tests/scripts/test-package-drift.js']],
   ['node', ['--test', 'tests/scripts/test-msfs-toolbar-panel.js']],
+  ['node', ['tests/scripts/test-msfs-toolbar-presets-browser.js']],
   ['node', ['--test', 'tests/scripts/test-telemetry-client.js']],
+  ['node', ['--test', 'tests/scripts/test-repo-hygiene-links.js']],
   ['npm', ['run', 'test:repo-hygiene']],
   ['npm', ['run', 'test:safety-notices']],
   ['node', ['tests/scripts/test-dry-guards.js']],
@@ -127,6 +131,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-user-identity.js']],
   ['node', ['--test', 'tests/scripts/test-electron-release-output-failure-guard.js']],
   ['node', ['electron/test-electron.js']],
+  ['node', ['--test', 'tests/scripts/test-simconnect-sdk.js']],
   ['node', ['--test', 'tests/scripts/test-electron-packaged-startup-files.js']],
   ['node', ['tests/scripts/test-surface-normalizer.js']],
   ['node', ['tests/scripts/test-vre-evaluator.js']],
@@ -139,7 +144,8 @@ const TEST_STEPS = [
   ['node', ['--test', 'dist/backend/aircraft/takeoff-lights.test.js']],
   ['node', ['--test', 'dist/backend/aircraft/cockpit-lighting.test.js']],
   ['node', ['--test', 'dist/backend/aircraft/exterior-lights.test.js']],
-  ['node', ['--test', 'tests/scripts/test-aircraft-command-matrix.js']],
+  ['node', ['--test', 'tests/scripts/test-aircraft-command-matrix.js', 'frontend/src/aircraft/preset-observation.test.js']],
+  ['node', ['--test', 'tests/scripts/test-aircraft-pages.js']],
   ['node', ['--test', 'tests/scripts/test-aircraft-capability-replay.js']],
   ['node', ['--test', 'tests/scripts/test-aircraft-command-parity.js', 'frontend/src/aircraft/command-input.test.js']],
   ['node', ['tests/scripts/test-command-browser.js']],
@@ -159,6 +165,7 @@ const TEST_STEPS = [
   ['node', ['dist/backend/telemetry-provider/lvar-sidecar-bridge.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/touchdown-shake.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/source-overlays.test.js']],
+  ['node', ['--test', 'dist/backend/telemetry-provider/md11-controls.test.js']],
   ['node', ['dist/backend/telemetry-provider/simconnect-telemetry-provider.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/generic-control-diagnostics.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/pmdg-737-sdk-integration.test.js']],
@@ -265,6 +272,20 @@ function createIsolatedTestEnvironment(baseEnv = process.env) {
     }
   }
 
+  // Git hooks export repository-local paths. In a linked worktree these are
+  // absolute, so fixture `git init`/`clone` commands could modify the real
+  // repository instead of their scratch directory. Let each child discover
+  // its own repository, including tests that create temporary Git fixtures.
+  const gitLocalEnv = new Set([
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS',
+    'GIT_CONFIG_COUNT', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE',
+    'GIT_IMPLICIT_WORK_TREE', 'GIT_GRAFT_FILE', 'GIT_INDEX_FILE',
+    'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+    'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+  ]);
+  for (const name of Object.keys(env)) {
+    if (gitLocalEnv.has(name) || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(name)) delete env[name];
+  }
   return env;
 }
 

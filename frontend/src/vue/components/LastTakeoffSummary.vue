@@ -31,9 +31,13 @@ const gradeStyle = computed(() => ({
         Full Report
       </button>
     </div>
+    <div v-if="takeoff.preview.available" class="px-4 py-3 border-b border-surface-200 text-xs">
+      <p v-if="takeoff.preview.assessment" id="data-last-takeoff-assessment" :class="takeoff.preview.assessmentTone">{{ takeoff.preview.assessment }}</p>
+      <p id="data-last-takeoff-confidence" class="text-muted-fg mt-1">{{ takeoff.preview.confidence }}</p>
+    </div>
     <div v-show="takeoff.preview.available" class="grid grid-cols-2 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-surface-200">
       <div class="px-4 py-3">
-        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Runway use grade</div>
+        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.preview.gradeLabel }}</div>
         <div
           id="data-last-takeoff-grade"
           class="text-base font-semibold tabular"

@@ -33,6 +33,8 @@ export const PARITY_COMMAND_DEFINITIONS: readonly AircraftCommandDefinition[] = 
   definition('systems.probeHeat.set', 'Probe heat', enumInput(['auto', 'on']), ['probe heat', 'probe window heat']),
   definition('systems.crossBleed.set', 'Cross bleed', enumInput(['closed', 'auto', 'open']), ['cross bleed', 'crossbleed']),
   definition('systems.packFlow.set', 'Pack flow', enumInput(['low', 'normal', 'high', 'manual'])),
+  ...([3, 4] as const).map(index => definition(`systems.engineBleed${index}.set`, `Engine ${index} bleed`, enumInput(['off', 'on']),
+    [`engine ${index === 3 ? 'three' : 'four'} bleed`, `engine ${index} bleed`])),
   ...(['captain', 'firstOfficer'] as const).flatMap(side => {
     const word = side === 'captain' ? 'captain' : 'first officer';
     return [
@@ -172,6 +174,22 @@ export function aircraftParityBindings(adapterId: string): readonly AircraftComm
         onOff(`navigation.${commandSide}.terrain`, `navigation.terrain${side}`);
         positions(`navigation.${commandSide}.mode`, `navigation.nd${side}Mode`, ['ils', 'vor', 'nav', 'arc', 'plan'], ['roseIls', 'roseVor', 'roseNav', 'arc', 'plan']);
       }
+    }
+  }
+  if (adapterId === 'inibuilds-a380') {
+    choose('surfaces.flaps.set', {
+      up: action('controls.flaps.up'), 1: action('controls.flaps.one'), 2: action('controls.flaps.two'),
+      3: action('controls.flaps.three'), full: action('controls.flaps.full'),
+    }, enumInput(['up', '1', '2', '3', 'full']));
+    positions('surfaces.spoilers.set', 'controls.speedbrake', ['retracted', 'half', 'full'], ['stowed', 'half', 'full']);
+    onOff('surfaces.spoilersArmed.set', 'controls.spoilersArmed');
+    onOff('flightGuidance.flightDirector.set', 'flightGuidance.flightDirector');
+    positions('cabin.seatBelts.set', 'cabin.seatBelts', ['off', 'auto', 'on']);
+    positions('cabin.noMobile.set', 'cabin.noMobile', ['off', 'auto', 'on']);
+    positions('cabin.emergencyExit.set', 'cabin.emergencyExit', ['off', 'arm', 'on']);
+    onOff('systems.apuMaster.set', 'systems.apuMaster');
+    for (const target of ['apuBleed', 'engineBleed1', 'engineBleed2', 'engineBleed3', 'engineBleed4', 'pack1', 'pack2']) {
+      positions(`systems.${target}.set`, `systems.${target}`, ['off', 'on']);
     }
   }
   if (adapterId === 'inibuilds-a350') {

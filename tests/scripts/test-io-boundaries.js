@@ -37,7 +37,8 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/flight-recording/flight-csv-writer.ts', 'recording-storage', 'closeSync=2,createWriteStream=1,existsSync=3,fdatasync=1,fdatasyncSync=1,fstatSync=2,lstatSync=3,openSync=2,rmdirSync=1,statSync=3,unlinkSync=2,writeSync=1'],
   ['backend/flight-recording/flight-analysis-rescore-sidecar.ts', 'recording-storage', 'closeSync=1,fstatSync=2,lstatSync=5,openSync=1,readSync=1'],
   ['backend/flight-recording/read-flight-summary.ts', 'recording-storage', 'readFileSync=1,statSync=1'],
-  ['backend/flight-recording/recording-bundle-layout.ts', 'recording-storage', 'existsSync=2,lstatSync=2,readdirSync=1'],
+  // Direct replay reads additionally reject linked bundle directories/members.
+  ['backend/flight-recording/recording-bundle-layout.ts', 'recording-storage', 'existsSync=2,lstatSync=4,readdirSync=1'],
   ['backend/flight-recording/recording-bundle-lease.ts', 'recording-storage', 'closeSync=3,fdatasyncSync=1,fstatSync=2,futimesSync=1,linkSync=1,lstatSync=2,mkdirSync=1,openSync=2,readSync=1,readdirSync=1,unlinkSync=2,writeSync=1'],
   ['backend/flight-recording/recording-bundle-lifecycle.ts', 'recording-storage', 'existsSync=5,linkSync=2,lstatSync=3,readdirSync=2,rmdirSync=1,unlinkSync=5'],
   ['backend/flight-recording/recording-bundle-status.ts', 'recording-storage', 'closeSync=6,existsSync=2,fstatSync=6,fsyncSync=2,linkSync=1,lstatSync=10,openSync=5,promises.lstat=2,promises.open=2,readSync=3,unlinkSync=1,writeSync=1'],
@@ -72,6 +73,13 @@ const EXPECTED_FS_BOUNDARIES = [
 ];
 
 const EXPECTED_NATIVE_WRITES = {
+  // Dedicated replay proof: six user-pose doubles and three explicit freeze
+  // events, behind exclusive ownership, exact identity/readback and a durable
+  // reload-recovery journal. It does not write camera or cockpit state.
+  'backend/telemetry-provider/rust-simconnect-sidecar/src/replay.rs': {
+    transmit_client_event: 1,
+    set_data_on_sim_object: 1,
+  },
   'backend/telemetry-provider/rust-simconnect-sidecar/src/event_transmit.rs': {
     transmit_client_event: 1,
     transmit_client_event_ex1: 1,

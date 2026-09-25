@@ -24,6 +24,9 @@ function buildTimelineMetricSections(event, ruleDescriptions = RULE_DESCRIPTIONS
   if (approachRows) return [{ key: 'approach-episode', title: 'Approach episode', rows: approachRows,
     noteText: ruleDescriptions[event.ruleId] || '', emptyText: '' }];
   const ctx = { ...(event.context || event.metrics || {}) };
+  if (event.markerType === 'takeoff' && Array.isArray(ctx.flags)) {
+    ctx.flags = ctx.flags.map((flag) => flag?.label ? `${flag.severity || 'caution'}: ${flag.label}` : '').filter(Boolean).join('; ') || 'None recorded';
+  }
   if (event.type === 'phase_start') {
     if (event.previousPhase) ctx.previous_phase = event.previousPhase;
     if (event.newPhase) ctx.new_phase = event.newPhase;

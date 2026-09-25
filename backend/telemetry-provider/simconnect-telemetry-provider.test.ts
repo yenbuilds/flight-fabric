@@ -510,6 +510,9 @@ test('SimVar priority, native definition bounds and FDM regressions (Tests 9-19)
   // partition). The array tail is no longer a single second data definition.
   assertEqual(Number.isInteger(CHUNK_SIZE) && CHUNK_SIZE >= 1 && CHUNK_SIZE <= 64, true, 'Native chunk size remains bounded');
   const subscriptions = new SimConnectTelemetryProvider()._buildRustSimvarSubscriptions();
+  const cabinPressure = subscriptions.find((subscription) => subscription.key === 'cabinDeltaPPsf');
+  assertEqual(cabinPressure?.unit, 'psf', 'Cabin pressure uses the accepted SDK pressure unit token');
+  assertEqual(cabinPressure?.isolated, true, 'An unavailable cabin pressure read cannot suppress its neighboring telemetry');
   for (const index of [1, 2]) {
     for (const property of ['Installed', 'Status', 'SpacingMode', 'ActiveMhz', 'StandbyMhz']) {
       const key = `com${index}${property}`;
@@ -925,6 +928,43 @@ test('aircraftChanged TITLE-only fallback marks config paths unavailable', () =>
   assertEqual(payload.previousAircraftConfigPath, null, 'TITLE-only fallback has no previous cfg path');
 });
 
+test('native Input Events preserve signed values, aircraft identity and profile guards', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const options = { profileKey: 'bundled/msfs/test', profileRevision: 17 };
+  provider._getActiveAircraftControlProfileGeneration = () => ({ ...options });
+  const aircraft = 'SimObjects\\Airplanes\\test\\aircraft.CFG';
+  const calls = [];
+  let acknowledgement = { ok: true, error: null };
+  const bridge = {
+    _started: true,
+    getSnapshot: () => ({ source: 'mock-sidecar', inputEventsAvailable: true }),
+    async sendInputEvent(...args) { calls.push(args); return acknowledgement; },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  assertEqual(provider.getAircraftControlCapabilities().actionTypes.includes('input-event'), true, 'reported native API enables Input Events');
+  const action = { type: 'input-event', name: 'TEST_KNOB', value: -1 };
+  const noIdentity = await provider.executeAircraftControlAction(action, options);
+  assertEqual(noIdentity.code, 'aircraft_identity_required', 'TITLE-only or missing identity cannot authorize native write');
+  provider._lastDetectedAircraftTitle = aircraft;
+  const stale = await provider.executeAircraftControlAction(action, { ...options, profileRevision: 16 });
+  assertEqual(stale.code, 'stale_profile', 'Input Events require the current profile generation');
+  for (const value of [NaN, Infinity, 'invalid']) {
+    const result = await provider.executeAircraftControlAction({ ...action, value }, options);
+    assertEqual(result.code, 'invalid_value', 'invalid numeric input cannot reach bridge');
+  }
+  assertEqual(calls.length, 0, 'rejected inputs send no writes');
+  const accepted = await provider.executeAircraftControlAction(action, options);
+  assertEqual(accepted.ok, true, 'transport acknowledgement is propagated');
+  deepStrictEqual(calls[0], ['TEST_KNOB', -1, aircraft]);
+  assertEqual(accepted.confirmedValue, undefined, 'transport acceptance is not cockpit confirmation');
+  acknowledgement = { ok: false, error: 'input_event_not_found' };
+  const missing = await provider.executeAircraftControlAction(action, options);
+  assertEqual(missing.ok, false, 'native lookup failure propagates');
+  assertEqual(missing.error, 'input_event_not_found', 'native failure stays specific');
+  assertEqual(calls.length, 2, 'failed native dispatch is never retried or redirected');
+});
+
 test('executeAircraftControlAction rejects unsafe named-var payloads before the sidecar call', async () => {
   const provider = new SimConnectTelemetryProvider();
   const profileOptions = {
@@ -1206,6 +1246,11 @@ function stubFbwA32nxStrobeFields(provider) {
       id: 'flightGuidance.altitudeFt',
       source: { type: 'lvar', key: 'fbw_fcu_altitude' },
       decode: { type: 'number', precision: 0 },
+    },
+    'flightGuidance.altitudeIncrementMode': {
+      id: 'flightGuidance.altitudeIncrementMode',
+      source: { type: 'lvar', key: 'fbw_fcu_altitude_increment' },
+      decode: { type: 'enum', values: { 0: 'hundred', 1: 'thousand' } },
     },
     'flightGuidance.verticalValue': {
       id: 'flightGuidance.verticalValue',
@@ -2660,6 +2705,59 @@ test('FBW strobe selector movement cannot confirm while actual light output stay
   assertEqual(operationCalls, 3, 'failed confirmation never retries the sequence');
 });
 
+for (const scenario of ['prepare', 'hundred', 'same-target', 'unavailable', 'rejected', 'ignored', 'mode-drift', 'profile-change']) {
+  test(`FBW A32NX altitude confirms resolution before a non-thousand target: ${scenario}`, async () => {
+    const provider = new SimConnectTelemetryProvider();
+    const snapshot: any = {
+      source: 'mock-sidecar', profileId: FBW_A32NX_PROFILE_KEY,
+      values: { fbw_fcu_altitude: scenario === 'same-target' ? 15100 : 15000,
+        fbw_fcu_altitude_increment: scenario === 'unavailable' ? null : scenario === 'hundred' ? 0 : 1 },
+      snapshotSequence: 1, updatedAt: new Date().toISOString(),
+    };
+    const events = [];
+    const advance = () => { snapshot.snapshotSequence++; snapshot.updatedAt = new Date().toISOString(); };
+    const bridge = {
+      _started: true, getSnapshot: () => snapshot,
+      async setNamedVar() { throw new Error('Altitude preparation must use the reviewed event'); },
+      async sendEvent(name, value) {
+        events.push({ name, value });
+        if (name === 'A32NX.FCU_ALT_INCREMENT_SET') {
+          if (scenario === 'rejected') return { ok: false, error: 'rejected preparation' };
+          if (scenario === 'ignored') return { ok: true };
+          if (scenario === 'profile-change') provider._getActiveAircraftIntegrationConfig = () => null;
+          // Transport acknowledgement precedes the actual aircraft update.
+          setTimeout(() => { snapshot.values.fbw_fcu_altitude_increment = 0; advance(); }, 25);
+        } else if (name === 'A32NX.FCU_ALT_SET') {
+          assertEqual(snapshot.values.fbw_fcu_altitude_increment, 0, 'target must wait for confirmed hundred-foot resolution');
+          const increment = snapshot.values.fbw_fcu_altitude_increment ? 1000 : 100;
+          snapshot.values.fbw_fcu_altitude = Math.round(value / increment) * increment;
+          if (scenario === 'mode-drift') snapshot.values.fbw_fcu_altitude_increment = 1;
+          advance();
+        } else throw new Error(`Unexpected event: ${name}`);
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    stubFbwA32nxStrobeFields(provider);
+    const result = await provider.executeAircraftControlAction(
+      { type: 'aircraft-integration', name: FBW_A32NX_ADAPTER_ID, verification: 'untested' },
+      { profileKey: FBW_A32NX_PROFILE_KEY, profileRevision: FBW_A32NX_PROFILE_REVISION,
+        request: { actionId: 'flightGuidance.altitude.set', value: 15100 } },
+    );
+    if (['prepare', 'hundred', 'same-target'].includes(scenario)) {
+      assertEqual(result.ok, true, 'an exact target should confirm');
+      assertEqual(result.confirmedValue, 15100, 'confirmation must equal the requested altitude');
+      assertEqual(events.length, scenario === 'prepare' ? 2 : scenario === 'hundred' ? 1 : 0, 'only necessary writes are sent');
+      if (scenario === 'same-target') assertEqual(snapshot.values.fbw_fcu_altitude_increment, 1, 'no-op leaves knob resolution alone');
+    } else {
+      assertEqual(result.ok, false, 'failed preparation or changed mode must fail closed');
+      assertEqual(events.length, scenario === 'unavailable' ? 0 : scenario === 'mode-drift' ? 2 : 1, 'failure stops further writes without retry');
+      if (scenario !== 'mode-drift') assertEqual(snapshot.values.fbw_fcu_altitude, 15000, 'failed preparation sends no altitude target');
+    }
+  });
+}
+
 test('all writable integration SimVar readbacks have an exact or derived runtime source', () => {
   const exactSimvars = new Set(SIMCONNECT_VARS.map((definition) => definition.simvar));
   const failures = [];
@@ -2696,18 +2794,21 @@ test('all writable integration SimVar readbacks have an exact or derived runtime
 
 test('FBW standard light actions prefer fresh gauge LIGHT STATES and confirm a newer mask', async () => {
   const cases = [
-    ['lights.beacon.on', 'BEACON_SET', 1 << 1],
-    ['lights.wing.on', 'WING_SET', 1 << 7],
-    ['lights.nav.on', 'NAV_LIGHTS_SET', 1 << 0],
-    ['lights.logo.on', 'LOGO_LIGHTS_SET', 1 << 8],
+    ['lights.beacon.on', 'BEACON_SET', 1 << 1, 1],
+    // MSFS names this WING_LIGHTS_SET; WING_SET accepted transport without
+    // changing the live A32NX wing-light readback on 2026-09-25.
+    ['lights.wing.on', 'WING_LIGHTS_SET', 1 << 7, 1],
+    ['lights.wing.off', 'WING_LIGHTS_SET', 1 << 7, 0],
+    ['lights.nav.on', 'NAV_LIGHTS_SET', 1 << 0, 1],
+    ['lights.logo.on', 'LOGO_LIGHTS_SET', 1 << 8, 1],
   ];
 
-  for (const [actionId, expectedEvent, bit] of cases) {
+  for (const [actionId, expectedEvent, bit, targetValue] of cases) {
     const provider = new SimConnectTelemetryProvider();
     const snapshot: any = {
       source: 'mock-sidecar',
       profileId: FBW_A32NX_PROFILE_KEY,
-      values: { standard_light_states: 0 },
+      values: { standard_light_states: targetValue === 1 ? 0 : bit },
       snapshotSequence: 1,
       updatedAt: new Date().toISOString(),
     };
@@ -2716,7 +2817,8 @@ test('FBW standard light actions prefer fresh gauge LIGHT STATES and confirm a n
       getSnapshot: () => snapshot,
       async sendEvent(name, value) {
         events.push({ name, value });
-        snapshot.values.standard_light_states = bit;
+        // An accepted unknown event must not manufacture aircraft progress.
+        if (name === expectedEvent) snapshot.values.standard_light_states = value === 1 ? bit : 0;
         snapshot.snapshotSequence += 1;
         snapshot.updatedAt = new Date().toISOString();
         return { ok: true };
@@ -2727,7 +2829,7 @@ test('FBW standard light actions prefer fresh gauge LIGHT STATES and confirm a n
     };
     // Deliberately disagree with the gauge path. The broadcast UI also
     // prefers the gauge mask, so preflight must not incorrectly no-op here.
-    provider._data = { lightStates: bit };
+    provider._data = { lightStates: targetValue === 1 ? bit : 0 };
     provider._lvarBridge = bridge;
     provider._ensureControlWriteBridge = async () => bridge;
     stubFbwA32nxStrobeFields(provider);
@@ -2743,10 +2845,10 @@ test('FBW standard light actions prefer fresh gauge LIGHT STATES and confirm a n
     });
 
     assertEqual(result.ok, true, `${actionId} should confirm from the shared light mask`);
-    assertEqual(result.confirmedValue, true, `${actionId} confirmed logical value`);
+    assertEqual(result.confirmedValue, targetValue === 1, `${actionId} confirmed logical value`);
     assertEqual(events.length, 1, `${actionId} should dispatch exactly once`);
     assertEqual(events[0].name, expectedEvent, `${actionId} fixed event`);
-    assertEqual(events[0].value, 1, `${actionId} fixed ON payload`);
+    assertEqual(events[0].value, targetValue, `${actionId} fixed target payload`);
   }
 });
 
@@ -3046,7 +3148,7 @@ test('FlyByWire A380X virtual throttle coordinates and confirms all four calibra
 });
 
 // Applies a Fenix encoder calculator code to a mocked snapshot the way the
-// aircraft would: ++/-- one detent, "N +"/"N -" N detents, a prime nothing.
+// aircraft would: ++/-- one detent, "N +"/"N -" N detents, an unchanged write nothing.
 function applyFenixEncoderCode(snapshot, key, code, { step = 1, modulo = null, extra = 0 } = {}) {
   const batch = /\) (\d+) ([+-]) \(>/.exec(code);
   const detents = batch ? Number(batch[1]) * (batch[2] === '+' ? 1 : -1) : /\+\+/.test(code) ? 1 : /--/.test(code) ? -1 : 0;
@@ -3060,7 +3162,7 @@ function applyFenixEncoderCode(snapshot, key, code, { step = 1, modulo = null, e
   return moved;
 }
 const FENIX_PRIME_SPEED = '(L:E_FCU_SPEED, Number) (>L:E_FCU_SPEED, Number)';
-const FENIX_PRIME_HEADING = '(L:E_FCU_HEADING, Number) (>L:E_FCU_HEADING, Number)';
+const FENIX_PRIME_HEADING = '(L:E_FCU_HEADING, Number) ++ (>L:E_FCU_HEADING, Number)';
 const fenixBatch = (lvar, n) => `(L:${lvar}, Number) ${Math.abs(n)} ${n >= 0 ? '+' : '-'} (>L:${lvar}, Number)`;
 
 function buildFenixFcuProvider(initialValues, executeCode) {
@@ -3352,6 +3454,17 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
   assertEqual(speedNoOp.noOp, true, 'same-target speed is an explicit no-op');
   assertEqual(satisfiedSpeed.codes.length, 0, 'same-target speed emits no calculator step');
 
+  const satisfiedHeading = buildFenixFcuProvider({ fenix_heading: 0 }, () => {
+    throw new Error('same-target heading must not prime the encoder');
+  });
+  const headingNoOp = await satisfiedHeading.provider.executeAircraftControlAction(
+    action,
+    fenixA320IntegrationOptions('flightGuidance.heading.set', 0),
+  );
+  assertEqual(headingNoOp.ok, true, 'same-target heading should succeed');
+  assertEqual(headingNoOp.noOp, true, 'same-target heading remains a no-op before priming');
+  assertEqual(satisfiedHeading.codes.length, 0, 'same-target heading emits no initializing detent');
+
   // Preconditions protect physical dispatch, not a target that is already
   // satisfied. A same-target altitude request must remain a true no-op even
   // if the pilot has since changed the 100/1000 selector.
@@ -3425,7 +3538,7 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
     fenixA320IntegrationOptions('flightGuidance.heading.set', 1),
   );
   assertEqual(headingResult.ok, true, 'circular heading target should confirm');
-  assertEqual(JSON.stringify(heading.codes), JSON.stringify([FENIX_PRIME_HEADING, fenixBatch('E_FCU_HEADING', 2)]), '359 to 1 takes the two-detent circular path in one write');
+  assertEqual(JSON.stringify(heading.codes), JSON.stringify([FENIX_PRIME_HEADING, FENIX_PRIME_HEADING]), '359 to 1 uses the initializing detent to 0, then one exact detent to 1');
 
   // A large target is split into bounded batches, each landing exactly before the next.
   const far = buildFenixFcuProvider({ fenix_speed: 159 }, ({ code, snapshot }) => {
@@ -3452,6 +3565,49 @@ test('Fenix FCU numeric targets use bounded shortest-path calculator steps and e
   assertEqual(jumpyResult.ok, true, 'a jump on priming is absorbed by re-reading the baseline');
   assertEqual(jumpyResult.confirmedValue, 120, 'the target is still reached exactly');
   assertEqual(JSON.stringify(jumpy.codes), JSON.stringify([FENIX_PRIME_HEADING, fenixBatch('E_FCU_HEADING', 31)]), 'the batch is sized from the post-prime reading, not the stale baseline');
+});
+
+test('Fenix heading initialization rebases a first-detent jump before sizing target steps', async () => {
+  // Live A320 2.4.0.4720, 2026-09-25: writing the encoder back unchanged
+  // left N_FCU_HEADING at 0; the first actual increment initialized it to 161.
+  // Treating that first increment as an ordinary exact step incorrectly failed
+  // a request for heading 1 even though later detents behaved normally.
+  let initialized = false;
+  const heading = buildFenixFcuProvider({ fenix_heading: 0 }, ({ code, snapshot }) => {
+    if (!/\+\+|--|\) \d+ [+-] \(>/.test(code)) return { ok: true };
+    if (!initialized) {
+      initialized = true;
+      snapshot.values.fenix_heading = 161;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+    } else applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360 });
+    return { ok: true };
+  });
+  const result = await heading.provider.executeAircraftControlAction(
+    { type: 'aircraft-integration', name: FENIX_A32X_ADAPTER_ID, verification: 'untested' },
+    fenixA320IntegrationOptions('flightGuidance.heading.set', 1),
+  );
+  assertEqual(result.ok, true, 'the initial heading movement is initialization, then exact target pacing resumes');
+  assertEqual(result.confirmedValue, 1, 'success still requires the requested heading');
+  assertEqual(heading.codes.length, 5, 'one initialization and four bounded batches reach the target without retries');
+});
+
+test('Fenix heading still stops on unexpected movement after initialization', async () => {
+  const heading = buildFenixFcuProvider({ fenix_heading: 0 }, ({ code, codes, snapshot }) => {
+    if (codes.length === 1) {
+      snapshot.values.fenix_heading = 161;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date().toISOString();
+    } else applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360, extra: -1 });
+    return { ok: true };
+  });
+  const result = await heading.provider.executeAircraftControlAction(
+    { type: 'aircraft-integration', name: FENIX_A32X_ADAPTER_ID, verification: 'untested' },
+    fenixA320IntegrationOptions('flightGuidance.heading.set', 1),
+  );
+  assertEqual(result.ok, false, 'only initialization can rebase an unexpected heading');
+  assertEqual(result.code, 'aircraft_integration_selector_drift', 'a short batch still reports drift');
+  assertEqual(heading.codes.length, 2, 'the first unconfirmed batch stops further writes');
 });
 
 test('Fenix FCU numeric targets pace every relative step against exact aircraft progress', async () => {

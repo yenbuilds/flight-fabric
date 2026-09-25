@@ -46,10 +46,12 @@ const REQUIRED_AIRLINER_CONFIG = {
 
 const OPTIONAL_AIRLINER_CONFIG = {
   flaps: {
-    description: 'Source-backed flap configuration with notches',
+    description: 'Flap configuration with source-backed notches or an explicitly empty table',
     validator: (config) => {
       if (!config) return null;
-      if (!Array.isArray(config.notches) || config.notches.length === 0) {
+      // An empty table deliberately selects measured-angle/percent fallback
+      // when handle slots are unverified, while retaining landing metadata.
+      if (!Array.isArray(config.notches)) {
         return 'Flaps block missing notches array';
       }
       return null;
@@ -218,4 +220,6 @@ function main() {
   console.log('\n✅ All airliner profiles have required config');
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { validateProfile };

@@ -1,3 +1,4 @@
+const { toolbarPresetToken } = require('./toolbar-presets') as typeof import('./toolbar-presets');
 const http = require('http') as typeof import('http');
 const https = require('https') as typeof import('https');
 const net = require('net') as typeof import('net');
@@ -279,11 +280,13 @@ const STATIC_ASSET_HEADERS = {
 // The MSFS toolbar panel page. The simulator package hosts /toolbar/ in an
 // iframe, so this route is the one place the dashboard may be framed, and
 // only by the simulator browser origin or the app itself. The page is served
-// from the frontend build and connects back as an ordinary read-only
-// loopback WebSocket client with a narrowed subscription.
+// from the frontend build and connects through a narrowly scoped loopback
+// WebSocket client for preset actions and manual taxi guidance.
 const TOOLBAR_ROUTE_PREFIX = '/toolbar';
 const TOOLBAR_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   'index.html': 'text/html',
+  'presets.js': 'application/javascript',
+  'taxi.js': 'application/javascript',
   'toolbar.js': 'application/javascript',
   'toolbar.css': 'text/css',
   'voice-reference.json': 'application/json',
@@ -1001,15 +1004,15 @@ export function startHttpServer({
       return;
     }
 
-    // Connection details for the toolbar page. Carries no session secret, so
-    // it is safe for any trusted request regardless of Origin; the page then
-    // connects as a read-only loopback client.
+    // Only a same-origin loopback request receives the preset-only capability.
+    // The desktop and paired-device tokens are never exposed to this page.
     if (req.method === 'GET' && requestPathname === '/api/toolbar/bootstrap') {
       const boundAddress = httpServer.address();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
       res.end(JSON.stringify({
         ok: true,
         appVersion: getAppVersion() || '',
+        toolbarPresetToken: isLoopbackSecretRequest(req) ? toolbarPresetToken(wsAuthToken) : '',
         httpPort: boundAddress && typeof boundAddress === 'object' ? boundAddress.port : resolvedHttpPort,
         wsPort,
       }));

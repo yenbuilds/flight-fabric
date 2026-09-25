@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const ROOT = path.resolve(__dirname, '../..');
+const { TAKEOFF_SCORING_ENABLED } = require('../../shared/app-settings-shared');
 const OUTPUT = path.join(ROOT, '.tmp/app-workbench-browser');
 const SIZES = [
   ['desktop-wide', 1920, 1080, false], ['desktop', 1440, 900, false], ['desktop-narrow', 900, 800, false],
@@ -35,6 +36,16 @@ async function browser() {
     win.webContents.debugger.attach('1.3');
     for (let n = 0; n < 180; n++) { if (await evaluate('return Boolean(window.workbenchTest);')) break; await wait(50); }
     assert(await evaluate('return Boolean(window.workbenchTest);'), `fixture initialized: ${errors.join('\n')}`);
+    await evaluate(`workbenchTest.takeoff.handleTakeoffMessage({ type:'takeoff', final:true, timestampMs:Date.now(),
+      aircraft:'PMDG 737-800', icao:'YSSY', runway:'16R', grade:'Recorded', score:null, zone:'Observed runway remaining',
+      assessment:'critical', runwayExcursion:true, flags:[{code:'runway_excursion',severity:'critical',label:'Runway excursion during the takeoff roll'},
+        {code:'ground_contact_uncertain',severity:'caution',label:'Brief ground-contact indication; contact not confirmed'}],
+      runwayUse:{remainingFt:3200,runwayLengthFt:8000,usedPct:60,verified:true},
+      roll:{distanceFt:4600,durationS:32,startSource:'standstill'}, liftoff:{iasKts:146,pitchDeg:9},
+      rotation:{rateDegS:5,priorMaxRateDegS:8,maxPitchDeg:18},
+      lateral:{liftoffOffsetFt:90,liftoffOffsetSide:'right',score:null,grade:'Recorded',verified:true},
+      heading:{liftoffDeviationDeg:15,liftoffDeviationSide:'right'},
+      screenHeight:{heightFt:35,reached:false}, finalizeReason:'telemetry_gap' }); await workbenchTest.nextTick();`);
     assert.equal(await evaluate("return document.getElementById('dest-progress-label').textContent;"), 'From YSSY RWY 16R -> To YMML RWY 16', 'the shared route label includes the planned runways');
     // Exercise the shell as a keyboard user, including the teleported recording
     // popover. Native key events catch focus paths synthetic clicks cannot.
@@ -174,6 +185,7 @@ async function browser() {
       await key('Escape');
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled:false });
     }
+    if (!process.env.FF_TOOLBAR_SETUP_ONLY) {
     await evaluate("window.recordingEndRequested=0; workbenchTest.status.bindHeaderActions({onEndFlightManual:()=>{window.recordingEndRequested++;return true;}}); document.getElementById('recording-details-btn').focus();");
     await key('Return');
     const recordingOpened = await evaluate("return {expanded:document.getElementById('recording-details-btn').getAttribute('aria-expanded'),focus:document.activeElement.outerHTML.slice(0,300),dialog:document.getElementById(document.getElementById('recording-details-btn').getAttribute('aria-controls')).outerHTML.slice(0,300)};");
@@ -268,7 +280,39 @@ async function browser() {
           assert(await evaluate("return Boolean(document.querySelector('#live-map .leaflet-marker-icon'));"), `${name}: actual Leaflet aircraft marker rendered`);
           assert(await evaluate("const r=document.querySelector('#live-map .live-plane-icon').getBoundingClientRect(), map=document.getElementById('live-map').getBoundingClientRect(); return r.left>=map.left && r.right<=map.right && r.top>=map.top && r.bottom<=map.bottom;"), `${name}: centered aircraft is visible in the representative map capture`);
         }
-        assert.equal(layout.takeoffUi, false, `${name}/${tab}: the release gate removes takeoff scoring UI`);
+        assert.equal(layout.takeoffUi, TAKEOFF_SCORING_ENABLED, `${name}/${tab}: takeoff panels follow the release gate even with populated history`);
+        if (tab === 'flight' && TAKEOFF_SCORING_ENABLED) {
+          const takeoff = await evaluate(`const warning=document.getElementById('data-last-takeoff-assessment');
+            const confidence=document.getElementById('data-last-takeoff-confidence');
+            const r=warning.getBoundingClientRect(); return {warning:warning.textContent,confidence:confidence.textContent,
+              width:r.width,left:r.left,right:r.right,display:getComputedStyle(warning).display};`);
+          assert.match(takeoff.warning, /Runway excursion/, `${name}: Overview retains the critical finding beside the measurements`);
+          assert.match(takeoff.confidence, /Low confidence.*Telemetry gap/);
+          assert(takeoff.width > 0 && takeoff.left >= 0 && takeoff.right <= width, `${name}: warning fits the summary`);
+          assert.notEqual(takeoff.display, 'none');
+          await evaluate(`document.getElementById('data-last-takeoff-card').scrollIntoView({block:'start'});`);
+          await capture(`${name}-takeoff-summary`);
+          await evaluate(`document.getElementById('data-open-takeoff-btn').click(); await workbenchTest.nextTick();`);
+          await wait(200);
+          await evaluate(`document.getElementById('takeoff-card').scrollIntoView({block:'start'});`);
+          const report = await evaluate(`const card=document.getElementById('takeoff-card');
+            return {tab:workbenchTest.tabs.activeTabId,text:card.textContent,visible:card.getClientRects().length>0,
+              aircraftCopyWidth:card.querySelector('.landing-aircraft-hero__copy').getBoundingClientRect().width,
+              overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1};`);
+          assert.equal(report.tab, 'landing', `${name}: Full Report opens the debrief`);
+          assert.equal(report.visible, true);
+          assert.equal(report.overflow, false, `${name}: takeoff report fits the viewport`);
+          assert.match(report.text, /RUNWAY EXCURSION/);
+          assert.match(report.text, /More runway remaining does not mean a better takeoff/);
+          assert.match(report.text, /RECORDED/);
+          assert.match(report.text, /Earlier liftoff: 8.0 deg\/s/);
+          assert.match(report.text, /Brief ground contact not confirmed/);
+          assert.match(report.text, /Measured at liftoff/);
+          assert.doesNotMatch(report.text, /Steady rotation|Rapid rotation|Outstanding|Runway use grade|Major heading error|Stayed airborne/);
+          if (width <= 390) assert(report.aircraftCopyWidth >= 180, `${name}: aircraft identity has readable width`);
+          await capture(`${name}-takeoff-report`);
+          await evaluate(`await workbenchTest.open('flight'); document.getElementById('vue-main-root').scrollTop=0;`);
+        }
         await capture(`${name}-${tab}`);
         if (tab === 'timeline' && ['desktop', 'desktop-compact', 'phone', 'phone-narrow'].includes(name)) await checkReplayLayout(name, width);
       }
@@ -388,6 +432,76 @@ async function browser() {
     assert(await evaluate("return [...document.querySelectorAll('.live-map-readings dd')].slice(0,4).every(el => el.textContent.trim().startsWith('--'));"), 'muted telemetry does not present cached measurements as current');
     assert(await evaluate("return document.querySelector('.live-map-readings').textContent.includes('Simulator is in menus');"), 'muted map explains the unavailable readings');
     await capture('desktop-muted-map');
+    }
+    // Real shell + settings runtime, with only the installer IPC stubbed.
+    // Discovery must work before the user has ever opened Settings.
+    win.setContentSize(1440, 900);
+    await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await win.loadURL(`${process.env.FF_WORKBENCH_TEST_URL}?toolbar=1`);
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+    for (let n=0;n<180;n++) { if(await evaluate('return Boolean(window.workbenchTest?.toolbar.hasLoaded);')) break; await wait(50); }
+    await evaluate("workbenchTest.shell.sidebarCollapsed=false; await workbenchTest.open('flight');");
+    await capture('toolbar-setup-desktop');
+    assert(await evaluate('return workbenchTest.toolbarFixture.reads > 0;'), 'toolbar status is checked at startup');
+    const setupButton = '.app-sidebar .toolbar-setup-open';
+    assert(await evaluate(`return Boolean(document.querySelector(${JSON.stringify(setupButton)}));`), 'sidebar advertises toolbar installation');
+    async function settleToolbarNavigation() {
+      // Hidden Electron windows can defer the frame used after tab scroll restoration.
+      for (let n=0;n<30;n++) {
+        await win.webContents.capturePage();
+        if (await evaluate("return document.activeElement.id === 'settings-toolbar-panel';")) return;
+        await wait(30);
+      }
+    }
+    await evaluate('window.releaseToolbarGuard = workbenchTest.tabs.registerBeforeChangeGuard(() => false);');
+    await pointerActivate(setupButton, false);
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'flight', 'setup link honours unsaved-edit guards');
+    await evaluate('releaseToolbarGuard();');
+    await pointerActivate(setupButton, false);
+    await settleToolbarNavigation();
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-toolbar-panel', `setup link focuses the installation section: ${await evaluate('return document.activeElement.outerHTML.slice(0,300);')}`);
+    assert(await evaluate("const r=document.getElementById('settings-toolbar-panel').getBoundingClientRect(), main=document.getElementById('vue-main-root').getBoundingClientRect(); return r.top>=main.top && r.top<main.top+60;"), 'setup section is scrolled into view');
+    assert.deepEqual(await evaluate('return workbenchTest.toolbarFixture.writes;'), [], 'discovery does not install automatically');
+    await capture('toolbar-setup-instructions');
+    await pointerActivate('[data-toolbar-action="install"]', false);
+    assert.equal(await evaluate('return workbenchTest.toolbar.setupTask;'), null, 'successful installation clears the task');
+    assert(await evaluate("return document.getElementById('toolbar-panel-result').textContent.includes('Restart');"), 'installer retains restart guidance');
+    await evaluate("workbenchTest.toolbarFixture.status='update_available'; await workbenchTest.toolbar.refresh(); await workbenchTest.open('flight'); workbenchTest.shell.sidebarCollapsed=true;");
+    await capture('toolbar-setup-collapsed');
+    await pointerActivate(setupButton, false);
+    await settleToolbarNavigation();
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-toolbar-panel', 'collapsed rail retains the setup route');
+    await evaluate("workbenchTest.toolbarFixture.status='not_installed'; await workbenchTest.toolbar.refresh(); workbenchTest.shell.sidebarCollapsed=false;");
+    await pointerActivate('.app-sidebar .toolbar-setup-meta button', false);
+    assert.equal(await evaluate('return workbenchTest.toolbar.setupTask;'), null, 'Not now dismisses the optional suggestion');
+    assert.equal(await evaluate("return document.activeElement.dataset.tab;"), 'settings', 'dismissal preserves useful keyboard focus');
+    await new Promise(resolve => { win.webContents.once('did-finish-load', resolve); win.reload(); });
+    for (let n=0;n<180;n++) { if(await evaluate('return Boolean(window.workbenchTest?.toolbar.hasLoaded);')) break; await wait(50); }
+    assert.equal(await evaluate('return workbenchTest.toolbar.setupTask;'), null, 'dismissal survives a new app session');
+    await evaluate("workbenchTest.shell.openNavigator(); await workbenchTest.nextTick(); const q=document.getElementById('app-navigator-query'); q.value='toolbar'; q.dispatchEvent(new Event('input',{bubbles:true})); await workbenchTest.nextTick();");
+    assert.equal(await evaluate("return document.querySelectorAll('.app-navigator-result').length;"), 1, 'dismissed setup remains searchable');
+    await key('Return');
+    await settleToolbarNavigation();
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-toolbar-panel', 'search focuses the same installation section');
+    win.setContentSize(320, 700);
+    await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await evaluate("workbenchTest.toolbar.setupDismissed=false; workbenchTest.shell.sidebarCollapsed=true; await workbenchTest.open('flight'); workbenchTest.tabs.toggleMoreSheet(); await workbenchTest.nextTick();");
+    await capture('toolbar-setup-phone-more');
+    assert(await evaluate("const el=document.querySelector('.mobile-toolbar-setup-task strong'),r=el.getBoundingClientRect();return r.width>0 && r.left>=0 && r.right<=innerWidth;"), 'narrow More sheet shows the full task despite a collapsed desktop preference');
+    await pointerActivate('.mobile-toolbar-setup-task .toolbar-setup-open', true);
+    await settleToolbarNavigation();
+    assert.equal(await evaluate('return workbenchTest.tabs.moreSheetOpen;'), false, 'phone setup closes More');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-toolbar-panel', 'phone setup focuses the instructions');
+    assert(await evaluate('return document.documentElement.scrollWidth <= innerWidth;'), 'setup does not overflow a narrow phone');
+    await capture('toolbar-setup-phone-instructions');
+    await evaluate("workbenchTest.toolbar.bindDesktopActions(null); await workbenchTest.nextTick();");
+    assert.equal(await evaluate("return document.querySelectorAll('.toolbar-setup-task').length;"), 0, 'desktop-only tasks disappear when installer access is unavailable');
+    if (process.env.FF_TOOLBAR_SETUP_ONLY) {
+      assert.deepEqual(errors, [], 'no browser runtime or asset errors');
+      console.log(`Toolbar setup passed: startup discovery, guarded navigation, install completion, collapsed rail, dismissal persistence, view search and narrow phone guidance. Screenshots: ${OUTPUT}`);
+      app.exit(0);
+      return;
+    }
     const remoteCases = [
       ['remote-viewer', 'read-only', 'not-requested', false], ['remote-paired', 'aircraft-control', 'accepted', false],
       ['remote-expired', 'read-only', 'expired', false], ['remote-disconnected', 'read-only', 'expired', true],

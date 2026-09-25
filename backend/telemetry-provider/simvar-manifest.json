@@ -6,6 +6,18 @@
   "_docUrl": "https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Simulation_Variables.htm",
   "simvars": [
     {
+      "name": "PUSHBACK STATE",
+      "sdkNativeUnit": "Enum",
+      "ourRequestedUnit": "enum",
+      "conversion": "none"
+    },
+    {
+      "name": "VELOCITY BODY Z",
+      "sdkNativeUnit": "feet per second",
+      "ourRequestedUnit": "feet per second",
+      "conversion": "none"
+    },
+    {
       "name": "AIRSPEED INDICATED",
       "sdkNativeUnit": "knots",
       "ourRequestedUnit": "knots",
@@ -747,8 +759,8 @@
     },
     {
       "name": "PRESSURIZATION PRESSURE DIFFERENTIAL",
-      "sdkNativeUnit": "pounds per square foot",
-      "ourRequestedUnit": "pounds per square foot",
+      "sdkNativeUnit": "psf",
+      "ourRequestedUnit": "psf",
       "conversion": "none"
     },
     {

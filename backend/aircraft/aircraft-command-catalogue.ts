@@ -55,7 +55,7 @@ export type AircraftCommandBinding = Readonly<{
   | { kind: 'input'; inputKey: string; request: LegacyRequest }
   | { kind: 'choice'; choices: Readonly<Record<string, LegacyRequest>> }
   | { kind: 'choice-sequence'; description: string;
-      choices: Readonly<Record<string, readonly Readonly<{ label: string; request: LegacyRequest }>[]>> }
+      choices: Readonly<Record<string, readonly Readonly<{ label: string; request: LegacyRequest; settleMs?: number }>[]>> }
   | {
       kind: 'sequence';
       description: string;
@@ -106,6 +106,10 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
           input: { kind: 'enum', values: ['baro', 'radio'] },
           description: 'Selects the EFIS minimums reference. Enter the numeric minimums in the cockpit.',
           speech: { patterns: [`${word} minimums {value}`, `set ${word} minimums {value}`, `${word} minimums reference {value}`], hints: [`${word.toUpperCase()} MINIMUMS`] } },
+        { id: `approach.${side}.radioMinimums`, label: `${word} radio minimums`, group: 'approach',
+          input: { kind: 'number', min: 0, max: 1000, step: 10, units: 'feet' },
+          description: 'Requires RADIO reference. Linked aircraft settings may update both sides.',
+          speech: { patterns: [`set ${word} radio minimums {value}`, `${word} radio minimums {value}`], hints: [`${word.toUpperCase()} RADIO MINIMUMS`] } },
         { id: `navigation.${side}.range`, label: `${word} ND range`, group: 'navigation',
           input: { kind: 'enum', values: ['10', '20', '40', '80', '160', '320'] },
           speech: { patterns: [`${word} range {value}`, `set ${word} range {value}`, `${word} nd range {value}`], hints: [`${word.toUpperCase()} RANGE`] } },
@@ -832,7 +836,7 @@ function inputSequence(
   });
 }
 
-type LightStep = Readonly<{ label: string; request: LegacyRequest }>;
+type LightStep = Readonly<{ label: string; request: LegacyRequest; settleMs?: number }>;
 
 // One reviewed step table per aircraft yields the four exterior-light phase
 // presets. Landing reuses the takeoff steps: on every supported type the
@@ -1176,6 +1180,53 @@ const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
       retracted: aircraftAction('flightControls.speedbrake.retracted'),
       half: aircraftAction('flightControls.speedbrake.half'), full: aircraftAction('flightControls.speedbrake.full'),
     }, { kind: 'enum', values: ['retracted', 'half', 'full'] }),
+  ]),
+});
+
+const INIBUILDS_A380_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'inibuilds-a380',
+  bindings: Object.freeze([
+    ...([
+      ['speed', 100, 350, 1, 'knots'], ['heading', 0, 359, 1, 'degrees'],
+      ['altitude', 100, 49000, 100, 'feet'], ['verticalSpeed', -6000, 6000, 100, 'feet-per-minute'],
+    ] as const).map(([name, min, max, step, units]) => input(`flightGuidance.${name}.set`,
+      aircraftAction(`flightGuidance.${name}.set`), 'value', { kind: 'number', min, max, step, units })),
+    ...([1, 2] as const).flatMap(index => [
+      input(`radios.com${index}.setStandby`, aircraftAction(`radios.com${index}.setStandby`)),
+      fixed(`radios.com${index}.swap`, aircraftAction(`radios.com${index}.swap`)),
+      input(`radios.com${index}.switchTo`, aircraftAction(`radios.com${index}.switchTo`)),
+    ]),
+    apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', [
+      ...FBW_APU_OBSERVATIONS.map(observation => ({ ...observation, inhibitsRequest: true })),
+    ], 5),
+    ...['beacon', 'nav', 'landing', 'wing', 'runwayTurnoff'].map(light =>
+      choice(`lights.${light}.set`, {
+        false: aircraftAction(`lights.${light}.off`), true: aircraftAction(`lights.${light}.on`),
+      }, BOOLEAN_INPUT)),
+    ...['strobe', 'logo'].map(light => choice(`lights.${light}Mode.set`, {
+      off: aircraftAction(`lights.${light}.off`), auto: aircraftAction(`lights.${light}.auto`), on: aircraftAction(`lights.${light}.on`),
+    })),
+    choice('lights.noseMode.set', {
+      off: aircraftAction('lights.nose.off'), taxi: aircraftAction('lights.nose.taxi'), takeoff: aircraftAction('lights.nose.takeoff'),
+    }),
+    choice('lights.taxi.set', { false: aircraftAction('lights.nose.off'), true: aircraftAction('lights.nose.taxi') }, BOOLEAN_INPUT),
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing ON · nose T.O · strobe ON · navigation ON', steps: [
+        { label: 'Landing lights ON', request: aircraftAction('lights.landing.on') },
+        { label: 'Nose light T.O', request: aircraftAction('lights.nose.takeoff') },
+        { label: 'Strobe lights ON', request: aircraftAction('lights.strobe.on') },
+        { label: 'Navigation lights ON', request: aircraftAction('lights.nav.on') },
+      ] },
+      afterTakeoff: { description: 'Landing OFF · nose OFF', steps: [
+        { label: 'Landing lights OFF', request: aircraftAction('lights.landing.off') },
+        { label: 'Nose light OFF', request: aircraftAction('lights.nose.off') },
+      ] },
+      afterLanding: { description: 'Strobe OFF · landing OFF · nose TAXI', steps: [
+        { label: 'Strobe lights OFF', request: aircraftAction('lights.strobe.off') },
+        { label: 'Landing lights OFF', request: aircraftAction('lights.landing.off') },
+        { label: 'Nose light TAXI', request: aircraftAction('lights.nose.taxi') },
+      ] },
+    }),
   ]),
 });
 
@@ -1756,7 +1807,83 @@ const PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
   ]),
 });
 
+// MD-11 lights share a CEVENT mailbox and a post-confirmation cooldown.
+// Keep each phase step on the existing idempotent, readback-confirmed action.
+const md11LightStep = (label: string, actionId: string, value?: number): LightStep => ({
+  label, settleMs: 400,
+  request: { ...aircraftAction(actionId), ...(value === undefined ? {} : { value }) },
+});
+
+const TFDI_MD11_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = {
+  id: 'tfdi-md-11', bindings: [
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing L/R ON · Turnoffs L/R ON · Nose LAND · Strobe ON · Navigation ON', steps: [
+        md11LightStep('Left landing light ON', 'lights.landingLeft.set', 2),
+        md11LightStep('Right landing light ON', 'lights.landingRight.set', 2),
+        md11LightStep('Left runway turnoff ON', 'lights.turnoffLeft.on'),
+        md11LightStep('Right runway turnoff ON', 'lights.turnoffRight.on'),
+        md11LightStep('Nose light LAND', 'lights.nose.set', 2),
+        md11LightStep('Strobe ON', 'lights.strobe.on'),
+        md11LightStep('Navigation ON', 'lights.nav.on'),
+      ] },
+      afterTakeoff: { description: 'Landing L/R RETRACT · Turnoffs L/R OFF · Nose OFF; strobe and navigation stay as set.', steps: [
+        md11LightStep('Left landing light RETRACT', 'lights.landingLeft.set', 0),
+        md11LightStep('Right landing light RETRACT', 'lights.landingRight.set', 0),
+        md11LightStep('Left runway turnoff OFF', 'lights.turnoffLeft.off'),
+        md11LightStep('Right runway turnoff OFF', 'lights.turnoffRight.off'),
+        md11LightStep('Nose light OFF', 'lights.nose.set', 0),
+      ] },
+      afterLanding: { description: 'Once clear of the runway: Strobe OFF · Landing L/R RETRACT · Nose TAXI · Turnoffs L/R ON', steps: [
+        md11LightStep('Strobe OFF', 'lights.strobe.off'),
+        md11LightStep('Left landing light RETRACT', 'lights.landingLeft.set', 0),
+        md11LightStep('Right landing light RETRACT', 'lights.landingRight.set', 0),
+        md11LightStep('Nose light TAXI', 'lights.nose.set', 1),
+        md11LightStep('Left runway turnoff ON', 'lights.turnoffLeft.on'),
+        md11LightStep('Right runway turnoff ON', 'lights.turnoffRight.on'),
+      ] },
+    }),
+    ...([
+      ['speed', 100, 399, 1, 'knots'], ['heading', 0, 359, 1, 'degrees'],
+      ['altitude', 0, 50000, 100, 'feet'],
+    ] as const).map(([target, min, max, step, units]) => input(`flightGuidance.${target}.set`,
+      aircraftAction(`flightGuidance.${target}.set`), 'value', { kind: 'number', min, max, step, units })),
+    ...['nav', 'beacon', 'strobe', 'logo', 'turnoffLeft', 'turnoffRight'].map(light =>
+      choice(`lights.${light}.set`, { false: aircraftAction(`lights.${light}.off`), true: aircraftAction(`lights.${light}.on`) }, BOOLEAN_INPUT)),
+    ...['landingLeft', 'landingRight'].map(light => choice(`lights.${light}.set`, {
+      false: { ...aircraftAction(`lights.${light}.set`), value: 0 },
+      true: { ...aircraftAction(`lights.${light}.set`), value: 2 },
+    }, BOOLEAN_INPUT)),
+    choice('lights.taxi.set', {
+      false: { ...aircraftAction('lights.nose.set'), value: 0 },
+      true: { ...aircraftAction('lights.nose.set'), value: 1 },
+    }, BOOLEAN_INPUT),
+    choice('lights.noseMode.set', {
+      off: { ...aircraftAction('lights.nose.set'), value: 0 },
+      taxi: { ...aircraftAction('lights.nose.set'), value: 1 },
+      land: { ...aircraftAction('lights.nose.set'), value: 2 },
+    }, { kind: 'enum', values: ['off', 'taxi', 'land'] }),
+    ...['seatBelts', 'noSmoking'].map(sign => choice(`cabin.${sign}.set`, Object.fromEntries(
+      ['off', 'auto', 'on'].map((name, value) => [name, { ...aircraftAction(`cabin.${sign}.set`), value }]),
+    ), { kind: 'enum', values: ['off', 'auto', 'on'] })),
+    ...['captain', 'firstOfficer'].map(side => input(`baro.${side}.qnhInHg`,
+      aircraftAction(`baro.${side}.inHg.set`), 'value', { kind: 'number', min: 28, max: 31, step: 0.01, units: 'inhg' })),
+    ...['captain', 'firstOfficer'].map(side => input(`approach.${side}.radioMinimums`, aircraftAction(`approach.${side}.minimums.set`))),
+    ...(['landing', 'runwayTurnoff'] as const).map(light => ({
+      commandId: `lights.${light}.set`, kind: 'choice-sequence' as const, input: BOOLEAN_INPUT,
+      description: light === 'landing' ? 'Both fuselage landing lights; OFF retracts both. Nose light is separate.' : 'Both runway turnoff lights.',
+      choices: Object.fromEntries([false, true].map(on => [String(on), ['Left', 'Right'].map(side => ({
+        label: `${side} ${light} ${on ? 'ON' : 'OFF'}`,
+        // Both sides use the MD-11's shared CEVENT channel and 400 ms cooldown.
+        settleMs: 400,
+        request: light === 'landing' ? { ...aircraftAction(`lights.landing${side}.set`), value: on ? 2 : 0 }
+          : aircraftAction(`lights.turnoff${side}.${on ? 'on' : 'off'}`),
+      }))])),
+    })),
+  ],
+};
+
 const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>([
+  ['tfdi-md-11', TFDI_MD11_AIRCRAFT_COMMAND_CONFIGURATION],
   ['microsoft-inibuilds-a32x', standardLightConfiguration('microsoft-inibuilds-a32x')],
   ['microsoft-737-max-8', standardLightConfiguration('microsoft-737-max-8')],
   ['inibuilds-tristar', standardLightConfiguration('inibuilds-tristar', 'setOn', 'setOff')],
@@ -1764,6 +1891,7 @@ const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>(
   ['fbw-a32nx', FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION],
   ['fenix-a32x', FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION],
   ['inibuilds-a350', INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION],
+  ['inibuilds-a380', INIBUILDS_A380_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-737', PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION],
   ['pmdg-777', PMDG_777_AIRCRAFT_COMMAND_CONFIGURATION],
 ]);
@@ -1947,7 +2075,7 @@ function requestsForBinding(
   }
   const key = String(inputValue.value);
   if (binding.kind === 'choice-sequence') return Object.prototype.hasOwnProperty.call(binding.choices, key)
-    ? binding.choices[key].map(step => ({ label: step.label, request: { ...step.request } })) : null;
+    ? binding.choices[key].map(step => ({ label: step.label, request: { ...step.request }, ...(step.settleMs ? { settleMs: step.settleMs } : {}) })) : null;
   return Object.prototype.hasOwnProperty.call(binding.choices, key)
     ? [{ label: '', request: { ...binding.choices[key] } }]
     : null;

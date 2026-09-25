@@ -109,6 +109,11 @@ export type AircraftIntegrationActionPrecondition = Readonly<{
   fieldId: string;
 }>;
 
+/** Conditions that must remain true throughout a control transaction. */
+export type AircraftIntegrationActionCondition =
+  | (AircraftIntegrationActionPrecondition & Readonly<{ freshness: 'field' }>)
+  | Readonly<{ fieldId: string; freshness: 'field'; min: number; max: number }>;
+
 export type MobiFlightCalculatorActionRoute =
   | (MobiFlightCalculatorActionRouteBase & Readonly<{
     /** Exact Fenix pressure recipes, executed with per-side mode and pressure confirmation. */
@@ -191,9 +196,12 @@ export type MobiFlightCalculatorActionRoute =
 export type InputEventActionRoute = Readonly<{
   id: string;
   inputEvent: string;
-  readback?: AircraftIntegrationReadback;
+  precondition?: AircraftIntegrationActionPrecondition;
+  /** Native acknowledgement is dispatch only; an independent field must confirm. */
+  readback: AircraftIntegrationReadback;
   transport: 'input-event';
-  value?: AircraftIntegrationPrimitive;
+  /** Exact adapter-owned FLOAT64 payload, including zero and signed detents. */
+  value: number;
 }>;
 
 export type LvarActionRoute = Readonly<{
@@ -242,6 +250,8 @@ type SimConnectSequenceActionRouteBase = Readonly<{
   /** Reviewed FBW barometer transaction with independent confirmation per side. */
   baro?: Readonly<{ target: 'captain' | 'firstOfficer' | 'both'; operation: 'qnhHpa' | 'qnhInHg' | 'std' }>;
   operations: readonly SimConnectSequenceOperation[];
+  /** Confirm the reviewed A32NX altitude resolution before sending its target. */
+  prepareEvent?: Readonly<{ name: string; value: number }>;
   precondition?: AircraftIntegrationActionPrecondition;
   transport: 'simconnect-sequence';
 }>;
@@ -310,6 +320,8 @@ export type AircraftIntegrationAction = Readonly<{
     skipIfSatisfied?: boolean;
     /** Any fresh matching observation suppresses dispatch; absent data is unknown. */
     skipWhen?: readonly AircraftIntegrationActionPrecondition[];
+    /** Fresh mode/power/domain checks, including before a same-state no-op. */
+    requires?: readonly AircraftIntegrationActionCondition[];
   }>;
   id: string;
   input?: AircraftIntegrationNumberInput;

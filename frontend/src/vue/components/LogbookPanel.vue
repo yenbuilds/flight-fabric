@@ -729,7 +729,8 @@ function takeoffGradeColor(grade) {
 }
 
 function takeoffGradeLabel(entry) {
-  return entry?.runwayUseGrade || 'Unknown';
+  const grade = entry?.runwayUseGrade || 'Unknown';
+  return entry?.runwayUseScore != null ? `Recorded grade: ${grade}` : grade;
 }
 
 function takeoffGradePillStyle(entry) {
@@ -749,31 +750,37 @@ function takeoffMobileCardVars(entry) {
   };
 }
 
+function takeoffNumber(value) {
+  return value == null || value === '' ? NaN : Number(value);
+}
+
 function takeoffRemainingLabel(entry) {
-  const remaining = Number(entry?.runwayRemainingFt);
+  if (Array.isArray(entry?.flags) && entry.flags.some((flag) => flag?.code === 'liftoff_position_uncertain')) return 'Uncertain';
+  const remaining = takeoffNumber(entry?.runwayRemainingFt);
   if (!Number.isFinite(remaining)) return '--';
-  return remaining <= 0
+  return entry?.runwayUseGrade === 'Overrun' || remaining < 0
     ? `${Math.abs(Math.round(remaining)).toLocaleString()} ft past end`
     : `${Math.round(remaining).toLocaleString()} ft`;
 }
 
 function takeoffRemainingSubLabel(entry) {
-  const used = Number(entry?.runwayUsedPct);
+  const used = takeoffNumber(entry?.runwayUsedPct);
+  if (entry?.runwayUseGrade === 'Unknown') return entry?.runwayUseZone || 'Runway geometry unverified';
   return Number.isFinite(used) ? `${Math.round(used)}% used` : (entry?.runwayUseZone || '');
 }
 
 function takeoffRollLabel(entry) {
-  const roll = Number(entry?.rollDistanceFt);
+  const roll = takeoffNumber(entry?.rollDistanceFt);
   return Number.isFinite(roll) ? `${Math.round(roll).toLocaleString()} ft` : '--';
 }
 
 function takeoffRollSubLabel(entry) {
-  const duration = Number(entry?.rollDurationS);
+  const duration = takeoffNumber(entry?.rollDurationS);
   return Number.isFinite(duration) ? `${Math.round(duration)} s` : '';
 }
 
 function takeoffScreenLabel(entry) {
-  const remaining = Number(entry?.screenHeightRemainingFt);
+  const remaining = takeoffNumber(entry?.screenHeightRemainingFt);
   if (entry?.screenHeightReached !== true || !Number.isFinite(remaining)) return '--';
   return remaining < 0
     ? `${Math.abs(Math.round(remaining)).toLocaleString()} ft past end`
@@ -781,17 +788,17 @@ function takeoffScreenLabel(entry) {
 }
 
 function takeoffScreenSubLabel(entry) {
-  const height = Number(entry?.screenHeightFt);
+  const height = takeoffNumber(entry?.screenHeightFt);
   return Number.isFinite(height) ? `at ${Math.round(height)} ft` : '';
 }
 
 function takeoffScreenColor(entry) {
-  const remaining = Number(entry?.screenHeightRemainingFt);
-  return entry?.screenHeightReached === true && Number.isFinite(remaining) && remaining < 0 ? '#ef4444' : '';
+  // Retain serious recorded assessments; new screen-height measurements are context.
+  return Array.isArray(entry?.flags) && entry.flags.some((flag) => flag?.code === 'screen_height_beyond_runway_end' && flag.severity === 'warning') ? 'var(--color-danger)' : '';
 }
 
 function takeoffLiftoffLabel(entry) {
-  const ias = Number(entry?.iasKts);
+  const ias = takeoffNumber(entry?.iasKts);
   return Number.isFinite(ias) ? `${Math.round(ias)} kt` : '--';
 }
 
@@ -800,7 +807,19 @@ function takeoffLiftoffSubLabel(entry) {
   const hops = Number(entry?.hopCount);
   if (Number.isFinite(hops) && hops > 0) notes.push(hops === 1 ? 'settled back once' : `settled back ${hops}x`);
   if (entry?.runwayExcursion === true) notes.push('runway excursion');
+  for (const flag of Array.isArray(entry?.flags) ? entry.flags : []) {
+    const duplicate = (flag?.code === 'runway_excursion' && entry.runwayExcursion === true)
+      || (flag?.code === 'settled_after_liftoff' && hops > 0);
+    if (flag?.label && !duplicate) notes.push(flag.label);
+  }
+  if (notes.length === 0 && ['critical', 'warning', 'caution'].includes(entry?.assessment)) notes.push(`${entry.assessment} assessment recorded`);
   return notes.join(' · ');
+}
+
+function takeoffFindingTone(entry) {
+  const serious = ['critical', 'warning'].includes(entry?.assessment) || entry?.runwayExcursion === true
+    || (Array.isArray(entry?.flags) && entry.flags.some((flag) => ['critical', 'warning'].includes(flag?.severity)));
+  return serious ? 'text-danger' : 'text-warning';
 }
 
 function trendLabel(value) {
@@ -1125,7 +1144,7 @@ function trendStabilityText(row) {
 
     <section v-if="TAKEOFF_SCORING_ENABLED && hasTakeoffs" id="logbook-takeoffs" class="border-t border-surface-200" aria-labelledby="logbook-takeoffs-title">
       <div class="px-3 sm:px-4 py-3 border-b border-surface-200/60">
-        <h3 id="logbook-takeoffs-title" class="text-sm font-semibold text-gray-200">Scored takeoffs</h3>
+        <h3 id="logbook-takeoffs-title" class="text-sm font-semibold text-gray-200">Recorded takeoffs</h3>
         <div id="logbook-takeoffs-subtitle" class="text-xs text-gray-500 mt-0.5">{{ takeoffSubtitle }}</div>
       </div>
 
@@ -1185,7 +1204,7 @@ function trendStabilityText(row) {
               <span class="logbook-mobile-card__stat-label">Liftoff</span>
               <span class="inline-flex flex-col">
                 <span class="logbook-mobile-card__stat-value">{{ takeoffLiftoffLabel(entry) }}</span>
-                <span v-if="takeoffLiftoffSubLabel(entry)" class="text-[9px] font-normal leading-tight text-amber-400">{{ takeoffLiftoffSubLabel(entry) }}</span>
+                <span v-if="takeoffLiftoffSubLabel(entry)" class="text-[9px] font-normal leading-tight" :class="takeoffFindingTone(entry)">{{ takeoffLiftoffSubLabel(entry) }}</span>
               </span>
             </div>
           </div>
@@ -1200,7 +1219,7 @@ function trendStabilityText(row) {
               <th class="px-3 py-2 text-left font-medium">Date</th>
               <th class="px-3 py-2 text-left font-medium">Aircraft · Airport</th>
               <th class="px-3 py-2 text-center font-medium">Runway Left</th>
-              <th class="px-3 py-2 text-center font-medium">Runway-Use Grade</th>
+              <th class="px-3 py-2 text-center font-medium">Runway record</th>
               <th class="px-3 py-2 text-center font-medium">Ground Roll</th>
               <th class="px-3 py-2 text-center font-medium">Screen Height</th>
               <th class="px-3 py-2 text-center font-medium">Liftoff</th>
@@ -1261,7 +1280,7 @@ function trendStabilityText(row) {
               <td class="px-3 py-2.5 whitespace-nowrap text-center text-[10px] font-semibold text-gray-300">
                 <span class="inline-flex flex-col items-center leading-tight">
                   <span>{{ takeoffLiftoffLabel(entry) }}</span>
-                  <span v-if="takeoffLiftoffSubLabel(entry)" class="font-normal text-amber-400">{{ takeoffLiftoffSubLabel(entry) }}</span>
+                  <span v-if="takeoffLiftoffSubLabel(entry)" class="font-normal" :class="takeoffFindingTone(entry)">{{ takeoffLiftoffSubLabel(entry) }}</span>
                 </span>
               </td>
             </tr>

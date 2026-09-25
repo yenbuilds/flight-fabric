@@ -141,17 +141,19 @@ test('Route corners are rounded for display only: ends fixed, straight legs unto
   assert.equal(smoothRoute([{ x: 0, z: 0 }, { x: 5, z: 5 }]).length, 2);
 });
 
-test('The chosen view persists per browser and falls back to the 2D map', () => {
+test('The ribbon is the default and existing view preferences persist per browser', () => {
   const store = new Map();
   const storage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
-  assert.equal(readTaxiView(storage), '2d');
+  assert.equal(readTaxiView(storage), '3d');
+  writeTaxiView(storage, '2d');
+  assert.equal(readTaxiView(storage), '2d', 'an existing 2D preference is retained');
   writeTaxiView(storage, '3d');
   assert.equal(store.get(TAXI_VIEW_STORAGE_KEY), '3d');
   assert.equal(readTaxiView(storage), '3d');
   writeTaxiView(storage, 'isometric');
   assert.equal(readTaxiView(storage), '2d');
   const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
-  assert.equal(readTaxiView(broken), '2d');
+  assert.equal(readTaxiView(broken), '3d');
   assert.doesNotThrow(() => writeTaxiView(broken, '3d'));
-  assert.equal(readTaxiView(null), '2d');
+  assert.equal(readTaxiView(null), '3d');
 });

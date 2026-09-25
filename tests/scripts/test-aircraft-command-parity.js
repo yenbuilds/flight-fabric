@@ -6,7 +6,7 @@ const { buildAircraftControlCapabilities, resolveAircraftCommand, executeAircraf
 const { aircraftParityBindings } = require(runtime('aircraft/aircraft-command-parity.js'));
 const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/aircraft-integrations/index.js'));
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar', 'simvar'],
-  integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'simbridge-mcdu'] };
+  integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'simbridge-mcdu', 'input-event'] };
 const hotwords = new Set(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../electron/resources/voice/hotwords.txt'), 'utf8')
   .split(/\r?\n/).map(line => line.split(':')[0].trim()));
 const optionsFor = id => ({ profile: loader.loadProfile(`bundled/msfs/${id}`), capabilities, profileRevision: 7 });
@@ -47,7 +47,7 @@ test('every intended parity binding is advertised, guarded and voiced on every e
       }
     }
   }
-  assert.equal(expanded, 19, 'all reviewed variants retain their new command coverage');
+  assert.equal(expanded, 20, 'all reviewed variants, including the iniBuilds A380 RR Basic, retain their new command coverage');
 });
 
 const routes = [

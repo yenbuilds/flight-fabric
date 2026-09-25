@@ -643,11 +643,17 @@ const electronIdentity = normalizeWindowsProcessIdentity({
   creationToken: '638880000000000000',
   ownerSid: 'S-1-5-21-1000',
 });
+const expectedBackendLaunch = { backendScript: 'C:\\ff\\core\\simbridge.js' };
 test(
   'Windows process identity classifies only complete verified Electron backends',
-  classifyFlightFabricBackendIdentity(electronIdentity) === 'electron' &&
-    classifyFlightFabricBackendIdentity({ ...electronIdentity, commandLine: 'node unrelated.js' }) === 'unverified',
+  classifyFlightFabricBackendIdentity(electronIdentity, expectedBackendLaunch) === 'electron' &&
+    classifyFlightFabricBackendIdentity({ ...electronIdentity, commandLine: 'node unrelated.js' }, expectedBackendLaunch) === 'unverified',
 );
+const processIdentityTests = spawnSync(process.execPath, ['--test', path.join(__dirname, 'backend-process-identity.test.js')], {
+  encoding: 'utf8', windowsHide: true,
+});
+if (processIdentityTests.status !== 0) console.error(processIdentityTests.stdout, processIdentityTests.stderr);
+test('backend cleanup rejects unrelated paths, ambiguous arguments and invalid launch owners', processIdentityTests.status === 0);
 test(
   'Windows process owner checks fail closed for a different account',
   hasSameWindowsOwner(electronIdentity, 'S-1-5-21-1000') &&
@@ -1336,7 +1342,9 @@ test('does not use shell-string execSync in main process', !mainSource.includes(
 test('normalizes TCP ports before process cleanup', mainSource.includes('function normalizeTcpPort'));
 test('stale port cleanup verifies FlightFabric backend identity before taskkill', (
   mainSource.includes('function readWindowsProcessIdentity') &&
-    mainSource.includes('classifyFlightFabricBackendIdentity(initialIdentity)') &&
+    mainSource.includes('classifyFlightFabricBackendIdentity(initialIdentity, {') &&
+    mainSource.includes('backendScript: BACKEND_SCRIPT,') &&
+    mainSource.includes('executablePath: process.execPath,') &&
     mainSource.includes('isSameWindowsProcessIdentity(initialIdentity, currentIdentity)') &&
     mainSource.includes('not a verified FlightFabric backend') &&
     mainSource.includes('Stop Verified FlightFabric Backend')
@@ -1523,7 +1531,7 @@ const trustedIpcChannels = [...mainSource.matchAll(/registerTrustedIpcHandler\('
   .map((match) => match[1]);
 test(
   'every incoming Electron IPC channel uses the trusted sender registrar',
-  trustedIpcChannels.length === 27
+  trustedIpcChannels.length === 30
     && trustedIpcChannels.includes('autotaxi-background-set')
     && new Set(trustedIpcChannels).size === trustedIpcChannels.length
     && (mainSource.match(/ipcMain\.handle\(/g) || []).length === 1

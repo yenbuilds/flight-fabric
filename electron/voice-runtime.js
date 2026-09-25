@@ -316,12 +316,17 @@ function createVoiceRuntime({
   }
 
   speech.onEvent((event) => {
+    const fatalError = event?.type === 'error' && event.fatal === true;
+    if (fatalError) speechError = event.message || 'Local voice recognition stopped.';
     if (event?.sessionId && ['final', 'cancelled', 'error'].includes(event.type)) {
       revokeCaptureAuthorization(event.sessionId);
     } else if (event?.type === 'error' && event.fatal === true) {
       revokeCaptureAuthorization();
     }
     send('voice:speech-event', event);
+    // Worker crashes can be global events without a session ID. Publish the
+    // failed engine state as well so the UI cannot keep offering a dead engine.
+    if (fatalError) send('voice:runtime-state', runtimeInfo());
   });
 
   function installIpc() {

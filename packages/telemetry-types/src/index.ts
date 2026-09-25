@@ -98,6 +98,8 @@ export { type TelemetryState, createInitialState } from './state';
 export type {
   BaseCommand,
   AutotaxiCommand,
+  TaxiGuidanceCommand,
+  PushbackCommand,
   TelemetryCommand,
 } from './commands';
 export type { CduSide, CduColor, CduCell, CduScreen, CduKey, CduState, CduRequest } from './cdu.js';

@@ -158,6 +158,7 @@ const REPLAY_MESSAGE_ORDER = [
   'rates',
   'vreSampling',
   'runwayContext',
+  'takeoff',
 ];
 
 const REPLAY_TYPES = new Set(REPLAY_MESSAGE_ORDER);
@@ -188,6 +189,7 @@ export function rememberReplayMessage(runtimeState: AnyRecord, message: AnyRecor
 
   if (type === 'aircraftChanged') {
     clearLiveReplayMessages(runtimeState);
+    delete getReplayState(runtimeState).takeoff;
     return;
   }
 
@@ -197,6 +199,14 @@ export function rememberReplayMessage(runtimeState: AnyRecord, message: AnyRecor
 
   if (!REPLAY_TYPES.has(type)) return;
   const latestMessages = getReplayState(runtimeState);
+  if (type === 'takeoff' && message.final !== true) return;
+  if (type === 'flightTime' && message.active !== false) {
+    const flightId = String(message.startedAt || message.flightId || '');
+    if (flightId) {
+      if (runtimeState.replay.takeoffFlightId !== flightId) delete latestMessages.takeoff;
+      runtimeState.replay.takeoffFlightId = flightId;
+    }
+  }
   latestMessages[type] = { ...message };
 
   if (type === 'dataSources' && message.controlCapabilities && typeof message.controlCapabilities === 'object') {

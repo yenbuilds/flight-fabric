@@ -16,6 +16,7 @@
  * deleted, and caller-facing responses avoid leaking raw absolute paths.
  */
 'use strict';
+import type { ReplayClipResult } from '../replay/landing-clip';
 
 const crypto = require('node:crypto') as typeof import('node:crypto');
 const path = require('path') as typeof import('path');
@@ -26,6 +27,7 @@ const recordingBundleLayout = require('./recording-bundle-layout') as {
     paths: { csv: string };
   } | null;
   listBundleCsvPaths: (_outputDir: string) => string[];
+  isSafeBundleCsvPath: (_csvPath: string, _outputDir: string) => boolean;
 };
 const flightAnalysisRescoreSidecar = require('./flight-analysis-rescore-sidecar.js') as {
   buildFlightAnalysisPreviewFingerprint: (_options: AnyRecord) => AnyRecord;
@@ -53,6 +55,7 @@ const timelineGenerator = require('../events/timeline-generator') as {
   CURRENT_ANALYSIS_RESCORE_CONTRACT?: AnyRecord;
   deleteFlightCsv: (_filePath: string, _expectedIdentity?: { mtimeMs?: unknown; sizeBytes?: unknown } | null) => { success: boolean; error?: string; deleted?: string };
   generateFromCSV: (_csvPath: string, _options?: TimelineGenerationOptions) => Promise<{ success: boolean; timeline?: AnyRecord; error?: string }>;
+  prepareReplayClipFromCSV: (_csvPath: string, _landingIndex: number) => Promise<ReplayClipResult>;
   getFlightLogsDir: () => string;
   getFlightLogsStorageInfo: (_options?: { allowedCsvPaths?: string[] }) => AnyRecord;
   listCSVFlights: (_options?: { allowedCsvPaths?: string[]; skipDeleteRecovery?: boolean }) => AnyRecord[];
@@ -946,6 +949,30 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     }
   }
 
+  // Deliberately bypass saved/rescored map projections: extract native poses
+  // from the same validated CSV parse that reconstructed the touchdown.
+  async function prepareInSimReplayClip(filePath: unknown, landingIndex = 0): Promise<ReplayClipResult> {
+    if (!Number.isSafeInteger(landingIndex) || landingIndex < 0) {
+      return { success: false, error: 'Invalid replay landing index' };
+    }
+    const csvPath = resolveCsvInsideFlightLogs(filePath);
+    if (!csvPath || !historicalCsvCanBeMutated(csvPath)) {
+      return { success: false, error: 'Replay requires a finalized flight recording' };
+    }
+    if (!recordingBundleLayout.isSafeBundleCsvPath(csvPath, timelineGenerator.getFlightLogsDir())) {
+      return { success: false, error: 'Replay source must be a regular recording bundle inside Flight Logs' };
+    }
+    const lease = recordingBundleLease.acquireBundleReadLease({
+      outputDir: timelineGenerator.getFlightLogsDir(), baseName: csvBundleBaseName(csvPath), purpose: 'in_sim_replay',
+    });
+    if (!lease.acquired || typeof lease.release !== 'function') {
+      return { success: false, error: 'The recording is busy or its replay read lease could not be acquired' };
+    }
+    try {
+      return await timelineGenerator.prepareReplayClipFromCSV(csvPath, landingIndex);
+    } finally { lease.release(); }
+  }
+
   async function generateTimelineForFlightId(
     flightId: unknown,
     options: TimelineGenerationOptions = {},
@@ -1336,6 +1363,7 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     deleteFlightCsv,
     generateTimelineForFlightId,
     generateTimelineFromFile,
+    prepareInSimReplayClip,
     getHistoryIndexStatus,
     getLogbook,
     listFlightsIndexed,

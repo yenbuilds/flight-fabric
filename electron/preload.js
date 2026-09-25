@@ -52,6 +52,11 @@ function requireInstallId(value) {
   return value;
 }
 
+function requirePmdgFamily(value) {
+  if (value !== 'pmdg-737' && value !== 'pmdg-777') throw new TypeError('Invalid PMDG family');
+  return value;
+}
+
 function onVoiceEvent(channel, callback) {
   if (typeof callback !== 'function') throw new TypeError('Voice callback must be a function');
   const listener = (_event, payload) => callback(payload);
@@ -134,6 +139,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // MSFS install detection
   detectMsfsInstalls: () => ipcRenderer.invoke('msfs-detect-installs'),
+
+  pmdgSdk: Object.freeze({
+    chooseFile: (family, profileId = '') => {
+      if (typeof profileId !== 'string' || profileId.length > 64) throw new TypeError('Invalid aircraft profile');
+      return ipcRenderer.invoke('pmdg-sdk-choose', requirePmdgFamily(family), profileId);
+    },
+    getStatus: (family, profileId = '') => {
+      if (typeof profileId !== 'string' || profileId.length > 64) throw new TypeError('Invalid aircraft profile');
+      return ipcRenderer.invoke('pmdg-sdk-status', requirePmdgFamily(family), profileId);
+    },
+    revealFile: (family, id) => {
+      if (typeof id !== 'string' || id.length > 120) throw new TypeError('Invalid PMDG file identifier');
+      return ipcRenderer.invoke('pmdg-sdk-reveal', requirePmdgFamily(family), id);
+    },
+  }),
 
   // MSFS 2024 toolbar package. Only a detected install id crosses the bridge;
   // the main process resolves every path itself.

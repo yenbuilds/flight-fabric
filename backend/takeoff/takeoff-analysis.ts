@@ -8,25 +8,9 @@
  * detection and collection; this module owns measurement, scoring and flags,
  * mirroring how rollout-analysis.ts sits behind the landing runner.
  *
- * Runway-use scoring.
- *
- * Two operational lines anchor the scale and never move:
- *   - liftoff beyond the runway end is an overrun (red);
- *   - the screen height (35 ft for transport aircraft, FAR 25.113; 50 ft for
- *     light aircraft, FAR 23 / AC 23-8) reached beyond the runway end is
- *     "Dangerous" (red). Certified takeoff distance ends at that height, so a
- *     crossing past the pavement means the runway was too short for the
- *     takeoff as flown.
- *
- * Inside the runway the bands are a proficiency layer for the app, not an
- * aviation standard. They are expressed as runway remaining at liftoff:
- *   - Outstanding: at least 40 % remaining, or at least 3,000 ft;
- *   - Good: at least 25 % remaining, or at least 2,000 ft;
- *   - Acceptable: at least 10 % remaining;
- *   - Late Liftoff (orange caution): under 10 % remaining.
- * The absolute-feet floors stop a long runway from turning a normal heavy
- * departure into a caution. None of this knows the aircraft's certified
- * performance; it describes how much pavement was left, nothing more.
+ * Runway use and rotation are measurements, not performance grades. A ground
+ * overrun needs consistent ground-contact evidence and verified geometry.
+ * An airborne sample beyond the pavement alone cannot establish an overrun.
  */
 
 import { isRunwayGeometryScorable } from '../landing/runway-geometry-confidence';
@@ -51,12 +35,6 @@ const { projectPointToRunwayFeet } = require('../analysis/flight-analysis') as {
 };
 const landingDistance = require('../landing/landing-distance') as {
   calculateDistanceFt: (lat1: unknown, lon1: unknown, lat2: unknown, lon2: unknown) => number | null;
-  scoreLateralOffset: (offsetFt: number | null, runwayWidthFt?: number | null) => {
-    score: number | null;
-    grade: string;
-    penalty: number;
-    zone?: string;
-  };
 };
 
 type AnyRecord = Record<string, any>;
@@ -101,8 +79,11 @@ export type TakeoffAnalysisContext = {
    */
   rollStart?: { timestampMs: number; lat?: number | null; lon?: number | null; gsKts?: number | null; source?: string | null } | null;
   climb?: { maxPitchDeg?: number | null; maxBankDeg?: number | null } | null;
+  priorRotationMaxRateDegS?: number | null;
+  groundContactUncertain?: boolean;
   lightAircraft?: boolean;
   source?: string;
+  finalizeReason?: string;
 };
 
 type TakeoffSeverity = 'normal' | 'caution' | 'warning' | 'critical';
@@ -123,6 +104,8 @@ const SEVERITY_RANK: Record<TakeoffSeverity, number> = {
 const ROLL_STANDSTILL_GS_KTS = 8;
 /** A ground sample this far off the runway heading is not part of the roll. */
 const ROLL_ALIGNMENT_TOLERANCE_DEG = 30;
+const ROLL_LINEUP_GS_KTS = 30;
+const ROLL_ALIGNMENT_ACCELERATION_KTS = 5;
 /** A gap longer than this between ground samples ends the contiguous roll. */
 const ROLL_MAX_SAMPLE_GAP_MS = 5_000;
 /** Samples slower than this are ignored for lateral and heading peaks. */
@@ -131,28 +114,9 @@ const MIN_ROLL_TRACKING_GS_KTS = 30;
 const ROTATION_PITCH_DELTA_DEG = 1.0;
 const ROTATION_MAX_LOOKBACK_MS = 15_000;
 const MIN_ROTATION_DURATION_S = 0.4;
-/** Boeing/Airbus FCTM guidance is roughly 2-3 deg/s; well above that is a caution. */
-const RAPID_ROTATION_DEG_S = 5;
 
 export const TRANSPORT_SCREEN_HEIGHT_FT = 35;
 export const LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT = 50;
-
-export const RUNWAY_USE_BANDS = Object.freeze({
-  OUTSTANDING: Object.freeze({ score: 100, grade: 'Outstanding', zone: 'Ample runway margin' }),
-  GOOD: Object.freeze({ score: 95, grade: 'Good', zone: 'Comfortable margin' }),
-  ACCEPTABLE: Object.freeze({ score: 80, grade: 'Acceptable', zone: 'Reduced margin' }),
-  LATE: Object.freeze({ score: 55, grade: 'Late Liftoff', zone: 'Little runway remaining' }),
-  SCREEN_PAST_END: Object.freeze({ score: 20, grade: 'Dangerous', zone: 'Screen height beyond runway end' }),
-  OVERRUN: Object.freeze({ score: 0, grade: 'Overrun', zone: 'Lifted off beyond runway end' }),
-});
-
-export const RUNWAY_USE_LIMITS = Object.freeze({
-  outstandingRemainingFraction: 0.40,
-  outstandingRemainingFt: 3000,
-  goodRemainingFraction: 0.25,
-  goodRemainingFt: 2000,
-  acceptableRemainingFraction: 0.10,
-});
 
 export type RunwayUseScore = {
   score: number | null;
@@ -163,6 +127,7 @@ export type RunwayUseScore = {
   screenRemainingFt: number | null;
   liftoffBeyondEnd: boolean;
   screenBeyondEnd: boolean;
+  positionUncertain: boolean;
 };
 
 function round(value: number | null | undefined, digits = 1): number | null {
@@ -202,14 +167,16 @@ export function resolveScreenHeightFt(lightAircraft: boolean): { heightFt: numbe
 }
 
 /**
- * Score how much runway was used before liftoff.
+ * Measure runway use, retaining the legacy score fields for saved-record compatibility.
  *
  * @param liftoffDistanceFt   distance from the runway's physical threshold to the liftoff point
  * @param screenHeightDistanceFt distance from the same origin to the screen-height crossing, if observed
- * @param runwayLengthFt      usable takeoff length from that origin
+ * @param confirmedGroundDistanceFt conservative distance supported by recent ground observations
+ * @param runwayLengthFt      physical runway length from that origin, not a declared distance
  */
 export function scoreTakeoffRunwayUse(input: {
   liftoffDistanceFt: number | null | undefined;
+  confirmedGroundDistanceFt?: number | null;
   screenHeightDistanceFt?: number | null | undefined;
   runwayLengthFt: number | null | undefined;
 }): RunwayUseScore {
@@ -225,32 +192,27 @@ export function scoreTakeoffRunwayUse(input: {
     screenRemainingFt: null,
     liftoffBeyondEnd: false,
     screenBeyondEnd: false,
+    positionUncertain: false,
   };
   if (liftoffDistanceFt === null || lengthFt === null || lengthFt <= 0) return unknown;
 
-  const remainingFt = Math.round(lengthFt - liftoffDistanceFt);
+  const remainingRawFt = lengthFt - liftoffDistanceFt;
+  const remainingFt = Math.round(remainingRawFt);
   const usedPct = round(Math.max(0, liftoffDistanceFt) / lengthFt * 100, 1);
   const screenRemainingFt = screenDistanceFt === null ? null : Math.round(lengthFt - screenDistanceFt);
-  const liftoffBeyondEnd = remainingFt <= 0;
-  const screenBeyondEnd = screenRemainingFt !== null && screenRemainingFt < 0;
-  const base = { remainingFt, usedPct, screenRemainingFt, liftoffBeyondEnd, screenBeyondEnd };
-
-  if (liftoffBeyondEnd) return { ...RUNWAY_USE_BANDS.OVERRUN, ...base };
-  if (screenBeyondEnd) return { ...RUNWAY_USE_BANDS.SCREEN_PAST_END, ...base };
-
-  const remainingFraction = remainingFt / lengthFt;
-  if (
-    remainingFraction >= RUNWAY_USE_LIMITS.outstandingRemainingFraction
-    || remainingFt >= RUNWAY_USE_LIMITS.outstandingRemainingFt
-  ) return { ...RUNWAY_USE_BANDS.OUTSTANDING, ...base };
-  if (
-    remainingFraction >= RUNWAY_USE_LIMITS.goodRemainingFraction
-    || remainingFt >= RUNWAY_USE_LIMITS.goodRemainingFt
-  ) return { ...RUNWAY_USE_BANDS.GOOD, ...base };
-  if (remainingFraction >= RUNWAY_USE_LIMITS.acceptableRemainingFraction) {
-    return { ...RUNWAY_USE_BANDS.ACCEPTABLE, ...base };
-  }
-  return { ...RUNWAY_USE_BANDS.LATE, ...base };
+  const groundDistanceFt = finiteNumberOrNull(input.confirmedGroundDistanceFt);
+  const liftoffBeyondEnd = remainingRawFt < 0 && groundDistanceFt != null && groundDistanceFt > lengthFt;
+  const positionUncertain = remainingRawFt < 0 && !liftoffBeyondEnd;
+  const screenBeyondEnd = screenDistanceFt !== null && screenDistanceFt > lengthFt;
+  return {
+    remainingFt: positionUncertain ? null : remainingFt,
+    usedPct: positionUncertain ? null : usedPct,
+    screenRemainingFt, liftoffBeyondEnd, screenBeyondEnd, positionUncertain,
+    score: null,
+    grade: liftoffBeyondEnd ? 'Overrun' : positionUncertain ? 'Unknown' : 'Recorded',
+    zone: liftoffBeyondEnd ? 'Ground contact beyond runway end'
+      : positionUncertain ? 'Liftoff position uncertain at runway end' : 'Observed runway remaining',
+  };
 }
 
 function normalizeSample(value: AnyRecord): TakeoffRollSample | null {
@@ -275,8 +237,9 @@ function normalizeSample(value: AnyRecord): TakeoffRollSample | null {
 
 /**
  * The contiguous ground samples that belong to this takeoff roll, oldest
- * first. Walking backwards from liftoff, the roll ends at a data gap, a pause,
- * an off-runway sample or a sample that is not aligned with the runway.
+ * first. Ground continuity and the last stop bound the candidate. Explicit
+ * runway entry excludes preceding taxi, even when taxi speed exceeds 30 kt.
+ * Heading and surface deviations after acceleration remain assessment evidence.
  */
 function selectRollSamples(
   samples: TakeoffRollSample[],
@@ -286,24 +249,52 @@ function selectRollSamples(
   const ground = samples
     .filter((sample) => sample.onGround && sample.timestampMs <= liftoffTimestampMs)
     .sort((left, right) => left.timestampMs - right.timestampMs);
-  const roll: TakeoffRollSample[] = [];
+  const contiguous: TakeoffRollSample[] = [];
   let nextTimestampMs = liftoffTimestampMs;
   for (let index = ground.length - 1; index >= 0; index -= 1) {
     const sample = ground[index];
     if (nextTimestampMs - sample.timestampMs > ROLL_MAX_SAMPLE_GAP_MS) break;
     if (sample.paused) break;
-    if (sample.onRunway === false && sample.runwayLike === false) break;
+    contiguous.push(sample);
+    nextTimestampMs = sample.timestampMs;
+    if (sample.gsKts != null && sample.gsKts <= ROLL_STANDSTILL_GS_KTS) break;
+  }
+  contiguous.reverse();
+  const runwayEntry = contiguous.findIndex((sample) => sample.onRunway === true);
+  const hadOffRunwayTaxi = runwayEntry > 0
+    && contiguous.slice(0, runwayEntry).some((sample) => sample.onRunway === false);
+  const candidate = hadOffRunwayTaxi ? contiguous.slice(runwayEntry) : contiguous;
+  if (candidate.length === 0) return [];
+
+  // A fast rolling entry can still be turning. Establish direction after an
+  // observed speed increase, then retain all subsequent heading deviations.
+  // Use the final acceleration from lineup speed, since an earlier taxi run
+  // may also have exceeded this speed when runway membership was unavailable.
+  let accelerationStart = 0;
+  for (let index = 0; index < candidate.length; index += 1) {
+    const speed = candidate[index].gsKts;
+    if (speed != null && speed < ROLL_LINEUP_GS_KTS) accelerationStart = index;
+  }
+  const accelerating = candidate.slice(accelerationStart);
+  const entrySpeed = accelerating.find((sample) => sample.gsKts != null)?.gsKts ?? 0;
+  const acceleration = accelerating.find((sample) => sample.gsKts != null
+    && sample.gsKts >= Math.max(ROLL_LINEUP_GS_KTS, entrySpeed + ROLL_ALIGNMENT_ACCELERATION_KTS)
+    && sample.headingTrueDeg != null);
+  const establishedHeading = acceleration?.headingTrueDeg ?? referenceHeadingDeg;
+  const roll: TakeoffRollSample[] = [];
+  for (let index = candidate.length - 1; index >= 0; index -= 1) {
+    const sample = candidate[index];
     if (
-      referenceHeadingDeg != null
+      establishedHeading != null
       && sample.headingTrueDeg != null
       && sample.gsKts != null
       && sample.gsKts > ROLL_STANDSTILL_GS_KTS
+      && (!acceleration || sample.timestampMs <= acceleration.timestampMs)
     ) {
-      const deviation = headingDifferenceDegrees(sample.headingTrueDeg, referenceHeadingDeg);
+      const deviation = headingDifferenceDegrees(sample.headingTrueDeg, establishedHeading);
       if (deviation != null && Math.abs(deviation) > ROLL_ALIGNMENT_TOLERANCE_DEG) break;
     }
     roll.push(sample);
-    nextTimestampMs = sample.timestampMs;
   }
   return roll.reverse();
 }
@@ -504,9 +495,22 @@ export function analyzeTakeoffRoll(
   const screenDistanceFt = screenProjection.alongTrackFt == null
     ? null
     : Math.round(screenProjection.alongTrackFt);
+  // One airborne position beyond the end cannot establish a surface overrun.
+  // Require two recent, consistent ground observations with valid off-runway
+  // membership. Unknown or contradictory surface data stays inconclusive.
+  const groundEndSamples = roll.slice(-2);
+  const groundEndProjections = groundEndSamples.length === 2
+    && groundEndSamples[1].timestampMs > groundEndSamples[0].timestampMs && groundEndSamples.every((sample) => (
+    sample.onRunway === false && sample.gsKts != null && sample.gsKts >= MIN_ROLL_TRACKING_GS_KTS
+    && liftoff.timestampMs - sample.timestampMs <= 3000
+  )) ? groundEndSamples.map((sample) => alongTrack(runway.origin, runway.headingTrueDeg, sample)) : [];
+  const groundDistances = groundEndProjections.map((point) => point.alongTrackFt);
+  const confirmedGroundDistanceFt = groundDistances.length === 2 && groundDistances.every((value) => value != null)
+    ? Math.min(...groundDistances as number[]) : null;
   const runwayUse = scoreTakeoffRunwayUse({
-    liftoffDistanceFt,
-    screenHeightDistanceFt: screenDistanceFt,
+    liftoffDistanceFt: liftoffProjection.alongTrackFt,
+    confirmedGroundDistanceFt,
+    screenHeightDistanceFt: screenProjection.alongTrackFt,
     runwayLengthFt: runway.lengthFt,
   });
 
@@ -523,24 +527,34 @@ export function analyzeTakeoffRoll(
     }
   }
   const climbMaxPitchDeg = finiteNumberOrNull(context.climb?.maxPitchDeg);
-  const maxPitchDeg = climbMaxPitchDeg != null && liftoffPitchDeg != null
-    ? Math.max(climbMaxPitchDeg, liftoffPitchDeg)
-    : (climbMaxPitchDeg ?? liftoffPitchDeg);
+  const pitches = [climbMaxPitchDeg, liftoffPitchDeg, ...roll.map((sample) => sample.pitchDeg)]
+    .filter((value): value is number => value != null);
+  const maxPitchDeg = pitches.length ? Math.max(...pitches) : null;
+  const priorRotationMaxRateDegS = finiteNumberOrNull(context.priorRotationMaxRateDegS);
+  const rates = [priorRotationMaxRateDegS, rotationRateDegS].filter((value): value is number => value != null);
+  const maxRotationRateDegS = rates.length ? Math.max(...rates) : null;
 
   // Lateral offset and heading control during the roll
   const geometryScorable = isRunwayGeometryScorable(geometrySource)
     && runway.widthFt != null && runway.widthFt > 0;
   let peakLateralSignedFt: number | null = null;
   let peakHeadingDeviationSignedDeg: number | null = null;
+  let previousHeading: { timestampMs: number; deviation: number } | null = null;
+  let confirmedHeadingDeviationDeg = 0;
   let surfaceGeometryConflict = false;
   for (const sample of roll) {
-    if (sample.gsKts == null || sample.gsKts < MIN_ROLL_TRACKING_GS_KTS) continue;
+    if (sample.gsKts == null || sample.gsKts < MIN_ROLL_TRACKING_GS_KTS) {
+      previousHeading = null;
+      continue;
+    }
     const projection = alongTrack(runway.origin, runway.headingTrueDeg, sample);
     if (projection.crossTrackFt != null) {
       if (
         sample.onRunway === true
-        && runway.widthFt != null && runway.widthFt > 0
-        && Math.abs(projection.crossTrackFt) > runway.widthFt / 2
+        && ((runway.widthFt != null && runway.widthFt > 0
+          && Math.abs(projection.crossTrackFt) > runway.widthFt / 2)
+          || (projection.alongTrackFt != null && runway.lengthFt != null
+            && (projection.alongTrackFt < -50 || projection.alongTrackFt > runway.lengthFt + 50)))
       ) surfaceGeometryConflict = true;
       if (peakLateralSignedFt == null || Math.abs(projection.crossTrackFt) > Math.abs(peakLateralSignedFt)) {
         peakLateralSignedFt = projection.crossTrackFt;
@@ -552,18 +566,44 @@ export function analyzeTakeoffRoll(
         deviation != null
         && (peakHeadingDeviationSignedDeg == null || Math.abs(deviation) > Math.abs(peakHeadingDeviationSignedDeg))
       ) peakHeadingDeviationSignedDeg = deviation;
-    }
+      // Preserve the measured peak, but an isolated spike cannot establish a
+      // roll-control finding. Two nearby observations must agree on the side.
+      if (deviation != null && previousHeading
+        && sample.timestampMs > previousHeading.timestampMs
+        && sample.timestampMs - previousHeading.timestampMs <= 1000
+        && Math.sign(deviation) === Math.sign(previousHeading.deviation)) {
+        confirmedHeadingDeviationDeg = Math.max(confirmedHeadingDeviationDeg,
+          Math.min(Math.abs(deviation), Math.abs(previousHeading.deviation)));
+      }
+      previousHeading = deviation == null ? null : { timestampMs: sample.timestampMs, deviation };
+    } else previousHeading = null;
   }
   const liftoffLateralSignedFt = liftoffProjection.crossTrackFt == null
     ? null
     : Math.round(liftoffProjection.crossTrackFt);
   const lateralVerified = geometryScorable && !surfaceGeometryConflict && liftoffLateralSignedFt != null;
-  const lateralScore = lateralVerified
-    ? landingDistance.scoreLateralOffset(liftoffLateralSignedFt, runway.widthFt)
-    : null;
+  const groundOutsideEdge = geometryScorable && !surfaceGeometryConflict
+    && groundEndProjections.length === 2
+    && groundEndProjections.every((point) => point.crossTrackFt != null
+      && Math.abs(point.crossTrackFt) > (runway.widthFt as number) / 2)
+    && Math.sign(groundEndProjections[0].crossTrackFt as number) === Math.sign(groundEndProjections[1].crossTrackFt as number);
   const liftoffHeadingDeviationDeg = runway.headingTrueDeg != null && liftoffHeadingDeg != null
     ? headingDifferenceDegrees(liftoffHeadingDeg, runway.headingTrueDeg)
     : null;
+
+  const runwayVerified = isRunwayGeometryScorable(geometrySource, surfaceGeometryConflict)
+    && runway.originKind === 'physical_threshold';
+  if (!runwayVerified) {
+    runwayUse.score = null;
+    runwayUse.grade = 'Unknown';
+    runwayUse.zone = surfaceGeometryConflict ? 'Runway geometry conflicts with surface data' : 'Runway geometry unverified';
+    runwayUse.liftoffBeyondEnd = false;
+    runwayUse.positionUncertain = false;
+    runwayUse.remainingFt = liftoffProjection.alongTrackFt != null && runway.lengthFt != null
+      ? Math.round(runway.lengthFt - liftoffProjection.alongTrackFt) : null;
+    runwayUse.usedPct = liftoffProjection.alongTrackFt != null && runway.lengthFt != null && runway.lengthFt > 0
+      ? round(Math.max(0, liftoffProjection.alongTrackFt) / runway.lengthFt * 100, 1) : null;
+  }
 
   // Flags
   const flags: TakeoffFlag[] = [];
@@ -571,34 +611,33 @@ export function analyzeTakeoffRoll(
   const hopCount = Math.max(0, Math.round(finiteNumberOrNull(context.hopCount) ?? 0));
   if (runwayExcursion) addFlag(flags, 'runway_excursion', 'Runway excursion during the takeoff roll', 'critical');
   if (runwayUse.liftoffBeyondEnd) {
-    addFlag(flags, 'liftoff_beyond_runway_end', 'Lifted off beyond the runway end', 'critical');
-  } else if (runwayUse.screenBeyondEnd) {
-    addFlag(flags, 'screen_height_beyond_runway_end', 'Screen height reached beyond the runway end', 'warning');
-  } else if (runwayUse.grade === RUNWAY_USE_BANDS.LATE.grade) {
-    addFlag(flags, 'late_liftoff', 'Late liftoff with little runway remaining', 'caution');
+    addFlag(flags, 'liftoff_beyond_runway_end', 'Ground contact beyond the runway end', 'critical');
+  } else if (runwayUse.positionUncertain) {
+    addFlag(flags, 'liftoff_position_uncertain', 'Liftoff position uncertain at the runway end', 'caution');
+  }
+  if (!screen) {
+    addFlag(flags, 'climb_incomplete', 'Climb-out measurement incomplete; screen height not observed', 'caution');
   }
   if (hopCount > 0) {
     addFlag(flags, 'settled_after_liftoff', hopCount === 1
       ? 'Settled back onto the runway once after lifting off'
       : `Settled back onto the runway ${hopCount} times after lifting off`, 'caution');
   }
-  if (rotationRateDegS != null && rotationRateDegS >= RAPID_ROTATION_DEG_S && context.lightAircraft !== true) {
-    addFlag(flags, 'rapid_rotation', 'Rapid rotation', 'caution');
+  if (context.groundContactUncertain === true) {
+    addFlag(flags, 'ground_contact_uncertain', 'Brief ground-contact indication; contact not confirmed', 'caution');
   }
   const maxHeadingDeviationDeg = peakHeadingDeviationSignedDeg == null ? null : Math.abs(peakHeadingDeviationSignedDeg);
-  if (maxHeadingDeviationDeg != null && geometryScorable && !surfaceGeometryConflict) {
-    if (maxHeadingDeviationDeg >= 20) addFlag(flags, 'heading_deviation', 'Major runway-heading deviation during the roll', 'warning');
-    else if (maxHeadingDeviationDeg >= 10) addFlag(flags, 'heading_deviation', 'Runway-heading deviation during the roll', 'caution');
+  if (geometryScorable && !surfaceGeometryConflict) {
+    if (confirmedHeadingDeviationDeg >= 20) addFlag(flags, 'heading_deviation', 'Major runway-heading deviation during the roll', 'warning');
+    else if (confirmedHeadingDeviationDeg >= 10) addFlag(flags, 'heading_deviation', 'Runway-heading deviation during the roll', 'caution');
   }
-  if (lateralScore && lateralScore.grade === 'Poor') {
-    addFlag(flags, 'lateral_offset', 'Lifted off near the runway edge', 'caution');
-  } else if (lateralScore && lateralScore.score != null && lateralScore.score < 70) {
-    addFlag(flags, 'lateral_offset', 'Lifted off outside the runway reference edge', 'warning');
+  if (groundOutsideEdge) {
+    addFlag(flags, 'lateral_offset', 'Ground contact outside the runway reference edge', 'warning');
   }
 
   const screenHeightFt = finiteNumberOrNull(context.screenHeightFt) ?? TRANSPORT_SCREEN_HEIGHT_FT;
   return {
-    schemaVersion: 1,
+    schemaVersion: 3,
     source: typeof context.source === 'string' && context.source ? context.source : 'computed',
     assessment: maxSeverity(flags),
     sampleCount: roll.length,
@@ -620,7 +659,7 @@ export function analyzeTakeoffRoll(
       gsKts: round(finiteNumberOrNull(liftoff.gsKts)),
       pitchDeg: round(liftoffPitchDeg),
       headingTrueDeg: round(liftoffHeadingDeg),
-      distanceFt: liftoffDistanceFt,
+      distanceFt: runwayUse.positionUncertain ? null : liftoffDistanceFt,
       remainingFt: runwayUse.remainingFt,
       usedPct: runwayUse.usedPct,
       beyondRunwayEnd: runwayUse.liftoffBeyondEnd,
@@ -629,6 +668,9 @@ export function analyzeTakeoffRoll(
       score: runwayUse.score,
       grade: runwayUse.grade,
       zone: runwayUse.zone,
+      verified: runwayVerified,
+      notScoredReason: runwayUse.positionUncertain ? 'liftoff_position_uncertain'
+        : runwayVerified ? null : surfaceGeometryConflict ? 'surface_geometry_conflict' : 'runway_geometry_unverified',
     },
     screenHeight: {
       heightFt: screenHeightFt,
@@ -639,6 +681,7 @@ export function analyzeTakeoffRoll(
       distanceFt: screenDistanceFt,
       remainingFt: runwayUse.screenRemainingFt,
       beyondRunwayEnd: runwayUse.screenBeyondEnd,
+      observationReason: screen ? 'observed' : context.finalizeReason || 'not_observed',
     },
     rotation: {
       startTimestampMs: rotationStart?.sample.timestampMs ?? null,
@@ -647,6 +690,8 @@ export function analyzeTakeoffRoll(
       liftoffPitchDeg: round(liftoffPitchDeg),
       durationS: rotationDurationS,
       rateDegS: rotationRateDegS,
+      maxRateDegS: maxRotationRateDegS,
+      priorMaxRateDegS: priorRotationMaxRateDegS,
       maxPitchDeg: round(maxPitchDeg),
     },
     lateral: {
@@ -654,8 +699,8 @@ export function analyzeTakeoffRoll(
       liftoffOffsetSide: sideForSigned(liftoffLateralSignedFt),
       maxOffsetFt: peakLateralSignedFt == null ? null : Math.round(Math.abs(peakLateralSignedFt)),
       maxOffsetSide: sideForSigned(peakLateralSignedFt),
-      score: lateralScore?.score ?? null,
-      grade: lateralScore ? lateralScore.grade : 'Unverified',
+      score: null,
+      grade: lateralVerified ? 'Recorded' : 'Unverified',
       verified: lateralVerified,
       suspect: surfaceGeometryConflict,
       notScoredReason: lateralVerified
@@ -694,8 +739,6 @@ module.exports = {
   findTakeoffRollStart,
   resolveScreenHeightFt,
   scoreTakeoffRunwayUse,
-  RUNWAY_USE_BANDS,
-  RUNWAY_USE_LIMITS,
   TRANSPORT_SCREEN_HEIGHT_FT,
   LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT,
 };

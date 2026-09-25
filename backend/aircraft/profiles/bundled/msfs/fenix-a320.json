@@ -8,7 +8,7 @@
   "author": null,
   "authorAccount": null,
   "createdAt": "2024-12-20T00:00:00Z",
-  "updatedAt": "2026-08-12T00:00:00Z",
+  "updatedAt": "2026-09-25T00:00:00Z",
   "visibility": "public",
   "extends": "bundled/msfs/fenix-a32x-base",
   "abstract": false,
@@ -38,8 +38,8 @@
     "developer": "Fenix Simulations",
     "platforms": ["msfs2020", "msfs2024"],
     "contributor": "YenBuilds",
-    "updated": "2026-08-12",
+    "updated": "2026-09-25",
     "status": "partial",
-    "notes": "Fenix A320 family profile for CFM, IAE, wingtip-fence, and sharklet variants. It activates the shared 118-field, 273-action trusted Fenix A32x aircraft page."
+    "notes": "Fenix A320 family profile for CFM, IAE, wingtip-fence, and sharklet variants. It activates the shared trusted Fenix A32x aircraft page. Parked checks of selected existing controls on build 2.4.0.4720 are recorded in docs/FENIX-PROFILE-VALIDATION.md; broader variant and flight validation remains pending."
   }
 }

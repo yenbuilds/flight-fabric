@@ -6,6 +6,9 @@
 // closed contour so forced fills cannot turn open stroked arcs into wedges.
 // Absolute M/L/Z geometry avoids stroke, transforms, masks and hole fill rules.
 
+// Inset the artwork within the native 64px button to match nearby toolbar icons.
+const ARTWORK_SCALE = 0.75;
+
 function arcPoints(cx, cy, radius, start, end) {
   const steps = Math.max(1, Math.ceil(Math.abs(end - start) / 5));
   return Array.from({ length: steps + 1 }, (_, index) => {
@@ -36,7 +39,7 @@ function bezier(points) {
 }
 
 function contour(points) {
-  return points.map((point, index) => `${index ? 'L' : 'M'}${point.map(value => Number(value.toFixed(2))).join(' ')}`).join('') + 'Z';
+  return points.map((point, index) => `${index ? 'L' : 'M'}${point.map(value => Number((32 + (value - 32) * ARTWORK_SCALE).toFixed(2))).join(' ')}`).join('') + 'Z';
 }
 
 function renderToolbarIcon() {

@@ -39,6 +39,28 @@ test('backend and UI agree on every COM channel designator in both spacing modes
   for (const text of ['', '123,450', '123.45e0', '123.4500', '123.450 MHz']) assert.equal(parseComRadioFrequency(text), null);
 });
 
+test('A380 production catalogue routes all six radio voice intents without enabling COM3', async () => {
+  const loader = require(resolveBackendRuntimeFile('aircraft/aircraft-profile-loader.js'));
+  const profile = loader.loadProfile('bundled/msfs/inibuilds-a380-800-rr');
+  const commands = buildAircraftControlCapabilities(profile, { profileRevision: 1,
+    capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence'] },
+  }).aircraftCommands;
+  const { interpretAircraftVoiceCommand } = await import('../../frontend/src/voice/command-interpreter.js');
+  for (const index of [1, 2]) for (const [phrase, operation, input] of [
+    [`com ${index} standby 118.005`, 'setStandby', { value: 118.005 }],
+    [`swap com ${index}`, 'swap', {}],
+    [`switch vhf ${index} to 136.990`, 'switchTo', { value: 136.99 }],
+  ]) {
+    const result = interpretAircraftVoiceCommand(phrase, commands);
+    assert.equal(result.ok, true, phrase);
+    assert.equal(result.commandId, `radios.com${index}.${operation}`);
+    assert.deepEqual(result.input, input);
+  }
+  for (const phrase of ['swap com three', 'com one standby 123.020']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, commands).ok, false, phrase);
+  }
+});
+
 test('COM spoken readbacks name the actual bank and all three fractional digits', async () => {
   const { formatComRadioReadback } = await import('../../frontend/src/voice/local-readback.js');
   assert.equal(formatComRadioReadback({ ok: true, code: 'executed', radio: { index: 1, bank: 'active', frequencyMhz: 123.005 } }),

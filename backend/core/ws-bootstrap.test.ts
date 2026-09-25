@@ -5,10 +5,11 @@ const WebSocket = require('ws');
 
 const {
   createWsServer,
+  isSubscribedMessage,
   isPrivateOrLoopbackRemoteAddress,
 } = require('./ws-bootstrap') as typeof import('./ws-bootstrap');
 const { createDevicePairingManager } = require('./device-pairing') as typeof import('./device-pairing');
-const { createBroadcast } = require('./ws-broadcaster') as typeof import('./ws-broadcaster');
+const { createBroadcast, MAX_WS_BUFFERED_BYTES } = require('./ws-broadcaster') as typeof import('./ws-broadcaster');
 const {
   UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES,
   UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES,
@@ -28,6 +29,62 @@ async function closeServer(wss: {
     });
   });
 }
+
+test('direct replies close a stalled client without affecting healthy clients', { timeout: 5000 }, async (t) => {
+  const connected: any[] = [];
+  const wss = createWsServer({
+    wsPort: 0,
+    wsAuthToken: 'buffer-test-token',
+    Debug: { log() {} }, tlog() {},
+    onClientConnected(socket) { connected.push(socket); },
+    onClientMessage(socket) { socket.send?.(JSON.stringify({ type: MSG.SIM_STATE, connected: true })); },
+  }) as any;
+  t.after(async () => {
+    for (const socket of wss.clients) socket.terminate();
+    await closeServer(wss);
+  });
+  await once(wss, 'listening');
+  const url = `ws://127.0.0.1:${wss.address().port}/?token=buffer-test-token`;
+  const healthy = new WebSocket(url);
+  await once(healthy, 'open');
+  const slow = new WebSocket(url);
+  await once(slow, 'open');
+  const slowServer = connected[1];
+  // Deterministically model a paused receiver's transport queue without
+  // filling the operating system's TCP buffers or allocating a huge payload.
+  Object.defineProperty(slowServer, 'bufferedAmount', { get: () => MAX_WS_BUFFERED_BYTES });
+  const closed = once(slow, 'close');
+  slowServer.send(JSON.stringify({ type: MSG.SIM_STATE, connected: true }));
+  assert.notEqual(slowServer.readyState, WebSocket.OPEN, 'direct replies must enforce backpressure too');
+  await closed;
+  slowServer.send(JSON.stringify({ type: MSG.SIM_STATE, connected: false }));
+  const reply = once(healthy, 'message');
+  healthy.send(JSON.stringify({ type: 'requestState' }));
+  assert.equal(JSON.parse((await reply)[0].toString()).connected, true);
+  assert.equal(healthy.readyState, WebSocket.OPEN);
+});
+
+test('a healthy client can still receive a single large history reply', { timeout: 5000 }, async (t) => {
+  let serverSocket: any;
+  const wss = createWsServer({
+    wsPort: 0, wsAuthToken: 'history-test-token',
+    Debug: { log() {} }, tlog() {},
+    onClientConnected(socket) { serverSocket = socket; },
+    onClientMessage() {},
+  }) as any;
+  t.after(async () => {
+    for (const socket of wss.clients) socket.terminate();
+    await closeServer(wss);
+  });
+  await once(wss, 'listening');
+  const client = new WebSocket(`ws://127.0.0.1:${wss.address().port}/?token=history-test-token`);
+  await once(client, 'open');
+  const history = JSON.stringify({ type: MSG.LOGBOOK, entries: [{ note: 'x'.repeat(MAX_WS_BUFFERED_BYTES + 1) }] });
+  const received = once(client, 'message');
+  serverSocket.send(history);
+  assert.equal((await received)[0].toString(), history);
+  assert.equal(client.readyState, WebSocket.OPEN);
+});
 
 for (const invalidFrame of [
   { name: 'oversized payload', payload: Buffer.alloc(512 * 1024 + 1, 120), closeCode: 1009, errorCode: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' },
@@ -111,13 +168,29 @@ test('toolbar history projection bounds nested data and removes paths and arbitr
     type: 'toolbarFlightHistory',
     takeoff: { final: true, grade: 'Late Liftoff', score: 55, zone: 'C:\\private\\zone', icao: 'YSSY', runway: '34L',
       runwayUse: { remainingFt: 300, runwayLengthFt: 6000, beyondRunwayEnd: false, secret: 'private' },
-      analysis: Array(10000).fill({ secret: 'private' }), flags: [{ label: 'C:\\private\\flag' }] },
+      analysis: Array(10000).fill({ secret: 'private' }), flags: [{ label: 'C:\\private\\flag' },
+        { code: 'runway_excursion', label: 'Runway excursion', severity: 'critical', secret: 'private' }] },
   })!;
   assert.equal(takeoffProjected.takeoff.grade, 'Late Liftoff');
   assert.equal(takeoffProjected.takeoff.runwayUse.remainingFt, 300);
   const takeoffSerialized = JSON.stringify(takeoffProjected);
-  for (const field of ['private', 'analysis', 'flags', 'secret']) assert.ok(!takeoffSerialized.includes(field), field);
+  for (const field of ['private', 'analysis', 'secret']) assert.ok(!takeoffSerialized.includes(field), field);
+  assert.deepEqual(takeoffProjected.takeoff.flags[1], { code: 'runway_excursion', label: 'Runway excursion', severity: 'critical' });
   assert.ok(takeoffSerialized.length < 1500);
+  const uncertain = projectServerMessageForClient({}, { type: 'toolbarFlightHistory', takeoff: {
+    final: true, grade: 'Unknown', score: null, zone: 'Liftoff position uncertain at runway end',
+    runwayUse: { remainingFt: null, beyondRunwayEnd: false, verified: true },
+    flags: [{ code: 'liftoff_position_uncertain', label: 'Liftoff position uncertain at the runway end', severity: 'caution' }],
+  } })!;
+  assert.equal(uncertain.takeoff.score, null);
+  assert.equal(uncertain.takeoff.runwayUse.remainingFt, null);
+  assert.equal(uncertain.takeoff.runwayUse.beyondRunwayEnd, false);
+  assert.equal(uncertain.takeoff.flags[0].code, 'liftoff_position_uncertain');
+  const bounded = projectServerMessageForClient({}, { type: 'toolbarFlightHistory', takeoff: {
+    final: true, flags: Array.from({ length: 100 }, () => ({ label: 'x'.repeat(5000), severity: 'warning' })),
+  } })!;
+  assert.equal(bounded.takeoff.flags.length, 16);
+  assert.ok(bounded.takeoff.flags.every((flag: any) => flag.label.length <= 160));
 });
 
 test('every server message type has one explicit unpaired-client policy', () => {
@@ -139,8 +212,48 @@ test('every server message type has one explicit unpaired-client policy', () => 
   );
 });
 
+test('manual toolbar taxi replies retain bounded geometry without granting automatic control', () => {
+  const message = { type: 'toolbarTaxiState', requestId: 'taxi-read-1', ok: true, canGuide: true,
+    canStart: true, active: true, commanded: { throttle: 1 }, sceneKey: 2,
+    currentProfileKey: 'bundled/msfs/generic', currentProfileRevision: 4,
+    preview: { points: Array.from({ length: 150 }, (_, x) => ({ x, z: 1 })) },
+    pushbackPreview: { id: 'preview-1', icao: 'TEST', runway: '09', phase: 'preview', valid: true,
+      headingDeg: 90, lengthM: 60, points: [{ x: 0, z: 0 }, { x: -15, z: -60 }] },
+    scene: { key: 2, links: Array.from({ length: 400 }, (_, x) => ({ a: { x, z: 1 }, b: { x: x + 1, z: 1 }, widthM: 20 })) },
+    filePath: 'C:\\private\\taxi.log' };
+  assert.equal(projectServerMessageForClient({}, message), null);
+  const projected = projectServerMessageForClient({ __ffToolbarPresetClient: true }, message);
+  assert.deepEqual(projected?.preview, message.preview); assert.deepEqual(projected?.scene, message.scene);
+  assert.deepEqual(projected?.pushbackPreview, message.pushbackPreview);
+  assert.equal(projected?.canGuide, true); assert.equal(projected?.currentProfileRevision, 4);
+  for (const key of ['canStart', 'active', 'commanded', 'filePath']) assert.equal(key in projected!, false);
+  const { isClientMessageAuthorized } = require('./client-message-authorization');
+  assert.equal(isClientMessageAuthorized({ __ffToolbarPresetClient: true }, 'requestTaxiGuidance'), true);
+  assert.equal(isClientMessageAuthorized({ __ffToolbarPresetClient: true }, 'autotaxi'), false);
+});
+
+test('pushback allows scoped toolbar controls and projects only public state', () => {
+  const message = { type: 'pushbackState', ok: true, requestId: 'push-1', active: true, status: 'pushing',
+    currentProfileKey: 'test', currentProfileRevision: 4, runway: '09', remainingM: 42, filePath: 'private', internal: {} };
+  for (const client of [{}]) {
+    assert.equal(projectServerMessageForClient(client, message), null);
+    assert.match(projectServerMessageForClient(client, { ...message, ok: false, error: 'private' })?.error, /permission/);
+  }
+  for (const client of [{ __ffAircraftControlClient: true }, { __ffToolbarPresetClient: true }]) {
+    const projected = projectServerMessageForClient(client, message);
+    assert.equal(projected?.remainingM, 42); assert.equal(projected?.currentProfileRevision, 4);
+    assert.equal(projected?.filePath, undefined); assert.equal(projected?.internal, undefined);
+  }
+  const { isClientMessageAuthorized } = require('./client-message-authorization');
+  const toolbar = { __ffToolbarPresetClient: true };
+  assert.equal(isClientMessageAuthorized(toolbar, 'pushback'), true);
+  for (const type of ['autotaxi', 'executeAircraftControl', 'sendCduKey', 'saveAppSettings']) assert.equal(isClientMessageAuthorized(toolbar, type), false);
+  assert.equal(isSubscribedMessage(new Set(['pushbackState']), JSON.stringify(message)), true);
+});
+
 test('autotaxi replies require aircraft-control scope and preserve full route previews', () => {
   const message = { type: 'autotaxiState', requestId: 'taxi-1', ok: true, status: 'taxiing', canStart: false, active: true,
+    canGuide: true, guidanceUnavailableReason: null,
     preview: { runway: '16', points: Array.from({ length: 150 }, (_, x) => ({ x, z: 10 })), lengthM: 149, holdShort: { x: 180, z: 10 } },
     route: { runway: '16', points: Array.from({ length: 150 }, (_, x) => ({ x, z: 10 })), lengthM: 149, holdShort: { x: 180, z: 10 } },
     aircraft: { x: 12.5, z: 10, headingDeg: 271, speedKts: 8 },
@@ -151,6 +264,8 @@ test('autotaxi replies require aircraft-control scope and preserve full route pr
     filePath: 'C:\\private\\taxi.log' };
   assert.equal(projectServerMessageForClient({}, message), null);
   const projected = projectServerMessageForClient({ __ffAircraftControlClient: true }, message);
+  assert.equal(projected?.canGuide, true, 'guidance readiness is independent of automatic control');
+  assert.equal(projected?.guidanceUnavailableReason, null);
   assert.deepEqual(projected?.preview, message.preview);
   // The taxi map on a paired phone needs the live route, the aircraft marker and the whole scene.
   assert.deepEqual(projected?.route, message.route, 'the active route reaches aircraft-control clients');
@@ -163,7 +278,7 @@ test('autotaxi replies require aircraft-control scope and preserve full route pr
   assert.equal(denied?.ok, false); assert.equal(denied?.preview, undefined);
   assert.match(denied?.error, /permission/);
   const failure = projectServerMessageForClient({ __ffAircraftControlClient: true }, { ...message, ok: false, error: 'Failed at C:\\private\\failure.txt' });
-  assert.equal(failure?.error, 'Autotaxi request failed.');
+  assert.equal(failure?.error, 'Taxi assistant request failed.');
 });
 
 test('paired Autotaxi replies retain aircraft support, current identity and typed stand choices', () => {
@@ -1516,4 +1631,38 @@ test('subscribed read-only client receives only the requested low-rate types', {
   assert.deepEqual(received.map((message) => message.type), [MSG.AUTHORIZATION_SCOPE, MSG.FLIGHT_PLAN, MSG.LANDING]);
   assert.equal(received[0].scope, 'read-only');
   client.close();
+});
+
+
+test('toolbar handshake grants preset-only access and projects command results without desktop secrets', async (t) => {
+  const { toolbarPresetToken } = require('./toolbar-presets');
+  const flags = [];
+  const wss = createWsServer({ wsPort: 0, wsAuthToken: 'desktop-secret', remoteAccessEnable: true,
+    remoteAircraftControlEnable: true, aircraftControlToken: 'paired-secret',
+    Debug: { log() {} }, tlog() {}, onClientMessage() {},
+    onClientConnected(socket) {
+      flags.push([socket.__ffToolbarPresetClient, socket.__ffPrivilegedClient, socket.__ffAircraftControlClient]);
+      socket.send?.(JSON.stringify({ type: MSG.AIRCRAFT_COMMAND_RESULT, requestId: 'preset-1',
+        ok: true, commandId: 'configuration.apu.start', code: 'sent_unconfirmed', diagnosticPath: 'C:\\private\\secret.txt' }));
+    },
+  }) as any;
+  t.after(async () => { for (const socket of wss.clients) socket.terminate(); await closeServer(wss); });
+  await once(wss, 'listening');
+  for (const [token, expected] of [[toolbarPresetToken('desktop-secret'), 'toolbar-presets'], ['wrong-token', 'read-only'], ['', 'read-only']]) {
+    const extra = expected === 'toolbar-presets' ? '&aircraftControlToken=paired-secret&token=desktop-secret' : '';
+    const client = new WebSocket(`ws://127.0.0.1:${wss.address().port}/?subscribe=aircraftCommandResult&toolbarPresetToken=${token}${extra}`, {
+      headers: { Origin: 'http://127.0.0.1:8101' },
+    });
+    const messages = [];
+    client.on('message', payload => messages.push(JSON.parse(payload.toString())));
+    await once(client, 'open'); await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(messages[0].scope, expected);
+    if (expected === 'toolbar-presets') {
+      assert.deepEqual(flags.at(-1), [true, false, false]);
+      assert.equal(messages[1].requestId, 'preset-1');
+      assert.equal(messages[1].code, 'sent_unconfirmed');
+      assert.equal(JSON.stringify(messages).includes('private'), false);
+    } else assert.equal(messages.length, 1, 'read-only client gets no preset result');
+    client.close();
+  }
 });

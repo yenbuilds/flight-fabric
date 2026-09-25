@@ -116,7 +116,7 @@ function assertBundledVoiceWorklet() {
   }
 }
 
-const TOOLBAR_PAGE_FILES = ['index.html', 'toolbar.js', 'toolbar.css', 'voice-reference.json', 'ping.svg'];
+const TOOLBAR_PAGE_FILES = ['index.html', 'toolbar.js', 'presets.js', 'taxi.js', 'toolbar.css', 'voice-reference.json', 'ping.svg'];
 
 function assertBundledToolbarPage() {
   const missing = TOOLBAR_PAGE_FILES.filter((name) => !fs.existsSync(path.join(OUT_DIR, 'toolbar', name)));
@@ -126,6 +126,7 @@ function assertBundledToolbarPage() {
 }
 
 function buildBundle() {
+  execFileSync(process.execPath, [path.join(ROOT, 'scripts/build-toolbar-presets.mjs'), '--check'], { cwd: ROOT, stdio: 'inherit' });
   if (fs.existsSync(OUT_DIR)) {
     fs.rmSync(OUT_DIR, { recursive: true, force: true });
   }

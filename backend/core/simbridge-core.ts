@@ -3519,6 +3519,36 @@ async function runSimbridgeCore({
   // ───────────────────────────────────────────────────────────────────────────
   // Tick Helper Group: Landing and Engine Output Utilities
   // ───────────────────────────────────────────────────────────────────────────
+  function updateTakeoffRunnerIfEnabled(frame, nowEpochMs, timestampIso, phase, hdgMagDeg, hdgTrueDeg) {
+    if (!capabilities.enableLandingRunner) return;
+    const sc = frame?.simconnect;
+    const airportGeometryContext = getAirportGeometryLookupContext();
+    // Observe the ground roll before recording starts; only publish during an active flight.
+    takeoffRunner.update(
+      frame,
+      broadcast,
+      {
+        nowEpochMs,
+        nowIso: timestampIso,
+        flightStartEpochMs,
+        flightStartIso,
+      },
+      {
+        phase,
+        scoringEnabled: flightActive,
+        aircraftName: (sc && sc.aircraftLoadedName) || null,
+        icao: null,
+        runway: null,
+        simVersion: sc?.simVersion || null,
+        aircraftProfileId: profileLoader.getActiveProfile()?.id || 'generic',
+        simulator: airportGeometryContext.simulator,
+        dataSource: airportGeometryContext.dataSource,
+        computedHdgMagDeg: hdgMagDeg,
+        computedHdgTrueDeg: hdgTrueDeg,
+      }
+    );
+  }
+
   function updateLandingRunnerIfEnabled(frame, xwind, stability, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, convectiveContext = null, sampleDtMs = null, flapsForScoring = null) {
     if (!capabilities.enableLandingRunner || !flightActive) return;
 
@@ -3652,30 +3682,6 @@ async function runSimbridgeCore({
         // Computed heading passed through from processTelemetryFrame — more reliable
         // than frame.simconnect.hdgTrueDeg/hdgMagDeg which may be null if the raw
         // SimConnect heading SimVar is not populated.
-        computedHdgMagDeg: hdgMagDeg,
-        computedHdgTrueDeg: hdgTrueDeg,
-      }
-    );
-
-    // Takeoff roll and liftoff grading (same frame and time context as landing)
-    takeoffRunner.update(
-      frame,
-      broadcast,
-      {
-        nowEpochMs,
-        nowIso: timestampIso,
-        flightStartEpochMs,
-        flightStartIso,
-      },
-      {
-        phase,
-        aircraftName: (sc && sc.aircraftLoadedName) || null,
-        icao: null,
-        runway: null,
-        simVersion: sc?.simVersion || null,
-        aircraftProfileId: profileLoader.getActiveProfile()?.id || 'generic',
-        simulator: airportGeometryContext.simulator,
-        dataSource: airportGeometryContext.dataSource,
         computedHdgMagDeg: hdgMagDeg,
         computedHdgTrueDeg: hdgTrueDeg,
       }
@@ -4746,7 +4752,7 @@ async function runSimbridgeCore({
   // 3) processFlightLifecycleGate() disconnected guard before live broadcasts
   // 4) processThrottleAndEngineBroadcast()
   // 5) processStreamingAndScoring()
-  // 6) processFlightLifecycleGate() with early-continue for blocked states
+  // 6) processFlightLifecycleGate(), observe takeoff roll, then skip blocked states
   // 7) processVreSampleLogging()
   // 8) updateLandingRunnerIfEnabled()
   // 9) (reserved for future asymmetry hook)
@@ -4839,6 +4845,7 @@ async function runSimbridgeCore({
     };
 
     if (!simconnectConnectedForLifecycle) {
+      takeoffRunner.reset();
       streamingContinuityBroken = true;
       processFlightLifecycleGate({
         ...lifecycleGateBase,
@@ -4914,6 +4921,7 @@ async function runSimbridgeCore({
       nowEpochMs,
       timestampIso,
     });
+    updateTakeoffRunnerIfEnabled(frame, nowEpochMs, timestampIso, phase, hdgMagDegStream, hdgTrueDegStream);
     if (shouldSkipTick) {
       continue;
     }

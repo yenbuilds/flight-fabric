@@ -756,6 +756,16 @@ async function main() {
     );
   });
 
+  await test('timeline takeoff detail spells out recorded flags without object placeholders', () => {
+    const detail = buildTimelineEventDetailState({ type: 'marker', markerType: 'takeoff', timestampMs: 1,
+      context: { runway_use_grade: 'Outstanding', assessment: 'critical', flags: [
+        { code: 'runway_excursion', severity: 'critical', label: 'Runway excursion during the takeoff roll' },
+      ] } });
+    const rows = detail.metricSections.flatMap((section) => section.rows);
+    assert.equal(rows.find((row) => row.key === 'flags').value, 'critical: Runway excursion during the takeoff roll');
+    assert.ok(!JSON.stringify(detail).includes('[object Object]'));
+  });
+
   await test('timeline landing rows lead with gate verdicts and retain bounce-only facts', () => {
     const row = buildTimelineEventRowState({
       type: 'landing',
@@ -3387,8 +3397,8 @@ async function main() {
     assert.equal(takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, iasKts: 141 }), false, 'the liftoff packet does not show a card');
     assert.equal(takeoff.pending, true, 'the liftoff packet marks the climb-out as pending');
     assert.equal(takeoff.cardVisible, false, 'no card until scored');
-    assert.match(takeoff.waitingDescription, /Scoring the climb-out/, 'waiting copy explains the pending state');
-    assert.match(takeoff.preview.status, /Scoring the climb-out/, 'overview preview explains the pending state');
+    assert.match(takeoff.waitingDescription, /Measuring the climb-out/, 'waiting copy explains the pending state');
+    assert.match(takeoff.preview.status, /Measuring the climb-out/, 'overview preview explains the pending state');
 
     takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, settled: true, hopCount: 1 });
     assert.equal(takeoff.pending, true, 'a settle-back keeps the takeoff pending');
@@ -3398,7 +3408,7 @@ async function main() {
     takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, cancelled: true, reason: 'aircraft_changed' });
     assert.equal(takeoff.pending, false, 'a cancelled takeoff clears the pending state');
     assert.equal(takeoff.pendingSettled, false, 'a cancelled takeoff clears the settle-back state');
-    assert.match(takeoff.waitingDescription, /No scored takeoff/, 'waiting copy returns to idle after a cancel');
+    assert.match(takeoff.waitingDescription, /No takeoff recorded/, 'waiting copy returns to idle after a cancel');
 
     takeoff.handleTakeoffMessage({ type: 'takeoff', final: false, iasKts: 141 });
     const applied = takeoff.handleTakeoffMessage({
@@ -3444,6 +3454,22 @@ async function main() {
     assert.equal(takeoff.pending, false, 'session reset clears pending');
     assert.equal(takeoff.takeoffCard.gradeText, '--', 'session reset clears the card');
     assert.equal(takeoff.lastMessage, null, 'session reset drops the last message');
+  });
+
+  await test('takeoff report belongs to its flight across end, reconnect and a new flight', () => {
+    resetStoreTestContext();
+    const takeoff = useTakeoffStore();
+    takeoff.handleFlightTime({ active: true, startedAt: 'flight-one' });
+    takeoff.handleTakeoffMessage({ final: true, grade: 'Good' });
+    takeoff.handleFlightTime({ active: false });
+    takeoff.handleFlightTime({ active: true, startedAt: 'flight-one' });
+    assert.equal(takeoff.cardVisible, true, 'end and same-flight updates retain the report');
+    takeoff.resetTakeoffCard();
+    takeoff.handleFlightTime({ active: true, startedAt: 'flight-one' });
+    takeoff.handleTakeoffMessage({ final: true, grade: 'Good' });
+    takeoff.handleFlightTime({ active: true, startedAt: 'flight-two' });
+    assert.equal(takeoff.cardVisible, false, 'a new flight cannot show the previous result');
+    assert.equal(takeoff.lastMessage, null);
   });
 
   await test('landing store tracks landing card and waiting-state visibility', () => {
@@ -6340,6 +6366,43 @@ async function main() {
     assert.equal(store.rows[0].canInstall, false, 'a foreign package offers no install action');
     assert.equal(store.rows[0].canRemove, false, 'a foreign package offers no remove action');
     assert.equal(store.rows[0].tone, 'danger');
+  });
+
+  await test('toolbar setup suggestions follow detected actionable installations and remember opt-out', async () => {
+    resetStoreTestContext();
+    const store = useToolbarPanelStore();
+    const row = { installId: 'msfs2024-steam', found: true, status: 'not_installed', canInstall: true };
+    let installs = [row];
+    const actions = { getStatus: async () => ({ ok: true, installs }), install: async () => ({ ok: true }), uninstall: async () => ({ ok: true, removed: true }) };
+    store.applyStatus({ ok: true, installs });
+    assert.equal(store.setupTask, null, 'browser sessions do not advertise a desktop-only task');
+    store.bindDesktopActions(actions);
+    assert.equal(store.setupTask.kind, 'not_installed');
+    store.dismissSetup();
+    assert.equal(store.setupTask, null, 'optional install suggestion can be dismissed');
+    assert.equal(localStorage.getItem('ff_toolbar_setup_dismissed_v1'), 'yes');
+    for (const status of ['installed', 'foreign_package']) {
+      installs = [{ ...row, status }];
+      await store.refresh();
+      assert.equal(store.setupTask, null, `${status} has no pending setup task`);
+    }
+    for (const status of ['update_available', 'configuration_update_required', 'repair_required']) {
+      installs = [{ ...row, status }];
+      await store.refresh();
+      assert.equal(store.setupTask.kind, status, 'dismissal never hides maintenance');
+    }
+    installs = [row, { ...row, installId: 'msfs2024-store', status: 'update_available' }];
+    store.setupDismissed = false;
+    await store.refresh();
+    assert.equal(store.setupTask.kind, 'update_available', 'maintenance takes priority across simulator installations');
+    installs = [{ ...row, found: false }, { ...row, installId: 'blocked', canInstall: false }];
+    await store.refresh();
+    assert.equal(store.setupTask, null, 'missing or blocked installations do not prompt installation');
+    installs = [row];
+    await store.uninstall(row.installId);
+    assert.equal(store.setupTask, null, 'explicit removal does not immediately advertise reinstallation');
+    store.bindDesktopActions(null);
+    assert.equal(store.setupTask, null, 'revoked access hides suggestions');
   });
 
   await test('toolbar panel store surfaces installer failures without losing the last status', async () => {

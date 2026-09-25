@@ -1371,6 +1371,55 @@ test('a recognizer final cannot dispatch before push-to-talk release', async () 
   await harness.controller.cancel('user');
 });
 
+test('fatal recognizer failures close active and finishing microphone sessions and allow recovery', async () => {
+  for (const finishing of [false, true]) {
+    const harness = createHarness();
+    await harness.controller.initialize();
+    await harness.controller.begin();
+    if (finishing) await harness.controller.finish();
+    // Session-scoped failures from an earlier attempt must stay ignored.
+    await harness.emitRecognition({ type: 'error', fatal: true, sessionId: 'session_old', message: 'Old error.' });
+    assert.equal(harness.captureCancellations.length, 0);
+    const message = 'Local voice worker stopped.';
+    const failed = harness.emitRecognition({ type: 'error', fatal: true, code: 'WORKER_FAILED', message });
+    harness.emitRuntime({ available: false, enabled: true, error: message });
+    await failed;
+    assert.equal(harness.captureCancellations.length, 1);
+    assert.equal(harness.voiceStore.activeSessionId, '');
+    assert.equal(harness.voiceStore.status, 'unavailable');
+    assert.equal(harness.voiceStore.statusText, message);
+    await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+    assert.equal(harness.sentCommands.length, 0);
+    assert.equal(await harness.controller.finish(), false);
+    assert.equal(await harness.controller.begin(), false);
+    harness.emitRuntime({ available: true, enabled: true });
+    assert.equal(await harness.controller.begin(), true);
+    await harness.controller.cancel('user');
+  }
+});
+
+test('runtime loss during recognition startup prevents late microphone capture', async () => {
+  let resolveRecognition;
+  let signalStarted;
+  const recognition = new Promise(resolve => { resolveRecognition = resolve; });
+  const started = new Promise(resolve => { signalStarted = resolve; });
+  const harness = createHarness({
+    startRecognition() { signalStarted(); return recognition; },
+  });
+  await harness.controller.initialize();
+  const beginning = harness.controller.begin();
+  await started;
+  harness.emitRuntime({ available: false, enabled: true, error: 'Local voice worker stopped.' });
+  await new Promise(resolve => setImmediate(resolve));
+  resolveRecognition({ sessionId: 'session_12345678' });
+  assert.equal(await beginning, false);
+  assert.equal(harness.captures.length, 0);
+  assert.equal(harness.voiceStore.activeSessionId, '');
+  assert.equal(harness.voiceStore.status, 'unavailable');
+  assert.equal(harness.sentCommands.length, 0);
+  assert.ok(harness.cancellations.includes('session_12345678'));
+});
+
 test('push-to-talk release sends the final flushed PCM chunk before recognition finishes', async () => {
   const harness = createHarness({ chunkOnStop: true });
   await harness.controller.initialize();

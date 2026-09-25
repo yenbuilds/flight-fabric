@@ -8,9 +8,10 @@ const ROOT = path.resolve(__dirname, '../..');
 const { LIVE_AUTOTAXI_ENABLED } = require('../../shared/app-settings-shared.js');
 const OUTPUT = process.env.FF_AIRCRAFT_LAYOUT_OUTPUT || path.join(ROOT, '.tmp', 'aircraft-layout-browser');
 const AIRCRAFT = ['pmdg-737', 'pmdg-777', 'fenix-a320', 'fbw-a32nx', 'fbw-a380x', 'inibuilds-a350-900'];
+const A380 = 'inibuilds-a380-800-rr';
 const AUTOTAXI_AIRCRAFT = ['generic', 'pmdg-737', 'pmdg-777', 'fenix-a319', 'fenix-a320', 'fenix-a321'];
 const AUTOTAXI_FIXTURE = process.env.FF_AUTOTAXI_LAYOUT_FIXTURE === '1';
-const templateFor = id => ['fenix-a319', 'fenix-a320', 'fenix-a321'].includes(id) ? 'fenix-a32x' : id.startsWith('inibuilds-a350') ? 'inibuilds-a350' : id;
+const templateFor = id => id === A380 ? 'inibuilds-a380' : ['fenix-a319', 'fenix-a320', 'fenix-a321'].includes(id) ? 'fenix-a32x' : id.startsWith('inibuilds-a350') ? 'inibuilds-a350' : id;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function browser() {
@@ -55,6 +56,95 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    if (process.env.FF_PUSHBACK_E2E === '1') {
+      await require('./pushback-e2e-browser')({ win, evaluate, ready, settled, wait, output: OUTPUT });
+      assert.deepEqual(errors, [], 'Real-controller pushback journey has no browser errors');
+      win.destroy(); app.exit(0); return;
+    }
+    if (process.env.FF_PUSHBACK_LAYOUT_ONLY === '1') {
+      await require('./pushback-browser-checks')({ win, evaluate, ready, settled, wait, output: OUTPUT });
+      assert.deepEqual(errors, [], 'Pushback has no browser runtime errors');
+      win.destroy(); app.exit(0); return;
+    }
+    if (!process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY
+      && !process.env.FF_AUTOTAXI_LAYOUT_ONLY && !process.env.FF_A380_LAYOUT_ONLY) {
+      await require('./pmdg-sdk-setup-browser-checks')({ win, evaluate, ready, settled, output: OUTPUT });
+      if (process.env.FF_PMDG_SDK_LAYOUT_ONLY === '1') {
+        assert.deepEqual(errors, [], 'PMDG setup has no runtime errors');
+        win.destroy(); app.exit(0); return;
+      }
+    }
+    if (!AUTOTAXI_FIXTURE && !process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY && !process.env.FF_AUTOTAXI_LAYOUT_ONLY) {
+      await evaluate(`await layoutTest.scenario(${JSON.stringify(A380)});`);
+      await ready('[data-aircraft-template="inibuilds-a380"]');
+      for (const width of [1440, 390, 320]) {
+        win.setContentSize(width, 1000); await wait(150);
+        await evaluate(`document.querySelector('[data-aircraft-template="inibuilds-a380"]').scrollIntoView({ behavior: 'instant' });`);
+        const layout = await evaluate(`return {
+          overflow: document.documentElement.scrollWidth > innerWidth,
+          groups: document.querySelectorAll('[data-aircraft-template="inibuilds-a380"] [data-aircraft-control-group]').length,
+          presets: document.querySelectorAll('[data-aircraft-presets-section]').length,
+          duplicateLights: document.querySelectorAll('[data-exterior-light-controls]').length,
+          buttons: [...document.querySelectorAll('[data-aircraft-template="inibuilds-a380"] button')].map(button => ({ height: button.getBoundingClientRect().height, disabled: button.disabled, targetSubmit: button.matches('[data-a380-fcu-targets] button[type="submit"]') })),
+        };`);
+        assert.equal(layout.overflow, false, `A380 ${width}: no horizontal overflow`);
+        assert.equal(layout.groups, 27); assert.equal(layout.presets, 1); assert.equal(layout.duplicateLights, 0);
+        assert.ok(layout.buttons.every(button => button.height >= 44 && (button.targetSubmit ? button.disabled : !button.disabled)));
+        fs.writeFileSync(path.join(OUTPUT, `inibuilds-a380-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        await evaluate(`document.querySelector('[data-com-radios]').scrollIntoView({ behavior: 'instant' });`);
+        const radioLayout = await evaluate(`return {
+          count: document.querySelectorAll('[data-com-radio]').length,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+          controls: [...document.querySelectorAll('[data-com-radios] button, [data-com-radios] input')].map(item => ({ height: item.getBoundingClientRect().height, disabled: item.disabled })),
+        };`);
+        assert.equal(radioLayout.count, 2); assert.equal(radioLayout.overflow, false);
+        assert.ok(radioLayout.controls.every(item => item.height >= 44 && !item.disabled));
+        fs.writeFileSync(path.join(OUTPUT, `inibuilds-a380-radios-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        if (width === 1440 || width === 320) {
+          await evaluate(`document.querySelector('#a380-air').scrollIntoView({ behavior: 'instant' });`);
+          fs.writeFileSync(path.join(OUTPUT, `inibuilds-a380-systems-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        }
+      }
+      for (const [name, value] of [['speed', 250], ['heading', 90], ['altitude', 12300], ['verticalSpeed', -1000]]) {
+        await evaluate(`const input = document.querySelector('#a380-${name}-target'); input.value = '${value}'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();
+          document.querySelector('[data-a380-target="${name}"]').requestSubmit(); await layoutTest.settle();`);
+        assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId: `flightGuidance.${name}.set`, input: { value } });
+      }
+      await evaluate(`layoutTest.setAircraftValues({ 'flightGuidance.speedValue': 0.82, 'flightGuidance.trackFpa': true }); await layoutTest.settle();`);
+      assert.equal(await evaluate(`return ['speed', 'heading', 'verticalSpeed'].every(id => document.querySelector('#a380-' + id + '-target').disabled);`), true, 'Mach/TRK/FPA cannot receive knots/heading/V/S targets');
+      await evaluate(`layoutTest.setAircraftValues({ 'flightGuidance.speedValue': 200, 'flightGuidance.trackFpa': false, 'flightGuidance.verticalSpeedDashed': true }); await layoutTest.settle();`);
+      assert.equal(await evaluate(`return document.querySelector('#a380-verticalSpeed-target').disabled;`), true, 'hidden V/S is not an active numeric target');
+      await evaluate(`document.querySelector('[data-a380-target="verticalSpeed"] button[type="button"]').click(); await layoutTest.settle();`);
+      assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { control: 'aircraft-specific', operation: 'execute', actionId: 'flightGuidance.verticalSpeed.reveal' });
+      await evaluate(`layoutTest.setAircraftValues({ 'flightGuidance.verticalSpeedDashed': false }); await layoutTest.settle();`);
+      await evaluate(`document.querySelector('[aria-label="Nose TAXI"]').click(); await layoutTest.settle();`);
+      assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId: 'lights.noseMode.set', input: { value: 'taxi' } });
+      for (const [label, commandId, value] of [['Flap lever FULL', 'surfaces.flaps.set', 'full'], ['Speedbrake lever HALF', 'surfaces.spoilers.set', 'half'], ['Ground spoilers ARM', 'surfaces.spoilersArmed.set', true]]) {
+        await evaluate(`document.querySelector('[aria-label="${label}"]').click(); await layoutTest.settle();`);
+        assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId, input: { value } });
+      }
+      await evaluate(`document.querySelector('[aria-label="Flight director OFF"]').click(); await layoutTest.settle();`);
+      assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId: 'flightGuidance.flightDirector.set', input: { value: false } });
+      await evaluate(`document.querySelector('[aria-label="Seat belts AUTO"]').click(); await layoutTest.settle();`);
+      assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId: 'cabin.seatBelts.set', input: { value: 'auto' } });
+      await evaluate(`document.querySelector('[aria-label="Engine 4 bleed ON"]').click(); await layoutTest.settle();`);
+      assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId: 'systems.engineBleed4.set', input: { value: 'on' } });
+      await evaluate(`document.querySelector('[aria-label="APU master ON"]').click(); await layoutTest.settle();`);
+      assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { control: 'aircraft-specific', operation: 'execute', actionId: 'systems.apuMaster.on' });
+      for (const index of [1, 2]) {
+        await evaluate(`const input = document.querySelector('#com-${index}-frequency'); input.value = '118.005'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();
+          document.querySelector('[aria-label="Set COM ${index} standby frequency"]').click(); await layoutTest.settle();`);
+        assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), { type: 'canonical', commandId: `radios.com${index}.setStandby`, input: { value: 118.005 } });
+      }
+      await evaluate(`layoutTest.controls.setAvailability({ enabled: false, reason: 'Connection lost' }); await layoutTest.settle();`);
+      assert.equal(await evaluate(`return [...document.querySelectorAll('[data-com-radios] button, [data-com-radios] input')].every(item => item.disabled);`), true, 'A380 disconnect disables radio writes');
+      assert.equal(await evaluate(`return [...document.querySelectorAll('[data-aircraft-template="inibuilds-a380"] [data-aircraft-control-group] button')].every(button => button.disabled);`), true, 'A380 disconnect disables cockpit writes');
+      if (process.env.FF_A380_LAYOUT_ONLY === '1') {
+        assert.deepEqual(errors, []); console.log('A380 layout and command dispatch passed at 1440, 390 and 320px.'); app.exit(0); return;
+      }
+      await evaluate(`await layoutTest.scenario('pmdg-737');`);
+      await ready('[data-aircraft-template="pmdg-737"]');
+    }
     if (AUTOTAXI_FIXTURE) {
       assert.equal(LIVE_AUTOTAXI_ENABLED, true, 'the fixture exercises the enabled production setting');
       await evaluate(`await layoutTest.scenario('generic');
@@ -69,11 +159,11 @@ async function browser() {
       assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure'));`), true, 'lifecycle fixture starts with a preview');
       await evaluate(`layoutTest.setTaxiState({ sceneKey: null, aircraft: null }); await layoutTest.settle();`);
       assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure'));`), false, 'backend geometry invalidation clears a preview even when the profile is unchanged');
-      await evaluate(`document.querySelector('#aircraft-page-autotaxi button').click(); await layoutTest.settle();
+      await evaluate(`document.querySelector('[data-taxi-show-route]').click(); await layoutTest.settle();
         window.oldTaxiPreview = layoutTest.taxiReplies.findLast(message => message.preview);
         layoutTest.taxiDisconnect(); layoutTest.taxiReply(window.oldTaxiPreview); await layoutTest.settle();`);
       assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure'));`), false, 'disconnect discards cached and late route previews');
-      assert.equal(await evaluate(`return document.querySelectorAll('#aircraft-page-autotaxi button')[1].disabled;`), true, 'a late response cannot restore readiness while disconnected');
+      assert.equal(await evaluate(`return document.querySelector('[data-taxi-start]').disabled;`), true, 'a late response cannot restore readiness while disconnected');
       await evaluate(`layoutTest.setTaxiState({ canStart: false, sceneKey: null, aircraft: null });
         layoutTest.taxiReconnect(); await layoutTest.settle();
         layoutTest.taxiReply(window.oldTaxiPreview); await layoutTest.settle();`);
@@ -81,7 +171,7 @@ async function browser() {
       assert.doesNotMatch(await evaluate(`return document.querySelector('#aircraft-page-autotaxi').textContent;`), /Connection lost/, 'fresh status replaces the disconnect notice');
       await evaluate(`await layoutTest.remount(); layoutTest.taxiReply(window.oldTaxiPreview); await layoutTest.settle();`);
       assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure'));`), false, 'a remounted panel rejects previous mount responses for the same profile');
-      assert.equal(await evaluate(`return document.querySelectorAll('#aircraft-page-autotaxi button')[1].disabled;`), true, 'a previous mount cannot restore readiness');
+      assert.equal(await evaluate(`return document.querySelector('[data-taxi-start]').disabled;`), true, 'a previous mount cannot restore readiness');
       for (const id of AUTOTAXI_AIRCRAFT) {
         await evaluate(`await layoutTest.scenario(${JSON.stringify(id)}); layoutTest.taxiReconnect(); await layoutTest.settle();`);
         await ready(id === 'generic' ? '[data-aircraft-page-mode="generic"]' : `[data-aircraft-template="${templateFor(id)}"]`);
@@ -94,18 +184,19 @@ async function browser() {
           await evaluate(`const panel = document.querySelector('#aircraft-page-autotaxi'); panel.open = true; await layoutTest.settle(); panel.scrollIntoView({ behavior: 'instant' });`);
           await wait(150);
           assert.equal(await evaluate(`return document.documentElement.scrollWidth > innerWidth;`), false, `${id} ${width}px: no horizontal overflow`);
-          assert.equal(await evaluate(`return [...document.querySelectorAll('#aircraft-page-autotaxi button')].every(button => button.getBoundingClientRect().height >= 48);`), true, `${id} ${width}px: taxi touch targets`);
+          assert.equal(await evaluate(`return [...document.querySelectorAll('#aircraft-page-autotaxi button')].filter(button => button.getClientRects().length).every(button => button.getBoundingClientRect().height >= 48);`), true, `${id} ${width}px: taxi touch targets`);
           const context = await evaluate(`const panel = document.querySelector('#aircraft-page-autotaxi'); return {
-            copy: panel.textContent, disabled: [...panel.querySelectorAll('button')].slice(0, 2).every(button => button.disabled),
+            copy: panel.textContent, disabled: panel.querySelector('[data-taxi-start]').disabled,
             support: panel.querySelector('[data-autotaxi-support]').textContent,
           };`);
-          assert.match(context.support, /simulator validation/);
-          assert.equal(context.disabled, true, `${id}: pending live acceptance cannot start`);
+          assert.match(context.support, /Automatic control is experimental/);
+          assert.equal(context.disabled, true, `${id}: Autotaxi retains its readiness gate`);
+          assert.match(context.copy, /Taxi assistant/);
           if (id === 'generic' || id.startsWith('fenix-')) assert.doesNotMatch(context.copy, /PMDG|Tiller \+ Rudder/, `${id}: PMDG setup does not leak`);
           if (id.startsWith('pmdg-')) assert.match(context.copy, /Tiller \+ Rudder/);
-          await evaluate(`const setup = document.querySelector('[data-autotaxi-setup]'); setup.open = true; await layoutTest.settle();`);
+          await evaluate(`document.querySelector('[data-taxi-automation]').open = true; const setup = document.querySelector('[data-autotaxi-setup]'); setup.open = true; await layoutTest.settle();`);
           assert.equal(await evaluate(`return document.querySelector('[aria-label="Aircraft taxi setup"]').getBoundingClientRect().height > 0;`), true, `${id}: setup expands in place`);
-          await evaluate(`document.querySelector('[data-autotaxi-setup]').open = false; await layoutTest.settle();`);
+          await evaluate(`document.querySelector('[data-autotaxi-setup]').open = false; document.querySelector('[data-taxi-automation]').open = false; await layoutTest.settle();`);
           await evaluate(`document.querySelector('#aircraft-page-autotaxi').scrollIntoView({ behavior: 'instant' });`);
           await wait(100);
           if (width < 761) assert.equal(await evaluate(`const nav = [...document.querySelectorAll('nav')].find(nav => nav.getAttribute('aria-label')?.endsWith('page sections')); const bounds = nav.getBoundingClientRect(); return bounds.top >= 0 && bounds.top < 100 && bounds.height > 0;`), true, `${id}: phone section navigation stays visible above Autotaxi`);
@@ -123,9 +214,23 @@ async function browser() {
         }
         await evaluate(`const panel = document.querySelector('#aircraft-page-autotaxi');
           for (const [placeholder, value] of [['YMML', 'YMML'], ['16', '16']]) { const input = panel.querySelector('input[placeholder="' + placeholder + '"]'); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
-          layoutTest.setTaxiState({ canStart: true, reason: 'Ready to taxi in the simulated fixture.' }); await layoutTest.settle();
+          layoutTest.setTaxiState({ canGuide: true, canStart: false, unavailableReason: 'Release the parking brake before starting.', reason: 'Ready for manual taxi guidance.' }); await layoutTest.settle();
           panel.querySelector('button').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure svg'));`), true, `${id}: preview renders before commands`);
+        assert.equal(await evaluate(`return document.querySelector('[data-taxi-start]').disabled;`), true, `${id}: the ribbon works while Autotaxi is unavailable`);
+        assert.equal(await evaluate(`return document.querySelector('[data-taxi-automation]').open;`), false, `${id}: optional automation stays collapsed during manual guidance`);
+        const manualBefore = await evaluate(`return document.querySelector('#aircraft-page-autotaxi figure svg').textContent;`);
+        const controlCount = await evaluate(`return layoutTest.taxiSent.filter(message => ['start', 'stop', 'release'].includes(message.operation)).length;`);
+        await evaluate(`layoutTest.moveAircraft({ x: 0.4, z: 60, headingDeg: 0 });`); await wait(800);
+        assert.notEqual(await evaluate(`return document.querySelector('#aircraft-page-autotaxi figure svg').textContent;`), manualBefore, `${id}: distance updates during manual taxi`);
+        assert.equal(await evaluate(`return layoutTest.taxiSent.filter(message => ['start', 'stop', 'release'].includes(message.operation)).length;`), controlCount, `${id}: guidance never dispatches automatic control`);
+        await evaluate(`layoutTest.setTaxiState({ aircraft: null, canGuide: false, guidanceUnavailableReason: 'Waiting for fresh aircraft position.' }); await layoutTest.settle();`);
+        assert.match(await evaluate(`return document.querySelector('#aircraft-page-autotaxi figure').textContent;`), /Live position unavailable/);
+        assert.equal(await evaluate(`return document.querySelector('[data-taxi-show-route]').disabled;`), true);
+        await evaluate(`layoutTest.moveAircraft({ x: 100, z: -100, headingDeg: 0, speedKts: 4 }); layoutTest.setTaxiState({ canGuide: true, guidanceUnavailableReason: null }); await layoutTest.settle();`);
+        assert.match(await evaluate(`return document.querySelector('#aircraft-page-autotaxi figure').textContent;`), /away from the planned route/);
+        await evaluate(`layoutTest.moveAircraft({ x: 0.4, z: 12, headingDeg: 3, speedKts: 2.4 }); layoutTest.setTaxiState({ canStart: true, unavailableReason: null }); await layoutTest.settle();`);
+        if (id === 'generic') await require('./taxi-assistant-browser-checks')({ evaluate, wait });
         for (const width of [1440, 320]) {
           win.setContentSize(width, 1000); await wait(150);
           await evaluate(`document.querySelector('#aircraft-page-autotaxi').scrollIntoView({ behavior: 'instant' });`);
@@ -133,19 +238,23 @@ async function browser() {
           assert.equal(await evaluate(`return document.documentElement.scrollWidth > innerWidth;`), false, `${id} ${width}px: route preview fits`);
           fs.writeFileSync(path.join(OUTPUT, `${id}-autotaxi-preview-${width}.png`), (await win.webContents.capturePage()).toPNG());
         }
-        await evaluate(`document.querySelectorAll('#aircraft-page-autotaxi button')[1].click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-automation]').open = true; await layoutTest.settle(); document.querySelector('[data-taxi-start]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return layoutTest.taxiSent.findLast(message => message.operation === 'start').profileKey;`), `bundled/msfs/${id}`, `${id}: start carries the actual profile`);
         assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi input').disabled;`), true, `${id}: active destination is locked`);
-        await evaluate(`document.querySelectorAll('#aircraft-page-autotaxi button')[2].click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-automation]').open = false; await layoutTest.settle();`);
+        await wait(350);
+        assert.equal(await evaluate(`return document.querySelector('[data-taxi-automation]').open;`), false, `${id}: status polling respects the optional disclosure`);
+        assert.equal(await evaluate(`return ['stop', 'release'].every(action => document.querySelector('[data-taxi-' + action + ']').getBoundingClientRect().height >= 48);`), true, `${id}: active control exits stay visible outside the disclosure`);
+        await evaluate(`document.querySelector('[data-taxi-stop]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return layoutTest.taxiSent.findLast(message => message.operation !== 'status').operation;`), 'stop', `${id}: Stop remains accessible`);
-        await evaluate(`document.querySelectorAll('#aircraft-page-autotaxi button')[3].click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-release]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi input').disabled;`), false, `${id}: release restores editing`);
         await evaluate(`layoutTest.taxiDisconnect(); await layoutTest.settle();`);
         assert.match(await evaluate(`return document.querySelector('#aircraft-page-autotaxi').textContent;`), /Connection lost/);
-        assert.equal(await evaluate(`return document.querySelectorAll('#aircraft-page-autotaxi button')[1].disabled;`), true, `${id}: lost connection disables Start`);
+        assert.equal(await evaluate(`return document.querySelector('[data-taxi-start]').disabled;`), true, `${id}: lost connection disables Start`);
       }
       assert.deepEqual(errors, []);
-      console.log('PASS Autotaxi shared UI: Generic, PMDG 737, PMDG 777 and Fenix A319/A320/A321; 1440/390/320px; candidate gate, navigation, setup, preview, start, stop, release and disconnect.');
+      console.log('PASS Taxi assistant: six aircraft at 1440/390/320px; manual ribbon, live distance, stale/off-route guidance, navigation, optional Autotaxi, stop/release and reconnect.');
       app.exit(0); return;
     }
     for (const id of (process.env.FF_CDU_LAYOUT_ONLY === '1' || process.env.FF_AIRCRAFT_TOOLS_ONLY === '1' ? [] : process.env.FF_AUTOTAXI_LAYOUT_ONLY === '1' ? ['pmdg-737'] : AIRCRAFT)) {
@@ -251,10 +360,11 @@ async function browser() {
           inputs[0].value = 'YMML'; inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
           inputs[1].value = '16'; inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
           await layoutTest.settle();`);
-        assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi button').disabled;`), false, 'autotaxi requires ready state and a destination');
-        await evaluate(`document.querySelector('#aircraft-page-autotaxi button').click(); await layoutTest.settle();`);
+        assert.equal(await evaluate(`return document.querySelector('[data-taxi-show-route]').disabled;`), false, 'autotaxi requires ready state and a destination');
+        await evaluate(`document.querySelector('[data-taxi-show-route]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return layoutTest.taxiSent.filter(message => message.operation !== 'status').at(-1).operation;`), 'preview');
         assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure svg'));`), true, 'dry run shows route before motion');
+        await require('./taxi-assistant-browser-checks')({ evaluate, wait });
         for (const width of [1440, 320]) {
           win.setContentSize(width, 1000);
           await wait(200);
@@ -270,8 +380,8 @@ async function browser() {
           fs.writeFileSync(path.join(OUTPUT, `pmdg-737-autotaxi-preview-${width}.png`), (await win.webContents.capturePage()).toPNG());
         }
         // The 3D view: a chase camera behind the aircraft, remembered per browser, with the 2D map one tap away.
-        assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi .taxi-map').dataset.taxiView;`), '2d', 'the map starts in 2D');
-        await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="3d"]').click(); await layoutTest.settle();`);
+        assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi .taxi-map').dataset.taxiView;`), '3d', 'guidance starts with the route ribbon');
+        await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="2d"]').click(); await layoutTest.settle(); document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="3d"]').click(); await layoutTest.settle();`);
         await wait(300);
         const chase = await evaluate(`const map = document.querySelector('#aircraft-page-autotaxi .taxi-map'); return {
           view: map.dataset.taxiView, stored: localStorage.getItem('ff-autotaxi-view'),
@@ -300,7 +410,7 @@ async function browser() {
         await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="2d"]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi .taxi-map').dataset.taxiView;`), '2d', 'the 2D map returns');
         assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi .compass[role="button"]'));`), true, 'the compass toggles north up again');
-        await evaluate(`document.querySelectorAll('#aircraft-page-autotaxi button')[1].click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-automation]').open = true; await layoutTest.settle(); document.querySelector('[data-taxi-start]').click(); await layoutTest.settle();`);
         const start = await evaluate(`return layoutTest.taxiSent.find(message => message.operation === 'start');`);
         assert.equal(start.icao, 'YMML'); assert.equal(start.runway, '16');
         assert.equal(start.profileKey, 'bundled/msfs/pmdg-737'); assert.equal(start.profileRevision, 1);
@@ -314,12 +424,12 @@ async function browser() {
           await wait(80);
           assert.equal(await evaluate(`const top = document.querySelector('#aircraft-page-autotaxi').getBoundingClientRect().top; return top >= 0 && top < 150;`), true, 'taxi controls are visible in their screenshot');
           assert.equal(await evaluate('return document.documentElement.scrollWidth > innerWidth;'), false, `autotaxi ${width}: no overflow`);
-          assert.equal(await evaluate(`return [...document.querySelectorAll('#aircraft-page-autotaxi button')].every(button => button.getBoundingClientRect().height >= 48);`), true, `autotaxi ${width}: touch targets`);
+          assert.equal(await evaluate(`return [...document.querySelectorAll('#aircraft-page-autotaxi button')].filter(button => button.getClientRects().length).every(button => button.getBoundingClientRect().height >= 48);`), true, `autotaxi ${width}: touch targets`);
           await win.webContents.capturePage(); await wait(100);
           fs.writeFileSync(path.join(OUTPUT, `pmdg-737-autotaxi-${width}.png`), (await win.webContents.capturePage()).toPNG());
         }
         // While taxiing in 3D the world follows each new sample and the aircraft holds still.
-        await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="3d"]').click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="2d"]').click(); await layoutTest.settle(); document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="3d"]').click(); await layoutTest.settle();`);
         await wait(300);
         const scenePaths = `[...document.querySelectorAll('#aircraft-page-autotaxi .taxi-map path')].map(el => el.getAttribute('d') || '')`;
         const before = await evaluate(`return ${scenePaths};`);
@@ -331,9 +441,9 @@ async function browser() {
         assert.ok(changed >= 4, `pavement and route move with the aircraft: ${changed} of ${before.length} paths changed`);
         assert.ok(kept >= 20, `the aircraft sprite is rigid to the camera: ${kept} paths unchanged`);
         await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-view"][value="2d"]').click(); await layoutTest.settle();`);
-        await evaluate(`document.querySelectorAll('#aircraft-page-autotaxi button')[2].click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-stop]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return layoutTest.taxiSent.filter(message => message.operation !== 'status').at(-1).operation;`), 'stop');
-        await evaluate(`document.querySelectorAll('#aircraft-page-autotaxi button')[3].click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-release]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return layoutTest.taxiSent.filter(message => message.operation !== 'status').at(-1).operation;`), 'release');
         assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi input').disabled;`), false, 'release restores the destination inputs');
         await evaluate(`document.querySelector('#aircraft-page-autotaxi input[name="autotaxi-mode"][value="stand"]').click(); await layoutTest.settle();`);
@@ -352,7 +462,7 @@ async function browser() {
           await win.webContents.capturePage(); await wait(100);
           fs.writeFileSync(path.join(OUTPUT, `pmdg-737-autotaxi-stand-${width}.png`), (await win.webContents.capturePage()).toPNG());
         }
-        await evaluate(`document.querySelector('#aircraft-page-autotaxi button').click(); await layoutTest.settle();`);
+        await evaluate(`document.querySelector('[data-taxi-show-route]').click(); await layoutTest.settle();`);
         assert.equal(await evaluate(`return layoutTest.taxiSent.filter(message => message.operation === 'preview').at(-1).parking;`), 'Gate D 12', 'type annotation does not change the routing name');
       }
       assert.equal(await evaluate(`return document.querySelector('[data-aircraft-preset="configuration.lights.takeoff"] button').disabled;`), false, `${id}: grouped takeoff preset is ready`);
@@ -456,7 +566,10 @@ async function browser() {
         await resizeTools(width, height);
         assert.equal(await evaluate(`return document.activeElement.id === 'aircraft-find-input' && document.getElementById('aircraft-find-input').value === 'heading' && Boolean(document.querySelector('[data-aircraft-find-current]'));`), true, 'resizing preserves the visible search input, query and matches');
       }
-      await evaluate(`document.querySelector('.aircraft-find__collapse').click(); await layoutTest.settle(); layoutTest.specific.sourceStatus = 'stale'; await layoutTest.settle();`);
+      await evaluate(`document.querySelector('.aircraft-find__collapse').click(); await layoutTest.settle(); layoutTest.setSourceStatus('stale'); await layoutTest.settle();`);
+      // Exercise the fixture's 500 ms telemetry refresh before measuring the notice.
+      await wait(600);
+      assert.equal(await evaluate(`return layoutTest.specific.sourceStatus;`), 'stale', 'fixture telemetry preserves the requested stale source status');
       assert.equal(await evaluate(`return document.querySelector('.aircraft-connection-summary').getBoundingClientRect().height > 0;`), true, 'phone density does not hide stale-data context');
       await evaluate(`layoutTest.specific.dependencies = { mobiflightEventModule: { required: true, connected: false, status: 'missing' } }; await layoutTest.settle();`);
       assert.equal(await evaluate(`return document.querySelector('[data-aircraft-setup-required]')?.getBoundingClientRect().height > 0 && document.getElementById('aircraft-mobiflight-notice')?.getBoundingClientRect().height > 0;`), true, 'setup reasons and recovery remain visible on phone');
@@ -488,8 +601,9 @@ async function browser() {
           // commits Vue's resulting font update before geometry is inspected.
           await evaluate(`await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));`);
           // The viewport can resize before media queries and ResizeObserver
-          // settle. Wait for the requested geometry/readability, then retain all
-          // assertions below (including the last measurement on timeout).
+          // settle. Include compact scroll reachability in the readiness check:
+          // viewport dimensions can arrive before scroll ranges finish resizing.
+          // Retain every assertion below, including the last measurement on timeout.
           const measurements = await settled(`return {
             viewport: innerWidth,
             viewportHeight: innerHeight,
@@ -525,6 +639,8 @@ async function browser() {
             minLineKey: [...document.querySelectorAll('.cdu-line-key')].reduce((min, el) => { const r = el.getBoundingClientRect(); return [Math.min(min[0], r.width), Math.min(min[1], r.height)]; }, [Infinity, Infinity]),
             screen: document.querySelector('.cdu-screen').getAttribute('aria-label'),
           };`, value => value.viewport === width && value.viewportHeight === height
+            && !value.verticalOverflow && (compact || (!value.keypadScrolls && value.visibleKeys))
+            && (!compact || (value.keysFitWidth && value.lastKeyReachable && (scrollPanel || value.screenVisible)))
             && (width !== 1440 || height !== 1000 || parseFloat(value.fontSize) >= 18));
           assert.equal(measurements.overflow, false, `${id} CDU fits ${width}px: ${JSON.stringify(measurements.pageOverflow)}`);
           assert.equal(measurements.verticalOverflow, false, `${id} CDU dialog needs no scrolling at ${width}x${height}: ${JSON.stringify(measurements)}`);
@@ -704,12 +820,12 @@ async function main() {
     const screen = id.startsWith('pmdg-') ? decodePmdgScreen(raw) : decodeFbwScreen({ title: '{green}APPR{end}', scratchpad: '{cyan}YSSY{end}', lines, displayBrightness: 1 });
     return { mode: 'integrated', label: adapter.label, setup: adapter.setup, functionKeys: adapter.functionKeys, entryKeys: adapter.entryKeys, screen, sessionId: 'fixture' };
   };
-  const fixtures = Object.fromEntries([...new Set([...AIRCRAFT, ...AUTOTAXI_AIRCRAFT])].map(id => {
+  const fixtures = Object.fromEntries([...new Set([...AIRCRAFT, ...AUTOTAXI_AIRCRAFT, A380])].map(id => {
     const templateId = templateFor(id);
     const profile = loader.loadProfile(`bundled/msfs/${id}`);
     const capabilities = buildAircraftControlCapabilities(profile, { profileRevision: 1,
       capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar'],
-        integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
+        integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'input-event'] } });
     const values = Object.fromEntries(Object.values(registry.getById(templateId)?.fields || {}).map(field => {
       const decode = field.sources[0]?.decode;
       return [field.id, decode?.type === 'boolean' ? false : decode?.type === 'enum' ? Object.values(decode.values)[0] : 0];
@@ -720,16 +836,28 @@ async function main() {
     Object.assign(values, { 'mcp.headingDeg': 270, 'mcp.altitudeFt': 12000, 'mcp.speed': 250,
       'mcp.courseCaptainDeg': 270, 'mcp.courseFirstOfficerDeg': 270,
       'radios.nav1ActiveMhz': 109.5, 'radios.nav2ActiveMhz': 109.5, 'radios.nav1StandbyMhz': 110.3, 'radios.nav2StandbyMhz': 110.3 });
+    if (id === A380) for (const index of [1, 2]) Object.assign(values, {
+      [`radios.com${index}.installed`]: true, [`radios.com${index}.status`]: 0,
+      [`radios.com${index}.spacingMode`]: 1, [`radios.com${index}.activeMhz`]: index === 1 ? 122.8 : 121.5,
+      [`radios.com${index}.standbyMhz`]: index === 1 ? 123.45 : 124.85,
+    });
+    if (id === A380) Object.assign(values, { 'flightGuidance.powered': true,
+      'flightGuidance.speedValue': 200, 'flightGuidance.headingValue': 270,
+      'flightGuidance.altitudeValue': 10000, 'flightGuidance.verticalSpeedValue': 0 });
     const taxiSupport = { family: templateId, aircraftLabel: id === 'generic' ? 'Generic aircraft' : id.startsWith('fenix-') ? `Fenix ${id.slice(6).toUpperCase()}` : id.replace('pmdg-', 'PMDG '), qualificationStatus: 'candidate', reason: null,
       setupInstructions: id.startsWith('pmdg-') ? ['In PMDG setup, select Tiller + Rudder steering hardware.'] : id.startsWith('fenix-') ? ['Prepare the aircraft with automatic thrust control off.'] : ['Use standard simulator throttle, brake and steering controls.'] };
     return [id, { templateId, capabilities, values, cdu: cduFixture(id), taxiSupport }];
   }));
   fixtures.__autotaxiFixture = AUTOTAXI_FIXTURE;
+  fixtures.__pushbackE2E = process.env.FF_PUSHBACK_E2E === '1';
+  const pushbackE2E = fixtures.__pushbackE2E
+    ? require('../fixtures/pushback-e2e.cjs')(runtime, fixtures['pmdg-737'].capabilities.aircraftCommands) : null;
   const { createViteTestServer } = require('./vite-test-server');
   const { default: vue } = await import(pathToFileURL(path.join(ROOT, 'frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs')).href);
   const server = await createViteTestServer({ configFile: false, root: ROOT, logLevel: 'error',
     cacheDir: path.join(OUTPUT, 'vite-cache'), optimizeDeps: { entries: ['tests/fixtures/aircraft-layout-browser.js'] },
     plugins: [vue(), { name: 'aircraft-layout-fixture', configureServer(vite) {
+      if (pushbackE2E) vite.middlewares.use('/pushback-e2e', pushbackE2E.middleware);
       vite.middlewares.use('/aircraft-layout.css', (_req, res) => { res.setHeader('Content-Type', 'text/css'); res.end(layoutCss); });
       vite.middlewares.use('/aircraft-layout-fixtures', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(fixtures)); });
       vite.middlewares.use('/aircraft-layout-test', (_req, res) => {
@@ -753,6 +881,6 @@ async function main() {
     clearTimeout(timer);
     assert.equal(timedOut, false, 'aircraft layout browser checks exceeded 180 seconds');
     assert.equal(code, 0, 'aircraft layout browser checks');
-  } finally { await server.close(); }
+  } finally { await pushbackE2E?.dispose(); await server.close(); }
 }
 (process.versions.electron ? browser() : main()).catch(error => { console.error(error); process.exit(1); });
