@@ -37,10 +37,9 @@ async function browser() {
     }
     throw new Error(`Not rendered: ${selector}`);
   }
-  // The CDU modal refreshes its state on a 500 ms timer and re-fits the display
-  // on the next frame, so a fixed wait races it on a loaded machine. Re-measure
-  // until the page reaches the expected state, returning the last measurement
-  // for the assertion either way.
+  // Media queries, focus restoration and the CDU's timer/ResizeObserver can
+  // settle after a fixed wait on a loaded machine. Re-measure until the page
+  // reaches the expected state, retaining the last measurement on timeout.
   async function settled(body, isExpected, timeoutMs = 2500) {
     const startedAt = Date.now();
     for (;;) {
@@ -557,10 +556,17 @@ async function browser() {
       }
       await evaluate(`document.querySelector('.aircraft-tools-toggle').focus();`);
       await resizeTools(1440, 1000);
-      assert.equal(await evaluate(`return document.activeElement.hasAttribute('data-aircraft-integration-guide-trigger') && document.activeElement.getBoundingClientRect().height > 0;`), true, 'a disappearing Tools launcher transfers focus to its visible desktop tool');
+      const desktopFocus = await settled(`return { width: innerWidth,
+        guide: document.activeElement.hasAttribute('data-aircraft-integration-guide-trigger'),
+        height: document.activeElement.getBoundingClientRect().height };`,
+      state => state.width === 1440 && state.guide && state.height > 0);
+      assert.equal(desktopFocus.width === 1440 && desktopFocus.guide && desktopFocus.height > 0, true,
+        `a disappearing Tools launcher transfers focus to its visible desktop tool: ${JSON.stringify(desktopFocus)}`);
       await resizeTools(390, 844);
-      const compactFocus = await evaluate(`return { class: document.activeElement.className, width: innerWidth, tools: document.querySelector('.aircraft-tools-toggle').getBoundingClientRect().height, guide: document.querySelector('[data-aircraft-integration-guide-trigger]').getBoundingClientRect().height };`);
-      assert.equal(compactFocus.class.includes('aircraft-tools-toggle'), true, `a disappearing desktop tool transfers focus to the phone disclosure: ${JSON.stringify(compactFocus)}`);
+      const compactFocus = await settled(`return { class: document.activeElement.className, width: innerWidth, tools: document.querySelector('.aircraft-tools-toggle').getBoundingClientRect().height, guide: document.querySelector('[data-aircraft-integration-guide-trigger]').getBoundingClientRect().height };`,
+      state => state.width === 390 && state.class.includes('aircraft-tools-toggle') && state.tools > 0);
+      assert.equal(compactFocus.width === 390 && compactFocus.class.includes('aircraft-tools-toggle') && compactFocus.tools > 0, true,
+        `a disappearing desktop tool transfers focus to the phone disclosure: ${JSON.stringify(compactFocus)}`);
       await evaluate(`document.querySelector('.aircraft-find__launcher').click(); await layoutTest.settle(); const input = document.getElementById('aircraft-find-input'); input.value = 'heading'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();`);
       for (const [width, height] of [[1440, 1000], [700, 390], [320, 700]]) {
         await resizeTools(width, height);
