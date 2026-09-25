@@ -30,6 +30,15 @@ const { closeWriteStreamDurably } = require('./recording-stream-durability.js');
 
 type AnyRecord = Record<string, any>;
 
+async function waitForDurabilityCheckpoint(reached: () => unknown): Promise<void> {
+  // These tests assert ordering, not disk or worker scheduling within 500 ms.
+  // Keep a bounded wait and let each caller assert its exact required state.
+  const deadline = Date.now() + 5000;
+  while (!reached() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function readJsonl(filePath: string): AnyRecord[] {
   return fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 }
@@ -690,11 +699,7 @@ test('inline CSV close waits for an in-progress periodic fdatasync', async () =>
     assert.equal(settled, false, 'close must retain the stream until the periodic sync completes');
     releaseWriteBarrier();
     releaseWriteBarrier = null;
-    // Disk completion is not bounded by a count of immediate event-loop turns.
-    const syncDeadline = Date.now() + 5000;
-    while (!releasePeriodicSync && Date.now() < syncDeadline) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
+    await waitForDurabilityCheckpoint(() => releasePeriodicSync);
     assert(releasePeriodicSync, 'fdatasync must start after the write-queue barrier is released');
     releasePeriodicSync();
     releasePeriodicSync = null;
@@ -743,15 +748,11 @@ test('periodic timer immediately catches up a dirty row when an earlier sync spa
     };
 
     assert.equal(writer.writeSample({}), true);
-    for (let attempt = 0; attempt < 100 && !releaseFirstSync; attempt += 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
+    await waitForDurabilityCheckpoint(() => releaseFirstSync);
     assert(releaseFirstSync, 'the first timer-driven sync must be in flight');
 
     assert.equal(writer.writeSample({}), true);
-    for (let attempt = 0; attempt < 100 && !writer.syncCatchUpDue; attempt += 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
+    await waitForDurabilityCheckpoint(() => writer.syncCatchUpDue);
     assert.equal(writer.syncCatchUpDue, true, 'a missed timer tick must request one catch-up sync');
 
     // Removing future ticks proves that completion of the slow sync, rather
@@ -861,9 +862,7 @@ test('both JSONL periodic syncs drain the WriteStream queue before fdatasync and
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(settled, false, `${scenario.label} close must wait for periodic durability`);
       releaseWriteBarrier();
-      for (let attempt = 0; attempt < 100 && !releasePeriodicSync; attempt += 1) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 5));
-      }
+      await waitForDurabilityCheckpoint(() => releasePeriodicSync);
       assert(releasePeriodicSync, `${scenario.label} fdatasync must follow the released write barrier`);
       releasePeriodicSync();
       const stats = await closing;
@@ -969,9 +968,7 @@ test('an explicit flush overlapping close is a benign hand-off for all three inl
       };
 
       assert.equal(scenario.record(recorder, startMs), true);
-      for (let attempt = 0; attempt < 100 && !releasePeriodicSync; attempt += 1) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 5));
-      }
+      await waitForDurabilityCheckpoint(() => releasePeriodicSync);
       assert(releasePeriodicSync, `${scenario.label} periodic sync must be in flight`);
 
       let flushSettled = false;
@@ -1072,9 +1069,7 @@ test('both JSONL periodic sync failures are terminal and notify the bundle once'
       };
       clock.advance(1);
       assert.equal(scenario.record(recorder, clock.get()), true);
-      for (let attempt = 0; attempt < 100 && errors.length === 0; attempt += 1) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 5));
-      }
+      await waitForDurabilityCheckpoint(() => errors.length > 0);
       assert.equal(errors.length, 1, `${scenario.label} must notify its terminal sync failure once`);
       assert.equal(scenario.record(recorder, clock.get()), false, `${scenario.label} must reject rows after sync failure`);
       const stats = await scenario.close(recorder, clock.get());
@@ -1106,17 +1101,21 @@ test('worker CSV periodic sync crosses its write barrier before fdatasync and cl
   });
   try {
     assert.equal(writer.start(), true);
+    let settled = false;
+    let barrierState: { phases: string[]; closeSettled: boolean } | null = null;
     writer.worker?.on('message', (message: AnyRecord) => {
-      if (message?.type === 'periodicSyncPhase') phases.push(String(message.phase));
+      if (message?.type === 'periodicSyncPhase') {
+        phases.push(String(message.phase));
+        if (message.phase === 'barrier') barrierState = { phases: [...phases], closeSettled: settled };
+      }
     });
     assert.equal(writer.writeSample({}), true);
-    let settled = false;
     const closing = writer.close().finally(() => { settled = true; });
-    for (let attempt = 0; attempt < 40 && phases.length === 0; attempt += 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
-    assert.deepEqual(phases, ['barrier'], 'worker must report its queue barrier before fdatasync starts');
-    assert.equal(settled, false, 'worker close must wait while periodic durability is between barrier and fdatasync');
+    await waitForDurabilityCheckpoint(() => barrierState);
+    // Inspect the state when the message arrived, even if a loaded parent
+    // receives both phase messages before its next polling timer runs.
+    assert.deepEqual(barrierState, { phases: ['barrier'], closeSettled: false },
+      'worker must report its queue barrier before fdatasync starts and before close settles');
     const stats = await closing;
     assert.equal(stats.hasError, false);
     assert.deepEqual(phases.slice(0, 2), ['barrier', 'fdatasync']);
@@ -1175,9 +1174,7 @@ test('worker CSV periodic sync failure is terminal and notifies the bundle once'
   try {
     assert.equal(writer.start(), true);
     assert.equal(writer.writeSample({}), true);
-    for (let attempt = 0; attempt < 40 && terminalErrors.length === 0; attempt += 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
+    await waitForDurabilityCheckpoint(() => terminalErrors.length > 0);
     assert.equal(terminalErrors.length, 1);
     assert.match(terminalErrors[0].message, /periodic sync failure/i);
     assert.equal(writer.writeSample({}), false);
