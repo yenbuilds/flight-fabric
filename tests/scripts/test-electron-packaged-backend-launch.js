@@ -14,7 +14,9 @@ const {
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_EXE = path.join(ROOT, 'dist', 'electron', 'win-unpacked', require('../../scripts/release-names').buildExecutableFileName());
 const READY_MARKER = '[SIMBRIDGE_READY]';
-const LAUNCH_TIMEOUT_MS = 15000;
+// Match Electron's existing BACKEND_STARTUP_TIMEOUT_MS in electron/main.js.
+// A cold extracted payload must pass the same readiness deadline as the app.
+const LAUNCH_TIMEOUT_MS = 30000;
 const SIDECAR_EXIT_TIMEOUT_MS = 10000;
 const OWNED_PID_FILE_PREFIXES = [
   'flight-fabric-lvar-sidecar-',
@@ -162,12 +164,15 @@ async function runPackagedBackendLaunchProbe() {
   let stdout = '';
   let stderr = '';
   let child = null;
+  let launchStartedAt = 0;
+  let readyElapsedMs = null;
   let ownedSidecarRecords = [];
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-electron-backend-launch-'));
   const filesPresentBeforeLaunch = new Set(fs.readdirSync(os.tmpdir()));
 
   try {
     await new Promise((resolve, reject) => {
+      launchStartedAt = Date.now();
       let settled = false;
       const timeout = setTimeout(() => {
         if (settled) return;
@@ -226,7 +231,8 @@ async function runPackagedBackendLaunchProbe() {
       });
       child.stdout.on('data', (chunk) => {
         stdout += chunk.toString();
-        if (stdout.includes(READY_MARKER)) {
+        if (readyElapsedMs === null && stdout.includes(READY_MARKER)) {
+          readyElapsedMs = Date.now() - launchStartedAt;
           finish();
         }
       });
@@ -270,7 +276,7 @@ async function runPackagedBackendLaunchProbe() {
   }
 
   console.log('Packaged backend launch probe passed');
-  console.log(`Reached ${READY_MARKER} on WS ${wsPort}, HTTP ${httpPort}`);
+  console.log(`Reached ${READY_MARKER} in ${readyElapsedMs}ms (deadline ${LAUNCH_TIMEOUT_MS}ms) on WS ${wsPort}, HTTP ${httpPort}`);
   console.log(`Verified ${ownedSidecarRecords.length} owned Rust sidecar(s) exited after parent-only backend termination`);
 }
 
