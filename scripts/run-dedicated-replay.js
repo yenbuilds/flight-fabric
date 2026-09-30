@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// Development acceptance driver. Product entry points remain gated until
-// exact PMDG/Fenix motion, animation and camera behavior pass native testing.
+// Standalone development acceptance driver. The integrated client/toolbar
+// uses the same bounded controller; native aircraft acceptance is still pending.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -73,68 +73,7 @@ function parseControl(line, durationMs) {
   throw new Error('Commands: start, play, pause, seek <seconds>, restart, status, stop');
 }
 
-// Stop supersedes an outstanding command. Old acknowledgements must not clear
-// Stop's timeout, and a failed/closed pipe must never accept another write.
-function createReplayController({ input, session, notice = console.error, setTimer = setTimeout, clearTimer = clearTimeout }) {
-  let pending = null;
-  let requestId = 0;
-  let closed = false;
-  const close = reason => {
-    if (closed) return;
-    closed = true;
-    if (pending) clearTimer(pending.timer);
-    pending = null;
-    if (reason) notice(reason);
-    if (!input.destroyed && !input.writableEnded) input.end();
-  };
-  input.on('error', () => close('Replay controller pipe failed. Reload recovery remains required.'));
-  return {
-    close,
-    acknowledge(message) {
-      if (!pending || !message || message.session !== session || message.requestId !== pending.id || typeof message.ok !== 'boolean') return false;
-      clearTimer(pending.timer);
-      pending = null;
-      return true;
-    },
-    send(command) {
-      if (closed) { notice('Replay controller is closed; no command was sent.'); return false; }
-      if (pending) {
-        if (command.type !== 'stop') { notice('Wait for the previous command acknowledgement.'); return false; }
-        if (pending.type === 'stop') return true;
-        clearTimer(pending.timer);
-      }
-      const id = ++requestId;
-      pending = { id, type: command.type, timer: setTimer(() => {
-        close('Replay command timed out. Reload the matching parked flight; recovery remains required.');
-      }, 5000) };
-      try {
-        input.write(`${JSON.stringify({ ...command, session, requestId: id })}\n`, error => {
-          if (error) close('Replay controller pipe failed. Reload recovery remains required.');
-        });
-      } catch { close('Replay controller pipe failed. Reload recovery remains required.'); return false; }
-      return !closed;
-    },
-  };
-}
-
-function createReplayOutputReader(onMessage, onError) {
-  let remainder = '';
-  let failed = false;
-  return chunk => {
-    if (failed) return;
-    const lines = (remainder + chunk).split('\n');
-    remainder = lines.pop();
-    for (const line of lines) {
-      try {
-        if (line.length > 16384) throw new Error('Native output line exceeds its bound');
-        onMessage(JSON.parse(line));
-      } catch {
-        failed = true; onError('Invalid native output; entering recovery.'); return;
-      }
-    }
-    if (remainder.length > 16384) { failed = true; onError('Invalid native output; entering recovery.'); }
-  };
-}
+const { createReplayController, createReplayOutputReader } = require('../dist/backend/replay/native-controller');
 
 function nativeBuildSpec(root, env = process.env) {
   const target = path.join(root, '.tmp', 'dedicated-replay', 'native-target');
@@ -149,6 +88,10 @@ function nativeBuildSpec(root, env = process.env) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const config = require('../dist/backend/core/config');
+  if (options.live && !config.inSimReplay.enabled) {
+    throw new Error('In-simulator replay is disabled. For local development only, set FF_ENABLE_EXPERIMENTAL_REPLAY=1 before launching.');
+  }
   const session = crypto.randomUUID();
   const scratch = path.join(ROOT, '.tmp', 'dedicated-replay');
   fs.mkdirSync(scratch, { recursive: true });
@@ -186,7 +129,6 @@ async function main() {
   try { build = spawnSync(buildSpec.command, buildSpec.args, { cwd: ROOT, stdio: ['ignore', log, log], windowsHide: true }); }
   finally { fs.closeSync(log); }
   if (build.status !== 0) throw new Error(`Native build failed: ${logPath}`);
-  const config = require('../dist/backend/core/config');
   const nativeEnv = { ...process.env };
   if (config.lvarSidecar?.dllPath?.trim()) nativeEnv.FF_SIMCONNECT_DLL_PATH = config.lvarSidecar.dllPath.trim();
   const args = ['--dedicated-replay', `--replay-session=${session}`,

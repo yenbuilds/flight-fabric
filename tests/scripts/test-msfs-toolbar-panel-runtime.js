@@ -132,12 +132,19 @@ function loader({ parsing = false, active = false, visible = active, coherent } 
 
 function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
   const timer = fakeClock(), sockets = [], requests = [], messages = [], nodes = [], reloads = [];
-  const element = tag => { const node = new Element(tag); nodes.push(node); return node; };
+  const element = tag => {
+    const node = new Element(tag);
+    node.focus = () => { document.activeElement = node; };
+    nodes.push(node); return node;
+  };
   const document = Object.assign(new Target(), {
     readyState: 'loading', documentElement: element('html'), createElement: element,
     createElementNS: (_ns, tag) => element(tag),
     createTextNode: text => Object.assign(element('#text'), { textContent: text }),
-    getElementById: id => nodes.find(node => node.id === id) || Object.assign(element('div'), { id }),
+    getElementById: id => {
+      if (id.startsWith('tab-button-')) return nodes.find(node => node.id === 'tabs')?.children.find(node => node.id === id) || null;
+      return nodes.find(node => node.id === id) || Object.assign(element('div'), { id });
+    },
     querySelectorAll: () => [],
   });
   const window = Object.assign(new Target(), {
@@ -163,6 +170,7 @@ function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
     : { ...context.FlightFabricAppSettings, TAKEOFF_SCORING_ENABLED: takeoffScoringEnabled };
   vm.runInNewContext(read('frontend/toolbar/presets.js'), context);
   vm.runInNewContext(read('frontend/toolbar/taxi.js'), context);
+  vm.runInNewContext(read('frontend/toolbar/replay.js'), context);
   // Expose the shipped functions without replacing their control flow/rendering.
   vm.runInNewContext(read('frontend/toolbar/toolbar.js').replace(/\}\)\(\);\s*$/, `
     globalThis.panel = { state: state, boot: boot, connect: connect, setVisible: setVisible, selectTab: selectTab,
@@ -198,7 +206,14 @@ function taxiFixture() {
 }
 
 test('manual Taxi planning stays read-only and expires live guidance while preserving a labelled reference', () => {
-  const f = taxiFixture(); f.preview();
+  const f = taxiFixture();
+  assert.match(f.get('taxi-intro').textContent, /automatically pushes your aircraft back/);
+  assert.match(f.get('taxi-pushback-help').textContent, /Start pushback to move the aircraft/);
+  assert.match(f.get('taxi-guidance-help').textContent, /taxiing manually/);
+  assert.equal(f.get('taxi-pushback-action').textContent, 'Start pushback');
+  assert.equal(f.get('taxi-show-route').textContent, 'Show taxi route');
+  f.preview();
+  assert.ok(f.pushbackRequests.every(r => r.operation === 'status'), 'setup and Show taxi route cannot start pushback');
   assert.match(f.caption(), /190 m/);
   assert.equal(f.figure().hidden, false);
   const airport = f.get('taxi-airport');
@@ -223,10 +238,13 @@ test('manual Taxi planning stays read-only and expires live guidance while prese
 test('toolbar can explicitly stop an observed pushback even when Stand / gate was selected', () => {
   const f = taxiFixture();
   f.get('taxi-mode').value = 'stand'; f.get('taxi-mode').fire('change');
+  assert.match(f.get('taxi-intro').textContent, /stand or gate.*taxiing manually/);
+  assert.equal(f.get('taxi-pushback-help').hidden, true, 'arrival does not instruct the user to start pushback');
   f.panel.receive({ type: 'pushbackState', requestId: f.pushbackRequests.at(-1).requestId, ok: true,
     currentProfileKey: 'fixture', currentProfileRevision: 1, active: true, status: 'pushing', runway: '09', remainingM: 40 });
   const stop = f.get('taxi-pushback-action');
   assert.equal(stop.hidden, false); assert.equal(stop.disabled, false); assert.equal(stop.textContent, 'Stop pushback');
+  assert.equal(stop['aria-describedby'], 'taxi-pushback-reason', 'Stop announces current status without the hidden Start instruction');
   assert.equal(f.get('taxi-pushback-reason').hidden, false);
   stop.fire('click'); assert.equal(f.pushbackRequests.at(-1).operation, 'stop');
   f.panel.destroy();
@@ -308,7 +326,7 @@ test('toolbar departure defaults preserve overrides and share one preview map th
   assert.match(f.caption(), /200 m to holding point/);
   f.get('taxi-pushback-view').fire('click'); f.timer.advance(250);
   assert.match(f.caption(), /Pushback complete/, 'the completed path remains available for inspection');
-  assert.doesNotMatch(f.caption(), /m reverse|Finish facing/, 'completion does not tell the pilot to reverse again');
+  assert.doesNotMatch(f.caption(), /m reverse|Final nose direction/, 'completion does not tell the pilot to reverse again');
   f.panel.update({ ...f.connection, visible: false }); assert.equal(f.timer.pending, 0);
   f.panel.destroy(); assert.equal(f.timer.pending, 0);
   assert.ok(f.departureRequests.every(m => m.type === 'requestTaxiGuidance' && ['preview', 'status'].includes(m.operation)));
@@ -881,12 +899,12 @@ test('toolbar clears the old voice catalogue as soon as the aircraft changes', (
   assert.match(runtime.document.getElementById('tab-voice').text(), /Waiting for an aircraft/);
 });
 
-test('toolbar keeps every section available despite old hidden-tab preferences', () => {
+test('toolbar keeps released sections available despite old hidden-tab preferences', () => {
   for (const tabs of [{ flight: false, plan: true, voice: false }, { flight: false, plan: false, voice: false }]) {
     const storage = new Map([['ff_toolbar_prefs_v1', JSON.stringify({ tabs, defaultTab: 'voice', theme: 'light', scale: 'l' })]]);
     const runtime = page({ storage }); runtime.api.boot();
     const tabIds = ['flight', 'plan', 'voice', 'taxi'];
-    assert.deepEqual(runtime.document.getElementById('tabs').children.map(node => node.id), tabIds.map(id => 'tab-button-' + id));
+    assert.deepEqual(runtime.document.getElementById('tabs').children.filter(node => !node.hidden).map(node => node.id), tabIds.map(id => 'tab-button-' + id));
     assert.equal(runtime.api.state.activeTab, 'voice', 'the chosen opening section remains available');
     assert.equal(runtime.document.documentElement['data-theme'], 'light');
     assert.equal(runtime.document.documentElement['data-scale'], 'l');
@@ -898,17 +916,44 @@ test('toolbar keeps every section available despite old hidden-tab preferences',
     }
     assert.match(runtime.document.getElementById('tab-plan').text(), /YSSY/);
     runtime.document.getElementById('settings-button').fire('click');
-    assert.equal(runtime.nodes.some(node => node.tag === 'input' && node.type === 'checkbox'), false);
+    const settingsNodes = [];
+    const visitSettings = node => { settingsNodes.push(node); node.children.forEach(visitSettings); };
+    visitSettings(runtime.document.getElementById('settings-body'));
+    assert.equal(settingsNodes.some(node => node.tag === 'input' && node.type === 'checkbox'), false);
     const opening = runtime.nodes.find(node => node['aria-label'] === 'Open on');
-    assert.deepEqual(opening.children.map(node => node.textContent), ['Flight', 'Plan', 'Voice', 'Taxi']);
+    assert.deepEqual(opening.children.map(node => node.textContent), ['Flight', 'Plan', 'Voice', 'Pushback & taxi']);
     opening.children[1].fire('click');
     const saved = JSON.parse(storage.get('ff_toolbar_prefs_v1'));
     assert.equal(saved.defaultTab, 'plan');
     assert.equal(saved.tabs, undefined, 'saving preferences retires the old visibility flags');
     const reopened = page({ storage }); reopened.api.boot();
     assert.equal(reopened.api.state.activeTab, 'plan');
-    assert.equal(reopened.document.getElementById('tabs').children.length, 4);
+    assert.equal(reopened.document.getElementById('tabs').children.filter(node => !node.hidden).length, tabIds.length);
   }
+});
+
+test('replay availability updates toolbar navigation without reviving stale preferences', () => {
+  const storage = new Map([['ff_toolbar_prefs_v1', JSON.stringify({ defaultTab: 'replay' })]]);
+  const runtime = page({ storage }); runtime.api.boot();
+  const tab = id => runtime.document.getElementById('tabs').children.find(node => node.id === 'tab-button-' + id);
+  assert.equal(runtime.api.state.activeTab, 'flight');
+  assert.equal(tab('replay').hidden, true);
+  runtime.api.selectTab('voice');
+  tab('voice').fire('keydown', { key: 'ArrowRight', preventDefault() {} });
+  assert.equal(runtime.api.state.activeTab, 'taxi', 'keyboard navigation skips disabled replay');
+  const voiceButton = tab('voice');
+  runtime.api.receive({ type: 'inSimReplayState', enabled: true, state: 'idle', session: 'test' });
+  assert.equal(tab('replay').hidden, false);
+  assert.equal(tab('voice'), voiceButton, 'existing navigation nodes retain identity');
+  runtime.api.selectTab('voice');
+  tab('voice').fire('keydown', { key: 'ArrowRight', preventDefault() {} });
+  assert.equal(runtime.api.state.activeTab, 'replay');
+  runtime.api.receive({ type: 'inSimReplayState', enabled: false, blocked: true, state: 'recoveryRequired', session: 'test' });
+  assert.equal(tab('replay').hidden, false, 'recovery stays accessible with the gate off');
+  runtime.api.receive({ type: 'inSimReplayState', state: 'idle', session: 'next' });
+  assert.equal(tab('replay').hidden, true, 'missing availability fails closed');
+  assert.equal(runtime.api.state.activeTab, 'flight');
+  assert.equal(runtime.document.activeElement, tab('flight'), 'focus returns to an available tab');
 });
 
 test('toolbar renders the live landing packet, including finality, nested measurements and cautions', () => {

@@ -10,6 +10,7 @@ import DebugTelemetryModal from './DebugTelemetryModal.vue';
 import LandingMetricModal from './LandingMetricModal.vue';
 import LandingModal from './LandingModal.vue';
 import MainContentShell from './MainContentShell.vue';
+import InSimReplayPanel from './InSimReplayPanel.vue';
 import MobileTabs from './MobileTabs.vue';
 import MsfsInstallsModal from './MsfsInstallsModal.vue';
 import QuickGlanceBar from './QuickGlanceBar.vue';
@@ -154,6 +155,7 @@ onUnmounted(() => {
     </div>
 
     <main id="vue-main-root" class="app-main ff-scroll-y flex-1 overflow-y-auto" tabindex="-1" aria-label="Workspace">
+      <InSimReplayPanel />
       <MainContentShell />
     </main>
 

@@ -2098,6 +2098,7 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
   }
 
   const protectedTypes = [
+    'inSimReplay',
     'saveAppSettings',
     'fuelUnit',
     'showBranding',

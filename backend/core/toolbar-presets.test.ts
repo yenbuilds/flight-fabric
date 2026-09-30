@@ -9,7 +9,10 @@ test('toolbar capability is separate from both desktop and aircraft-control acce
   assert.notEqual(toolbarPresetToken('session'), toolbarPresetToken('next-session'));
   const client = { __ffToolbarPresetClient: true };
   assert.equal(isClientMessageAuthorized(client, 'executeAircraftCommand'), true);
-  for (const type of [...PRIVILEGED_CLIENT_MESSAGE_TYPES, 'executeAircraftControl', 'sendCduKey', 'autotaxi', 'unknown']) {
+  assert.equal(isClientMessageAuthorized(client, 'inSimReplay'), true);
+  // Replay operations are further bounded by the shared replay session; preparing
+  // a clip and connecting the native worker still require the desktop client.
+  for (const type of [...PRIVILEGED_CLIENT_MESSAGE_TYPES.filter(type => type !== 'inSimReplay'), 'executeAircraftControl', 'sendCduKey', 'autotaxi', 'unknown']) {
     assert.equal(isClientMessageAuthorized(client, type), false, type);
   }
 });

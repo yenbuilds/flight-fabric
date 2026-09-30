@@ -37,7 +37,7 @@ async function browser() {
         tabStops: options.filter(option => option.tabIndex >= 0).length };`);
     assert.deepEqual(semantics, { active: 'true', tabStops: 0 }, 'combobox owns one active result without duplicate Tab stops');
 
-    await evaluate("navigatorTest.query('  VOICE  cockpit '); await navigatorTest.settle();");
+    await evaluate("navigatorTest.query('  PRESETS  cockpit '); await navigatorTest.settle();");
     assert.deepEqual(await evaluate("return [...document.querySelectorAll('[role=option]')].map(element => element.id);"), ['navigator-result-autopilot'], 'search is case-insensitive and matches independent terms');
     await evaluate("navigatorTest.query('not-a-view'); await navigatorTest.settle();");
     assert.equal(await evaluate("return document.querySelector('#app-navigator-query').getAttribute('aria-activedescendant');"), null, 'empty search has no dangling active descendant');
@@ -59,6 +59,26 @@ async function browser() {
     assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'autopilot', 'approved navigation uses the requested destination');
     assert.equal(await evaluate('return document.activeElement.id;'), 'vue-main-root', 'navigation moves focus into the working surface');
     assert.equal(await evaluate("return document.querySelector('.app-workbench').inert;"), false);
+
+    for (const [query, destination] of [
+      ['microphone', 'voice-settings'], ['mic', 'voice-settings'], ['microphone setup', 'voice-settings'],
+      ['push to talk', 'voice-settings'], ['push-to-talk', 'voice-settings'], ['PTT', 'voice-settings'], ['voice settings', 'voice-settings'],
+      ['phone', 'system'], ['phone pairing', 'system'], ['pair', 'system'],
+      ['pairing', 'system'], ['tablet setup', 'system'],
+    ]) {
+      await evaluate(`navigatorTest.tabs.requestTabChange('flight'); navigatorTest.shell.openNavigator();
+        await navigatorTest.settle(); navigatorTest.query(${JSON.stringify(query)}); await navigatorTest.settle();`);
+      assert.deepEqual(await evaluate("return [...document.querySelectorAll('[role=option]')].map(element => element.id);"),
+        ['navigator-result-' + destination], `${query}: setup search finds only the appropriate existing page`);
+      await evaluate("navigatorTest.guard(true); navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
+      assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'flight', `${query}: aliases cannot bypass navigation guards`);
+      assert.equal(await evaluate('return document.activeElement.id;'), 'app-navigator-query');
+      assert.equal(await evaluate('return navigatorTest.shell.navigatorOpen;'), true);
+      await evaluate("navigatorTest.guard(false); navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
+      assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), destination === 'voice-settings' ? 'settings' : destination, `${query}: Enter opens the existing destination`);
+      assert.equal(await evaluate('return navigatorTest.shell.navigatorOpen;'), false);
+      assert.equal(await evaluate('return document.activeElement.id;'), destination === 'voice-settings' ? 'settings-voice-control' : 'vue-main-root');
+    }
 
     const shortcutCases = [
       ['typing', '#typing', {}], ['textarea', '#text-area', {}], ['select', '#select', {}],

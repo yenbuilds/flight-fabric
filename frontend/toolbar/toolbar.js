@@ -29,6 +29,7 @@
   var HIDDEN_DISCONNECT_MS = 20000;
   var MAX_CAUTIONS = 6;
   var SUBSCRIPTION = [
+    'inSimReplayState',
     'simState', 'phase', 'flightTime', 'simTime', 'flightPlan', 'voiceStatus',
     'aircraftProfile', 'aircraftChanged', 'dataSources', 'landing', 'ultimateStabilityScore', 'toolbarFlightHistory',
     'toolbarPresetState', 'toolbarTaxiState', 'pushbackState', 'aircraftCommandResult', 'flightRecording', 'flightStatus', 'flightViolation', 'fuelUnit', 'updateAvailable',
@@ -49,7 +50,8 @@
     { id: 'flight', label: 'Flight', icon: 'M4 14l3-1 4-6 6-3 2 2-3 6-6 4-1 3-2-2 1-3-3-1z' },
     { id: 'plan', label: 'Plan', icon: 'M6 3h9l4 4v14H6z M15 3v4h4 M9 12h6 M9 16h6' },
     { id: 'voice', label: 'Voice', icon: 'M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z M6 11a6 6 0 0 0 12 0 M12 17v4 M9 21h6' },
-    { id: 'taxi', label: 'Taxi', icon: 'M5 21V7a4 4 0 0 1 8 0v10a3 3 0 0 0 6 0V3 M16 6l3-3 3 3' },
+    { id: 'replay', label: 'Replay', icon: 'M5 4l14 8-14 8z' },
+    { id: 'taxi', label: 'Pushback & taxi', icon: 'M5 21V7a4 4 0 0 1 8 0v10a3 3 0 0 0 6 0V3 M16 6l3-3 3 3' },
   ];
 
   var GROUP_LABELS = {
@@ -110,6 +112,8 @@
     activeTab: 'flight',
     voiceSearch: '',
     settingsOpen: false,
+    replayEnabled: false,
+    replayBlocked: false,
   };
 
   var prefs = loadPrefs();
@@ -132,7 +136,16 @@
     },
   });
 
+  var replayPanel = window.FlightFabricReplayPanel.createReplayPanel({
+    document: document, toolbar: true,
+    send: function (message) {
+      if (!socket || socket.readyState !== 1 || state.connection !== 'connected') return false;
+      try { socket.send(JSON.stringify(message)); return true; } catch (error) { return false; }
+    },
+  });
+
   function updateAircraftPanels() {
+    replayPanel.update({ connected: state.connection === 'connected', authorized: state.scope === 'toolbar-presets' || state.scope === 'full-control' });
     taxiPanel.update({ profile: state.aircraftProfile, simState: state.simState, scope: state.scope, plan: state.plan,
       connected: state.connection === 'connected', visible: state.visible && state.activeTab === 'taxi' });
     presetPanel.update({ profile: state.aircraftProfile, simState: state.simState, scope: state.scope,
@@ -365,7 +378,7 @@
       density: pick('density', ['comfortable', 'compact']),
       timeZone: pick('timeZone', ['utc', 'local']),
       weightUnit: pick('weightUnit', ['plan', 'kg', 'lbs']),
-      defaultTab: pick('defaultTab', ['flight', 'plan', 'voice', 'taxi']),
+      defaultTab: pick('defaultTab', ['flight', 'plan', 'voice', 'replay', 'taxi']),
       openSections: openSections,
     };
   }
@@ -579,11 +592,14 @@
       if (ws !== socket) return;
       clearSocketConnectTimer();
       socket = null;
+      state.replayEnabled = false;
+      renderTabs();
+      if (state.settingsOpen) renderSettings();
       if (state.connection !== 'paused') {
         state.connection = 'waiting';
         state.scope = '';
         updateAircraftPanels();
-        renderConnection();
+        renderAll();
         scheduleReconnect();
       }
     };
@@ -593,7 +609,12 @@
   function closeSocket() {
     clearSocketConnectTimer();
     state.scope = '';
+    state.replayEnabled = false;
+    renderTabs();
+    renderActiveTab();
+    if (state.settingsOpen) renderSettings();
     presetPanel.update({ connected: false, visible: false, profile: state.aircraftProfile });
+    replayPanel.update({ connected: false });
     taxiPanel.update({ connected: false, visible: false, profile: state.aircraftProfile });
     if (!socket) return;
     var ws = socket;
@@ -628,6 +649,16 @@
 
   function handleMessage(message) {
     switch (message.type) {
+      case 'inSimReplayState':
+        var previousReplayVisible = state.replayEnabled || state.replayBlocked;
+        state.replayEnabled = message.enabled === true;
+        state.replayBlocked = message.blocked === true;
+        replayPanel.receive(message);
+        if (previousReplayVisible !== (state.replayEnabled || state.replayBlocked)) {
+          renderAll();
+          if (state.settingsOpen) renderSettings();
+        }
+        return;
       case 'authorizationScope':
         state.scope = typeof message.scope === 'string' ? message.scope : '';
         updateAircraftPanels();
@@ -1004,16 +1035,24 @@
     notice.textContent = messages[0].text;
   }
 
+  function availableTabs() {
+    return TABS.filter(function (tab) { return tab.id !== 'replay' || state.replayEnabled || state.replayBlocked; });
+  }
+
   function renderTabs() {
     if (!state.visible) return;
     var nav = $('tabs');
-    var tabs = TABS;
+    var tabs = availableTabs();
+    var restoreTabFocus = false;
     if (tabs.length && !tabs.some(function (tab) { return tab.id === state.activeTab; })) {
+      var previousPanel = $('tab-' + state.activeTab);
+      restoreTabFocus = document.activeElement === $('tab-button-' + state.activeTab)
+        || (previousPanel && previousPanel.contains(document.activeElement));
       state.activeTab = tabs[0].id;
     }
     // The tabs are permanent controls. Updating a badge or replaying state must
     // not replace the button under a mouse press or keyboard focus.
-    if (!nav.firstChild) tabs.forEach(function (tab) {
+    if (!nav.firstChild) TABS.forEach(function (tab) {
       var button = el('button', 'tab-button');
       button.type = 'button';
       button.id = 'tab-button-' + tab.id;
@@ -1024,6 +1063,7 @@
       button.appendChild(el('span', 'tab-badge'));
       button.addEventListener('click', function () { selectTab(tab.id); });
       button.addEventListener('keydown', function (event) {
+        var tabs = availableTabs();
         var index = tabs.indexOf(tab);
         if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
           event.preventDefault();
@@ -1035,8 +1075,9 @@
       });
       nav.appendChild(button);
     });
-    tabs.forEach(function (tab, index) {
+    TABS.forEach(function (tab, index) {
       var button = nav.children[index];
+      button.hidden = tabs.indexOf(tab) < 0;
       button.className = 'tab-button' + (tab.id === state.activeTab ? ' active' : '');
       button.setAttribute('aria-selected', tab.id === state.activeTab ? 'true' : 'false');
       button.tabIndex = tab.id === state.activeTab ? 0 : -1;
@@ -1046,6 +1087,7 @@
       var panel = $('tab-' + tab.id);
       panel.hidden = tab.id !== state.activeTab;
     });
+    if (restoreTabFocus) $('tab-button-' + state.activeTab).focus();
   }
 
   function tabBadge(tabId) {
@@ -1055,6 +1097,7 @@
   }
 
   function selectTab(tabId) {
+    if (!availableTabs().some(function (tab) { return tab.id === tabId; })) return;
     if (state.activeTab === tabId) return;
     var previous = $('tab-' + state.activeTab);
     // Only blur a control inside the panel being hidden, not the tab button
@@ -1502,6 +1545,8 @@
       }
       if (detail) text.appendChild(el('div', 'voice-status-detail', detail));
       if (voice.joystick) text.appendChild(el('div', 'voice-status-detail faint', 'Joystick: ' + voice.joystick));
+      if (!voice.shortcut) text.appendChild(el('div', 'voice-status-detail faint',
+        'Set a push-to-talk shortcut in the FlightFabric desktop app: Settings > Voice control.'));
     }
     row.appendChild(text);
     statusCard.appendChild(row);
@@ -1661,7 +1706,7 @@
     body.appendChild(segmentedSetting('Weights', 'Plan uses the units your OFP was generated with.', 'weightUnit', [['plan', 'Plan'], ['kg', 'kg'], ['lbs', 'lbs']]));
 
     body.appendChild(segmentedSetting('Open on', 'The section shown when the panel opens.', 'defaultTab',
-      TABS.map(function (tab) { return [tab.id, tab.label]; })));
+      availableTabs().map(function (tab) { return [tab.id, tab.label]; })));
     restoreFocus();
   }
 
@@ -1728,6 +1773,11 @@
     if (state.activeTab === 'flight') renderFlight();
     else if (state.activeTab === 'plan') renderPlan();
     else if (state.activeTab === 'voice') renderVoice();
+    else if (state.activeTab === 'replay') {
+      var replayRoot = $('tab-replay');
+      if (!replayRoot.firstChild) replayRoot.appendChild(replayPanel.element);
+      updateAircraftPanels();
+    }
     else if (state.activeTab === 'taxi') {
       var root = $('tab-taxi');
       if (!root.firstChild) root.appendChild(taxiPanel.element);
@@ -1902,6 +1952,7 @@
       unloading = true;
       presetPanel.destroy();
       taxiPanel.destroy();
+      replayPanel.destroy();
       reportKeyboardFocus(false);
       cancelReconnect();
       cancelBootstrap();

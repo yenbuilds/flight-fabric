@@ -1009,6 +1009,8 @@ class RustSimvarBridge {
 
 module.exports = {
   RustSimvarBridge,
+  resolveRustBinaryPath,
+  buildSidecarEnv,
   supportsRequiredOwnerLifeline,
 };
 

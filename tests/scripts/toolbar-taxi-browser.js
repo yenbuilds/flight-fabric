@@ -6,6 +6,12 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = async function ({ win, page, root, click, key, press, until, width }) {
   await click('#tab-button-taxi');
+  assert.match(await page(`return document.querySelector('#tab-button-taxi').textContent;`), /Pushback & taxi/);
+  assert.deepEqual(await page(`return [...document.querySelectorAll('.tab-button:not([hidden])')].filter(button => {
+    const range = document.createRange(); range.selectNodeContents(button.querySelector('span'));
+    const label = range.getBoundingClientRect(), bounds = button.getBoundingClientRect();
+    return label.left < bounds.left - 1 || label.right > bounds.right + 1 || label.bottom > bounds.bottom + 1;
+  }).map(button => button.textContent);`), [], 'toolbar navigation labels fit their targets at ' + width);
   const type = text => { for (const c of text) { key('keyDown', c); key('char', c); key('keyUp', c); } };
   const fill = async (id, text) => { await click(id); key('keyDown', 'A', ['control']); key('keyUp', 'A', ['control']); type(text); };
   await page(`await fetch('/fixture/taxi?position=live&pushback=false&phase=preview');`);
@@ -63,6 +69,10 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   await page(`await fetch('/fixture/taxi?pushback=true');`);
   await click('#taxi-mode'); press('Home'); press('Enter');
   await until(page, `return !!document.querySelector('[data-pushback-path]');`);
+  assert.match(await page(`return document.querySelector('#taxi-intro').textContent;`), /automatically pushes.*turns.*stops/);
+  assert.match(await page(`return document.querySelector('#taxi-pushback-help').textContent;`), /Start pushback to move the aircraft/);
+  await page(`document.querySelector('#toolbar-taxi').scrollIntoView({block:'start'});`); await wait(100);
+  fs.writeFileSync(path.join(output, 'pushback-setup-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
   assert.equal(await page(`return document.querySelectorAll('.taxi-figure').length;`), 1);
   assert.equal(await page(`return !!document.querySelector('[data-pushback-final-heading]') && !!document.querySelector('[data-taxi-onward]');`), true);
   assert.match(await page(`return document.querySelector('.taxi-caption').textContent;`), /Pushback preview/);
@@ -112,7 +122,7 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   await click('#taxi-pushback-action');
   await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Stop pushback';`);
   await click('#taxi-pushback-action');
-  await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Push back' && !document.querySelector('#taxi-pushback-action').disabled;`);
+  await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Start pushback' && !document.querySelector('#taxi-pushback-action').disabled;`);
   await click('#taxi-pushback-action');
   await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Stop pushback';`);
   const stops = await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation === 'stop').length;`);
@@ -132,7 +142,7 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
     await until(root, 'return keyboardClaimed;', false);
     await root(`host.classList.remove('panelInvisible');`);
     await until(root, `return document.querySelector('flightfabric-panel').panelActive;`);
-    await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Push back' && !document.querySelector('#taxi-pushback-action').disabled;`);
+    await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Start pushback' && !document.querySelector('#taxi-pushback-action').disabled;`);
     await wait(1100);
     assert.equal(await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation === 'start').length;`), beforeHide.filter(r => r.operation === 'start').length,
       'reopening the native panel never restarts pushback');

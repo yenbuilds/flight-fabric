@@ -50,6 +50,11 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/history-index/sqlite-runtime.ts', 'recording-storage', 'existsSync=6,renameSync=2'],
   ['backend/landing/flight-logbook.ts', 'recording-storage', 'existsSync=1,lstatSync=3,promises.open=1,promises.readFile=1,readFileSync=1'],
   ['backend/landing/ourairports-csv-cache.ts', 'release-owned-content', 'existsSync=1,readFileSync=1'],
+  // App-data replay session: fixed recovery journal (display-only bounded read),
+  // exclusive UUID clip creation and cleanup after worker close/launch failure.
+  // Source recordings still pass through the guarded CSV store. Session tests
+  // cover cleanup and journal-gated recovery before live mode can resume.
+  ['backend/replay/replay-session.ts', 'replay-session-storage', 'existsSync=3,mkdirSync=1,readFileSync=1,statSync=1,unlinkSync=2,writeFileSync=1'],
   ['backend/stability/stability-debug-logger.ts', 'guarded-diagnostics', 'createWriteStream=2,existsSync=1,mkdirSync=1,renameSync=1,statSync=1'],
   // Takeoff log: reads its own app-data JSON (fixed basename under the app data
   // root); writes go through safeReplaceTextFileSync like the landing logbook.

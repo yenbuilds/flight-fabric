@@ -55,6 +55,9 @@
 .sidebar-collapsed .app-sidebar .toolbar-setup-open { justify-content: center; align-items: center; }
 .sidebar-collapsed .app-sidebar .toolbar-setup-open > svg { margin: 0; }
 .mobile-toolbar-setup-task { margin: 0 1rem .6rem; }
+.voice-setup-task { border-color: rgb(var(--warning) / .4); background: rgb(var(--warning) / .06); }
+.voice-setup-task .toolbar-setup-open > svg, .voice-setup-task .toolbar-setup-open b { color: rgb(var(--warning)); }
+.voice-setup-task .toolbar-setup-open:focus-visible { outline-color: rgb(var(--warning)); }
 .desktop-tab { position: relative; display: flex; align-items: center; flex: none; gap: .65rem; min-width: 0; width: 100%; min-height: 2.5rem; padding: .5rem .65rem; border: 1px solid transparent; border-radius: .4rem; background: transparent; color: rgb(var(--muted-foreground)); font-family: var(--ff-font-ui); font-size: .8125rem; font-weight: 500; text-transform: none; letter-spacing: 0; text-align: left; box-shadow: none; }
 .desktop-tab svg { width: 1.1rem; height: 1.1rem; flex: none; }
 .desktop-tab:hover { color: rgb(var(--foreground)); background: rgb(var(--muted) / .55); }

@@ -17,7 +17,7 @@ const TEST_STEPS = [
   ['npm', ['run', 'test:backend:companions']],
   ['npm', ['run', 'test:cabin-announcements']],
   ['npm', ['run', 'test:backend:compiled-units']],
-  ['node', ['--test', 'dist/backend/replay/landing-clip.test.js', 'tests/scripts/test-dedicated-replay.js']],
+  ['node', ['--test', 'dist/backend/replay/landing-clip.test.js', 'dist/backend/replay/replay-session.test.js', 'tests/scripts/test-dedicated-replay.js']],
   ['node', ['--test', 'dist/backend/autotaxi/pushback.test.js', 'dist/backend/autotaxi/autotaxi.test.js', 'dist/backend/autotaxi/controller-motion.test.js', 'dist/backend/autotaxi/pmdg-readiness.test.js', 'dist/backend/autotaxi/aircraft-config.test.js', 'dist/backend/autotaxi/aircraft-adapters.test.js', 'frontend/src/aircraft/autotaxi-chase-view.test.js', 'frontend/src/aircraft/departure-preview.test.js', 'frontend/src/aircraft/pushback-controls.test.js', 'frontend/src/aircraft/pushback-map.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/cdu/cdu.test.js', 'frontend/src/aircraft/cdu-controller.test.js', 'frontend/src/aircraft/cdu-skins.test.js']],
   ['node', ['--test', 'dist/backend/core/device-pairing.test.js', 'dist/backend/core/toolbar-presets.test.js']],
@@ -55,6 +55,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-type-drift.js']],
   ['node', ['tests/scripts/test-package-drift.js']],
   ['node', ['--test', 'tests/scripts/test-msfs-toolbar-panel.js']],
+  ['node', ['tests/scripts/test-in-sim-replay-browser.js']],
   ['node', ['tests/scripts/test-msfs-toolbar-presets-browser.js']],
   ['node', ['--test', 'tests/scripts/test-telemetry-client.js']],
   ['node', ['--test', 'tests/scripts/test-repo-hygiene-links.js']],
@@ -289,17 +290,10 @@ function createIsolatedTestEnvironment(baseEnv = process.env) {
   return env;
 }
 
-function main() {
-  const env = createIsolatedTestEnvironment();
-
-  if (process.argv.includes('--check-environment')) {
-    console.log(`Test environment is isolated under ${getRepoScratchPath()}`);
-    return;
-  }
-
-  for (const [tool, args] of TEST_STEPS) {
-    console.log(`\n> ${formatStep(tool, args)}`);
+function runTestSteps(steps, { env = createIsolatedTestEnvironment() } = {}) {
+  for (const [tool, args] of steps) {
     const stepCommand = resolveStepCommand(tool, args);
+    console.log(`\n> ${formatStep(tool, args)}`);
     const result = spawnSync(stepCommand.command, stepCommand.args, {
       cwd: ROOT,
       env,
@@ -308,18 +302,40 @@ function main() {
 
     if (result.error) {
       console.error(`Failed to run ${formatStep(tool, args)}: ${result.error.message}`);
-      process.exit(1);
+      return 1;
     }
 
     if (result.status !== 0) {
-      process.exit(result.status || 1);
+      return result.status || 1;
     }
+  }
+  return 0;
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  if (args.some((arg) => arg !== '--check-environment')) {
+    throw new Error('Usage: npm test -- [--check-environment]');
+  }
+  const env = createIsolatedTestEnvironment();
+  if (args.includes('--check-environment')) {
+    console.log(`Test environment is isolated under ${getRepoScratchPath()}`);
+    return;
+  }
+  process.exitCode = runTestSteps(TEST_STEPS, { env });
+}
+
+if (require.main === module) {
+  try { main(); } catch (error) {
+    console.error(`Test suite failed: ${error.message}`);
+    process.exitCode = 1;
   }
 }
 
-if (require.main === module) main();
-
 module.exports = {
+  TEST_STEPS,
+  resolveStepCommand,
   createIsolatedTestEnvironment,
   isPathWithin,
+  runTestSteps,
 };

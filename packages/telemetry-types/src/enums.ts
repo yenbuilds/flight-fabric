@@ -22,6 +22,7 @@ import type { PhaseMap } from '../../../shared/flight-phases';
  * Keep in sync with the backend when adding or removing message types.
  */
 export const MSG = {
+  IN_SIM_REPLAY_STATE: 'inSimReplayState',
   AUTOTAXI_STATE: 'autotaxiState',
   PUSHBACK_STATE: 'pushbackState',
   TOOLBAR_TAXI_STATE: 'toolbarTaxiState',

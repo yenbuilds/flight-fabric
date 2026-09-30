@@ -287,6 +287,8 @@ const TOOLBAR_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   'index.html': 'text/html',
   'presets.js': 'application/javascript',
   'taxi.js': 'application/javascript',
+  'replay.js': 'application/javascript',
+  'replay.css': 'text/css',
   'toolbar.js': 'application/javascript',
   'toolbar.css': 'text/css',
   'voice-reference.json': 'application/json',

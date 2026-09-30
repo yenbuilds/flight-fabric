@@ -16,6 +16,7 @@ const { PHASES } = require('../lifecycle/phases.js') as {
  * @enum {string}
  */
 const MSG = Object.freeze({
+  IN_SIM_REPLAY_STATE: 'inSimReplayState',
   AUTOTAXI_STATE: 'autotaxiState',
   PUSHBACK_STATE: 'pushbackState',
   TOOLBAR_TAXI_STATE: 'toolbarTaxiState',

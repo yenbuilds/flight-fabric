@@ -514,6 +514,16 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             c.inbox.changed,
             parked,
         );
+        let eligibility = if last_status.elapsed() > Duration::from_millis(500) { Some(json!({"type":"replayEligibility", "session":session,
+                "readyToStart": entry_ready, "loadedTitle": snapshot.map(|s| s.title.as_str()),
+                "detail": if !c.inbox.sim { "Load a flight in MSFS 2024." }
+                    else if c.inbox.paused { "Turn off simulator pause and Active Pause." }
+                    else if (c.inbox.speed - 1.0).abs() >= 0.001 { "Set the simulator speed to 1x." }
+                    else if snapshot.is_some_and(|s| s.title != title) { "Load the exact recorded aircraft shown above." }
+                    else if !parked { "Park with all engines off, leave menus and slew, and wait for fresh aircraft data." }
+                    else if !entry_ready { "Keep the aircraft parked with engines off for three seconds." }
+                    else { "Aircraft checked. Ready to start replay." }
+            })) } else { None };
         for _ in 0..16 {
             if controller_lost || output.failed() { break; }
             let cmd = match rx.try_recv() {
@@ -586,6 +596,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             }
         }
         if lifecycle.phase() == ReplayPhase::Done {
+            report(&output, &session, ReplayPhase::Done, position, "Replay closed without moving the aircraft.");
             return Ok(());
         }
         if lifecycle.controls_aircraft() {
@@ -688,7 +699,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             c.request_freeze_readback()?;
             last_freeze_readback = Instant::now();
         }
-        if last_status.elapsed() > Duration::from_millis(500) {
+        if let Some(eligibility) = eligibility {
+            output.send(eligibility);
             report(
                 &output,
                 &session,

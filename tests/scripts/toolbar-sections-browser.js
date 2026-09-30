@@ -80,7 +80,7 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     await require('./toolbar-taxi-browser')({ win, page, root, click, key, press, until, width });
     await click('#settings-button');
     const settingIds = await page(`return [...document.querySelectorAll('#settings-body button')].map(n => n.id);`);
-    assert.equal(settingIds.length, 16, 'all six settings groups are exercised');
+    assert.equal(settingIds.length, 16, 'all six settings groups are exercised with experimental replay disabled');
     for (const id of settingIds) {
       await click('#' + id);
       assert.equal(await active(), id, 'changing a setting preserves focus on ' + id);

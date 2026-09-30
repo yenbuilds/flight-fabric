@@ -763,6 +763,63 @@ test('each push-to-talk utterance uses a fresh Zipformer stream', () => {
   assert.doesNotMatch(workerSource, /recognizer\.reset\(|reusableStream/);
 });
 
+test('Settings voice test runs the real Zipformer pipeline without aircraft or simulator state', { timeout: 30_000 }, async (t) => {
+  const modelDir = resolveVoiceModelDir({ appDir: __dirname, isPackaged: false });
+  if (process.platform !== 'win32' || process.arch !== 'x64'
+      || !ZIPFORMER_MODEL.files.every(file => fs.existsSync(path.join(modelDir, file.name)))) {
+    t.skip('Provision the pinned voice model on Windows x64 for the native setup test.');
+    return;
+  }
+  try { require.resolve('sherpa-onnx-node'); require.resolve('sherpa-onnx-win-x64'); } catch {
+    t.skip('Install Electron dependencies to run the native setup test.'); return;
+  }
+  const { createVoiceSetupTest, initialVoiceTestState } = await import('../frontend/src/voice/voice-setup-test.js');
+  const { readWave } = require('sherpa-onnx-node');
+  const engine = createVoiceSpeechEngine();
+  let controller, onChunk, resolveResult;
+  const store = { runtime: { enabled: true, available: true }, selectedInputDeviceId: 'fixture-microphone',
+    voiceTest: initialVoiceTestState(), spokenReadbacks: false,
+    setVoiceTestState(patch) {
+      this.voiceTest = { ...this.voiceTest, ...patch };
+      if (['complete', 'error'].includes(this.voiceTest.phase)) resolveResult?.(this.voiceTest);
+    },
+  };
+  controller = createVoiceSetupTest({ voiceStore: store,
+    api: { startRecognition: async () => engine.start(),
+      sendAudio: payload => engine.pushAudio({ ...payload, samples: new Float32Array(payload.samples) }),
+      finishRecognition: async id => ({ finishing: engine.finish(id) }), cancelRecognition: async id => engine.cancel(id) },
+    createCapture: callbacks => {
+      onChunk = callbacks.onChunk;
+      return { start: async () => ({ deviceLabel: 'Acoustic fixture' }), stop: async () => {}, cancel: async () => {} };
+    },
+  });
+  const unsubscribe = engine.onEvent(event => { void controller.handleRecognitionEvent(event); });
+  t.after(async () => { await controller.dispose(); unsubscribe(); await engine.shutdown(); });
+  await engine.initialize();
+  for (const fixture of ['heading-270-david', 'heading-270-zira', 'silence']) {
+    let timeout;
+    const result = new Promise((resolve, reject) => {
+      resolveResult = resolve;
+      timeout = setTimeout(() => reject(new Error('Native setup recognition timed out')), 10000);
+    });
+    try {
+      assert.equal(await controller.start(), true);
+      const { samples, sampleRate } = fixture === 'silence'
+        ? { samples: new Float32Array(16000), sampleRate: 16000 }
+        : readWave(path.join(__dirname, '..', 'tests', 'fixtures', 'voice', `${fixture}.wav`));
+      for (let offset = 0; offset < samples.length; offset += 2048) {
+        onChunk({ samples: samples.slice(offset, offset + 2048), sampleRate });
+      }
+      await controller.finish();
+      const final = await result;
+      assert.equal(final.phase, 'complete', `${fixture}: ${final.message}`);
+      assert.equal(final.recognized, fixture !== 'silence', `${fixture}: ${final.transcript}`);
+      if (fixture === 'silence') assert.match(final.message, /No sound detected/);
+      assert.equal(store.spokenReadbacks, false);
+    } finally { clearTimeout(timeout); }
+  }
+});
+
 test('native Zipformer preserves final APU letters and heading digits, recognizes NAV and keeps silence empty', {
   timeout: 30_000,
 }, async (t) => {

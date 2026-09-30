@@ -2612,6 +2612,43 @@ async function main() {
   });
 
   console.log('\n--- aircraft controls store ---\n');
+  await test('voice setup reminder follows desktop registration, not simulator or microphone selection', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    voice.setBridgeAvailable(true);
+    assert.equal(voice.setupTask, null, 'wait for initialization before suggesting setup');
+    voice.setState('disabled');
+    assert.equal(voice.setupTask.action, 'Set up voice control', 'first-time desktop users can discover voice before opting in');
+    voice.panelOpen = true;
+    assert.ok(voice.setupTask, 'merely opening settings does not complete setup');
+    voice.applyRuntimeInfo({ available: true, enabled: true });
+    voice.setState('ready');
+    assert.equal(voice.ready, true, 'on-screen PTT remains available without a global binding');
+    assert.equal(voice.setupTask.action, 'Set up voice control');
+    assert.equal(voice.setupReminder.optional, true);
+    voice.dismissSetup();
+    assert.equal(voice.setupReminder, null, 'on-screen-only users can dismiss optional setup without disabling voice');
+    assert.equal(voice.ready, true);
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered: false, error: 'Already in use' } });
+    assert.equal(voice.setupTask.action, 'Check voice setup', 'a saved but unregistered shortcut is incomplete');
+    assert.ok(voice.setupReminder, 'registration failures remain visible after optional setup dismissal');
+    voice.dismissSetup();
+    assert.ok(voice.setupReminder, 'a broken configured shortcut cannot be dismissed as optional setup');
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered: true } });
+    assert.equal(voice.setupTask, null, 'runtime registration clears the reminder');
+    assert.equal(voice.selectedInputDeviceId, '', 'Windows default microphone needs no explicit device selection');
+    voice.setState('blocked', 'Simulator telemetry link unavailable.');
+    assert.equal(voice.setupTask, null, 'MSFS disconnection is not a setup failure');
+    voice.applyRuntimeInfo({ enabled: false, pushToTalk: { accelerator: 'Control+Shift+Space' } });
+    voice.setState('disabled');
+    assert.equal(voice.setupTask, null, 'deliberately disabling configured voice does not nag');
+    voice.applyRuntimeInfo({ available: false, enabled: true, error: 'Model missing' });
+    voice.setState('unavailable');
+    assert.equal(voice.setupTask.action, 'Check voice setup', 'local runtime failures remain actionable');
+    voice.setBridgeAvailable(false);
+    assert.equal(voice.setupTask, null, 'remote browsers never advertise desktop-only voice setup');
+  });
+
   await test('voice command results stay retryable while acknowledgement remains visible', () => {
     resetStoreTestContext();
     const voice = useVoiceControlStore();
@@ -2723,6 +2760,27 @@ async function main() {
     voice.stopJoystickLearn();
     voice.setJoystick(null);
     assert.deepEqual(calls, [['learn-start'], ['learn-stop'], ['joystick', null]]);
+  });
+
+  await test('microphone setup failures remain visible after optional dismissal and clear when voice is disabled', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    voice.setBridgeAvailable(true);
+    voice.setupDismissed = true;
+    const runtime = { available: true, enabled: true, pushToTalk: { accelerator: 'Control+F8', registered: true } };
+    voice.applyRuntimeInfo(runtime);
+    voice.setState('blocked', 'MSFS is disconnected.');
+    voice.setInputDevicesError('Microphone access denied.');
+    assert.equal(voice.setupReminder.action, 'Check voice setup');
+    voice.dismissSetup();
+    assert.ok(voice.setupReminder, 'a microphone error is not an optional reminder');
+    voice.applyRuntimeInfo(runtime);
+    assert.equal(voice.inputDevicesError, 'Microphone access denied.', 'runtime replay does not clear microphone failure');
+    voice.setInputDevicesError('x'.repeat(400));
+    assert.equal(voice.inputDevicesError.length, 240);
+    voice.applyRuntimeInfo({ ...runtime, enabled: false });
+    assert.equal(voice.inputDevicesError, '');
+    assert.equal(voice.setupReminder, null);
   });
 
   await test('voice preferences stay bounded and delegate to the active runtime', () => {

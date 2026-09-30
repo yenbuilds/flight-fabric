@@ -10,8 +10,8 @@ export function pushbackCaption(data, fresh = true) {
   const heading = String(Math.round(p.headingDeg) % 360).padStart(3, '0') + '°';
   const stage = p.phase === 'complete' ? 'Pushback complete' : p.phase === 'connecting' ? 'Connecting tug' : p.phase === 'stopping' ? 'Stopping pushback' : p.phase === 'pushing' ? 'Pushback in progress' : 'Pushback preview';
   const remaining = Math.round(Number.isFinite(p.remainingM) ? p.remainingM : p.lengthM);
-  const detail = p.phase === 'complete' ? ' · Taxi to runway ' + p.runway + '.'
-    : ' · ' + remaining + (p.phase === 'preview' ? ' m reverse' : ' m remaining') + ' · Finish facing ' + heading + ' · Then taxi to runway ' + p.runway + '.';
+  const detail = p.phase === 'complete' ? ' · Taxi manually to the holding point for runway ' + p.runway + '.'
+    : ' · ' + remaining + (p.phase === 'preview' ? ' m reverse' : ' m remaining') + ' · Final nose direction ' + heading + ' · Then taxi manually to runway ' + p.runway + '.';
   return (!fresh ? 'Reference only · Live position unavailable. ' : '') + stage + detail;
 }
 

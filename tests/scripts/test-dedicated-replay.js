@@ -2,7 +2,10 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { EventEmitter } = require('node:events');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const { parseArgs, parseControl, createReplayController, createReplayOutputReader, nativeBuildSpec, createReplayLogWriter, terminalText } = require('../../scripts/run-dedicated-replay');
 const { resolveCargo } = require('../../scripts/rust-toolchain');
 test('preparation defaults to no native connection; live requires known 1x source', () => {
@@ -11,6 +14,66 @@ test('preparation defaults to no native connection; live requires known 1x sourc
   assert.equal(parseArgs(['flight.csv', '--live', '--recorded-at-1x']).live, true);
   assert.throws(() => parseArgs(['--recover', 'flight.csv']), /separate/);
   assert.throws(() => parseArgs(['flight.csv', '--landing', '0']), /positive/);
+});
+
+test('CLI rejects disabled live replay before reading a recording or building native code', () => {
+  for (const [packaged, optIn] of [['0', '0'], ['1', '1']]) {
+    const result = spawnSync(process.execPath, [path.resolve(__dirname, '../../scripts/run-dedicated-replay.js'),
+      'missing-replay-gate-fixture.csv', '--live', '--recorded-at-1x'], {
+      encoding: 'utf8', timeout: 10000, windowsHide: true,
+      env: { ...process.env, ELECTRON_PACKAGED: packaged, FLIGHT_ENV_MODE: 'dev', FF_ENABLE_EXPERIMENTAL_REPLAY: optIn },
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /In-simulator replay is disabled/);
+    assert.doesNotMatch(result.stderr, /ENOENT|Native build failed/);
+  }
+});
+
+test('Electron packaged launch keeps replay disabled despite inherited and local development overrides', async () => {
+  const root = path.resolve(__dirname, '../..');
+  const source = fs.readFileSync(path.join(root, 'electron/main.js'), 'utf8').match(
+    /async function startBackendOnce\(attemptId\) \{[\s\S]*?(?=\/\*\*\s*\n \* Stop the backend process)/,
+  )?.[0];
+  assert.ok(source, 'exercise the actual Electron launch function');
+  for (const isPackaged of [true, false]) {
+    let launch;
+    const capture = (_exe, args, options) => {
+      launch = { args, env: options.env };
+      throw new Error('Probe stops before starting any backend or native process');
+    };
+    const context = vm.createContext({
+      app: { isPackaged }, isDev: !isPackaged, backendProcess: null,
+      isQuitting: false, backendStartAttemptId: 1, backendWsPort: 8100, backendHttpPort: 8101,
+      BACKEND_SCRIPT: path.join(root, 'dist/backend/core/simbridge.js'), NODE_MODULES_PATH: path.join(root, 'node_modules'),
+      lifecycleSmokeConfig: null, path, fs: { existsSync: () => true },
+      process: { execPath: process.execPath, env: { ...process.env,
+        ELECTRON_PACKAGED: '0', FLIGHT_ENV_MODE: 'dev', FF_ENABLE_EXPERIMENTAL_REPLAY: '1' } },
+      settingsStore: { refreshRuntimeNetworkFromSettings: ports => ports },
+      createBackendPortSnapshot: (wsPort, httpPort) => ({ wsPort, httpPort }),
+      checkBackendPortsForSpawn: async () => true,
+      debugLog() {}, sendToRenderer() {}, spawn: capture, fork: capture,
+    });
+    vm.runInContext(source, context);
+    await context.startBackendOnce(1);
+    assert.ok(launch, 'launch reached the process boundary');
+    assert.equal(launch.env.ELECTRON_PACKAGED, isPackaged ? '1' : '0');
+    const probe = `
+      const assert = require('node:assert/strict');
+      process.argv.push(...${JSON.stringify(launch.args)});
+      // Reproduce .env.local's override:true semantics after Electron launches.
+      require('dotenv').populate(process.env, {
+        ELECTRON_PACKAGED: '0', FLIGHT_ENV_MODE: 'dev', FF_ENABLE_EXPERIMENTAL_REPLAY: '1'
+      }, { override: true });
+      const config = require('./dist/backend/core/config');
+      assert.equal(config.inSimReplay.enabled, ${!isPackaged});
+    `;
+    const result = spawnSync(process.execPath, ['-e', probe], {
+      cwd: root, env: launch.env, encoding: 'utf8', timeout: 10000, windowsHide: true,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  }
 });
 test('seek uses seconds, cannot leave the clip, and restart always pauses at zero', () => {
   assert.deepEqual(parseControl('seek 2.5', 5000), { type: 'seek', positionMs: 2500 });

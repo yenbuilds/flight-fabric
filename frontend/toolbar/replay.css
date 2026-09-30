@@ -1,0 +1,21 @@
+.ff-replay-panel { color: var(--replay-fg); background: var(--replay-bg); border: 1px solid var(--replay-border); border-radius: 10px; padding: 16px; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.ff-replay-panel [hidden] { display: none !important; }
+.ff-replay-panel h2 { font-size: 1.15rem; margin: 0 0 8px; }
+.ff-replay-panel p { margin: 8px 0; }
+.ff-replay-badge { display: inline-block; font-size: .75rem; margin-left: 10px; color: var(--replay-warn); font-weight: 500; }
+.ff-replay-muted, .ff-replay-time { color: var(--replay-muted); font-size: .875rem; }
+.ff-replay-help { margin: 12px 0; border-top: 1px solid var(--replay-border); padding-top: 12px; }
+.ff-replay-selection summary, .ff-replay-help summary { cursor: pointer; min-height: 36px; font-weight: 600; }
+.ff-replay-help ol { list-style: decimal; padding-left: 24px; margin: 8px 0; }
+.ff-replay-help li { margin-bottom: 10px; }
+.ff-replay-actions { display: flex; flex-wrap: wrap; margin: 8px -4px; }
+.ff-replay-button { color: var(--replay-fg); background: var(--replay-button); border: 1px solid var(--replay-border); border-radius: 6px; min-height: 44px; padding: 8px 14px; margin: 4px; font: inherit; cursor: pointer; }
+.ff-replay-button:disabled { opacity: .5; cursor: default; }
+.ff-replay-stop { border-color: var(--replay-warn); }
+.ff-replay-error, .ff-replay-recovery { color: var(--replay-warn); }
+.ff-replay-field { display: flex; flex-direction: column; margin: 10px 0; }
+.ff-replay-field input[type=number] { max-width: 110px; background: var(--replay-button); color: var(--replay-fg); border: 1px solid var(--replay-border); border-radius: 6px; min-height: 40px; padding: 6px; }
+.ff-replay-field input[type=range] { accent-color: var(--replay-focus); width: 100%; min-height: 40px; }
+.ff-replay-check { display: flex; align-items: flex-start; margin: 10px 0; cursor: pointer; }
+.ff-replay-check input { flex: 0 0 auto; margin: 5px 10px 0 0; width: 18px; height: 18px; }
+.ff-replay-panel button:focus-visible, .ff-replay-panel input:focus-visible, .ff-replay-panel summary:focus-visible { outline: 2px solid var(--replay-focus); outline-offset: 3px; }

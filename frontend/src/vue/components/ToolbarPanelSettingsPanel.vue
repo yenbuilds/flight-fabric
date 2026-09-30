@@ -48,7 +48,7 @@ async function remove(row) {
       <div class="settings-panel-kicker">In the simulator</div>
       <div class="settings-panel-title-row">
         <div id="settings-toolbar-panel-title" class="settings-panel-title">MSFS 2024 toolbar panel</div>
-        <HelpTooltip label="MSFS toolbar panel help">Adds a FlightFabric button to the MSFS 2024 in-flight toolbar. The panel shows your SimBrief plan, the voice commands for the current aircraft, your last landing and the live voice push-to-talk state. It reads from FlightFabric on this PC only and cannot change settings or send aircraft commands.</HelpTooltip>
+        <HelpTooltip label="MSFS toolbar panel help">Adds a FlightFabric button to the MSFS 2024 in-flight toolbar. The panel shows your SimBrief plan, aircraft presets, voice command reference, last landing and push-to-talk status. You can apply supported presets and use taxi guidance and experimental pushback. It connects to FlightFabric on this PC only and cannot change app settings or access your recordings or logbook.</HelpTooltip>
       </div>
     </div>
 

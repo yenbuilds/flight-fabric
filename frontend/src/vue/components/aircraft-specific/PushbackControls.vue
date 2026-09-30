@@ -5,6 +5,7 @@ import { subscribeWsMessage, subscribeWsClose, subscribeWsOpen } from '../../../
 import { useAircraftControlsStore } from '../../stores/aircraft-controls.js';
 import { createDeparturePreview } from '../../../aircraft/departure-preview.js';
 import { createPushbackControls } from '../../../aircraft/pushback-controls.js';
+import { TAXI_COPY } from '../../../aircraft/taxi-presentation.js';
 
 const props = defineProps({ icao: { type: String, default: '' }, runway: { type: String, default: '' }, disabled: Boolean,
   allowPreview: { type: Boolean, default: true }, primary: { type: Boolean, default: true } });
@@ -49,10 +50,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div data-taxi-pushback class="space-y-2">
+    <p v-if="!active && !completed" class="text-xs text-muted-fg" data-pushback-start-help>{{ TAXI_COPY.startHelp }}</p>
     <button v-if="!completed" type="button" :data-pushback-start="!active ? '' : undefined" :data-pushback-stop="active ? '' : undefined"
       class="min-h-[48px] disabled:opacity-50" :class="active ? 'ff-button-secondary border-warning text-warning' : primary ? 'ff-button-primary' : 'ff-button-secondary'"
       :disabled="active ? pending === 'stop' : !canStart" @keydown="$event.repeat && ['Enter', ' '].includes($event.key) && $event.preventDefault()"
-      @click="send(active ? 'stop' : 'start')">{{ active ? (pending === 'stop' ? 'Stopping…' : 'Stop pushback') : 'Push back' }}</button>
+      @click="send(active ? 'stop' : 'start')">{{ active ? (pending === 'stop' ? 'Stopping…' : 'Stop pushback') : TAXI_COPY.start }}</button>
     <p v-if="active && fresh && Number.isFinite(state.remainingM)" class="text-sm text-fg">{{ Math.round(state.remainingM) }} m remaining · Runway {{ state.runway }}</p>
     <p v-if="reason" class="text-xs" :class="completed ? 'font-medium text-success' : 'text-muted-fg'" role="status">{{ reason }}</p>
   </div>

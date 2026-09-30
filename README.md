@@ -14,7 +14,9 @@
   <p data-release-note>Still in development. Expect bugs and incomplete aircraft support.</p>
 </div>
 
-![FlightFabric tour showing live flight data, aircraft controls, a full timeline replay, and a detailed landing review](readme-assets/flight-fabric-tour.gif)
+![FlightFabric tour showing the current flight overview, aircraft presets, Logbook with 3D timeline replay, and landing debrief](readme-assets/flight-fabric-tour.gif)
+
+*Tour and screenshots: current development UI with sample data, captured 29 September 2026.*
 
 FlightFabric puts supported aircraft controls where you can reach them. Use
 voice control, open the same controls on a phone or tablet, or keep them beside
@@ -32,9 +34,9 @@ touchdown, and rollout.
 
 | Live overview | Aircraft controls |
 | --- | --- |
-| ![FlightFabric live overview showing speed, altitude, crosswind, fuel, and aircraft systems](readme-assets/overview-20260815.png) | ![FlightFabric Aircraft page for a PMDG 737-800 with cockpit-system sections, presets and the Find controls, MCDU / CDU and Voice control tools](readme-assets/aircraft-controls-20260920.png) |
+| ![FlightFabric flight overview showing speed, altitude, crosswind, fuel, aircraft configuration, and engine readings](readme-assets/overview-20260929.png) | ![FlightFabric Aircraft page for a PMDG 737-800 with presets, Pushback & taxi navigation, and the Find controls, MCDU / CDU and Voice control tools](readme-assets/aircraft-controls-20260929.png) |
 | **Logbook and timeline** | **Landing debrief** |
-| ![FlightFabric Logbook with recent flights beside a recorded flight's events, cautions, duration, distance and Landing debrief button](readme-assets/logbook-timeline-20260920.png) | ![FlightFabric landing debrief with wind, touchdown rate, touchdown zone, approach stability, and bounce results](readme-assets/landing-debrief-20260815.png) |
+| ![FlightFabric Logbook with recent flights, recorded events, 3D flight-path replay, and the Landing debrief button](readme-assets/logbook-timeline-20260929.png) | ![FlightFabric landing debrief showing the recorded aircraft, wind, touchdown rate and position, approach stability, and bounce results](readme-assets/landing-debrief-20260929.png) |
 
 ## One app for the whole flight
 
@@ -80,11 +82,19 @@ This is optional and is not required to install the app.
 
 </details>
 
-Voice control is off until you enable it. Open **Aircraft** > **Voice control**,
-then set a keyboard shortcut in **Voice settings**, or use
-the talk button on screen.
+Voice control is off until you enable it. Open **Settings > Voice control**
+to enable it and set a keyboard shortcut. Open
+**Aircraft > Voice control** to use the talk button on screen.
+In the published 0.11.0 release, enable voice control under **Aircraft > Voice
+control** and select **Voice settings** to configure it.
 When voice control is off, FlightFabric does not listen for commands or check
 for microphones.
+
+In current development builds, **Settings > Voice control > Start voice test**
+checks your selected microphone and speech recognition without loading MSFS.
+Enable voice control, say the displayed phrase, then review what was heard or
+play back your recording. The test sends no aircraft commands. **Test spoken
+feedback** checks your audio output separately.
 
 When you hold the talk button, your microphone audio is processed in memory on
 your PC. After release, the microphone remains active briefly to preserve the
@@ -150,10 +160,17 @@ Open **Settings > MSFS 2024 toolbar panel** and choose **Install** for your
 MSFS 2024 installation (close the simulator first, then restart it). A
 **FlightFabric** button appears in the in-flight toolbar with your SimBrief
 plan, the voice commands and questions for the current aircraft, live
-push-to-talk status, your last landing and the flight phase. The panel is
-read-only and talks only to FlightFabric on the same PC. Use the same
-settings section to update or remove it, and reinstall if you change the
-FlightFabric network ports.
+push-to-talk status, your last landing and the flight phase. The panel talks
+only to FlightFabric on the same PC. Use the same settings section to update
+or remove it, and reinstall if you change the FlightFabric network ports.
+
+In **Pushback & taxi**, choose your departure airport and runway, check the
+preview, release the parking brake, and select **Start pushback**. FlightFabric
+automatically pushes the aircraft back, turns it towards the taxi route for
+your runway, and stops. Then follow the route while taxiing manually. The same
+controls are available on the main app's **Aircraft** page.
+In the published 0.11.0 release, the toolbar tab is called **Taxi** and the start
+button is labelled **Push back**.
 
 ### OBS overlays
 

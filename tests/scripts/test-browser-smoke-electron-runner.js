@@ -76,6 +76,10 @@ async function setContentSizeAndWait(windowRef, width, height, description) {
     const viewport = await evaluate(windowRef, '({ width: innerWidth, height: innerHeight, ratio: devicePixelRatio })');
     throw new Error(`${error.message}; requested=${width}x${height}, actual=${JSON.stringify(viewport)}, content=${JSON.stringify(windowRef.getContentBounds())}`);
   }
+  // Hidden Electron windows can update CSS geometry without delivering the
+  // frame's matchMedia change events. Render once before checking responsive
+  // Vue controls, just as a visible application window would.
+  await windowRef.webContents.capturePage();
   await wait(50);
 }
 
@@ -106,13 +110,13 @@ async function installClipboardProbe(windowRef) {
   assert.equal(installed, true, 'browser smoke should install an isolated clipboard probe');
 }
 
-async function setInputValue(windowRef, inputId, value) {
+async function setInputValue(windowRef, inputId, value, { preventScroll = false } = {}) {
   const updated = await evaluate(
     windowRef,
     `(() => {
       const input = document.getElementById(${JSON.stringify(inputId)});
       if (!input) return false;
-      input.focus();
+      input.focus({ preventScroll: ${JSON.stringify(preventScroll)} });
       input.value = ${JSON.stringify(value)};
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -821,6 +825,9 @@ async function runSettingsSmoke(windowRef) {
 }
 
 async function runAircraftSearchSmoke(windowRef) {
+  // Let the hidden window finish section scrolling before switching profiles.
+  const backgroundThrottling = windowRef.webContents.getBackgroundThrottling();
+  windowRef.webContents.setBackgroundThrottling(false);
   // A hidden Electron window does not reliably dispatch focus events on resize.
   // Exercise the same focused-window behavior users get during the handoff.
   const attachedDebugger = !windowRef.webContents.debugger.isAttached();
@@ -831,6 +838,7 @@ async function runAircraftSearchSmoke(windowRef) {
   } finally {
     await windowRef.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
     if (attachedDebugger) windowRef.webContents.debugger.detach();
+    windowRef.webContents.setBackgroundThrottling(backgroundThrottling);
   }
 }
 
@@ -1231,6 +1239,16 @@ async function assertAircraftSearchSmoke(windowRef) {
     "sessionStorage.getItem('flight-fabric:aircraft-section:v1:bundled%2Fmsfs%2Fpmdg-777') === 'gear-high-lift'",
     'PMDG 777 session-scoped section memory',
   );
+  // The label and stored choice change at the start of smooth scrolling.
+  // Wait for the destination itself before testing persistence across profiles.
+  await waitFor(windowRef, `(() => {
+    const section = document.getElementById('pmdg-777-section-gear-high-lift').getBoundingClientRect();
+    const scroller = document.getElementById('vue-main-root').getBoundingClientRect();
+    const ribbon = document.querySelector('.aircraft-section-ribbon').getBoundingClientRect();
+    return section.top >= scroller.top - 2 && section.top <= ribbon.bottom + 32
+      && document.querySelector('.aircraft-section-ribbon__current strong').textContent.trim() === 'Gear'
+      && sessionStorage.getItem('flight-fabric:aircraft-section:v1:bundled%2Fmsfs%2Fpmdg-777') === 'gear-high-lift';
+  })()`, 'PMDG 777 Gear scroll arrival before changing aircraft');
   const airbusRibbonCases = [
     {
       profileKey: 'bundled/msfs/fenix-a320',
@@ -1253,7 +1271,9 @@ async function assertAircraftSearchSmoke(windowRef) {
   ];
 
   for (const fixture of airbusRibbonCases) {
-    await setInputValue(windowRef, 'aircraft-profile-correction-select', fixture.profileKey);
+    // This programmatic profile change must not scroll the old aircraft back
+    // to its off-screen selector and overwrite the section under test.
+    await setInputValue(windowRef, 'aircraft-profile-correction-select', fixture.profileKey, { preventScroll: true });
     await waitFor(
       windowRef,
       `document.querySelector('[data-aircraft-template="${fixture.templateId}"]') && document.querySelector('.aircraft-find') && document.querySelector('[data-mobile-aircraft-navigation="section-ribbon"]')`,
@@ -1305,7 +1325,7 @@ async function assertAircraftSearchSmoke(windowRef) {
 
   }
 
-  await setInputValue(windowRef, 'aircraft-profile-correction-select', 'auto');
+  await setInputValue(windowRef, 'aircraft-profile-correction-select', 'auto', { preventScroll: true });
   await waitFor(
     windowRef,
     "document.querySelector('[data-aircraft-page-mode=\"generic\"]') && document.querySelector('[data-aircraft-quick-actions]') && getComputedStyle(document.querySelector('.aircraft-find')).display !== 'none'",
@@ -1373,6 +1393,7 @@ async function assertAircraftSearchSmoke(windowRef) {
       viewportWidth: window.innerWidth,
       pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
       voiceHeight: voice.getBoundingClientRect().height,
+      compactMediaMatches: matchMedia('(max-width: 1100px), (max-height: 500px) and (pointer: coarse)').matches,
       secondary: rect(secondary),
       tools: rect(tools),
       guide: rect(guide),
@@ -1385,10 +1406,10 @@ async function assertAircraftSearchSmoke(windowRef) {
     };
   })();`);
   assert.equal(mobileToolsCollapsed.missing, false, 'generic Aircraft mobile tools should render');
-  assert.equal(mobileToolsCollapsed.voiceHeight, 0, 'voice control should be disclosed from Tools on phone');
-  assert.equal(mobileToolsCollapsed.guide.height, 0, 'the secondary integration guide should share the closed Tools disclosure');
+  assert.ok(mobileToolsCollapsed.voiceHeight >= 44, 'voice control should remain visible and touch sized on phone');
+  assert.equal(mobileToolsCollapsed.guide.height, 0, `the secondary integration guide should share the closed Tools disclosure: ${JSON.stringify(mobileToolsCollapsed)}`);
   assert.ok(mobileToolsCollapsed.secondary.width >= 44 && mobileToolsCollapsed.secondary.height >= 44, 'phone Tools should have a discoverable touch-sized launcher');
-  assert.ok(mobileToolsCollapsed.tools.height <= 60, 'phone tools should fit in one compact touch row');
+  assert.ok(mobileToolsCollapsed.tools.height >= 90 && mobileToolsCollapsed.tools.height <= 112, 'phone tools should fit in two compact touch rows');
   assert.ok(mobileToolsCollapsed.launcher.width >= 44 && mobileToolsCollapsed.launcher.height >= 44, 'mobile Aircraft search launcher should remain touch sized');
   assert.ok(mobileToolsCollapsed.preset.width >= mobileToolsCollapsed.tools.width * 0.98, 'mobile Aircraft preset should own a full row');
   assert.equal(mobileToolsCollapsed.cards.length, 2, 'mobile fixture should retain both one-tap presets');
@@ -1411,8 +1432,9 @@ async function assertAircraftSearchSmoke(windowRef) {
     const search = document.querySelector('.aircraft-find--expanded');
     const panel = document.getElementById('aircraft-find-panel');
     const guide = document.querySelector('[data-aircraft-integration-guide-trigger]');
+    const voice = document.querySelector('[data-aircraft-voice-control-trigger]');
     const preset = document.querySelector('[data-aircraft-presets-section]');
-    if (!tools || !actions || !search || !panel || !guide || !preset) return { missing: true };
+    if (!tools || !actions || !search || !panel || !guide || !voice || !preset) return { missing: true };
     const rect = (element) => {
       const value = element.getBoundingClientRect();
       return { width: value.width, height: value.height, left: value.left, right: value.right, top: value.top, bottom: value.bottom };
@@ -1422,6 +1444,7 @@ async function assertAircraftSearchSmoke(windowRef) {
       viewportWidth: window.innerWidth,
       pageWidth: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
       guideHeight: guide.getBoundingClientRect().height,
+      voiceHeight: voice.getBoundingClientRect().height,
       tools: rect(tools),
       actions: rect(actions),
       search: rect(search),
@@ -1431,6 +1454,7 @@ async function assertAircraftSearchSmoke(windowRef) {
   })();`);
   assert.equal(mobileToolsExpanded.missing, false, 'expanded generic Aircraft mobile search should render');
   assert.equal(mobileToolsExpanded.guideHeight, 0, 'expanded mobile search should temporarily own the toolbar row');
+  assert.equal(mobileToolsExpanded.voiceHeight, 0, 'expanded mobile search should temporarily hide the Voice launcher');
   assert.ok(mobileToolsExpanded.search.width >= mobileToolsExpanded.tools.width - 6, 'expanded mobile search should use the full tools width');
   assert.ok(mobileToolsExpanded.panel.width >= mobileToolsExpanded.search.width - 2, 'expanded mobile search panel should fill its search region');
   assert.ok(mobileToolsExpanded.preset.top >= mobileToolsExpanded.actions.bottom + 6, `mobile preset should remain below expanded search at the task start: ${JSON.stringify(mobileToolsExpanded)}`);
@@ -1514,12 +1538,23 @@ async function assertAircraftSearchSmoke(windowRef) {
   await click(windowRef, "document.querySelector('.aircraft-find__collapse')", 'narrow generic mobile Aircraft search close');
   await setContentSizeAndWait(windowRef, 390, 844, 'Aircraft phone restore');
 
-  await setInputValue(windowRef, 'aircraft-profile-correction-select', 'bundled/msfs/pmdg-777');
-  await waitFor(
-    windowRef,
-    "document.querySelector('[data-aircraft-template=\"pmdg-777\"]') && document.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() === 'Gear'",
-    'restored PMDG 777 fixture profile and remembered section after Airbus ribbon checks',
-  );
+  await setInputValue(windowRef, 'aircraft-profile-correction-select', 'bundled/msfs/pmdg-777', { preventScroll: true });
+  try {
+    await waitFor(
+      windowRef,
+      "document.querySelector('[data-aircraft-template=\"pmdg-777\"]') && document.querySelector('.aircraft-section-ribbon__current strong')?.textContent.trim() === 'Gear'",
+      'restored PMDG 777 fixture profile and remembered section after Airbus ribbon checks',
+    );
+  } catch (error) {
+    const state = await evaluate(windowRef, `({
+      template: document.querySelector('[data-aircraft-template]')?.getAttribute('data-aircraft-template'),
+      section: document.querySelector('.aircraft-section-ribbon__current strong')?.textContent,
+      remembered: sessionStorage.getItem('flight-fabric:aircraft-section:v1:bundled%2Fmsfs%2Fpmdg-777'),
+      tab: document.getElementById('tab-autopilot')?.className,
+      scroll: document.querySelector('main')?.scrollTop,
+    })`);
+    throw new Error(`${error.message}; state=${JSON.stringify(state)}`);
+  }
   await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'Aircraft desktop restore');
   await waitFor(
     windowRef,
@@ -2065,35 +2100,74 @@ async function assertSamplingDebugLayout(windowRef) {
 }
 
 async function assertJoystickReleaseHoldLayout(windowRef) {
+  // This browser has no Electron preload. Simulate desktop capability for this
+  // isolated UI check; never register a native shortcut or access audio.
+  await evaluate(windowRef, `(() => {
+    const voice = document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('voiceControl');
+    window.__ffVoiceKeycapOriginal = { bridgeAvailable: voice.bridgeAvailable, runtime: { ...voice.runtime }, status: voice.status, statusText: voice.statusText };
+    voice.setBridgeAvailable(true);
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered: true } });
+    voice.setState('ready', 'Ready for push-to-talk.');
+  })()`);
   await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"autopilot\"]')", 'Aircraft voice settings');
   await waitFor(windowRef, "document.querySelector('[data-aircraft-voice-control-trigger]')", 'voice launcher');
   await click(windowRef, "document.querySelector('[data-aircraft-voice-control-trigger]')", 'voice control');
-  await waitFor(windowRef, "document.getElementById('voice-ptt-shortcut')", 'keyboard shortcut settings');
-  for (const width of [1440, 390, 320]) {
+  await click(windowRef, "document.querySelector('[data-voice-settings-link]')", 'Voice settings');
+  await waitFor(windowRef, "document.getElementById('settings-voice-control')?.getClientRects().length && !document.getElementById('aircraft-voice-control-modal')", 'voice configuration on Settings');
+  const shortcuts = [
+    ['normal', 'Control+Shift+Space', ['Ctrl', 'Shift', 'Space']],
+    ['long', 'Control+Alt+Shift+Super+PageDown', ['Ctrl', 'Alt', 'Shift', 'Win', 'PgDn']],
+  ];
+  const layouts = shortcuts.flatMap(shortcut => [1440, 390, 320].map(width => [...shortcut, width]));
+  for (const [name, accelerator, expectedKeys, width] of layouts) {
+    await evaluate(windowRef, `document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('voiceControl').runtime.shortcut = ${JSON.stringify(accelerator)}`);
     await setContentSizeAndWait(windowRef, width, 1000, 'voice release layout');
     const layout = await evaluate(windowRef, `(() => {
-      const modal = document.getElementById('aircraft-voice-control-modal');
-      const panel = modal.querySelector('[role=dialog]');
+      const modal = document.getElementById('settings-voice-control');
+      const panel = modal;
       const shortcut = document.getElementById('voice-ptt-shortcut');
       const rect = panel.getBoundingClientRect();
       const keyRect = shortcut.getBoundingClientRect();
       return {
         joystickControls: modal.querySelectorAll('[data-voice-joystick-binding]').length,
+        keyLabels: [...shortcut.querySelectorAll('kbd')].map(key => key.textContent),
+        keycapsFit: [...modal.querySelectorAll('kbd')].every(key => {
+          const bounds = key.getBoundingClientRect();
+          const group = key.closest('.keyboard-shortcut').getBoundingClientRect();
+          return bounds.width > 0 && bounds.left >= group.left - 1 && bounds.right <= group.right + 1
+            && bounds.left >= 0 && bounds.right <= innerWidth + 1;
+        }),
         keyboardVisible: keyRect.width > 0 && keyRect.left >= 0 && keyRect.right <= innerWidth + 1,
         panelFits: rect.left >= 0 && rect.right <= innerWidth + 1,
         pageFits: document.documentElement.scrollWidth <= innerWidth + 1,
       };
     })()`);
     assert.equal(layout.joystickControls, 0, 'the release UI must not offer joystick detection');
+    assert.deepEqual(layout.keyLabels, expectedKeys, `${name} shortcut renders separate keycaps`);
+    assert.equal(layout.keycapsFit, true, `${name} keycaps fit their controls at ${width}px`);
     assert.equal(layout.keyboardVisible, true, `keyboard setup remains visible at ${width}px`);
-    assert.equal(layout.panelFits, true, `voice dialog fits at ${width}px`);
+    assert.equal(layout.panelFits, true, `voice Settings section fits at ${width}px`);
     assert.equal(layout.pageFits, true, `voice settings do not cause horizontal overflow at ${width}px`);
+    if (process.env.FF_BROWSER_SMOKE_VOICE_SCREENSHOT) {
+      await evaluate(windowRef, "document.getElementById('voice-ptt-shortcut').scrollIntoView({ block: 'center' }); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      fs.writeFileSync(`${process.env.FF_BROWSER_SMOKE_VOICE_SCREENSHOT}-${name}-${width}.png`, (await windowRef.webContents.capturePage()).toPNG());
+    }
   }
-  await evaluate(windowRef, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));");
-  await waitFor(windowRef, "!document.getElementById('aircraft-voice-control-modal')", 'closed voice settings');
+  await evaluate(windowRef, `(() => {
+    document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('voiceControl').$patch(window.__ffVoiceKeycapOriginal);
+    document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s.get('voiceControl').settingsReturnToAircraft = false;
+    delete window.__ffVoiceKeycapOriginal;
+  })()`);
   await setContentSizeAndWait(windowRef, viewportWidth, viewportHeight, 'voice layout restore');
+  await waitFor(windowRef, "!document.getElementById('settings-voice-control')", 'remote browser omits local voice settings');
+  await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"autopilot\"]')", 'remote Aircraft voice information');
+  await click(windowRef, "document.querySelector('[data-aircraft-voice-control-trigger]')", 'remote voice control');
+  await waitFor(windowRef, "document.getElementById('aircraft-voice-control-modal')", 'remote voice information');
+  assert.equal(await evaluate(windowRef, "Boolean(document.querySelector('[data-voice-settings-link]'))"), false, 'remote browsers must not offer a dead link to local settings');
+  assert.match(await evaluate(windowRef, "document.getElementById('aircraft-voice-control-description').textContent"), /simulator PC/);
+  await click(windowRef, "document.querySelector('[aria-label=\"Close voice control\"]')", 'close remote voice information');
   await selectFlightView(windowRef, 'flight');
-  console.log('[browser-smoke] Joystick setup is absent; keyboard settings fit at 1440/390/320px');
+  console.log('[browser-smoke] Joystick setup is absent; normal and long shortcut keycaps fit at 1440/390/320px');
 }
 
 async function assertTabScrollRestoration(windowRef) {

@@ -144,6 +144,7 @@ const { createWsServer } = require('./ws-bootstrap');
 const { createDevicePairingManager } = require('./device-pairing');
 const { createBroadcast } = require('./ws-broadcaster');
 const { startHttpServer } = require('./http-server');
+const { createReplaySession } = require('../replay/replay-session') as typeof import('../replay/replay-session');
 const {
   createCabinAnnouncementsController,
   resolveCabinAnnouncementsReconfigureSettings,
@@ -604,6 +605,7 @@ async function runSimbridgeCore({
   let updateCheckerHandle = null;
   let flightCsvStore: AnyRecord | null = null;
   let coreShutdownStarted = false;
+  let inSimReplay: ReturnType<typeof createReplaySession> | null = null;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Sim state cache (for menu/flight status on reconnect)
@@ -850,6 +852,25 @@ async function runSimbridgeCore({
         // Preserve the standard command-specific denial envelopes without
         // constructing replay/storage/provider context for a denied command.
         await handleClientMessageImpl(ws, msg, { Debug });
+        return;
+      }
+      if (msg.type === 'inSimReplay') {
+        try { await inSimReplay?.request(msg, ws.__ffPrivilegedClient === true); }
+        catch (error) {
+          ws.send(JSON.stringify({ ...(inSimReplay?.snapshot() || { type: 'inSimReplayState', state: 'idle' }),
+            error: error instanceof Error ? error.message : 'Replay request failed.' }));
+          return;
+        }
+        ws.send(JSON.stringify(inSimReplay?.snapshot() || { type: 'inSimReplayState', state: 'idle', error: 'Replay is starting up. Try again shortly.' }));
+        return;
+      }
+      if (msg.type === 'requestState' && inSimReplay) ws.send(JSON.stringify(inSimReplay.snapshot()));
+      if (inSimReplay?.isBlocking() && ['startRecording', 'testShake', 'lvarDebugWatch', 'sendCduKey', 'pushback', 'autotaxi', 'executeAircraftCommand', 'executeAircraftControl'].includes(msg.type)) {
+        const resultType = { startRecording: 'startFlightResult', sendCduKey: 'cduState', pushback: 'pushbackState', autotaxi: 'autotaxiState',
+          executeAircraftCommand: 'aircraftCommandResult', executeAircraftControl: 'aircraftControlResult' }[msg.type] || 'inSimReplayState';
+        ws.send(JSON.stringify({ ...(resultType === 'inSimReplayState' ? inSimReplay.snapshot() : {}),
+          type: resultType, requestId: msg.requestId, commandId: msg.commandId, controlId: msg.controlId,
+          ok: false, success: false, error: 'Finish replay and reload recovery before using live aircraft controls or recording.' }));
         return;
       }
       if (msg.type === 'requestDevicePairingRequests') {
@@ -1447,6 +1468,17 @@ async function runSimbridgeCore({
     },
   };
   flightCsvStore = createFlightCsvStore({ flightCsvWriter, recordingBundleGuard, Debug });
+  inSimReplay = createReplaySession({
+    enabled: config.inSimReplay.enabled,
+    prepareClip: (file, landing) => flightCsvStore!.prepareInSimReplayClip(file, landing),
+    suspend: async () => { await provider.stop(); },
+    resume: async () => { if (!coreShutdownStarted) await provider.start(); },
+    entryBlocker: () => capabilities.isMock ? 'Replay needs a live MSFS 2024 connection.'
+      : (flightActive || flightCsvWriter.isRecording?.() || getRecordingFinalizationBlocker())
+        ? 'End your current FlightFabric flight recording and wait for it to finish saving before checking the replay aircraft.' : '',
+    publish: (message) => broadcast(message),
+  });
+
   if (!capabilities.isMock) {
     // Write TAKEOFF rows to the authoritative flight CSV. The payload is the
     // canonical takeoff:final result; the CSV contract names the fields that
@@ -2099,7 +2131,7 @@ async function runSimbridgeCore({
   }
   try {
     await Promise.all([wsListeningPromise, httpListeningPromise]);
-    await provider.start();
+    if (!inSimReplay.isBlocking()) await provider.start();
   } catch (error) {
     // Startup is transactional. Several optional components start before the
     // telemetry provider so they can serve the first connected client; none of
@@ -2839,6 +2871,7 @@ async function runSimbridgeCore({
   }
 
   function getRecordingStartBlocker() {
+    if (inSimReplay?.isBlocking()) return 'Finish replay and reload recovery before recording.';
     const bundleBlocker = recordingBundleLifecycle.getRecordingBundleStartBlocker();
     if (bundleBlocker) return bundleBlocker;
     const finalizationBlocker = getRecordingFinalizationBlocker();
@@ -3392,6 +3425,7 @@ async function runSimbridgeCore({
   async function shutdownCore() {
     if (coreShutdownStarted) return;
     coreShutdownStarted = true;
+    inSimReplay?.stop();
 
     const reason = getShutdownReason(shutdownSignal);
     const nowEpochMs = timeSource.now();
@@ -4772,7 +4806,10 @@ async function runSimbridgeCore({
     isFirstIteration = false;
     if (isShutdownRequested(shutdownSignal)) break;
 
+    if (inSimReplay?.isBlocking()) continue;
+    const replayGeneration = inSimReplay?.generation();
     const acquisition = await waitForNextFrameOrShutdown(provider, shutdownSignal);
+    if (inSimReplay?.isBlocking() || replayGeneration !== inSimReplay?.generation()) continue;
     if (acquisition.status === 'shutdown' || isShutdownRequested(shutdownSignal)) break;
 
     const rawFrame = acquisition.frame;

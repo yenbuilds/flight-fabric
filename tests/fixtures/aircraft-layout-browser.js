@@ -11,6 +11,31 @@ import { setAppService } from '../../frontend/app-shared.js';
 import { emitWsMessage, emitWsClose, emitWsOpen } from '../../frontend/src/app/runtime-signals.js';
 
 const fixtures = await (await fetch('/aircraft-layout-fixtures')).json();
+// Let the real CSS breakpoint settle before delivering its JS change listeners.
+// This reproduces renderer scheduling where hidden controls lose native focus
+// before the component's responsive-state handler runs.
+const mediaChanges = { held: false, pending: [] };
+const nativeMatchMedia = window.matchMedia.bind(window);
+window.matchMedia = query => {
+  const media = nativeMatchMedia(query);
+  const add = media.addEventListener.bind(media), remove = media.removeEventListener.bind(media);
+  const listeners = new Map();
+  media.addEventListener = (type, listener, options) => {
+    if (type !== 'change') return add(type, listener, options);
+    const wrapped = event => {
+      const deliver = () => { if (listeners.has(listener)) listener.call(media, event); };
+      if (mediaChanges.held) mediaChanges.pending.push(deliver);
+      else deliver();
+    };
+    listeners.set(listener, wrapped);
+    add(type, wrapped, options);
+  };
+  media.removeEventListener = (type, listener, options) => {
+    remove(type, listeners.get(listener) || listener, options);
+    listeners.delete(listener);
+  };
+  return media;
+};
 // Visibility follows the production release setting. All requests below use
 // fake transport and never connect to an application or simulator.
 const pinia = createPinia();
@@ -128,6 +153,13 @@ function publish() {
     valueUpdatedAt: Object.fromEntries(Object.keys(active.values).map(id => [id, updatedAt])), unavailable: [] });
 }
 window.layoutTest = {
+  holdMediaChanges() { mediaChanges.held = true; },
+  releaseMediaChanges() {
+    mediaChanges.held = false;
+    const pending = mediaChanges.pending.splice(0);
+    for (const deliver of pending) deliver();
+    return pending.length;
+  },
   setSdkStatus(value) { sdkStatus = value; publish(); },
   setSourceStatus(value) { sourceStatus = value; publish(); },
   cduSent, cduDisconnect: emitWsClose,

@@ -17,6 +17,7 @@ import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } f
 import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';
 import { describeJoystickBinding } from './joystick-binding.js';
 import { formatSquawk } from '../aircraft/transponder.js';
+import { createVoiceSetupTest } from './voice-setup-test.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
 const VOICE_RELEASE_TAIL_MS = 250;
@@ -53,6 +54,11 @@ export function createVoiceControlController({
   const spokenReadback = readback || createLocalReadback({ globalRef });
   const acknowledgementTone = pushToTalkTone || createPushToTalkTone({ globalRef });
   const unsubscribers = [];
+  const voiceTest = createVoiceSetupTest({ api, voiceStore, globalRef, createCapture,
+    cancelReadback: () => spokenReadback.cancel?.(),
+    canStart: () => !disposed && !active && !deviceDiscoveryPromise && !pendingCommand
+      && !voiceStore.joystickLearn?.active,
+  });
 
   function storageRef() {
     try { return globalRef?.localStorage || null; } catch { return null; }
@@ -79,9 +85,11 @@ export function createVoiceControlController({
   async function refreshInputDevices({ requestAccess = false } = {}) {
     if (voiceStore.runtime.enabled !== true) {
       voiceStore.setInputDevices?.([]);
+      voiceStore.setInputDevicesError?.('');
       return [];
     }
-    if (requestAccess && !active && !deviceDiscoveryPromise) {
+    if (requestAccess && !active && !voiceTest.busy && !deviceDiscoveryPromise) {
+      voiceStore.setInputDevicesError?.('');
       deviceDiscoveryPromise = (async () => {
         let sessionId = '';
         try {
@@ -97,10 +105,13 @@ export function createVoiceControlController({
           refreshReadyState();
           return devices;
         } catch (error) {
-          voiceStore.setState(
-            'error',
-            error?.message || 'Microphones could not be detected. Check Windows microphone access and try again.',
-          );
+          if (!disposed && voiceStore.runtime.enabled === true) {
+            const message = error?.message || 'Microphones could not be detected. Check Windows microphone access and try again.';
+            // Setup errors need their own lifetime: simulator readiness and
+            // held command results must not erase microphone-access feedback.
+            voiceStore.setInputDevicesError?.(message);
+            if (!pendingCommand && !resultHeld) voiceStore.setState('error', message);
+          }
           return Array.isArray(voiceStore.inputDevices) ? voiceStore.inputDevices : [];
         } finally {
           if (sessionId) {
@@ -121,6 +132,8 @@ export function createVoiceControlController({
   }
 
   function setInputDevice(value = '') {
+    if (voiceTest.busy) return false;
+    void voiceTest.cancel();
     voiceStore.setSelectedInputDevice?.(value);
     saveCapturePreferences();
     return true;
@@ -313,7 +326,7 @@ export function createVoiceControlController({
   }
 
   async function begin() {
-    if (disposed || active || deviceDiscoveryPromise || voiceStore.runtime.enabled !== true) return false;
+    if (disposed || active || voiceTest.busy || deviceDiscoveryPromise || voiceStore.runtime.enabled !== true) return false;
     spokenReadback.cancel?.();
     // A confirmed result stays visible until the next command. Starting that
     // command explicitly releases the hold before readiness is recomputed. A
@@ -333,6 +346,9 @@ export function createVoiceControlController({
     resultHeld = false;
     refreshReadyState();
     if (voiceStore.status !== 'ready') return false;
+    // Retire completed test audio/readback ownership before ordinary PTT.
+    // busy was excluded above, so this clears idle test state synchronously.
+    void voiceTest.cancel();
     const session = {
       sessionId: '',
       // Freeze this decision for the entire utterance. A simulator/profile
@@ -407,6 +423,7 @@ export function createVoiceControlController({
       if (active !== session) return false;
       session.captureReady = true;
       voiceStore.setDeviceLabel(captureInfo.deviceLabel);
+      voiceStore.setInputDevicesError?.('');
       void refreshInputDevices();
       if (session.releaseRequested) return finish();
       voiceStore.setState('listening', session.transcriptionOnly
@@ -680,6 +697,7 @@ export function createVoiceControlController({
   async function setRecognitionEnabled(value) {
     if (!api?.setRecognitionEnabled) return false;
     const nextEnabled = value === true;
+    if (!nextEnabled) await voiceTest.cancel();
     if (!nextEnabled && active) await cancel('voice-disabled');
     try {
       const info = await api.setRecognitionEnabled(nextEnabled);
@@ -689,7 +707,10 @@ export function createVoiceControlController({
       // labels. No PCM capture is created and the temporary stream is closed
       // inside discoverAudioInputDevices().
       if (voiceStore.runtime.enabled === true) await refreshInputDevices({ requestAccess: true });
-      else voiceStore.setInputDevices?.([]);
+      else {
+        voiceStore.setInputDevices?.([]);
+        voiceStore.setInputDevicesError?.('');
+      }
       refreshReadyState();
       return voiceStore.runtime.enabled === nextEnabled;
     } catch (error) {
@@ -738,6 +759,11 @@ export function createVoiceControlController({
       setShortcut,
       startJoystickLearn,
       stopJoystickLearn,
+      startVoiceTest: voiceTest.start,
+      finishVoiceTest: voiceTest.finish,
+      cancelVoiceTest: voiceTest.cancel,
+      playVoiceTest: voiceTest.playRecording,
+      testSpokenFeedback: voiceTest.testSpokenFeedback,
     });
     voiceStore.setBridgeAvailable?.(Boolean(api));
     const mediaDevices = globalRef?.navigator?.mediaDevices;
@@ -747,11 +773,19 @@ export function createVoiceControlController({
       unsubscribers.push(() => mediaDevices.removeEventListener?.('devicechange', handleDeviceChange));
     }
     if (!api) { refreshReadyState(); return false; }
-    unsubscribers.push(api.onRecognitionEvent(handleRecognitionEvent));
+    unsubscribers.push(api.onRecognitionEvent((event) => {
+      void voiceTest.handleRecognitionEvent(event);
+      return handleRecognitionEvent(event);
+    }));
     unsubscribers.push(api.onPushToTalk(handlePushToTalk));
     if (typeof api.onJoystickLearn === 'function') unsubscribers.push(api.onJoystickLearn(handleJoystickLearn));
     unsubscribers.push(api.onRuntimeState((info) => {
+      const wasEnabled = voiceStore.runtime.enabled;
       voiceStore.applyRuntimeInfo(info);
+      if ((wasEnabled && voiceStore.runtime.enabled !== true)
+          || (voiceTest.busy && voiceStore.runtime.available !== true)) {
+        void voiceTest.cancel(voiceTest.busy ? 'Voice recognition stopped. Try the test again when it is available.' : '');
+      }
       if (voiceStore.runtime.enabled !== true) voiceStore.setInputDevices?.([]);
       // Also retire startup attempts whose recognition IPC reply has not yet
       // arrived; a session-scoped failure cannot be correlated there yet.
@@ -806,6 +840,7 @@ export function createVoiceControlController({
     disposed = true;
     pendingCommand = null;
     resultHeld = false;
+    await voiceTest.dispose();
     await cancel('shutdown');
     spokenReadback.cancel?.();
     void acknowledgementTone.dispose?.();

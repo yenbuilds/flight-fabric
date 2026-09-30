@@ -12,6 +12,7 @@ import { useAircraftSpecificStore } from '../../frontend/src/vue/stores/aircraft
 import { useFlightStore } from '../../frontend/src/vue/stores/flight.js';
 import { useTakeoffStore } from '../../frontend/src/vue/stores/takeoff.js';
 import { useSettingsEditorStore } from '../../frontend/src/vue/stores/settings-editor.js';
+import { useSettingsFormStore } from '../../frontend/src/vue/stores/settings-form.js';
 import { useSimbriefStore } from '../../frontend/src/vue/stores/simbrief.js';
 import { useStatusStore } from '../../frontend/src/vue/stores/status.js';
 import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
@@ -19,6 +20,7 @@ import { useTimelineStore } from '../../frontend/src/vue/stores/timeline.js';
 import { useShellStore } from '../../frontend/src/vue/stores/shell.js';
 import { useProfilesStore } from '../../frontend/src/vue/stores/profiles.js';
 import { useToolbarPanelStore } from '../../frontend/src/vue/stores/toolbar-panel.js';
+import { useVoiceControlStore } from '../../frontend/src/vue/stores/voice-control.js';
 
 const fixture = await (await fetch('/workbench-fixture')).json();
 const query = new URLSearchParams(location.search);
@@ -156,7 +158,7 @@ if (scope === 'full-control') timeline.ingestMessage({ type: 'timelineList', fli
 else timeline.markListRestricted();
 setInterval(publishTelemetry, 800);
 window.workbenchTest = { tabs, status, flight, controls, takeoff: useTakeoffStore(), profiles: useProfilesStore(), timeline, shell: useShellStore(), sent, nextTick,
-  toolbar: useToolbarPanelStore(), toolbarFixture,
+  toolbar: useToolbarPanelStore(), toolbarFixture, voice: useVoiceControlStore(), settingsEditor: useSettingsEditorStore(), settingsForm: useSettingsFormStore(),
   async open(tab) { timeline.closeTimelineMobileViewer(); tabs.requestTabChange(tab); await nextTick(); },
   async review() { timeline.requestTimeline(flights[0].filePath, flights[0].flightId, { flightLabel: flights[0].route }); await nextTick(); },
   async authorize(nextScope, pairing = 'not-requested') {

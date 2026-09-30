@@ -2014,6 +2014,8 @@ async function startBackendOnce(attemptId) {
     '--http-port', String(launchPorts.httpPort),
     '--ff-launch-owner=electron',
   ];
+  // Keep packaged identity independent of .env.local overrides in the backend.
+  if (app.isPackaged) backendArgs.push('--ff-packaged');
   
   // Set environment for backend
   const env = {

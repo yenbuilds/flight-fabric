@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useAircraftControlsStore } from '../vue/stores/aircraft-controls.js';
 import { createAircraftControlController } from '../aircraft/control-controller.js';
 import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
+import { initialVoiceTestState } from './voice-setup-test.js';
 
 function createHarness(options = {}) {
   const command = {
@@ -34,7 +35,8 @@ function createHarness(options = {}) {
       shortcutError: '', shortcutRegistered: false, joystick: null, joystickConnected: false,
     },
     status: 'initializing', statusText: '', transcript: '', lastCommand: '', activeSessionId: '',
-    inputDevices: [], selectedInputDeviceId: '', spokenReadbacks: true,
+    inputDevices: [], inputDevicesError: '', selectedInputDeviceId: '', spokenReadbacks: true,
+    voiceTest: initialVoiceTestState(),
     joystickLearn: { active: false, devices: [], captured: null, error: '' },
   };
   const voiceStore = Object.assign(state, {
@@ -68,8 +70,10 @@ function createHarness(options = {}) {
     setLastCommand(value) { this.lastCommand = value; },
     setDeviceLabel(value) { this.deviceLabel = value; },
     setInputDevices(value) { this.inputDevices = value; },
+    setInputDevicesError(value) { this.inputDevicesError = value; },
     setSelectedInputDevice(value) { this.selectedInputDeviceId = String(value || ''); },
     setSpokenReadbacks(value) { this.spokenReadbacks = value === true; },
+    setVoiceTestState(patch) { this.voiceTest = { ...this.voiceTest, ...patch }; },
   });
   let recognitionListener = null;
   let pttListener = null;
@@ -101,6 +105,7 @@ function createHarness(options = {}) {
       })),
     finishRecognition: async () => ({ finishing: true }),
     cancelRecognition: async (sessionId) => { cancellations.push(sessionId); },
+    speakReadback: async value => { spokenReadbacks.push(value); return { started: true }; },
     sendAudio(payload) { audio.push(payload); },
     setRecognitionEnabled: async (enabled) => {
       runtimeInfo = {
@@ -175,6 +180,83 @@ function createHarness(options = {}) {
     readbackCancellations, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
+
+test('Settings voice test works in a release without an aircraft and cannot dispatch after reconnect', async () => {
+  const h = createHarness({ availability: { enabled: false, reason: 'MSFS is not connected.' } });
+  await h.controller.initialize();
+  assert.equal(h.voiceStore.runtime.development, false);
+  assert.equal(h.voiceStore.status, 'blocked');
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
+  assert.equal(await h.controller.begin(), false, 'normal PTT cannot overlap a test');
+  h.emitPtt({ type: 'up' });
+  assert.equal(h.voiceStore.voiceTest.phase, 'listening', 'a global key release cannot finish a Settings test');
+  h.aircraftControlsStore.availability.enabled = true;
+  h.controller.handleAircraftContextChange();
+  h.controller.handleSimulatorStateChange({ blocked: true });
+  assert.equal(h.voiceStore.voiceTest.phase, 'listening');
+  h.captures[0].callbacks.onChunk({ sampleRate: 48000, samples: new Float32Array([0.2, -0.2]), sequence: 0 });
+  await h.voiceStore.actions.finishVoiceTest();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.voiceTest.recognized, true);
+  assert.deepEqual(h.sentCommands, []);
+  assert.deepEqual(h.spokenReadbacks, []);
+  assert.equal(await h.controller.begin(), true, 'ordinary PTT recovers after testing');
+  await h.controller.finish();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_next_2', text: 'set heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1, 'ordinary PTT still dispatches through its normal guards');
+  await h.controller.dispose();
+});
+
+test('voice test cannot replace normal capture or a pending aircraft command', async () => {
+  const h = createHarness(); await h.controller.initialize();
+  await h.controller.begin();
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), false);
+  await h.controller.finish();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), false);
+  h.completeLastCommand({ ok: true });
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
+  await h.controller.dispose();
+  assert.equal(h.voiceStore.voiceTest.phase, 'idle');
+});
+
+test('disabling voice cancels the Settings test and ignores its late transcript', async () => {
+  const h = createHarness(); await h.controller.initialize();
+  await h.voiceStore.actions.startVoiceTest();
+  await h.controller.setRecognitionEnabled(false);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  assert.equal(h.voiceStore.voiceTest.phase, 'idle');
+  assert.equal(h.voiceStore.runtime.enabled, false);
+  assert.deepEqual(h.sentCommands, []);
+  assert.equal(h.captureCancellations.length, 1);
+  await h.controller.dispose();
+});
+
+test('spoken-feedback diagnostics remain usable while recognition is off across runtime updates', async () => {
+  const h = createHarness({ runtimeInfo: { enabled: false, available: false } });
+  await h.controller.initialize();
+  assert.equal(await h.voiceStore.actions.testSpokenFeedback(), true);
+  const cancellations = h.readbackCancellations.length;
+  h.emitRuntime({ enabled: false, available: false });
+  assert.equal(h.readbackCancellations.length, cancellations, 'readback runtime updates must not cancel their own test');
+  assert.match(h.voiceStore.voiceTest.feedbackMessage, /Playing/);
+  assert.deepEqual(h.spokenReadbacks, ['Spoken feedback is working.']);
+  assert.equal(h.voiceStore.runtime.enabled, false);
+  await h.controller.dispose();
+});
+
+test('ordinary PTT retires test output ownership before its own command readback', async () => {
+  const h = createHarness(); await h.controller.initialize();
+  await h.voiceStore.actions.testSpokenFeedback();
+  await h.controller.begin(); await h.controller.finish();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading 270' });
+  h.completeLastCommand({ ok: true });
+  const cancellations = h.readbackCancellations.length;
+  await h.voiceStore.actions.cancelVoiceTest();
+  assert.equal(h.readbackCancellations.length, cancellations, 'leaving Settings cannot cancel a normal command readback');
+  await h.controller.dispose();
+});
 
 test('voice and page COM swap requests share pending state and cannot overlap in either direction', async () => {
   setActivePinia(createPinia());
@@ -462,6 +544,80 @@ test('disabled voice control does not enumerate or capture microphones until exp
   assert.deepEqual(harness.voiceStore.inputDevices, []);
   assert.equal(harness.voiceStore.status, 'disabled');
   assert.equal(await harness.controller.begin(), false);
+});
+
+test('microphone discovery errors survive readiness refresh and clear after a successful retry', async () => {
+  let denied = true;
+  let trackStops = 0;
+  const harness = createHarness({
+    availability: { enabled: false, reason: 'MSFS is disconnected.' },
+    runtimeInfo: { available: false, enabled: false },
+    globalRef: { navigator: { mediaDevices: {
+      async getUserMedia() {
+        if (denied) throw new Error('Microphone access denied.');
+        return { getTracks: () => [{ stop: () => { trackStops += 1; } }] };
+      },
+      async enumerateDevices() { return [{ kind: 'audioinput', deviceId: 'mic', label: 'Headset' }]; },
+    } } },
+  });
+  await harness.controller.initialize();
+  assert.equal(await harness.controller.setRecognitionEnabled(true), true);
+  assert.equal(harness.voiceStore.status, 'blocked', 'simulator readiness is separate from microphone setup');
+  assert.equal(harness.voiceStore.inputDevicesError, 'Microphone access denied.');
+  assert.equal(harness.captures.length, 0);
+  assert.equal(harness.cancellations.length, 1, 'failed discovery releases its native session');
+  denied = false;
+  await harness.controller.refreshInputDevices({ requestAccess: true });
+  assert.equal(harness.voiceStore.inputDevicesError, '');
+  assert.equal(harness.voiceStore.inputDevices[0].label, 'Headset');
+  assert.equal(trackStops, 1);
+  denied = true;
+  await harness.controller.refreshInputDevices({ requestAccess: true });
+  assert.equal(harness.voiceStore.inputDevicesError, 'Microphone access denied.');
+  await harness.controller.setRecognitionEnabled(false);
+  assert.equal(harness.voiceStore.inputDevicesError, '', 'disabling clears obsolete setup failures');
+  await harness.controller.dispose();
+});
+
+test('microphone discovery failure preserves a held aircraft result', async () => {
+  const harness = createHarness({ globalRef: { navigator: { mediaDevices: {
+    async getUserMedia() { throw new Error('Microphone access denied.'); },
+    async enumerateDevices() { return []; },
+  } } } });
+  await harness.controller.initialize();
+  await harness.controller.begin();
+  await harness.controller.finish();
+  await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  harness.completeLastCommand({ ok: false, error: 'Verify aircraft state.' });
+  const held = { status: harness.voiceStore.status, text: harness.voiceStore.statusText };
+  await harness.controller.refreshInputDevices({ requestAccess: true });
+  assert.equal(harness.voiceStore.inputDevicesError, 'Microphone access denied.');
+  assert.equal(harness.voiceStore.status, held.status);
+  assert.equal(harness.voiceStore.statusText, held.text);
+  assert.equal(await harness.controller.begin(), true);
+  assert.equal(harness.voiceStore.inputDevicesError, '', 'a successful capture clears the obsolete access failure');
+  await harness.controller.cancel('user');
+  await harness.controller.dispose();
+});
+
+test('disabling voice during microphone discovery ignores a late access failure', async () => {
+  let rejectAccess;
+  let accessStarted;
+  const started = new Promise(resolve => { accessStarted = resolve; });
+  const harness = createHarness({ globalRef: { navigator: { mediaDevices: {
+    getUserMedia() { accessStarted(); return new Promise((resolve, reject) => { rejectAccess = reject; }); },
+    async enumerateDevices() { return []; },
+  } } } });
+  await harness.controller.initialize();
+  const discovery = harness.controller.refreshInputDevices({ requestAccess: true });
+  await started;
+  await harness.controller.setRecognitionEnabled(false);
+  rejectAccess(new Error('Late microphone failure.'));
+  await discovery;
+  assert.equal(harness.voiceStore.status, 'disabled');
+  assert.equal(harness.voiceStore.inputDevicesError, '');
+  assert.equal(harness.cancellations.length, 1);
+  await harness.controller.dispose();
 });
 
 test('explicit microphone refresh discovers named devices without sending recognition audio', async () => {

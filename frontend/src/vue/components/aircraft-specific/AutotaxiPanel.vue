@@ -7,6 +7,7 @@ import { useSimbriefStore } from '../../stores/simbrief.js';
 import PushbackControls from './PushbackControls.vue';
 import TaxiPushbackMap from './TaxiPushbackMap.vue';
 import { pushbackCaption } from '../../../aircraft/pushback-map.js';
+import { TAXI_COPY } from '../../../aircraft/taxi-presentation.js';
 import { splitRoute } from '../../../aircraft/taxi-progress.js';
 import { aircraftSprite, createChaseCamera, projectTaxiScene, readTaxiView, smoothRoute, writeTaxiView } from '../../../aircraft/autotaxi-chase-view.js';
 
@@ -319,14 +320,14 @@ onBeforeUnmount(() => {
   <details class="ff-card autotaxi overflow-hidden" data-aircraft-autotaxi-section :open="open" @toggle="open = $event.target.open">
     <summary class="autotaxi__summary flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
       <span class="flex flex-wrap items-center gap-2">
-        <h3 class="font-semibold text-fg">Taxi assistant</h3>
+        <h3 class="font-semibold text-fg">{{ TAXI_COPY.title }}</h3>
         <span class="text-xs text-muted-fg">Experimental · MSFS 2024</span>
         <span v-if="state.active || pushbackActive" class="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning">{{ pushbackActive ? 'Pushback' : state.status }}</span>
       </span>
       <span class="autotaxi__chevron shrink-0 text-muted-fg" aria-hidden="true">▾</span>
     </summary>
     <div class="space-y-3 border-t border-surface-200 p-4">
-    <p class="text-sm text-muted-fg">{{ mode === 'stand' ? 'Choose a stand, then follow the taxi ribbon.' : departure.data?.pushbackPreview.phase === 'complete' ? 'Follow the ribbon to the runway holding point.' : 'Preview your pushback, then follow the ribbon to the runway.' }}</p>
+    <p class="text-sm text-muted-fg" data-taxi-intro>{{ mode === 'stand' ? TAXI_COPY.arrivalIntro : departure.data?.pushbackPreview.phase === 'complete' ? TAXI_COPY.complete : TAXI_COPY.departureIntro }}</p>
     <div class="taxi-assistant__workspace" :class="{ 'taxi-assistant__workspace--route': route }">
     <div class="space-y-3">
     <details ref="destinationForm" class="rounded-lg border border-border p-3" data-taxi-destination :open="destinationOpen" @toggle="destinationOpen = $event.target.open">
@@ -336,7 +337,7 @@ onBeforeUnmount(() => {
       <label class="block text-sm text-fg">Airport ICAO
         <input v-model="icao" :disabled="isBusy" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="YMML" class="ff-input mt-1 w-full min-h-[48px] uppercase" />
       </label>
-      <label v-if="mode === 'runway'" class="block text-sm text-fg">Hold short of runway
+      <label v-if="mode === 'runway'" class="block text-sm text-fg">Departure runway
         <input v-model="runway" :disabled="isBusy" maxlength="3" autocomplete="off" autocapitalize="characters" placeholder="16" class="ff-input mt-1 w-full min-h-[48px] uppercase" />
       </label>
       <label v-else class="block text-sm text-fg">Taxi to stand
@@ -347,7 +348,7 @@ onBeforeUnmount(() => {
     </div>
     <fieldset class="flex flex-wrap gap-2" :disabled="isBusy">
       <legend class="sr-only">Destination</legend>
-      <label v-for="option in [['runway', 'Depart: hold short'], ['stand', 'Arrive: to stand']]" :key="option[0]"
+      <label v-for="option in [['runway', 'Depart: to runway'], ['stand', 'Arrive: to stand']]" :key="option[0]"
         class="autotaxi__mode inline-flex min-h-[48px] cursor-pointer items-center rounded-lg border px-4 text-sm font-semibold"
         :class="mode === option[0] ? 'border-primary bg-primary/15 text-fg' : 'border-surface-200 text-muted-fg'">
         <input v-model="mode" type="radio" name="autotaxi-mode" :value="option[0]" class="sr-only" />{{ option[1] }}
@@ -355,17 +356,19 @@ onBeforeUnmount(() => {
     </fieldset>
     </div>
     </details>
+    <p v-if="mode === 'runway' && !pushbackActive && departure.data?.pushbackPreview.phase !== 'complete'" class="text-xs text-muted-fg" data-taxi-departure-help>{{ TAXI_COPY.departureHelp }}</p>
     <PushbackControls v-if="mode === 'runway'" :icao="icao" :runway="runway" :disabled="isBusy && !pushbackActive"
       :allow-preview="!controlling && pending !== 'start'" :primary="Boolean(showPushback)"
       @active="pushbackActivity" @preview="receiveDeparture" @complete="send('preview')" />
     <div class="flex flex-wrap gap-2">
-      <button type="button" data-taxi-show-route class="min-h-[48px] disabled:opacity-50" :class="showPushback ? 'ff-button-secondary' : 'ff-button-primary'" :disabled="!canPlan" @click="send('preview')">{{ pending === 'preview' ? 'Finding route…' : manualRoute || (departure.data?.pushbackPreview.phase === 'complete') ? 'Refresh route' : 'Show route' }}</button>
-      <button v-if="preview && !state.active" type="button" class="ff-button-secondary min-h-[48px]" @click="preview = null; departureView = true">{{ departure.data ? 'Back to pushback' : 'Hide route' }}</button>
+      <button type="button" data-taxi-show-route class="min-h-[48px] disabled:opacity-50" :class="showPushback ? 'ff-button-secondary' : 'ff-button-primary'" :disabled="!canPlan" @click="send('preview')">{{ pending === 'preview' ? 'Finding route…' : manualRoute || (departure.data?.pushbackPreview.phase === 'complete') ? TAXI_COPY.refreshRoute : TAXI_COPY.showRoute }}</button>
+      <button v-if="preview && !state.active" type="button" class="ff-button-secondary min-h-[48px]" @click="preview = null; departureView = true">{{ departure.data ? 'Back to pushback' : TAXI_COPY.hideRoute }}</button>
       <div v-if="state.active || automationBusy" class="flex flex-wrap gap-2">
         <button type="button" data-taxi-stop class="ff-button-secondary min-h-[48px] disabled:opacity-50" :disabled="!controlling && !pending" @click="send('stop')">{{ pending === 'preview' ? 'Cancel' : 'Stop' }}</button>
         <button type="button" data-taxi-release class="ff-button-secondary min-h-[48px] disabled:opacity-50" :disabled="pending === 'release'" @click="send('release')">{{ state.handedOver ? 'Clear' : 'Release controls' }}</button>
       </div>
     </div>
+    <p v-if="!isBusy" class="text-xs text-muted-fg" data-taxi-guidance-help>{{ TAXI_COPY.guidanceHelp }}</p>
     <p v-if="guidanceUnavailable && !isBusy" class="text-sm text-muted-fg">{{ guidanceUnavailable }}</p>
     </div>
     <figure v-if="route && view" class="space-y-2 text-sm text-fg">

@@ -12,12 +12,13 @@ import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import VoiceControlPanel from './VoiceControlPanel.vue';
+import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'open-guide']);
+const emit = defineEmits(['close', 'open-guide', 'open-settings']);
 const aircraftControls = useAircraftControlsStore();
 const voice = useVoiceControlStore();
 const mounted = ref(false);
@@ -86,7 +87,8 @@ onMounted(() => { mounted.value = true; });
                 Voice control
               </h2>
               <p id="aircraft-voice-control-description" class="mt-1 max-w-2xl text-xs leading-5 text-muted-fg sm:text-sm">
-                Keep FlightFabric in the background and use the global push-to-talk shortcut while flying. Open this panel only when you need the on-screen button or microphone settings.
+                <template v-if="voice.bridgeAvailable">Keep FlightFabric in the background and use your push-to-talk shortcut while flying, or hold the on-screen button below. Configure your microphone and shortcut in Settings.</template>
+                <template v-else>Voice control runs in FlightFabric on the simulator PC. You can browse the available commands here.</template>
               </p>
             </div>
             <button
@@ -103,9 +105,7 @@ onMounted(() => { mounted.value = true; });
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-2">
-            <span v-if="voice.runtime.shortcut" class="rounded-full border border-white/10 bg-black/15 px-3 py-1.5 font-mono text-[11px] text-gray-300">
-              {{ voice.runtime.shortcut }}
-            </span>
+            <KeyboardShortcutKeys v-if="voice.runtime.shortcut" :shortcut="voice.runtime.shortcut" class="text-[11px]" />
             <button
               v-if="voiceCommandCount > 0"
               type="button"
@@ -120,7 +120,7 @@ onMounted(() => { mounted.value = true; });
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
-          <VoiceControlPanel presentation="modal" />
+          <VoiceControlPanel presentation="modal" @open-settings="emit('open-settings')" />
         </div>
       </section>
     </div>

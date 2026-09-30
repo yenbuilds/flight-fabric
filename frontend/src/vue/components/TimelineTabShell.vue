@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { containDialogFocus } from '../../ui/dialog-focus.js';
 import { readStorageValue, writeStorageValue } from '../../app/browser-environment.js';
-import { getAuthorizationScope, getCoordValidator } from '../../../app-shared.js';
+import { getAuthorizationScope, getCoordValidator, sendWs } from '../../../app-shared.js';
 import {
   subscribeLandingReceived,
   subscribeWsMessage,
@@ -21,12 +21,14 @@ import { useLandingStore } from '../stores/landing.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useTimelineStore } from '../stores/timeline.js';
+import { useInSimReplayStore } from '../stores/in-sim-replay.js';
 
 const appSettings = useAppSettingsStore();
 const landing = useLandingStore();
 const status = useStatusStore();
 const tabs = useTabsStore();
 const timeline = useTimelineStore();
+const inSimReplay = useInSimReplayStore();
 let cleanupTimelinePage = null;
 const viewer = ref(null);
 const viewerClose = ref(null);
@@ -42,6 +44,13 @@ const isReviewModal = computed(() => isCompactReview.value && timeline.timelineM
 function syncReviewLayout(event) {
   isCompactReview.value = event.matches;
   notifyTimelineViewerResize();
+}
+
+function prepareInSimReplay() {
+  if (!inSimReplay.enabled || !timeline.loadedTimelineFilePath) return;
+  if (!sendWs({ type: 'inSimReplay', operation: 'prepare', filePath: timeline.loadedTimelineFilePath, landingIndex: 0 })) return;
+  closeTimelineMobileViewer();
+  nextTick(() => document.querySelector('.in-sim-replay-host')?.scrollIntoView({ block: 'start' }));
 }
 
 function setReviewView(value) {
@@ -291,6 +300,11 @@ onUnmounted(() => {
             </svg>
             Landing debrief
           </button>
+          <button v-if="inSimReplay.enabled && timeline.loadedTimelineFilePath && !timeline.timelineLoading && !timeline.timelineLoadError"
+            type="button" class="ff-button-secondary"
+            :disabled="status.websocket !== 'ready' || getAuthorizationScope() !== 'full-control'"
+            :title="status.websocket !== 'ready' ? 'Reconnect to FlightFabric to prepare replay' : 'Prepare an experimental in-simulator replay'"
+            @click="prepareInSimReplay">Replay in MSFS</button>
           <button
             ref="viewerClose"
             v-if="isCompactReview"

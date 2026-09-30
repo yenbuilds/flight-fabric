@@ -66,7 +66,7 @@ module.exports = async function checkPushbackE2E({ win, evaluate, ready, settled
     'one automatic handover to manual guidance');
   assert.equal(await settled(`return document.querySelector('.taxi-map')?.dataset.taxiView;`, v => v === '3d'), '3d');
   assert.equal(await evaluate(`return Boolean(document.querySelector('[data-pushback-start]'));`), false);
-  assert.equal(await evaluate(`return document.querySelector('[data-taxi-show-route]').textContent;`), 'Refresh route');
+  assert.equal(await evaluate(`return document.querySelector('[data-taxi-show-route]').textContent;`), 'Refresh taxi route');
   assert.match(await evaluate(`return document.querySelector('#aircraft-page-autotaxi figcaption').textContent;`), /runway 09/);
   data = await diagnostics();
   assert.equal(data.pose.speedKts, 0);
@@ -78,7 +78,7 @@ module.exports = async function checkPushbackE2E({ win, evaluate, ready, settled
   const completedObserver = await fixture({ fixture: 'observer' });
   assert.equal(completedObserver.pushbackPreview.phase, 'complete', 'toolbar observer retains completed guidance');
   assert.equal(await settled(`return document.querySelector('#aircraft-page-autotaxi > div > p').textContent;`,
-    text => text === 'Follow the ribbon to the runway holding point.'), 'Follow the ribbon to the runway holding point.',
+    text => text === 'Pushback complete. Taxi manually along the route to the runway holding point.'), 'Pushback complete. Taxi manually along the route to the runway holding point.',
     'the next preview poll settles all completion copy');
   await capture('departure-complete-phone');
   win.setContentSize(1440, 1000); await capture('departure-complete-desktop');

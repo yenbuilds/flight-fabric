@@ -20,6 +20,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 // hidden simulator browser cannot accumulate high-frequency traffic. Only
 // event-driven or once-per-second types are eligible.
 export const SUBSCRIBABLE_MESSAGE_TYPES: ReadonlyArray<string> = Object.freeze([
+  MSG.IN_SIM_REPLAY_STATE,
   MSG.CONNECTED,
   MSG.SIM_STATE,
   MSG.PHASE,

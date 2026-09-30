@@ -36,6 +36,12 @@ async function browser() {
     win.webContents.debugger.attach('1.3');
     for (let n = 0; n < 180; n++) { if (await evaluate('return Boolean(window.workbenchTest);')) break; await wait(50); }
     assert(await evaluate('return Boolean(window.workbenchTest);'), `fixture initialized: ${errors.join('\n')}`);
+    if (process.env.FF_README_CAPTURE_DATE) {
+      await require('../../scripts/dev/capture-readme-assets').capture({ win, evaluate });
+      assert.deepEqual(errors, [], 'README captures have no renderer errors');
+      app.exit(0);
+      return;
+    }
     await evaluate(`workbenchTest.takeoff.handleTakeoffMessage({ type:'takeoff', final:true, timestampMs:Date.now(),
       aircraft:'PMDG 737-800', icao:'YSSY', runway:'16R', grade:'Recorded', score:null, zone:'Observed runway remaining',
       assessment:'critical', runwayExcursion:true, flags:[{code:'runway_excursion',severity:'critical',label:'Runway excursion during the takeoff roll'},
@@ -496,6 +502,166 @@ async function browser() {
     await capture('toolbar-setup-phone-instructions');
     await evaluate("workbenchTest.toolbar.bindDesktopActions(null); await workbenchTest.nextTick();");
     assert.equal(await evaluate("return document.querySelectorAll('.toolbar-setup-task').length;"), 0, 'desktop-only tasks disappear when installer access is unavailable');
+    // Voice configuration has one permanent home. This fixture never accesses
+    // audio, registers native shortcuts or sends real aircraft commands.
+    win.setContentSize(1440, 900);
+    await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await evaluate(`workbenchTest.shell.sidebarCollapsed=false; await workbenchTest.open('flight');
+      window.voiceSetupCalls=[];
+      const voice=workbenchTest.voice;
+      voice.setupDismissed=false;
+      voice.bindRuntime({
+        begin:()=>{voiceSetupCalls.push(['begin']);return false;},
+        setRecognitionEnabled:async enabled=>{voiceSetupCalls.push(['enabled',enabled]);voice.applyRuntimeInfo({available:true,enabled,pushToTalk:{accelerator:'',registered:false}});voice.setState(enabled?'ready':'disabled');return true;},
+        setShortcut:async shortcut=>{voiceSetupCalls.push(['shortcut',shortcut]);if(window.voiceSaveGate)await window.voiceSaveGate;voice.applyRuntimeInfo({available:true,enabled:true,pushToTalk:{accelerator:shortcut,registered:true}});return true;},
+        refreshInputDevices:async options=>{voiceSetupCalls.push(['microphones',options.requestAccess]);voice.setInputDevices([{deviceId:'test-mic',label:'Test microphone'}]);},
+        setInputDevice:id=>{voiceSetupCalls.push(['microphone',id]);voice.selectedInputDeviceId=id;return true;},
+        setSpokenReadbacks:enabled=>{voiceSetupCalls.push(['readbacks',enabled]);voice.spokenReadbacks=enabled;return true;},
+      });
+      voice.setBridgeAvailable(true);voice.applyRuntimeInfo({enabled:false});voice.setState('disabled');await workbenchTest.nextTick();`);
+    const voiceSetup = '.app-sidebar [data-voice-setup-trigger]';
+    await capture('voice-setup-desktop');
+    await evaluate('window.releaseVoiceGuard=workbenchTest.tabs.registerBeforeChangeGuard(()=>false);');
+    await pointerActivate(voiceSetup, false);
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'flight', 'setup obeys navigation guards');
+    assert.equal(await evaluate('return workbenchTest.voice.panelOpen;'), false, 'a blocked setup link never opens another surface');
+    await evaluate('releaseVoiceGuard();');
+    await pointerActivate(voiceSetup, false);
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'settings', 'sidebar setup lands on Settings');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-voice-control', 'setup focuses its exact section');
+    assert.equal(await evaluate("return Boolean(document.querySelector('#aircraft-voice-control-modal'));"), false, 'Settings is edited directly, with no dialog');
+    assert.deepEqual(await evaluate('return voiceSetupCalls;'), [], 'visiting Settings does not enable voice, capture audio or register a shortcut');
+    assert.equal(await evaluate("return document.getElementById('voice-input-device').disabled;"), true, 'voice starts with explicit opt-in');
+    await capture('voice-settings-desktop-off');
+    await pointerActivate('[data-voice-recognition-toggle]', false);
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.enabled;'), true);
+    await pointerActivate('[data-voice-detect-microphones]', false);
+    await evaluate("const mic=document.getElementById('voice-input-device');mic.value='test-mic';mic.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();");
+    await pointerActivate('label:has([data-voice-spoken-feedback])', false);
+    assert.equal(await evaluate('return workbenchTest.voice.selectedInputDeviceId;'), 'test-mic');
+    assert.equal(await evaluate('return workbenchTest.voice.spokenReadbacks;'), false);
+    await pointerActivate('#voice-ptt-shortcut', false);
+    await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F8',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}));await workbenchTest.nextTick();");
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), '', 'capturing a shortcut does not activate it');
+    await evaluate("workbenchTest.voice.setState('listening');await workbenchTest.nextTick();");
+    assert.equal(await evaluate("return document.querySelector('[data-voice-shortcut-save]').disabled;"), true, 'global PTT locks configuration');
+    await evaluate("workbenchTest.voice.setState('ready');await workbenchTest.nextTick();");
+    // Drafts remain mounted between pages; recorder/learning is stopped on leave.
+    await evaluate("await workbenchTest.open('autopilot');");
+    await pointerActivate('[data-aircraft-voice-control-trigger]', false);
+    assert.equal(await evaluate("return document.querySelectorAll('#aircraft-voice-control-modal #voice-input-device, #aircraft-voice-control-modal [data-voice-shortcut-recorder]').length;"), 0, 'Aircraft has operational controls without a duplicate settings form');
+    assert(await evaluate("return Boolean(document.querySelector('#aircraft-voice-control-modal [data-voice-push-to-talk]'));"));
+    await capture('voice-aircraft-panel');
+    await pointerActivate('[data-voice-settings-link]', false);
+    assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && !workbenchTest.voice.panelOpen && document.activeElement.id==='settings-voice-control';"), 'Aircraft links to the same Settings section');
+    assert(await evaluate("return document.getElementById('voice-ptt-shortcut').getAttribute('aria-label').startsWith('Unsaved push-to-talk shortcut: Control+Shift+F8');"), 'navigation preserves an unsaved shortcut draft');
+    await evaluate("document.querySelector('[data-voice-shortcut-save]').focus();");
+    await key('Return');
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), 'Control+Shift+F8');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'voice-ptt-shortcut', 'keyboard shortcut save leaves focus on its recorder after the Save button disappears');
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'settings', 'saving does not redirect');
+    assert.equal(await evaluate("return document.querySelectorAll('[data-voice-setup-trigger]').length;"), 0, 'registered shortcut clears reminders');
+    await pointerActivate('#voice-ptt-shortcut', false);
+    await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F9',ctrlKey:true,bubbles:true,cancelable:true}));await workbenchTest.nextTick();document.querySelector('[data-voice-shortcut-cancel]').focus();");
+    await key('Return');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'voice-ptt-shortcut', 'keyboard Cancel restores focus after removing the draft actions');
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), 'Control+Shift+F8', 'Cancel retains the saved shortcut');
+    await pointerActivate('#voice-ptt-shortcut', false);
+    await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F9',ctrlKey:true,bubbles:true,cancelable:true}));window.voiceSaveGate=new Promise(resolve=>{window.finishVoiceSave=resolve;});await workbenchTest.nextTick();document.querySelector('[data-voice-shortcut-save]').focus();");
+    await key('Return');
+    assert.equal(await evaluate("return document.querySelector('[data-voice-shortcut-cancel]').disabled;"), true, 'pending shortcut save cannot be cancelled');
+    await evaluate("document.getElementById('voice-input-device').focus();finishVoiceSave();await voiceSaveGate;delete window.voiceSaveGate;delete window.finishVoiceSave;await workbenchTest.nextTick();");
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), 'Control+F9');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'voice-input-device', 'asynchronous shortcut save does not steal focus from another control');
+    await capture('voice-settings-desktop');
+    // Opening setup while already editing app preferences must not discard them.
+    await evaluate(`window.voiceOriginalRecordingAutoStart=workbenchTest.settingsEditor.recordingAutoStart;
+      const field=document.getElementById('setting-recording-auto-start');field.checked=!voiceOriginalRecordingAutoStart;field.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();
+      window.voiceOriginalConfirm=window.confirm;window.confirm=()=>false;`);
+    await evaluate("document.querySelector('[data-voice-back-to-aircraft]').scrollIntoView({block:'center'});");
+    await pointerActivate('[data-voice-back-to-aircraft]', false);
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'settings', 'Back to Aircraft respects unsaved app preferences');
+    await evaluate("workbenchTest.shell.openNavigator();await workbenchTest.nextTick();const query=document.getElementById('app-navigator-query');query.value='microphone';query.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
+    await key('Return');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-voice-control', 'search focuses voice configuration');
+    assert(await evaluate('return workbenchTest.settingsForm.saveEnabled && workbenchTest.settingsEditor.recordingAutoStart!==voiceOriginalRecordingAutoStart;'), 'setup navigation within Settings preserves unsaved app preferences');
+    await evaluate("window.confirm=voiceOriginalConfirm;const field=document.getElementById('setting-recording-auto-start');field.checked=voiceOriginalRecordingAutoStart;field.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();await workbenchTest.open('autopilot');");
+    await pointerActivate('[data-aircraft-voice-control-trigger]', false);
+    await pointerActivate('[data-voice-settings-link]', false);
+    await pointerActivate('[data-voice-back-to-aircraft]', false);
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'autopilot');
+    assert(await evaluate("return document.activeElement.matches('[data-aircraft-voice-control-trigger]');"), 'explicit Back returns usable focus');
+    // Optional setup can be dismissed; configured errors still surface.
+    await evaluate("workbenchTest.voice.applyRuntimeInfo({available:true,enabled:true,pushToTalk:{accelerator:'',registered:false}});await workbenchTest.nextTick();");
+    await pointerActivate('.app-sidebar [data-voice-setup-dismiss]', false);
+    assert.equal(await evaluate('return workbenchTest.voice.setupReminder;'), null);
+    assert.equal(await evaluate("return localStorage.getItem('ff_voice_setup_dismissed_v1');"), 'yes', 'optional dismissal is persisted');
+    win.setContentSize(390, 844);
+    await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await evaluate("workbenchTest.voice.setupDismissed=false;document.getElementById('mobile-more-btn').click();await workbenchTest.nextTick();");
+    await pointerActivate('#mobile-more-sheet [data-voice-setup-dismiss]', true);
+    assert(await evaluate("return workbenchTest.tabs.moreSheetOpen && document.getElementById('mobile-more-sheet').contains(document.activeElement);"), 'dismissing a suggestion keeps focus inside the open More dialog');
+    await key('Escape');
+    win.setContentSize(1440, 900);
+    await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await evaluate("workbenchTest.voice.applyRuntimeInfo({available:true,enabled:true,pushToTalk:{accelerator:'Control+Shift+F8',registered:false,error:'Already in use'}});workbenchTest.shell.sidebarCollapsed=true;await workbenchTest.nextTick();");
+    await pointerActivate(voiceSetup, false);
+    assert.equal(await evaluate('return document.activeElement.id;'), 'settings-voice-control', 'collapsed sidebar links to Settings');
+    assert(await evaluate("return document.getElementById('settings-voice-control').textContent.includes('Already in use');"), 'registration failure appears beside configuration');
+    for (const width of [390, 320]) {
+      win.setContentSize(width, 844);
+      await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await evaluate("await workbenchTest.open('flight');document.getElementById('mobile-more-btn').click();await workbenchTest.nextTick();");
+      await capture(`voice-setup-more-${width}`);
+      await pointerActivate('#mobile-more-sheet [data-voice-setup-trigger]', true);
+      assert(await evaluate("return !workbenchTest.tabs.moreSheetOpen && workbenchTest.tabs.activeTabId==='settings' && document.activeElement.id==='settings-voice-control';"), 'More closes and focuses the Settings section');
+      assert.equal(await evaluate("return Boolean(document.getElementById('voice-first-command-card'));"), false, 'first-command guidance does not cover configuration');
+      await capture(`voice-settings-${width}`);
+      await evaluate("document.getElementById('voice-input-device').scrollIntoView({block:'center'});");
+      assert(await evaluate("const mic=document.getElementById('voice-input-device'),r=mic.getBoundingClientRect();return r.width>=200 && r.top>=0 && r.bottom<=innerHeight && document.documentElement.scrollWidth<=innerWidth;"), 'microphone controls fit and remain reachable');
+      await capture(`voice-settings-microphone-${width}`);
+    }
+    assert.deepEqual(await evaluate('return voiceSetupCalls;'), [['enabled',true],['microphones',true],['microphone','test-mic'],['readbacks',false],['shortcut','Control+Shift+F8'],['shortcut','Control+F9']], 'only explicit configuration actions reached the runtime; navigation never began voice capture');
+    // Exercise the real test controller/UI with microphone and recognition I/O
+    // substituted. A disconnected simulator must not block setup diagnostics.
+    await evaluate(`const {createVoiceSetupTest}=await import('/frontend/src/voice/voice-setup-test.js');
+      const voice=workbenchTest.voice;
+      voice.setState('blocked','MSFS is not connected.');
+      window.voiceTestIo={open:false,cancelled:0,speech:[],audio:0};
+      window.voiceTestController=createVoiceSetupTest({voiceStore:voice,
+        api:{startRecognition:async()=>({sessionId:'ui-test'}),sendAudio:()=>voiceTestIo.audio++,
+          finishRecognition:async()=>{await voiceTestController.handleRecognitionEvent({type:'final',sessionId:'ui-test',text:'set heading two seven zero'});return {finishing:true};},
+          cancelRecognition:async()=>{voiceTestIo.cancelled++;},
+          speakReadback:async text=>{voiceTestIo.speech.push(text);return {started:true};}},
+        createCapture:callbacks=>({start:async()=>{voiceTestIo.open=true;window.voiceTestChunk=callbacks.onChunk;return {deviceLabel:'Test microphone'};},stop:async()=>{voiceTestIo.open=false;},cancel:async()=>{voiceTestIo.open=false;}})});
+      voice.bindRuntime({startVoiceTest:voiceTestController.start,finishVoiceTest:voiceTestController.finish,
+        cancelVoiceTest:voiceTestController.cancel,testSpokenFeedback:voiceTestController.testSpokenFeedback});`);
+    for (const width of [1440, 320]) {
+      win.setContentSize(width, 900);
+      await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width === 320, maxTouchPoints: 5 });
+      await pointerActivate('[data-voice-test-start]', width === 320);
+      if (width === 1440) assert(await evaluate("return document.activeElement.matches('[data-voice-test-cancel]');"), 'starting a test moves focus from the disabled Start button to Cancel');
+      await evaluate("voiceTestChunk({sampleRate:16000,samples:new Float32Array([0.1,-0.1]),sequence:0});document.querySelector('[data-voice-test]').scrollIntoView({block:'center'});await workbenchTest.nextTick();");
+      assert(await evaluate("return voiceTestIo.open && document.getElementById('voice-input-device').disabled && document.querySelector('[data-voice-test-start]').disabled && document.getElementById('voice-test-level').value>0;"), 'testing locks microphone changes and reports input level without MSFS');
+      await capture(`voice-test-listening-${width}`);
+      await pointerActivate('[data-voice-test-finish]', width === 320);
+      assert(await evaluate("return !voiceTestIo.open && workbenchTest.voice.voiceTest.recognized && document.querySelector('[data-voice-test-transcript]').textContent.includes('set heading two seven zero') && Boolean(document.querySelector('[data-voice-test-play]'));"), 'test reports recognized speech, closes input and offers playback');
+      if (width === 1440) assert(await evaluate("return document.activeElement.matches('[data-voice-test-start]');"), 'finishing a test keeps keyboard focus on Test again');
+      assert(await evaluate('return document.documentElement.scrollWidth<=innerWidth;'), 'test fits the viewport');
+      await capture(`voice-test-result-${width}`);
+      await pointerActivate('[data-voice-test-start]', width === 320);
+      await evaluate("await workbenchTest.open('flight');await workbenchTest.nextTick();");
+      assert(await evaluate("return !voiceTestIo.open && workbenchTest.voice.voiceTest.phase==='idle' && !workbenchTest.voice.voiceTest.playbackAvailable;"), 'leaving Settings stops the microphone and clears test audio');
+      await evaluate("await workbenchTest.open('settings');await workbenchTest.nextTick();");
+    }
+    await pointerActivate('[data-voice-test-feedback]', true);
+    assert.deepEqual(await evaluate('return voiceTestIo.speech;'), ['Spoken feedback is working.']);
+    assert.equal(await evaluate('return workbenchTest.voice.spokenReadbacks;'), false, 'testing output preserves the saved spoken feedback preference');
+    await evaluate('await voiceTestController.dispose();');
+    await evaluate('workbenchTest.voice.setBridgeAvailable(false);workbenchTest.voice.bindRuntime(null);await workbenchTest.nextTick();');
+    assert.equal(await evaluate("return document.querySelectorAll('[data-voice-setup-trigger], #settings-voice-control').length;"), 0, 'remote browsers do not offer local microphone configuration');
+    console.log('Voice settings passed: canonical Settings editor, guarded sidebar/search/Aircraft navigation, live settings actions, unsaved drafts, registration, dismissal and 390/320px More.');
+
     if (process.env.FF_TOOLBAR_SETUP_ONLY) {
       assert.deepEqual(errors, [], 'no browser runtime or asset errors');
       console.log(`Toolbar setup passed: startup discovery, guarded navigation, install completion, collapsed rail, dismissal persistence, view search and narrow phone guidance. Screenshots: ${OUTPUT}`);

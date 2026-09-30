@@ -1,9 +1,11 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { resolveAircraftSpecificTemplate } from '../aircraft-specific/template-registry.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
+import { useTabsStore } from '../stores/tabs.js';
+import { openVoiceSettings } from '../voice-settings-navigation.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { AIRCRAFT_PAGE_SECTIONS } from './aircraft-specific/aircraft-page-sections.js';
 import AircraftIntegrationCheatSheetModal from './AircraftIntegrationCheatSheetModal.vue';
@@ -23,6 +25,7 @@ import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
 const { LIVE_AUTOTAXI_ENABLED } = getFlightFabricAppSettings();
 const aircraftSpecific = useAircraftSpecificStore();
 const voice = useVoiceControlStore();
+const tabs = useTabsStore();
 const controls = useAircraftControlsStore();
 const avionicsPlacement = {
   'pmdg-737': 'radios', 'pmdg-777': 'mcp', 'fenix-a32x': 'fcu',
@@ -34,7 +37,7 @@ const pageSections = computed(() => [
   ...(Object.values(controls.aircraftCommandCatalogue.commands || {}).some(command => command.kind === 'preset')
     ? [{ id: 'page-presets', label: 'Presets', title: 'Presets', targetId: 'aircraft-page-presets' }] : []),
   ...(LIVE_AUTOTAXI_ENABLED
-    ? [{ id: 'page-autotaxi', label: 'Taxi', title: 'Taxi assistant', detail: 'Push back, then follow a route ribbon to your runway or stand. Optional Autotaxi.', targetId: 'aircraft-page-autotaxi' }] : []),
+    ? [{ id: 'page-autotaxi', label: 'Pushback & taxi', title: 'Pushback & taxi', detail: 'Automatic pushback towards your departure taxi route, then manual taxi guidance. Optional Autotaxi.', targetId: 'aircraft-page-autotaxi' }] : []),
   ...(['radios.com1.setStandby', 'radios.com2.setStandby', 'baro.both.qnhHpa',
     'surveillance.squawk.set', 'surveillance.ident.activate', 'approach.minimums.baro',
     'navigation.captain.range', 'navigation.firstOfficer.range'].some(id => controls.isAircraftCommandSupported(id))
@@ -48,7 +51,9 @@ const voiceControlButton = ref(null);
 const integrationCheatSheetOpen = ref(false);
 const integrationCheatSheetFilter = ref('all');
 const integrationGuideReturnTarget = ref(null);
-const voiceControlOpen = ref(false);
+// Operational voice controls stay on Aircraft; configuration lives in Settings.
+const voiceControlOpen = computed({ get: () => voice.panelOpen, set: value => { voice.panelOpen = value; } });
+const voiceReturnTarget = ref(null);
 const searchExpanded = ref(false);
 const secondaryTools = ref(null);
 const secondaryToolsButton = ref(null);
@@ -67,7 +72,8 @@ function closeControlsModal() {
 
 function restoreToolFocus(target) {
   nextTick(() => {
-    const visibleTarget = [target, secondaryToolsButton.value]
+    const visibleTarget = [target, secondaryToolsButton.value,
+      ...document.querySelectorAll('.desktop-tab[aria-current="page"], .mobile-tab[aria-current="page"], #mobile-more-btn')]
       .find(element => element?.isConnected && element.getClientRects().length > 0);
     visibleTarget?.focus({ preventScroll: true });
   });
@@ -79,6 +85,8 @@ function closeSecondaryTools({ restoreFocus = false } = {}) {
 }
 
 function syncCompactTools() {
+  // Vue owns both launcher and panel visibility so CSS cannot hide the
+  // focused launcher before this handler captures its return destination.
   const previousFocus = document.activeElement;
   const focusWasInTools = secondaryTools.value?.contains(previousFocus);
   compactTools.value = compactToolsMedia?.matches === true;
@@ -109,6 +117,13 @@ function openVoiceControl() {
   closeSecondaryTools();
   voiceControlOpen.value = true;
 }
+
+watch(voiceControlOpen, open => {
+  if (open) {
+    voiceReturnTarget.value = document.activeElement;
+    closeSecondaryTools();
+  }
+});
 
 onMounted(() => {
   compactToolsMedia = window.matchMedia('(max-width: 1100px), (max-height: 500px) and (pointer: coarse)');
@@ -156,6 +171,7 @@ const voiceLauncherState = computed(() => {
   if (voice.status === 'disabled') return 'off';
   if (voice.status === 'listening') return 'listening';
   if (voice.finishing || ['initializing', 'starting', 'sending'].includes(voice.status)) return 'busy';
+  if (voice.setupReminder) return 'attention';
   if (VOICE_ATTENTION_STATUSES.has(voice.status)) return 'attention';
   if (voice.ready) return 'ready';
   return 'attention';
@@ -167,11 +183,13 @@ const voiceLauncherStatus = computed(() => {
   if (voice.finishing) return 'Processing';
   if (['initializing', 'starting'].includes(voice.status)) return 'Starting';
   if (voice.status === 'sending') return 'Sending';
+  if (voice.setupReminder) return 'Check setup';
   if (voice.status === 'sent') return 'Command sent';
   if (voice.status === 'failed') return 'Command failed';
   if (voice.status === 'error') return 'Needs attention';
   if (voice.status === 'unmatched') return 'Try again';
   if (voice.status === 'transcribed') return 'Transcribed';
+  if (['blocked', 'unavailable'].includes(voice.status)) return 'Unavailable';
   if (voiceLauncherState.value === 'ready') return 'Ready';
   return 'Check setup';
 });
@@ -191,12 +209,21 @@ function closeIntegrationGuide() {
 
 function closeVoiceControl() {
   voiceControlOpen.value = false;
-  restoreToolFocus(voiceControlButton.value);
+  nextTick(() => {
+    const targets = [voiceReturnTarget.value, voiceControlButton.value, secondaryToolsButton.value,
+      ...document.querySelectorAll('.desktop-tab[aria-current="page"], .mobile-tab[aria-current="page"], #mobile-more-btn')];
+    targets.find(element => element?.isConnected && !element.closest('[inert]')
+      && element !== document.body && element.getClientRects().length > 0)?.focus({ preventScroll: true });
+  });
 }
 
 function openVoiceCommandGuide() {
   voiceControlOpen.value = false;
-  nextTick(() => openIntegrationGuide('voice', voiceControlButton.value));
+  nextTick(() => openIntegrationGuide('voice', voiceReturnTarget.value || voiceControlButton.value));
+}
+
+function configureVoice() {
+  return openVoiceSettings(tabs, voice, { fromAircraft: true });
 }
 </script>
 
@@ -227,8 +254,32 @@ function openVoiceCommandGuide() {
             </svg>
             <span class="aircraft-cdu-label">MCDU / CDU</span><span class="aircraft-cdu-short-label" aria-hidden="true">CDU</span>
           </button>
+          <button
+            ref="voiceControlButton"
+            type="button"
+            class="aircraft-voice-control-button ff-touch-target"
+            :data-voice-state="voiceLauncherState"
+            aria-haspopup="dialog"
+            aria-controls="aircraft-voice-control-modal"
+            :aria-expanded="voiceControlOpen"
+            :aria-label="`Open voice control, ${voiceLauncherStatus}`"
+            data-aircraft-voice-control-trigger
+            @click="openVoiceControl"
+          >
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="2.5" width="6" height="12" rx="3" />
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
+            </svg>
+            <span class="aircraft-voice-control-button__copy">
+              <span>Voice control</span>
+              <span class="aircraft-voice-control-button__status">
+                <span class="aircraft-voice-control-button__dot" aria-hidden="true" />
+                {{ voiceLauncherStatus }}
+              </span>
+            </span>
+          </button>
           <div ref="secondaryTools" class="aircraft-secondary-tools" @focusout="handleToolsFocusout" data-no-swipe>
-            <button ref="secondaryToolsButton" type="button" class="aircraft-tools-toggle"
+            <button v-show="compactTools" ref="secondaryToolsButton" type="button" class="aircraft-tools-toggle"
               :aria-expanded="secondaryToolsOpen" aria-controls="aircraft-secondary-tools-panel"
               @click="secondaryToolsOpen = !secondaryToolsOpen">
               <span>Tools</span><span aria-hidden="true">⌄</span>
@@ -248,30 +299,6 @@ function openVoiceCommandGuide() {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Zm16 0A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z" />
                 </svg>
                 <span>Integration guide</span>
-              </button>
-              <button
-                ref="voiceControlButton"
-                type="button"
-                class="aircraft-voice-control-button ff-touch-target"
-                :data-voice-state="voiceLauncherState"
-                aria-haspopup="dialog"
-                aria-controls="aircraft-voice-control-modal"
-                :aria-expanded="voiceControlOpen"
-                :aria-label="`Open voice control, ${voiceLauncherStatus}`"
-                data-aircraft-voice-control-trigger
-                @click="openVoiceControl"
-              >
-                <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="2.5" width="6" height="12" rx="3" />
-                  <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
-                </svg>
-                <span class="aircraft-voice-control-button__copy">
-                  <span>Voice control</span>
-                  <span class="aircraft-voice-control-button__status">
-                    <span class="aircraft-voice-control-button__dot" aria-hidden="true" />
-                    {{ voiceLauncherStatus }}
-                  </span>
-                </span>
               </button>
               <button ref="controlsButton" type="button" class="aircraft-integration-guide-button ff-touch-target"
                 aria-haspopup="dialog" aria-controls="aircraft-controls-modal" :aria-expanded="controlsModalOpen"
@@ -310,6 +337,7 @@ function openVoiceCommandGuide() {
       :open="voiceControlOpen"
       @close="closeVoiceControl"
       @open-guide="openVoiceCommandGuide"
+      @open-settings="configureVoice"
     />
     <AircraftControlsModal :open="controlsModalOpen" @close="closeControlsModal" />
     <AircraftCduModal :open="cduOpen" @close="closeCdu" />
@@ -356,7 +384,6 @@ function openVoiceCommandGuide() {
   display: contents;
 }
 
-.aircraft-secondary-tools > .aircraft-tools-toggle,
 .aircraft-cdu-short-label {
   display: none;
 }
@@ -504,10 +531,6 @@ function openVoiceCommandGuide() {
     flex: none;
   }
 
-  .aircraft-secondary-tools > .aircraft-tools-toggle {
-    display: inline-flex;
-  }
-
   .aircraft-secondary-tools-panel {
     position: absolute;
     top: calc(100% + 0.4rem);
@@ -557,7 +580,7 @@ function openVoiceCommandGuide() {
     align-items: stretch;
     justify-content: flex-start;
     gap: 0.4rem;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .aircraft-page-tool-actions > .aircraft-find {
@@ -573,6 +596,11 @@ function openVoiceCommandGuide() {
     display: inline;
   }
 
+  .aircraft-page-tool-actions > .aircraft-voice-control-button {
+    order: 1;
+    flex: 1 0 100%;
+  }
+
   .aircraft-integration-guide-button,
   .aircraft-tools-toggle {
     min-height: 2.75rem;
@@ -582,6 +610,7 @@ function openVoiceCommandGuide() {
 
   .aircraft-page-tool-actions--search-expanded
     > .aircraft-integration-guide-button,
+  .aircraft-page-tool-actions--search-expanded > .aircraft-voice-control-button,
   .aircraft-page-tool-actions--search-expanded > .aircraft-secondary-tools {
     display: none;
   }

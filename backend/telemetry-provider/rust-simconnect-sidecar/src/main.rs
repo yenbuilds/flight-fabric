@@ -3913,6 +3913,7 @@ mod sidecar {
                     "backend": "rust",
                     "ownerLifelineVersion": OWNER_LIFELINE_VERSION,
                     "controlDiagnosticsVersion": 1,
+                    "replayProtocolVersion": 1,
                     "librarySpec": api.library_spec,
                 }));
                 0
@@ -3925,6 +3926,7 @@ mod sidecar {
                     "backend": "rust",
                     "ownerLifelineVersion": OWNER_LIFELINE_VERSION,
                     "controlDiagnosticsVersion": 1,
+                    "replayProtocolVersion": 1,
                     "error": err,
                 }));
                 2
@@ -4293,6 +4295,7 @@ mod sidecar {
             "backend": "rust",
             "ownerLifelineVersion": OWNER_LIFELINE_VERSION,
             "controlDiagnosticsVersion": 1,
+                    "replayProtocolVersion": 1,
             "error": "rust SimConnect sidecar is only supported on Windows",
         }));
         2

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import TabIcon from './TabIcon.vue';
 import SupportLink from './SupportLink.vue';
 import ToolbarPanelSetupTask from './ToolbarPanelSetupTask.vue';
+import VoiceControlSetupTask from './VoiceControlSetupTask.vue';
 import { navigationTabId } from '../tab-config.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useShellStore } from '../stores/shell.js';
@@ -39,7 +40,10 @@ const groups = computed(() => {
   </button>
   <nav class="desktop-tab-bar sidebar-navigation" aria-label="Primary navigation">
     <template v-for="group in groups" :key="group.id">
-      <ToolbarPanelSetupTask v-if="group.id === 'utilities'" />
+      <template v-if="group.id === 'utilities'">
+        <VoiceControlSetupTask />
+        <ToolbarPanelSetupTask />
+      </template>
       <div class="sidebar-nav-group" :class="'sidebar-nav-' + group.id">
         <p class="sidebar-group-label">{{ group.label }}</p>
         <button v-for="tab in group.tabs" :key="tab.id" class="desktop-tab" :class="{ active: tabs.activeNavigationTabId === tab.id }" :data-tab="tab.id"

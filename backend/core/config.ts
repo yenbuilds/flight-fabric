@@ -106,9 +106,10 @@ function normalizeCsvWriterMode(raw: unknown): CsvWriterMode {
 //   'packaged' - Rolling buffer, fixed-size storage, disk-safe (Electron release)
 //   'auto'     - Auto-detect: 'packaged' if ELECTRON_PACKAGED=1, else 'dev'
 //
-// Electron main.js sets ELECTRON_PACKAGED=1 when app.isPackaged is true.
+// Electron supplies both the environment marker and a launch flag. The flag
+// survives .env.local overriding environment values before config is loaded.
 const envModeRaw = str('FLIGHT_ENV_MODE', 'auto');
-const isElectronPackaged = bool('ELECTRON_PACKAGED', false);
+const isElectronPackaged = process.argv.includes('--ff-packaged') || bool('ELECTRON_PACKAGED', false);
 const isElectronBackend = env.FF_ELECTRON_BACKEND === '1' || env.ELECTRON_RUN_AS_NODE === '1';
 const isLocalBatchLaunch = env.FF_LOCAL_BAT_LAUNCH === '1';
 const stabilityDebugLogBlocked = isElectronPackaged || isElectronBackend || isLocalBatchLaunch;
@@ -153,6 +154,13 @@ const config = Object.freeze({
     isLocalBatchLaunch, // True when started from start-simbridge.bat
     isPkgPackaged, // True only when running inside pkg-built binary
     parentStdinLifeline: bool('FF_PARENT_STDIN_LIFELINE', false),
+  }),
+
+  // Release gate: experimental replay is available only by explicit local
+  // development opt-in. Logging-mode overrides cannot enable packaged builds.
+  inSimReplay: Object.freeze({
+    enabled: !isElectronPackaged && !isPkgPackaged && envMode === 'dev'
+      && bool('FF_ENABLE_EXPERIMENTAL_REPLAY', false),
   }),
 
   // ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ export const TAXI_GUIDANCE_READ_MESSAGE_TYPES = Object.freeze([
 ] as const);
 
 export const PRIVILEGED_CLIENT_MESSAGE_TYPES = Object.freeze([
+  'inSimReplay',
   'saveAppSettings',
   'fuelUnit',
   'showBranding',
@@ -83,9 +84,10 @@ export function isClientMessageAuthorized(
   if (TRUSTED_LAN_SAFE_READ_MESSAGE_TYPE_SET.has(messageType)) return true;
   if ((TAXI_GUIDANCE_READ_MESSAGE_TYPES as readonly string[]).includes(messageType)) return client?.__ffToolbarPresetClient === true
     || client?.__ffAircraftControlClient === true || client?.__ffPrivilegedClient === true;
-  // The toolbar may run reviewed presets and the bounded pushback session.
+  // The toolbar may run reviewed presets and bounded pushback/replay operations.
+  // Replay preparation and native connection require privilege inside the session.
   // It still has no Autotaxi, arbitrary cockpit-control, or settings permission.
-  if (['executeAircraftCommand', 'pushback'].includes(messageType) && client?.__ffToolbarPresetClient === true) return true;
+  if (['executeAircraftCommand', 'pushback', 'inSimReplay'].includes(messageType) && client?.__ffToolbarPresetClient === true) return true;
   if (AIRCRAFT_CONTROL_MESSAGE_TYPE_SET.has(messageType)) {
     return client?.__ffPrivilegedClient === true
       || client?.__ffAircraftControlClient === true;

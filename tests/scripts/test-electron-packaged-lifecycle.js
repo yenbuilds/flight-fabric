@@ -208,7 +208,7 @@ function assertEvent(events, name, predicate = () => true) {
   return event;
 }
 
-async function runPackagedLifecycleScenario(action) {
+async function runPackagedLifecycleScenario(action, { environment = {}, verifyReady } = {}) {
   if (!['quit', 'hard-death'].includes(action)) throw new Error(`Unknown lifecycle action: ${action}`);
   if (process.platform !== 'win32') {
     console.log(`Packaged Electron lifecycle ${action} scenario skipped (Windows only)`);
@@ -252,6 +252,7 @@ async function runPackagedLifecycleScenario(action) {
   try {
     const env = {
       ...process.env,
+      ...environment,
       HOME: profileRoot,
       USERPROFILE: profileRoot,
       APPDATA: path.join(profileRoot, 'AppData', 'Roaming'),
@@ -337,6 +338,8 @@ async function runPackagedLifecycleScenario(action) {
         predicate: (identity) => isLifecycleSidecarIdentity(identity, backendPid),
       });
     }
+
+    if (verifyReady) await verifyReady({ exePath, wsPort, httpPort, profileRoot });
 
     let exit;
     if (action === 'hard-death') {
@@ -442,7 +445,11 @@ async function runPackagedLifecycleProbe() {
   await runPackagedLifecycleScenario('hard-death');
 }
 
-runPackagedLifecycleProbe().catch((error) => {
-  console.error(error?.stack || String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  runPackagedLifecycleProbe().catch((error) => {
+    console.error(error?.stack || String(error));
+    process.exit(1);
+  });
+}
+
+module.exports = { runPackagedLifecycleScenario };

@@ -16,6 +16,7 @@ import { initSettingsRuntime } from '../../settings/runtime.js';
 import SettingsAboutLegal from './SettingsAboutLegal.vue';
 import SettingsActionBar from './SettingsActionBar.vue';
 import SettingsFormPanels from './SettingsFormPanels.vue';
+import VoiceControlSettings from './VoiceControlSettings.vue';
 import HelpTooltip from './HelpTooltip.vue';
 import SettingsPendingBar from './SettingsPendingBar.vue';
 import { useProfilesStore } from '../stores/profiles.js';
@@ -23,12 +24,14 @@ import { useSettingsEditorStore } from '../stores/settings-editor.js';
 import { useSettingsFormStore } from '../stores/settings-form.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
+import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
 
 const settingsEditor = useSettingsEditorStore();
 const settingsForm = useSettingsFormStore();
 const settingsUi = useSettingsUiStore();
 const toolbarPanel = useToolbarPanelStore();
+const voice = useVoiceControlStore();
 const tabs = useTabsStore();
 const profiles = useProfilesStore();
 const canManageSettings = computed(() => profiles.authorizationScope === 'full-control');
@@ -73,6 +76,8 @@ onUnmounted(() => {
       <h2 class="text-sm font-semibold tracking-wide mb-1">Settings</h2>
       <p class="text-xs text-gray-500">Choose how FlightFabric works on this device.</p>
     </div>
+
+    <VoiceControlSettings v-if="voice.bridgeAvailable" />
 
     <section v-if="!canManageSettings" id="settings-pc-managed-note" class="settings-panel" aria-labelledby="settings-pc-managed-title">
       <h3 id="settings-pc-managed-title" class="settings-panel-title">App settings are managed on your PC</h3>

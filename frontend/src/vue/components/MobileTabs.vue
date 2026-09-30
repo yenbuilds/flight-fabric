@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import TabIcon from './TabIcon.vue';
 import SupportLink from './SupportLink.vue';
 import ToolbarPanelSetupTask from './ToolbarPanelSetupTask.vue';
+import VoiceControlSetupTask from './VoiceControlSetupTask.vue';
 import { EXPERIMENTAL_TABS } from '../tab-config.js';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
@@ -156,6 +157,7 @@ useDocumentEvent('keydown', onKeydown);
         </button>
       </div>
       <SupportLink class="mobile-support-link" />
+      <VoiceControlSetupTask class="mobile-toolbar-setup-task" />
       <ToolbarPanelSetupTask class="mobile-toolbar-setup-task" />
       <button
         v-for="tab in tabs.mobileNavigationMoreTabs"

@@ -6,12 +6,15 @@ import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
+import { useVoiceControlStore } from '../stores/voice-control.js';
+import { focusVoiceSettings } from '../voice-settings-navigation.js';
 import { focusToolbarPanelSettings } from '../toolbar-panel-navigation.js';
 import { SUPPORT_URL as supportHref } from '../../support/links.js';
 
 const shell = useShellStore();
 const tabs = useTabsStore();
 const toolbarPanel = useToolbarPanelStore();
+const voice = useVoiceControlStore();
 const panel = ref(null);
 const query = ref('');
 const selected = ref(0);
@@ -22,15 +25,21 @@ let background = null;
 let backgroundWasInert = false;
 const descriptions = {
   livemap: 'Live position, route and map', flight: 'Flight instruments and aircraft state',
-  autopilot: 'Cockpit controls, presets, voice and CDU', dispatch: 'Flight plan, fuel and briefing',
+  autopilot: 'Cockpit controls, presets and CDU', dispatch: 'Flight plan, fuel and briefing',
   timeline: 'Saved flights, replay and landing review', settings: 'Preferences and integrations',
   system: 'Connection, devices and services', landing: 'Most recent takeoff and landing assessment',
   cues: 'Experimental flight cues', lvars: 'Aircraft variable inspector',
   'toolbar-panel': 'Install, update or repair the in-sim toolbar',
+  'voice-settings': 'Settings for microphone, push-to-talk and spoken feedback',
+};
+const searchKeywords = {
+  'voice-settings': ['microphone', 'mic', 'push', 'to', 'talk', 'push-to-talk', 'ptt', 'setup'],
+  system: ['phone', 'tablet', 'pairing', 'setup'],
 };
 const destinations = computed(() => [
   ...[...tabs.desktopPrimaryTabs, ...tabs.desktopSecondaryTabs].map((tab, index) => ({ ...tab, shortcut: String(index + 1) })),
   ...(toolbarPanel.available ? [{ id: 'toolbar-panel', tabId: 'settings', label: 'MSFS 2024 toolbar panel', icon: 'settings' }] : []),
+  ...(voice.bridgeAvailable ? [{ id: 'voice-settings', tabId: 'settings', label: 'Voice control', icon: 'settings' }] : []),
   { id: 'landing', label: 'Takeoff and landing', icon: 'landing' },
   { id: 'cues', label: 'Flight cues', icon: 'cues' },
   { id: 'lvars', label: 'LVAR inspector', icon: 'system' },
@@ -39,7 +48,10 @@ const results = computed(() => {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return destinations.value.filter(tab => {
     const text = `${tab.label} ${descriptions[tab.id] || ''}`.toLowerCase();
-    return terms.every(term => text.includes(term));
+    // Keyword prefixes keep "phone" from matching "microphone" while typing.
+    return terms.every(term => (tab.id === 'voice-settings'
+      ? text.split(/[^a-z0-9-]+/).some(word => word.startsWith(term)) : text.includes(term))
+      || (searchKeywords[tab.id] || []).some(keyword => keyword.startsWith(term)));
   });
 });
 
@@ -56,6 +68,10 @@ async function navigate(tab) {
   await nextTick();
   if (!shell.navigatorOpen && tabs.activeTabId === targetTab) {
     if (tab.id === 'toolbar-panel') await focusToolbarPanelSettings(tabs);
+    else if (tab.id === 'voice-settings') {
+      voice.settingsReturnToAircraft = false;
+      await focusVoiceSettings(tabs);
+    }
     else document.getElementById('vue-main-root')?.focus({ preventScroll: true });
   }
   navigating = false;

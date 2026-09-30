@@ -3,12 +3,16 @@ import { computed, ref, watch } from 'vue';
 import { useVoicePushToTalk } from '../composables/useVoicePushToTalk.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useVoiceFirstCommandStore } from '../stores/voice-first-command.js';
+import { useTabsStore } from '../stores/tabs.js';
+import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
 
 // The first voice moment: one quotable phrase and the button to say it into,
 // right on the card, so nobody has to find the Aircraft page first. Non-modal,
 // never takes focus, and a sent command is the only thing that changes it.
 const card = useVoiceFirstCommandStore();
 const voice = useVoiceControlStore();
+const tabs = useTabsStore();
+const visible = computed(() => card.visible && tabs.activeTabId !== 'settings' && !tabs.moreSheetOpen && !voice.panelOpen);
 const { press, pressWithKeyboard, release, cancelLocalPress } = useVoicePushToTalk(voice);
 const enabling = ref(false);
 
@@ -37,8 +41,8 @@ const note = computed(() => {
 
 // The card can be withdrawn while the button is held (sim into a menu,
 // another card taking the slot); a detached button may never see pointerup.
-watch(() => card.visible, (visible) => {
-  if (!visible) cancelLocalPress();
+watch(visible, (show) => {
+  if (!show) cancelLocalPress();
 });
 const doneDetail = computed(() => voice.lastCommand || voice.statusText || 'Command sent.');
 
@@ -55,7 +59,7 @@ async function enableVoice() {
 
 <template>
   <div
-    v-if="card.visible"
+    v-if="visible"
     id="voice-first-command-card"
     class="app-prompt"
     role="status"
@@ -138,11 +142,11 @@ async function enableVoice() {
         <div id="voice-first-command-result" class="app-prompt-intent text-fg">{{ doneDetail }}</div>
         <div class="app-prompt-intent">
           <template v-if="voice.runtime.shortcut">
-            Hold <kbd class="rounded border border-white/15 bg-black/20 px-1 font-mono text-[11px]">{{ voice.runtime.shortcut }}</kbd>
+            Hold <KeyboardShortcutKeys :shortcut="voice.runtime.shortcut" class="text-[11px]" />
             with the simulator in front and FlightFabric listens the same way.
           </template>
           <template v-else>
-            Set a push-to-talk shortcut under Aircraft › Voice control to use it with the simulator in front.
+            Set a push-to-talk shortcut under Settings › Voice control to use it with the simulator in front.
           </template>
         </div>
       </div>

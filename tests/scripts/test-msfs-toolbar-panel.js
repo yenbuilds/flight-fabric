@@ -71,7 +71,7 @@ test('toolbar refreshes voice commands on matching capability updates, including
     renderFlight = renderVoice = renderTabs = function () {};
     globalThis.panel = { receive: handleMessage, state: state, subscriptions: SUBSCRIPTION };
   })();`);
-  const context = { window: { localStorage: null }, document: { readyState: 'loading', addEventListener() {} },
+  const context = { window: { localStorage: null, FlightFabricReplayPanel: { createReplayPanel() { return { update() {}, receive() {} }; } } }, document: { readyState: 'loading', addEventListener() {} },
     FlightFabricToolbarTaxi: { createTaxiPanel() { return { update() {}, reset() {} }; } },
     setTimeout() {}, clearTimeout() {}, FlightFabricToolbarPresets: { createPresetPanel() { return { update() {}, reset() {} }; } } };
   vm.runInNewContext(source, context);

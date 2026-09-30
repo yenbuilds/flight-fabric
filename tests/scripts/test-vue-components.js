@@ -125,6 +125,11 @@ function rewriteImportSpecifiers(code, sourceFilename) {
     return `import(${quote}${rewriteSpecifier(specifier, sourceFilename)}${quote})`;
   });
 
+  // Side-effect modules execute in component tests; CSS is verified by the
+  // browser fixtures rather than imported by Node's server renderer.
+  rewritten = rewritten.replace(/import\s+(['"])([^'"]+)\1\s*;?/g, (_match, quote, specifier) => {
+    return specifier.endsWith('.css') ? '' : `import ${quote}${rewriteSpecifier(specifier, sourceFilename)}${quote};`;
+  });
   return rewritten;
 }
 
@@ -386,7 +391,7 @@ async function main() {
       emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: false, canGuide: true,
         unavailableReason: 'Release the parking brake before starting.' });
       await nextTick();
-      assert.equal(descendants(root).find(node => node.kind === 'button' && node.text === 'Show route').props.disabled, false,
+      assert.equal(descendants(root).find(node => node.kind === 'button' && node.text === 'Show taxi route').props.disabled, false,
         'guidance is available while automatic control is not ready');
       assert.equal(descendants(root).find(node => node.kind === 'button' && node.text === 'Start Autotaxi').props.disabled, true);
       assert.equal(descendants(root).find(node => node.props['data-taxi-automation'] !== undefined).props.open, false,
@@ -462,7 +467,7 @@ async function main() {
       reply(reconnectedLookup, 'Medium gate'); await nextTick();
       emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true, canGuide: true });
       await nextTick();
-      for (const [operation, label] of [['start', 'Start Autotaxi'], ['preview', 'Show route'], ['stop', 'Stop'], ['release', 'Release controls']]) {
+      for (const [operation, label] of [['start', 'Start Autotaxi'], ['preview', 'Show taxi route'], ['stop', 'Stop'], ['release', 'Release controls']]) {
         if (['stop', 'release'].includes(operation)) {
           emitWsMessage({ type: 'autotaxiState', status: 'taxiing', active: true, canStart: false });
           await nextTick();
@@ -1993,7 +1998,7 @@ async function main() {
         card.markCompleted();
       },
     );
-    assert.match(noShortcut.html, /Set a push-to-talk shortcut under Aircraft › Voice control/, 'without a shortcut the done stage says where to set one');
+    assert.match(noShortcut.html, /Set a push-to-talk shortcut under Settings › Voice control/, 'without a shortcut the done stage says where to set one');
   });
 
   await test('VoiceFirstCommandCard yields the corner to another card that holds the slot', async () => {
@@ -2005,6 +2010,19 @@ async function main() {
       },
     );
     assert.doesNotMatch(html, /id="voice-first-command-card"/, 'two cards never stack');
+  });
+
+  await test('VoiceFirstCommandCard steps aside for More and voice settings without dismissing guidance', async () => {
+    for (const surface of ['more', 'voice']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'), ({ useVoiceFirstCommandStore, useVoiceControlStore, useTabsStore }) => {
+        const card = useVoiceFirstCommandStore();
+        card.open({ example: 'Set heading 270' });
+        if (surface === 'more') useTabsStore().moreSheetOpen = true;
+        else useVoiceControlStore().panelOpen = true;
+        assert.equal(card.dismissedThisSession, false);
+      });
+      assert.doesNotMatch(html, /id="voice-first-command-card"/, `${surface} must not be covered by a voice prompt`);
+    }
   });
 
   await test('About carries a Support section with the note, the goal, and reversible preferences', async () => {
@@ -3782,8 +3800,8 @@ async function main() {
       ['error', 'attention', 'Needs attention'],
       ['unmatched', 'attention', 'Try again'],
       ['transcribed', 'ready', 'Transcribed'],
-      ['blocked', 'attention', 'Check setup'],
-      ['unavailable', 'attention', 'Check setup'],
+      ['blocked', 'attention', 'Unavailable'],
+      ['unavailable', 'attention', 'Unavailable'],
     ];
     const mappedStatuses = new Set(cases.map(([status]) => status));
     const voiceControllerSource = fs.readFileSync(path.join(
@@ -3809,6 +3827,40 @@ async function main() {
         `${status} should use the ${state} launcher treatment`,
       );
       assert.match(rendered.html, new RegExp(label), `${status} should render the ${label} launcher label`);
+    }
+  });
+
+  await test('voice launcher and sidebar distinguish incomplete setup from a disconnected simulator', async () => {
+    for (const [registered, status, label] of [[false, 'ready', 'Check setup'], [true, 'ready', 'Ready'], [true, 'blocked', 'Unavailable']]) {
+      const configure = ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.setBridgeAvailable(true);
+        voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered } });
+        voice.setState(status);
+      };
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'), configure);
+      assert.match(html, new RegExp(`aria-label="Open voice control, ${label}"`));
+      for (const component of ['DesktopTabs.vue', 'MobileTabs.vue']) {
+        const navigation = await renderComponent(path.join('src', 'vue', 'components', component), configure);
+        assert.equal(navigation.html.includes('data-voice-setup-trigger'), !registered, `${component}: reminder follows registration, not MSFS connectivity`);
+      }
+    }
+  });
+
+  await test('Settings owns desktop voice configuration, including after setup', async () => {
+    for (const desktop of [false, true]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SettingsTabShell.vue'), ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.setBridgeAvailable(desktop);
+        voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered: true } });
+        voice.setState('blocked');
+      });
+      assert.equal(html.includes('id="voice-input-device"'), desktop, 'desktop settings stay reachable even without a simulator connection; remote browsers do not offer local voice');
+      if (desktop) {
+        assert.match(html, /id="voice-ptt-shortcut"/);
+        assert.match(html, /Spoken feedback/);
+        assert.doesNotMatch(html, /data-settings-voice-trigger|data-voice-push-to-talk/);
+      }
     }
   });
 
@@ -3847,7 +3899,7 @@ async function main() {
           specific.sourceStatus = 'connected';
         });
       assert.match(html, /data-more-state-queries/);
-      assert.doesNotMatch(html, /<details[^>]*\bopen(?:[ =>])/);
+      assert.doesNotMatch(html.match(/<details[^>]*data-more-state-queries[^>]*>/)[0], /\bopen(?:[ =>])/);
       assert.match(html, /what is the autobrake setting/);
       if (profile !== 'pmdg-777') {
         assert.match(html, /what is captain qnh/);
@@ -3945,32 +3997,184 @@ async function main() {
     assert.match(html, /Audio remains local and is not saved/i);
   });
 
-  await test('VoiceControlPanel records push-to-talk shortcuts instead of accepting accelerator text', async () => {
+  await test('KeyboardShortcutKeys displays individual keys without changing the accessible accelerator', async () => {
+    for (const [shortcut, expected] of [
+      ['Control+Shift+Space', ['Ctrl', 'Shift', 'Space']],
+      ['Control+Alt+Shift+Super+PageDown', ['Ctrl', 'Alt', 'Shift', 'Win', 'PgDn']],
+      ['Alt+PageUp', ['Alt', 'PgUp']],
+      ['Control+Escape', ['Ctrl', 'Esc']],
+      ['Control+F8', ['Ctrl', 'F8']],
+      ['Control+Left', ['Ctrl', 'Left']],
+      ['', []],
+    ]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'KeyboardShortcutKeys.vue'),
+        () => {}, { props: { shortcut } },
+      );
+      assert.deepEqual([...html.matchAll(/<kbd\b[^>]*>([^<]*)<\/kbd>/g)].map(match => match[1]), expected);
+      assert.ok(html.includes(`>${shortcut}</span>`), 'screen readers retain the full accelerator');
+      assert.doesNotMatch(html, /<button|tabindex=/, 'keycaps do not add individual focus or click targets');
+    }
+  });
+
+  await test('VoiceControlSettings records push-to-talk shortcuts instead of accepting accelerator text', async () => {
     const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
       ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
         available: true,
         enabled: true,
         engine: { modelId: 'test-model' },
         pushToTalk: { accelerator: '', registered: false },
       }),
-      { props: { presentation: 'modal' } },
     );
 
     assert.match(html, /<button[^>]*id="voice-ptt-shortcut"[^>]*data-voice-shortcut-recorder/, 'shortcut configuration should expose a keyboard recorder');
     assert.doesNotMatch(html, /<input[^>]*id="voice-ptt-shortcut"/, 'shortcut configuration should not accept raw accelerator text');
-    assert.match(html, /Set push-to-talk/, 'an unassigned shortcut should be called out in the settings summary');
     assert.match(html, /Set shortcut/, 'an unassigned shortcut should expose a clear setup action');
-    assert.match(html, /No global shortcut is active\. Click to record one\./, 'the recorder should explain that no global shortcut is active');
-    assert.match(html, /On-screen only/, 'the main control should explain that its on-screen action remains available');
+    assert.match(html, /No global shortcut is active\./, 'the recorder should explain that no global shortcut is active');
+    assert.match(html, /on-screen button on Aircraft/, 'settings explain the valid on-screen-only option');
     assert.doesNotMatch(html, /data-voice-joystick-binding|Set joystick button/, 'joystick setup is absent unless the desktop explicitly supports it');
     assert.doesNotMatch(html, /data-voice-joystick-remove/, 'nothing to remove while no joystick button is bound');
   });
 
-  await test('VoiceControlPanel hides disabled joystick controls and stale bindings while retaining keyboard setup', async () => {
+  await test('VoiceControlSettings shortcut setup distinguishes unsaved edits and preserves save/cancel behavior', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'VoiceControlSettings.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const voice = useVoiceControlStore();
+    const tabs = useTabsStore();
+    tabs.activeTabId = 'settings';
+    voice.runtime.enabled = true;
+    voice.setState('ready');
+    const saves = [];
+    let finishSave;
+    voice.bindRuntime({ setShortcut: value => {
+      saves.push(value);
+      return new Promise(resolve => {
+        finishSave = ok => { if (ok) voice.runtime.shortcut = value; resolve(ok); };
+      });
+    } });
+    const app = renderer.createApp(component); app.use(pinia);
+    try {
+      app.mount(makeNode('root'));
+      const recorder = nodes.find(node => node.kind === 'button' && node.props.id === 'voice-ptt-shortcut');
+      assert.ok(recorder);
+      const setup = recorder;
+      await setup.props.onClick(); await nextTick();
+      assert.equal(recorder.props['aria-label'], 'Press the new push-to-talk shortcut');
+      const nodeText = node => [node.text, ...node.children.map(nodeText)].join('').trim();
+      const keyLabels = node => [
+        ...(node.kind === 'kbd' ? [nodeText(node)] : []), ...node.children.flatMap(keyLabels),
+      ];
+      const action = label => recorder.parent.children.find(node => node.kind === 'button' && nodeText(node) === label);
+      const help = nodes.find(node => node.props.id === 'voice-ptt-shortcut-help');
+      const key = async (key, modifiers = {}) => {
+        recorder.props.onKeydown({ key, preventDefault() {}, stopPropagation() {}, ...modifiers });
+        await nextTick();
+      };
+      await key('a');
+      assert.match(nodeText(nodes.find(node => node.props.id === 'voice-ptt-shortcut-error')), /Include Ctrl/);
+      await key('F8', { ctrlKey: true, shiftKey: true });
+      assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8']);
+      assert.equal(recorder.props['aria-label'], 'Unsaved push-to-talk shortcut: Control+Shift+F8. Save shortcut to use it.');
+      assert.match(nodeText(help), /Not saved yet.*Save shortcut/);
+      assert.ok(action('Save shortcut'));
+      assert.equal(voice.runtime.shortcut, '', 'capturing a combination does not activate it');
+      assert.deepEqual(saves, []);
+      await setup.props.onClick(); await nextTick();
+      tabs.activeTabId = 'autopilot'; await nextTick();
+      await key('F9', { ctrlKey: true });
+      assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8'], 'leaving Settings stops recording and keeps the existing draft');
+      tabs.activeTabId = 'settings'; await nextTick();
+      assert.ok(action('Save shortcut'), 'the preserved draft can still be saved on return');
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.equal(nodeText(recorder), 'Set shortcut');
+      assert.equal(action('Save shortcut'), undefined);
+      assert.doesNotMatch(nodeText(help), /Not saved yet/);
+      await setup.props.onClick(); await key('Escape');
+      assert.equal(nodeText(recorder), 'Set shortcut', 'Escape cancels recording');
+      assert.deepEqual(saves, []);
+
+      await setup.props.onClick(); await key('F8', { ctrlKey: true, shiftKey: true });
+      const saving = recorder.parent.parent.props.onSubmit({ preventDefault() {} });
+      await nextTick();
+      assert.deepEqual(saves, ['Control+Shift+F8']);
+      assert.equal(voice.runtime.shortcut, '', 'the shortcut stays unsaved until acknowledged');
+      assert.equal(action('Saving…').props.disabled, true);
+      assert.equal(action('Cancel').props.disabled, true, 'Cancel cannot imply that an in-flight native save can be withdrawn');
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8'], 'a pending save keeps its submitted draft');
+      assert.match(nodeText(help), /Saving shortcut/);
+      await recorder.parent.parent.props.onSubmit({ preventDefault() {} });
+      assert.equal(saves.length, 1, 'a pending save cannot be submitted twice');
+      finishSave(true); await saving; await nextTick();
+      assert.equal(voice.runtime.shortcut, 'Control+Shift+F8');
+      assert.match(recorder.props['aria-label'], /^Current push-to-talk shortcut:/);
+      assert.equal(action('Save shortcut'), undefined);
+      assert.doesNotMatch(nodeText(help), /Not saved yet|Saving shortcut/);
+
+      await setup.props.onClick(); await key('F9', { ctrlKey: true });
+      const failedSave = recorder.parent.parent.props.onSubmit({ preventDefault() {} });
+      finishSave(false); await failedSave; await nextTick();
+      assert.equal(voice.runtime.shortcut, 'Control+Shift+F8', 'failed registration retains the saved shortcut');
+      assert.match(nodeText(help), /Not saved yet/);
+      assert.match(nodeText(recorder.parent.parent), /could not be registered/);
+      assert.ok(action('Save shortcut'), 'failed registration can be retried');
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8'], 'Cancel restores the saved shortcut keycaps');
+      assert.doesNotMatch(nodeText(help), /Not saved yet/);
+    } finally { app.unmount(); }
+  });
+
+  await test('VoiceControlSettings shows enablement failures and permits a successful retry', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'VoiceControlSettings.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const voice = useVoiceControlStore();
+    voice.setState('disabled');
+    voice.bindRuntime({ setRecognitionEnabled: async () => {
+      voice.setState('error', 'Native voice startup failed.'); return false;
+    } });
+    const root = makeNode('root');
+    const app = renderer.createApp(component); app.use(pinia);
+    const nodeText = node => [node.text, ...node.children.map(nodeText)].join('').trim();
+    try {
+      app.mount(root);
+      const toggle = nodes.find(node => node.kind === 'input' && node.parent.props['data-voice-recognition-toggle'] !== undefined);
+      const target = { checked: true };
+      await toggle.props.onChange({ currentTarget: target }); await nextTick();
+      assert.equal(target.checked, false, 'a failed toggle restores the actual state');
+      assert.match(nodeText(root), /Native voice startup failed\./, 'failure is visible on Settings');
+      assert.equal(toggle.props.disabled, false, 'retry stays available');
+      voice.bindRuntime({ setRecognitionEnabled: async enabled => { voice.runtime.enabled = enabled; voice.setState('ready'); return true; } });
+      await toggle.props.onChange({ currentTarget: { checked: true } }); await nextTick();
+      assert.equal(voice.runtime.enabled, true);
+      assert.doesNotMatch(nodeText(root), /Native voice startup failed\./, 'successful retry clears the error');
+    } finally { app.unmount(); }
+  });
+
+  await test('VoiceControlSettings displays microphone discovery errors independently of simulator readiness', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
+      ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.runtime.enabled = true;
+        voice.runtime.available = true;
+        voice.inputDevicesError = 'Microphone access denied.';
+        voice.setState('blocked', 'MSFS is disconnected.');
+      },
+    );
+    assert.match(html, /data-voice-microphone-error[^>]*role="alert"[^>]*>[^<]*Microphone access denied\./);
+  });
+
+  await test('VoiceControlSettings hides disabled joystick controls and stale bindings while retaining keyboard setup', async () => {
     for (const joystickAvailable of [false, undefined]) {
       const { html } = await renderComponent(
-        path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+        path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
         ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
           available: true, enabled: true,
           pushToTalk: {
@@ -3979,29 +4183,31 @@ async function main() {
             joystick: { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' },
           },
         }),
-        { props: { presentation: 'modal' } },
-      );
+        );
       assert.doesNotMatch(html, /data-voice-joystick|T\.16000M|Set joystick button/);
       assert.match(html, /data-voice-shortcut-recorder/);
       assert.match(html, /Control\+Alt\+Space/);
     }
   });
 
-  await test('VoiceControlPanel names the bound joystick button and says when its stick is missing', async () => {
+  await test('VoiceControlSettings names the bound joystick button and says when its stick is missing', async () => {
     const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' };
-    const renderWith = async (joystickConnected) => renderComponent(
-      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+    const renderWith = async (joystickConnected, component = 'VoiceControlSettings.vue') => renderComponent(
+      path.join('src', 'vue', 'components', component),
       ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
         available: true,
         enabled: true,
         engine: { modelId: 'test-model' },
         pushToTalk: { accelerator: 'Control+Alt+Space', joystickAvailable: true, joystick, joystickConnected, registered: true },
       }),
-      { props: { presentation: 'modal' } },
     );
 
     const connected = await renderWith(true);
-    assert.match(connected.html, /Control\+Alt\+Space · T\.16000M button 5/, 'the main control should list both global holds');
+    const operational = await renderWith(true, 'VoiceControlPanel.vue');
+    const mainHold = operational.html.match(/<button\b[^>]*data-voice-push-to-talk[^>]*>([\s\S]*?)<\/button>/)?.[1];
+    assert.ok(mainHold, 'the main push-to-talk control is present');
+    assert.match(mainHold, /Control\+Alt\+Space/, 'the main control retains the keyboard shortcut');
+    assert.match(mainHold, /· T\.16000M button 5/, 'the main control also lists the joystick hold');
     assert.match(connected.html, /data-voice-joystick-connection[^>]*>\s*Connected/, 'a present stick should read as connected');
     assert.match(connected.html, /data-voice-joystick-remove/, 'a bound button should be removable');
     assert.match(connected.html, /The simulator sees this button too/, 'the panel should warn that the simulator also receives the button');
@@ -4012,9 +4218,9 @@ async function main() {
     assert.match(missing.html, /T\.16000M is not connected\. The binding stays and works again once it is plugged in\./);
   });
 
-  await test('VoiceControlPanel shows which sticks it is listening on while a joystick button is being chosen', async () => {
+  await test('VoiceControlSettings shows which sticks it is listening on while a joystick button is being chosen', async () => {
     const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
       ({ useVoiceControlStore }) => {
         const voice = useVoiceControlStore();
         voice.applyRuntimeInfo({
@@ -4027,7 +4233,6 @@ async function main() {
         voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p1', buttons: 16, connected: true });
         voice.applyJoystickLearnEvent({ type: 'device', vendorId: '294B', productId: '1900', name: 'Alpha Flight Controls', path: 'p2', buttons: 35, connected: true });
       },
-      { props: { presentation: 'modal' } },
     );
 
     assert.match(html, /Press a joystick button…/, 'the recorder should ask for a press while listening');
@@ -4035,9 +4240,9 @@ async function main() {
     assert.match(html, /data-voice-joystick-binding[\s\S]*Cancel/, 'listening should be cancellable');
   });
 
-  await test('VoiceControlPanel explains a failed spoken readback beside the feedback toggle', async () => {
+  await test('VoiceControlSettings explains a failed spoken readback beside the feedback toggle', async () => {
     const render = (readback) => renderComponent(
-      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
       ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
         available: true, enabled: true, engine: { modelId: 'zipformer' },
         pushToTalk: { accelerator: 'Control+Alt+Space', registered: true }, readback,
@@ -4439,7 +4644,7 @@ async function main() {
     }
   });
 
-  await test('Aircraft voice control modal keeps desktop PTT and settings off the main page', async () => {
+  await test('Aircraft voice control modal keeps operational PTT and links to Settings', async () => {
     const modalSource = fs.readFileSync(path.join(
       frontendRoot,
       'src',
@@ -4472,6 +4677,7 @@ async function main() {
           pushToTalk: { accelerator: 'Ctrl+Alt+Space', registered: true },
         });
         voice.setState('ready', 'Ready.');
+        voice.setBridgeAvailable(true);
         voice.setInputDevices([{ deviceId: 'desktop-mic', label: 'Desktop microphone' }]);
       },
       { props: { open: true } },
@@ -4484,27 +4690,25 @@ async function main() {
     assert.match(html, /aria-haspopup="dialog"/, 'the command browser should announce that it opens a dialog');
     assert.match(html, /aria-controls="aircraft-integration-cheatsheet-modal"/, 'the command browser should identify the integration guide it opens');
     assert.match(html, /data-voice-control-presentation="modal"/, 'the existing voice controls should use their compact modal presentation');
-    assert.match(html, /data-voice-recognition-toggle/, 'the modal should expose the explicit voice-recognition opt-in');
     assert.match(html, /Hold to talk/, 'the on-screen push-to-talk control should remain available on desktop');
-    assert.match(html, /id="voice-input-device"/, 'the modal should retain microphone selection');
-    assert.match(html, /Local spoken feedback/, 'the modal should expose local spoken command feedback');
     assert.doesNotMatch(html, /Noisy-cockpit processing/, 'the removed browser audio-processing option should stay absent');
-    assert.match(html, /Push-to-talk shortcut/, 'the modal should retain shortcut configuration');
+    assert.match(html, /data-voice-settings-link/);
+    assert.doesNotMatch(html, /id="voice-input-device"|data-voice-shortcut-recorder|data-voice-recognition-toggle/, 'configuration has one home in Settings');
     assert.doesNotMatch(html, /aircraft-voice-commands-modal/, 'the voice modal should avoid stacking a second modal for command discovery');
     assert.match(modalSource, /<Teleport to="body"/, 'the voice modal should escape Aircraft-page clipping');
     assert.match(modalSource, /event\.key === 'Escape'/, 'the voice modal should support keyboard dismissal');
   });
 
-  await test('VoiceControlPanel keeps recognition and microphone controls off by default', async () => {
+  await test('VoiceControlSettings keeps recognition and microphone controls off by default', async () => {
     const panelSource = fs.readFileSync(path.join(
       frontendRoot,
       'src',
       'vue',
       'components',
-      'VoiceControlPanel.vue',
+      'VoiceControlSettings.vue',
     ), 'utf8');
     const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
+      path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
       ({ useVoiceControlStore }) => {
         const voice = useVoiceControlStore();
         voice.applyRuntimeInfo({
@@ -4515,23 +4719,19 @@ async function main() {
         });
         voice.setState('disabled', 'Voice control is off. Enable it to use local speech recognition.');
       },
-      { props: { presentation: 'modal' } },
     );
 
-    assert.match(html, /Voice control is off\. Enable it to use local speech recognition\./);
     assert.match(html, /data-voice-recognition-toggle[\s\S]*role="switch"/, 'the off state should retain its explicit opt-in control');
-    assert.match(html, /data-voice-push-to-talk[^>]*disabled/, 'on-screen push-to-talk should be disabled while recognition is off');
+    const operational = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'));
+    assert.match(operational.html, /data-voice-push-to-talk[^>]*disabled/, 'operational PTT stays off until explicit opt-in');
+    assert.doesNotMatch(operational.html, /data-voice-settings-link/, 'remote browsers must not offer a link to unavailable local settings');
+    assert.match(operational.html, /Configure voice control in FlightFabric on the simulator PC/);
     assert.match(html, /id="voice-input-device"[^>]*disabled/, 'microphone selection should be disabled while recognition is off');
     assert.match(html, /data-voice-shortcut-recorder[^>]*disabled/, 'shortcut capture should be disabled while recognition is off');
     assert.match(
       panelSource,
       /voice\.refreshInputDevices\(\{ requestAccess: true \}\)/,
       'the explicit Refresh action should request bounded device discovery access',
-    );
-    assert.match(
-      panelSource,
-      /const target = event\.currentTarget;[\s\S]*await voice\.setRecognitionEnabled\(nextEnabled\);[\s\S]*target\.checked = voice\.runtime\.enabled === true;/,
-      'a rejected asynchronous toggle should restore the visible checkbox state through its retained element reference',
     );
   });
 
@@ -10580,10 +10780,10 @@ async function main() {
     assert.match(launcher, /<svg[^>]*aria-hidden="true"[\s\S]*<\/svg>\s*<span[^>]*>MCDU \/ CDU<\/span>/, 'the CDU launcher should carry a decorative CDU icon before its label');
     assert.match(launcher, /aria-label="Open MCDU \/ CDU"/, 'the abbreviated phone launcher should retain the complete accessible label');
     assert.match(launcher, /aria-haspopup="dialog"/, 'the CDU launcher should announce its dialog');
-    const order = ['aria-label="Find on Aircraft page"', 'data-cdu-trigger', 'aria-controls="aircraft-secondary-tools-panel"', 'data-aircraft-integration-guide-trigger', 'data-aircraft-voice-control-trigger', 'data-aircraft-controls-trigger']
+    const order = ['aria-label="Find on Aircraft page"', 'data-cdu-trigger', 'data-aircraft-voice-control-trigger', 'aria-controls="aircraft-secondary-tools-panel"', 'data-aircraft-integration-guide-trigger', 'data-aircraft-controls-trigger']
       .map((marker) => withCdu.html.indexOf(marker));
     assert.ok(order.every((index) => index >= 0), 'every page tool should render for the PMDG 737');
-    assert.deepEqual([...order].sort((a, b) => a - b), order, 'Find and CDU should precede the shared secondary tools disclosure');
+    assert.deepEqual([...order].sort((a, b) => a - b), order, 'Find, CDU and Voice should remain visible before the secondary Tools disclosure');
     assert.equal((withCdu.html.match(/data-aircraft-controls-trigger/g) || []).length, 1, 'Control library should have one primary home');
 
     const generic = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'));

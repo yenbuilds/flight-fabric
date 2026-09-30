@@ -124,7 +124,12 @@ async function checkNativeInputBridge(win) {
   await wait(400);
   assert.equal(await count(), initialCount + 2, 'Enter and click each send once; held Enter cannot reapply');
   // Focus + Space/Tab use actual browser input rather than element.click().
+  // sendInputEvent queues native input. Observe its delivery to the iframe
+  // before checking focus; executeJavaScript can otherwise overtake the key.
+  await page(`window.fixtureTabReleased = false;
+    document.addEventListener('keyup', event => { window.fixtureTabReleased = event.key === 'Tab'; }, { once: true });`);
   await click(nav + ' input'); press('Tab');
+  await until(page, 'return window.fixtureTabReleased;');
   assert.equal(await page(`return document.activeElement === document.querySelector('${nav} button');`), true);
   assert.equal(await root('return keyboardClaimed;'), true, 'Tab retains native keyboard capture');
   key('keyDown', 'Space'); key('char', ' '); key('keyUp', 'Space');
@@ -350,6 +355,7 @@ async function main() {
   const interval = setInterval(() => { if (!stale) for (const socket of wss.clients) if (socket.readyState === 1) snapshot(socket); }, 500);
   const assets = { '/toolbar/': ['toolbar/index.html', 'text/html'], '/toolbar/toolbar.js': ['toolbar/toolbar.js', 'text/javascript'],
     '/toolbar/taxi.js': ['toolbar/taxi.js', 'text/javascript'],
+    '/toolbar/replay.js': ['toolbar/replay.js', 'text/javascript'], '/toolbar/replay.css': ['toolbar/replay.css', 'text/css'],
     '/toolbar/presets.js': ['toolbar/presets.js', 'text/javascript'], '/toolbar/toolbar.css': ['toolbar/toolbar.css', 'text/css'],
     '/toolbar/voice-reference.json': ['toolbar/voice-reference.json', 'application/json'], '/assets/aircraft-presets.svg': ['assets/aircraft-presets.svg', 'image/svg+xml'] };
   const http = require('node:http').createServer((req, res) => {

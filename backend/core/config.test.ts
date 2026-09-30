@@ -83,6 +83,7 @@ delete process.env.STABILITY_DEBUG_LOG;
 delete process.env.STABILITY_DEBUG_ALWAYS_ACTIVE;
 delete process.env.DEBUG_ENABLE;
 delete process.env.FF_ENABLE_EXPERIMENTAL_XPLANE;
+delete process.env.FF_ENABLE_EXPERIMENTAL_REPLAY;
 delete process.env.SIMCONNECT_PROTOCOL;
 delete process.env.POLL_RATE_MS;
 delete process.env.POLL_INTERVAL_MS;
@@ -534,6 +535,43 @@ const packagedConfigUpdateChecksDisabled = require('./config');
 
 test('update checks can be explicitly disabled', () => {
   assertFalse(packagedConfigUpdateChecksDisabled.updates.enabled, 'updates.enabled');
+});
+
+// -----------------------------------------------------------------------------
+// Replay release gate
+// -----------------------------------------------------------------------------
+test('replay requires a dev opt-in and cannot be enabled in packaged builds', () => {
+  const keys = ['ELECTRON_PACKAGED', 'FLIGHT_ENV_MODE', 'FF_ENABLE_EXPERIMENTAL_REPLAY'];
+  const previous = keys.map(key => process.env[key]);
+  const packagedProcess = process as NodeJS.Process & { pkg?: unknown };
+  const previousPkg = packagedProcess.pkg;
+  try {
+    for (const [electron, mode, optIn, pkg, expected] of [
+      [undefined, undefined, undefined, false, false],
+      [undefined, 'dev', '0', false, false],
+      [undefined, 'dev', 'yes', false, false],
+      [undefined, 'dev', '1', false, true],
+      [undefined, 'dev', 'true', false, true],
+      ['1', undefined, '1', false, false],
+      ['1', 'dev', '1', false, false],
+      [undefined, 'packaged', '1', false, false],
+      [undefined, 'dev', '1', true, false],
+    ] as const) {
+      [electron, mode, optIn].forEach((value, index) => {
+        if (value === undefined) delete process.env[keys[index]];
+        else process.env[keys[index]] = value;
+      });
+      if (pkg) packagedProcess.pkg = {}; else delete packagedProcess.pkg;
+      delete require.cache[require.resolve('./config')];
+      assertEqual(require('./config').inSimReplay.enabled, expected, JSON.stringify({ electron, mode, optIn, pkg }));
+    }
+  } finally {
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index];
+    });
+    if (previousPkg === undefined) delete packagedProcess.pkg; else packagedProcess.pkg = previousPkg;
+    delete require.cache[require.resolve('./config')];
+  }
 });
 
 // -----------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 // Shared app/toolbar control lifecycle. Previewing never starts a manoeuvre.
+import { TAXI_COPY } from './taxi-presentation.js';
 export function createPushbackControls({ send, changed, complete = () => {}, now = Date.now, setTimeout, clearTimeout }) {
   const prefix = 'pushback-' + now() + '-' + Math.random().toString(36).slice(2) + '-';
   let context = {}, state = { active: false }, pending = '', pendingId = null, error = '', statusError = false;
@@ -15,7 +16,7 @@ export function createPushbackControls({ send, changed, complete = () => {}, now
     const canStart = Boolean(usable() && !context.disabled && !active() && !pending && !completed && fresh()
       && state.canStart && destination && preview.fresh && plan?.valid);
     const reason = error || (active() ? (!fresh() ? 'Waiting for pushback status…' : state.reason)
-      : completed ? 'Pushback complete. Follow the taxi guidance.'
+      : completed ? TAXI_COPY.complete
       : !context.enabled ? context.unavailableReason || 'Pushback is unavailable on this connection.'
       : !destination ? 'Choose your departure airport and runway.'
       : !fresh() ? 'Waiting for live pushback status.' : preview.loading ? 'Finding pushback path…'

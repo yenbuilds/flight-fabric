@@ -6,6 +6,11 @@ module.exports = async function checkPushback({ win, evaluate, ready, settled, w
   await evaluate(`layoutTest.setDeparture('YMML', '16'); await layoutTest.settle();
     document.querySelector('#aircraft-page-autotaxi > summary').click(); await layoutTest.settle();`);
   assert.equal(await settled(`return document.querySelector('[data-pushback-start]')?.disabled;`, v => v === false), false);
+  assert.match(await evaluate(`return document.querySelector('#aircraft-page-autotaxi > summary').textContent;`), /Pushback & taxi/);
+  assert.match(await evaluate(`return document.querySelector('[data-taxi-intro]').textContent;`), /automatically pushes.*turns.*stops/);
+  assert.match(await evaluate(`return document.querySelector('[data-taxi-departure-help]').textContent;`), /taxiways and departure runway.*pushback direction/);
+  assert.equal(await evaluate(`return document.querySelector('[data-pushback-start]').textContent;`), 'Start pushback');
+  assert.equal(await evaluate(`return layoutTest.pushbackSent.some(m => m.operation === 'start');`), false, 'the explained automatic pushback still requires explicit Start');
   assert.equal(await evaluate(`return document.querySelectorAll('#aircraft-page-autotaxi figure').length;`), 1, 'one shared guidance map');
   assert.deepEqual(await evaluate(`return ['[data-pushback-map]', '[data-pushback-path]', '[data-pushback-final-heading]', '[data-taxi-onward]'].map(s => !!document.querySelector(s));`), [true, true, true, true]);
   assert.deepEqual(await evaluate(`return [...document.querySelectorAll('[data-taxi-destination] input:not([type="radio"])')].map(el => el.value);`), ['YMML', '16'], 'departure comes from the loaded plan');
@@ -22,6 +27,9 @@ module.exports = async function checkPushback({ win, evaluate, ready, settled, w
   await evaluate(`layoutTest.setTaxiState({ error: null }); layoutTest.setTaxiPreviewError(null); await layoutTest.settle();`);
   for (const width of [1440, 390, 320]) {
     win.setContentSize(width, 1000);
+    await evaluate(`document.querySelector('#aircraft-page-autotaxi > summary').scrollIntoView({ block: 'start', behavior: 'instant' });`);
+    await win.webContents.capturePage(); await wait(100);
+    fs.writeFileSync(path.join(output, `pushback-setup-${width}.png`), (await win.webContents.capturePage()).toPNG());
     await evaluate(`document.querySelector('[data-taxi-pushback]').scrollIntoView({ block: 'center', behavior: 'instant' });`);
     await wait(100);
     assert.equal(await evaluate(`return document.documentElement.scrollWidth > innerWidth;`), false, `${width}px overflow`);
@@ -49,7 +57,7 @@ module.exports = async function checkPushback({ win, evaluate, ready, settled, w
   assert.equal(await settled(`return document.querySelector('.taxi-map').dataset.taxiView;`, v => v !== 'pushback'), '3d', 'completion returns to taxi guidance');
   assert.equal(await settled(`return Boolean(document.querySelector('[data-pushback-start]'));`, v => v === false), false,
     'completed pushback offers guidance instead of a disabled repeat action');
-  assert.match(await evaluate(`return document.querySelector('[data-taxi-pushback]').textContent;`), /Follow the taxi guidance/);
+  assert.match(await evaluate(`return document.querySelector('[data-taxi-pushback]').textContent;`), /Taxi manually.*holding point/);
   assert.equal(await evaluate(`return [...document.querySelectorAll('#aircraft-page-autotaxi button')].some(b => b.textContent === 'Back to pushback');`), true,
     'the route button describes its return to the departure map');
   await evaluate(`document.querySelector('[data-taxi-pushback]').scrollIntoView({block:'center',behavior:'instant'});`);
