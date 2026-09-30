@@ -10,13 +10,13 @@
     &nbsp;&middot;&nbsp;
     <a href="RELEASE_NOTES.md">What's new</a>
   </p>
-  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.11.0</span> · Windows 64-bit · Free</p>
+  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.11.1</span> · Windows 64-bit · Free</p>
   <p data-release-note>Still in development. Expect bugs and incomplete aircraft support.</p>
 </div>
 
 ![FlightFabric tour showing the current flight overview, aircraft presets, Logbook with 3D timeline replay, and landing debrief](readme-assets/flight-fabric-tour.gif)
 
-*Tour and screenshots: current development UI with sample data, captured 29 September 2026.*
+*Tour and screenshots: the UI included in 0.11.1, with sample data captured 29 September 2026.*
 
 FlightFabric puts supported aircraft controls where you can reach them. Use
 voice control, open the same controls on a phone or tablet, or keep them beside
@@ -77,7 +77,7 @@ FlightFabric. On a managed PC, ask your administrator.
 
 If you want to verify your download, you can compare its SHA-256 checksum with
 the value GitHub shows beside the installer on the
-<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.11.0">release page</a>.
+<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.11.1">release page</a>.
 This is optional and is not required to install the app.
 
 </details>
@@ -85,12 +85,10 @@ This is optional and is not required to install the app.
 Voice control is off until you enable it. Open **Settings > Voice control**
 to enable it and set a keyboard shortcut. Open
 **Aircraft > Voice control** to use the talk button on screen.
-In the published 0.11.0 release, enable voice control under **Aircraft > Voice
-control** and select **Voice settings** to configure it.
 When voice control is off, FlightFabric does not listen for commands or check
 for microphones.
 
-In current development builds, **Settings > Voice control > Start voice test**
+**Settings > Voice control > Start voice test**
 checks your selected microphone and speech recognition without loading MSFS.
 Enable voice control, say the displayed phrase, then review what was heard or
 play back your recording. The test sends no aircraft commands. **Test spoken
@@ -169,8 +167,6 @@ preview, release the parking brake, and select **Start pushback**. FlightFabric
 automatically pushes the aircraft back, turns it towards the taxi route for
 your runway, and stops. Then follow the route while taxiing manually. The same
 controls are available on the main app's **Aircraft** page.
-In the published 0.11.0 release, the toolbar tab is called **Taxi** and the start
-button is labelled **Push back**.
 
 ### OBS overlays
 
