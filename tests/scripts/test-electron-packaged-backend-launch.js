@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { createProbeDirectory, finishProbeDirectory } = require('./electron-probe-cleanup');
 const {
   assertPackagedBackendStartupFiles,
   resolvePackagedBackendStartupFile,
@@ -167,8 +168,9 @@ async function runPackagedBackendLaunchProbe() {
   let launchStartedAt = 0;
   let readyElapsedMs = null;
   let ownedSidecarRecords = [];
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-electron-backend-launch-'));
+  const tempRoot = createProbeDirectory('ff-electron-backend-launch-');
   const filesPresentBeforeLaunch = new Set(fs.readdirSync(os.tmpdir()));
+  let probeError = null;
 
   try {
     await new Promise((resolve, reject) => {
@@ -264,15 +266,20 @@ async function runPackagedBackendLaunchProbe() {
     if (!(await waitForPortsReleased([wsPort, httpPort]))) {
       throw new Error(`Packaged backend ports remained bound after PID ${backendPid} exited`);
     }
+  } catch (error) {
+    probeError = error;
   } finally {
     killChild(child);
+    if (child) {
+      try { await waitForChildExit(child); } catch (error) { probeError ||= error; }
+    }
     for (const record of ownedSidecarRecords) {
       try { fs.unlinkSync(record.filePath); } catch {}
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
     if (!chromiumDebugLogExistedBefore) {
       try { fs.unlinkSync(chromiumDebugLogPath); } catch {}
     }
+    finishProbeDirectory(tempRoot, probeError, { stdout: tail(stdout), stderr: tail(stderr), readyElapsedMs });
   }
 
   console.log('Packaged backend launch probe passed');

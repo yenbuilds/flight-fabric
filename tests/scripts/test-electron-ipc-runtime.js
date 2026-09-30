@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
-const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { createProbeDirectory, finishProbeDirectory } = require('./electron-probe-cleanup');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -32,10 +32,18 @@ async function runElectronProbe() {
   const writeResult = (payload) => {
     fs.writeFileSync(resultPath, JSON.stringify(payload), 'utf8');
   };
+  const stage = (name) => console.log(`IPC probe stage: ${name}`);
+  // Keep lifecycle diagnostics when a native shutdown stalls. Handling
+  // window-all-closed lets the finally block finish before requesting quit.
+  for (const event of ['window-all-closed', 'before-quit', 'will-quit', 'quit']) {
+    app.on(event, () => stage(event));
+  }
 
   try {
     app.setPath('userData', path.join(path.dirname(resultPath), 'user-data'));
+    stage('waiting for Electron readiness');
     await app.whenReady();
+    stage('Electron ready');
 
     server = http.createServer((request, response) => {
       const headers = {
@@ -141,6 +149,7 @@ async function runElectronProbe() {
       `navigator.permissions.query({ name: ${JSON.stringify(name)} }).then((result) => result.state)`,
     );
 
+    stage('loading trusted renderer');
     await trustedWindow.loadURL(trustedUrl);
     assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.getStatus('pmdg-737')"), { supported: true, files: [] });
     assert.equal((await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.revealFile('pmdg-777', 'unknown-id')")).success, false);
@@ -166,6 +175,7 @@ async function runElectronProbe() {
     assert.equal(await queryPermission(trustedWindow.webContents, 'microphone'), 'denied');
     audioCaptureAuthorized = true;
     assert.equal(await queryPermission(trustedWindow.webContents, 'microphone'), 'granted');
+    stage('authorized microphone capture');
     const microphoneProbe = await trustedWindow.webContents.executeJavaScript(`(async () => {
       let stream = null;
       try {
@@ -199,6 +209,7 @@ async function runElectronProbe() {
       true,
       'idle device enumeration should remain available without opening the microphone',
     );
+    stage('production audio worklet');
     const workletProbe = await trustedWindow.webContents.executeJavaScript(`(async () => {
       const context = new AudioContext({ latencyHint: 'interactive' });
       try {
@@ -227,6 +238,7 @@ async function runElectronProbe() {
     })`);
     assert.deepEqual(geolocationRequest, { granted: false, code: 1 });
 
+    stage('untrusted renderer checks');
     const otherWindow = new BrowserWindow(windowOptions);
     windows.push(otherWindow);
     await otherWindow.loadURL(trustedUrl);
@@ -256,6 +268,7 @@ async function runElectronProbe() {
     await expectRejectedDecision(trustedWindow.webContents);
     assert.equal(await queryPermission(trustedWindow.webContents, 'clipboard-write'), 'denied');
 
+    stage('launcher renderer checks');
     await trustedWindow.loadURL(pathToFileURL(launcherHtmlPath).href);
     assert.deepEqual(await invokeSettings(trustedWindow.webContents), { runtimeProbe: true });
     assert.equal(decisions.at(-1).trusted, true);
@@ -300,21 +313,31 @@ async function runElectronProbe() {
     });
     process.exitCode = 1;
   } finally {
+    stage('closing probe resources');
     for (const channel of ['settings-get', 'backend-logs', 'backend-status', 'http-status', 'pmdg-sdk-status', 'pmdg-sdk-reveal', 'pmdg-sdk-choose']) {
       ipcMain.removeHandler(channel);
     }
-    for (const window of windows) {
-      if (!window.isDestroyed()) window.destroy();
-    }
+    // Allow Chromium to finish each renderer's normal close before quitting.
+    // Forced destruction intermittently left this probe alive after app.quit.
+    await Promise.all(windows.map((window) => new Promise((resolve) => {
+      if (window.isDestroyed()) { resolve(); return; }
+      window.once('closed', resolve);
+      window.close();
+    })));
+    stage('probe windows closed; closing HTTP server');
     if (server) await new Promise((resolve) => server.close(resolve));
+    stage('HTTP server closed; requesting Electron quit');
     app.quit();
+    stage('Electron quit requested');
   }
 }
 
-function runParentProbe() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-electron-ipc-'));
+async function runParentProbe() {
+  const tmpDir = createProbeDirectory('ff-electron-ipc-');
   const resultPath = path.join(tmpDir, 'result.json');
   const launcherHtmlPath = path.join(ROOT, 'electron', 'launcher', 'index.html');
+  let probeError = null;
+  const diagnostics = {};
 
   try {
     const env = {
@@ -334,21 +357,26 @@ function runParentProbe() {
     // here lets this hidden renderer run inside sandboxed CI/agent environments.
     let result;
     try {
-      result = childProcess.spawnSync(electronExecutable, [
-        '--in-process-gpu',
-        '--use-gl=angle',
-        '--use-angle=swiftshader',
-        '--disable-gpu-sandbox',
-        '--no-sandbox',
-        '--use-fake-device-for-media-stream',
-        __filename,
-      ], {
-        cwd: path.dirname(electronExecutable),
-        detached: true,
-        env,
-        stdio: ['ignore', stdoutFd, stderrFd],
-        timeout: 30_000,
-        windowsHide: true,
+      result = await new Promise((resolve) => {
+        let spawnError = null;
+        const child = childProcess.spawn(electronExecutable, [
+          '--in-process-gpu',
+          '--use-gl=angle',
+          '--use-angle=swiftshader',
+          '--disable-gpu-sandbox',
+          '--no-sandbox',
+          '--use-fake-device-for-media-stream',
+          __filename,
+        ], {
+          cwd: path.dirname(electronExecutable),
+          detached: true,
+          env,
+          stdio: ['ignore', stdoutFd, stderrFd],
+          timeout: 30_000,
+          windowsHide: true,
+        });
+        child.once('error', (error) => { spawnError = error; });
+        child.once('close', (status, signal) => resolve({ status, signal, error: spawnError }));
       });
     } finally {
       fs.closeSync(stdoutFd);
@@ -357,8 +385,11 @@ function runParentProbe() {
 
     const stdout = fs.readFileSync(stdoutPath, 'utf8');
     const stderr = fs.readFileSync(stderrPath, 'utf8');
+    Object.assign(diagnostics, { stdout, stderr, exitStatus: result.status, signal: result.signal,
+      result: fs.existsSync(resultPath) ? fs.readFileSync(resultPath, 'utf8') : null });
 
     if (result.error) throw result.error;
+    assert.equal(result.status, 0, 'Electron IPC probe process must exit successfully');
     if (!fs.existsSync(resultPath)) {
       throw new Error(
         `Electron IPC probe did not write a result (exit ${result.status}).\n`
@@ -445,13 +476,18 @@ function runParentProbe() {
 
     console.log('Electron IPC and session permission runtime probe passed');
     console.log(`Electron ${payload.electron}; sender routing, permission denial, and launcher copy verified`);
+  } catch (error) {
+    probeError = error;
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    finishProbeDirectory(tmpDir, probeError, diagnostics);
   }
 }
 
 if (process.versions.electron) {
   void runElectronProbe();
 } else {
-  runParentProbe();
+  runParentProbe().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
 }

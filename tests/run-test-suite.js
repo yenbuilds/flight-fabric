@@ -131,6 +131,7 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-http-server-theme-assets.js']],
   ['node', ['tests/scripts/test-user-identity.js']],
   ['node', ['--test', 'tests/scripts/test-electron-release-output-failure-guard.js']],
+  ['node', ['--test', 'tests/scripts/test-electron-probe-cleanup.js']],
   ['node', ['electron/test-electron.js']],
   ['node', ['--test', 'tests/scripts/test-simconnect-sdk.js']],
   ['node', ['--test', 'tests/scripts/test-electron-packaged-startup-files.js']],
