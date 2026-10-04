@@ -1,0 +1,12 @@
+# Temporary, owner-approved exceptions; review before 2026-10-18.
+# Scope: this directory's package-lock.json only.
+# Evidence and follow-up: docs/RELEASE-0.12.0-DEPENDENCY-REVIEW.md
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2026-10-18
+reason = "braces 3.0.3 is development-only through Tailwind/chokidar/micromatch; fixed repository globs, no app input, absent from the desktop payload. No upstream patch available on 2026-10-04."
+
+[[IgnoredVulns]]
+id = "GHSA-ch52-4w7c-c8xp"
+ignoreUntil = 2026-10-18
+reason = "http-cache-semantics 4.2.0 is development-only through electron-builder/@electron/get/got; no shared authenticated HTTP cache is configured and the package is absent from the desktop payload. No upstream patch available on 2026-10-04."
