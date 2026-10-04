@@ -3,5 +3,24 @@ name = "flight-fabric-ptt-hook"
 version = "0.1.0"
 edition = "2024"
 publish = false
+default-run = "flight-fabric-ptt-hook"
 
 [dependencies]
+
+[features]
+default = ["controller-ptt"]
+# Explicit developer diagnostic only; normal builds do not compile this binary.
+raw-input-probe = ["dep:windows-sys"]
+controller-ptt = ["dep:windows-sys"]
+
+[[bin]]
+name = "flight-fabric-ptt-hook"
+path = "src/main.rs"
+
+[[bin]]
+name = "flight-fabric-joystick-probe"
+path = "src/probe/main.rs"
+required-features = ["raw-input-probe"]
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties", "Win32_Foundation", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_Graphics_Gdi"] }

@@ -147,10 +147,15 @@ const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
       'bundled/msfs/inibuilds-a321lr',
     ],
     verification: 'untested',
+    partialActions: [
+      'flightGuidance.speed.set', 'flightGuidance.heading.set',
+      'flightGuidance.altitude.set', 'flightGuidance.verticalSpeed.set',
+      'flightGuidance.flightDirector.off', 'flightGuidance.flightDirector.on',
+    ],
+    vendorEvents: ['INI_FD1_ON', 'INI_Airspeed_Dial', 'INI_HEADING_DIAL', 'INI_Altitude_Dial', 'INI_vvi_dial'],
     events: [
       'AUTOPILOT_OFF',
       'AUTOPILOT_ON',
-      'TOGGLE_FLIGHT_DIRECTOR',
       'AUTO_THROTTLE_ARM',
       'AP_AIRSPEED_OFF',
       'AP_AIRSPEED_ON',
@@ -164,10 +169,6 @@ const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
       'AP_NAV1_HOLD_ON',
       'AP_APR_HOLD_OFF',
       'AP_APR_HOLD_ON',
-      'AP_SPD_VAR_SET',
-      'HEADING_BUG_SET',
-      'AP_ALT_VAR_SET_ENGLISH',
-      'AP_VS_VAR_SET_ENGLISH',
       'STROBES_SET',
       'BEACON_LIGHTS_SET',
       'NAV_LIGHTS_SET',
@@ -185,9 +186,14 @@ const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
   ['microsoft-737-max-8', {
     profileKey: 'bundled/msfs/microsoft-737-max-8',
     verification: 'untested',
+    vendorEvents: ['LIGHTING_POSITION_LIGHT', 'LIGHTING_LANDING_LIGHT_FIXED_L', 'LIGHTING_LANDING_LIGHT_FIXED_R', 'LIGHTING_TAXI_LIGHT_GEAR'],
     events: [
       'AUTOPILOT_OFF',
       'AUTOPILOT_ON',
+      'AP_VS_VAR_SET_ENGLISH',
+      'AP_ALT_VAR_SET_ENGLISH',
+      'HEADING_BUG_SET',
+      'AP_SPD_VAR_SET',
       'TOGGLE_FLIGHT_DIRECTOR',
       'AUTO_THROTTLE_ARM',
       'AP_AIRSPEED_OFF',
@@ -204,17 +210,9 @@ const EXACT_STANDARD_EVENT_CONTRACTS = new Map([
       'AP_APR_HOLD_ON',
       'FLIGHT_LEVEL_CHANGE_OFF',
       'FLIGHT_LEVEL_CHANGE_ON',
-      'AP_SPD_VAR_SET',
-      'HEADING_BUG_SET',
-      'AP_ALT_VAR_SET_ENGLISH',
-      'AP_VS_VAR_SET_ENGLISH',
-      'STROBES_SET',
       'BEACON_LIGHTS_SET',
-      'NAV_LIGHTS_SET',
       'LOGO_LIGHTS_SET',
       'WING_LIGHTS_SET',
-      'LANDING_LIGHTS_SET',
-      'TAXI_LIGHTS_SET',
       'GEAR_UP',
       'GEAR_DOWN',
       'FLAPS_DECR',
@@ -401,7 +399,7 @@ function collectAdapterRouteTokens(route) {
   }
   if (route.type === 'input-event') return [route.name].filter(Boolean);
   if (route.transport === 'lvar') return [String(route.lvar || '').replace(/^L:/i, '')].filter(Boolean);
-  if (route.transport === 'input-event') return [route.inputEvent].filter(Boolean);
+  if (route.transport === 'input-event') return route.events?.map(event => event.inputEvent) || [route.inputEvent].filter(Boolean);
   if (route.transport === 'mobiflight-calculator') {
     const calculatorCodes = [
       route.code,
@@ -427,6 +425,23 @@ function collectAdapterRouteTokens(route) {
     }).filter(Boolean);
   }
   return [];
+}
+
+// Intake also permits reproducible observation of a documented simulator
+// interface. Keep that evidence distinct from vendor-published mappings and
+// limit it to experimental, partially verified profiles with a checked-in record.
+function isRecordedSimulatorEvidence(profile, source) {
+  if (source.type !== 'manual-testing' || source.authority !== 'operator'
+    || source.access !== 'vendor-install' || profile.meta?.status !== 'experimental'
+    || profile.provenance?.verification?.status !== 'partial') return false;
+  const evidence = source.recordedEvidence;
+  if (!evidence || !/^docs\/[A-Z0-9-]+\.md$/.test(evidence.document || '')
+    || !Array.isArray(evidence.results) || evidence.results.length < 1) return false;
+  const file = path.join(ROOT, evidence.document);
+  if (!fs.existsSync(file)) return false;
+  const record = fs.readFileSync(file, 'utf8');
+  return [evidence.aircraftTitle, evidence.configurationPath, evidence.simulatorVersion,
+    ...evidence.results].every(value => typeof value === 'string' && value.length > 0 && record.includes(value));
 }
 
 function validateTrustedAdapterEvidence(failures) {
@@ -488,17 +503,19 @@ function validateTrustedAdapterEvidence(failures) {
         }
 
         const aircraftVendorEvidenceText = JSON.stringify(sources.filter((source) => (
-          source.authority === 'aircraft-vendor'
+          source.authority === 'aircraft-vendor' || isRecordedSimulatorEvidence(profile, source)
         )));
         for (const eventName of vendorEvents) {
           if (!sourceCoversName(aircraftVendorEvidenceText, eventName)) {
-            failures.push(`${integration.id} (${profileKey}): vendor event lacks aircraft-vendor active-mapping evidence: ${eventName}`);
+            failures.push(`${integration.id} (${profileKey}): vendor event lacks vendor or recorded simulator mapping evidence: ${eventName}`);
           }
         }
 
         for (const action of Object.values(integration.actions || {})) {
-          if (action.verification !== exactStandardContract.verification) {
-            failures.push(`${integration.id} (${profileKey}): every standard-event action must remain ${exactStandardContract.verification}: ${action.id}`);
+          const expectedVerification = exactStandardContract.partialActions?.includes(action.id)
+            ? 'partial' : exactStandardContract.verification;
+          if (action.verification !== expectedVerification) {
+            failures.push(`${integration.id} (${profileKey}): action must remain ${expectedVerification}: ${action.id}`);
           }
         }
       }
@@ -569,11 +586,12 @@ function main() {
         failures.push(`${profileLabel}: ${source.type} provenance source requires a reviewable URL`);
       }
       if (source.supportsActiveMappings === true) {
-        if (!ACTIVE_MAPPING_SOURCE_TYPES.has(source.type)) {
+        const recordedSimulatorEvidence = isRecordedSimulatorEvidence(profile, source);
+        if (!ACTIVE_MAPPING_SOURCE_TYPES.has(source.type) && !recordedSimulatorEvidence) {
           failures.push(`${profileLabel}: active mapping evidence cannot use source type ${source.type}`);
         }
-        if (!ACTIVE_MAPPING_AUTHORITIES.has(source.authority)) {
-          failures.push(`${profileLabel}: active mapping evidence requires simulator-vendor or aircraft-vendor authority`);
+        if (!ACTIVE_MAPPING_AUTHORITIES.has(source.authority) && !recordedSimulatorEvidence) {
+          failures.push(`${profileLabel}: active mapping evidence requires vendor authority or an experimental profile with a checked-in, variant-specific simulator record`);
         }
         if (source.access !== 'public' && source.access !== 'vendor-install') {
           failures.push(`${profileLabel}: active mapping evidence requires access=public|vendor-install`);
@@ -725,7 +743,7 @@ function main() {
   }
 
   console.log(`Checked ${profileFiles.length} bundled profiles.`);
-  console.log('Active profile and trusted-adapter mappings are covered by authoritative vendor evidence; SDK connectors exist, controls carry verification status, dates are sane, and mutable claims are absent.');
+  console.log('Active mappings have vendor evidence or recorded experimental simulator verification; SDK connectors exist, controls carry verification status, dates are sane, and mutable claims are absent.');
 }
 
 main();

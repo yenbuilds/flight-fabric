@@ -1,6 +1,7 @@
 'use strict';
 
 import { a350NdRangeFields, a350NdRangeActions } from './nd-range.js';
+import { cockpitLightingIntegration } from '../cockpit-lighting.js';
 
 import type { AircraftIntegrationDefinition } from '../types.js';
 
@@ -19,6 +20,7 @@ const { INIBUILDS_A350_FIELDS } = require('./fields') as {
 const INIBUILDS_A350_ADAPTER_ID = 'inibuilds-a350';
 const INIBUILDS_A350_900_PROFILE_KEY = 'bundled/msfs/inibuilds-a350-900';
 const INIBUILDS_A350_1000_PROFILE_KEY = 'bundled/msfs/inibuilds-a350-1000';
+const lighting = cockpitLightingIntegration(INIBUILDS_A350_ADAPTER_ID);
 
 const INIBUILDS_A350_INTEGRATION = defineAircraftIntegration({
   id: INIBUILDS_A350_ADAPTER_ID,
@@ -33,8 +35,8 @@ const INIBUILDS_A350_INTEGRATION = defineAircraftIntegration({
   presentation: {
     templateId: 'inibuilds-a350',
   },
-  fields: { ...INIBUILDS_A350_FIELDS, ...a350NdRangeFields() },
-  actions: { ...INIBUILDS_A350_ACTIONS, ...a350NdRangeActions() },
+  fields: { ...INIBUILDS_A350_FIELDS, ...a350NdRangeFields(), ...lighting.fields },
+  actions: { ...INIBUILDS_A350_ACTIONS, ...a350NdRangeActions(), ...lighting.actions },
 });
 
 module.exports = {

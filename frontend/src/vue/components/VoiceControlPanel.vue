@@ -1,6 +1,5 @@
 <script setup>
 import { computed } from 'vue';
-import { describeJoystickBinding } from '../../voice/joystick-binding.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
@@ -36,8 +35,6 @@ const flightPlanExamples = flightPlanQueryExamples();
 const flightPlanQueriesAvailable = computed(() => !developmentTranscription.value
   && (queriesAvailable.value || (aircraftControls.availability.enabled === true && examples.value.length > 0)));
 const recognitionOff = computed(() => voice.runtime.enabled !== true);
-// What the main control says it can be held with, besides itself.
-const joystickHoldLabel = computed(() => describeJoystickBinding(voice.runtime.joystick));
 const pushToTalkDisabled = computed(() => (
   recognitionOff.value
   || (!voice.ready && !voice.listening)
@@ -129,8 +126,8 @@ const emit = defineEmits(['open-settings']);
             <span class="text-sm font-semibold">{{ pushToTalkLabel }}</span>
             <span class="mt-1 flex flex-wrap items-center gap-1 font-mono text-[10px] font-normal">
               <KeyboardShortcutKeys v-if="voice.runtime.shortcut" :shortcut="voice.runtime.shortcut" />
-              <span v-if="joystickHoldLabel" class="opacity-65">{{ voice.runtime.shortcut ? '· ' : '' }}{{ joystickHoldLabel }}</span>
-              <span v-if="!voice.runtime.shortcut && !joystickHoldLabel" class="opacity-65">On-screen only</span>
+              <span v-if="voice.runtime.controllerEnabled && voice.runtime.controller.binding" class="break-words">Controller Button {{ voice.runtime.controller.binding.button }}</span>
+              <span v-else-if="!voice.runtime.shortcut" class="opacity-65">On-screen only</span>
             </span>
           </span>
         </button>

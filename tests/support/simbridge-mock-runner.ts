@@ -102,6 +102,18 @@ async function main() {
     capabilities: { isMock: true, enableLandingRunner: false },
     start: async () => {
       console.log('TEST:provider_start');
+      // Exercise the real core event handler, including the no-TITLE startup
+      // case observed on the included A321. No simulator is contacted.
+      const cfgPath = 'SimObjects\\Airplanes\\microsoft-a321\\presets\\inibuilds\\a21n\\config\\aircraft.CFG';
+      eventBus.emit('simconnect:aircraftChanged', {
+        title: cfgPath, aircraftConfigPath: cfgPath, displayName: null,
+      });
+      console.log(`TEST:path_only_profile:${profileLoader.getActiveProfile()?.id}`);
+      eventBus.emit('simconnect:aircraftChanged', {
+        title: cfgPath, aircraftConfigPath: cfgPath, displayName: 'A321',
+        previousTitle: cfgPath, previousAircraftConfigPath: cfgPath,
+      });
+      console.log(`TEST:enriched_profile:${profileLoader.getActiveProfile()?.id}`);
       return { ok: true };
     },
     stop: async () => {

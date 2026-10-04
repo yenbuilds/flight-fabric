@@ -19,9 +19,6 @@ const timeSource = require('./time-source');
 const { APP_DATA_DIR, loadUserSettings, updateUserSettings, SETTINGS_FILE } = require('./user-settings');
 const { DESTINATION_TARGET_FILE, ORIGIN_TARGET_FILE } = require('./destination-target-store');
 const { LOGBOOK_FILE } = require('../landing/flight-logbook');
-const takeoffLogbook = require('../takeoff/takeoff-logbook') as {
-  getLogbook: (limit: unknown) => { entries: Record<string, unknown>[]; stats: Record<string, unknown> };
-};
 const { withFlightCountriesList, withLandingCountryList } = require('../landing/airport-country') as typeof import('../landing/airport-country');
 const { createFlightCsvStore } = require('../flight-recording/flight-csv-store');
 const {
@@ -100,24 +97,6 @@ function sanitizeFlightPlan(payload) {
     fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : timeSource.now(),
     ...sanitizeFlightPlanFields(payload),
   };
-}
-
-/**
- * The takeoff logbook rides the landing logbook response. It is a separate
- * list with its own stats; a failure here must never hide landings, so it
- * degrades to an empty list.
- */
-function readTakeoffLogbook(limit: unknown): { takeoffs: unknown[]; takeoffStats: Record<string, unknown> | null } {
-  try {
-    const { entries, stats } = takeoffLogbook.getLogbook(limit);
-    return {
-      takeoffs: withLandingCountryList(entries) as unknown[],
-      takeoffStats: stats,
-    };
-  } catch (err) {
-    console.warn('[logbook] Takeoff log read failed:', (err as Error)?.message);
-    return { takeoffs: [], takeoffStats: null };
-  }
 }
 
 /** Sanitize an incoming voiceStatus relay payload; return null if it has no usable status. */
@@ -1442,14 +1421,13 @@ async function handleClientMessage(ws, msg, context) {
       try {
         const result = await flightCsvStore.getLogbook({ entryLimit: msg.limit });
         if (!result.success) throw new Error(result.error);
-        const takeoffLog = readTakeoffLogbook(msg.limit);
         ws.send(JSON.stringify({
           type: MSG.LOGBOOK,
           entries: withLandingCountryList(result.entries),
           stats: result.stats,
           index: result.index || null,
-          takeoffs: takeoffLog.takeoffs,
-          takeoffStats: takeoffLog.takeoffStats,
+          takeoffs: withLandingCountryList(result.takeoffs || []),
+          takeoffStats: result.takeoffStats || null,
         }));
       } catch (err) {
         Debug.log('ws', 'requestLogbook error', { error: err.message });

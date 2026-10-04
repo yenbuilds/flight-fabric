@@ -1,76 +1,47 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { shortcutFromKeyboardEvent } from '../../voice/shortcut-recorder.js';
-import { describeJoystickBinding } from '../../voice/joystick-binding.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
 import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
 import SettingsSectionWatermark from './SettingsSectionWatermark.vue';
 import VoiceSetupTest from './VoiceSetupTest.vue';
+import ControllerButtonSettings from './ControllerButtonSettings.vue';
 
 const voice = useVoiceControlStore();
 const tabs = useTabsStore();
 const shortcutDraft = ref(voice.runtime.shortcut);
 const shortcutRecording = ref(false);
+const shortcutUnchanged = ref(false);
 const shortcutSaving = ref(false);
 const shortcutError = ref('');
 const recognitionSaving = ref(false);
 const recognitionError = ref('');
-const joystickDraft = ref(voice.runtime.joystick);
-const joystickSaving = ref(false);
-const joystickError = ref('');
 
-const captureLocked = computed(() => voice.listening || voice.finishing || voice.voiceTestBusy);
+const captureLocked = computed(() => voice.listening || voice.finishing || voice.voiceTestBusy || voice.controllerSetup.active);
 const recognitionOff = computed(() => voice.runtime.enabled !== true);
 const shortcutDirty = computed(() => Boolean(shortcutDraft.value)
   && shortcutDraft.value !== voice.runtime.shortcut);
-const joystickLearning = computed(() => voice.joystickLearn?.active === true);
-const joystickDirty = computed(() => Boolean(joystickDraft.value)
-  && JSON.stringify(joystickDraft.value) !== JSON.stringify(voice.runtime.joystick));
-const joystickDraftLabel = computed(() => describeJoystickBinding(joystickDraft.value));
-const joystickBoundName = computed(() => voice.runtime.joystick?.name || 'The bound joystick');
-const joystickDetected = computed(() => (voice.joystickLearn?.devices || []).map((device) => device.name).join(', '));
-const joystickHelp = computed(() => {
-  if (recognitionOff.value) return 'Enable voice control before binding a joystick button.';
-  if (joystickLearning.value) {
-    return joystickDetected.value
-      ? `Listening on ${joystickDetected.value}. Press the button to use; Escape cancels.`
-      : 'Looking for joysticks… Press the button to use; Escape cancels.';
-  }
-  if (joystickDirty.value) return 'Save to use this button. The simulator sees it too, so choose one nothing else uses.';
-  if (voice.runtime.joystick && !voice.runtime.joystickConnected) {
-    return `${joystickBoundName.value} is not connected. The binding stays and works again once it is plugged in.`;
-  }
-  if (voice.runtime.joystick) return 'Click to choose a different button. The simulator sees this button too.';
-  return 'No joystick button is bound. Click, then press the button on your stick.';
-});
-
 const selectedInputMissing = computed(() => Boolean(voice.selectedInputDeviceId)
   && !voice.inputDevices.some((device) => device.deviceId === voice.selectedInputDeviceId));
+const unassignedShortcutHelp = computed(() => {
+  if (!voice.runtime.controllerEnabled) return 'No global shortcut is active. Set one to talk while MSFS is in front, or use the on-screen button on Aircraft.';
+  if (voice.runtime.controller.binding) return 'A keyboard shortcut is optional. Your controller button is configured; the on-screen button on Aircraft is also available.';
+  return 'Choose a keyboard shortcut or set a yoke or joystick button to talk while MSFS is in front. You can also use the on-screen button on Aircraft.';
+});
 
 watch(() => voice.runtime.shortcut, (value) => {
   shortcutDraft.value = value;
   shortcutRecording.value = false;
+  shortcutUnchanged.value = false;
   shortcutError.value = '';
 });
 watch(() => voice.runtime.enabled, () => { recognitionError.value = ''; });
-watch(() => voice.runtime.joystick, (value) => {
-  joystickDraft.value = value;
-  joystickError.value = '';
-});
-watch(() => voice.joystickLearn?.captured, (captured) => {
-  if (!captured) return;
-  joystickDraft.value = { ...captured };
-  joystickError.value = '';
-});
-watch(() => voice.joystickLearn?.error, (error) => {
-  if (error) joystickError.value = error;
-});
-
 
 function beginShortcutRecording() {
   if (recognitionOff.value || captureLocked.value || shortcutSaving.value) return;
   shortcutRecording.value = true;
+  shortcutUnchanged.value = false;
   shortcutError.value = '';
 }
 
@@ -91,6 +62,7 @@ function cancelShortcutEdit(event) {
   if (shortcutSaving.value) return;
   shortcutDraft.value = voice.runtime.shortcut;
   shortcutRecording.value = false;
+  shortcutUnchanged.value = false;
   shortcutError.value = '';
   void restoreShortcutFocus(event?.currentTarget);
 }
@@ -117,6 +89,7 @@ function captureShortcut(event) {
 
   shortcutDraft.value = captured.accelerator;
   shortcutRecording.value = false;
+  shortcutUnchanged.value = captured.accelerator === voice.runtime.shortcut;
   shortcutError.value = '';
 }
 async function saveShortcut(event) {
@@ -128,38 +101,12 @@ async function saveShortcut(event) {
   shortcutSaving.value = false;
   await restoreShortcutFocus(event?.submitter);
 }
-function beginJoystickLearn() {
-  if (recognitionOff.value || captureLocked.value || joystickSaving.value || joystickLearning.value) return;
-  joystickError.value = '';
-  void voice.startJoystickLearn();
-}
-function cancelJoystickEdit() {
-  if (joystickLearning.value) void voice.stopJoystickLearn();
-  joystickDraft.value = voice.runtime.joystick;
-  joystickError.value = '';
-}
-async function saveJoystick() {
-  if (recognitionOff.value || !joystickDirty.value || joystickLearning.value || joystickSaving.value) return;
-  joystickSaving.value = true;
-  joystickError.value = '';
-  const saved = await voice.setJoystick(joystickDraft.value);
-  if (!saved) joystickError.value = 'That joystick button could not be bound. Try again.';
-  joystickSaving.value = false;
-}
-async function removeJoystick() {
-  if (recognitionOff.value || !voice.runtime.joystick || joystickLearning.value || joystickSaving.value) return;
-  joystickSaving.value = true;
-  joystickError.value = '';
-  const removed = await voice.setJoystick(null);
-  if (!removed) joystickError.value = 'The joystick button could not be removed. Try again.';
-  joystickSaving.value = false;
-}
 
 // Settings stays mounted so an unsaved shortcut survives changing pages.
 // Stop active input learning when its controls are no longer visible.
 function stopLearning() {
   shortcutRecording.value = false;
-  if (joystickLearning.value) void voice.stopJoystickLearn();
+  shortcutUnchanged.value = false;
 }
 watch(() => [tabs.activeTabId, voice.runtime.enabled], ([tab, enabled]) => {
   if (tab !== 'settings' || !enabled) stopLearning();
@@ -196,7 +143,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
       <div class="settings-panel-header">
         <div class="settings-panel-kicker">On this PC</div>
         <h3 id="settings-voice-title" class="settings-panel-title">Voice control</h3>
-        <p class="mt-2 text-sm text-muted-fg">Choose your microphone, push-to-talk shortcut and spoken feedback.</p>
+        <p class="mt-2 text-sm text-muted-fg">Choose your microphone, how to talk and spoken feedback.</p>
       </div>
       <button v-if="voice.settingsReturnToAircraft" type="button" class="ff-button-secondary text-xs" data-voice-back-to-aircraft @click="backToAircraft">Back to Aircraft</button>
     </div>
@@ -227,7 +174,9 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
 
         <span class="text-xs text-muted-fg">{{ voice.runtime.enabled ? 'On' : 'Off' }}</span>
       </div>
-      <p class="mt-3 text-xs text-muted-fg">Voice changes apply immediately on this PC. Use Save shortcut to activate a new key combination.</p>
+      <p class="mt-3 text-xs text-muted-fg">{{ voice.runtime.controllerEnabled
+        ? 'Voice preferences apply immediately on this PC. Use Save shortcut or Save button to confirm a new way to talk.'
+        : 'Voice changes apply immediately on this PC. Use Save shortcut to activate a new key combination.' }}</p>
       <p v-if="recognitionError" class="mt-3 text-sm text-warning" data-voice-recognition-error role="alert">{{ recognitionError }}</p>
       <p v-if="voice.status === 'initializing'" class="mt-3 text-xs text-muted-fg" role="status">Starting offline voice control…</p>
       <p v-else-if="voice.runtime.enabled && !voice.runtime.available" class="mt-3 text-sm text-warning" role="status">{{ voice.runtime.error || 'Voice could not start. Try turning voice off and on again.' }}</p>
@@ -262,7 +211,86 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           <p v-if="voice.inputDevicesError" id="voice-microphone-error" class="mt-2 text-xs text-warning" data-voice-microphone-error role="alert">{{ voice.inputDevicesError }}</p>
         </div>
 
-        <VoiceSetupTest :disabled="recognitionSaving || shortcutRecording || shortcutSaving || joystickLearning || joystickSaving" />
+        <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
+          <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">Push-to-talk</h4>
+          <div class="grid min-w-0 gap-3" :class="voice.runtime.controllerEnabled ? 'lg:grid-cols-2' : ''">
+            <form class="settings-panel--illustrated flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-panel-subtle p-4" aria-labelledby="voice-keyboard-title" @submit.prevent="saveShortcut">
+              <SettingsSectionWatermark kind="keyboard" />
+              <h5 id="voice-keyboard-title" class="text-sm font-semibold text-fg"><label for="voice-ptt-shortcut">Keyboard shortcut</label></h5>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  id="voice-ptt-shortcut"
+                  type="button"
+                  data-voice-shortcut-recorder
+                  class="min-h-10 min-w-40 max-w-full rounded-lg border px-3 py-2 text-left font-mono transition-colors disabled:opacity-50"
+                  :class="shortcutRecording ? 'border-accent/70 bg-accent/10 text-fg' : 'border-border bg-panel-subtle text-fg hover:bg-muted'"
+                  :disabled="recognitionOff || captureLocked || shortcutSaving"
+                  :aria-label="shortcutRecording
+                    ? 'Press the new push-to-talk shortcut'
+                    : shortcutDirty
+                      ? `Unsaved push-to-talk shortcut: ${shortcutDraft}. Save shortcut to use it.`
+                    : shortcutDraft
+                      ? `Current push-to-talk shortcut: ${shortcutDraft}. Click to change.`
+                      : 'No global push-to-talk shortcut is set. Click to record one.'"
+                  aria-describedby="voice-ptt-shortcut-help voice-ptt-shortcut-error"
+                  @click="beginShortcutRecording"
+                  @keydown="captureShortcut"
+                >
+                  <KeyboardShortcutKeys v-if="!shortcutRecording && shortcutDraft" :shortcut="shortcutDraft" aria-hidden="true" />
+                  <span v-else>{{ shortcutRecording ? 'Press shortcut…' : 'Set shortcut' }}</span>
+                </button>
+                <button
+                  v-if="shortcutDirty"
+                  type="submit"
+                  data-voice-shortcut-save
+                  class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
+                  :disabled="recognitionOff || shortcutRecording || shortcutSaving || captureLocked"
+                >
+                  {{ shortcutSaving ? 'Saving…' : 'Save shortcut' }}
+                </button>
+                <button
+                  v-if="shortcutRecording || shortcutDirty"
+                  type="button"
+                  class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-muted hover:text-fg disabled:opacity-50"
+                  :disabled="shortcutSaving"
+                  data-voice-shortcut-cancel
+                  @click="cancelShortcutEdit"
+                >
+                  Cancel
+                </button>
+              </div>
+              <p id="voice-ptt-shortcut-help" class="text-[11px] text-muted-fg" role="status">
+                {{ recognitionOff
+                  ? 'Enable voice control before setting a global shortcut.'
+                  : shortcutRecording
+                  ? 'Hold one or more modifiers, then press a key. Escape cancels.'
+                  : shortcutSaving
+                    ? 'Saving shortcut…'
+                  : shortcutDirty
+                    ? 'Not saved yet. Click Save shortcut to use it.'
+                  : shortcutUnchanged
+                    ? 'This is already your saved shortcut. No changes to save.'
+                  : shortcutDraft
+                    ? 'Click the shortcut to record a new key combination.'
+                    : unassignedShortcutHelp }}
+              </p>
+              <p v-if="shortcutError" id="voice-ptt-shortcut-error" class="text-[11px] text-warning" role="alert">
+                {{ shortcutError }}
+              </p>
+              <p v-if="voice.runtime.enabled && !voice.controllerSetup.active && voice.runtime.shortcut && !voice.runtime.shortcutRegistered" class="text-xs text-warning" role="status">
+                Saved shortcut unavailable: {{ voice.runtime.shortcutError || 'Choose another key combination.' }}
+              </p>
+            </form>
+
+            <ControllerButtonSettings v-if="voice.runtime.controllerEnabled" :disabled="recognitionSaving || shortcutRecording || shortcutSaving || voice.listening || voice.finishing || voice.voiceTestBusy" />
+          </div>
+
+          <p class="mt-3 text-[11px] text-muted-fg">
+            After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. Audio remains local and is not saved.
+          </p>
+        </section>
+
+        <VoiceSetupTest :disabled="recognitionSaving || shortcutRecording || shortcutSaving || voice.controllerSetup.active" />
 
         <div>
           <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -296,136 +324,6 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             Last spoken readback failed: {{ voice.runtime.readbackError }} Windows speech uses the default output device.
           </p>
         </div>
-
-        <form class="flex flex-col gap-1.5" @submit.prevent="saveShortcut">
-          <label for="voice-ptt-shortcut" class="shrink-0 text-muted-fg">Push-to-talk shortcut</label>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              id="voice-ptt-shortcut"
-              type="button"
-              data-voice-shortcut-recorder
-              class="min-h-10 min-w-40 max-w-full rounded-lg border px-3 py-2 text-left font-mono transition-colors disabled:opacity-50"
-              :class="shortcutRecording ? 'border-accent/70 bg-accent/10 text-fg' : 'border-border bg-panel-subtle text-fg hover:bg-muted'"
-              :disabled="recognitionOff || captureLocked || shortcutSaving"
-              :aria-label="shortcutRecording
-                ? 'Press the new push-to-talk shortcut'
-                : shortcutDirty
-                  ? `Unsaved push-to-talk shortcut: ${shortcutDraft}. Save shortcut to use it.`
-                : shortcutDraft
-                  ? `Current push-to-talk shortcut: ${shortcutDraft}. Click to change.`
-                  : 'No global push-to-talk shortcut is set. Click to record one.'"
-              aria-describedby="voice-ptt-shortcut-help voice-ptt-shortcut-error"
-              @click="beginShortcutRecording"
-              @keydown="captureShortcut"
-            >
-              <KeyboardShortcutKeys v-if="!shortcutRecording && shortcutDraft" :shortcut="shortcutDraft" aria-hidden="true" />
-              <span v-else>{{ shortcutRecording ? 'Press shortcut…' : 'Set shortcut' }}</span>
-            </button>
-            <button
-              v-if="shortcutDirty"
-              type="submit"
-              data-voice-shortcut-save
-              class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
-              :disabled="recognitionOff || shortcutRecording || shortcutSaving || captureLocked"
-            >
-              {{ shortcutSaving ? 'Saving…' : 'Save shortcut' }}
-            </button>
-            <button
-              v-if="shortcutRecording || shortcutDirty"
-              type="button"
-              class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-muted hover:text-fg disabled:opacity-50"
-              :disabled="shortcutSaving"
-              data-voice-shortcut-cancel
-              @click="cancelShortcutEdit"
-            >
-              Cancel
-            </button>
-          </div>
-          <p id="voice-ptt-shortcut-help" class="text-[11px] text-muted-fg">
-            {{ recognitionOff
-              ? 'Enable voice control before setting a global shortcut.'
-              : shortcutRecording
-              ? 'Hold one or more modifiers, then press a key. Escape cancels.'
-              : shortcutSaving
-                ? 'Saving shortcut…'
-              : shortcutDirty
-                ? 'Not saved yet. Click Save shortcut to use it.'
-              : shortcutDraft
-                ? 'Click the shortcut to record a new key combination.'
-                : 'No global shortcut is active. Set one to talk while MSFS is in front, or use the on-screen button on Aircraft.' }}
-          </p>
-          <p v-if="shortcutError" id="voice-ptt-shortcut-error" class="text-[11px] text-warning" role="alert">
-            {{ shortcutError }}
-          </p>
-          <p v-if="voice.runtime.enabled && voice.runtime.shortcut && !voice.runtime.shortcutRegistered" class="text-xs text-warning" role="status">
-            Saved shortcut unavailable: {{ voice.runtime.shortcutError || 'Choose another key combination.' }}
-          </p>
-        </form>
-
-        <form v-if="voice.runtime.joystickAvailable" class="flex flex-col gap-1.5" data-voice-joystick-binding @submit.prevent="saveJoystick">
-          <label for="voice-ptt-joystick" class="shrink-0 text-muted-fg">Joystick push-to-talk button</label>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              id="voice-ptt-joystick"
-              type="button"
-              data-voice-joystick-recorder
-              class="min-h-10 min-w-40 rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-50"
-              :class="joystickLearning ? 'border-accent/70 bg-accent/10 text-fg' : 'border-border bg-panel-subtle text-fg hover:bg-muted'"
-              :disabled="recognitionOff || captureLocked || joystickSaving"
-              :aria-label="joystickLearning
-                ? 'Press the joystick button to use for push-to-talk'
-                : joystickDraftLabel
-                  ? `Current joystick push-to-talk button: ${joystickDraftLabel}. Click to change.`
-                  : 'No joystick push-to-talk button is bound. Click to detect one.'"
-              aria-describedby="voice-ptt-joystick-help voice-ptt-joystick-error"
-              @click="joystickLearning ? cancelJoystickEdit() : beginJoystickLearn()"
-              @keydown.escape.prevent="cancelJoystickEdit"
-            >
-              {{ joystickLearning ? 'Press a joystick button…' : (joystickDraftLabel || 'Set joystick button') }}
-            </button>
-            <button
-              v-if="joystickDirty"
-              type="submit"
-              class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
-              :disabled="recognitionOff || joystickLearning || joystickSaving || captureLocked"
-            >
-              {{ joystickSaving ? 'Saving…' : 'Save' }}
-            </button>
-            <button
-              v-if="joystickLearning || joystickDirty"
-              type="button"
-              class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-muted hover:text-fg"
-              @click="cancelJoystickEdit"
-            >
-              Cancel
-            </button>
-            <button
-              v-else-if="voice.runtime.joystick"
-              type="button"
-              data-voice-joystick-remove
-              class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-muted hover:text-fg disabled:opacity-50"
-              :disabled="recognitionOff || joystickSaving || captureLocked"
-              @click="removeJoystick"
-            >
-              Remove
-            </button>
-            <span
-              v-if="voice.runtime.joystick && !joystickLearning"
-              class="text-[11px]"
-              :class="voice.runtime.joystickConnected ? 'text-success' : 'text-warning'"
-              data-voice-joystick-connection
-            >
-              {{ voice.runtime.joystickConnected ? 'Connected' : 'Not connected' }}
-            </span>
-          </div>
-          <p id="voice-ptt-joystick-help" class="text-[11px] text-muted-fg">{{ joystickHelp }}</p>
-          <p v-if="joystickError" id="voice-ptt-joystick-error" class="text-[11px] text-warning" role="alert">
-            {{ joystickError }}
-          </p>
-        </form>
-        <p class="text-[11px] text-muted-fg">
-          After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. Audio remains local and is not saved.
-        </p>
       </div>
 
     </div>

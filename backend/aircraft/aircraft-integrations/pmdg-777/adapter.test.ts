@@ -245,7 +245,9 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
     actionId: 'lighting.dome.set',
   });
   assert.deepEqual(domeSet.input, { type: 'number', min: 0, max: 100, step: 1 });
-  assert.equal(domeSet.routes[0].command, '#69658');
+  assert.deepEqual(domeSet.routes[0].operations, [
+    { type: 'lvar', name: 'L:OH_DOME_SWITCH', unit: 'Number', inputValue: { source: 'input' } },
+  ]);
   assert.equal(domeSet.routes[0].readback.fieldId, 'lighting.domePercent');
   assert.equal(domeSet.routes[0].readback.expectedInput, true);
 
@@ -280,8 +282,15 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
         ]);
         continue;
       }
-      assert.equal(route.transport, 'sdk');
-      assert.equal(route.adapter, 'clientdata-manifest');
+      if (action.id.startsWith('lighting.') && action.id.endsWith('.set')) {
+        assert.equal(route.transport, 'simconnect-sequence');
+        assert.equal(route.requiredSdkAdapter, 'clientdata-manifest');
+        assert.equal(route.operations.length, 1);
+        assert.equal(route.operations[0].type, 'lvar');
+      } else {
+        assert.equal(route.transport, 'sdk');
+        assert.equal(route.adapter, 'clientdata-manifest');
+      }
       assert.ok(route.readback, `${action.id} must require fresh SDK readback`);
       assert.ok(PMDG_777_INTEGRATION.fields[route.readback.fieldId], `${action.id} readback must resolve`);
     }

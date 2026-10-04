@@ -26,6 +26,10 @@ const { computeCrosswind } = require('../utils/helpers') as {
   computeCrosswind: (windSpeed: unknown, windDirDeg: unknown, headingDeg: unknown) => number | null;
 };
 const { makeFlapsObj } = require('../aircraft/flaps') as { makeFlapsObj: (...args: unknown[]) => AnyRecord | null };
+const { msToFpm } = require('../utils/units') as { msToFpm: (value: number) => number };
+const { assessRecordedBounceEvidence } = require('../landing/landing-replay-analysis') as {
+  assessRecordedBounceEvidence: (evidence: AnyRecord, gradeFromVs: (vsFpm: number) => string | null) => { confirmed: boolean };
+};
 const profileLoader = require('../aircraft/aircraft-profile-loader.js') as {
   loadProfile: (profileId: unknown) => AnyRecord | null;
 };
@@ -65,6 +69,7 @@ const { buildAssistCsvFields, cloneAssistSnapshot } = require('../utils/assist-s
 
 type RollStart = {
   timestampMs: number;
+  simTimeSec?: number | null;
   lat: number | null;
   lon: number | null;
   gsKts: number | null;
@@ -109,6 +114,7 @@ type DebugModule = { log: (section: string, message: string, data?: AnyRecord) =
 
 type GroundSample = {
   timestampMs: number;
+  simTimeSec: number | null;
   onGround: true;
   onRunway: boolean | null;
   runwayLike: boolean | null;
@@ -141,6 +147,11 @@ type PendingTakeoff = {
   priorRotationMaxRateDegS: number | null;
   maxAglFt: number | null;
   aglSource: string | null;
+  groundRadioHeightFt: number | null;
+  groundPlaneAltitudeFt: number | null;
+  maxRadioHeightFt: number | null;
+  maxPlaneAltitudeFt: number | null;
+  maxUpwardVsFpm: number | null;
   rollExcursion: boolean;
   aircraftName: string;
   aircraftProfileId: string | null;
@@ -217,6 +228,17 @@ function getRadioHeightFt(frame: AnyRecord): number | null {
   return getFrameRadioHeightFt(frame);
 }
 
+function getVerticalSpeedFpm(frame: AnyRecord): number | null {
+  const verticalSpeedMs = finiteNumberOrNull(frame.vs);
+  return firstFiniteNumber(frame.display?.vsFpm, verticalSpeedMs == null ? null : msToFpm(verticalSpeedMs));
+}
+
+function getPlaneAltitudeFt(frame: AnyRecord): number | null {
+  // Indicated altitude follows cockpit QNH; calibrated altitude can move with
+  // atmospheric changes. Neither is evidence of physical climb after liftoff.
+  return firstFiniteNumber(frame.fdm?.altPlaneFt, frame.alt_plane_ft);
+}
+
 function buildAirportGeometryContext(ctx: TakeoffRunnerContext): AnyRecord {
   const dataSource = typeof ctx?.dataSource === 'string' ? ctx.dataSource : null;
   const simulator = typeof ctx?.simulator === 'string' ? ctx.simulator : dataSource;
@@ -240,6 +262,7 @@ function buildGroundSample(frame: AnyRecord, ctx: TakeoffRunnerContext, timestam
   const surface = frame.surface;
   return {
     timestampMs,
+    simTimeSec: finiteNumberOrNull(frame.simTime?.absoluteSec),
     onGround: true,
     onRunway: surface?.valid === true && typeof surface.onRunway === 'boolean' ? surface.onRunway : null,
     runwayLike: surface && typeof surface.runwayLike === 'boolean' ? surface.runwayLike : null,
@@ -426,6 +449,7 @@ function buildTakeoffBroadcast(payload: AnyRecord, analysis: AnyRecord | null): 
     roll: {
       distanceFt: payload.takeoff_roll_distance_ft,
       durationS: payload.takeoff_roll_duration_s,
+      durationBasis: analysis?.rollDurationBasis ?? null,
       startSource: payload.takeoff_roll_start_source,
       distanceSource: analysis?.rollDistanceSource ?? null,
     },
@@ -506,7 +530,7 @@ function createTakeoffRunner(): TakeoffRunner {
   }
 
   function reset(): void {
-    if (pending || hopCount > 0) {
+    if (pending || lastHopEpochMs != null) {
       Debug.log('takeoff', 'Pending takeoff dropped by reset', { hop_count: hopCount, pending: pending !== null });
       emitCancelled(lastEmit, 'reset', timeSource.now());
     }
@@ -568,8 +592,8 @@ function createTakeoffRunner(): TakeoffRunner {
     // A liftoff soon after a settle-back continues the takeoff that already
     // passed the roll checks; the short ground contact in between is not a
     // roll of its own and must not be judged as one.
-    const continuingHop = hopCount > 0
-      && lastHopEpochMs != null
+    const continuingHop = lastHopEpochMs != null
+      && hopRollStart != null
       && nowEpochMs - lastHopEpochMs <= config.takeoff.hopWindowMs;
     const position = getPosition(frame);
     const heading = getHeading(frame, ctx);
@@ -627,6 +651,7 @@ function createTakeoffRunner(): TakeoffRunner {
       // Snake_case: this is the payload shape. The analysis point is derived
       // from it in finalize().
       liftoff: {
+        simTimeSec: finiteNumberOrNull(frame.simTime?.absoluteSec),
         lat_deg: position.lat,
         lon_deg: position.lon,
         ias_kts: speeds.iasKts,
@@ -634,6 +659,7 @@ function createTakeoffRunner(): TakeoffRunner {
         ...heading,
         ...attitude,
         alt_msl_ft: finiteNumberOrNull(frame.alt_msl),
+        alt_plane_ft: getPlaneAltitudeFt(frame),
         ra_ft: getRadioHeightFt(frame),
         flaps_notch: makeFlapsObj(frame.flaps, frame.flapsIndex, frame.flapsAngleDeg)?.notch ?? null,
         wind_speed_kts: finiteNumberOrNull(frame.windSpeed),
@@ -656,6 +682,11 @@ function createTakeoffRunner(): TakeoffRunner {
       priorRotationMaxRateDegS: hopRotationMaxRateDegS,
       maxAglFt: null,
       aglSource: null,
+      groundRadioHeightFt: lastGroundFrame ? getRadioHeightFt(lastGroundFrame) : null,
+      groundPlaneAltitudeFt: lastGroundFrame ? getPlaneAltitudeFt(lastGroundFrame) : null,
+      maxRadioHeightFt: null,
+      maxPlaneAltitudeFt: null,
+      maxUpwardVsFpm: null,
       rollExcursion,
       aircraftName: ctx.aircraftName || '',
       aircraftProfileId,
@@ -693,6 +724,9 @@ function createTakeoffRunner(): TakeoffRunner {
   function trackClimb(frame: AnyRecord, emit: BroadcastFn, ctx: TakeoffRunnerContext, nowEpochMs: number, nowIso: string): void {
     if (!pending) return;
     pending.airborneSamples = Math.min(2, pending.airborneSamples + 1);
+    pending.maxRadioHeightFt = maxObserved(pending.maxRadioHeightFt, getRadioHeightFt(frame));
+    pending.maxPlaneAltitudeFt = maxObserved(pending.maxPlaneAltitudeFt, getPlaneAltitudeFt(frame));
+    pending.maxUpwardVsFpm = maxObserved(pending.maxUpwardVsFpm, getVerticalSpeedFpm(frame));
     const previousMaxPitchDeg = pending.maxPitchDeg;
     const previousMaxBankDeg = pending.maxBankDeg;
     const attitude = getAttitude(frame);
@@ -706,11 +740,11 @@ function createTakeoffRunner(): TakeoffRunner {
     let aglFt = getRadioHeightFt(frame);
     let aglSource: string | null = aglFt == null ? null : 'radio';
     if (aglFt == null) {
-      const altMsl = finiteNumberOrNull(frame.alt_msl);
-      const liftoffAlt = finiteNumberOrNull(pending.liftoff.alt_msl_ft);
-      if (altMsl != null && liftoffAlt != null) {
-        aglFt = altMsl - liftoffAlt;
-        aglSource = 'baro';
+      const planeAltitudeFt = getPlaneAltitudeFt(frame);
+      const liftoffAltitudeFt = finiteNumberOrNull(pending.liftoff.alt_plane_ft);
+      if (planeAltitudeFt != null && liftoffAltitudeFt != null) {
+        aglFt = planeAltitudeFt - liftoffAltitudeFt;
+        aglSource = 'plane';
       }
     }
     if (aglFt != null) {
@@ -734,13 +768,14 @@ function createTakeoffRunner(): TakeoffRunner {
         );
         pending.candidateScreenPoint = {
           timestampMs: Math.round(previous.timestampMs + (nowEpochMs - previous.timestampMs) * fraction),
+          simTimeSec: interpolate(previous.simTimeSec, finiteNumberOrNull(frame.simTime?.absoluteSec)),
           lat: interpolate(previous.lat, position.lat),
           lon: interpolate(previous.lon, position.lon),
           aglFt: pending.screenHeightFt,
           aglSource,
         };
       }
-      pending.previousAirPoint = { timestampMs: nowEpochMs, ...position, aglFt, aglSource };
+      pending.previousAirPoint = { timestampMs: nowEpochMs, simTimeSec: finiteNumberOrNull(frame.simTime?.absoluteSec), ...position, aglFt, aglSource };
       if (continuous && previous.aglFt >= pending.confirmAglFt && aglFt >= pending.confirmAglFt) {
         // The extra observation confirms the preceding endpoint; it must not
         // extend the existing pitch/bank measurement window beyond that point.
@@ -758,24 +793,39 @@ function createTakeoffRunner(): TakeoffRunner {
     }
   }
 
-  function handleSettleBack(emit: BroadcastFn, nowEpochMs: number): void {
+  function handleSettleBack(emit: BroadcastFn, nowEpochMs: number, groundFrame: AnyRecord): void {
     if (!pending) return;
+    // Use landing's existing physical-evidence policy for the observed wheel
+    // contact segment. Repeated WOW changes alone cannot prove a settle-back.
+    const evidence = assessRecordedBounceEvidence({
+      airborneDurationMs: nowEpochMs - pending.liftoffEpochMs,
+      altitudeLiftFt: pending.groundPlaneAltitudeFt == null || pending.maxPlaneAltitudeFt == null
+        ? null : pending.maxPlaneAltitudeFt - pending.groundPlaneAltitudeFt,
+      radioHeightLiftFt: pending.groundRadioHeightFt == null || pending.maxRadioHeightFt == null
+        ? null : pending.maxRadioHeightFt - pending.groundRadioHeightFt,
+      maxUpwardVsFpm: pending.maxUpwardVsFpm,
+      recontactVsFpm: getVerticalSpeedFpm(groundFrame),
+      impactLoadG: firstFiniteNumber(groundFrame.gforce, groundFrame.fdm?.gForce, groundFrame.simconnect?.fdm?.gForce),
+    }, () => null);
     const attempt = analyzePending(pending, null, 'settled');
     hopMaxPitchDeg = finiteNumberOrNull(attempt?.rotation?.maxPitchDeg) ?? pending.maxPitchDeg;
     hopMaxBankDeg = pending.maxBankDeg;
-    hopRotationMaxRateDegS = finiteNumberOrNull(attempt?.rotation?.maxRateDegS);
-    hopCount += 1;
+    if (evidence.confirmed) {
+      hopRotationMaxRateDegS = finiteNumberOrNull(attempt?.rotation?.maxRateDegS);
+      hopCount += 1;
+    } else groundContactUncertain = true;
     lastHopEpochMs = nowEpochMs;
     hopRollStart = pending.rollStart;
     hopRollExcursion = pending.rollExcursion;
-    Debug.log('takeoff', 'Aircraft settled back onto the ground after liftoff', {
+    Debug.log('takeoff', 'Ground return after observed WOW release', {
       hop_count: hopCount,
+      physically_confirmed: evidence.confirmed,
       airborne_ms: nowEpochMs - pending.liftoffEpochMs,
       max_agl_ft: pending.maxAglFt,
     });
     pending = null;
     try {
-      emit({ type: 'takeoff', final: false, settled: true, hopCount, timestampMs: nowEpochMs });
+      if (evidence.confirmed) emit({ type: 'takeoff', final: false, settled: true, hopCount, timestampMs: nowEpochMs });
     } catch {}
   }
 
@@ -784,7 +834,7 @@ function createTakeoffRunner(): TakeoffRunner {
    * runway or running out the hop window means the takeoff was abandoned.
    */
   function expireSettleBack(frame: AnyRecord, emit: BroadcastFn, nowEpochMs: number): void {
-    if (hopCount === 0 || lastHopEpochMs == null) return;
+    if (lastHopEpochMs == null) return;
     const gsKts = getSpeeds(frame).gsKts;
     const stopped = gsKts != null && gsKts <= ROLL_STANDSTILL_GS_KTS;
     const expired = nowEpochMs - lastHopEpochMs > config.takeoff.hopWindowMs;
@@ -793,8 +843,11 @@ function createTakeoffRunner(): TakeoffRunner {
       hop_count: hopCount,
       reason: stopped ? 'stopped' : 'hop_window_expired',
     });
+    const hadConfirmedHop = hopCount > 0;
     clearHopState();
-    emitCancelled(emit, stopped ? 'stopped_after_settle_back' : 'settle_back_window_expired', nowEpochMs);
+    emitCancelled(emit, stopped
+      ? hadConfirmedHop ? 'stopped_after_settle_back' : 'stopped_after_ground_return'
+      : hadConfirmedHop ? 'settle_back_window_expired' : 'ground_return_window_expired', nowEpochMs);
   }
 
   function resolveGeometry(current: PendingTakeoff, ctx: TakeoffRunnerContext): {
@@ -845,6 +898,7 @@ function createTakeoffRunner(): TakeoffRunner {
   function analyzePending(current: PendingTakeoff, runwayData: AnyRecord | null, reason: string): AnyRecord | null {
     const liftoffPoint = {
       timestampMs: current.liftoffEpochMs,
+      simTimeSec: current.liftoff.simTimeSec,
       lat: current.liftoff.lat_deg,
       lon: current.liftoff.lon_deg,
       iasKts: current.liftoff.ias_kts,
@@ -863,6 +917,7 @@ function createTakeoffRunner(): TakeoffRunner {
       groundContactUncertain,
       climb: { maxPitchDeg: current.maxPitchDeg, maxBankDeg: current.maxBankDeg },
       priorRotationMaxRateDegS: current.priorRotationMaxRateDegS,
+      rotationGroundStartMs: lastHopEpochMs,
       lightAircraft: current.lightAircraft,
       source: 'live',
       finalizeReason: reason,
@@ -872,6 +927,15 @@ function createTakeoffRunner(): TakeoffRunner {
   function finalize(emit: BroadcastFn, ctx: TakeoffRunnerContext, nowEpochMs: number, nowIso: string, reason: string): void {
     const current = pending;
     if (!current) return;
+    // Losing telemetry cannot turn one uncorroborated WOW release into a
+    // recorded departure. Match the immediate return-to-ground cancellation.
+    if (current.airborneSamples < 2) {
+      pending = null;
+      clearHopState();
+      clearGroundSamples();
+      emitCancelled(emit, 'unconfirmed_liftoff', nowEpochMs);
+      return;
+    }
     if (candidateGround) groundContactUncertain = true;
     pending = null;
 
@@ -920,7 +984,7 @@ function createTakeoffRunner(): TakeoffRunner {
     const wow = frame.wow === true || frame.wow === 1 ? true
       : frame.wow === false || frame.wow === 0 ? false : null;
     if (wow === null) { reset(); return; }
-    if (ctx.scoringEnabled === false && (pending || hopCount > 0)) reset();
+    if (ctx.scoringEnabled === false && (pending || lastHopEpochMs != null)) reset();
     // Never use a resumed frame to invent a crossing during an observation gap.
     const interrupted = frame.paused === true || frame.inMenu === true
       || frame.assists?.slewActive === true || frame.simconnect?.connected === false
@@ -965,13 +1029,13 @@ function createTakeoffRunner(): TakeoffRunner {
       if (pending && pending.airborneSamples < 2) {
         // One WOW release with no subsequent airborne observation is not a hop.
         pending = null;
-        if (hopCount === 0) emitCancelled(emit, 'unconfirmed_liftoff', nowEpochMs);
+        if (lastHopEpochMs == null) emitCancelled(emit, 'unconfirmed_liftoff', nowEpochMs);
       } else if (pending) {
         if (!candidateGround) {
           candidateGround = { frame, timestampMs: nowEpochMs };
           return;
         }
-        handleSettleBack(emit, candidateGround.timestampMs);
+        handleSettleBack(emit, candidateGround.timestampMs, candidateGround.frame);
         recordGroundSample(candidateGround.frame, ctx, candidateGround.timestampMs);
       }
       candidateGround = null;

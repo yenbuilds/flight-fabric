@@ -5,7 +5,7 @@ import LandingSummaryWatermark from './LandingSummaryWatermark.vue';
 import { useTakeoffStore } from '../stores/takeoff.js';
 import { useStatusStore } from '../stores/status.js';
 
-const detailedMetricsExpanded = ref(true);
+const detailedMetricsExpanded = ref(false);
 const takeoff = useTakeoffStore();
 const status = useStatusStore();
 
@@ -37,15 +37,11 @@ function detailedMetricAttentionClass(...toneClasses) {
 }
 
 const detailedAttention = computed(() => {
-  const { runwayUse, liftoff, climb, alignment } = takeoff.takeoffCard;
+  const { liftoff, alignment } = takeoff.takeoffCard;
   const levels = [
-    detailedMetricAttentionLevel(runwayUse.remainingTone, runwayUse.remainingDetailTone),
     detailedMetricAttentionLevel(liftoff.hopTone, liftoff.hopDetailTone),
     detailedMetricAttentionLevel(liftoff.pitchTone),
-    detailedMetricAttentionLevel(climb.screenTone, climb.screenDetailTone),
-    detailedMetricAttentionLevel(climb.rotationTone),
     detailedMetricAttentionLevel(alignment.lateralTone, alignment.lateralGradeTone),
-    detailedMetricAttentionLevel(alignment.headingTone),
   ].filter(Boolean);
 
   return {
@@ -81,31 +77,12 @@ const detailedAttention = computed(() => {
 
   <div
     id="takeoff-card"
+    tabindex="-1"
+    role="region"
+    aria-label="Takeoff report"
     class="landing-gradient border border-surface-200 overflow-hidden"
     :class="{ hidden: !takeoff.cardVisible }"
   >
-    <div
-      id="takeoff-excursion-banner"
-      class="bg-red-900/80 border-b border-red-500 px-6 py-3"
-      :class="{ hidden: !takeoff.takeoffCard.excursionVisible }"
-    >
-      <div class="flex items-center gap-3">
-        <svg class="w-6 h-6 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
-        <div>
-          <div class="text-red-300 font-bold" style="font-family:'B612 Mono', monospace; letter-spacing: 0.1em;">
-            RUNWAY EXCURSION
-          </div>
-          <div class="text-red-400 text-sm">Aircraft left the runway surface during the takeoff roll</div>
-        </div>
-      </div>
-    </div>
 
     <div class="p-4 sm:p-6 pb-4 border-b border-surface-200/30">
       <div class="landing-aircraft-hero mb-3">
@@ -132,7 +109,33 @@ const detailedAttention = computed(() => {
         </div>
       </div>
 
-      <p class="text-xs text-muted-fg mb-4">Runway use and rotation are measured observations. More runway remaining does not mean a better takeoff.</p>
+      <section id="takeoff-debrief-factors" class="mb-4 rounded-lg border border-surface-200 bg-surface-100/40 p-3 sm:p-4" aria-label="Takeoff findings and data quality">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-muted-fg mb-2">Recorded findings</div>
+            <ul v-if="takeoff.takeoffCard.debrief.reasons.length" id="takeoff-debrief-reasons" class="space-y-2">
+              <li v-for="reason in takeoff.takeoffCard.debrief.reasons" :key="reason.key"
+                class="rounded border px-3 py-2 text-sm leading-relaxed"
+                :class="reason.tone === 'danger' ? 'border-danger/40 bg-danger/10 text-danger' : reason.tone === 'warning' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-surface-200 text-muted-fg'"
+              >{{ reason.text }}</li>
+            </ul>
+            <p v-else class="text-sm text-muted-fg">No additional findings were recorded.</p>
+          </div>
+          <div class="min-w-0 lg:w-64 lg:shrink-0">
+            <div class="text-xs font-semibold text-muted-fg">Telemetry confidence</div>
+            <div id="takeoff-data-confidence" class="mt-1 text-sm font-semibold" :class="takeoff.takeoffCard.debrief.confidenceToneClass">{{ takeoff.takeoffCard.debrief.confidenceText }}</div>
+            <p v-if="takeoff.takeoffCard.debrief.confidenceReason" id="takeoff-data-confidence-reason" class="mt-1 text-xs leading-relaxed text-muted-fg">{{ takeoff.takeoffCard.debrief.confidenceReason }}</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-fg">
+        <span>{{ takeoff.takeoffCard.gradeLabel }}</span>
+        <span id="takeoff-grade" :style="takeoff.takeoffGradeStyle" class="font-semibold">{{ takeoff.takeoffCard.gradeText }}</span>
+        <span v-if="takeoff.takeoffCard.scoreText" id="takeoff-grade-detail">{{ takeoff.takeoffCard.scoreText }}</span>
+      </div>
+
+      <p class="text-xs text-muted-fg mb-4">Covers the takeoff roll and liftoff; capture normally finishes around 50 ft. Runway use and rotation are measured observations. More runway remaining does not mean a better takeoff.</p>
 
       <section
         v-if="takeoff.takeoffCard.wind.available"
@@ -155,19 +158,7 @@ const detailedAttention = computed(() => {
         </div>
       </section>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-px overflow-hidden rounded-lg border border-surface-200/50 bg-surface-200/50">
-        <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
-          <div class="relative z-10">
-            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.takeoffCard.gradeLabel }}</div>
-            <div
-              id="takeoff-grade"
-              :key="takeoff.takeoffCard.gradeAnimationNonce"
-              class="grade-pop text-2xl font-semibold"
-              :style="[takeoff.takeoffGradeStyle, { fontFamily: '\'B612 Mono\', monospace', letterSpacing: '0.08em' }]"
-            >{{ takeoff.takeoffCard.gradeText }}</div>
-            <div id="takeoff-grade-detail" class="mt-1 text-xs text-gray-500">{{ takeoff.takeoffCard.gradeDetailText }}</div>
-          </div>
-        </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px overflow-hidden rounded-lg border border-surface-200/50 bg-surface-200/50">
 
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="liftoff" />
@@ -190,22 +181,23 @@ const detailedAttention = computed(() => {
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="roll" />
           <div class="relative z-10">
-            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Ground roll</div>
+            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.takeoffCard.roll.label }}</div>
             <div
               id="takeoff-summary-roll"
               class="text-2xl font-semibold tabular text-gray-200"
               style="font-family:'B612 Mono', monospace;"
             >{{ takeoff.takeoffCard.roll.distanceText }}</div>
             <div id="takeoff-summary-roll-detail" class="mt-1 text-xs text-gray-500">
-              {{ takeoff.takeoffCard.roll.durationText }} · lifted off at {{ takeoff.takeoffCard.liftoff.iasText }}
+              {{ takeoff.takeoffCard.roll.durationText }} · liftoff {{ takeoff.takeoffCard.liftoff.iasText }}
             </div>
+            <div v-if="takeoff.takeoffCard.roll.startNoteText" class="mt-1 text-xs text-muted-fg">{{ takeoff.takeoffCard.roll.startNoteText }}</div>
           </div>
         </div>
 
         <div class="relative isolate min-h-[7.5rem] min-w-0 overflow-hidden bg-surface-100/80 px-4 py-3">
           <LandingSummaryWatermark kind="climb" />
           <div class="relative z-10">
-            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Screen height</div>
+            <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.takeoffCard.climb.screenLabel }}</div>
             <div
               id="takeoff-summary-screen"
               class="text-2xl font-semibold tabular"
@@ -234,37 +226,6 @@ const detailedAttention = computed(() => {
               {{ takeoff.takeoffCard.climb.rotationDetailText }}
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div
-      id="takeoff-debrief-factors"
-      class="border-t border-surface-200/30 px-6 py-4"
-      :class="{ hidden: !takeoff.takeoffCard.debrief.visible }"
-    >
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div class="min-w-0">
-          <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Debrief Factors</div>
-          <div id="takeoff-debrief-reasons" class="flex flex-wrap gap-1.5">
-            <span
-              v-for="reason in takeoff.takeoffCard.debrief.reasons"
-              :key="reason.key"
-              class="rounded border px-2 py-1 text-[11px] font-medium"
-              :style="{ color: reason.color, backgroundColor: reason.backgroundColor, borderColor: reason.borderColor }"
-            >{{ reason.text }}</span>
-          </div>
-        </div>
-        <div class="shrink-0 rounded border border-surface-200/50 bg-surface-100/40 px-3 py-2 text-right">
-          <div class="text-[10px] uppercase tracking-widest text-gray-600">Telemetry confidence</div>
-          <div id="takeoff-data-confidence" class="text-sm font-semibold" :class="takeoff.takeoffCard.debrief.confidenceToneClass">
-            {{ takeoff.takeoffCard.debrief.confidenceText }}
-          </div>
-          <div
-            id="takeoff-data-confidence-reason"
-            class="max-w-[15rem] text-[11px] text-gray-500"
-            :class="{ hidden: !takeoff.takeoffCard.debrief.confidenceReason }"
-          >{{ takeoff.takeoffCard.debrief.confidenceReason }}</div>
         </div>
       </div>
     </div>
@@ -308,17 +269,8 @@ const detailedAttention = computed(() => {
       >
         <div class="px-6 pt-4 pb-2">
           <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Runway</div>
-          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div
-              :class="[detailedMetricClass, detailedMetricAttentionClass(takeoff.takeoffCard.runwayUse.remainingTone, takeoff.takeoffCard.runwayUse.remainingDetailTone)]"
-              data-detail-metric="runway-remaining"
-              :data-attention="detailedMetricAttentionLevel(takeoff.takeoffCard.runwayUse.remainingTone, takeoff.takeoffCard.runwayUse.remainingDetailTone)"
-            >
-              <div class="text-[11px] text-gray-500 mb-0.5">Runway remaining</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">At liftoff</div>
-              <div id="takeoff-remaining-value" class="text-xl font-semibold tabular" :class="takeoff.takeoffCard.runwayUse.remainingTone">{{ takeoff.takeoffCard.runwayUse.remainingText }}</div>
-              <div id="takeoff-remaining-grade" class="text-xs mt-0.5" :class="takeoff.takeoffCard.runwayUse.remainingDetailTone">{{ takeoff.takeoffCard.runwayUse.remainingDetailText }}</div>
-            </div>
+          <div class="grid grid-cols-2 gap-3">
+
             <div :class="detailedMetricClass" data-detail-metric="runway-liftoff-point">
               <div class="text-[11px] text-gray-500 mb-0.5">Liftoff point</div>
               <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">From runway start</div>
@@ -330,33 +282,18 @@ const detailedAttention = computed(() => {
               <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Physical runway length</div>
               <div id="takeoff-runway-length" class="text-xl font-semibold tabular text-gray-100">{{ takeoff.takeoffCard.runwayUse.runwayLengthText }}</div>
             </div>
-            <div
-              :class="[detailedMetricClass, detailedMetricAttentionClass(takeoff.takeoffCard.climb.screenTone, takeoff.takeoffCard.climb.screenDetailTone)]"
-              data-detail-metric="runway-screen-height"
-              :data-attention="detailedMetricAttentionLevel(takeoff.takeoffCard.climb.screenTone, takeoff.takeoffCard.climb.screenDetailTone)"
-            >
-              <div class="text-[11px] text-gray-500 mb-0.5">Screen height</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Runway left when reached</div>
-              <div id="takeoff-screen-value" class="text-xl font-semibold tabular" :class="takeoff.takeoffCard.climb.screenTone">{{ takeoff.takeoffCard.climb.screenText }}</div>
-              <div id="takeoff-screen-grade" class="text-xs mt-0.5" :class="takeoff.takeoffCard.climb.screenDetailTone">{{ takeoff.takeoffCard.climb.screenDetailText }}</div>
-            </div>
+
           </div>
         </div>
 
         <div class="px-6 pt-4 pb-2">
-          <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Roll and Liftoff</div>
-          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div :class="detailedMetricClass" data-detail-metric="roll-distance">
-              <div class="text-[11px] text-gray-500 mb-0.5">Ground roll</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Roll start to liftoff</div>
-              <div id="takeoff-roll-distance" class="text-xl font-semibold tabular text-gray-100">{{ takeoff.takeoffCard.roll.distanceText }}</div>
-              <div id="takeoff-roll-duration" class="text-xs text-gray-500 mt-0.5">{{ takeoff.takeoffCard.roll.durationText }}<span v-if="takeoff.takeoffCard.roll.startNoteText"> · {{ takeoff.takeoffCard.roll.startNoteText }}</span></div>
-            </div>
+          <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Liftoff observations</div>
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
+
             <div :class="detailedMetricClass" data-detail-metric="liftoff-speed">
-              <div class="text-[11px] text-gray-500 mb-0.5">Speed</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">IAS at liftoff</div>
-              <div id="takeoff-ias" class="text-xl font-semibold tabular text-gray-100">{{ takeoff.takeoffCard.liftoff.iasText }}</div>
-              <div id="takeoff-gs" class="text-xs text-gray-500 mt-0.5">{{ takeoff.takeoffCard.liftoff.gsText }}</div>
+              <div class="text-[11px] text-gray-500 mb-0.5">Ground speed</div>
+              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">At liftoff (kt)</div>
+              <div id="takeoff-gs" class="text-xl font-semibold tabular text-gray-100">{{ takeoff.takeoffCard.liftoff.gsText }}</div>
             </div>
             <div
               :class="[detailedMetricClass, detailedMetricAttentionClass(takeoff.takeoffCard.liftoff.pitchTone)]"
@@ -366,7 +303,7 @@ const detailedAttention = computed(() => {
               <div class="text-[11px] text-gray-500 mb-0.5">Pitch</div>
               <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">At liftoff - + = nose up</div>
               <div id="takeoff-pitch" class="text-xl font-semibold tabular" :class="takeoff.takeoffCard.liftoff.pitchTone">{{ takeoff.takeoffCard.liftoff.pitchText }}</div>
-              <div id="takeoff-max-pitch" class="text-xs text-gray-500 mt-0.5">Max {{ takeoff.takeoffCard.climb.maxPitchText }} to screen height</div>
+              <div id="takeoff-max-pitch" class="text-xs text-gray-500 mt-0.5">Peak {{ takeoff.takeoffCard.climb.maxPitchText }} during capture</div>
             </div>
             <div
               :class="[detailedMetricClass, detailedMetricAttentionClass(takeoff.takeoffCard.liftoff.hopTone, takeoff.takeoffCard.liftoff.hopDetailTone)]"
@@ -383,17 +320,8 @@ const detailedAttention = computed(() => {
 
         <div class="px-6 pt-4 pb-4">
           <div class="text-[10px] text-gray-700 uppercase tracking-widest mb-2">Control</div>
-          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div
-              :class="[detailedMetricClass, detailedMetricAttentionClass(takeoff.takeoffCard.climb.rotationTone)]"
-              data-detail-metric="control-rotation"
-              :data-attention="detailedMetricAttentionLevel(takeoff.takeoffCard.climb.rotationTone)"
-            >
-              <div class="text-[11px] text-gray-500 mb-0.5">Rotation rate</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Rotation start to liftoff</div>
-              <div id="takeoff-rotation-rate" class="text-xl font-semibold tabular" :class="takeoff.takeoffCard.climb.rotationTone">{{ takeoff.takeoffCard.climb.rotationText }}</div>
-              <div id="takeoff-rotation-grade" class="text-xs text-gray-500 mt-0.5">{{ takeoff.takeoffCard.climb.rotationDetailText }}</div>
-            </div>
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
+
             <div
               :class="[detailedMetricClass, detailedMetricAttentionClass(takeoff.takeoffCard.alignment.lateralTone, takeoff.takeoffCard.alignment.lateralGradeTone)]"
               data-detail-metric="control-lateral"
@@ -409,16 +337,16 @@ const detailedAttention = computed(() => {
               data-detail-metric="control-alignment"
               :data-attention="detailedMetricAttentionLevel(takeoff.takeoffCard.alignment.headingTone)"
             >
-              <div class="text-[11px] text-gray-500 mb-0.5">Runway Alignment</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Aircraft heading vs runway heading</div>
+              <div class="text-[11px] text-gray-500 mb-0.5">Heading at liftoff</div>
+              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Difference from runway heading; not ground track</div>
               <div id="takeoff-heading" class="text-xl font-semibold tabular" :class="takeoff.takeoffCard.alignment.headingTone">{{ takeoff.takeoffCard.alignment.headingText }}</div>
               <div id="takeoff-heading-grade" class="text-xs text-gray-500 mt-0.5">{{ takeoff.takeoffCard.alignment.headingGradeText }}</div>
             </div>
-            <div :class="detailedMetricClass" data-detail-metric="control-crosswind">
-              <div class="text-[11px] text-gray-500 mb-0.5">Crosswind</div>
-              <div class="text-[9px] text-gray-600 -mt-0.5 mb-0.5">Wind across runway - L/R = from</div>
-              <div id="takeoff-crosswind" class="text-xl font-semibold tabular" :class="takeoff.takeoffCard.alignment.crosswindTone">{{ takeoff.takeoffCard.alignment.crosswindText }}</div>
-              <div id="takeoff-wind-config" class="text-xs text-gray-500 mt-0.5">{{ takeoff.takeoffCard.alignment.windTotalText }} · {{ takeoff.takeoffCard.liftoff.flapsText }}</div>
+
+            <div :class="detailedMetricClass" data-detail-metric="liftoff-flaps">
+              <div class="text-[11px] text-muted-fg mb-0.5">Flaps at liftoff</div>
+              <div id="takeoff-flaps" class="text-xl font-semibold tabular text-fg">{{ takeoff.takeoffCard.liftoff.flapsText }}</div>
+              <div class="text-xs text-muted-fg mt-0.5">Recorded position</div>
             </div>
           </div>
         </div>

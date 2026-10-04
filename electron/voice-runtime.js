@@ -6,29 +6,17 @@ const { createVoiceSpeechEngine } = require('./voice-speech-engine');
 const {
   createPushToTalkHook,
   resolvePushToTalkHelperPath,
-  startJoystickLearnSession,
 } = require('./voice-push-to-talk-hook');
 const {
   DEFAULT_PUSH_TO_TALK_SHORTCUT,
-  normalizePushToTalkJoystick,
   normalizePushToTalkShortcut,
 } = require('./voice-push-to-talk');
 const { createWindowsLocalTts } = require('./windows-local-tts');
 
-const AUDIO_CHANNEL = 'voice:speech-audio';
-const JOYSTICK_LEARN_CHANNEL = 'voice:joystick-learn';
-// A binding session that nobody finishes must not leave a helper listening.
-const JOYSTICK_LEARN_TIMEOUT_MS = 60_000;
-// Release hold: docs/JOYSTICK-PTT-REVIEW-2026-09-20.md. Saved bindings are
-// retained, but no joystick may be exposed, bound or detected in this build.
-// The native helper independently rejects joystick modes before device I/O.
-const JOYSTICK_PUSH_TO_TALK_ENABLED = false;
+const { normalizeControllerBinding, controllerSummary } = require('./voice-controller-button');
+const { createControllerSetup } = require('./voice-controller-setup');
 
-function requireJoystickPushToTalk() {
-  if (!JOYSTICK_PUSH_TO_TALK_ENABLED) {
-    throw new Error('Joystick push-to-talk is disabled in this release. Use a keyboard shortcut or the on-screen button.');
-  }
-}
+const AUDIO_CHANNEL = 'voice:speech-audio';
 
 function createVoiceRuntime({
   app,
@@ -37,11 +25,11 @@ function createVoiceRuntime({
   getMainWindow,
   ipcMain,
   pushToTalkHookFactory = createPushToTalkHook,
-  joystickLearnSessionFactory = startJoystickLearnSession,
   registerTrustedIpcHandler,
   readbackEngine = null,
   resourcesPath = process.resourcesPath,
   speechEngine = null,
+  controllerSetupFactory = createControllerSetup,
 }) {
   if (!app || !ipcMain || typeof getMainWindow !== 'function'
       || typeof registerTrustedIpcHandler !== 'function') {
@@ -60,13 +48,18 @@ function createVoiceRuntime({
     onErrorChange: () => send('voice:runtime-state', runtimeInfo()),
   });
   const settingsFile = path.join(app.getPath('userData'), 'voice-control.json');
+  const controllerEnabled = process.platform === 'win32';
+  let controllerBinding = null;
+  let controllerSetup = null;
+  let controllerSetupActive = false;
+  let controllerSetupOwner = null;
+  let controllerSetupRevision = 0;
   let speechError = '';
   let shortcutError = '';
   let shortcut = DEFAULT_PUSH_TO_TALK_SHORTCUT;
-  let joystick = null;
+  let storedSettings = {};
   let recognitionEnabled = false;
   let hook = null;
-  let joystickLearn = null;
   let captureAuthorization = null;
   let runtimeTransition = Promise.resolve();
   let shuttingDown = false;
@@ -84,15 +77,12 @@ function createVoiceRuntime({
   }
 
   function isAudioCaptureAuthorized(webContents) {
-    if (!recognitionEnabled) return false;
+    if (!recognitionEnabled || controllerSetupActive) return false;
     if (!captureAuthorization || webContentsId(webContents) !== captureAuthorization.webContentsId) return false;
     return speech.getInfo().activeSessionId === captureAuthorization.sessionId;
   }
 
   function cancelActiveSession() {
-    // A renderer that navigates away or loses its session is no longer
-    // waiting for a joystick button either.
-    stopJoystickLearn('cancelled');
     const sessionId = captureAuthorization?.sessionId || speech.getInfo().activeSessionId;
     revokeCaptureAuthorization();
     return typeof sessionId === 'string' && sessionId ? speech.cancel(sessionId) : false;
@@ -117,7 +107,12 @@ function createVoiceRuntime({
     } catch {
       parsed = {};
     }
+    // Retain unknown preferences as inert data across saves, including retired settings.
+    storedSettings = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     recognitionEnabled = parsed?.voiceRecognitionEnabled === true;
+    if (controllerEnabled) {
+      try { controllerBinding = normalizeControllerBinding(parsed?.controllerBindingV1); } catch { controllerBinding = null; }
+    }
     try {
       shortcut = parsed?.pushToTalkShortcut
         ? normalizePushToTalkShortcut(parsed.pushToTalkShortcut)
@@ -125,20 +120,16 @@ function createVoiceRuntime({
     } catch {
       shortcut = DEFAULT_PUSH_TO_TALK_SHORTCUT;
     }
-    try {
-      joystick = normalizePushToTalkJoystick(parsed?.pushToTalkJoystick);
-    } catch {
-      joystick = null;
-    }
   }
 
-  function saveSettings() {
+  function saveSettings({ enabled = recognitionEnabled, accelerator = shortcut, controller = controllerBinding } = {}) {
     fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
     const temporary = `${settingsFile}.tmp`;
     fs.writeFileSync(temporary, `${JSON.stringify({
-      pushToTalkJoystick: joystick,
-      pushToTalkShortcut: shortcut,
-      voiceRecognitionEnabled: recognitionEnabled,
+      ...storedSettings,
+      ...(controllerEnabled ? { controllerBindingV1: controller } : {}),
+      pushToTalkShortcut: accelerator,
+      voiceRecognitionEnabled: enabled,
     }, null, 2)}\n`, {
       encoding: 'utf8',
       mode: 0o600,
@@ -153,15 +144,14 @@ function createVoiceRuntime({
       // The renderer may relax its aircraft-readiness UI only in an unpackaged
       // Electron run. Packaged builds always keep the normal aircraft gates.
       development: app.isPackaged !== true,
+      controllerSetup: controllerEnabled ? { active: controllerSetupActive, ...controllerSetup?.getInfo() } : undefined,
       engine: speech.getInfo(),
       error: recognitionEnabled ? speechError : '',
       modelBundled: speech.getInfo().state !== 'failed' || !/model file/i.test(speechError),
       pushToTalk: Object.freeze({
+        ...(controllerEnabled ? { controllerEnabled: true, controller: hook?.getInfo().controller || controllerSummary(controllerBinding, controllerBinding ? 'inactive' : 'unbound') } : {}),
         accelerator: hook?.getInfo().accelerator || shortcut,
         error: recognitionEnabled ? shortcutError : '',
-        joystickAvailable: JOYSTICK_PUSH_TO_TALK_ENABLED,
-        joystick: activeJoystickBinding(),
-        joystickConnected: JOYSTICK_PUSH_TO_TALK_ENABLED && recognitionEnabled && hook?.getInfo().joystickConnected === true,
         registered: recognitionEnabled && hook?.getInfo().registered === true,
       }),
       readback: readback.getInfo(),
@@ -176,17 +166,17 @@ function createVoiceRuntime({
     });
   }
 
-  function activeJoystickBinding() {
-    return JOYSTICK_PUSH_TO_TALK_ENABLED ? joystick : null;
-  }
-
   function createHook() {
     return pushToTalkHookFactory({
       helperPath: helperPath(),
+      controllerEnabled,
+      onStateChange: () => send('voice:runtime-state', runtimeInfo()),
+      onCancel: (reason) => {
+        cancelActiveSession();
+        send('voice:push-to-talk', { type: 'cancel', reason });
+      },
       onDown: (accelerator) => send('voice:push-to-talk', { type: 'down', accelerator }),
       onUp: (accelerator) => send('voice:push-to-talk', { type: 'up', accelerator }),
-      // The bound stick came or went: the panel shows which.
-      onDevice: () => send('voice:runtime-state', runtimeInfo()),
       onError: (error) => {
         cancelActiveSession();
         shortcutError = error?.message || 'Push-to-talk helper stopped.';
@@ -196,7 +186,7 @@ function createVoiceRuntime({
   }
 
   async function startRecognitionRuntime() {
-    if (!recognitionEnabled || shuttingDown) return;
+    if (!recognitionEnabled || shuttingDown || controllerSetupActive) return;
     speechError = '';
     shortcutError = '';
     try {
@@ -219,9 +209,9 @@ function createVoiceRuntime({
         return;
       }
     }
-    if (!shortcut && !activeJoystickBinding()) return;
+    if (!shortcut && !controllerBinding) return;
     try {
-      await hook.setBinding({ accelerator: shortcut, joystick: activeJoystickBinding() });
+      await hook.setBinding({ accelerator: shortcut, ...(controllerEnabled ? { controller: controllerBinding } : {}) });
     } catch (error) {
       shortcutError = error?.message || 'Push-to-talk is unavailable.';
       debugLog('Push-to-talk unavailable:', shortcutError);
@@ -230,7 +220,7 @@ function createVoiceRuntime({
 
   async function stopRecognitionRuntime() {
     cancelActiveSession();
-    stopJoystickLearn('disabled');
+    endControllerSetup();
     hook?.dispose();
     hook = null;
     shortcutError = '';
@@ -246,73 +236,31 @@ function createVoiceRuntime({
   function setRecognitionEnabled(value) {
     if (typeof value !== 'boolean') throw new TypeError('Voice recognition enabled state must be boolean');
     if (shuttingDown) throw new Error('Voice recognition is shutting down');
-    recognitionEnabled = value;
-    if (!recognitionEnabled) {
+    let persistenceError = null;
+    if (!value) {
+      recognitionEnabled = false;
+      endControllerSetup();
       cancelActiveSession();
-      stopJoystickLearn('disabled');
+      send('voice:push-to-talk', { type: 'cancel', reason: 'voice-disabled' });
       hook?.dispose();
       hook = null;
     }
-    saveSettings();
+    try { saveSettings({ enabled: value }); }
+    catch (error) {
+      // Enabling needs a saved preference. Disabling must still close the
+      // microphone and engine even when the preference cannot be persisted.
+      if (value) throw error;
+      persistenceError = new Error('Voice control is off for this session, but the setting could not be saved. It may be enabled again after restarting FlightFabric.', { cause: error });
+    }
+    recognitionEnabled = value;
     return queueRuntimeTransition(async () => {
       if (recognitionEnabled) await startRecognitionRuntime();
       else await stopRecognitionRuntime();
       const info = runtimeInfo();
       send('voice:runtime-state', info);
+      if (persistenceError) throw persistenceError;
       return info;
     });
-  }
-
-  function stopJoystickLearn(reason = 'stopped') {
-    const session = joystickLearn;
-    if (!session) return false;
-    joystickLearn = null;
-    clearTimeout(session.timer);
-    session.stop?.();
-    send(JOYSTICK_LEARN_CHANNEL, { type: 'stopped', reason });
-    return true;
-  }
-
-  // Lists the sticks Windows can read and relays each button press to the
-  // renderer, which shows them and lets the user confirm one. Only one
-  // session runs at a time and it ends by itself after a minute.
-  async function startJoystickLearn() {
-    requireJoystickPushToTalk();
-    if (!recognitionEnabled) throw new Error('Voice recognition is disabled');
-    if (shuttingDown) throw new Error('Voice recognition is shutting down');
-    stopJoystickLearn('restarted');
-    const session = { stop: null, timer: null };
-    joystickLearn = session;
-    const relay = (payload) => {
-      if (joystickLearn === session) send(JOYSTICK_LEARN_CHANNEL, payload);
-    };
-    let started;
-    try {
-      started = await joystickLearnSessionFactory({
-        helperPath: helperPath(),
-        onDevice: (device) => relay({ type: 'device', ...device }),
-        onButton: (press) => relay({ type: 'button', ...press }),
-        onStopped: (error) => {
-          if (joystickLearn !== session) return;
-          joystickLearn = null;
-          clearTimeout(session.timer);
-          send(JOYSTICK_LEARN_CHANNEL, {
-            type: 'stopped', reason: 'error', error: error?.message || 'Joystick detection stopped.',
-          });
-        },
-      });
-    } catch (error) {
-      if (joystickLearn === session) joystickLearn = null;
-      throw error;
-    }
-    if (joystickLearn !== session) {
-      started.stop();
-      return { started: false };
-    }
-    session.stop = () => started.stop();
-    session.timer = setTimeout(() => stopJoystickLearn('timeout'), JOYSTICK_LEARN_TIMEOUT_MS);
-    session.timer.unref?.();
-    return { started: true };
   }
 
   speech.onEvent((event) => {
@@ -329,8 +277,122 @@ function createVoiceRuntime({
     if (fatalError) send('voice:runtime-state', runtimeInfo());
   });
 
+  function endControllerSetup(invalidate = true) {
+    if (invalidate) controllerSetupRevision++;
+    controllerSetupActive = false;
+    if (controllerSetupOwner) {
+      controllerSetupOwner.removeListener?.('destroyed', abandonControllerSetup);
+      controllerSetupOwner.removeListener?.('did-start-navigation', abandonControllerSetup);
+      controllerSetupOwner = null;
+    }
+    controllerSetup?.stop();
+  }
+
+  function abandonControllerSetup() {
+    if (!controllerSetupActive) return;
+    endControllerSetup();
+    void queueRuntimeTransition(async () => {
+      if (!shuttingDown && recognitionEnabled) await startRecognitionRuntime();
+      send('voice:runtime-state', runtimeInfo());
+    });
+  }
+
+  function requireControllerIntegration() {
+    if (!controllerEnabled) throw new Error('Controller push-to-talk is not enabled in this build.');
+    if (shuttingDown) throw new Error('Voice recognition is shutting down');
+  }
+
+  async function savePushToTalkBinding({ accelerator = shortcut, controller = controllerBinding }) {
+    const previousShortcut = shortcut;
+    const previousController = controllerBinding;
+    cancelActiveSession();
+    send('voice:push-to-talk', { type: 'cancel', reason: 'binding-changed' });
+    endControllerSetup();
+    try {
+      if (recognitionEnabled) {
+        if (!hook) hook = createHook();
+        await hook.setBinding({ accelerator, ...(controllerEnabled ? { controller } : {}) });
+      }
+      // Other settings actions can run while the helper starts. Until both
+      // registration and persistence succeed, they must save the old binding.
+      saveSettings({ accelerator, controller });
+      shortcut = accelerator;
+      controllerBinding = controller;
+    } catch (error) {
+      if (recognitionEnabled && hook) {
+        const rollbackHook = hook;
+        try { await rollbackHook.setBinding({ accelerator: previousShortcut, ...(controllerEnabled ? { controller: previousController } : {}) }); }
+        catch {
+          rollbackHook.dispose();
+          if (hook === rollbackHook) {
+            hook = null;
+            shortcutError = 'Push-to-talk could not restart. Turn voice off and on to retry.';
+          }
+        }
+      }
+      send('voice:runtime-state', runtimeInfo());
+      throw error;
+    }
+    shortcutError = '';
+    send('voice:runtime-state', runtimeInfo());
+    return runtimeInfo();
+  }
+
   function installIpc() {
     registerTrustedIpcHandler('voice:get-runtime-info', () => runtimeInfo());
+    registerTrustedIpcHandler('voice:controller-setup-start', (event) => {
+      requireControllerIntegration();
+      if (!recognitionEnabled) throw new Error('Enable voice control before choosing a button.');
+      const request = ++controllerSetupRevision;
+      const owner = event?.sender;
+      const invalidatePendingSetup = () => { if (request === controllerSetupRevision) controllerSetupRevision++; };
+      const releasePendingOwner = () => {
+        owner?.removeListener?.('destroyed', invalidatePendingSetup);
+        owner?.removeListener?.('did-start-navigation', invalidatePendingSetup);
+      };
+      // The renderer may leave before this operation reaches the runtime queue.
+      // Track that interval as well as the active native setup session.
+      owner?.once?.('destroyed', invalidatePendingSetup);
+      owner?.once?.('did-start-navigation', invalidatePendingSetup);
+      return queueRuntimeTransition(async () => {
+        releasePendingOwner();
+        if (!recognitionEnabled || shuttingDown) throw new Error('Voice recognition is disabled');
+        if (request !== controllerSetupRevision || owner?.isDestroyed?.()) return runtimeInfo();
+        endControllerSetup(false);
+        controllerSetupActive = true;
+        cancelActiveSession();
+        send('voice:push-to-talk', { type: 'cancel', reason: 'button-setup' });
+        hook?.dispose(); hook = null;
+        controllerSetupOwner = event?.sender || null;
+        controllerSetupOwner?.once?.('destroyed', abandonControllerSetup);
+        controllerSetupOwner?.once?.('did-start-navigation', abandonControllerSetup);
+        if (!controllerSetup) controllerSetup = controllerSetupFactory({ helperPath: helperPath(),
+          onChange: () => send('voice:runtime-state', runtimeInfo()) });
+        send('voice:runtime-state', runtimeInfo());
+        await controllerSetup.start();
+        return runtimeInfo();
+      }).finally(releasePendingOwner);
+    });
+    registerTrustedIpcHandler('voice:controller-setup-cancel', () => {
+      requireControllerIntegration();
+      endControllerSetup();
+      return queueRuntimeTransition(async () => {
+        if (recognitionEnabled) await startRecognitionRuntime();
+        send('voice:runtime-state', runtimeInfo());
+        return runtimeInfo();
+      });
+    });
+    registerTrustedIpcHandler('voice:controller-setup-save', () => {
+      requireControllerIntegration();
+      return queueRuntimeTransition(() => {
+        if (!controllerSetupActive) throw new Error('Choose a controller button first.');
+        return savePushToTalkBinding({ controller: controllerSetup.bindingToSave() });
+      });
+    });
+    registerTrustedIpcHandler('voice:controller-binding-clear', () => {
+      requireControllerIntegration();
+      return queueRuntimeTransition(() => savePushToTalkBinding({ controller: null }));
+    });
     registerTrustedIpcHandler('voice:set-recognition-enabled', (_event, value) => (
       setRecognitionEnabled(value)
     ));
@@ -343,6 +405,7 @@ function createVoiceRuntime({
     }));
     registerTrustedIpcHandler('voice:speech-start', (event) => {
       if (!recognitionEnabled) throw new Error('Voice recognition is disabled');
+      if (controllerSetupActive) throw new Error('Voice input is paused during button setup.');
       const recognition = speech.start();
       const senderId = webContentsId(event?.sender);
       if (senderId === null) {
@@ -365,30 +428,12 @@ function createVoiceRuntime({
       if (cancelled) revokeCaptureAuthorization(sessionId);
       return { cancelled };
     });
-    registerTrustedIpcHandler('voice:set-push-to-talk-shortcut', async (_event, value) => {
+    registerTrustedIpcHandler('voice:set-push-to-talk-shortcut', (_event, value) => queueRuntimeTransition(async () => {
+      if (controllerSetupActive) throw new Error('Finish controller button setup first.');
       if (!hook) throw new Error('Push-to-talk is unavailable');
-      const next = normalizePushToTalkShortcut(value);
-      const info = await hook.setBinding({ accelerator: next, joystick: activeJoystickBinding() });
-      shortcut = info.accelerator;
-      saveSettings();
-      shortcutError = '';
-      return runtimeInfo().pushToTalk;
-    });
-    registerTrustedIpcHandler('voice:set-push-to-talk-joystick', async (_event, value) => {
-      requireJoystickPushToTalk();
-      if (!hook) throw new Error('Push-to-talk is unavailable');
-      const next = normalizePushToTalkJoystick(value);
-      const info = await hook.setBinding({ accelerator: shortcut, joystick: next });
-      joystick = info.joystick;
-      saveSettings();
-      shortcutError = '';
-      return runtimeInfo().pushToTalk;
-    });
-    registerTrustedIpcHandler('voice:joystick-learn-start', () => startJoystickLearn());
-    registerTrustedIpcHandler('voice:joystick-learn-stop', () => ({
-      stopped: stopJoystickLearn('stopped'),
+      const info = await savePushToTalkBinding({ accelerator: normalizePushToTalkShortcut(value) });
+      return info.pushToTalk;
     }));
-
     registerTrustedIpcHandler(AUDIO_CHANNEL, (event, payload) => {
       if (!isAudioCaptureAuthorized(event.sender)) return;
       try {
@@ -422,8 +467,8 @@ function createVoiceRuntime({
   async function shutdown() {
     shuttingDown = true;
     recognitionEnabled = false;
+    endControllerSetup();
     cancelActiveSession();
-    stopJoystickLearn('shutdown');
     readback.cancel();
     hook?.dispose();
     hook = null;
@@ -443,4 +488,4 @@ function createVoiceRuntime({
   });
 }
 
-module.exports = { AUDIO_CHANNEL, JOYSTICK_LEARN_CHANNEL, createVoiceRuntime };
+module.exports = { AUDIO_CHANNEL, createVoiceRuntime };

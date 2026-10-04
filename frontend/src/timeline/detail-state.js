@@ -24,8 +24,36 @@ function buildTimelineMetricSections(event, ruleDescriptions = RULE_DESCRIPTIONS
   if (approachRows) return [{ key: 'approach-episode', title: 'Approach episode', rows: approachRows,
     noteText: ruleDescriptions[event.ruleId] || '', emptyText: '' }];
   const ctx = { ...(event.context || event.metrics || {}) };
+  const metricLabels = {};
   if (event.markerType === 'takeoff' && Array.isArray(ctx.flags)) {
     ctx.flags = ctx.flags.map((flag) => flag?.label ? `${flag.severity || 'caution'}: ${flag.label}` : '').filter(Boolean).join('; ') || 'None recorded';
+  }
+  if (event.markerType === 'takeoff') {
+    const screen = ctx.takeoff_analysis?.screenHeight;
+    metricLabels.runway_used_pct = 'Liftoff position (% from runway start)';
+    metricLabels.liftoff_distance_ft = 'Liftoff position from runway start (ft)';
+    metricLabels.runway_remaining_ft = 'Runway remaining at liftoff (ft)';
+    metricLabels.max_pitch_deg = 'Max pitch during capture (deg)';
+    metricLabels.roll_distance_ft = ctx.hop_count > 0
+      ? 'Distance to final liftoff including airborne intervals (ft)' : 'Ground roll (ft)';
+    metricLabels.screen_height_ft = 'Screen-height target (ft)';
+    metricLabels.screen_height_remaining_ft = 'Runway remaining at observed height (ft)';
+    if (screen?.heightSource === 'radio') metricLabels.screen_height_ft = 'Radio-height target (ft)';
+    else if (screen?.heightSource === 'baro') metricLabels.screen_height_ft = 'Height-gain target from liftoff (ft)';
+    else if (screen?.heightSource === 'plane') metricLabels.screen_height_ft = 'Geometric height-gain target from liftoff (ft)';
+    if (typeof screen?.reached === 'boolean') {
+      ctx.screen_height_observation = screen.reached ? 'Observed' : 'Not observed during capture';
+      if (!screen.reached) ctx.screen_height_remaining_ft = null;
+    }
+    if (typeof ctx.roll_duration_s === 'number' && ctx.roll_duration_basis === 'capture') {
+      ctx.roll_duration_s = `${ctx.roll_duration_s.toFixed(1)} (real time)`;
+    }
+    if (typeof ctx.rotation_rate_deg_s === 'number' && ctx.takeoff_analysis?.rotation?.timeBasis === 'capture') {
+      ctx.rotation_rate_deg_s = `${ctx.rotation_rate_deg_s.toFixed(2)} (real time)`;
+    }
+    // Durable identity and original analysis travel with the marker for history
+    // consistency; the inspector shows measurements and findings to the pilot.
+    for (const key of ['takeoff_id', 'event_id', 'sample_index', 'takeoff_analysis', 'roll_duration_basis']) delete ctx[key];
   }
   if (event.type === 'phase_start') {
     if (event.previousPhase) ctx.previous_phase = event.previousPhase;
@@ -43,7 +71,7 @@ function buildTimelineMetricSections(event, ruleDescriptions = RULE_DESCRIPTIONS
 
   const rows = Object.entries(ctx).map(([key, value]) => ({
     key,
-    label: humanizeMetricKey(key),
+    label: metricLabels[key] || humanizeMetricKey(key),
     value: formatMetricValue(value),
     valueClass: 'text-gray-300 font-mono',
   }));

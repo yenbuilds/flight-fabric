@@ -65,6 +65,7 @@ for (const forbidden of [
   'function flushActiveCsvBeforeList',
   "require('../events/timeline-generator')",
   'getLandingsFromCSVs',
+  'getFlightRecordsFromCSVs',
   'computeStatsFromEntries',
   'generateFromCSV',
   'listCSVFlights',
@@ -133,8 +134,8 @@ const storeLogbook = sectionBody(
 assertBefore(
   storeLogbook,
   'flushActiveCsvBeforeDirectoryRead',
-  'getLandingsFromCSVs',
-  'flight-csv-store logbook',
+  'getFlightRecordsFromCSVs',
+  'flight-csv-store landing/takeoff logbook',
 );
 
 assert(

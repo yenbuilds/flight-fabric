@@ -399,7 +399,10 @@ class LvarSidecarBridge {
   }
 
   _setStatus(status: BridgeStatus, error: string | null = null): void {
-    if (['disabled', 'starting', 'connecting', 'disconnected', 'error', 'stopped'].includes(status)) {
+    // "connecting" also means a subscription refresh or missing gauge values
+    // within the same native session. Neither changes its exported Input Event
+    // API; real disconnect/restart/error boundaries still revoke availability.
+    if (['disabled', 'starting', 'disconnected', 'error', 'stopped'].includes(status)) {
       this._snapshot.inputEventsAvailable = false;
     }
     const prevStatus = this._snapshot.status;

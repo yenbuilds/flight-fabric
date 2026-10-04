@@ -45,6 +45,7 @@ function eventAction(params: {
         fieldId: params.fieldId,
         expectedValue: params.expectedValue,
         timeoutMs: READBACK_TIMEOUT_MS,
+        ...(params.fieldId === 'lights.wing' ? { freshness: 'field' as const } : {}),
       },
     }],
     verification: 'untested',
@@ -115,10 +116,9 @@ function relativeEventAction(params: {
   };
 }
 
-// The included MSFS 2024 737 MAX 8 has no published Boeing-specific cockpit
-// input catalogue. This compact first write layer therefore uses only the
-// documented standard key events whose standard-SimVar readbacks are already
-// in this exact-profile adapter. Toggle-only FD and A/T ARM requests remain
+// Most routes use documented standard events. The POSITION light selector's
+// native route below was established separately on the loaded passenger preset.
+// Toggle-only FD and A/T ARM requests remain
 // target-state actions: fresh same-state readback makes them safe no-ops.
 for (const [prefix, fieldId, offEvent, onEvent] of [
   ['flightGuidance.apMaster', 'afds.apMaster', 'AUTOPILOT_OFF', 'AUTOPILOT_ON'],
@@ -157,7 +157,8 @@ for (const [actionId, fieldId, event, input] of [
   actions[actionId] = numericEventAction({
     actionId,
     event,
-    eventParameters: [0],
+    // The passenger MCP displays slot 3; slots 0/1 acknowledge without moving it.
+    eventParameters: [actionId === 'flightGuidance.altitude.set' ? 3 : 0],
     fieldId,
     groupId: actionId.replace(/\.set$/, ''),
     input,
@@ -165,13 +166,9 @@ for (const [actionId, fieldId, event, input] of [
 }
 
 for (const [lightId, event] of [
-  ['strobe', 'STROBES_SET'],
   ['beacon', 'BEACON_LIGHTS_SET'],
-  ['nav', 'NAV_LIGHTS_SET'],
   ['logo', 'LOGO_LIGHTS_SET'],
   ['wing', 'WING_LIGHTS_SET'],
-  ['landing', 'LANDING_LIGHTS_SET'],
-  ['taxi', 'TAXI_LIGHTS_SET'],
 ] as const) {
   for (const [suffix, expectedValue, eventValue] of [
     ['off', false, 0],
@@ -189,6 +186,95 @@ for (const [lightId, event] of [
       skipIfSatisfied: false,
     });
   }
+}
+
+// Standard NAV/strobe events acknowledged without effect in the passenger
+// preset. User-set STEADY and STROBE & STEADY read 0 and 2; native round trips
+// established 1/OFF, 0/STEADY and 2/STROBE & STEADY with independent lamp
+// readback. Preserve the other output of this shared selector: NAV requires
+// strobes OFF, and strobes require NAV ON. Unknown state sends nothing.
+// See docs/MICROSOFT-737-MAX-PROFILE-VALIDATION.md.
+for (const [lightId, suffix, value, expectedValue, preservedField, preservedValue] of [
+  ['nav', 'on', 0, true, 'lights.strobe', false],
+  ['nav', 'off', 1, false, 'lights.strobe', false],
+  ['strobe', 'on', 2, true, 'lights.nav', true],
+  ['strobe', 'off', 0, false, 'lights.nav', true],
+] as const) {
+  const id = `lights.${lightId}.${suffix}`;
+  actions[id] = {
+    id,
+    guard: {
+      cooldownMs: DEFAULT_COOLDOWN_MS,
+      groupId: 'microsoft737Max8.lights.position',
+      retry: 'never',
+      skipIfSatisfied: false,
+      requires: [{ fieldId: preservedField, expectedValue: preservedValue, freshness: 'field' }],
+    },
+    routes: [{
+      id: `microsoft737Max8.${id}.native`,
+      transport: 'input-event',
+      inputEvent: 'LIGHTING_POSITION_LIGHT',
+      value,
+      readback: { fieldId: `lights.${lightId}`, expectedValue, timeoutMs: READBACK_TIMEOUT_MS, freshness: 'field' },
+    }],
+    verification: 'untested',
+  };
+}
+
+// Native one-side probes established 0/ON, 1/OFF detents. Confirm the aircraft's
+// scoped selector mirrors: lamp outputs also illuminate with TAXI AUTO and
+// cannot prove the fixed switch positions. Confirm both fields under one lock.
+for (const [suffix, value, expectedValue] of [['on', 0, true], ['off', 1, false]] as const) {
+  const id = `lights.landing.${suffix}`;
+  actions[id] = {
+    id,
+    guard: { cooldownMs: DEFAULT_COOLDOWN_MS, groupId: 'microsoft737Max8.lights.landing', retry: 'never', skipIfSatisfied: false },
+    routes: [{
+      id: `microsoft737Max8.${id}.native`, transport: 'input-event',
+      events: [
+        { inputEvent: 'LIGHTING_LANDING_LIGHT_FIXED_L', value },
+        { inputEvent: 'LIGHTING_LANDING_LIGHT_FIXED_R', value },
+      ],
+      readbacks: ['lights.landingLeft', 'lights.landingRight'].map(fieldId => ({
+        fieldId, expectedValue, timeoutMs: READBACK_TIMEOUT_MS, freshness: 'field' as const,
+      })),
+    }],
+    verification: 'untested',
+  };
+}
+
+// Standard TAXI_LIGHTS_SET also moves both turnoff and wheel-well switches.
+// The native GEAR selector controls only the nose-gear light (ON index 3).
+for (const [suffix, value, expectedValue] of [['on', 0, true], ['off', 1, false]] as const) {
+  const id = `lights.taxi.${suffix}`;
+  actions[id] = {
+    id,
+    guard: { cooldownMs: DEFAULT_COOLDOWN_MS, groupId: 'microsoft737Max8.lights.taxi', retry: 'never', skipIfSatisfied: false },
+    routes: [{
+      id: `microsoft737Max8.${id}.native`, transport: 'input-event',
+      inputEvent: 'LIGHTING_TAXI_LIGHT_GEAR', value,
+      readback: { fieldId: 'lights.taxi', expectedValue, timeoutMs: READBACK_TIMEOUT_MS, freshness: 'field' },
+    }],
+    verification: 'untested',
+  };
+}
+
+// Presets explicitly request both outputs of POSITION in one operation.
+// Individual NAV/strobe commands retain their preservation preconditions.
+for (const [position, value, strobe] of [['steady', 0, false], ['strobeAndSteady', 2, true]] as const) {
+  const id = `lights.position.${position}`;
+  actions[id] = {
+    id,
+    guard: { cooldownMs: DEFAULT_COOLDOWN_MS, groupId: 'microsoft737Max8.lights.position', retry: 'never', skipIfSatisfied: false },
+    routes: [{
+      id: `microsoft737Max8.${id}.native`, transport: 'input-event', inputEvent: 'LIGHTING_POSITION_LIGHT', value,
+      readbacks: [
+        { fieldId: 'lights.nav', expectedValue: true, timeoutMs: READBACK_TIMEOUT_MS, freshness: 'field' },
+        { fieldId: 'lights.strobe', expectedValue: strobe, timeoutMs: READBACK_TIMEOUT_MS, freshness: 'field' },
+      ],
+    }],
+    verification: 'untested',
+  };
 }
 
 for (const [actionId, event, expectedValue] of [

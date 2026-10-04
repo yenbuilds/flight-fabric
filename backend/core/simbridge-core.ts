@@ -93,7 +93,6 @@ const recordingBundleLayout = require('../flight-recording/recording-bundle-layo
 };
 const { buildLandingCsvEventData } = require('../flight-recording/landing-csv-contract');
 const { buildTakeoffCsvEventData } = require('../flight-recording/takeoff-csv-contract');
-const takeoffLogbook = require('../takeoff/takeoff-logbook');
 const timeSource = require('./time-source');
 const eventBus = require('./event-bus');
 const { getAppVersion } = require('./app-version');
@@ -1198,7 +1197,9 @@ async function runSimbridgeCore({
     // fallback when the display name alone doesn't contain enough identity info.
     // e.g. some liveries use display names without the manufacturer prefix,
     // but the configPath contains the full aircraft name which matches the profile regex.
-    const matchHint = (!isXplaneAircraftChange && aircraftConfigPath && matchTitle !== aircraftConfigPath) ? aircraftConfigPath : undefined;
+    // Retain the path even when it is also the fallback title: config-path
+    // rules must still run if the human-readable TITLE has not arrived yet.
+    const matchHint = (!isXplaneAircraftChange && aircraftConfigPath) ? aircraftConfigPath : undefined;
     const sameAircraftIdentity = Boolean(
       newAircraftTitle &&
       previousAircraftTitle &&
@@ -1501,18 +1502,8 @@ async function runSimbridgeCore({
         console.error('[flight-csv] Takeoff event write failed:', e.message);
       }
 
-      // Persist to the local takeoff logbook, tagged with the recording bundle
-      // so deleting the flight removes its takeoffs.
-      try {
-        const csvStats = flightCsvWriter.getStats?.() || null;
-        takeoffLogbook.addEntry(payload, {
-          bundleName: csvStats?.bundleBaseName || null,
-          recordingSessionId: csvStats?.recordingSessionId || null,
-          flightId: csvStats?.flightId || null,
-        });
-      } catch (e) {
-        console.error('[logbook] Takeoff entry write failed:', e.message);
-      }
+      // Logbook history is derived from this recording by the shared history
+      // index. There is no second live write or independent takeoff history.
     });
 
     eventBus.on('landing:final', (payload) => {

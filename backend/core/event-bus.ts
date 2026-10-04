@@ -99,6 +99,9 @@ export function eventNames(): string[] {
 //     displayName, previousDisplayName,
 //     xplane, previousXplane,                // { acfPath, acfFileName, id } when sourced from X-Plane
 //   }
+//   Also emitted for same-aircraft identity enrichment/reconfirmation. Reset
+//   consumers must compare current/previous identity (prefer explicit paths);
+//   matching nonempty identities are metadata updates, not aircraft swaps.
 //   simconnect:dataReaderExhausted - SimConnect reader exhaustion warning
 //
 // Landing events:

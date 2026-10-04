@@ -980,6 +980,29 @@ function standardLightConfiguration(id: string, on = 'on', off = 'off'): Aircraf
   });
 }
 
+const MICROSOFT_MAX_LIGHT_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
+  id: 'microsoft-737-max-8',
+  bindings: Object.freeze([
+    ...standardLightConfiguration('microsoft-737-max-8').bindings.filter(binding => !binding.commandId.startsWith('configuration.lights.')),
+    ...lightPhasePresets({
+      takeoff: { description: 'Landing ON · Taxi ON · Navigation and strobe ON', steps: [
+        { label: 'Landing lights ON', request: aircraftAction('lights.landing.on') },
+        { label: 'Taxi lights ON', request: aircraftAction('lights.taxi.on') },
+        { label: 'Navigation and strobe lights ON', request: aircraftAction('lights.position.strobeAndSteady') },
+      ] },
+      afterTakeoff: { description: 'Landing OFF · Taxi OFF', steps: [
+        { label: 'Landing lights OFF', request: aircraftAction('lights.landing.off') },
+        { label: 'Taxi lights OFF', request: aircraftAction('lights.taxi.off') },
+      ] },
+      afterLanding: { description: 'Navigation ON · Strobe OFF · Landing OFF · Taxi ON', steps: [
+        { label: 'Navigation ON and strobe OFF', request: aircraftAction('lights.position.steady') },
+        { label: 'Landing lights OFF', request: aircraftAction('lights.landing.off') },
+        { label: 'Taxi lights ON', request: aircraftAction('lights.taxi.on') },
+      ] },
+    }),
+  ]),
+});
+
 function apuStartPreset(
   startActionId: string,
   masterActionId?: string,
@@ -1885,7 +1908,7 @@ const TFDI_MD11_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = {
 const CONFIGURATIONS_BY_ADAPTER = new Map<string, AircraftCommandConfiguration>([
   ['tfdi-md-11', TFDI_MD11_AIRCRAFT_COMMAND_CONFIGURATION],
   ['microsoft-inibuilds-a32x', standardLightConfiguration('microsoft-inibuilds-a32x')],
-  ['microsoft-737-max-8', standardLightConfiguration('microsoft-737-max-8')],
+  ['microsoft-737-max-8', MICROSOFT_MAX_LIGHT_CONFIGURATION],
   ['inibuilds-tristar', standardLightConfiguration('inibuilds-tristar', 'setOn', 'setOff')],
   ['fbw-a380x', FBW_A380X_AIRCRAFT_COMMAND_CONFIGURATION],
   ['fbw-a32nx', FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION],

@@ -9,12 +9,13 @@ type InitializeResult = {
 };
 
 const HISTORY_INDEX_SCHEMA_VERSION = 2;
-const HISTORY_INDEX_SOURCE_CONTRACT_VERSION = 'flight-bundle-history-index-v16';
+const HISTORY_INDEX_SOURCE_CONTRACT_VERSION = 'flight-bundle-history-index-v17';
 const HISTORY_INDEX_TABLES = [
   'history_index_meta',
   'history_source_files',
   'history_flights',
   'history_landings',
+  'history_takeoffs',
 ];
 const HISTORY_INDEX_INDEXES = [
   'history_flights_started_at_idx',
@@ -27,6 +28,8 @@ const HISTORY_INDEX_INDEXES = [
   'history_landings_runway_idx',
   'history_landings_source_idx',
   'history_landings_flight_key_idx',
+  'history_takeoffs_timestamp_idx',
+  'history_takeoffs_source_idx',
 ];
 const HISTORY_SOURCE_LANE_COLUMNS = [
   'flights_mtime_ms',
@@ -154,6 +157,18 @@ function createHistoryIndexTables(db: AnyRecord): void {
       FOREIGN KEY(flight_key) REFERENCES history_flights(flight_key) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS history_takeoffs (
+      takeoff_id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      timestamp_ms INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      FOREIGN KEY(source_id) REFERENCES history_source_files(source_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS history_takeoffs_timestamp_idx
+      ON history_takeoffs(timestamp_ms DESC);
+    CREATE INDEX IF NOT EXISTS history_takeoffs_source_idx
+      ON history_takeoffs(source_id);
     CREATE INDEX IF NOT EXISTS history_flights_started_at_idx
       ON history_flights(started_at_ms DESC);
     CREATE INDEX IF NOT EXISTS history_flights_aircraft_idx
@@ -263,6 +278,7 @@ function initializeHistoryIndexSchema(db: AnyRecord): InitializeResult {
       // bundles. Contract changes rebuild it instead of carrying migration code
       // for old internal identities and payload shapes.
       db.prepare('DELETE FROM history_landings').run();
+      db.prepare('DELETE FROM history_takeoffs').run();
       db.prepare('DELETE FROM history_flights').run();
       db.prepare('DELETE FROM history_source_files').run();
       contractInvalidated = true;

@@ -85,7 +85,7 @@ test('every bundled MobiFlight calculator route fits the official NUL-terminated
   assert.ok(Math.max(...audited.map(({ length }) => length)) <= MOBIFLIGHT_MAX_CALCULATOR_CODE_LENGTH);
 });
 
-test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile standard-control adapter', () => {
+test('Microsoft / iniBuilds A320neo V2 and A321LR share an exact-profile adapter with native FCU and captain FD', () => {
   const a320Integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
     { profileKey: INIBUILDS_A320NEO_V2_PROFILE_KEY },
@@ -104,7 +104,7 @@ test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile 
     INIBUILDS_A320NEO_V2_PROFILE_KEY,
     INIBUILDS_A321LR_PROFILE_KEY,
   ]);
-  assert.equal(Object.keys(a320Integration.fields).length, 44);
+  assert.equal(Object.keys(a320Integration.fields).length, 55);
   assert.equal(Object.keys(a320Integration.actions).length, 42);
   assert.deepEqual(a320Integration.fields['fcu.altitudeFt'].sources[0], {
     route: { type: 'simvar', name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet' },
@@ -137,12 +137,14 @@ test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile 
   ].sort();
   assert.deepEqual(Object.keys(a320Integration.actions).sort(), expectedActionIds);
   for (const action of Object.values(a320Integration.actions) as any[]) {
-    assert.equal(action.verification, 'untested');
+    const native = action.routes[0].operations[0].type === 'lvar';
+    assert.equal(action.verification, native ? 'partial' : 'untested');
     assert.equal(action.guard.retry, 'never');
     assert.match(action.guard.groupId, /^microsoftIniBuildsA32x\./);
     assert.equal(action.routes.length, 1);
     assert.equal(action.routes[0].transport, 'simconnect-sequence');
-    assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
+    assert.ok(action.routes[0].readback || action.routes[0].readbacks?.length === 2,
+      `${action.id} must require logical readback`);
   }
 
   assert.deepEqual(a320Integration.actions['flightGuidance.speed.set']?.input, {
@@ -152,15 +154,17 @@ test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile 
     type: 'number', min: -6000, max: 6000, step: 100,
   });
   assert.deepEqual(a320Integration.actions['flightGuidance.altitude.set']?.routes[0], {
-    id: 'microsoftIniBuildsA32x.flightGuidance.altitude.set.simconnectSequence',
+    id: 'microsoftIniBuildsA32x.altitude.nativeTarget',
     transport: 'simconnect-sequence',
     operations: [{
-      type: 'event',
-      name: 'AP_ALT_VAR_SET_ENGLISH',
+      type: 'lvar',
+      name: 'L:INI_Altitude_Dial',
+      unit: 'Number',
       inputValue: { source: 'input' },
-      parameters: [0],
     }],
-    readback: { fieldId: 'fcu.altitudeFt', expectedInput: true, timeoutMs: 3000 },
+    readbacks: ['fcu.altitudeFtNative', 'fcu.altitudeFt'].map(fieldId => ({
+      fieldId, expectedInput: true, timeoutMs: 3000, freshness: 'field',
+    })),
   });
   assert.equal(a320Integration.actions['lights.landing.on']?.guard.skipIfSatisfied, false);
   assert.deepEqual(a320Integration.actions['controls.flaps.increase']?.routes[0].readback, {
@@ -193,6 +197,23 @@ test('Microsoft / iniBuilds A320neo V2 and A321LR share a compact exact-profile 
       MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
       { profileKey },
     ), null, `${profileKey} must not activate the trusted Microsoft/iniBuilds A32x adapter`);
+  }
+});
+
+test('native Input Event groups reject unbounded, ambiguous and unconfirmed recipes', () => {
+  for (const [label, mutate] of [
+    ['empty', route => { route.events = []; }],
+    ['too many', route => { route.events = Array.from({ length: 5 }, (_, i) => ({ inputEvent: `EVENT_${i}`, value: 0 })); }],
+    ['duplicate', route => { route.events[1].inputEvent = route.events[0].inputEvent; }],
+    ['extra payload', route => { route.events[0].code = 'untrusted'; }],
+    ['invalid number', route => { route.events[0].value = Infinity; }],
+    ['single and paired', route => { route.inputEvent = 'EXTRA'; route.value = 0; }],
+    ['missing side', route => { route.readbacks.pop(); }],
+    ['stale contract', route => { delete route.readbacks[0].freshness; }],
+  ] as Array<[string, (route: any) => void]>) {
+    const definition: any = structuredClone(MICROSOFT_737_MAX_8_INTEGRATION);
+    mutate(definition.actions['lights.landing.on'].routes[0]);
+    assert.throws(() => createAircraftIntegrationRegistry([definition]), /invalid.*route|invalid.*readback/, label);
   }
 });
 
@@ -229,7 +250,7 @@ test('Microsoft / iniBuilds A310-300 adapter is exact-profile trusted and monito
   ), null, 'untrusted local profiles must not activate the trusted A310 adapter');
 });
 
-test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard controls', () => {
+test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact controls and native POSITION', () => {
   const integration = defaultAircraftIntegrationRegistry.resolveIntegration(
     MICROSOFT_737_MAX_8_ADAPTER_ID,
     { profileKey: MICROSOFT_737_MAX_8_PROFILE_KEY },
@@ -238,10 +259,10 @@ test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard
   assert.equal(integration.id, MICROSOFT_737_MAX_8_INTEGRATION.id);
   assert.equal(integration.presentation.templateId, 'microsoft-737-max-8');
   assert.deepEqual(integration.trustedProfileKeys, [MICROSOFT_737_MAX_8_PROFILE_KEY]);
-  assert.equal(Object.keys(integration.fields).length, 44);
-  assert.equal(Object.keys(integration.actions).length, 44);
+  assert.equal(Object.keys(integration.fields).length, 46);
+  assert.equal(Object.keys(integration.actions).length, 46);
   assert.deepEqual(integration.fields['mcp.altitudeFt'].sources[0], {
-    route: { type: 'simvar', name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet' },
+    route: { type: 'lvar', name: 'A:AUTOPILOT ALTITUDE LOCK VAR:3', unit: 'Feet' },
     decode: { type: 'number', precision: 0 },
   });
 
@@ -264,6 +285,8 @@ test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard
     'flightGuidance.verticalSpeed.set',
     ...['strobe', 'beacon', 'nav', 'logo', 'wing', 'landing', 'taxi']
       .flatMap((name) => [`lights.${name}.off`, `lights.${name}.on`]),
+    'lights.position.steady',
+    'lights.position.strobeAndSteady',
     'controls.gear.up',
     'controls.gear.down',
     'controls.flaps.decrease',
@@ -280,14 +303,32 @@ test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard
     assert.equal(action.guard.retry, 'never');
     assert.match(action.guard.groupId, /^microsoft737Max8\./);
     assert.equal(action.routes.length, 1);
-    assert.equal(action.routes[0].transport, 'simconnect-sequence');
-    assert.equal(action.routes[0].operations.length, 1);
-    assert.equal(action.routes[0].operations[0].type, 'event');
-    assert.ok(action.routes[0].readback, `${action.id} must require logical readback`);
-    confirmationFields.add(action.routes[0].readback.fieldId);
-    eventNames.add(action.routes[0].operations[0].name);
+    if (/^lights\.(nav|strobe)\./.test(action.id)) {
+      assert.equal(action.routes[0].transport, 'input-event');
+      assert.equal(action.routes[0].inputEvent, 'LIGHTING_POSITION_LIGHT');
+      const isNav = action.id.startsWith('lights.nav.');
+      assert.equal(action.routes[0].value, action.id.endsWith('.on') ? (isNav ? 0 : 2) : (isNav ? 1 : 0));
+      assert.deepEqual(action.guard.requires, [{ fieldId: isNav ? 'lights.strobe' : 'lights.nav', expectedValue: !isNav, freshness: 'field' }]);
+    } else if (action.id.startsWith('lights.landing.')) {
+      assert.equal(action.routes[0].transport, 'input-event');
+      assert.deepEqual(action.routes[0].events, ['L', 'R'].map(side => ({
+        inputEvent: `LIGHTING_LANDING_LIGHT_FIXED_${side}`, value: action.id.endsWith('.on') ? 0 : 1,
+      })));
+      assert.deepEqual(action.routes[0].readbacks.map(readback => readback.fieldId), ['lights.landingLeft', 'lights.landingRight']);
+    } else if (/^lights\.(taxi|position)\./.test(action.id)) {
+      assert.equal(action.routes[0].transport, 'input-event');
+      assert.equal(action.routes[0].inputEvent, action.id.startsWith('lights.taxi.') ? 'LIGHTING_TAXI_LIGHT_GEAR' : 'LIGHTING_POSITION_LIGHT');
+    } else {
+      assert.equal(action.routes[0].transport, 'simconnect-sequence');
+      assert.equal(action.routes[0].operations.length, 1);
+      assert.equal(action.routes[0].operations[0].type, 'event');
+    }
+    const readbacks = action.routes[0].readbacks || [action.routes[0].readback];
+    assert.ok(readbacks.every(readback => readback?.fieldId), `${action.id} must require logical readback`);
+    for (const readback of readbacks) confirmationFields.add(readback.fieldId);
+    for (const event of action.routes[0].events || [{ inputEvent: action.routes[0].operations?.[0]?.name || action.routes[0].inputEvent }]) eventNames.add(event.inputEvent);
   }
-  assert.equal(confirmationFields.size, 24);
+  assert.equal(confirmationFields.size, 25);
   assert.equal(eventNames.size, 34);
 
   assert.deepEqual(integration.actions['flightGuidance.altitude.set'], {
@@ -305,7 +346,7 @@ test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard
         type: 'event',
         name: 'AP_ALT_VAR_SET_ENGLISH',
         inputValue: { source: 'input' },
-        parameters: [0],
+        parameters: [3],
       }],
       readback: { fieldId: 'mcp.altitudeFt', expectedInput: true, timeoutMs: 3000 },
     }],
@@ -320,7 +361,7 @@ test('Microsoft 737 MAX 8 adapter is exact-profile trusted with compact standard
     'afds.levelChange',
   );
   assert.equal(integration.actions['lights.nav.on'].guard.skipIfSatisfied, false);
-  assert.equal(integration.actions['lights.nav.on'].routes[0].operations[0].name, 'NAV_LIGHTS_SET');
+  assert.equal(integration.actions['lights.nav.on'].guard.groupId, integration.actions['lights.strobe.on'].guard.groupId);
   assert.deepEqual(integration.actions['controls.flaps.increase'].routes[0].readback, {
     fieldId: 'controls.flapsIndex', confirmation: 'changed', timeoutMs: 3000,
   });
@@ -577,8 +618,8 @@ test('iniBuilds A350 adapter shares one guarded LVAR and surface contract across
     assert.deepEqual(integration.trustedProfileKeys, INIBUILDS_A350_INTEGRATION.trustedProfileKeys);
   }
 
-  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.fields).length, 54);
-  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.actions).length, 85);
+  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.fields).length, 69);
+  assert.equal(Object.keys(INIBUILDS_A350_INTEGRATION.actions).length, 90);
   assert.deepEqual(INIBUILDS_A350_INTEGRATION.fields['lights.noseMode'].sources[0], {
     route: { type: 'lvar', name: 'L:INI_LIGHTS_NOSE', unit: 'Number' },
     decode: { type: 'enum', values: { 0: 'off', 1: 'taxi', 2: 'takeoff' } },

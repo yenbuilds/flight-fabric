@@ -1055,11 +1055,20 @@ function findBestProfileMatch(
 }
 
 function detectProfile(title: unknown, { hint, xplane }: DetectOptions = {}): LoadedProfile | null {
-  const normalizedTitle = normalizeMatchText(title);
-  const normalizedHint = normalizeMatchText(hint);
+  let normalizedTitle = normalizeMatchText(title);
+  let normalizedHint = normalizeMatchText(hint);
   const targetSimulator = hasXplaneIdentityHint(xplane) || getConfiguredSimulator() === 'xplane'
     ? 'xplane'
     : 'msfs';
+
+  // AircraftLoaded can arrive before TITLE and its legacy "title" is a cfg
+  // path. Match it as path evidence, never as a display-name substring. Keep
+  // explicit hints authoritative and do not mistake names such as
+  // "Microsoft / iniBuilds" for paths merely because they contain a slash.
+  if (targetSimulator === 'msfs' && /\.cfg$/i.test(normalizedTitle)) {
+    normalizedHint = normalizedHint || normalizedTitle;
+    normalizedTitle = '';
+  }
 
   if (!normalizedTitle && !normalizedHint && !hasXplaneIdentityHint(xplane)) {
     Debug.log('profile-loader', 'No title provided, using generic');

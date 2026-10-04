@@ -5,7 +5,6 @@ export type VoiceStatusFields = {
     transcript: string;
     lastCommand: string;
     shortcut: string;
-    joystick: string;
     enabled: boolean;
     available: boolean;
     profileKey: string;

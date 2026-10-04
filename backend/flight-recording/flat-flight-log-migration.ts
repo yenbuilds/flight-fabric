@@ -36,8 +36,10 @@ const {
   publishRecordingBundleStatus: (_options: Record<string, any>) => Promise<Record<string, any>>;
 };
 const {
+  HISTORY_ANALYSIS_VERSION,
   writeHistorySummary,
 } = require('../history-index/history-summary-sidecar.js') as {
+  HISTORY_ANALYSIS_VERSION: number;
   writeHistorySummary: (_source: Record<string, any>, _result: Record<string, any>) => boolean;
 };
 
@@ -159,7 +161,12 @@ function readLegacySummary(summaryPath: string, csvBasename: string): AnyRecord 
     const parsed = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
     if (parsed?.schemaVersion !== 1 || parsed?.source?.csvBasename !== csvBasename) return null;
     if (!Array.isArray(parsed.landings)) return null;
-    return { flight: parsed.flight || null, landings: parsed.landings };
+    return {
+      analysisVersion: parsed.analysisVersion,
+      flight: parsed.flight || null,
+      landings: parsed.landings,
+      takeoffs: parsed.takeoffs,
+    };
   } catch {
     return null;
   }
@@ -371,7 +378,10 @@ async function migrateOneFlatFlight(rootDir: string, csvName: string): Promise<{
     if (!catalog.allowed && catalog.state !== 'not_required') {
       throw new Error('Migrated bundle did not pass completion validation');
     }
-    if (oldSummary) {
+    // Ownership permits removal of an obsolete derived cache, but does not
+    // make its analysis current. An older summary cannot establish that the
+    // CSV contains no takeoffs; leave rebuilding to the standard indexer.
+    if (oldSummary?.analysisVersion === HISTORY_ANALYSIS_VERSION && Array.isArray(oldSummary.takeoffs)) {
       const csvStat = fs.lstatSync(destination.csv);
       writeHistorySummary({
         filePath: destination.csv,

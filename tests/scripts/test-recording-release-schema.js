@@ -16,7 +16,7 @@ const takeoffColumns = [
   'takeoff_max_pitch_deg', 'takeoff_max_lateral_offset_ft', 'takeoff_hop_count', 'takeoff_assessment',
   'takeoff_analysis', 'takeoff_final',
 ];
-const expectedColumns = [...baseline.columns, ...(TAKEOFF_SCORING_ENABLED ? takeoffColumns : [])];
+const expectedColumns = [...baseline.columns, ...takeoffColumns];
 
 const scratch = getRepoScratchPath('recording-release-schema');
 fs.mkdirSync(scratch, { recursive: true });
@@ -28,16 +28,17 @@ const writer = require(runtime('flight-recording', 'flight-csv-writer.js'));
 const { parseCsvLine, splitCsvLines } = require(runtime('utils', 'csv.js'));
 
 for (const [label, Writer] of [['inline', writer.FlightCSVWriter], ['worker', writer.WorkerFlightCSVWriter]]) {
-  test(`${label} recording preserves the release CSV format for the takeoff gate`, async () => {
-    assert.equal(TAKEOFF_SCORING_ENABLED, false);
+  test(`${label} recording appends takeoff fields without changing the published CSV prefix`, async () => {
+    assert.equal(TAKEOFF_SCORING_ENABLED, true);
     assert.equal(baseline.columns.length, 331);
+    assert.equal(expectedColumns.length, 352);
     assert.deepEqual(writer.getV1Columns(), expectedColumns);
     const recording = new Writer({ flightId: `release-schema-${label}`, outputDir: path.join(outputDir, label), syncIntervalMs: 60000 });
     try {
       assert.equal(recording.start(), true);
       assert.equal(recording.writeSample({ ias: 140, wow: false, takeoff_final: true, takeoff_runway_use_score: 100 }), true);
       assert.equal(recording.writeEvent('LANDING', { vs_fpm: -180, grade: 'GOOD', takeoff_roll_distance_ft: 2500 }), true);
-      if (TAKEOFF_SCORING_ENABLED) assert.equal(recording.writeEvent('TAKEOFF', { takeoff_final: true, takeoff_runway_use_score: 95, takeoff_assessment: 'caution',
+      assert.equal(recording.writeEvent('TAKEOFF', { takeoff_final: true, takeoff_runway_use_score: 95, takeoff_assessment: 'caution',
         takeoff_analysis: { flags: [{ code: 'climb_incomplete', label: 'Climb-out incomplete', severity: 'caution' }] } }), true);
     } finally {
       const stats = await recording.close();
@@ -50,12 +51,10 @@ for (const [label, Writer] of [['inline', writer.FlightCSVWriter], ['worker', wr
       const recordTypes = rows.map(row => row[header.indexOf('record_type')]);
       assert.ok(recordTypes.includes('SAMPLE'));
       assert.ok(recordTypes.includes('LANDING'));
-      assert.equal(recordTypes.includes('TAKEOFF'), TAKEOFF_SCORING_ENABLED);
-      if (TAKEOFF_SCORING_ENABLED) {
-        const takeoff = rows.find(row => row[header.indexOf('record_type')] === 'TAKEOFF');
-        assert.equal(takeoff[header.indexOf('takeoff_runway_use_score')], '95');
-        assert.equal(JSON.parse(takeoff[header.indexOf('takeoff_analysis')]).flags[0].code, 'climb_incomplete');
-      }
+      assert.ok(recordTypes.includes('TAKEOFF'));
+      const takeoff = rows.find(row => row[header.indexOf('record_type')] === 'TAKEOFF');
+      assert.equal(takeoff[header.indexOf('takeoff_runway_use_score')], '95');
+      assert.equal(JSON.parse(takeoff[header.indexOf('takeoff_analysis')]).flags[0].code, 'climb_incomplete');
       const landing = rows.find(row => row[header.indexOf('record_type')] === 'LANDING');
       assert.equal(landing[header.indexOf('vs_fpm')], '-180.0');
     }

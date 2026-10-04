@@ -1,13 +1,15 @@
 {
   "name": "flight-fabric",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
     "test": "node tests/run-test-suite.js",
-    "check:desktop": "npm run lint && npm run typecheck:backend:all && npm --prefix packages/telemetry-types run typecheck && npm --prefix packages/telemetry-client run typecheck && npm test",
+    "check:static": "npm run lint && npm run typecheck:backend:all && npm --prefix packages/telemetry-types run typecheck && npm --prefix packages/telemetry-client run typecheck",
+    "check:desktop": "npm run check:static && npm test",
+    "check:full": "npm run check:desktop && npm run audit:rustsec",
     "dead-code": "knip",
     "test:core": "node tests/scripts/test-core-modules.js",
     "test:autotaxi": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/autotaxi/pushback.test.js dist/backend/autotaxi/autotaxi.test.js dist/backend/autotaxi/controller-motion.test.js dist/backend/autotaxi/pmdg-readiness.test.js dist/backend/autotaxi/aircraft-config.test.js dist/backend/autotaxi/aircraft-adapters.test.js",
@@ -59,7 +61,7 @@
     "test:simconnect-sdk": "node --test tests/scripts/test-simconnect-sdk.js",
     "release:simconnect:check": "node scripts/verify-simconnect-sdk.js",
     "test:electron:window-state": "node tests/scripts/test-electron-window-state-runtime.js",
-    "test:voice": "node --test frontend/src/aircraft/apu-controls.test.js frontend/src/voice/state-queries.test.js frontend/src/voice/flight-plan-queries.test.js frontend/src/voice/command-interpreter.test.js frontend/src/voice/first-command.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/joystick-binding.test.js frontend/src/voice/voice-controller.test.js frontend/src/voice/voice-setup-test.test.js frontend/src/voice/voice-status-relay.test.js tests/scripts/test-generic-nav-voice.js tests/scripts/test-a32nx-approach-voice.js tests/scripts/test-a32nx-atc-voice.js tests/scripts/test-atc-aircraft-families.js tests/scripts/test-approach-aircraft-families.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/windows-local-tts.test.js",
+    "test:voice": "node --test frontend/src/aircraft/apu-controls.test.js frontend/src/voice/state-queries.test.js frontend/src/voice/flight-plan-queries.test.js frontend/src/voice/command-interpreter.test.js frontend/src/voice/first-command.test.js frontend/src/voice/local-readback.test.js frontend/src/voice/pcm-capture.test.js frontend/src/voice/push-to-talk-tone.test.js frontend/src/voice/shortcut-recorder.test.js frontend/src/voice/voice-controller.test.js frontend/src/voice/voice-setup-test.test.js frontend/src/voice/voice-status-relay.test.js tests/scripts/test-generic-nav-voice.js tests/scripts/test-a32nx-approach-voice.js tests/scripts/test-a32nx-atc-voice.js tests/scripts/test-atc-aircraft-families.js tests/scripts/test-approach-aircraft-families.js electron/voice-model-provisioning.test.js electron/voice-runtime.test.js electron/voice-controller-ptt.test.js electron/windows-local-tts.test.js",
     "test:electron:output-guard": "node --test tests/scripts/test-electron-release-output-failure-guard.js",
     "test:electron:ipc-runtime": "node tests/scripts/test-electron-ipc-runtime.js",
     "test:electron:sqlite": "node tests/scripts/test-electron-sqlite-runtime.js",

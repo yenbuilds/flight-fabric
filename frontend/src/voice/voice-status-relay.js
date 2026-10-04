@@ -1,5 +1,4 @@
 import { watch } from 'vue';
-import { describeJoystickBinding } from './joystick-binding.js';
 
 // Voice control runs only in the desktop app. Views that cannot run it, such
 // as the MSFS toolbar panel, still need to know whether push-to-talk is
@@ -18,7 +17,6 @@ export function voiceStatusSnapshot(voiceStore, aircraftControlsStore = null) {
     transcript: String(voiceStore?.transcript || '').slice(0, MAX_TEXT),
     lastCommand: String(voiceStore?.lastCommand || '').slice(0, MAX_COMMAND),
     shortcut: String(runtime.shortcut || ''),
-    joystick: describeJoystickBinding(runtime.joystick),
     enabled: runtime.enabled === true,
     available: voiceStore?.bridgeAvailable === true && runtime.available === true,
     profileKey: String(aircraftControlsStore?.aircraftCommandCatalogue?.profileKey || ''),

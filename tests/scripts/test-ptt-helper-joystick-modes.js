@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Verify the release hold in the actual built helper. Joystick modes must
+// Verify retired modes are unsupported in the actual built helper. They must
 // reject before device access, even when invoked directly by an older client.
 
 const assert = require('node:assert/strict');
@@ -54,7 +54,7 @@ async function main() {
   );
   assert.equal(fs.existsSync(HELPER), true, 'PTT helper build output must exist');
 
-  // Valid joystick invocations must fail before ready, hook setup or device I/O.
+  // Former joystick invocations must fail before ready, hook setup or device I/O.
   for (const args of [
     ['--learn-joystick'],
     ['--joystick', '044F:B10A', '--button', '5'],
@@ -62,10 +62,10 @@ async function main() {
     ['--joystick', '044F:B10A', '--button', '5', '--device-path', 'saved-device'],
   ]) {
     const rejected = await runHelper(args);
-    assert.equal(rejected.code, 2, 'joystick mode is disabled in the built binary');
+    assert.equal(rejected.code, 2, 'joystick mode is unsupported by the built binary');
     assert.equal(rejected.killed, false, 'the helper rejects the mode itself');
     assert.deepEqual(rejected.lines, [], 'no ready, device or button events may be emitted');
-    assert.match(rejected.stderr, /joystick push-to-talk is disabled in this release/);
+    assert.match(rejected.stderr, /usage: flight-fabric-ptt-hook --shortcut/);
   }
 
   for (const args of [
@@ -75,14 +75,17 @@ async function main() {
     ['--joystick', '044F:B10A', '--button', '0'],
     ['--learn-joystick', '--shortcut', 'Control+Alt+Space'],
     ['--joystick', '044F:B10A', '--button', '1', '--device-path', ''],
+    ['--controller-setup', '--seconds', '0'],
+    ['--controller-integration', '--shortcut', '', '--device-path', '', '--report-id', '0', '--collection', '0', '--button', '1'],
+    ['--controller-integration', '--shortcut', '', '--device-path', 'absent', '--report-id', '0', '--collection', '0', '--button', '0'],
   ]) {
     const rejected = await runHelper(args, { durationMs: 3000 });
     assert.equal(rejected.code, 2, `helper must reject ${JSON.stringify(args)}`);
     assert.deepEqual(rejected.lines, [], 'a rejected invocation prints nothing on stdout');
-    assert.match(rejected.stderr, /usage|needs|must|not usable/i);
+    assert.match(rejected.stderr, /usage|needs|must|not usable|invalid/i);
   }
 
-  console.log('PTT helper rejects all joystick modes before device access');
+  console.log('Default PTT helper rejects retired modes and malformed controller arguments before device access');
 }
 
 main().catch((error) => {

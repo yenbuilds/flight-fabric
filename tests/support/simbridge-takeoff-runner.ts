@@ -1,11 +1,12 @@
 // Exercise the real core lifecycle around an automatically recorded takeoff.
 'use strict';
 
-// Retain enabled lifecycle coverage without adding a product runtime override.
-if (process.argv.includes('--enable-takeoff-fixture')) {
+// Exercise the normal enabled build unless the fixture explicitly disables it.
+// This isolated test override is not available in the product runtime.
+if (process.argv.includes('--disable-takeoff-fixture')) {
   const settingsPath = require.resolve('../../shared/app-settings-shared.js');
   const settings = require(settingsPath);
-  require.cache[settingsPath]!.exports = { ...settings, TAKEOFF_SCORING_ENABLED: true };
+  require.cache[settingsPath]!.exports = { ...settings, TAKEOFF_SCORING_ENABLED: false };
 }
 
 const { runSimbridgeCore } = require('../../backend/core/simbridge-core');

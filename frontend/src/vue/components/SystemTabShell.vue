@@ -125,7 +125,7 @@ function checkHistoryIndex() {
 function rebuildHistoryIndex() {
   if (!canManageHost.value) return;
   const confirmed = window.confirm(
-    'Rebuild FlightFabric\'s flight history index?\n\nThis clears and recreates only the derived SQLite catalogue. Your flight CSV files and portable history summaries will not be changed or deleted.',
+    'Rebuild FlightFabric\'s flight list?\n\nThis recreates the searchable list of saved flights. Your recordings and saved flight summaries will not be changed or deleted.',
   );
   if (!confirmed || !canManageHost.value) return;
   sendWs({ type: 'rebuildHistoryIndex' });
@@ -243,12 +243,12 @@ onUnmounted(() => {
 
     <div class="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
       <section v-if="canInspectServices" class="rounded-3xl border border-border/80 bg-panel/75 p-5">
-        <div class="mb-4 flex items-center justify-between gap-3">
+        <div class="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h3 class="text-lg font-semibold text-gray-100">Services</h3>
             <p class="mt-1 text-sm text-muted-fg">Start, stop, and inspect the local FlightFabric runtime.</p>
           </div>
-          <div class="flex gap-2">
+          <div class="flex shrink-0 flex-wrap gap-2">
             <button
               id="system-start-all-btn"
               type="button"
@@ -486,9 +486,9 @@ onUnmounted(() => {
         </section>
 
         <section v-if="canManageHost" id="system-history-index" class="rounded-3xl border border-border/80 bg-panel/75 p-5">
-          <h3 class="text-lg font-semibold text-gray-100">Flight History Index</h3>
+          <h3 class="text-lg font-semibold text-fg">Flight history</h3>
           <p class="mt-1 text-sm text-muted-fg">
-            The searchable catalogue is derived from versioned FlightFabric summaries. Missing or stale summaries are rebuilt progressively from the authoritative CSVs, newest first.
+            Keep your saved flights searchable in Logbook. Check for new or updated recordings, or rebuild the flight list.
           </p>
           <div class="mt-4 rounded-2xl border border-border bg-surface-100/80 p-4">
             <div class="flex items-start gap-3">
@@ -506,7 +506,7 @@ onUnmounted(() => {
                   ></div>
                 </div>
                 <div class="mt-2 text-xs text-muted-fg">
-                  Rebuilding touches only FlightFabric's derived SQLite database. It never edits or deletes a flight CSV.
+                  Rebuilding updates the searchable flight list. Your recordings and saved flight summaries stay unchanged.
                 </div>
               </div>
             </div>
@@ -528,7 +528,7 @@ onUnmounted(() => {
               :disabled="logbook.historyIndexBusy"
               @click="rebuildHistoryIndex"
             >
-              Rebuild Index...
+              Rebuild flight list...
             </button>
           </div>
         </section>

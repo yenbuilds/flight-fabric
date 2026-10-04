@@ -215,6 +215,14 @@ export function createConnection({
     onClose();
   }
 
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void connect();
+    }, reconnectDelay);
+  }
+
   async function resolveWsAuthToken(isCurrentAttempt = () => true) {
     // Electron already provides a sender-validated main-process proxy. Prefer
     // that path so browser-origin bootstrap requests never need session
@@ -275,6 +283,7 @@ export function createConnection({
 
   async function connect() {
     const attempt = ++connectAttempt;
+    clearTimeout(reconnectTimer);
     // A credential in the URL is only a claim. Controls remain read-only until
     // the server acknowledges the scope granted for this exact socket.
     authorizationScope = 'read-only';
@@ -293,40 +302,41 @@ export function createConnection({
     // retry the sender-validated Electron bootstrap instead. Browser/mobile
     // clients have no such IPC bridge and continue to connect read-only.
     if (typeof windowRef.electronAPI?.getBackendBootstrap === 'function' && !wsAuthToken) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(() => {
-        void connect();
-      }, reconnectDelay);
+      scheduleReconnect();
       return;
     }
 
     const wsUrl = getSocketUrl();
     setConnectionInfo(getWsUrl());
 
-    ws = new WebSocketRef(wsUrl);
+    const socket = new WebSocketRef(wsUrl);
+    ws = socket;
+    const isCurrentSocket = () => ws === socket && attempt === connectAttempt;
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+      if (!isCurrentSocket()) return;
       clearTimeout(reconnectTimer);
       onOpen({ ws, send });
     };
 
-    ws.onclose = (ev) => {
+    socket.onclose = (ev) => {
+      if (!isCurrentSocket()) return;
       authorizationScope = 'read-only';
       authorizationAcknowledged = false;
       ws = null;
       onClose(ev);
-      reconnectTimer = setTimeout(() => {
-        void connect();
-      }, reconnectDelay);
+      scheduleReconnect();
     };
 
-    ws.onerror = (ev) => {
+    socket.onerror = (ev) => {
+      if (!isCurrentSocket()) return;
       authorizationScope = 'read-only';
       authorizationAcknowledged = false;
       onError(ev);
     };
 
-    ws.onmessage = (ev) => {
+    socket.onmessage = (ev) => {
+      if (!isCurrentSocket()) return;
       try {
         const message = JSON.parse(ev.data);
         if (
@@ -335,6 +345,17 @@ export function createConnection({
         ) {
           authorizationScope = message.scope;
           authorizationAcknowledged = true;
+          // A backend restart can rotate the token between bootstrap and the
+          // websocket handshake. Trusted local origins can still connect as
+          // viewers, so an open socket alone will never trigger recovery.
+          // Refresh desktop credentials and wait for a fresh server grant.
+          if (typeof windowRef.electronAPI?.getBackendBootstrap === 'function' && message.scope !== 'full-control') {
+            console.warn('[WS] Desktop access unavailable; retrying backend bootstrap.');
+            closeCurrentSocket();
+            onConnecting();
+            scheduleReconnect();
+            return;
+          }
         }
         onMessage(message);
       } catch (e) {

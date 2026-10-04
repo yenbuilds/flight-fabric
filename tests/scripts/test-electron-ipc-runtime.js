@@ -133,6 +133,21 @@ async function runElectronProbe() {
       return setAutotaxiBackgroundActivity(event.sender, active);
     });
 
+    const controllerMethods = {
+      startControllerSetup: 'voice:controller-setup-start', cancelControllerSetup: 'voice:controller-setup-cancel',
+      saveControllerButton: 'voice:controller-setup-save', clearControllerButton: 'voice:controller-binding-clear',
+    };
+    const controllerCalls = [];
+    for (const [method, channel] of Object.entries(controllerMethods)) {
+      ipcMain.handle(channel, (event, ...args) => {
+        if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+          throw new Error('Untrusted Electron IPC sender');
+        }
+        controllerCalls.push({ method, args });
+        return { checked: true };
+      });
+    }
+
     const invokeSettings = (frame) => frame.executeJavaScript('window.electronAPI.getSettings()');
     const expectRejectedDecision = async (frame) => {
       const before = decisions.length;
@@ -144,6 +159,11 @@ async function runElectronProbe() {
       const pickerCallsBefore = pmdgPickerCalls;
       await assert.rejects(() => frame.executeJavaScript("window.electronAPI.pmdgSdk.chooseFile('pmdg-737', 'pmdg-737')"));
       assert.equal(pmdgPickerCalls, pickerCallsBefore, 'untrusted pages never reach the native picker');
+      const beforeControllers = controllerCalls.length;
+      for (const method of Object.keys(controllerMethods)) {
+        await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.${method}()`));
+      }
+      assert.equal(controllerCalls.length, beforeControllers, 'untrusted pages cannot configure or monitor controllers');
     };
     const queryPermission = (frame, name) => frame.executeJavaScript(
       `navigator.permissions.query({ name: ${JSON.stringify(name)} }).then((result) => result.state)`,
@@ -151,6 +171,18 @@ async function runElectronProbe() {
 
     stage('loading trusted renderer');
     await trustedWindow.loadURL(trustedUrl);
+    assert.deepEqual(await trustedWindow.webContents.executeJavaScript(`(() => {
+      const voice = window.electronAPI.voice;
+      return {
+        keyboardAvailable: typeof voice.setPushToTalkShortcut === 'function',
+        retiredMethods: ['onJoystickLearn', 'setPushToTalkJoystick', 'startJoystickLearn', 'stopJoystickLearn']
+          .filter(name => name in voice),
+      };
+    })()`), { keyboardAvailable: true, retiredMethods: [] });
+    for (const method of Object.keys(controllerMethods)) {
+      assert.deepEqual(await trustedWindow.webContents.executeJavaScript(`window.electronAPI.voice.${method}({devicePath:'untrusted-path'})`), {checked:true});
+      assert.deepEqual(controllerCalls.at(-1).args, [], 'controller identities never enter from renderer arguments');
+    }
     assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.getStatus('pmdg-737')"), { supported: true, files: [] });
     assert.equal((await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.revealFile('pmdg-777', 'unknown-id')")).success, false);
     assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.chooseFile('pmdg-737', 'pmdg-737')"), { canceled: true });

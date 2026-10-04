@@ -4,6 +4,7 @@ import AppTooltip from './AppTooltip.vue';
 import CountryFlag from './CountryFlag.vue';
 import { useLogbookStore } from '../stores/logbook.js';
 import { useStatusStore } from '../stores/status.js';
+import { useSystemHostStore } from '../stores/system-host.js';
 import { useTimelineStore } from '../stores/timeline.js';
 import {
   getFlightAircraftLabel,
@@ -20,6 +21,7 @@ import {
 
 const logbook = useLogbookStore();
 const status = useStatusStore();
+const systemHost = useSystemHostStore();
 const timeline = useTimelineStore();
 const routeFilterInput = ref(null);
 const filtersExpanded = ref(Boolean(timeline.aircraftFilter.trim() || timeline.sort !== 'recent'));
@@ -62,6 +64,7 @@ async function clearFilters() {
 }
 
 const emptyTitle = computed(() => {
+  if (systemHost.isElectron && ['not-connected', 'restricted'].includes(timeline.listStatus)) return 'Waiting for your flight history';
   if (timeline.listStatus === 'not-connected') return 'Your flight history is waiting';
   if (timeline.listStatus === 'loading') return 'Loading your flights';
   if (timeline.listStatus === 'error') return 'Couldn’t load your flights';
@@ -71,6 +74,7 @@ const emptyTitle = computed(() => {
   return 'Your flights, ready to replay';
 });
 const emptyDescription = computed(() => {
+  if (systemHost.isElectron && ['not-connected', 'restricted'].includes(timeline.listStatus)) return 'Saved flights will return when FlightFabric reconnects. Open System to check the connection.';
   if (timeline.listStatus === 'not-connected') return 'Connect to FlightFabric on your simulator PC to browse saved flights.';
   if (timeline.listStatus === 'error' || timeline.listStatus === 'restricted' || timeline.historyIndexStatus?.busy) return timeline.emptyStateMessage;
   if (timeline.listStatus === 'loading') return 'Recent recordings will appear here as they load.';

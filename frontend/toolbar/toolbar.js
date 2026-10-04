@@ -1021,7 +1021,7 @@
     var notice = $('notice');
     var messages = [];
     if (state.packageVersion && state.appVersion && state.packageVersion !== state.appVersion) {
-      messages.push({ tone: '', text: 'Toolbar package ' + state.packageVersion + ' does not match FlightFabric ' + state.appVersion + '. Update it from FlightFabric Settings > MSFS toolbar panel.' });
+      messages.push({ tone: '', text: 'Toolbar update needed. Installed package ' + state.packageVersion + '; FlightFabric ' + state.appVersion + '. A version mismatch may cause toolbar compatibility problems. Close MSFS, then open FlightFabric desktop > Settings > MSFS toolbar panel and choose Update or Reinstall. Restart MSFS afterward.' });
     }
     if (state.updateAvailable && typeof state.updateAvailable.latestVersion === 'string') {
       messages.push({ tone: 'notice-accent', text: 'FlightFabric ' + state.updateAvailable.latestVersion + ' is available.' });
@@ -1257,6 +1257,8 @@
     var screen = takeoff.screenHeight || {};
     var rotation = takeoff.rotation || {};
     var lateral = takeoff.lateral || {};
+    var flags = Array.isArray(takeoff.flags) ? takeoff.flags : [];
+    var hasSettleBacks = isFiniteNumber(takeoff.hopCount) && takeoff.hopCount > 0;
     var node = card('Last takeoff', 'final');
     var grade = el('div', 'landing-grade');
     grade.appendChild(el('div', 'landing-grade-value ' + takeoffGradeTone(takeoff.grade), dash(takeoff.grade)));
@@ -1272,47 +1274,74 @@
     var remainingLabel = use.beyondRunwayEnd === true || (isFiniteNumber(use.remainingFt) && use.remainingFt < 0)
       ? 'Past runway end'
       : 'Runway left';
-    var positionUncertain = Array.isArray(takeoff.flags) && takeoff.flags.some(function (flag) { return flag && flag.code === 'liftoff_position_uncertain'; });
+    var positionUncertain = flags.some(function (flag) { return flag && flag.code === 'liftoff_position_uncertain'; });
     var remainingValue = positionUncertain ? 'Uncertain' : isFiniteNumber(use.remainingFt) ? fmtInt(Math.abs(use.remainingFt), ' ft') : '--';
     stats.appendChild(stat(remainingValue, remainingLabel));
-    stats.appendChild(stat(fmtInt(roll.distanceFt, ' ft'), 'Ground roll'));
+    stats.appendChild(stat(fmtInt(roll.distanceFt, ' ft'), hasSettleBacks ? 'Distance to final liftoff' : 'Ground roll'));
     stats.appendChild(stat(fmtInt(liftoff.iasKts, ' kt'), 'Liftoff IAS'));
     var screenValue = screen.reached === true && isFiniteNumber(screen.remainingFt)
       ? (screen.remainingFt < 0 ? fmtInt(Math.abs(screen.remainingFt), ' ft past') : fmtInt(screen.remainingFt, ' ft left'))
-      : '--';
-    stats.appendChild(stat(screenValue, isFiniteNumber(screen.heightFt) ? 'At ' + Math.round(screen.heightFt) + ' ft' : 'Screen height'));
-    stats.appendChild(stat(isFiniteNumber(rotation.rateDegS) ? rotation.rateDegS.toFixed(1) + ' deg/s' : '--', 'Avg rotation'));
+      : screen.reached === true ? 'Reached' : isFiniteNumber(screen.heightFt) ? 'Not observed' : '--';
+    var screenLabel = isFiniteNumber(screen.heightFt) ? 'At ' + Math.round(screen.heightFt) + ' ft' : 'Screen height';
+    if (screen.reached === true && isFiniteNumber(screen.heightFt)) {
+      if (screen.heightSource === 'radio') screenLabel += ' radio height';
+      else if (screen.heightSource === 'plane') screenLabel += ' geometric gain since liftoff';
+      else if (screen.heightSource === 'baro') screenLabel += ' gained since liftoff';
+    }
+    stats.appendChild(stat(screenValue, screenLabel));
+    var rotationLabel = 'Avg rotation' + (isFiniteNumber(rotation.rateDegS) && rotation.timeBasis === 'capture' ? ' (real time)' : '');
+    stats.appendChild(stat(isFiniteNumber(rotation.rateDegS) ? rotation.rateDegS.toFixed(1) + ' deg/s' : '--', rotationLabel));
     stats.appendChild(stat(fmtInt(takeoff.crosswind, ' kt'), 'Crosswind'));
     node.appendChild(stats);
 
     if (use.beyondRunwayEnd === true) node.appendChild(el('div', 'kv-sub danger', isFiniteNumber(takeoff.score)
       ? 'Lifted off beyond the runway end' : 'Ground contact beyond the runway end'));
     else if (screen.reached === true && isFiniteNumber(screen.remainingFt) && screen.remainingFt < 0) {
-      node.appendChild(el('div', 'kv-sub', 'Screen height reached beyond the runway end'));
+      var heightContext = screen.heightSource === 'plane' ? 'Geometric height gain'
+        : screen.heightSource === 'baro' ? 'Height gain' : screen.heightSource === 'radio' ? 'Radio height' : 'Screen height';
+      node.appendChild(el('div', 'kv-sub', heightContext + ' reached beyond the runway end'));
     }
     if (takeoff.runwayExcursion === true) node.appendChild(el('div', 'kv-sub danger', 'Runway excursion'));
-    var flags = Array.isArray(takeoff.flags) ? takeoff.flags : [];
+    var recordedFindingRank = takeoffFindingRank(takeoff.assessment);
+    var displayedFindingRank = takeoff.runwayExcursion === true || use.beyondRunwayEnd === true ? 3 : hasSettleBacks ? 1 : 0;
     flags.forEach(function (flag) {
-      if (!flag || !flag.label || (flag.code === 'runway_excursion' && takeoff.runwayExcursion === true)
+      if (!flag) return;
+      var rank = takeoffFindingRank(flag.severity);
+      recordedFindingRank = Math.max(recordedFindingRank, rank);
+      if (typeof flag.label !== 'string' || !flag.label.trim() || (flag.code === 'runway_excursion' && takeoff.runwayExcursion === true)
         || (flag.code === 'liftoff_beyond_runway_end' && use.beyondRunwayEnd === true)) return;
-      node.appendChild(el('div', 'kv-sub' + (flag.severity === 'critical' || flag.severity === 'warning' ? ' danger' : ''), flag.label));
+      displayedFindingRank = Math.max(displayedFindingRank, rank);
+      node.appendChild(el('div', 'kv-sub' + (rank >= 2 ? ' danger' : ''), flag.label));
     });
-    if ((takeoff.assessment === 'critical' || takeoff.assessment === 'warning') && !flags.length && !takeoff.runwayExcursion) {
-      node.appendChild(el('div', 'kv-sub danger', humanize(takeoff.assessment) + ' assessment recorded'));
+    if (recordedFindingRank > displayedFindingRank) {
+      var assessmentLabel = recordedFindingRank === 3 ? 'Critical' : recordedFindingRank === 2 ? 'Warning' : 'Caution';
+      node.appendChild(el('div', 'kv-sub' + (recordedFindingRank >= 2 ? ' danger' : ''), assessmentLabel + ' assessment recorded'));
     }
     if (use.verified === false) node.appendChild(el('div', 'kv-sub', 'Runway geometry unverified or conflicting'));
-    if (screen.reached !== true) node.appendChild(el('div', 'kv-sub', 'Climb-out incomplete: screen height not observed'));
+    if (screen.reached === true && !isFiniteNumber(screen.remainingFt)) {
+      node.appendChild(el('div', 'kv-sub', 'Runway position at height crossing unavailable'));
+    }
+    if (screen.reached !== true && !flags.some(function (flag) { return flag && flag.code === 'climb_incomplete' && flag.label; })) {
+      node.appendChild(el('div', 'kv-sub', 'Climb-out incomplete: screen height not observed'));
+    }
     if (takeoff.finalizeReason === 'telemetry_gap') node.appendChild(el('div', 'kv-sub', 'Telemetry gap during climb-out'));
     if (roll.startSource === 'runway_aligned') node.appendChild(el('div', 'kv-sub', 'Rolling start; measured from runway alignment'));
     var notes = [];
-    if (isFiniteNumber(takeoff.hopCount) && takeoff.hopCount > 0) {
-      notes.push('Settled back ' + (takeoff.hopCount === 1 ? 'once' : takeoff.hopCount + ' times'));
+    if (hasSettleBacks) {
+      if (!flags.some(function (flag) { return flag && flag.code === 'settled_after_liftoff' && flag.label; })) {
+        notes.push('Settled back ' + (takeoff.hopCount === 1 ? 'once' : takeoff.hopCount + ' times'));
+      }
+      notes.push('Distance includes airborne intervals before settling back');
     }
     if (lateral.verified === true && isFiniteNumber(lateral.liftoffOffsetFt) && Math.abs(lateral.liftoffOffsetFt) >= 1) {
       notes.push('Centerline ' + Math.round(Math.abs(lateral.liftoffOffsetFt)) + ' ft ' + (lateral.liftoffOffsetSide ? String(lateral.liftoffOffsetSide) : ''));
     }
     if (notes.length) node.appendChild(el('div', 'kv-sub', notes.join(' | ')));
     return node;
+  }
+
+  function takeoffFindingRank(severity) {
+    return severity === 'critical' ? 3 : severity === 'warning' ? 2 : severity === 'caution' ? 1 : 0;
   }
 
   function takeoffGradeTone(grade) {

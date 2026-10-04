@@ -270,4 +270,42 @@ test('history coordinator cancellation stops between bundles without committing 
   }
 });
 
+test('coordinator carries both debriefs through one reader, summary and source transaction', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-debriefs-'));
+  try {
+    const csvPath = path.join(root, 'both.csv');
+    fs.writeFileSync(csvPath, 'both');
+    const stat = fs.statSync(csvPath);
+    const source = { filePath: csvPath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
+    const store = createMemoryStore();
+    let reads = 0;
+    let summary = null;
+    const takeoff = { id: 'departure', timestampMs: 10, analysis: { schemaVersion: 3 } };
+    const coordinator = createHistoryIndexCoordinator({
+      openHistoryIndexStore: () => ({ success: true, store }),
+      getFlightLogsDir: () => root,
+      acquireBundleReadLease: () => ({ acquired: true, release() {} }),
+      buildListedCsvFlightFromPath: () => ({ filePath: csvPath, flightId: 'flight', timestamp: new Date(1).toISOString() }),
+      readHistorySummary: () => summary,
+      writeHistorySummary(_source, value) { summary = value; return true; },
+      async getFlightRecordsFromCsvFile() {
+        reads += 1;
+        return { landings: [{ id: 'arrival', timestampMs: 20 }], takeoffs: [takeoff] };
+      },
+    });
+    coordinator.start([source]);
+    await waitForCompletion(coordinator);
+    assert.equal(reads, 1);
+    assert.deepEqual(store.calls[0].takeoffs, [takeoff]);
+    assert.deepEqual(summary.takeoffs, [takeoff]);
+    coordinator.start([source], { rebuild: true });
+    const complete = await waitForCompletion(coordinator);
+    assert.equal(complete.summaryHits, 1);
+    assert.equal(reads, 1, 'a rebuild reuses the validated portable summary without another CSV scan');
+    assert.deepEqual(store.calls[1].takeoffs, [takeoff]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 export {};

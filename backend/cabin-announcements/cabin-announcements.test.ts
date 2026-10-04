@@ -93,6 +93,101 @@ function createHarness(): Harness {
   };
 }
 
+const a321ConfigPath = 'SimObjects\\Airplanes\\microsoft-a321\\presets\\inibuilds\\a21n\\config\\aircraft.CFG';
+
+test('late provider TITLE enrichment preserves the next cabin phase announcement', async () => {
+  const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
+  const providerBus = require('../core/event-bus');
+  const provider = new SimConnectTelemetryProvider();
+  const { eventBus, messages, setNow } = createHarness();
+  const identities: any[] = [];
+  const unsubscribe = providerBus.on('simconnect:aircraftChanged', (payload: unknown) => {
+    identities.push(payload);
+    eventBus.emit('simconnect:aircraftChanged', payload);
+  });
+  try {
+    // Component integration: app starts during an existing descent; the first
+    // TITLE arrives after the provider's 500ms path-only notification. No sim.
+    provider._handleRustSystemState({ name: 'AircraftLoaded', string: a321ConfigPath });
+    await new Promise(resolve => setTimeout(resolve, 550));
+    assert.equal(identities.length, 1);
+    setNow(600);
+    eventBus.emit('telemetry:frame', { alt_msl: 5_000, wow: false, display: { raFt: 3_500 } });
+    eventBus.emit('flight:started', { flightId: 'late-title-descent' });
+    eventBus.emit('telemetry:phase', { value: 'DESCENT' });
+    setNow(800);
+    provider._handleRustAircraftTitleReadback('A321', new Date().toISOString());
+    assert.equal(identities.length, 2, 'exercise the actual provider enrichment event');
+    assert.equal(identities[1].previousAircraftConfigPath, a321ConfigPath);
+    setNow(60_000);
+    eventBus.emit('telemetry:frame', { alt_msl: 3_000, wow: false, display: { raFt: 1_500 } });
+    eventBus.emit('telemetry:phase', { value: 'APPROACH' });
+    assert.deepEqual(messages.map(message => message.phase), ['APPROACH'],
+      'an identity refresh must not swallow the next phase as a new baseline');
+  } finally {
+    unsubscribe();
+    if (provider._rustAircraftChangedTimer) clearTimeout(provider._rustAircraftChangedTimer);
+    provider._clearRustTitleFallbackTimer();
+  }
+});
+
+for (const [label, identity] of [
+  ['explicit path', { aircraftConfigPath: a321ConfigPath, previousAircraftConfigPath: a321ConfigPath,
+    displayName: 'A321', previousDisplayName: null }],
+  ['legacy path aliases', { title: a321ConfigPath, previousTitle: a321ConfigPath }],
+  ['unchanged display identity', { displayName: 'A321', previousDisplayName: 'A321' }],
+] as const) {
+  test(`cabin identity refresh preserves pending dwell and completed audio (${label})`, () => {
+    const { eventBus, messages, setNow } = createHarness();
+    eventBus.emit('telemetry:frame', { alt_msl: 420, wow: true, display: { raFt: 0 } });
+    eventBus.emit('flight:started', { flightId: 'identity-refresh-taxi' });
+    eventBus.emit('telemetry:phase', { value: 'TAXI' });
+    setNow(5_000); // Original startup grace expires; five-second taxi dwell begins.
+    setNow(8_000);
+    eventBus.emit('simconnect:aircraftChanged', identity);
+    setNow(10_000);
+    assert.deepEqual(messages.map(message => message.phase), ['TAXI'], 'original dwell is not cancelled or restarted');
+    setNow(11_000);
+    eventBus.emit('simconnect:aircraftChanged', identity);
+    eventBus.emit('telemetry:frame', { alt_msl: 420, wow: true, display: { raFt: 0 } });
+    eventBus.emit('telemetry:phase', { value: 'PARKED' });
+    setNow(12_000);
+    eventBus.emit('telemetry:phase', { value: 'TAXI' });
+    setNow(20_000);
+    assert.equal(messages.length, 1, 'same-flight phase changes do not replay completed audio');
+  });
+}
+
+for (const [label, identity] of [
+  ['different paths with the same display name', {
+    aircraftConfigPath: 'Community/fnx-aircraft-321/SimObjects/Airplanes/FNX_321/aircraft.cfg',
+    previousAircraftConfigPath: a321ConfigPath, displayName: 'A321', previousDisplayName: 'A321',
+  }],
+  ['different legacy titles', { title: 'Fenix A320 CFM', previousTitle: 'A321' }],
+  ['initial load', { aircraftConfigPath: a321ConfigPath }],
+  ['missing identity', undefined],
+  ['empty identity', { title: '', previousTitle: '' }],
+  ['reason without identity proof', { reason: 'RustSimvar:InitialTITLE' }],
+] as const) {
+  test(`cabin aircraft change still cancels old timers and accepts the new flight (${label})`, () => {
+    const { eventBus, messages, setNow } = createHarness();
+    eventBus.emit('telemetry:frame', { alt_msl: 420, wow: true, display: { raFt: 0 } });
+    eventBus.emit('flight:started', { flightId: 'old-aircraft-taxi' });
+    eventBus.emit('telemetry:phase', { value: 'TAXI' });
+    setNow(5_000);
+    setNow(8_000);
+    eventBus.emit('simconnect:aircraftChanged', identity);
+    setNow(10_000);
+    assert.deepEqual(messages, [], 'old aircraft dwell must be cancelled');
+    eventBus.emit('telemetry:phase', { value: 'PARKED' });
+    setNow(13_000);
+    eventBus.emit('telemetry:frame', { alt_msl: 420, wow: true, display: { raFt: 0 } });
+    eventBus.emit('telemetry:phase', { value: 'TAXI' });
+    setNow(18_000);
+    assert.deepEqual(messages.map(message => message.phase), ['TAXI'], 'new aircraft can announce after fresh context and dwell');
+  });
+}
+
 test('cabin announcements suppress startup phase flips until grace expires', () => {
   const { eventBus, messages, setNow } = createHarness();
 

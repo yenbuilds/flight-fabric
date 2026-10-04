@@ -15,7 +15,6 @@ import { comRadioResultText } from '../aircraft/com-radio.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
 import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';
-import { describeJoystickBinding } from './joystick-binding.js';
 import { formatSquawk } from '../aircraft/transponder.js';
 import { createVoiceSetupTest } from './voice-setup-test.js';
 
@@ -46,18 +45,19 @@ export function createVoiceControlController({
     throw new RangeError('Voice release tail must be between 0 and 500 milliseconds.');
   }
   let active = null;
+  let captureGeneration = 0;
   let pendingCommand = null;
   let resultHeld = false;
   let disposed = false;
   let capturePreferencesLoaded = false;
   let deviceDiscoveryPromise = null;
+  let controllerActionRevision = 0;
   const spokenReadback = readback || createLocalReadback({ globalRef });
   const acknowledgementTone = pushToTalkTone || createPushToTalkTone({ globalRef });
   const unsubscribers = [];
   const voiceTest = createVoiceSetupTest({ api, voiceStore, globalRef, createCapture,
     cancelReadback: () => spokenReadback.cancel?.(),
-    canStart: () => !disposed && !active && !deviceDiscoveryPromise && !pendingCommand
-      && !voiceStore.joystickLearn?.active,
+    canStart: () => !disposed && !active && !voiceStore.controllerSetup?.active && !deviceDiscoveryPromise && !pendingCommand,
   });
 
   function storageRef() {
@@ -169,30 +169,34 @@ export function createVoiceControlController({
       && (aircraftControlsStore?.availability?.enabled !== true || voiceCommandCount() === 0);
   }
 
-  // The global holds the user can reach while the simulator has focus: the
-  // keyboard shortcut and the joystick button, when each is set and usable.
-  function globalHoldText() {
-    const { shortcut, joystick, joystickConnected } = voiceStore.runtime;
-    const holds = [shortcut, joystickConnected ? describeJoystickBinding(joystick) : ''].filter(Boolean);
-    return holds.join(' or ');
-  }
-
   function readyStatusText({ transcriptionOnly = false } = {}) {
+    const controller = voiceStore.runtime.controllerEnabled ? voiceStore.runtime.controller : null;
+    if (controller?.binding) {
+      const fallback = voiceStore.runtime.shortcut && voiceStore.runtime.shortcutRegistered
+        ? 'keyboard or on-screen push-to-talk' : 'on-screen push-to-talk';
+      if (['waiting', 'release-required'].includes(controller.state)) {
+        return `Release controller Button ${controller.binding.button}, then press it again to talk. You can also use ${fallback}.`;
+      }
+      if (['disconnected', 'error', 'paused', 'inactive'].includes(controller.state)) {
+        return `Controller button unavailable. Check Voice settings, or use ${fallback}.`;
+      }
+      if (controller.state === 'ready') {
+        return `Hold Button ${controller.binding.button} on ${controller.binding.label}${voiceStore.runtime.shortcut ? ', your shortcut,' : ''} or the on-screen button to ${transcriptionOnly ? 'transcribe' : 'talk'}.`;
+      }
+    }
     if (voiceStore.runtime.shortcutRegistered === true) {
       if (transcriptionOnly) return 'Ready.';
-      const holds = globalHoldText();
-      const disconnected = voiceStore.runtime.joystick && !voiceStore.runtime.joystickConnected
-        ? ` ${voiceStore.runtime.joystick.name || 'The bound joystick'} is not connected.`
-        : '';
+      const holds = voiceStore.runtime.shortcut;
       return holds
-        ? `Hold ${holds} or the button, speak the complete command, then release.${disconnected}`
-        : `Hold the button, speak the complete command, then release.${disconnected}`;
+        ? `Hold ${holds} or the button, speak the complete command, then release.`
+        : `Hold the button, speak the complete command, then release.`;
     }
     const shortcutError = typeof voiceStore.runtime.shortcutError === 'string'
       ? voiceStore.runtime.shortcutError.trim().replace(/[.\s]+$/u, '')
       : '';
-    if (!voiceStore.runtime.shortcut && !voiceStore.runtime.joystick && !shortcutError) {
-      return `Choose a push-to-talk shortcut in Voice settings, or use the on-screen button to ${transcriptionOnly ? 'transcribe' : 'speak'}.`;
+    if (!voiceStore.runtime.shortcut && !shortcutError) {
+      const choices = voiceStore.runtime.controllerEnabled ? 'a keyboard shortcut or controller button' : 'a push-to-talk shortcut';
+      return `Choose ${choices} in Voice settings, or use the on-screen button to ${transcriptionOnly ? 'transcribe' : 'speak'}.`;
     }
     const unavailable = shortcutError
       ? `Global push-to-talk unavailable: ${shortcutError}.`
@@ -210,6 +214,10 @@ export function createVoiceControlController({
     if (voiceStore.runtime.enabled !== true) {
       resultHeld = false;
       voiceStore.setState('disabled', 'Voice control is off. Enable it to use local speech recognition.');
+      return;
+    }
+    if (voiceStore.controllerSetup?.active) {
+      voiceStore.setState('blocked', 'Voice input is paused while choosing a controller button.');
       return;
     }
     if (!voiceStore.runtime.available) {
@@ -310,8 +318,13 @@ export function createVoiceControlController({
     if (!session) return false;
     active = null;
     voiceStore.setSession('');
-    try { await session.capture.cancel(); } catch {}
-    try { await api?.cancelRecognition?.(session.sessionId); } catch {}
+    try { await session.capture?.cancel(); } catch {}
+    if (session.sessionId) {
+      try { await api?.cancelRecognition?.(session.sessionId); } catch {}
+    }
+    // Disconnect recovery can start another capture while this one's audio
+    // resources are still closing. Old cleanup no longer owns its UI state.
+    if (disposed || session.generation !== captureGeneration) return true;
     // Capture/finalization callers have already published the actionable
     // failure. Do not immediately hide it behind the normal cancellation or
     // ready copy; the next PTT attempt explicitly recovers from error state.
@@ -325,8 +338,8 @@ export function createVoiceControlController({
     return true;
   }
 
-  async function begin() {
-    if (disposed || active || voiceTest.busy || deviceDiscoveryPromise || voiceStore.runtime.enabled !== true) return false;
+  async function begin(source = 'local') {
+    if (disposed || active || voiceStore.controllerSetup?.active || voiceTest.busy || deviceDiscoveryPromise || voiceStore.runtime.enabled !== true) return false;
     spokenReadback.cancel?.();
     // A confirmed result stays visible until the next command. Starting that
     // command explicitly releases the hold before readiness is recomputed. A
@@ -350,6 +363,8 @@ export function createVoiceControlController({
     // busy was excluded above, so this clears idle test state synchronously.
     void voiceTest.cancel();
     const session = {
+      generation: ++captureGeneration,
+      source,
       sessionId: '',
       // Freeze this decision for the entire utterance. A simulator/profile
       // appearing midway through an off-aircraft test must not make it send.
@@ -389,6 +404,7 @@ export function createVoiceControlController({
       }
       if (session.releaseRequested) {
         try { await api.cancelRecognition(session.sessionId); } catch {}
+        if (active !== session) return false;
         active = null;
         voiceStore.setSession('');
         refreshReadyState();
@@ -435,6 +451,7 @@ export function createVoiceControlController({
       if (recognition?.sessionId) {
         try { await api.cancelRecognition(recognition.sessionId); } catch {}
       }
+      if (active !== session) return false;
       active = null;
       voiceStore.setSession('');
       voiceStore.setState('error', error?.message || 'Voice control could not start.');
@@ -490,6 +507,7 @@ export function createVoiceControlController({
         await api.finishRecognition(session.sessionId);
         return true;
       } catch (error) {
+        if (active !== session) return false;
         voiceStore.setState('error', error?.message || 'Voice recognition could not finish.');
         await cancel('finish-error');
         return false;
@@ -525,10 +543,16 @@ export function createVoiceControlController({
     }
     if (event.type !== 'final') return;
 
+    if (session.finalReceived) return;
+    session.finalReceived = true;
+    const releasedBeforeFinal = session.releaseRequested;
+    try { await session.capture.cancel(); } catch {}
+    // Retain ownership until cleanup finishes so cancellation/disablement can
+    // still retire this result before any aircraft command or readback.
+    if (active !== session || disposed || voiceStore.runtime.enabled !== true) return;
     active = null;
     voiceStore.setSession('');
-    try { await session.capture.cancel(); } catch {}
-    if (!session.releaseRequested) {
+    if (!releasedBeforeFinal) {
       voiceStore.setState('error', 'Recognition ended before push-to-talk was released. Nothing was executed.');
       return;
     }
@@ -626,6 +650,22 @@ export function createVoiceControlController({
     }
   }
 
+  async function controllerAction(method) {
+    if (disposed || !api?.[method] || !voiceStore.runtime.controllerEnabled) return false;
+    const request = ++controllerActionRevision;
+    if (method === 'startControllerSetup') {
+      await voiceTest.cancel();
+      if (disposed || request !== controllerActionRevision || voiceStore.runtime.enabled !== true) return false;
+      if (active) await cancel('button-setup');
+      if (disposed || request !== controllerActionRevision || voiceStore.runtime.enabled !== true) return false;
+    }
+    const info = await api[method]();
+    if (disposed || request !== controllerActionRevision) return false;
+    voiceStore.applyRuntimeInfo(info);
+    refreshReadyState();
+    return true;
+  }
+
   async function setShortcut(value) {
     if (!api) return false;
     try {
@@ -644,59 +684,17 @@ export function createVoiceControlController({
       enabled: voiceStore.runtime.enabled,
       error: voiceStore.runtime.error,
       engine: { modelId: voiceStore.runtime.modelId },
+      controllerSetup: voiceStore.controllerSetup,
       pushToTalk: info,
       readback: { lastError: voiceStore.runtime.readbackError },
     });
     refreshReadyState();
   }
 
-  // Binds (or with null, removes) the joystick push-to-talk button.
-  async function setJoystick(value) {
-    if (!api?.setPushToTalkJoystick) return false;
-    try {
-      applyPushToTalkInfo(await api.setPushToTalkJoystick(value));
-      return true;
-    } catch (error) {
-      voiceStore.setState('error', error?.message || 'Joystick push-to-talk could not be changed.');
-      return false;
-    }
-  }
-
-  async function startJoystickLearn() {
-    if (!api?.startJoystickLearn) return false;
-    voiceStore.setJoystickLearn({ active: true });
-    try {
-      const result = await api.startJoystickLearn();
-      if (result?.started !== true) voiceStore.setJoystickLearn({ active: false });
-      return result?.started === true;
-    } catch (error) {
-      voiceStore.setJoystickLearn({ active: false, error: error?.message || 'Joystick detection could not start.' });
-      return false;
-    }
-  }
-
-  async function stopJoystickLearn() {
-    if (!api?.stopJoystickLearn) return false;
-    voiceStore.applyJoystickLearnEvent({ type: 'stopped', reason: 'stopped' });
-    try {
-      await api.stopJoystickLearn();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function handleJoystickLearn(event = {}) {
-    voiceStore.applyJoystickLearnEvent(event);
-    // The first press is the answer; the helper has nothing more to say.
-    if (event.type === 'button' && event.down === true && voiceStore.joystickLearn.captured) {
-      void stopJoystickLearn();
-    }
-  }
-
   async function setRecognitionEnabled(value) {
     if (!api?.setRecognitionEnabled) return false;
     const nextEnabled = value === true;
+    if (!nextEnabled) controllerActionRevision++;
     if (!nextEnabled) await voiceTest.cancel();
     if (!nextEnabled && active) await cancel('voice-disabled');
     try {
@@ -720,8 +718,15 @@ export function createVoiceControlController({
   }
 
   function handlePushToTalk(event = {}) {
-    if (event.type === 'down') void begin();
-    else if (event.type === 'up') void finish();
+    if (event.type === 'down') void begin('global');
+    else if (event.type === 'up') {
+      if (active?.source === 'global') void finish();
+    }
+    else if (event.type === 'cancel') {
+      void voiceTest.cancel();
+      if (active) void cancel(event.reason || 'ptt-cancel').finally(refreshReadyState);
+      else refreshReadyState();
+    }
     else if (event.type === 'error') {
       const message = event.error || 'Global push-to-talk stopped.';
       voiceStore.applyRuntimeInfo({
@@ -732,10 +737,10 @@ export function createVoiceControlController({
         engine: { modelId: voiceStore.runtime.modelId },
         readback: { lastError: voiceStore.runtime.readbackError },
         pushToTalk: {
+          controllerEnabled: voiceStore.runtime.controllerEnabled,
+          controller: voiceStore.runtime.controller,
           accelerator: event.accelerator || voiceStore.runtime.shortcut,
           error: message,
-          joystick: voiceStore.runtime.joystick,
-          joystickConnected: false,
           registered: false,
         },
       });
@@ -748,17 +753,20 @@ export function createVoiceControlController({
     loadCapturePreferences();
     spokenReadback.prepare?.();
     voiceStore.bindRuntime({
-      begin,
-      cancel,
-      finish,
+      // A hold belongs to the input that started it. A tap/late pointer event
+      // from another input cannot finish or cancel that utterance.
+      begin: () => begin('local'),
+      cancel: () => active?.source === 'local' ? cancel('user') : false,
+      finish: () => active?.source === 'local' ? finish() : false,
       refreshInputDevices,
       setRecognitionEnabled,
       setInputDevice,
-      setJoystick,
       setSpokenReadbacks,
       setShortcut,
-      startJoystickLearn,
-      stopJoystickLearn,
+      startControllerSetup: () => controllerAction('startControllerSetup'),
+      cancelControllerSetup: () => controllerAction('cancelControllerSetup'),
+      saveControllerButton: () => controllerAction('saveControllerButton'),
+      clearControllerButton: () => controllerAction('clearControllerButton'),
       startVoiceTest: voiceTest.start,
       finishVoiceTest: voiceTest.finish,
       cancelVoiceTest: voiceTest.cancel,
@@ -778,10 +786,13 @@ export function createVoiceControlController({
       return handleRecognitionEvent(event);
     }));
     unsubscribers.push(api.onPushToTalk(handlePushToTalk));
-    if (typeof api.onJoystickLearn === 'function') unsubscribers.push(api.onJoystickLearn(handleJoystickLearn));
     unsubscribers.push(api.onRuntimeState((info) => {
       const wasEnabled = voiceStore.runtime.enabled;
       voiceStore.applyRuntimeInfo(info);
+      if (voiceStore.controllerSetup?.active) {
+        void voiceTest.cancel();
+        if (active) void cancel('button-setup');
+      }
       if ((wasEnabled && voiceStore.runtime.enabled !== true)
           || (voiceTest.busy && voiceStore.runtime.available !== true)) {
         void voiceTest.cancel(voiceTest.busy ? 'Voice recognition stopped. Try the test again when it is available.' : '');
@@ -838,6 +849,7 @@ export function createVoiceControlController({
 
   async function dispose() {
     disposed = true;
+    controllerActionRevision++;
     pendingCommand = null;
     resultHeld = false;
     await voiceTest.dispose();

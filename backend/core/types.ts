@@ -559,7 +559,7 @@
  */
 
 /**
- * One scored takeoff in the local takeoff log (backend/takeoff/takeoff-logbook.ts).
+ * One recorded takeoff projected by backend/takeoff/takeoff-record.ts.
  * @typedef {Object} TakeoffLogEntry
  * @property {string} id - Unique entry id
  * @property {string|null} timestamp - Liftoff time (ISO)
@@ -571,6 +571,8 @@
  * @property {number|null} iasKts - IAS at liftoff
  * @property {number|null} rollDistanceFt - Ground roll distance
  * @property {number|null} rollDurationS - Ground roll duration
+ * @property {'simulator'|'capture'|null} rollDurationBasis - Recorded measurement clock
+ * @property {Object|null} analysis - Original measurements, findings and assessment-rule provenance
  * @property {number|null} runwayRemainingFt - Runway remaining at liftoff
  * @property {number|null} runwayUsedPct - Percentage of runway used at liftoff
  * @property {number|null} runwayUseScore - Runway-use score 0-100
@@ -588,7 +590,7 @@
  * @typedef {Object} TakeoffLogStats
  * @property {number} total - Number of takeoffs
  * @property {Object<string, number>} grades - Runway-use grade counts
- * @property {number} cautionCount - Late Liftoff, Dangerous and Overrun takeoffs
+ * @property {number} cautionCount - Recorded cautions/warnings, including historical adverse grades
  * @property {number|null} avgRollDistanceFt - Average ground roll
  * @property {number|null} avgRunwayUsedPct - Average runway used at liftoff
  * @property {number|null} minRunwayRemainingFt - Least runway remaining at liftoff
@@ -602,7 +604,7 @@
  * @property {LogbookEntry[]} entries - Newest-first logbook entries
  * @property {LogbookStats} stats - Aggregate stats for the returned entries
  * @property {Object} [index] - Derived history-index paging and progress metadata
- * @property {TakeoffLogEntry[]} takeoffs - Newest-first scored takeoffs from the local takeoff log
+ * @property {TakeoffLogEntry[]} takeoffs - Newest-first recorded takeoffs from shared history, including unmatched legacy entries
  * @property {TakeoffLogStats|null} takeoffStats - Aggregate takeoff stats, null when the log could not be read
  */
 

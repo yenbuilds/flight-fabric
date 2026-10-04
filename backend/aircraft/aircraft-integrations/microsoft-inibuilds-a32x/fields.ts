@@ -4,6 +4,7 @@ import type {
   AircraftIntegrationDecoder,
   AircraftIntegrationField,
 } from '../types.js';
+import { nativeFcuFields } from './fcu.js';
 
 function simvarField(
   id: string,
@@ -29,18 +30,19 @@ function numberField(id: string, name: string, unit: string, precision = 0): Air
   return simvarField(id, name, unit, { type: 'number', precision });
 }
 
-// The cited Microsoft and iniBuilds material does not define an A320neo V2 or
-// A321LR custom integration catalogue. This shared adapter therefore keeps its
-// reads to an explicit standard-SimVar allowlist. The compact action layer can
-// confirm standard-event requests against these fields without claiming
-// Airbus-private selector or managed-mode semantics.
+// Standard telemetry plus independently observed native FCU and captain FD
+// state. The standard FD flag can disagree with the physical aircraft button.
 const MICROSOFT_INIBUILDS_A32X_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
+  ...nativeFcuFields,
   'fcu.speedKts': numberField('fcu.speedKts', 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots'),
   'fcu.headingDeg': numberField('fcu.headingDeg', 'AUTOPILOT HEADING LOCK DIR', 'Degrees'),
   'fcu.altitudeFt': numberField('fcu.altitudeFt', 'AUTOPILOT ALTITUDE LOCK VAR', 'Feet'),
   'fcu.verticalSpeedFpm': numberField('fcu.verticalSpeedFpm', 'AUTOPILOT VERTICAL HOLD VAR', 'Feet per minute'),
   'flightGuidance.apMaster': booleanField('flightGuidance.apMaster', 'AUTOPILOT MASTER'),
-  'flightGuidance.flightDirector': booleanField('flightGuidance.flightDirector', 'AUTOPILOT FLIGHT DIRECTOR ACTIVE'),
+  'flightGuidance.flightDirector': { id: 'flightGuidance.flightDirector', sources: [{
+    route: { type: 'lvar', name: 'L:INI_FD1_ON', unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [1], falseValues: [0] },
+  }] },
   'flightGuidance.autothrottleActive': booleanField('flightGuidance.autothrottleActive', 'AUTOTHROTTLE ACTIVE'),
   'flightGuidance.autothrottleArmed': booleanField('flightGuidance.autothrottleArmed', 'AUTOPILOT THROTTLE ARM'),
   'flightGuidance.speedHold': booleanField('flightGuidance.speedHold', 'AUTOPILOT AIRSPEED HOLD'),

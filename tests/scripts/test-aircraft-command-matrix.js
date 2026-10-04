@@ -67,6 +67,17 @@ for (const entry of loader.listProfiles()) {
         : { simulator: 'xplane', actionTypes: [], integrationTransports: [] },
     };
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    if (['inibuilds-a320neo-v2', 'inibuilds-a321lr'].includes(entry.id)) {
+      for (const target of ['speed', 'heading', 'altitude', 'verticalSpeed']) {
+        assert.ok(catalogue.commands.some(command => command.id === `flightGuidance.${target}.set`),
+          `${profileKey}: native ${target} must remain available to page and voice`);
+      }
+      const altitude = catalogue.commands.find(command => command.id === 'flightGuidance.altitude.set');
+      assert.deepEqual(altitude.input, { kind: 'number', min: 100, max: 49000, step: 100, units: 'feet' });
+      assert.equal(interpret('set altitude one hundred feet', catalogue).ok, true);
+      assert.equal(resolveAircraftCommand({ commandId: altitude.id, input: { value: 0 } }, options).ok, false,
+        'voice/library bounds must reject the unsupported zero-foot native target');
+    }
     const mainLights = entry.simulator === 'msfs' && (takeoffLightsProfiles.has(entry.id) || ['headwind-a330', 'inibuilds-a380-800-rr', 'tfdi-md-11'].includes(entry.id));
     const strobeMode = ['fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'headwind-a330',
       'inibuilds-a350-900', 'inibuilds-a350-1000', 'inibuilds-a380-800-rr'].includes(entry.id);
@@ -115,7 +126,7 @@ for (const entry of loader.listProfiles()) {
     for (const phrase of ['landing', 'set landing', 'runway turn off', 'taxi lights almost off']) {
       assert.equal(interpret(phrase, catalogue).ok, false, phrase);
     }
-    const supportsBrightness = /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330)$/.test(entry.id)
+    const supportsBrightness = /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330|inibuilds-a350-(?:900|1000))$/.test(entry.id)
       && entry.simulator === 'msfs';
     for (const [target, phrases] of [
       ['cockpit', ['set cockpit lighting fifty percent']],
@@ -131,7 +142,8 @@ for (const entry of loader.listProfiles()) {
           assert.equal(voice.commandId, `configuration.lighting.${target}`);
           assert.deepEqual(voice.input, { value: 50 });
           const descriptor = catalogue.commands.find(command => command.id === voice.commandId);
-          assert.ok(descriptor.brightnessFields.length >= 6);
+          if (entry.id.startsWith('inibuilds-a350-')) assert.equal(descriptor.brightnessFields.length, target === 'displays' ? 4 : 15);
+          else assert.ok(descriptor.brightnessFields.length >= 6);
         }
       }
     }

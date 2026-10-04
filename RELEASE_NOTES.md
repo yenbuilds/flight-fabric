@@ -1,84 +1,94 @@
-# FlightFabric 0.11.1 · Public Alpha
+# FlightFabric 0.12.0 · Public Alpha
 
-## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.11.1/FlightFabric.Setup.0.11.1.exe)
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.12.0/FlightFabric.Setup.0.12.0.exe)
 
 **Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
 
 Still in development. Expect bugs and incomplete aircraft support.
 
 Finish your flight and close FlightFabric, then run the downloaded installer.
-Your settings and recordings stay in their current locations. To update the
-toolbar, close MSFS and choose **Update** or **Reinstall** in
-**Settings > MSFS 2024 toolbar panel**, then restart the simulator.
+Your settings and recordings stay in their current locations. Update the
+toolbar too: close MSFS, open **Settings > MSFS 2024 toolbar panel** in
+FlightFabric, choose **Update** or **Reinstall**, then restart the simulator.
 
 ## What's new
 
-- **Test your microphone:** check input levels, speech recognition and recording
-  playback in Settings without loading MSFS or sending aircraft commands.
-- **Voice settings together:** find your microphone, push-to-talk shortcut and
-  spoken feedback in **Settings > Voice control**, with clearer setup reminders.
-- **Clearer automatic pushback:** the app and MSFS toolbar explain how your
-  departure runway guides the pushback direction and show **Start pushback**.
-- **Small usability improvements:** slightly louder push-to-talk beeps, better
-  search sizing on narrow screens and more consistent keyboard focus.
+- **Review your takeoff:** see ground roll, liftoff speed, rotation and runway
+  remaining, with detected cautions in the app and MSFS toolbar.
+- **Talk using your controller:** choose a yoke or joystick button for voice
+  push-to-talk, alongside the existing keyboard shortcut.
+- **Simpler toolbar taxi map:** follow a north-up 2D route with a live aircraft
+  marker, improved pushback startup and clearer toolbar update reminders.
+- **More aircraft controls:** expanded lighting and flight-guidance controls
+  for supported aircraft, with availability matched to the current aircraft.
+- **Clearer desktop setup:** keyboard and controller voice options are grouped
+  together, connection recovery is improved, and settings fit small screens better.
 
 <details>
 <summary><strong>Full release notes</strong></summary>
 
-### Check voice before loading a flight
+### Review your takeoff
 
-Open **Settings > Voice control**, enable voice control and choose your
-microphone. Select **Start voice test** and say “Set heading two seven zero”.
-The test shows your input level and recognized speech, then lets you play back
-the short recording. It works without MSFS, a loaded aircraft or a saved
-push-to-talk shortcut, and never sends aircraft commands.
+The takeoff report shows ground-roll distance, liftoff speed, average rotation
+and runway remaining, with detected cautions alongside the measurements.
+Open **Full Report** in the app for more detail, or check **Last takeoff** in
+the MSFS toolbar. Saved departures are available alongside your flight history.
 
-Test recordings stay in memory and are cleared when you leave Settings. Use
-**Test spoken feedback** to check audio output separately. Testing does not
-change your saved spoken-feedback preference.
+Capture normally finishes around 50 ft. The report covers the takeoff roll and
+liftoff; normal flight recording continues through the climb. More runway
+remaining does not mean a better takeoff. Landing reports continue separately.
 
-The sidebar voice reminder now sits beside the other setup tasks. Start and
-release beeps are slightly louder while keeping their short duration and smooth
-fade. Normal aircraft commands still use push-to-talk and the aircraft's live
-availability checks.
+### Use a yoke or joystick button for voice
 
-### Automatic pushback is easier to find
+Open **Settings > Voice control** and choose a controller button under
+**Push-to-talk**. Follow the press-and-release check, then save the button.
+Hold it to speak and release it when finished, including while MSFS is in front.
+The keyboard shortcut and on-screen voice button remain available.
 
-In the app or the toolbar's **Pushback & taxi** tab, enter your departure airport
-and runway to preview the route and planned pushback direction. Choose
-**Start pushback** when you are ready. Selecting a runway or showing a route
-does not move the aircraft.
+After setup, a restart or reconnection, an extra press and release may be needed
+before the first hold. Existing simulator or ATC assignments still respond to
+the same button, so choose an otherwise unassigned button. Device support varies.
 
-**Stop pushback** remains available while the manoeuvre runs. After a confirmed
-stop, the display continues with manual taxi guidance. Closing the toolbar tab
-stops pushback started there. Optional Autotaxi remains a separate desktop-app
-action.
+### Follow a simpler taxi map in the toolbar
 
-### Other improvements
+The toolbar's **Taxi map** now shows a simple north-up route diagram and live
+aircraft marker. It retains the route while the aircraft moves; fresh position
+data is required to show the marker. The desktop taxi views remain available.
 
-Search fits narrow screens more reliably, keyboard focus returns to useful
-controls after closing tools, and the setup guidance is clearer. This update
-also includes refreshed README screenshots and patched bundled dependencies.
+Pushback startup now waits for the simulator tug to couple before treating its
+inactive readback as a stop. An outdated toolbar package gets a clearer update
+reminder. Use the toolbar update instructions above after installing FlightFabric.
+
+### Aircraft controls and desktop improvements
+
+Aircraft lighting and flight-guidance controls have been expanded, with more
+precise aircraft identification and availability checks. Support still depends
+on the aircraft and installed version; unavailable controls explain what is missing.
+
+Voice settings put keyboard and controller push-to-talk together. Connection
+recovery, SimBrief guidance and saved-flight search controls are clearer, with
+layout improvements on narrow screens.
 
 </details>
 
 <details>
 <summary><strong>Known limitations</strong></summary>
 
-Pushback and Autotaxi remain experimental. Check the route and aircraft
-readiness before starting, and keep the stop control available. Aircraft and
-scenery combinations have different behavior and have not all been verified.
+Pushback and Autotaxi remain experimental. Check the route and aircraft readiness
+before starting, and keep the stop control available. Autotaxi can stop with
+**Control write failed. Take control.**; take over manually if this occurs.
+Automatic parking-brake handover can also fail at the holding point. If prompted,
+set the parking brake yourself before releasing controls.
 
 Voice recognition runs locally in the Windows desktop app. Results depend on
-your microphone, accent and background noise. A successful voice test confirms
-recognition of the sample phrase; it does not confirm aircraft command support.
+your microphone, accent and background noise. Controller compatibility varies;
+reconnecting a device may require selecting its button again.
 
-Aircraft support varies by aircraft and installed version. The iniBuilds A380
-integration is partial, and takeoff scoring remains disabled. Aircraft controls
-require the appropriate setup and fresh data.
+Aircraft and scenery combinations have not all been verified. The iniBuilds A380
+integration is partial. Aircraft controls require the appropriate setup and fresh data.
 
-3D maps require compatible graphics support and online imagery services. Phone
-and tablet control requires pairing and approval on the simulator PC.
+Desktop 3D maps require compatible graphics support and online imagery services.
+Phone and tablet control requires pairing and approval on the simulator PC.
 MSFS 2020 and X-Plane are not currently supported.
 
 </details>
@@ -86,12 +96,12 @@ MSFS 2020 and X-Plane are not currently supported.
 <details>
 <summary><strong>Installation help and optional file verification</strong></summary>
 
-Download `FlightFabric.Setup.0.11.1.exe`. GitHub's **Source code** archives are for
+Download `FlightFabric.Setup.0.12.0.exe`. GitHub's **Source code** archives are for
 developers; the installer is all you need to use FlightFabric.
 
 The current alpha is unsigned, so Windows may show **Windows protected your
 PC** when you open the installer. Select **More info**, check that the app is
-`FlightFabric.Setup.0.11.1.exe` with **Unknown publisher**, and select **Run anyway** if
+`FlightFabric.Setup.0.12.0.exe` with **Unknown publisher**, and select **Run anyway** if
 you downloaded it from the official link above. If that option is unavailable
 or Windows reports a threat, stop and report the warning; do not disable
 Windows security protections.
@@ -102,8 +112,8 @@ you want to verify your download.
 </details>
 
 [Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
-[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.11.1/LICENSE.md) ·
-[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.11.1/THIRD_PARTY_NOTICES.md)
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.12.0/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.12.0/THIRD_PARTY_NOTICES.md)
 
 Thank you to everyone supporting FlightFabric through feedback, testing and
 donations.

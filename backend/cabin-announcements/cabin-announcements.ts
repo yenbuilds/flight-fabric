@@ -488,7 +488,15 @@ function startCabinAnnouncements({
     taxiAnnouncedWhileAwaitingFlightStart = false;
   });
 
-  subscribe('simconnect:aircraftChanged', () => {
+  subscribe('simconnect:aircraftChanged', (payload) => {
+    // This event also refreshes metadata for the same aircraft. Match the
+    // core lifecycle guard: explicit paths outrank display names and legacy
+    // aliases. Missing identity still resets; a reason string alone is no proof.
+    const change = payload as Record<string, unknown> | null | undefined;
+    const current = change?.aircraftConfigPath || change?.displayName || change?.title;
+    const previous = change?.previousAircraftConfigPath || change?.previousDisplayName || change?.previousTitle;
+    if (typeof current === 'string' && current.trim() && current === previous) return;
+
     announced.clear();
     taxiAnnouncedWhileAwaitingFlightStart = false;
     flightLifecycleState = 'unknown';

@@ -9,10 +9,10 @@ const {
   sourceIdentityMatches: (_current: AnyRecord, _indexed: AnyRecord | null | undefined) => boolean;
 };
 const {
-  getLandingsFromCsvFile,
+  getFlightRecordsFromCsvFile,
   logbookOutcomeGrade,
 } = require('../landing/flight-logbook.js') as {
-  getLandingsFromCsvFile: (_filePath: string, _options?: { bypassCache?: boolean; mtimeMs?: number }) => Promise<AnyRecord[]>;
+  getFlightRecordsFromCsvFile: (_filePath: string, _options?: { bypassCache?: boolean; mtimeMs?: number }) => Promise<{ landings: AnyRecord[]; takeoffs: AnyRecord[] }>;
   logbookOutcomeGrade: (_entry: AnyRecord) => string | null;
 };
 
@@ -160,13 +160,14 @@ async function refreshLogbookLandingIndex(
       continue;
     }
 
-    const landings = await getLandingsFromCsvFile(source.filePath, {
+    const { landings, takeoffs } = await getFlightRecordsFromCsvFile(source.filePath, {
       bypassCache: shouldBypassCache,
       mtimeMs: source.mtimeMs,
     });
     changedSources.push({
       source: indexedIdentity,
       landings: landings.map((landing) => landingToIndexInput(landing, source)),
+      takeoffs,
     });
     indexed += 1;
     landingsIndexed += landings.length;

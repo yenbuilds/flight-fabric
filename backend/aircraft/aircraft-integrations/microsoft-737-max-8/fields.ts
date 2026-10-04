@@ -29,14 +29,31 @@ function numberField(id: string, name: string, unit: string, precision = 0): Air
   return simvarField(id, name, unit, { type: 'number', precision });
 }
 
-// This exact-profile adapter intentionally uses only documented standard MSFS
-// SimVars. Its compact write layer confirms against these same fields; it makes
+function booleanGaugeField(id: string, name: string): AircraftIntegrationField {
+  return { id, sources: [{
+    route: { type: 'lvar', name: `A:${name}`, unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+  }] };
+}
+
+function booleanSelectorField(id: string, name: string): AircraftIntegrationField {
+  return { id, sources: [{
+    route: { type: 'lvar', name, unit: 'Bool' },
+    decode: { type: 'boolean', trueValues: [true, 1], falseValues: [false, 0] },
+  }] };
+}
+
+// This exact-profile adapter uses standard MSFS values and independently
+// observed native selector mirrors. Its write layer confirms these fields; it makes
 // no claims about Boeing CMD-channel or VNAV semantics, and unavailable mirrors
 // are never replaced with guessed routes.
 const MICROSOFT_737_MAX_8_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
   'mcp.speedKts': numberField('mcp.speedKts', 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots'),
   'mcp.headingDeg': numberField('mcp.headingDeg', 'AUTOPILOT HEADING LOCK DIR', 'Degrees'),
-  'mcp.altitudeFt': numberField('mcp.altitudeFt', 'AUTOPILOT ALTITUDE LOCK VAR', 'Feet'),
+  'mcp.altitudeFt': { id: 'mcp.altitudeFt', sources: [{
+    route: { type: 'lvar', name: 'A:AUTOPILOT ALTITUDE LOCK VAR:3', unit: 'Feet' },
+    decode: { type: 'number', precision: 0 },
+  }] },
   'mcp.verticalSpeedFpm': numberField('mcp.verticalSpeedFpm', 'AUTOPILOT VERTICAL HOLD VAR', 'Feet per minute'),
   'afds.apMaster': booleanField('afds.apMaster', 'AUTOPILOT MASTER'),
   'afds.flightDirector': booleanField('afds.flightDirector', 'AUTOPILOT FLIGHT DIRECTOR ACTIVE'),
@@ -54,9 +71,19 @@ const MICROSOFT_737_MAX_8_FIELDS: Readonly<Record<string, AircraftIntegrationFie
   'lights.beacon': booleanField('lights.beacon', 'LIGHT BEACON'),
   'lights.nav': booleanField('lights.nav', 'LIGHT NAV'),
   'lights.logo': booleanField('lights.logo', 'LIGHT LOGO'),
-  'lights.wing': booleanField('lights.wing', 'LIGHT WING'),
+  // This preset omits wing from both LIGHT STATES masks. Read the documented
+  // individual A-var through the existing gauge bridge instead of deriving it
+  // from that mask. It is shared with the profile's broadcast light mapping.
+  'lights.wing': booleanGaugeField('lights.wing', 'LIGHT WING'),
   'lights.landing': booleanField('lights.landing', 'LIGHT LANDING'),
-  'lights.taxi': booleanField('lights.taxi', 'LIGHT TAXI'),
+  // Behavior debugger ValueCode reads these aircraft-scoped selector mirrors.
+  // LIGHT LANDING ON:index also becomes true with TAXI AUTO and cannot confirm
+  // fixed selector positions. Both sides were isolated with taxi OFF and AUTO.
+  'lights.landingLeft': booleanSelectorField('lights.landingLeft', 'L:1:XMLVAR_LIGHT_LANDING_FIXED_L'),
+  'lights.landingRight': booleanSelectorField('lights.landingRight', 'L:1:XMLVAR_LIGHT_LANDING_FIXED_R'),
+  'lights.taxi': booleanGaugeField('lights.taxi', 'LIGHT TAXI ON:3'),
+  // This shared binding resolves the normalized broadcast turnoff field,
+  // supplied here by the profile's independently observed left/right reads.
   'lights.runwayTurnoff': booleanField('lights.runwayTurnoff', 'LIGHT TAXI:2'),
 
   'controls.flapsPercent': numberField('controls.flapsPercent', 'FLAPS HANDLE PERCENT', 'Percent'),

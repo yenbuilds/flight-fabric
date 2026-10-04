@@ -606,6 +606,8 @@ test('iniBuilds A350 catalogue exposes the shared page controls to voice across 
     'systems.probeHeat.set',
     'systems.crossBleed.set',
     'systems.packFlow.set',
+    'configuration.lighting.cockpit',
+    'configuration.lighting.displays',
   ];
 
   for (const variant of ['900', '1000'] as const) {
@@ -1392,7 +1394,8 @@ test('a preset preserves an earlier unconfirmed result when its last step succee
   const provider = {
     aircraftControlCapabilities: { actionTypes: ['key-event'] },
     async executeAircraftControlAction(action) {
-      return { ok: true, code: action.name === 'LANDING_LIGHTS_SET' ? 'sent_unconfirmed' : 'executed' };
+      return { ok: true, code: action.name === 'LANDING_LIGHTS_SET' ? 'sent_unconfirmed' : 'executed',
+        ...(action.name === 'STROBES_SET' ? { noOp: true, idempotent: true } : {}) };
     },
   };
   const result = await executeAircraftCommand(provider, {
@@ -1402,6 +1405,8 @@ test('a preset preserves an earlier unconfirmed result when its last step succee
   assert.equal(result.completedStepCount, 3);
   assert.equal(result.code, 'sent_unconfirmed');
   assert.equal(result.unconfirmedStepCount, 1);
+  assert.notEqual(result.noOp, true, 'a final no-op cannot imply the unconfirmed write was skipped');
+  assert.notEqual(result.idempotent, true);
 });
 
 test('takeoff-light preset stops after the first failed action and reports partial completion', async () => {

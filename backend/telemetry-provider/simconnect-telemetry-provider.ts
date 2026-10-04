@@ -1597,7 +1597,22 @@ class SimConnectTelemetryProvider {
     this._lastDetectedAircraftDisplayName = title;
     Debug.log('simconnect-telemetry', 'Rust TITLE simvar received', { title });
 
-    if (!previousDisplayName || this._rustAircraftChangedTimer) return;
+    if (this._rustAircraftChangedTimer) return;
+    if (!previousDisplayName) {
+      // The bounded AircraftLoaded wait may already have emitted a path-only
+      // identity. Enrich that same identity when the first TITLE arrives; do
+      // not mark a new aircraft or drop the confirmed path in a TITLE fallback.
+      if (this._lastDetectedAircraftTitle) {
+        eventBus.emit('simconnect:aircraftChanged', buildAircraftChangedPayload({
+          aircraftConfigPath: this._lastDetectedAircraftTitle,
+          displayName: title,
+          previousAircraftConfigPath: this._lastDetectedAircraftTitle,
+          reason: 'RustSimvar:InitialTITLE',
+          timestamp,
+        }));
+      }
+      return;
+    }
     this._scheduleRustTitleFallbackAircraftChanged({
       title,
       previousTitle: previousDisplayName,
@@ -2908,14 +2923,23 @@ class SimConnectTelemetryProvider {
         const ack = await bridge.executeMobiFlightCode(route.primeCode);
         if (!ack || ack.ok !== true) return withDispatchedState(ack || { ok: false });
         if (!generationIsActive()) return withDispatchedState(staleProfileResult());
-        primed.add(primeKey);
-        await this._waitForAircraftIntegrationReadback(
+        // An initializer that is itself a rotary step must finish before another
+        // step is sized. A short settling timeout could otherwise leave that
+        // detent in flight and briefly confirm a target that then overshoots.
+        const primeMovesSelector = route.primeCode === route.increaseCode || route.primeCode === route.decreaseCode;
+        const primeReadback = await this._waitForAircraftIntegrationReadback(
           bridge,
-          { ...route.readback, confirmation: 'changed', timeoutMs: AIRCRAFT_INTEGRATION_PRIME_SETTLE_MS },
+          { ...route.readback, confirmation: 'changed', timeoutMs: primeMovesSelector
+            ? route.readback.timeoutMs : AIRCRAFT_INTEGRATION_PRIME_SETTLE_MS },
           generationContext,
           currentReadback,
         );
         if (!generationIsActive()) return withDispatchedState(staleProfileResult());
+        if (primeMovesSelector && !primeReadback?.confirmed) {
+          return withDispatchedState({ ok: false, code: 'aircraft_integration_selector_readback_timeout',
+            error: 'The selector initialization did not confirm; no further rotary steps were sent.' });
+        }
+        primed.add(primeKey);
         const settled = this._captureAircraftIntegrationReadback(bridge, route.readback, generationContext);
         if (settled.fresh && settled.observed != null) currentReadback = settled;
       }
@@ -3558,6 +3582,7 @@ class SimConnectTelemetryProvider {
         requiredConditions.push(route.precondition);
       }
       const dispatchedAtMs = Date.now();
+      const inputEventAircraft = route.transport === 'input-event' ? this._lastDetectedAircraftTitle : undefined;
       const ack: AnyRecord = route.transport === 'sdk'
         ? await this._executeAircraftIntegrationSdkValues(
           bridge,
@@ -3565,7 +3590,9 @@ class SimConnectTelemetryProvider {
           resolvedSdkValues,
         )
         : route.transport === 'input-event'
-          ? await bridge.sendInputEvent(route.inputEvent, route.value, this._lastDetectedAircraftTitle)
+          ? (route.events
+            ? await this._executeAircraftIntegrationInputEvents(bridge, route.events, { ...readbackContext, requiredConditions, inputEventAircraft })
+            : await bridge.sendInputEvent(route.inputEvent, route.value, inputEventAircraft))
         : route.transport === 'simconnect-sequence'
           ? await this._executeAircraftIntegrationSimConnectSequence(
             bridge,
@@ -3675,17 +3702,23 @@ class SimConnectTelemetryProvider {
       const finalRequiredState = this._checkAircraftIntegrationActionConditions(bridge, requiredConditions, readbackContext);
       if (!finalRequiredState.ok) return { ...finalRequiredState, backendSource, ...executionState };
       if (route.transport === 'input-event') {
-        const exception = bridge.findRecentSimConnectException?.([ack.sendId], dispatchedAtMs);
+        const exception = bridge.findRecentSimConnectException?.(ack.sendIds || [ack.sendId], dispatchedAtMs);
         if (exception) {
           return { ok: false, code: 'aircraft_integration_simconnect_exception',
             error: 'SimConnect rejected the native Input Event after initial acknowledgement.',
             simConnectException: exception, backendSource, ...executionState };
         }
         if (!this._getActiveAircraftIntegrationConfig(profileKey, adapterId, options.profileRevision)
+          || this._lastDetectedAircraftTitle !== inputEventAircraft
           || !this._connected || this._stopping || this._simRunning === false
           || this._systemState?.sim === 0 || this._data?.userInput === false) {
           return { ok: false, code: 'stale_profile',
             error: 'Aircraft or simulator state changed during the native Input Event request.',
+            backendSource, ...executionState };
+        }
+        if (!this._getAircraftIntegrationTransportCapabilities(bridge)['input-event']) {
+          return { ok: false, code: 'input_event_transport_unavailable',
+            error: 'Native Input Event availability changed during confirmation.',
             backendSource, ...executionState };
         }
       }
@@ -4007,6 +4040,35 @@ class SimConnectTelemetryProvider {
       dataType,
     });
     return this._buildSidecarResult(ack, backendSource, `Failed to set variable ${varName}.`);
+  }
+
+  async _executeAircraftIntegrationInputEvents(bridge, events, context) {
+    const aircraft = context.inputEventAircraft;
+    const sendIds = [];
+    let executionStarted = false;
+    const startedAtMs = Date.now();
+    for (const event of events) {
+      if (!this._getActiveAircraftIntegrationConfig(context.profileKey, context.adapterId, context.profileRevision)
+        || this._lastDetectedAircraftTitle !== aircraft || !this._connected || this._stopping
+        || this._simRunning === false || this._systemState?.sim === 0 || this._data?.userInput === false
+        || !this._getAircraftIntegrationTransportCapabilities(bridge)['input-event']) {
+        return { ok: false, error: 'Aircraft or native transport changed during the coordinated Input Events.', executionStarted };
+      }
+      const required = this._checkAircraftIntegrationActionConditions(bridge, context.requiredConditions, context);
+      if (!required.ok) return { ...required, executionStarted };
+      const exception = bridge.findRecentSimConnectException?.(sendIds, startedAtMs);
+      if (exception) return { ok: false, error: 'SimConnect rejected a preceding native Input Event.', executionStarted };
+      let ack;
+      try {
+        ack = await bridge.sendInputEvent(event.inputEvent, event.value, aircraft);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : 'Native Input Event failed.', executionStarted: true };
+      }
+      executionStarted ||= ack?.ok === true || ack?.executionStarted === true;
+      if (!ack?.ok) return { ...ack, ok: false, executionStarted };
+      if (Number.isSafeInteger(ack.sendId)) sendIds.push(ack.sendId);
+    }
+    return { ok: true, executionStarted, sendIds };
   }
 
   async _executeInputEventAction(bridge, action, backendSource) {

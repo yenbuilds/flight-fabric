@@ -65,13 +65,13 @@ const timelineGenerator = require('../events/timeline-generator') as {
   timelineNeedsAircraftProjectionRefresh: (_timeline: AnyRecord) => boolean;
 };
 const {
-  getLandingsFromCSVs,
+  getFlightRecordsFromCSVs,
   getLandingsFromCsvFile,
   computeStatsFromEntries,
   listLogbookCsvFiles,
   materializeFlightAnalysisLandings,
 } = require('../landing/flight-logbook') as {
-  getLandingsFromCSVs: (_options?: { bypassCachePaths?: string[]; allowedCsvPaths?: string[] }) => Promise<AnyRecord[]>;
+  getFlightRecordsFromCSVs: (_options?: { bypassCachePaths?: string[]; allowedCsvPaths?: string[] }) => Promise<{ landings: AnyRecord[]; takeoffs: AnyRecord[] }>;
   getLandingsFromCsvFile: (_filePath: string, _options?: AnyRecord) => Promise<AnyRecord[]>;
   computeStatsFromEntries: (_entries: AnyRecord[]) => AnyRecord;
   listLogbookCsvFiles: (_options?: { allowedCsvPaths?: string[] }) => AnyRecord[];
@@ -125,6 +125,9 @@ const {
 };
 const takeoffLogbook = require('../takeoff/takeoff-logbook') as {
   deleteEntriesForBundle: (bundleName: string | null | undefined) => number;
+  deleteEntriesByIds: (_ids: string[]) => number;
+  getEntries: () => AnyRecord[];
+  computeStatsFromEntries: (_entries: AnyRecord[]) => AnyRecord;
 };
 const { isPathInside } = require('../utils/path-guard') as {
   isPathInside: (parentDir: string | null | undefined, childPath: string | null | undefined, options?: { allowEqual?: boolean }) => boolean;
@@ -200,7 +203,7 @@ type IndexedTimelineListResult =
 type DeleteExpectedIdentity = { mtimeMs?: unknown; sizeBytes?: unknown } | null | undefined;
 type DeleteResult = { success: boolean; error?: string | null; storage?: AnyRecord | null };
 type LogbookResult =
-  | { success: true; entries: AnyRecord[]; stats: AnyRecord; index?: AnyRecord }
+  | { success: true; entries: AnyRecord[]; stats: AnyRecord; takeoffs?: AnyRecord[]; takeoffStats?: AnyRecord; index?: AnyRecord }
   | { success: false; error: string };
 type LogbookReadOptions = {
   entryLimit?: unknown;
@@ -379,6 +382,62 @@ function buildFlightAnalysisComparison(
     });
   }
   return { success: true, landings, changedMetricCount };
+}
+
+function readLegacyTakeoffs(): AnyRecord[] {
+  try { return takeoffLogbook.getEntries(); }
+  catch (error) {
+    console.warn('[logbook] Legacy takeoff read failed:', (error as Error)?.message);
+    return [];
+  }
+}
+
+function retireMatchedLegacyTakeoffs(legacy: AnyRecord[], matchedIds: string[], persist = true): AnyRecord[] {
+  if (!matchedIds.length) return legacy;
+  // A damaged/merged legacy file can reuse an ID for different evidence.
+  // Retirement by ID must neither remove nor hide either ambiguous record.
+  const counts = new Map<string, number>();
+  for (const entry of legacy) counts.set(entry.id, (counts.get(entry.id) || 0) + 1);
+  const matched = new Set(matchedIds.filter((id) => counts.get(id) === 1));
+  if (!matched.size) return legacy;
+  try { if (persist) takeoffLogbook.deleteEntriesByIds([...matched]); }
+  catch (error) {
+    // The recording already contains these entries. A failed compatibility-file
+    // cleanup must neither double-count them nor hide either history section.
+    console.warn('[logbook] Legacy takeoff retirement failed:', (error as Error)?.message);
+  }
+  return legacy.filter((entry) => !matched.has(entry.id));
+}
+
+/** Rare CSV fallback uses the same exact identity match as the SQLite query. */
+function takeoffHistoryFromRecords(recorded: AnyRecord[], limit: number): { takeoffs: AnyRecord[]; takeoffStats: AnyRecord } {
+  const byTimestamp = new Map<number, AnyRecord[]>();
+  for (const entry of recorded) {
+    if (typeof entry.timestampMs !== 'number') continue;
+    const atTime = byTimestamp.get(entry.timestampMs) || [];
+    atTime.push(entry);
+    byTimestamp.set(entry.timestampMs, atTime);
+  }
+  const legacy = readLegacyTakeoffs();
+  const matchedIds = legacy.filter((old) => {
+    const candidates = byTimestamp.get(old.timestampMs) || [];
+    const matches = candidates.filter((entry) => {
+      const oldSession = old.recording?.recordingSessionId;
+      const session = entry.recording?.recordingSessionId;
+      const sameRecording = oldSession && session ? oldSession === session
+        : Boolean(old.recording?.bundleName && old.recording.bundleName === entry.recording?.bundleName);
+      return sameRecording && (!old.eventId || old.eventId === entry.eventId);
+    });
+    // Identity alone does not prove that an older partial CSV retained every
+    // measurement/finding in the JSON copy. Keep differing legacy records.
+    return matches.length === 1 && Object.entries(old).every(([key, value]) => (
+      ['id', 'timestamp', 'recording'].includes(key) || value == null
+      || JSON.stringify(value) === JSON.stringify(matches[0][key])
+    ));
+  }).map((entry) => entry.id);
+  const entries = recorded.concat(retireMatchedLegacyTakeoffs(legacy, matchedIds))
+    .sort((left, right) => (right.timestampMs ?? 0) - (left.timestampMs ?? 0));
+  return { takeoffs: entries.slice(0, limit), takeoffStats: takeoffLogbook.computeStatsFromEntries(entries) };
 }
 
 function resolveCsvInsideFlightLogs(filePath: unknown): string | null {
@@ -586,12 +645,17 @@ function createFlightCsvStore(options: StoreOptions = {}) {
   function readLogbookFromIndex(
     entryLimit: number,
     historyIndexStatus: AnyRecord,
+    allowLegacyRetirement = false,
   ): LogbookResult | null {
     const opened = openHistoryIndexStoreFn();
     if (!opened.success) return null;
     try {
+      const legacy = readLegacyTakeoffs();
+      const matched = opened.store.queryRecordedTakeoffMatches?.(legacy) || [];
+      const legacyTakeoffs = retireMatchedLegacyTakeoffs(legacy, matched,
+        allowLegacyRetirement && historyIndexStatus.phase === 'complete' && historyIndexStatus.failures === 0);
       const snapshot = typeof opened.store.queryLogbookSnapshot === 'function'
-        ? opened.store.queryLogbookSnapshot({ limit: entryLimit })
+        ? opened.store.queryLogbookSnapshot({ limit: entryLimit, legacyTakeoffs })
         : null;
       const page = snapshot?.page || (typeof opened.store.queryLogbookEntries === 'function'
         ? opened.store.queryLogbookEntries({ limit: entryLimit })
@@ -604,6 +668,8 @@ function createFlightCsvStore(options: StoreOptions = {}) {
         success: true,
         entries: page.entries,
         stats,
+        takeoffs: snapshot?.takeoffs?.entries || legacyTakeoffs.slice(0, entryLimit),
+        takeoffStats: snapshot?.takeoffStats || takeoffLogbook.computeStatsFromEntries(legacyTakeoffs),
         index: {
           used: true,
           status: historyIndexStatus,
@@ -632,13 +698,14 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     const snapshot = acquireCompletedBundleDirectorySnapshot(activeCsvPath, 'logbook_fallback_read');
     if (!snapshot) return null;
     try {
-      const entries = await getLandingsFromCSVs({
+      const records = await getFlightRecordsFromCSVs({
         allowedCsvPaths: snapshot.csvPaths,
       });
       return {
         success: true,
-        entries: entryLimit > 0 ? entries.slice(0, entryLimit) : [],
-        stats: computeStatsFromEntries(entries),
+        entries: entryLimit > 0 ? records.landings.slice(0, entryLimit) : [],
+        stats: computeStatsFromEntries(records.landings),
+        ...takeoffHistoryFromRecords(records.takeoffs, entryLimit),
         index: {
           used: false,
           fallback: 'completed_bundle_snapshot',
@@ -1292,7 +1359,9 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     }
     const catalog = catalogResult.snapshot;
     const historyIndexStatus = historyIndexCoordinator.start(catalog.csvFiles);
-    const indexed = readLogbookFromIndex(entryLimit, historyIndexStatus);
+    // Only this path has checked the current catalog. Stale snapshots served
+    // during blocked flushes or ongoing indexing cannot authorize retirement.
+    const indexed = readLogbookFromIndex(entryLimit, historyIndexStatus, true);
     if (indexed) return indexed;
 
     // SQLite is only a derived cache. Retain the fully leased CSV parser as a
@@ -1308,14 +1377,15 @@ function createFlightCsvStore(options: StoreOptions = {}) {
     }
     try {
       const bypassCachePaths = activeCsvReady.activeCsvPath ? [activeCsvReady.activeCsvPath] : [];
-      const entries = await getLandingsFromCSVs({
+      const records = await getFlightRecordsFromCSVs({
         bypassCachePaths,
         allowedCsvPaths: directoryLeases.csvPaths || [],
       });
       return {
         success: true,
-        entries: entryLimit > 0 ? entries.slice(0, entryLimit) : [],
-        stats: computeStatsFromEntries(entries),
+        entries: entryLimit > 0 ? records.landings.slice(0, entryLimit) : [],
+        stats: computeStatsFromEntries(records.landings),
+        ...takeoffHistoryFromRecords(records.takeoffs, entryLimit),
         index: { used: false, status: historyIndexStatus },
       };
     } finally {

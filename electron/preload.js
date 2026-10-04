@@ -10,21 +10,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 const VOICE_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
 const MAX_VOICE_AUDIO_BYTES = 8192 * Float32Array.BYTES_PER_ELEMENT;
 const MAX_READBACK_CHARS = 240;
-const MAX_JOYSTICK_NAME_CHARS = 64;
-const MAX_JOYSTICK_PATH_CHARS = 260;
-
-// Only the fields the main process validates cross the bridge; null unbinds.
-function joystickBindingPayload(value) {
-  if (value == null) return null;
-  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid joystick binding');
-  return {
-    vendorId: typeof value.vendorId === 'string' ? value.vendorId.slice(0, 4) : '',
-    productId: typeof value.productId === 'string' ? value.productId.slice(0, 4) : '',
-    button: Number(value.button),
-    name: typeof value.name === 'string' ? value.name.slice(0, MAX_JOYSTICK_NAME_CHARS) : '',
-    path: typeof value.path === 'string' ? value.path.slice(0, MAX_JOYSTICK_PATH_CHARS) : '',
-  };
-}
 
 function requireVoiceSessionId(value) {
   if (typeof value !== 'string' || !VOICE_SESSION_ID_RE.test(value)) {
@@ -177,7 +162,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     getReadbackInfo: () => ipcRenderer.invoke('voice:get-readback-info'),
     getRuntimeInfo: () => ipcRenderer.invoke('voice:get-runtime-info'),
-    onJoystickLearn: (callback) => onVoiceEvent('voice:joystick-learn', callback),
+    startControllerSetup: () => ipcRenderer.invoke('voice:controller-setup-start'),
+    cancelControllerSetup: () => ipcRenderer.invoke('voice:controller-setup-cancel'),
+    saveControllerButton: () => ipcRenderer.invoke('voice:controller-setup-save'),
+    clearControllerButton: () => ipcRenderer.invoke('voice:controller-binding-clear'),
     onPushToTalk: (callback) => onVoiceEvent('voice:push-to-talk', callback),
     onRecognitionEvent: (callback) => onVoiceEvent('voice:speech-event', callback),
     onRuntimeState: (callback) => onVoiceEvent('voice:runtime-state', callback),
@@ -186,16 +174,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'voice:set-recognition-enabled',
       enabled === true,
     ),
-    setPushToTalkJoystick: (binding) => ipcRenderer.invoke(
-      'voice:set-push-to-talk-joystick',
-      joystickBindingPayload(binding),
-    ),
     setPushToTalkShortcut: (shortcut) => ipcRenderer.invoke(
       'voice:set-push-to-talk-shortcut',
       typeof shortcut === 'string' ? shortcut.slice(0, 64) : '',
     ),
-    startJoystickLearn: () => ipcRenderer.invoke('voice:joystick-learn-start'),
-    stopJoystickLearn: () => ipcRenderer.invoke('voice:joystick-learn-stop'),
     speakReadback: (text) => ipcRenderer.invoke(
       'voice:readback-speak',
       requireReadbackText(text),

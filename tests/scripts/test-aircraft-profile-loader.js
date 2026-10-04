@@ -1056,6 +1056,18 @@ test(
 const detectedGeneric737800 = loader.detectProfile('Boeing 737-800');
 test('Does not confuse a generic 737-800 with the Microsoft 737 MAX 8', detectedGeneric737800?.id !== 'microsoft-737-max-8');
 
+const microsoft737MaxPassengerPath = 'SimObjects\\Airplanes\\asobo_b737max\\presets\\asobo\\b737max8_passengers\\config\\aircraft.CFG';
+test(
+  'Detects the live MSFS 2024 MAX 8 passenger preset from its exact AircraftLoaded path',
+  loader.detectProfile('737 Max 8 Passengers', { hint: microsoft737MaxPassengerPath })?.id === 'microsoft-737-max-8',
+);
+test(
+  'Detects the MAX 8 passenger preset under the installed streamed package',
+  loader.detectProfile('Unknown repaint', {
+    hint: `C:/MSFS/StreamedPackages/fs24-asobo-aircraft-b737max/content/${microsoft737MaxPassengerPath.replaceAll('\\', '/')}`,
+  })?.id === 'microsoft-737-max-8',
+);
+
 const microsoft737MaxCollisionCases = [
   ['PMDG Boeing 737 MAX 8', undefined],
   ['Bredok3D Boeing 737 MAX 8', undefined],
@@ -1065,6 +1077,13 @@ const microsoft737MaxCollisionCases = [
   ['Unknown traffic', 'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_B38M/aircraft.cfg'],
   ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX80/aircraft.cfg'],
   ['Unknown repaint', 'SimObjects/Airplanes/Asobo_B737_MAX9/aircraft.cfg'],
+  ['737 Max 8 Passengers', undefined],
+  ['iFly 737 Max 8 Passengers', microsoft737MaxPassengerPath],
+  ['737 Max 8 Passengers', `Community/other-vendor/${microsoft737MaxPassengerPath}`],
+  ['Unknown repaint', microsoft737MaxPassengerPath.replace('b737max8_passengers', 'b737max9_passengers')],
+  ['Unknown repaint', microsoft737MaxPassengerPath.replace('b737max8_passengers', 'b737max8_passengers_extra')],
+  ['Unknown repaint', microsoft737MaxPassengerPath.replace('b737max8_passengers', 'b737max8_cargo')],
+  ['Unknown repaint', microsoft737MaxPassengerPath.replace('presets\\asobo', 'presets\\thirdparty')],
 ];
 test(
   'Microsoft 737 MAX 8 matcher rejects explicit third-party and traffic identities',
@@ -2139,11 +2158,11 @@ test('FlyByWire A32NX aircraft-specific reads stay within the sidecar subscripti
 loader.setActiveProfile('inibuilds-a320neo-v2');
 const microsoftIniBuildsA320neoV2Config = loader.getLvarConfig();
 test(
-  'Microsoft / iniBuilds A320neo V2 activates the shared trusted 44-field compact page',
+  'Microsoft / iniBuilds A320neo V2 activates the shared trusted 55-field compact page',
   microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.templateId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.integrationId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a320neo-v2' &&
-    microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.fields?.length === 44 &&
+    microsoftIniBuildsA320neoV2Config?.aircraftSpecific?.fields?.length === 55 &&
     microsoftIniBuildsA320neoV2Config.aircraftSpecific.fields.some(field => (
       field.id === 'fcu.altitudeFt' &&
       field.source?.type === 'simvar' &&
@@ -2153,23 +2172,23 @@ test(
       field.id === 'flightGuidance.navHold' &&
       field.source?.type === 'simvar'
     )) &&
-    microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.length === 23
+    microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.length === 34
 );
 
 loader.setActiveProfile('inibuilds-a321lr');
 const microsoftIniBuildsA321lrConfig = loader.getLvarConfig();
 test(
-  'Microsoft / iniBuilds A321LR reuses the shared trusted 44-field compact page under its exact profile key',
+  'Microsoft / iniBuilds A321LR reuses the shared trusted 55-field compact page under its exact profile key',
   microsoftIniBuildsA321lrConfig?.aircraftSpecific?.templateId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA321lrConfig?.aircraftSpecific?.integrationId === 'microsoft-inibuilds-a32x' &&
     microsoftIniBuildsA321lrConfig?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a321lr' &&
-    microsoftIniBuildsA321lrConfig?.aircraftSpecific?.fields?.length === 44 &&
+    microsoftIniBuildsA321lrConfig?.aircraftSpecific?.fields?.length === 55 &&
     microsoftIniBuildsA321lrConfig.aircraftSpecific.fields.some(field => (
       field.id === 'fcu.altitudeFt' &&
       field.source?.type === 'simvar' &&
       field.source?.path === 'fdm.apAltTargetFt'
     )) &&
-    microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.length === 23
+    microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.length === 34
 );
 const microsoftIniBuildsA32xIntegration = defaultAircraftIntegrationRegistry.resolveIntegration(
   'microsoft-inibuilds-a32x',
@@ -2216,6 +2235,8 @@ const expectedMicrosoftIniBuildsA32xConfirmationIds = [
   'flightGuidance.verticalSpeedHold',
   'flightGuidance.navHold',
   'flightGuidance.approachHold',
+  'systems.mainBusVoltage',
+  ...['speedManaged', 'speedDashed', 'headingManaged', 'headingDashed', 'trackFpa', 'verticalSpeedDashed', 'speedKtsNative', 'headingDegNative', 'altitudeFtNative', 'verticalSpeedFpmNative'].map(id => `fcu.${id}`),
   'fcu.speedKts',
   'fcu.headingDeg',
   'fcu.altitudeFt',
@@ -2242,29 +2263,29 @@ test(
     ])
 );
 test(
-  'Microsoft / iniBuilds A32x uses no custom subscriptions and compiles exactly 23 unique confirmations for both aircraft',
-  microsoftIniBuildsA320neoV2Config.enabled === false &&
-    microsoftIniBuildsA320neoV2Config.subscriptions.length === 0 &&
-    microsoftIniBuildsA321lrConfig.enabled === false &&
-    microsoftIniBuildsA321lrConfig.subscriptions.length === 0 &&
+  'Microsoft / iniBuilds A32x uses twelve gauge subscriptions and compiles exactly 34 unique confirmations for both aircraft',
+  microsoftIniBuildsA320neoV2Config.enabled === true &&
+    microsoftIniBuildsA320neoV2Config.subscriptions.length === 12 &&
+    microsoftIniBuildsA321lrConfig.enabled === true &&
+    microsoftIniBuildsA321lrConfig.subscriptions.length === 12 &&
     JSON.stringify(microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.map(field => field.id).sort()) === JSON.stringify(expectedMicrosoftIniBuildsA32xConfirmationIds) &&
     JSON.stringify(microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.map(field => field.id).sort()) === JSON.stringify(expectedMicrosoftIniBuildsA32xConfirmationIds) &&
-    new Set(microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.map(field => field.id)).size === 23 &&
-    new Set(microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.map(field => field.id)).size === 23
+    new Set(microsoftIniBuildsA320neoV2Config.aircraftSpecific.confirmationFields.map(field => field.id)).size === 34 &&
+    new Set(microsoftIniBuildsA321lrConfig.aircraftSpecific.confirmationFields.map(field => field.id)).size === 34
 );
 test(
-  'Microsoft / iniBuilds A32x actions use one guarded untested SimConnect sequence and logical readback each',
+  'Microsoft / iniBuilds A32x actions use one guarded SimConnect sequence with native FD and dual target confirmations',
   Object.keys(microsoftIniBuildsA32xIntegration?.actions || {}).length === 42 &&
     Object.values(microsoftIniBuildsA32xIntegration?.actions || {}).every(action => (
-      action.verification === 'untested' &&
+      action.verification === (action.routes[0].operations[0].type === 'lvar' ? 'partial' : 'untested') &&
       action.guard?.retry === 'never' &&
       action.guard?.groupId?.startsWith('microsoftIniBuildsA32x.') &&
       action.routes?.length === 1 &&
       action.routes[0]?.id?.startsWith('microsoftIniBuildsA32x.') &&
       action.routes[0]?.transport === 'simconnect-sequence' &&
       action.routes[0]?.operations?.length === 1 &&
-      action.routes[0]?.operations?.[0]?.type === 'event' &&
-      typeof action.routes[0]?.readback?.fieldId === 'string'
+      ['event', 'lvar'].includes(action.routes[0]?.operations?.[0]?.type) &&
+      (typeof action.routes[0]?.readback?.fieldId === 'string' || action.routes[0]?.readbacks?.length === 2)
     )) &&
     new Set(Object.values(microsoftIniBuildsA32xIntegration.actions).map(action => (
       action.routes[0].operations[0].name
@@ -2273,16 +2294,16 @@ test(
       adapterId: 'microsoft-inibuilds-a32x',
       profileKey: 'bundled/msfs/inibuilds-a321lr',
       actionId: 'flightGuidance.altitude.set',
-    })?.routes?.[0]?.operations?.[0]?.name === 'AP_ALT_VAR_SET_ENGLISH'
+    })?.routes?.[0]?.operations?.[0]?.name === 'L:INI_Altitude_Dial'
 );
 const microsoftIniBuildsA32xTypedActions = [
-  ['flightGuidance.speed.set', 'fcu.speedKts', 'AP_SPD_VAR_SET', 100, 399, 1],
-  ['flightGuidance.heading.set', 'fcu.headingDeg', 'HEADING_BUG_SET', 0, 359, 1],
-  ['flightGuidance.altitude.set', 'fcu.altitudeFt', 'AP_ALT_VAR_SET_ENGLISH', 0, 49000, 100],
-  ['flightGuidance.verticalSpeed.set', 'fcu.verticalSpeedFpm', 'AP_VS_VAR_SET_ENGLISH', -6000, 6000, 100],
+  ['flightGuidance.speed.set', 'fcu.speedKts', 'L:INI_Airspeed_Dial', 100, 399, 1],
+  ['flightGuidance.heading.set', 'fcu.headingDeg', 'L:INI_HEADING_DIAL', 0, 359, 1],
+  ['flightGuidance.altitude.set', 'fcu.altitudeFt', 'L:INI_Altitude_Dial', 100, 49000, 100],
+  ['flightGuidance.verticalSpeed.set', 'fcu.verticalSpeedFpm', 'L:INI_vvi_dial', -6000, 6000, 100],
 ];
 test(
-  'Microsoft / iniBuilds A32x typed FCU targets keep exact bounds, standard events, parameter zero, and matching readbacks',
+  'Microsoft / iniBuilds A32x typed FCU targets keep exact bounds, native writes, fresh mode guards, and two matching readbacks',
   microsoftIniBuildsA32xTypedActions.every(([actionId, fieldId, event, min, max, step]) => {
     const action = microsoftIniBuildsA32xIntegration?.actions?.[actionId];
     return action?.input?.type === 'number' &&
@@ -2290,10 +2311,11 @@ test(
       action.input.max === max &&
       action.input.step === step &&
       action.routes?.[0]?.operations?.[0]?.name === event &&
-      JSON.stringify(action.routes[0].operations[0].parameters) === '[0]' &&
+      action.routes[0].operations[0].type === 'lvar' &&
+      action.guard.requires.some(guard => guard.fieldId === 'systems.mainBusVoltage' && guard.min === 20 && guard.freshness === 'field') &&
       action.routes[0].operations[0].inputValue?.source === 'input' &&
-      action.routes[0].readback?.fieldId === fieldId &&
-      action.routes[0].readback?.expectedInput === true;
+      JSON.stringify(action.routes[0].readbacks.map(readback => readback.fieldId)) === JSON.stringify([fieldId + 'Native', fieldId]) &&
+      action.routes[0].readbacks.every(readback => readback.expectedInput === true && readback.freshness === 'field');
   })
 );
 test(
@@ -2398,7 +2420,7 @@ test(
   iniA350Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
     && iniA350Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
     && iniA350Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-900'
-    && iniA350Config?.aircraftSpecific?.fields?.length === 54
+    && iniA350Config?.aircraftSpecific?.fields?.length === 69
     && iniA350Config.aircraftSpecific.fields.some(field => (
       field.id === 'flightGuidance.altitudeFt'
         && field.source?.type === 'lvar'
@@ -2408,12 +2430,12 @@ test(
       field.id === 'controls.parkingBrake'
         && field.source?.type === 'simvar'
     ))
-    && iniA350Config.subscriptions.length === 46
+    && iniA350Config.subscriptions.length === 61
 );
 test(
   'iniBuilds A350 exposes guarded numeric FCU, published selector and standard surface actions',
-  Object.keys(iniA350Integration?.actions || {}).length === 85
-    && iniA350Config.aircraftSpecific.confirmationFields.length === 34
+  Object.keys(iniA350Integration?.actions || {}).length === 90
+    && iniA350Config.aircraftSpecific.confirmationFields.length === 49
     && iniA350Integration?.actions?.['flightGuidance.heading.set']?.input?.max === 359
     && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.input?.step === 100
     && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.routes?.[0]?.operations?.[0]?.name === 'L:INI_ALTITUDE_DIAL'
@@ -2438,7 +2460,7 @@ test(
   iniA3501000Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
     && iniA3501000Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
     && iniA3501000Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-1000'
-    && iniA3501000Config?.aircraftSpecific?.fields?.length === 54
+    && iniA3501000Config?.aircraftSpecific?.fields?.length === 69
 );
 
 loader.setActiveProfile('microsoft-737-max-8');
@@ -2468,6 +2490,8 @@ const expectedMicrosoftMaxActionIds = [
     `lights.${name}.off`,
     `lights.${name}.on`,
   ]),
+  'lights.position.steady',
+  'lights.position.strobeAndSteady',
   'controls.gear.up',
   'controls.gear.down',
   'controls.flaps.decrease',
@@ -2495,7 +2519,8 @@ const expectedMicrosoftMaxConfirmationIds = [
   'lights.nav',
   'lights.logo',
   'lights.wing',
-  'lights.landing',
+  'lights.landingLeft',
+  'lights.landingRight',
   'lights.taxi',
   'controls.gearHandleDown',
   'controls.flapsIndex',
@@ -2506,34 +2531,39 @@ test(
   microsoftMaxConfig?.aircraftSpecific?.templateId === 'microsoft-737-max-8' &&
     microsoftMaxConfig?.aircraftSpecific?.integrationId === 'microsoft-737-max-8' &&
     microsoftMaxConfig?.aircraftSpecific?.profileKey === 'bundled/msfs/microsoft-737-max-8' &&
-    microsoftMaxConfig?.aircraftSpecific?.fields?.length === 44 &&
+    microsoftMaxConfig?.aircraftSpecific?.fields?.length === 46 &&
     microsoftMaxConfig.aircraftSpecific.fields.some(field => (
       field.id === 'mcp.altitudeFt' &&
-      field.source?.type === 'simvar' &&
-      field.source?.path === 'fdm.apAltTargetFt'
+      field.source?.type === 'lvar' &&
+      microsoftMaxConfig.subscriptions.some(sub => sub.key === field.source.key && sub.expression === '(A:AUTOPILOT ALTITUDE LOCK VAR:3)' && sub.unit === 'Feet')
     )) &&
-    microsoftMaxConfig.aircraftSpecific.confirmationFields.length === 24 &&
+    microsoftMaxConfig.aircraftSpecific.confirmationFields.length === 25 &&
     JSON.stringify(Object.keys(microsoftMaxIntegration?.actions || {}).sort()) === JSON.stringify(expectedMicrosoftMaxActionIds) &&
     JSON.stringify(microsoftMaxConfig.aircraftSpecific.confirmationFields.map(field => field.id).sort()) === JSON.stringify(expectedMicrosoftMaxConfirmationIds)
 );
 test(
-  'Microsoft 737 MAX 8 owns 44 guarded standard actions without custom subscriptions',
-  microsoftMaxConfig.enabled === false &&
-    microsoftMaxConfig.subscriptions.length === 0 &&
-    expectedMicrosoftMaxActionIds.length === 44 &&
+  'Microsoft 737 MAX 8 owns native POSITION/paired landing actions and seven bounded selector subscriptions',
+  microsoftMaxConfig.enabled === true &&
+    microsoftMaxConfig.subscriptions.length === 7 &&
+    microsoftMaxConfig.subscriptions.some(sub => sub.expression === '(A:LIGHT WING)' && sub.key === 'light_wing') &&
+    microsoftMaxConfig.aircraftSpecific.fields.find(field => field.id === 'lights.wing')?.source?.key === 'light_wing' &&
+    expectedMicrosoftMaxActionIds.length === 46 &&
     Object.values(microsoftMaxIntegration?.actions || {}).every(action => (
       action.verification === 'untested' &&
       action.guard?.retry === 'never' &&
       action.guard?.groupId?.startsWith('microsoft737Max8.') &&
       action.routes?.length === 1 &&
       action.routes[0]?.id?.startsWith('microsoft737Max8.') &&
-      action.routes[0]?.transport === 'simconnect-sequence' &&
-      action.routes[0]?.operations?.length === 1 &&
-      action.routes[0]?.operations?.[0]?.type === 'event' &&
-      typeof action.routes[0]?.readback?.fieldId === 'string'
+      (/^lights\.(nav|strobe|position)\./.test(action.id)
+        ? action.routes[0]?.transport === 'input-event' && action.routes[0]?.inputEvent === 'LIGHTING_POSITION_LIGHT'
+        : action.id.startsWith('lights.taxi.') ? action.routes[0]?.transport === 'input-event' && action.routes[0]?.inputEvent === 'LIGHTING_TAXI_LIGHT_GEAR'
+        : action.id.startsWith('lights.landing.') ? action.routes[0]?.transport === 'input-event' && action.routes[0]?.events?.length === 2
+        : action.routes[0]?.transport === 'simconnect-sequence' &&
+          action.routes[0]?.operations?.length === 1 && action.routes[0]?.operations?.[0]?.type === 'event') &&
+      (action.routes[0]?.readbacks || [action.routes[0]?.readback]).every(readback => typeof readback?.fieldId === 'string')
     )) &&
-    new Set(Object.values(microsoftMaxIntegration.actions).map(action => (
-      action.routes[0].operations[0].name
+    new Set(Object.values(microsoftMaxIntegration.actions).flatMap(action => (
+      action.routes[0].events?.map(event => event.inputEvent) || [action.routes[0].operations?.[0]?.name || action.routes[0].inputEvent]
     ))).size === 34 &&
     defaultAircraftIntegrationRegistry.resolveAction({
       adapterId: 'microsoft-737-max-8',
@@ -2542,6 +2572,14 @@ test(
     })?.routes?.[0]?.operations?.[0]?.name === 'AP_ALT_VAR_SET_ENGLISH' &&
     microsoftMaxIntegration.actions['flightGuidance.flightLevelChange.on']?.routes?.[0]?.operations?.[0]?.name === 'FLIGHT_LEVEL_CHANGE_ON' &&
     microsoftMaxIntegration.actions['lights.nav.on']?.guard?.skipIfSatisfied === false &&
+    microsoftMaxIntegration.actions['lights.nav.on']?.routes?.[0]?.value === 0 &&
+    microsoftMaxIntegration.actions['lights.nav.off']?.routes?.[0]?.value === 1 &&
+    microsoftMaxIntegration.actions['lights.nav.on']?.guard?.groupId === microsoftMaxIntegration.actions['lights.strobe.on']?.guard?.groupId &&
+    microsoftMaxIntegration.actions['lights.nav.off']?.guard?.requires?.[0]?.expectedValue === false &&
+    microsoftMaxIntegration.actions['lights.strobe.on']?.routes?.[0]?.value === 2 &&
+    microsoftMaxIntegration.actions['lights.strobe.off']?.routes?.[0]?.value === 0 &&
+    microsoftMaxIntegration.actions['lights.strobe.off']?.guard?.requires?.[0]?.fieldId === 'lights.nav' &&
+    microsoftMaxIntegration.actions['lights.strobe.off']?.guard?.requires?.[0]?.expectedValue === true &&
     microsoftMaxIntegration.actions['afds.cmdA.on'] === undefined &&
     microsoftMaxIntegration.actions['afds.cmdB.on'] === undefined &&
     microsoftMaxIntegration.actions['afds.vnav.on'] === undefined &&
@@ -2563,7 +2601,7 @@ test(
       action.input.max === max &&
       action.input.step === step &&
       action.routes?.[0]?.operations?.[0]?.name === event &&
-      JSON.stringify(action.routes[0].operations[0].parameters) === '[0]' &&
+      JSON.stringify(action.routes[0].operations[0].parameters) === (actionId === 'flightGuidance.altitude.set' ? '[3]' : '[0]') &&
       action.routes[0].operations[0].inputValue?.source === 'input' &&
       action.routes[0].readback?.fieldId === fieldId &&
       action.routes[0].readback?.expectedInput === true;

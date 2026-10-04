@@ -551,7 +551,7 @@ async function main() {
   }
 
   await test('cockpit brightness presets expose two controls with independent live readings on every mapped family', async () => {
-    for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'fbw-a380x', 'headwind-a330']) {
+    for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'fbw-a380x', 'headwind-a330', 'inibuilds-a350-900', 'inibuilds-a350-1000']) {
       for (const scenario of ['ready', 'mixed', 'stale', 'missing', 'disconnected', 'viewer', 'pending', 'other-profile']) {
         const { html } = await renderComponent(path.join('src', 'vue', 'components', 'CockpitLightingPresets.vue'), () => configureLighting(id, scenario));
         const buttons = html.match(/<button[^>]*data-aircraft-command="configuration\.lighting\.[^"]+"[^>]*>/g) || [];
@@ -762,8 +762,8 @@ async function main() {
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'ExteriorLightControls.vue'), () => {
         const controls = useAircraftControlsStore();
         controls.applyControlCapabilities(lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 1,
-          capabilities: { simulator: entry.simulator, actionTypes: entry.simulator === 'msfs' ? ['aircraft-integration', 'key-event'] : [],
-            integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } }));
+          capabilities: { simulator: entry.simulator, actionTypes: entry.simulator === 'msfs' ? ['aircraft-integration', 'key-event', 'input-event'] : [],
+            integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'input-event'] } }));
         controls.setAvailability({ enabled: true });
         commands = ['landing', 'taxi', 'runwayTurnoff'].map(target => controls.getAircraftCommand(`lights.${target}.set`));
       });
@@ -778,7 +778,8 @@ async function main() {
         assert.ok(buttons.every(button => /\sdisabled(?:\s|=|>)/.test(button) === !commands[index]), `${entry.id}: ${target}`);
       }
     }
-    assert.equal(enabled, 26); assert.equal(turnoff, 15);
+    // The full native Input Event transport also exposes A380 and MAX lights.
+    assert.equal(enabled, 27); assert.equal(turnoff, 16);
   });
 
   await test('mounted exterior light ON/OFF buttons use canonical voice commands and block overlaps', async () => {
@@ -1636,6 +1637,23 @@ async function main() {
     }
   });
 
+  await test('SettingsTabShell explains desktop connection recovery without granting settings access', async () => {
+    for (const scope of ['read-only', 'aircraft-control']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SettingsTabShell.vue'), ({ useProfilesStore, useVoiceControlStore }) => {
+        globalThis.electronAPI = { getBackendBootstrap: async () => ({}) };
+        useProfilesStore().setAuthorizationScope(scope);
+        useVoiceControlStore().setBridgeAvailable(true);
+        useVoiceControlStore().applyRuntimeInfo({ available: true, enabled: true });
+      });
+      assert.match(html, /Waiting for app settings/);
+      assert.match(html, /Open System to check the connection/);
+      assert.doesNotMatch(html, /App settings are managed on your PC|id="settings-pc-managed-note"/);
+      assert.match(html, /id="settings-desktop-preferences"(?=[^>]*style="display:none;")(?=[^>]*inert)/);
+      assert.match(html, /<fieldset disabled/, 'a native bridge must never substitute for server-granted settings access');
+      assert.match(html, /Voice control/, 'the independent desktop voice editor remains available during connection recovery');
+    }
+  });
+
   await test('SettingsFormPanels explains that aircraft controls require pairing', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'SettingsFormPanels.vue'),
@@ -2093,10 +2111,18 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render from the main Vue shell`);
     }
     assert.doesNotMatch(html, /id="tab-profiles"/, 'the retired Profiles workspace should not render in the main shell');
-    assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, false);
-    for (const id of ['vue-takeoff-root', 'vue-last-takeoff-root', 'takeoff-card']) assert.doesNotMatch(html, new RegExp(`id="${id}"`), 'disabled takeoff panels are absent');
+    assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, true);
+    for (const id of ['vue-takeoff-root', 'vue-last-takeoff-root', 'takeoff-card']) assert.match(html, new RegExp(`id="${id}"`), 'takeoff panels render in the normal build');
     assert.match(html, /id="tab-flight" class="tab-section active"/, 'Overview should keep the state-driven active marker for first paint');
     assert.doesNotMatch(html, /id="tab-livemap" class="tab-section active"/, 'Live should not remain the first-paint default');
+
+    const { html: disabled } = await renderComponent(
+      path.join('src', 'vue', 'components', 'MainContentShell.vue'),
+      () => {},
+      { sharedSettings: { ...sharedSettings, TAKEOFF_SCORING_ENABLED: false } },
+    );
+    for (const id of ['vue-takeoff-root', 'vue-last-takeoff-root', 'takeoff-card']) assert.doesNotMatch(disabled, new RegExp(`id="${id}"`), 'an explicit disabled gate still hides takeoff panels');
+    assert.match(disabled, /id="vue-landing-root"/, 'disabling takeoffs keeps the landing report available');
   });
 
   await test('SecondScreenGuide hides its complete panel on mobile while retaining desktop guidance', async () => {
@@ -2324,7 +2350,7 @@ async function main() {
     assert.match(html, /Scan the QR or type the address/, 'system tab should present both phone setup paths clearly');
     assert.doesNotMatch(html, /Settings And Recovery/, 'settings and recovery controls should not be duplicated in the system tab');
     assert.doesNotMatch(html, /Recovery Launcher/, 'recovery launcher should remain outside the dashboard in the tray menu');
-    assert.match(html, /never edits or deletes a flight CSV/, 'history rebuild safety boundary should be explicit');
+    assert.match(html, /Your recordings and saved flight summaries stay unchanged/, 'history rebuild safety boundary should be explicit');
   });
 
   await test('SystemTabShell renders a QR code for the mobile browser URL', async () => {
@@ -3649,7 +3675,7 @@ async function main() {
     assert.match(html, /id="vue-flight-telemetry-root"/, 'flight telemetry wrapper should render');
     assert.match(html, /id="flight-live-shell"/, 'embedded telemetry panel should render');
     assert.match(html, /id="vue-last-landing-root"/, 'last landing wrapper should render');
-    assert.doesNotMatch(html, /id="vue-last-takeoff-root"/, 'the disabled takeoff summary is absent');
+    assert.match(html, /id="vue-last-takeoff-root"/, 'the takeoff summary renders in the normal build');
     assert.match(html, /Latest touchdown report is ready\./, 'embedded last landing summary should render store state');
     assert.doesNotMatch(html, /id="aircraft-specific-section"/, 'Overview should no longer render aircraft-specific controls');
   });
@@ -4037,6 +4063,28 @@ async function main() {
     assert.doesNotMatch(html, /data-voice-joystick-remove/, 'nothing to remove while no joystick button is bound');
   });
 
+  await test('controller-enabled voice guidance includes controller setup and respects controller-only bindings', async () => {
+    for (const controller of [null, { binding: { label: 'T.16000M', button: 15 }, state: 'ready' }]) {
+      const pushToTalk = { controllerEnabled: true, accelerator: '', registered: Boolean(controller), controller };
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
+        ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({ available: true, enabled: true, pushToTalk }));
+      assert.match(html, /Save shortcut or Save button/);
+      assert.match(html, /data-voice-controller-choose/);
+      if (controller) {
+        assert.match(html, /keyboard shortcut is optional/);
+        assert.match(html, /T\.16000M/);
+      } else assert.match(html, /keyboard shortcut or set a yoke or joystick button/);
+      assert.doesNotMatch(html, /No global shortcut is active\. Set one to talk/);
+      const card = await renderComponent(path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
+        ({ useVoiceControlStore, useVoiceFirstCommandStore }) => {
+          useVoiceControlStore().applyRuntimeInfo({ available: true, enabled: true, pushToTalk });
+          const first = useVoiceFirstCommandStore(); first.open({ example: 'Set heading 270' }); first.markCompleted();
+        });
+      assert.match(card.html, controller ? /Hold Button 15 on T\.16000M/ : /keyboard shortcut or controller button/);
+      assert.doesNotMatch(card.html, /Set a push-to-talk shortcut under/);
+    }
+  });
+
   await test('VoiceControlSettings shortcut setup distinguishes unsaved edits and preserves save/cancel behavior', async () => {
     const { createRenderer, nextTick } = await import(vueModuleUrl);
     const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
@@ -4115,6 +4163,17 @@ async function main() {
       assert.equal(action('Save shortcut'), undefined);
       assert.doesNotMatch(nodeText(help), /Not saved yet|Saving shortcut/);
 
+      await setup.props.onClick(); await key('F8', { ctrlKey: true, shiftKey: true });
+      assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8']);
+      assert.match(nodeText(help), /already your saved shortcut.*No changes to save/);
+      assert.equal(help.props.role, 'status', 'unchanged shortcut feedback is announced');
+      assert.equal(action('Save shortcut'), undefined, 'the existing binding does not need saving again');
+      assert.deepEqual(saves, ['Control+Shift+F8'], 'recording the saved combination does not register it again');
+      await setup.props.onClick(); await nextTick();
+      assert.doesNotMatch(nodeText(help), /already your saved shortcut/, 'a new attempt clears the previous feedback');
+      await key('Escape');
+      assert.match(nodeText(help), /Click the shortcut/, 'cancelling restores the normal instructions');
+
       await setup.props.onClick(); await key('F9', { ctrlKey: true });
       const failedSave = recorder.parent.parent.props.onSubmit({ preventDefault() {} });
       finishSave(false); await failedSave; await nextTick();
@@ -4171,8 +4230,8 @@ async function main() {
     assert.match(html, /data-voice-microphone-error[^>]*role="alert"[^>]*>[^<]*Microphone access denied\./);
   });
 
-  await test('VoiceControlSettings hides disabled joystick controls and stale bindings while retaining keyboard setup', async () => {
-    for (const joystickAvailable of [false, undefined]) {
+  await test('VoiceControlSettings ignores retired joystick bindings while retaining keyboard setup', async () => {
+    for (const joystickAvailable of [true, false, undefined]) {
       const { html } = await renderComponent(
         path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
         ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
@@ -4188,56 +4247,6 @@ async function main() {
       assert.match(html, /data-voice-shortcut-recorder/);
       assert.match(html, /Control\+Alt\+Space/);
     }
-  });
-
-  await test('VoiceControlSettings names the bound joystick button and says when its stick is missing', async () => {
-    const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' };
-    const renderWith = async (joystickConnected, component = 'VoiceControlSettings.vue') => renderComponent(
-      path.join('src', 'vue', 'components', component),
-      ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({
-        available: true,
-        enabled: true,
-        engine: { modelId: 'test-model' },
-        pushToTalk: { accelerator: 'Control+Alt+Space', joystickAvailable: true, joystick, joystickConnected, registered: true },
-      }),
-    );
-
-    const connected = await renderWith(true);
-    const operational = await renderWith(true, 'VoiceControlPanel.vue');
-    const mainHold = operational.html.match(/<button\b[^>]*data-voice-push-to-talk[^>]*>([\s\S]*?)<\/button>/)?.[1];
-    assert.ok(mainHold, 'the main push-to-talk control is present');
-    assert.match(mainHold, /Control\+Alt\+Space/, 'the main control retains the keyboard shortcut');
-    assert.match(mainHold, /· T\.16000M button 5/, 'the main control also lists the joystick hold');
-    assert.match(connected.html, /data-voice-joystick-connection[^>]*>\s*Connected/, 'a present stick should read as connected');
-    assert.match(connected.html, /data-voice-joystick-remove/, 'a bound button should be removable');
-    assert.match(connected.html, /The simulator sees this button too/, 'the panel should warn that the simulator also receives the button');
-    assert.doesNotMatch(connected.html, /Set push-to-talk/, 'a joystick binding satisfies the settings summary');
-
-    const missing = await renderWith(false);
-    assert.match(missing.html, /data-voice-joystick-connection[^>]*>\s*Not connected/);
-    assert.match(missing.html, /T\.16000M is not connected\. The binding stays and works again once it is plugged in\./);
-  });
-
-  await test('VoiceControlSettings shows which sticks it is listening on while a joystick button is being chosen', async () => {
-    const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
-      ({ useVoiceControlStore }) => {
-        const voice = useVoiceControlStore();
-        voice.applyRuntimeInfo({
-          available: true,
-          enabled: true,
-          engine: { modelId: 'test-model' },
-          pushToTalk: { accelerator: '', joystickAvailable: true, joystick: null, joystickConnected: false, registered: false },
-        });
-        voice.setJoystickLearn({ active: true });
-        voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p1', buttons: 16, connected: true });
-        voice.applyJoystickLearnEvent({ type: 'device', vendorId: '294B', productId: '1900', name: 'Alpha Flight Controls', path: 'p2', buttons: 35, connected: true });
-      },
-    );
-
-    assert.match(html, /Press a joystick button…/, 'the recorder should ask for a press while listening');
-    assert.match(html, /Listening on T\.16000M, Alpha Flight Controls\. Press the button to use; Escape cancels\./);
-    assert.match(html, /data-voice-joystick-binding[\s\S]*Cancel/, 'listening should be cancellable');
   });
 
   await test('VoiceControlSettings explains a failed spoken readback beside the feedback toggle', async () => {
@@ -4423,8 +4432,8 @@ async function main() {
       const profile = loader.loadProfile(profileKey);
       const capability = buildAircraftControlCapabilities(profile, { profileRevision: 1,
         capabilities: entry.simulator === 'msfs'
-          ? { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar'],
-            integrationTransports: ['simconnect-sequence', 'sdk', 'lvar', 'mobiflight-calculator'] }
+          ? { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar', 'input-event'],
+            integrationTransports: ['simconnect-sequence', 'sdk', 'lvar', 'mobiflight-calculator', 'input-event'] }
           : { simulator: 'xplane', actionTypes: [], integrationTransports: [] } });
       const supported = capability.aircraftCommands.commands.some(command => command.id === 'configuration.lights.takeoff');
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftQuickActions.vue'),
@@ -4440,7 +4449,7 @@ async function main() {
           specific.activeProfileRevision = 1;
           specific.receivedAt = Date.now();
           specific.updatedAt = new Date().toISOString();
-          specific.values = { 'lights.landing': false, 'lights.noseMode': 'off', 'lights.strobeMode': 'off', 'lights.navMode': 'off' };
+          specific.values = { 'lights.landing': false, 'lights.noseMode': 'off', 'lights.strobeMode': 'off', 'lights.navMode': 'off', 'lights.nav': false };
           if (entry.id === 'tfdi-md-11') Object.assign(specific.values, { 'systems.busVoltage': 115,
             'lights.landingLeftPosition': 0, 'lights.landingRightPosition': 0, 'lights.nosePosition': 0,
             'lights.turnoffLeft': false, 'lights.turnoffRight': false, 'lights.strobe': false, 'lights.nav': true });
@@ -4460,7 +4469,7 @@ async function main() {
         assert.match(html, /aria-label="Apply After-landing lights"/, profileKey);
       }
     }
-    assert.equal(supportedCount, 25, 'all 25 writable takeoff recipes must reach the shared UI');
+    assert.equal(supportedCount, 26, 'all 26 writable takeoff recipes, including native Input Event aircraft, must reach the shared UI');
   });
 
   await test('APU quick action renders Start and fresh observed status without conflating the request with availability', async () => {
@@ -6203,8 +6212,11 @@ async function main() {
       },
     ];
     const baseValues = {
-      'fcu.altitudeFt': 11000,
-      'fcu.verticalSpeedFpm': -650,
+      'fcu.altitudeFtNative': 11000,
+      'fcu.verticalSpeedFpmNative': 0,
+      // The aircraft can change the generic VS target after an altitude write
+      // without changing its FCU window. Never display that generic fallback.
+      'fcu.verticalSpeedFpm': -700,
       'flightGuidance.apMaster': true,
       'flightGuidance.flightDirector': true,
       'flightGuidance.autothrottleActive': true,
@@ -6251,8 +6263,8 @@ async function main() {
             sourceStatus: 'connected',
             values: {
               ...baseValues,
-              'fcu.speedKts': variant.speed,
-              'fcu.headingDeg': variant.heading,
+              'fcu.speedKtsNative': variant.speed,
+              'fcu.headingDegNative': variant.heading,
             },
             actionCapabilities: Object.fromEntries(actionIds.map((actionId) => [actionId, true])),
           },
@@ -6266,7 +6278,7 @@ async function main() {
       assert.match(html, new RegExp(`data-microsoft-inibuilds-a32x-selector="speed"[\\s\\S]*?>${variant.speed} <span[^>]*>kt<\\/span>`), 'FCU speed should render with its unit');
       assert.match(html, new RegExp(`data-microsoft-inibuilds-a32x-selector="heading"[\\s\\S]*?>${String(variant.heading).padStart(3, '0')} <span[^>]*>deg<\\/span>`), 'FCU heading should retain three digits');
       assert.match(html, /data-microsoft-inibuilds-a32x-selector="altitude"[\s\S]*?>11,000 <span[^>]*>ft<\/span>/, 'FCU altitude should use grouped feet');
-      assert.match(html, /data-microsoft-inibuilds-a32x-selector="vertical-speed"[\s\S]*?>-650 <span[^>]*>fpm<\/span>/, 'FCU vertical speed should render as a typed target');
+      assert.match(html, /data-microsoft-inibuilds-a32x-selector="vertical-speed"[\s\S]*?>0 <span[^>]*>fpm<\/span>/, 'FCU vertical speed must follow the native window despite a disagreeing generic target');
       assert.deepEqual(
         [...html.matchAll(/data-microsoft-inibuilds-a32x-selector="([^"]+)"/g)].map((match) => match[1]),
         ['speed', 'heading', 'altitude', 'vertical-speed'],
@@ -6339,6 +6351,7 @@ async function main() {
           profileKey: 'bundled/msfs/inibuilds-a320neo-v2',
           sourceStatus: 'connected',
           values: {
+            'fcu.speedKts': 250,
             'lights.nav': true,
             'controls.gearHandleDown': true,
           },
@@ -6357,7 +6370,7 @@ async function main() {
 
     const speedSubmit = buttonFor('flightGuidance.speed.set');
     assert.match(speedSubmit, /\sdisabled(?:=| |>)/, 'numeric capability must not bypass missing target readback');
-    assert.match(speedSubmit, /title="Live target readback unavailable\."/, 'missing numeric readback should expose its reason');
+    assert.match(speedSubmit, /title="Live target readback unavailable\."/, 'missing native readback must not fall back to a populated generic target');
     for (const actionId of ['lights.beacon.off', 'lights.beacon.on']) {
       const button = buttonFor(actionId);
       assert.match(button, /\sdisabled(?:=| |>)/, `${actionId} capability must not bypass missing lamp readback`);
@@ -6395,7 +6408,7 @@ async function main() {
           profileKey: 'bundled/msfs/inibuilds-a321lr',
           sourceStatus: 'connected',
           values: {
-            'fcu.speedKts': 250,
+            'fcu.speedKtsNative': 250,
             'lights.beacon': false,
             'controls.parkingBrake': false,
           },
@@ -8724,10 +8737,10 @@ async function main() {
     assert.match(html, /id="takeoff-runway"[^>]*>RWY 35</, 'runway renders from the store');
     assert.match(html, /Recorded runway-use grade[\s\S]*id="takeoff-grade"[^>]*>LATE LIFTOFF</, 'the historical grade names recorded runway use');
     assert.match(html, /id="takeoff-grade"[^>]*color:\s*#fb923c/, 'a late liftoff is orange like a long landing');
-    assert.match(html, /id="takeoff-grade-detail"[^>]*>Little runway remaining</, 'the zone explains the grade');
+    assert.match(html, /id="takeoff-grade-detail"[^>]*>Recorded runway-use score 55%</, 'historical score stays explicitly recorded');
     assert.match(html, /id="takeoff-summary-remaining"[^>]*text-orange-400[^>]*>300 ft</, 'runway remaining carries the caution tone');
     assert.match(html, /id="takeoff-summary-roll"[^>]*>5,500 ft</, 'ground roll is a fact');
-    assert.match(html, /id="takeoff-summary-roll-detail"[^>]*>\s*38 s · lifted off at 138 kt/, 'roll detail keeps duration and liftoff speed');
+    assert.match(html, /id="takeoff-summary-roll-detail"[^>]*>\s*38 s · liftoff 138 kt/, 'roll detail keeps duration and liftoff speed');
     assert.match(html, /id="takeoff-summary-screen"[^>]*text-gray-100[^>]*>200 ft past end</, 'screen height past the runway end is measured context');
     assert.match(html, /id="takeoff-summary-rotation"[^>]*>2\.4 deg\/s</, 'rotation rate is a fact');
     for (const kind of ['liftoff', 'roll', 'climb', 'rotation']) {
@@ -8735,16 +8748,34 @@ async function main() {
     }
     assert.match(html, /Wind at liftoff/, 'wind context is labelled for liftoff');
     assert.match(html, /id="takeoff-wind-crosswind"[^>]*>\s*XW 6 kt from left/, 'runway-relative crosswind names its side');
-    assert.match(html, /id="takeoff-debrief-reasons"[\s\S]*Late Liftoff runway use[\s\S]*Late liftoff with little runway remaining/, 'debrief factors list the grade and the flag');
+    assert.match(html, /id="takeoff-debrief-reasons"[\s\S]*Late liftoff with little runway remaining/, 'recorded finding stays visible');
+    assert.doesNotMatch(html, /Late Liftoff runway use/, 'the grade is not repeated as a second finding');
     assert.doesNotMatch(html, /Lifted off on the centerline/, 'praise stays off a cautionary debrief');
     assert.match(html, /id="takeoff-data-confidence"[^>]*>\s*High/, 'complete inputs give high confidence');
-    assert.match(html, /id="takeoff-detailed-metrics-attention-count"[^>]*>1 item needs attention/, 'only the runway-use target needs attention');
-    assert.doesNotMatch(html, /data-detail-metric="runway-screen-height"[^>]*data-attention="danger"/, 'screen height context is not an operational verdict');
-    assert.match(html, /data-detail-metric="runway-remaining"[^>]*data-attention="warning"/, 'runway remaining tile is escalated');
+    assert.match(html, /id="takeoff-detailed-metrics-toggle-btn"[^>]*aria-expanded="false"/, 'supplementary detail starts collapsed');
+    assert.ok(html.indexOf('id="takeoff-debrief-factors"') < html.indexOf('id="takeoff-summary-remaining"'), 'findings precede measurements');
+    for (const text of ['300 ft', '5,500 ft', '200 ft past end', '2.4 deg/s']) {
+      assert.equal(html.split(text).length - 1, 1, `${text} has one location in the report`);
+    }
+    assert.doesNotMatch(html, /data-detail-metric="runway-remaining"|data-detail-metric="runway-screen-height"|data-detail-metric="control-rotation"/, 'detail adds facts rather than repeating summary tiles');
     assert.doesNotMatch(html, /data-detail-metric="control-lateral"[^>]*data-attention="/, 'a centerline liftoff is not escalated');
     assert.match(html, /id="takeoff-lateral-value"[^>]*>8 ft</, 'measured lateral offset renders');
-    assert.match(html, /id="takeoff-hops"[^>]*>Clean</, 'no settle-backs reads as clean');
-    assert.match(html, /id="takeoff-wind-config"[^>]*>[^<]*Flaps 2</, 'liftoff flaps are recorded');
+    assert.match(html, /id="takeoff-hops"[^>]*>None observed</, 'absence of observed contacts is not a clean-departure verdict');
+    assert.match(html, /id="takeoff-flaps"[^>]*>Flaps 2</, 'liftoff flaps are recorded separately from the single wind summary');
+  });
+
+  await test('TakeoffPanel preserves a legacy overrun without inventing an all-clear or duplicate finding', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'TakeoffPanel.vue'),
+      ({ useTakeoffStore }) => useTakeoffStore().handleTakeoffMessage({
+        ...scoredTakeoffMessage(), grade: 'Overrun', score: 0, assessment: undefined, flags: [],
+        runwayUse: { grade: 'Overrun', score: 0, remainingFt: -100, verified: true },
+      }),
+    );
+    assert.match(html, /No additional findings were recorded/);
+    assert.match(html, /id="takeoff-grade"[^>]*>OVERRUN</);
+    assert.doesNotMatch(html, /No findings detected|Stayed airborne|>Clean</);
+    assert.equal(html.split('OVERRUN').length - 1, 1);
   });
 
   await test('LastTakeoffSummary renders the full-report action and preview facts', async () => {
@@ -8766,6 +8797,22 @@ async function main() {
     assert.match(html, /id="data-last-takeoff-ias"[^>]*>138 kt</, 'liftoff speed renders');
     assert.match(html, /id="data-last-takeoff-runway"[^>]*>YSCB 35</, 'runway renders');
     assert.doesNotMatch(html, /id="data-open-takeoff-btn"[^>]*\bdisabled\b/, 'the report action is live');
+  });
+
+  await test('LastTakeoffSummary explains the height reference beside runway distance', async () => {
+    for (const [heightSource, reference] of [['radio', '35 ft radio height'], ['baro', '35 ft height gained since liftoff'], ['plane', '35 ft geometric height gained since liftoff'], [undefined, '35 ft']]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'LastTakeoffSummary.vue'),
+        ({ useTakeoffStore }) => {
+          const message = scoredTakeoffMessage();
+          message.screenHeight = { heightFt: 35, heightSource, reached: true, remainingFt: 1000 };
+          useTakeoffStore().handleTakeoffMessage(message);
+        },
+      );
+      assert.match(html, /id="data-last-takeoff-screen"[^>]*>1,000 ft left</);
+      const detail = html.match(/id="data-last-takeoff-screen-detail"[^>]*>([^<]+)</)?.[1];
+      assert.equal(detail, `Runway left at ${reference}`, 'the large distance cannot be mistaken for the observed height');
+    }
   });
 
   await test('LandingPanel does not render a live approach monitor', async () => {
@@ -9177,7 +9224,7 @@ async function main() {
       takeoffs: [
         {
           id: 'takeoff-1', timestamp: '2026-09-22T08:00:00.000Z', aircraft: 'PMDG 737-800', aircraftProfileId: 'pmdg-737', icao: 'YSCB', runway: '35',
-          iasKts: 146, rollDistanceFt: 3812, rollDurationS: 30, runwayRemainingFt: 1976, runwayUsedPct: 67.1, runwayUseGrade: 'Good', runwayUseScore: 95, runwayUseZone: 'Comfortable margin',
+          iasKts: 146, rollDistanceFt: 3812, rollDurationS: 30, rollDurationBasis: 'capture', runwayRemainingFt: 1976, runwayUsedPct: 67.1, runwayUseGrade: 'Good', runwayUseScore: 95, runwayUseZone: 'Comfortable margin',
           screenHeightFt: 35, screenHeightRemainingFt: 1200, screenHeightReached: true, hopCount: 0, runwayExcursion: false,
         },
         {
@@ -9201,9 +9248,7 @@ async function main() {
       assert.doesNotMatch(disabled, /id="logbook-takeoffs"|Recorded takeoffs|RWY Overrun/, 'the disabled release hides scored takeoffs on desktop and phone');
       assert.match(disabled, /YSSY/, 'recorded landings remain visible');
     }
-    // Retain presentation coverage for the future enabled feature using a test-only shared module.
-    const enabledSettings = { ...sharedSettings, TAKEOFF_SCORING_ENABLED: true };
-    const desktop = { matchMedia: () => ({ matches: true }), sharedSettings: enabledSettings };
+    const desktop = { matchMedia: () => ({ matches: true }) };
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
       ({ useLogbookStore }) => { useLogbookStore().ingestMessage(takeoffMessage); },
@@ -9211,11 +9256,12 @@ async function main() {
     );
     assert.match(html, /id="logbook-takeoffs"/, 'the takeoff section renders when takeoffs exist');
     assert.match(html, /Recorded takeoffs/, 'the section is titled');
-    assert.match(html, /id="logbook-takeoffs-subtitle"[^>]*>2 takeoffs recorded · avg roll 3,356 ft · 1 with little or no runway left/, 'the subtitle summarises the takeoff stats');
+    assert.match(html, /30 s real time/, 'capture-time roll durations retain their qualification in the desktop history');
+    assert.match(html, /id="logbook-takeoffs-subtitle"[^>]*>2 takeoffs recorded · avg distance to liftoff 3,356 ft · 1 with recorded cautions/, 'the subtitle also describes attempts with airborne intervals accurately');
     const takeoffRows = html.match(/data-logbook-takeoff-row/g) || [];
     assert.equal(takeoffRows.length, 2, 'one desktop row per takeoff');
     assert.match(html, /Runway record/, 'the takeoff table names runway use');
-    assert.match(html, /1,976 ft[\s\S]*?67% used/, 'runway remaining and percentage used render');
+    assert.match(html, /1,976 ft[\s\S]*?67% from runway start/, 'intersection position is distinguished from actual roll distance');
     assert.match(html, /120 ft past end/, 'an overrun reports the distance past the runway end');
     assert.match(html, /900 ft past end[\s\S]*?at 50 ft/, 'screen height past the end is reported with the light-aircraft height');
     assert.match(html, /1,200 ft left[\s\S]*?at 35 ft/, 'screen height remaining renders');
@@ -9230,10 +9276,10 @@ async function main() {
     const { html: mobile } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
       ({ useLogbookStore }) => { useLogbookStore().ingestMessage(takeoffMessage); },
-      { sharedSettings: enabledSettings },
     );
     assert.doesNotMatch(mobile, /data-logbook-takeoff-row/, 'phones get cards, not the table');
     assert.match(mobile, /RWY Recorded grade: Good/, 'the phone card carries the historical runway-use grade pill');
+    assert.match(mobile, /30 s real time/, 'capture-time roll durations retain their qualification on phones');
     assert.match(mobile, /RWY Recorded grade: Overrun/, 'the phone card carries the historical overrun pill');
     assert.match(mobile, /Runway left[\s\S]*?1,976 ft/, 'the phone card lists runway remaining');
     assert.match(mobile, /TD RATE GOOD|TD RATE Good/i, 'the landing phone card is unchanged');
@@ -9241,7 +9287,6 @@ async function main() {
     const { html: withoutTakeoffs } = await renderComponent(
       path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
       ({ useLogbookStore }) => { useLogbookStore().ingestMessage({ ...takeoffMessage, takeoffs: [], takeoffStats: null }); },
-      { sharedSettings: enabledSettings },
     );
     assert.doesNotMatch(withoutTakeoffs, /id="logbook-takeoffs"/, 'no takeoff section without takeoffs');
     assert.doesNotMatch(withoutTakeoffs, /Recorded takeoffs/, 'no takeoff heading without takeoffs');
@@ -9276,6 +9321,67 @@ async function main() {
       assert.match(takeoffSection, /Climb-out measurement incomplete/);
       assert.match(takeoffSection, />Uncertain</);
       assert.match(takeoffSection, /text-danger[^>]*>[^<]*Recorded runway excursion/);
+    }
+  });
+
+  await test('LogbookPanel preserves geometric, radio and legacy height references on desktop and phone', async () => {
+    for (const desktopLayout of [true, false]) {
+      for (const [heightSource, reference] of [
+        ['plane', '35 ft geometric gain since liftoff'],
+        ['radio', '35 ft radio height'],
+        ['baro', '35 ft gained since liftoff'],
+        [undefined, '35 ft'],
+      ]) {
+        const entry = { id: 'height-source', timestamp: '2026-10-02T00:00:00Z', aircraft: 'Test', runwayUseGrade: 'Recorded',
+          screenHeightFt: 35, screenHeightRemainingFt: 1000, screenHeightReached: true,
+          analysis: { screenHeight: { heightSource, reached: true } } };
+        const before = structuredClone(entry);
+        const { html } = await renderComponent(
+          path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+          ({ useLogbookStore }) => useLogbookStore().ingestMessage({ type: 'logbook', entries: [], takeoffs: [entry] }),
+          { matchMedia: () => ({ matches: desktopLayout }), sharedSettings: { ...sharedSettings, TAKEOFF_SCORING_ENABLED: true } },
+        );
+        const takeoffSection = html.slice(html.indexOf('id="logbook-takeoffs"'));
+        assert.match(takeoffSection, /1,000 ft left/);
+        assert.ok(takeoffSection.includes(`at ${reference}`), `${desktopLayout ? 'desktop' : 'phone'} retains the recorded height source`);
+        if (!desktopLayout && ['plane', 'baro'].includes(heightSource)) assert.match(takeoffSection, />Height gained</);
+        if (!heightSource) assert.doesNotMatch(takeoffSection, /geometric gain|radio height|gained since liftoff/, 'legacy records do not gain invented provenance');
+        assert.deepEqual(entry, before);
+      }
+    }
+  });
+
+  await test('LogbookPanel preserves stronger recorded takeoff assessments beside lesser findings on desktop and phone', async () => {
+    const cases = [
+      { assessment: 'critical', flags: [{ label: 'Recorded caution', severity: 'caution' }], fallback: 'Critical' },
+      { assessment: 'critical', flags: [{ label: '', severity: 'critical' }, { label: 'Recorded caution', severity: 'caution' }], fallback: 'Critical' },
+      { assessment: 'warning', hopCount: 1, flags: [], fallback: 'Warning' },
+      { assessment: 'warning', hopCount: 1, flags: [{ label: '   ', severity: 'warning' }], fallback: 'Warning' },
+      { assessment: 'critical', flags: [{ label: 'Recorded critical finding', severity: 'critical' }], fallback: null },
+      { assessment: 'warning', flags: [{ label: 'Recorded warning finding', severity: 'warning' }], fallback: null },
+      { assessment: 'warning', flags: [{ label: 'Recorded critical finding', severity: 'critical' }], fallback: null },
+      { assessment: 'caution', hopCount: 1, flags: [], fallback: null },
+      { assessment: 'critical', runwayExcursion: true, flags: [], fallback: null },
+    ];
+    for (const desktopLayout of [true, false]) {
+      for (const scenario of cases) {
+        const { fallback, ...recorded } = scenario;
+        const entry = { id: 'assessment', timestamp: '2026-10-02T00:00:00Z', aircraft: 'Test', runwayUseGrade: 'Recorded', ...recorded };
+        const before = structuredClone(entry);
+        const { html } = await renderComponent(
+          path.join('src', 'vue', 'components', 'LogbookPanel.vue'),
+          ({ useLogbookStore }) => useLogbookStore().ingestMessage({ type: 'logbook', entries: [], takeoffs: [entry] }),
+          { matchMedia: () => ({ matches: desktopLayout }), sharedSettings: { ...sharedSettings, TAKEOFF_SCORING_ENABLED: true } },
+        );
+        const takeoffSection = html.slice(html.indexOf('id="logbook-takeoffs"'));
+        if (fallback) {
+          assert.match(takeoffSection, new RegExp(`text-danger[^>]*>${fallback} assessment recorded`), `${desktopLayout ? 'desktop' : 'phone'} retains ${recorded.assessment} alongside lesser or missing labels`);
+          assert.equal(takeoffSection.split(`${fallback} assessment recorded`).length - 1, 1);
+        } else assert.doesNotMatch(takeoffSection, /assessment recorded/, 'an equally strong visible finding already explains the assessment');
+        if (recorded.hopCount) assert.match(takeoffSection, /settled back once/);
+        for (const flag of recorded.flags) if (flag.label.trim()) assert.ok(takeoffSection.includes(flag.label));
+        assert.deepEqual(entry, before, 'presentation preserves the stored record');
+      }
     }
   });
 
@@ -10670,6 +10776,28 @@ async function main() {
     assert.match(html, /Loading timeline/, 'flight list should render timeline loading feedback');
     assert.match(html, /Please wait while YSSY-KJFK opens/, 'timeline loading feedback should include the selected flight label');
     assert.match(html, />Copied!</, 'copy-path button label should render from the timeline store');
+  });
+
+  await test('TimelineFlightsPanel distinguishes desktop connection recovery from browser restrictions', async () => {
+    for (const desktop of [false, true]) {
+      for (const disconnected of [false, true]) {
+        const { html } = await renderComponent(path.join('src', 'vue', 'components', 'TimelineFlightsPanel.vue'), ({ useTimelineStore }) => {
+          if (desktop) globalThis.electronAPI = { getBackendBootstrap: async () => ({}) };
+          const timeline = useTimelineStore();
+          timeline.ingestMessage({ type: 'timelineList', flights: [{ flightId: 'previous-flight', filePath: 'previous.csv', route: 'YSSY-YMML' }] });
+          if (disconnected) timeline.markListDisconnected();
+          else timeline.markListRestricted();
+        });
+        if (desktop) {
+          assert.match(html, /Waiting for your flight history/);
+          assert.match(html, /Open System to check the connection/);
+          assert.doesNotMatch(html, /Open your history on desktop|Connect to FlightFabric on your simulator PC/);
+        } else {
+          assert.match(html, disconnected ? /Your flight history is waiting/ : /Open your history on desktop/);
+        }
+        if (!disconnected) assert.doesNotMatch(html, /previous-flight|YSSY-YMML|class="timeline-flight-open/, 'restricted history stays hidden even in the native app');
+      }
+    }
   });
 
   await test('TimelineFlightsPanel shows a country flag beside each known end of the route', async () => {

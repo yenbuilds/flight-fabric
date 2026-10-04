@@ -368,6 +368,25 @@ test('coupling may take 45 seconds, starts once, and pushing means observed reve
   } finally {await f.session.dispose();}
 });
 
+test('inactive tug readback during coupling keeps the start lease alive until reverse movement', async () => {
+  const f = fixture(), commands: PushbackCommand[] = [], write = f.deps.write, capture = f.deps.capture;
+  let tugState = 3;
+  f.deps.write = async (command, valid) => { commands.push(command); await write(command, valid); };
+  f.deps.capture = () => ({ ...capture(), tug: { ...capture().tug!, state: tugState } });
+  try {
+    await f.session.request(f.request, f.owner);
+    for (let i = 0; i < 24; i++) {
+      f.step(); await f.session.request({ operation:'status' }, f.owner); await f.session.tick();
+      assert.equal(f.session.state().status, 'connecting');
+    }
+    assert.equal(commands.filter(command => command.kind === 'start').length, 1);
+    assert.ok(commands.filter(command => command.kind === 'steer').length >= 20, 'heading updates renew the lease during coupling');
+    tugState = 0;
+    f.step({ speedKts:2.7, z:-0.5 }); await f.session.tick();
+    assert.equal(f.session.state().status, 'pushing');
+  } finally { await f.session.dispose(); }
+});
+
 test('Stop during coupling, coupling timeout and stale tug state never restart or retoggle', async () => {
   for(const trigger of ['stop','timeout','readback']) {
     const f=fixture(),commands:PushbackCommand[]=[],write=f.deps.write;
@@ -434,4 +453,108 @@ test('a late SimConnect mapping exception stops pushback despite a successful tr
     assert.deepEqual(commands,['TUG_DISABLE','start','TUG_DISABLE']);
     f.step();await session.tick();assert.equal(session.state().status,'stopped');
   } finally {groundModule.createAutotaxi=original;await session.dispose();await f.session.dispose();}
+});
+
+test('a rejected moving recapture retains same-frame live guidance without reloading scenery', async () => {
+  const f = fixture(), previews = createPushbackPreviews(f.deps);
+  let loads = 0;
+  f.deps.airport = async () => { loads++; return airport(); };
+  try {
+    const message = { ...f.request, operation: 'preview' };
+    const first = await previews.request(message, f.owner, () => true);
+    const start = { ...f.request, previewId: first.pushbackPreview!.id };
+    // Begin taxiing after viewing a pushback plan: accelerate to 3 kt over 2 s.
+    f.step({ z: 1.5, speedKts: 3 }, 2000);
+    await assert.rejects(previews.request(message, f.owner, () => true), /Stop on the ground/);
+    for (let i = 0; i < 3; i++) {
+      const z = 1.5 + i * 1.543332;
+      if (i) f.step({ z }, 1000);
+      const status = await previews.request({ ...message, operation: 'status' }, f.owner, () => true);
+      assert.equal(status.pushbackPreview!.id, first.pushbackPreview!.id);
+      assert.equal(status.pushbackPreview!.valid, false);
+      assert.equal(status.sceneKey, first.sceneKey);
+      assert.ok(Math.abs(status.aircraft!.x) < 0.001);
+      assert.ok(Math.abs(status.aircraft!.z - z) < 0.001, 'position uses the retained route origin');
+      assert.equal(status.aircraft!.speedKts, 3);
+      assert.equal(status.preview, undefined);
+      assert.equal(status.scene, undefined);
+      assert.equal(status.pushbackPreview!.points, undefined);
+      assert.throws(() => previews.prepared(start, f.owner), /preview changed/);
+    }
+    assert.equal(loads, 1, 'status does not rebuild the route or load airport geometry');
+    const geometry = await previews.request({ ...message, operation: 'status', scene: true }, f.owner, () => true);
+    assert.equal(geometry.preview, first.preview);
+    assert.equal(geometry.scene, first.scene);
+    f.stale();
+    const stale = await previews.request({ ...message, operation: 'status' }, f.owner, () => true);
+    assert.equal(stale.aircraft, null);
+    assert.equal(stale.sceneKey, first.sceneKey);
+    f.changeAircraft();
+    const changed = await previews.request({ ...message, operation: 'status' }, f.owner, () => true);
+    assert.equal(changed.aircraft, null);
+    assert.equal(changed.sceneKey, null);
+    assert.equal(changed.pushbackPreview, null);
+    assert.equal(f.writes.length, 0);
+  } finally { await f.session.dispose(); }
+});
+
+test('movement during recapture keeps guidance but revokes the old start ID until a new preview succeeds', async () => {
+  const f = fixture(), previews = createPushbackPreviews(f.deps);
+  try {
+    const message = { ...f.request, operation: 'preview' };
+    const first = await previews.request(message, f.owner, () => true);
+    const oldStart = { ...f.request, previewId: first.pushbackPreview!.id };
+    const oldPlan = previews.prepared(oldStart, f.owner);
+    let finish!: (value: TaxiAirport) => void;
+    f.deps.airport = () => new Promise(resolve => { finish = resolve; });
+    const recapture = previews.request(message, f.owner, () => true);
+    const rejected = assert.rejects(recapture, /moved or changed/);
+    assert.equal(oldPlan.valid(), false, 'starting a recapture immediately revokes the prior ID');
+    assert.throws(() => previews.prepared(oldStart, f.owner), /preview changed/);
+    const pending = await previews.request({ ...message, operation: 'status' }, f.owner, () => true);
+    assert.equal(pending.pushbackPreview!.id, first.pushbackPreview!.id);
+    assert.ok(pending.aircraft);
+    f.step({ z: 0.5, speedKts: 1 }, 2000);
+    finish(airport());
+    await rejected;
+    const moving = await previews.request({ ...message, operation: 'status' }, f.owner, () => true);
+    assert.equal(moving.pushbackPreview!.id, first.pushbackPreview!.id);
+    assert.ok(Math.abs(moving.aircraft!.z - 0.5) < 0.001);
+    // Stop within the original 2 m / 60 s limits: generation must still revoke it.
+    f.step({ z: 0.75, speedKts: 0 }, 1000);
+    assert.equal(oldPlan.valid(), false);
+    assert.throws(() => previews.prepared(oldStart, f.owner), /preview changed/);
+    f.deps.airport = async () => airport();
+    const replacement = await previews.request(message, f.owner, () => true);
+    assert.notEqual(replacement.pushbackPreview!.id, first.pushbackPreview!.id);
+    assert.equal(replacement.pushbackPreview!.valid, true);
+    assert.equal(previews.prepared({ ...f.request, previewId: replacement.pushbackPreview!.id }, f.owner).id, replacement.pushbackPreview!.id);
+    assert.throws(() => previews.prepared(oldStart, f.owner), /preview changed/);
+    assert.equal(f.writes.length, 0);
+  } finally { await f.session.dispose(); }
+});
+
+test('a superseded recapture cannot replace a newer successful preview when its scenery arrives late', async () => {
+  const f = fixture(), previews = createPushbackPreviews(f.deps);
+  try {
+    const message = { ...f.request, operation: 'preview' };
+    const first = await previews.request(message, f.owner, () => true);
+    const finishes: ((value: TaxiAirport) => void)[] = [];
+    f.deps.airport = () => new Promise(resolve => { finishes.push(resolve); });
+    const older = previews.request(message, f.owner, () => true);
+    const rejected = assert.rejects(older, /moved or changed/);
+    const newer = previews.request(message, f.owner, () => true);
+    assert.equal(finishes.length, 2);
+    finishes[1](airport());
+    const replacement = await newer;
+    finishes[0](airport());
+    await rejected;
+    const status = await previews.request({ ...message, operation: 'status', scene: true }, f.owner, () => true);
+    assert.equal(status.pushbackPreview!.id, replacement.pushbackPreview!.id);
+    assert.equal(status.preview, replacement.preview);
+    assert.equal(status.pushbackPreview!.valid, true);
+    assert.throws(() => previews.prepared({ ...f.request, previewId: first.pushbackPreview!.id }, f.owner), /preview changed/);
+    assert.equal(previews.prepared({ ...f.request, previewId: replacement.pushbackPreview!.id }, f.owner).id, replacement.pushbackPreview!.id);
+    assert.equal(f.writes.length, 0);
+  } finally { await f.session.dispose(); }
 });

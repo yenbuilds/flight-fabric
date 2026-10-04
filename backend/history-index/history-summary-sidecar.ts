@@ -31,9 +31,9 @@ type CsvSourceIdentity = {
 };
 
 const HISTORY_SUMMARY_SCHEMA_VERSION = 1;
-// Bump whenever flight-list or landing extraction semantics change. Old
+// Bump whenever flight-list or debrief extraction semantics change. Old
 // summaries then fall back to their authoritative CSV exactly once.
-const HISTORY_ANALYSIS_VERSION = 11;
+const HISTORY_ANALYSIS_VERSION = 12;
 const HISTORY_SUMMARY_SUFFIX = recordingBundleLayout.BUNDLE_FILES.summary;
 const MAX_HISTORY_SUMMARY_BYTES = 8 * 1024 * 1024;
 
@@ -97,7 +97,7 @@ function sanitizeFlightForSummary(flight: unknown): AnyRecord | null {
 function parseHistorySummaryBytes(
   bytes: Buffer,
   source: CsvSourceIdentity,
-): { flight: AnyRecord | null; landings: AnyRecord[] } | null {
+): { flight: AnyRecord | null; landings: AnyRecord[]; takeoffs: AnyRecord[] } | null {
   if (!Buffer.isBuffer(bytes) || bytes.length <= 0 || bytes.length > MAX_HISTORY_SUMMARY_BYTES) return null;
   let parsed: AnyRecord;
   try {
@@ -116,13 +116,18 @@ function parseHistorySummaryBytes(
   if (parsed.landings.some((landing: unknown) => !landing || typeof landing !== 'object' || Array.isArray(landing))) {
     return null;
   }
+  if (!Array.isArray(parsed.takeoffs)
+    || parsed.takeoffs.some((takeoff: unknown) => !takeoff || typeof takeoff !== 'object' || Array.isArray(takeoff))) {
+    return null;
+  }
   return {
     flight: parsed.flight ? { ...parsed.flight, filePath: source.filePath } : null,
     landings: parsed.landings.map((landing: AnyRecord) => ({ ...landing })),
+    takeoffs: parsed.takeoffs.map((takeoff: AnyRecord) => ({ ...takeoff })),
   };
 }
 
-function readHistorySummary(source: CsvSourceIdentity): { flight: AnyRecord | null; landings: AnyRecord[] } | null {
+function readHistorySummary(source: CsvSourceIdentity): { flight: AnyRecord | null; landings: AnyRecord[]; takeoffs: AnyRecord[] } | null {
   const summaryPath = getHistorySummaryPath(source?.filePath);
   if (!summaryPath) return null;
   const rootDir = path.dirname(path.resolve(source.filePath));
@@ -163,7 +168,7 @@ function readHistorySummary(source: CsvSourceIdentity): { flight: AnyRecord | nu
 
 function writeHistorySummary(
   source: CsvSourceIdentity,
-  result: { flight?: AnyRecord | null; landings?: AnyRecord[] },
+  result: { flight?: AnyRecord | null; landings?: AnyRecord[]; takeoffs?: AnyRecord[] },
 ): boolean {
   const summaryPath = getHistorySummaryPath(source?.filePath);
   if (!summaryPath) return false;
@@ -172,6 +177,9 @@ function writeHistorySummary(
   const flight = sanitizeFlightForSummary(result?.flight || null);
   const landings = Array.isArray(result?.landings)
     ? result.landings.filter((landing) => landing && typeof landing === 'object')
+    : [];
+  const takeoffs = Array.isArray(result?.takeoffs)
+    ? result.takeoffs.filter((takeoff) => takeoff && typeof takeoff === 'object' && !Array.isArray(takeoff))
     : [];
   const payload = {
     schemaVersion: HISTORY_SUMMARY_SCHEMA_VERSION,
@@ -195,6 +203,7 @@ function writeHistorySummary(
     },
     flight,
     landings,
+    takeoffs,
   };
   const data = `${JSON.stringify(payload, null, 2)}\n`;
   if (Buffer.byteLength(data, 'utf8') > MAX_HISTORY_SUMMARY_BYTES) return false;

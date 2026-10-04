@@ -168,11 +168,16 @@ test('toolbar history projection bounds nested data and removes paths and arbitr
     type: 'toolbarFlightHistory',
     takeoff: { final: true, grade: 'Late Liftoff', score: 55, zone: 'C:\\private\\zone', icao: 'YSSY', runway: '34L',
       runwayUse: { remainingFt: 300, runwayLengthFt: 6000, beyondRunwayEnd: false, secret: 'private' },
+      roll: { durationS: 30, durationBasis: 'capture' }, screenHeight: { timeBasis: 'simulator' },
+      rotation: { timeBasis: 'C:\\private\\clock' },
       analysis: Array(10000).fill({ secret: 'private' }), flags: [{ label: 'C:\\private\\flag' },
         { code: 'runway_excursion', label: 'Runway excursion', severity: 'critical', secret: 'private' }] },
   })!;
   assert.equal(takeoffProjected.takeoff.grade, 'Late Liftoff');
   assert.equal(takeoffProjected.takeoff.runwayUse.remainingFt, 300);
+  assert.equal(takeoffProjected.takeoff.roll.durationBasis, 'capture');
+  assert.equal(takeoffProjected.takeoff.screenHeight.timeBasis, 'simulator');
+  assert.equal(takeoffProjected.takeoff.rotation.timeBasis, null);
   const takeoffSerialized = JSON.stringify(takeoffProjected);
   for (const field of ['private', 'analysis', 'secret']) assert.ok(!takeoffSerialized.includes(field), field);
   assert.deepEqual(takeoffProjected.takeoff.flags[1], { code: 'runway_excursion', label: 'Runway excursion', severity: 'critical' });
@@ -191,6 +196,18 @@ test('toolbar history projection bounds nested data and removes paths and arbitr
   } })!;
   assert.equal(bounded.takeoff.flags.length, 16);
   assert.ok(bounded.takeoff.flags.every((flag: any) => flag.label.length <= 160));
+});
+
+test('toolbar history preserves only explicit supported takeoff height sources', () => {
+  for (const heightSource of ['radio', 'plane', 'baro', undefined, null, 'estimated', { source: 'radio' }]) {
+    const projected = projectServerMessageForClient({}, { type: 'toolbarFlightHistory', takeoff: {
+      final: true, screenHeight: { heightFt: 35, reached: true, heightSource },
+    } })!;
+    assert.equal(projected.takeoff.screenHeight.heightSource,
+      heightSource === 'radio' || heightSource === 'plane' || heightSource === 'baro' ? heightSource : null);
+    assert.equal(projected.takeoff.screenHeight.heightFt, 35);
+    assert.equal(projected.takeoff.screenHeight.reached, true);
+  }
 });
 
 test('every server message type has one explicit unpaired-client policy', () => {

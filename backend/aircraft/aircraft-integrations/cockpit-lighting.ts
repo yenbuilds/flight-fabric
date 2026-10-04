@@ -2,7 +2,7 @@ import type { AircraftIntegrationAction, AircraftIntegrationField, SimConnectSeq
 
 type Dimmer = readonly [key: string, address: string | number];
 type Group = Readonly<{ key: string; label: string; displays?: true; dimmers: readonly Dimmer[] }>;
-type Definition = Readonly<{ kind: 'potentiometer' | 'fenix-lvar'; groups: readonly Group[] }>;
+type Definition = Readonly<{ kind: 'potentiometer' | 'fenix-lvar' | 'percent-lvar'; groups: readonly Group[] }>;
 
 // Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
 // indices come from each aircraft's Flight Deck API. Headwind was separately
@@ -24,6 +24,30 @@ const engineDisplays: Group = { key: 'engineDisplays', label: 'Engine and system
   ['upperDisplay', 92], ['lowerDisplay', 93],
 ] };
 const DEFINITIONS: Readonly<Record<string, Definition>> = {
+  // iniBuilds A350 1.2.6 A350_Interior.behavior.xml: knob setters clamp
+  // these LVARs to 0..100; display BRT buttons write 35/37/39/41 in that
+  // same range. The adjacent even indices control contrast, not brightness.
+  // See docs/COCKPIT-LIGHTING-VALIDATION.md for source and live evidence.
+  'inibuilds-a350': { kind: 'percent-lvar', groups: [
+    { key: 'panels', label: 'Panel backlighting', dimmers: [
+      ['integral', 'INI_CKPT_LT_INTEG'], ['fcu', 'INI_FCU_DISPLAY_BRT'], ['fcuText', 'INI_FCU_INTEG_BRT'],
+    ] },
+    { key: 'flood', label: 'Flood and dome lighting', dimmers: [
+      ['mainFlood', 'INI_CKPT_LT_FLOOD'], ['dome', 'INI_CKPT_LT_DOME'],
+    ] },
+    { key: 'captainTask', label: 'Captain map, table and console lights', dimmers: [
+      ['captainMap', 'INI_MIP_MAP_BRT_LEFT'], ['captainTable', 'INI_SLIDING_TABLE_BRT_LEFT'],
+      ['captainConsole', 'INI_MIP_CONSOLE_BRT_LEFT'],
+    ] },
+    { key: 'firstOfficerTask', label: 'First officer map, table and console lights', dimmers: [
+      ['firstOfficerMap', 'INI_MIP_MAP_BRT_RIGHT'], ['firstOfficerTable', 'INI_SLIDING_TABLE_BRT_RIGHT'],
+      ['firstOfficerConsole', 'INI_MIP_CONSOLE_BRT_RIGHT'],
+    ] },
+    { key: 'displays', label: 'Flight displays', displays: true, dimmers: [
+      ['captainDisplay', 'INI_POTENTIOMETER_35'], ['firstOfficerDisplay', 'INI_POTENTIOMETER_37'],
+      ['mfdDisplay', 'INI_POTENTIOMETER_39'], ['systemDisplay', 'INI_POTENTIOMETER_41'],
+    ] },
+  ] },
   'fbw-a32nx': { kind: 'potentiometer', groups: [airbusPanels, airbusFlood, captainDisplays, firstOfficerDisplays, engineDisplays] },
   'fbw-a380x': { kind: 'potentiometer', groups: [airbusPanels, airbusFlood,
     { ...captainDisplays, dimmers: [...captainDisplays.dimmers, ['captainMfd', 98]] },
@@ -117,7 +141,9 @@ export function cockpitLightingIntegration(adapterId: string): {
       return definition.kind === 'potentiometer'
         // LIGHT_POTENTIOMETER_SET takes index first, brightness second.
         ? { type: 'event', name: 'LIGHT_POTENTIOMETER_SET', value: Number(address), parameters: [{ source: 'input', round: 'nearest' }] }
-        : { type: 'lvar', name: `L:${address}`, unit: 'Number', inputValue: { source: 'input', scale: 0.01 } };
+        : { type: 'lvar', name: `L:${address}`, unit: 'Number', inputValue: {
+          source: 'input', ...(definition.kind === 'fenix-lvar' ? { scale: 0.01 } : {}),
+        } };
     });
     const readbacks = group.dimmers.map(([key]) => ({ fieldId: fieldId(key), expectedInput: true as const,
       timeoutMs: 2500, freshness: 'field' as const }));

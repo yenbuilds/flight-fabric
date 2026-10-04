@@ -32,12 +32,11 @@ function createHarness(options = {}) {
   const state = {
     runtime: {
       available: false, development: false, enabled: false, error: '', modelId: '', shortcut: '',
-      shortcutError: '', shortcutRegistered: false, joystick: null, joystickConnected: false,
+      shortcutError: '', shortcutRegistered: false,
     },
     status: 'initializing', statusText: '', transcript: '', lastCommand: '', activeSessionId: '',
     inputDevices: [], inputDevicesError: '', selectedInputDeviceId: '', spokenReadbacks: true,
     voiceTest: initialVoiceTestState(),
-    joystickLearn: { active: false, devices: [], captured: null, error: '' },
   };
   const voiceStore = Object.assign(state, {
     bindRuntime(actions) { this.actions = actions; },
@@ -53,16 +52,8 @@ function createHarness(options = {}) {
           : '',
         shortcutError: info.pushToTalk?.error || '',
         shortcutRegistered: info.pushToTalk?.registered === true,
-        joystick: info.pushToTalk?.joystick || null,
-        joystickConnected: info.pushToTalk?.joystickConnected === true,
+        controllerEnabled: info.pushToTalk?.controllerEnabled === true,
       };
-    },
-    setJoystickLearn({ active = false, error = '' } = {}) {
-      this.joystickLearn = { active, devices: [], captured: null, error };
-    },
-    applyJoystickLearnEvent(event) {
-      if (event.type === 'button' && event.down) this.joystickLearn.captured = { ...event };
-      if (event.type === 'stopped') this.joystickLearn.active = false;
     },
     setState(status, text) { this.status = status; this.statusText = text; },
     setSession(value) { this.activeSessionId = value; },
@@ -78,8 +69,6 @@ function createHarness(options = {}) {
   let recognitionListener = null;
   let pttListener = null;
   let runtimeListener = null;
-  let joystickLearnListener = null;
-  const joystickCalls = [];
   let recognitionSessionIndex = 0;
   const audio = [];
   const cancellations = [];
@@ -117,13 +106,7 @@ function createHarness(options = {}) {
       return runtimeInfo;
     },
     setPushToTalkShortcut: async (accelerator) => ({ accelerator, registered: true }),
-    onJoystickLearn(listener) { joystickLearnListener = listener; return () => {}; },
-    startJoystickLearn: async () => { joystickCalls.push('start'); return { started: true }; },
-    stopJoystickLearn: async () => { joystickCalls.push('stop'); return { stopped: true }; },
-    setPushToTalkJoystick: async (binding) => {
-      joystickCalls.push(['bind', binding]);
-      return { ...runtimeInfo.pushToTalk, joystick: binding, joystickConnected: binding !== null };
-    },
+    ...options.controllerApi,
   };
   const captures = [];
   const spokenReadbacks = [];
@@ -175,8 +158,6 @@ function createHarness(options = {}) {
     emitRecognition: (event) => recognitionListener?.(event),
     emitPtt: (event) => pttListener?.(event),
     emitRuntime: (event) => runtimeListener?.(event),
-    emitJoystickLearn: (event) => joystickLearnListener?.(event),
-    joystickCalls,
     readbackCancellations, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
@@ -219,6 +200,142 @@ test('voice test cannot replace normal capture or a pending aircraft command', a
   assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
   await h.controller.dispose();
   assert.equal(h.voiceStore.voiceTest.phase, 'idle');
+});
+
+test('controller disconnect cancels capture and ignores late commands', async () => {
+  const h = createHarness(); await h.controller.initialize();
+  await h.controller.begin();
+  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captureCancellations.length, 1);
+  assert.equal(h.captureStops.length, 0, 'cancellation must not finish or flush an utterance');
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  assert.equal(h.sentCommands.length, 0);
+  assert.deepEqual(h.cancellations, ['session_12345678']);
+  await h.controller.dispose();
+});
+
+test('cancelling controller setup before audio cleanup finishes cannot start it later', async t => {
+  const calls = [];
+  const info = { available: true, enabled: true, pushToTalk: { controllerEnabled: true } };
+  const h = createHarness({ runtimeInfo: info, controllerApi: {
+    startControllerSetup: async () => { calls.push('start'); return info; },
+    cancelControllerSetup: async () => { calls.push('cancel'); return info; },
+  } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  await h.controller.begin();
+  let releaseCleanup;
+  h.captures[0].cancel = () => new Promise(resolve => { releaseCleanup = resolve; });
+  const starting = h.voiceStore.actions.startControllerSetup();
+  await new Promise(resolve => setImmediate(resolve));
+  await h.voiceStore.actions.cancelControllerSetup();
+  releaseCleanup();
+  assert.equal(await starting, false);
+  assert.deepEqual(calls, ['cancel'], 'a superseded request never starts native setup');
+});
+
+test('controller cancellation retires a pending recognition start before microphone access', async () => {
+  let acknowledge;
+  const h = createHarness({ startRecognition: () => new Promise(resolve => { acknowledge = resolve; }) });
+  await h.controller.initialize();
+  const start = h.controller.begin();
+  await new Promise(resolve => setImmediate(resolve));
+  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  acknowledge({ sessionId: 'session_12345678' }); await start;
+  assert.equal(h.captures.length, 0);
+  assert.deepEqual(h.cancellations, ['session_12345678']);
+  assert.equal(h.sentCommands.length, 0);
+  await h.controller.dispose();
+});
+
+test('controller loss during the release tail cancels instead of flushing speech', async () => {
+  const h = createHarness({ releaseTailMs: 30 }); await h.controller.initialize();
+  await h.controller.begin(); const finishing = h.controller.finish();
+  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  await finishing; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captureStops.length, 0); assert.equal(h.captureCancellations.length, 1);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  assert.equal(h.sentCommands.length, 0);
+  await h.controller.dispose();
+});
+
+test('controller cancellation during final-result cleanup prevents command dispatch', async t => {
+  const h = createHarness(); t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.controller.begin(); await h.controller.finish();
+  let releaseCleanup;
+  const cleanup = new Promise(resolve => { releaseCleanup = resolve; });
+  h.captures[0].cancel = () => cleanup;
+  const final = h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  releaseCleanup(); await final;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.sentCommands, [], 'a cancelled final result must not execute after cleanup');
+});
+
+test('a release after an unsolicited final cannot authorize that final', async t => {
+  const h = createHarness(); t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.voiceStore.actions.begin();
+  let releaseCleanup;
+  const cleanup = new Promise(resolve => { releaseCleanup = resolve; });
+  h.captures[0].cancel = () => cleanup;
+  const final = h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  await h.voiceStore.actions.finish();
+  releaseCleanup(); await final;
+  assert.deepEqual(h.sentCommands, [], 'release must precede recognition completion');
+  assert.match(h.voiceStore.statusText, /before push-to-talk was released/);
+});
+
+test('an old flush failure cannot cancel the next push-to-talk attempt', async t => {
+  const h = createHarness(); t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.controller.begin();
+  let failFlush;
+  h.captures[0].stop = () => new Promise((_resolve, reject) => { failFlush = reject; });
+  const finishing = h.controller.finish();
+  await h.controller.cancel('device-removed');
+  assert.equal(await h.controller.begin(), true);
+  failFlush(new Error('Old capture stopped'));
+  assert.equal(await finishing, false);
+  assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.deepEqual(h.cancellations, ['session_12345678']);
+});
+
+test('old cancellation cleanup cannot hide the next active microphone', async t => {
+  const h = createHarness(); t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.controller.begin();
+  let releaseCleanup;
+  const cleanup = new Promise(resolve => { releaseCleanup = resolve; });
+  h.captures[0].cancel = () => cleanup;
+  const cancelled = h.controller.cancel('device-removed');
+  assert.equal(await h.controller.begin(), true);
+  releaseCleanup(); await cancelled;
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+});
+
+test('a global button tap cannot release an on-screen push-to-talk hold', async t => {
+  const h = createHarness(); t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.voiceStore.actions.begin();
+  h.emitPtt({ type: 'down' }); h.emitPtt({ type: 'up' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.equal(h.captureStops.length, 0);
+  await h.voiceStore.actions.finish();
+  assert.equal(h.captureStops.length, 1, 'the owning on-screen release still completes its utterance');
+});
+
+test('stale on-screen release and blur cannot retire a global push-to-talk hold', async t => {
+  const h = createHarness(); t.after(() => h.controller.dispose());
+  await h.controller.initialize(); h.emitPtt({ type: 'down' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.equal(await h.voiceStore.actions.finish(), false);
+  assert.equal(await h.voiceStore.actions.cancel(), false);
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.equal(h.captureStops.length, 0);
+  h.emitPtt({ type: 'up' }); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captureStops.length, 1, 'the owning global release still completes its utterance');
 });
 
 test('disabling voice cancels the Settings test and ignores its late transcript', async () => {
@@ -729,56 +846,14 @@ test('unassigned global shortcut asks for setup while on-screen push-to-talk sta
   await harness.controller.cancel('user');
 });
 
-test('a bound joystick button is named in the ready status only while its stick is connected', async () => {
-  const joystick = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: '' };
-  const harness = createHarness({
-    runtimeInfo: {
-      available: true,
-      development: false,
-      enabled: true,
-      engine: { modelId: 'zipformer' },
-      pushToTalk: { accelerator: 'Control+Alt+Space', error: '', joystick, joystickConnected: true, registered: true },
-    },
-  });
-
+test('controller-enabled setup offers both input choices without requiring a keyboard shortcut', async () => {
+  const harness = createHarness({ runtimeInfo: { available: true, enabled: true,
+    pushToTalk: { controllerEnabled: true, accelerator: '', registered: false } } });
   await harness.controller.initialize();
-  assert.match(harness.voiceStore.statusText, /Hold Control\+Alt\+Space or T\.16000M button 5 or the button/);
-
-  harness.emitRuntime({
-    available: true, enabled: true, engine: { modelId: 'zipformer' },
-    pushToTalk: { accelerator: '', error: '', joystick, joystickConnected: false, registered: true },
-  });
-  assert.equal(harness.voiceStore.status, 'ready', 'an unplugged stick must not disable on-screen push-to-talk');
-  assert.doesNotMatch(harness.voiceStore.statusText, /button 5/, 'an unplugged stick is not offered as a hold');
-  assert.match(harness.voiceStore.statusText, /T\.16000M is not connected/);
-
-  harness.emitPtt({ type: 'error', error: 'Push-to-talk helper stopped' });
-  assert.deepEqual(harness.voiceStore.runtime.joystick, joystick, 'a helper failure keeps the saved binding visible');
-  assert.equal(harness.voiceStore.runtime.joystickConnected, false);
-});
-
-test('binding a joystick button takes the first press, stops detection and saves through the bridge', async () => {
-  const harness = createHarness();
-  await harness.controller.initialize();
-
-  assert.equal(await harness.voiceStore.actions.startJoystickLearn(), true);
-  assert.equal(harness.voiceStore.joystickLearn.active, true);
-  harness.emitJoystickLearn({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
-  harness.emitJoystickLearn({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 5, down: false });
-  assert.equal(harness.voiceStore.joystickLearn.captured, null, 'a release is not a choice');
-  harness.emitJoystickLearn({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, button: 5, down: true });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(harness.voiceStore.joystickLearn.captured.button, 5);
-  assert.equal(harness.voiceStore.joystickLearn.active, false, 'the first press ends detection');
-  assert.deepEqual(harness.joystickCalls, ['start', 'stop']);
-
-  const binding = { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: 'p' };
-  assert.equal(await harness.voiceStore.actions.setJoystick(binding), true);
-  assert.deepEqual(harness.joystickCalls.at(-1), ['bind', binding]);
-  assert.deepEqual(harness.voiceStore.runtime.joystick, binding);
-  assert.match(harness.voiceStore.statusText, /T\.16000M button 5/);
-  assert.equal(await harness.voiceStore.actions.setJoystick(null), true);
-  assert.equal(harness.voiceStore.runtime.joystick, null);
+  assert.match(harness.voiceStore.statusText, /keyboard shortcut or controller button/);
+  assert.equal(await harness.controller.begin(), true);
+  await harness.controller.cancel('user');
+  await harness.controller.dispose();
 });
 
 test('development mode transcribes without a simulator, aircraft, or command catalogue', async () => {

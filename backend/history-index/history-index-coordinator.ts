@@ -9,7 +9,8 @@ const timelineGenerator = require('../events/timeline-generator.js') as {
   buildListedCsvFlightFromPath: (_filePath: string) => AnyRecord | null;
   getFlightLogsDir: () => string;
 };
-const { getLandingsFromCsvFile } = require('../landing/flight-logbook.js') as {
+const { getFlightRecordsFromCsvFile } = require('../landing/flight-logbook.js') as {
+  getFlightRecordsFromCsvFile: (_filePath: string, _options?: AnyRecord) => Promise<{ landings: AnyRecord[]; takeoffs: AnyRecord[] }>;
   getLandingsFromCsvFile: (_filePath: string, _options?: AnyRecord) => Promise<AnyRecord[]>;
 };
 const { landingToIndexInput } = require('./logbook-landing-index.js') as {
@@ -32,8 +33,8 @@ const {
   readHistorySummary,
   writeHistorySummary,
 } = require('./history-summary-sidecar.js') as {
-  readHistorySummary: (_source: AnyRecord) => { flight: AnyRecord | null; landings: AnyRecord[] } | null;
-  writeHistorySummary: (_source: AnyRecord, _result: { flight: AnyRecord | null; landings: AnyRecord[] }) => boolean;
+  readHistorySummary: (_source: AnyRecord) => { flight: AnyRecord | null; landings: AnyRecord[]; takeoffs?: AnyRecord[] } | null;
+  writeHistorySummary: (_source: AnyRecord, _result: { flight: AnyRecord | null; landings: AnyRecord[]; takeoffs: AnyRecord[] }) => boolean;
 };
 
 type AnyRecord = Record<string, any>;
@@ -53,7 +54,8 @@ type CoordinatorOptions = {
   acquireBundleReadLease?: typeof recordingBundleLease.acquireBundleReadLease;
   buildListedCsvFlightFromPath?: typeof timelineGenerator.buildListedCsvFlightFromPath;
   getFlightLogsDir?: typeof timelineGenerator.getFlightLogsDir;
-  getLandingsFromCsvFile?: typeof getLandingsFromCsvFile;
+  getLandingsFromCsvFile?: (_filePath: string, _options?: AnyRecord) => Promise<AnyRecord[]>;
+  getFlightRecordsFromCsvFile?: typeof getFlightRecordsFromCsvFile;
   readHistorySummary?: typeof readHistorySummary;
   writeHistorySummary?: typeof writeHistorySummary;
 };
@@ -142,7 +144,12 @@ function createHistoryIndexCoordinator(options: CoordinatorOptions) {
   const acquireReadLease = options.acquireBundleReadLease || recordingBundleLease.acquireBundleReadLease;
   const buildFlight = options.buildListedCsvFlightFromPath || timelineGenerator.buildListedCsvFlightFromPath;
   const flightLogsDir = options.getFlightLogsDir || timelineGenerator.getFlightLogsDir;
-  const readLandings = options.getLandingsFromCsvFile || getLandingsFromCsvFile;
+  const readRecords = options.getFlightRecordsFromCsvFile
+    || (options.getLandingsFromCsvFile
+      ? async (filePath: string, readOptions: AnyRecord) => ({
+        landings: await options.getLandingsFromCsvFile!(filePath, readOptions), takeoffs: [],
+      })
+      : getFlightRecordsFromCsvFile);
   const readSummary = options.readHistorySummary || readHistorySummary;
   const writeSummary = options.writeHistorySummary || writeHistorySummary;
 
@@ -179,19 +186,20 @@ function createHistoryIndexCoordinator(options: CoordinatorOptions) {
   async function inspectSource(source: CsvSourceIdentity): Promise<{
     flight: AnyRecord | null;
     landings: AnyRecord[];
+    takeoffs: AnyRecord[];
     usedSummary: boolean;
   }> {
     const summary = readSummary(source);
     if (summary) {
-      return { ...summary, usedSummary: true };
+      return { ...summary, takeoffs: summary.takeoffs || [], usedSummary: true };
     }
     const flight = buildFlight(source.filePath);
-    const landings = await readLandings(source.filePath, {
+    const { landings, takeoffs } = await readRecords(source.filePath, {
       bypassCache: source.bypassCache === true,
       mtimeMs: source.mtimeMs,
     });
-    writeSummary(source, { flight, landings });
-    return { flight, landings, usedSummary: false };
+    writeSummary(source, { flight, landings, takeoffs });
+    return { flight, landings, takeoffs, usedSummary: false };
   }
 
   async function run(sources: CsvSourceIdentity[], mode: 'incremental' | 'rebuild'): Promise<void> {
@@ -275,6 +283,7 @@ function createHistoryIndexCoordinator(options: CoordinatorOptions) {
             source: identity,
             flights: normalizedFlight?.flights || [],
             landings: inspected.landings.map((landing) => landingToIndexInput(landing, source)),
+            takeoffs: inspected.takeoffs,
           });
           state.indexedFiles += 1;
           if (inspected.usedSummary) state.summaryHits += 1;

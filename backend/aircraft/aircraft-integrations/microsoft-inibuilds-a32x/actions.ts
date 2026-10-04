@@ -2,10 +2,9 @@
 
 import type {
   AircraftIntegrationAction,
-  AircraftIntegrationNumberInput,
   AircraftIntegrationPrimitive,
-  SimConnectSequenceOperation,
 } from '../types.js';
+import { nativeFcuActions } from './fcu.js';
 
 const DEFAULT_COOLDOWN_MS = 750;
 const SELECTOR_COOLDOWN_MS = 300;
@@ -51,42 +50,6 @@ function eventAction(params: {
   };
 }
 
-function numericEventAction(params: {
-  actionId: string;
-  event: string;
-  eventParameters?: readonly number[];
-  fieldId: string;
-  groupId: string;
-  input: AircraftIntegrationNumberInput;
-}): AircraftIntegrationAction {
-  const operation: SimConnectSequenceOperation = {
-    type: 'event',
-    name: params.event,
-    inputValue: { source: 'input' },
-    ...(params.eventParameters ? { parameters: params.eventParameters } : {}),
-  };
-  return {
-    id: params.actionId,
-    input: params.input,
-    guard: {
-      cooldownMs: SELECTOR_COOLDOWN_MS,
-      groupId: `microsoftIniBuildsA32x.${params.groupId}`,
-      retry: 'never',
-    },
-    routes: [{
-      id: `microsoftIniBuildsA32x.${params.actionId}.simconnectSequence`,
-      transport: 'simconnect-sequence',
-      operations: [operation],
-      readback: {
-        fieldId: params.fieldId,
-        expectedInput: true,
-        timeoutMs: READBACK_TIMEOUT_MS,
-      },
-    }],
-    verification: 'untested',
-  };
-}
-
 function relativeEventAction(params: {
   actionId: string;
   event: string;
@@ -115,14 +78,9 @@ function relativeEventAction(params: {
   };
 }
 
-// The included A320neo V2 and A321LR do not publish an external Airbus
-// InputEvent catalogue. This compact shared write layer therefore uses only
-// Microsoft-documented standard events with normalized standard-SimVar
-// readback. Toggle-only FD and A/THR requests remain explicit targets because
-// a fresh same-state readback makes an already-satisfied request a no-op.
+// Standard mode routes remain untested; native FD and FCU routes are below.
 for (const [prefix, fieldId, offEvent, onEvent] of [
   ['flightGuidance.apMaster', 'flightGuidance.apMaster', 'AUTOPILOT_OFF', 'AUTOPILOT_ON'],
-  ['flightGuidance.flightDirector', 'flightGuidance.flightDirector', 'TOGGLE_FLIGHT_DIRECTOR', 'TOGGLE_FLIGHT_DIRECTOR'],
   ['flightGuidance.autothrottleArmed', 'flightGuidance.autothrottleArmed', 'AUTO_THROTTLE_ARM', 'AUTO_THROTTLE_ARM'],
   ['flightGuidance.speedHold', 'flightGuidance.speedHold', 'AP_AIRSPEED_OFF', 'AP_AIRSPEED_ON'],
   ['flightGuidance.headingHold', 'flightGuidance.headingHold', 'AP_HDG_HOLD_OFF', 'AP_HDG_HOLD_ON'],
@@ -147,20 +105,15 @@ for (const [prefix, fieldId, offEvent, onEvent] of [
   }
 }
 
-for (const [actionId, fieldId, event, input] of [
-  ['flightGuidance.speed.set', 'fcu.speedKts', 'AP_SPD_VAR_SET', { type: 'number', min: 100, max: 399, step: 1 }],
-  ['flightGuidance.heading.set', 'fcu.headingDeg', 'HEADING_BUG_SET', { type: 'number', min: 0, max: 359, step: 1 }],
-  ['flightGuidance.altitude.set', 'fcu.altitudeFt', 'AP_ALT_VAR_SET_ENGLISH', { type: 'number', min: 0, max: 49000, step: 100 }],
-  ['flightGuidance.verticalSpeed.set', 'fcu.verticalSpeedFpm', 'AP_VS_VAR_SET_ENGLISH', { type: 'number', min: -6000, max: 6000, step: 100 }],
-] as const) {
-  actions[actionId] = numericEventAction({
-    actionId,
-    event,
-    eventParameters: [0],
-    fieldId,
-    groupId: actionId.replace(/\.set$/, ''),
-    input,
-  });
+Object.assign(actions, nativeFcuActions);
+for (const [suffix, value] of [['off', 0], ['on', 1]] as const) {
+  const id = `flightGuidance.flightDirector.${suffix}`;
+  actions[id] = { id,
+    guard: { groupId: 'microsoftIniBuildsA32x.flightGuidance.flightDirector', cooldownMs: DEFAULT_COOLDOWN_MS, retry: 'never' },
+    routes: [{ id: `microsoftIniBuildsA32x.${id}.native`, transport: 'simconnect-sequence',
+      operations: [{ type: 'lvar', name: 'L:INI_FD1_ON', unit: 'Bool', value }],
+      readback: { fieldId: 'flightGuidance.flightDirector', expectedValue: value === 1, timeoutMs: READBACK_TIMEOUT_MS, freshness: 'field' },
+    }], verification: 'partial' };
 }
 
 for (const [lightId, event] of [

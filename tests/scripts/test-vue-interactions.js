@@ -1222,7 +1222,7 @@ async function main() {
     assert.equal(emitted[0].settingsFile, 'C:/Flight Fabric/settings.json', 'app-settings runtime signal should include the settings file path');
   });
 
-  await test('the shared release gate ignores takeoff messages while landing messages still work', async () => {
+  await test('takeoff messages work by default and an explicit disabled gate leaves landing messages intact', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
     resetGlobals(windowRef, documentRef, createStorage());
@@ -1239,7 +1239,7 @@ async function main() {
       landingController: { handleLandingMessage(message) { landings.push(message); } },
     });
     try {
-      assert.equal(windowRef.FlightFabricAppSettings.TAKEOFF_SCORING_ENABLED, false);
+      assert.equal(windowRef.FlightFabricAppSettings.TAKEOFF_SCORING_ENABLED, true);
       globalThis.FlightFabricAppSettings = { ...sharedSettings, TAKEOFF_SCORING_ENABLED: false };
       handler({ type: 'takeoff', final: false });
       handler({ type: 'takeoff', final: true, grade: 'Good' });
@@ -1248,9 +1248,9 @@ async function main() {
       assert.deepEqual(takeoffs, [], 'disabled messages never reach the takeoff store');
       assert.deepEqual(refreshes, [], 'disabled messages do not trigger Logbook refreshes');
       assert.equal(landings.length, 1, 'landing publication remains independent');
-      globalThis.FlightFabricAppSettings = { ...sharedSettings, TAKEOFF_SCORING_ENABLED: true };
+      globalThis.FlightFabricAppSettings = sharedSettings;
       handler({ type: 'takeoff', final: true, grade: 'Good' });
-      assert.equal(takeoffs.length, 1, 'the same shared gate enables the retained path');
+      assert.equal(takeoffs.length, 1, 'the normal shared settings deliver takeoff messages');
       assert.equal(refreshes.length, 1);
       handler({ type: 'flightTime', active: true, startedAt: 'new-flight' });
       assert.equal(flightTimes[0]?.startedAt, 'new-flight', 'session changes reach the takeoff store');

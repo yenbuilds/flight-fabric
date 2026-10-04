@@ -136,3 +136,28 @@ test('CSV speed targets require reliable telemetry and an active autothrottle', 
   assert.equal(buildCanonicalStabilityFrameFromCsvRow({ ...row, athr_active: '0' }, 100).selectedSpeedKts, null);
   assert.equal(buildCanonicalStabilityFrameFromCsvRow({ ...row, athr_reliable: '' }, 100).selectedSpeedKts, null);
 });
+
+test('excursion confirmation respects the speed, persistence and continuity boundaries', () => {
+  const runway = { onGround: true, onRunway: true, valid: true, class: 'PAVED' };
+  const grass = { ...runway, onRunway: false, class: 'UNPAVED' };
+  for (const speed of [30, 30.1]) {
+    const filter = new RunwayExcursionFilter();
+    filter.update(runway, speed, 30, 0);
+    assert.equal(filter.update(grass, speed, 30, 100), false);
+    assert.equal(filter.update(grass, speed, 30, 600), false);
+    assert.equal(filter.update(grass, speed, 30, 1099), false);
+    assert.equal(filter.update(grass, speed, 30, 1100), speed > 30);
+  }
+  for (const interruption of ['gap', 'backwards', 'airborne', 'unknown', 'slow', 'paved']) {
+    const filter = new RunwayExcursionFilter();
+    filter.update(runway, 100, 30, 0);
+    filter.update(grass, 100, 30, 100);
+    const at = interruption === 'gap' ? 1101 : interruption === 'backwards' ? 99 : 500;
+    const surface = interruption === 'airborne' ? { ...grass, onGround: false }
+      : interruption === 'unknown' ? { ...grass, valid: false }
+      : interruption === 'paved' ? { ...grass, class: 'PAVED' } : grass;
+    assert.equal(filter.update(surface, interruption === 'slow' ? 30 : 100, 30, at), false);
+    assert.equal(filter.update(grass, 100, 30, at + 500), false, interruption);
+    assert.equal(filter.update(grass, 100, 30, at + 1000), false, `${interruption} loses the established contact`);
+  }
+});

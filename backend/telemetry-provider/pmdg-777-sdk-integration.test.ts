@@ -372,7 +372,15 @@ test('PMDG 777 expanded fixed targets dispatch once and confirm logical selector
       }
       if (name === '#74708' && value === 0x20000000) sdkSnapshot.normalized.flaps.label = '25';
       if (name === '#74614' && value === 0x20000000) sdkSnapshot.normalized.spoilers.handlePercent = 25;
-      if (name === '#69658') sdkSnapshot.normalized.lighting.domePercent = value;
+      sdkSnapshot.snapshotSequence += 1;
+      sdkSnapshot.updatedAt = new Date().toISOString();
+      return { ok: true };
+    },
+    async setNamedVar({ name, unit, value }) {
+      assert.equal(name, 'L:OH_DOME_SWITCH');
+      assert.equal(unit, 'Number');
+      events.push({ name, value });
+      sdkSnapshot.normalized.lighting.domePercent = value;
       sdkSnapshot.snapshotSequence += 1;
       sdkSnapshot.updatedAt = new Date().toISOString();
       return { ok: true };
@@ -416,7 +424,7 @@ test('PMDG 777 expanded fixed targets dispatch once and confirm logical selector
     { name: '#74708', value: 0x00020000 },
     { name: '#74614', value: 0x20000000 },
     { name: '#74614', value: 0x00020000 },
-    { name: '#69658', value: 42 },
+    { name: 'L:OH_DOME_SWITCH', value: 42 },
   ], 'expanded actions must dispatch the intended click or bounded payload');
 
   provider._aircraftIntegrationActionLastAttemptAt.clear();

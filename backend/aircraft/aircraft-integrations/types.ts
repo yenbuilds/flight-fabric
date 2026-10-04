@@ -195,14 +195,28 @@ export type MobiFlightCalculatorActionRoute =
 
 export type InputEventActionRoute = Readonly<{
   id: string;
-  inputEvent: string;
   precondition?: AircraftIntegrationActionPrecondition;
-  /** Native acknowledgement is dispatch only; an independent field must confirm. */
-  readback: AircraftIntegrationReadback;
   transport: 'input-event';
-  /** Exact adapter-owned FLOAT64 payload, including zero and signed detents. */
+}> & (Readonly<{
+  inputEvent: string;
   value: number;
-}>;
+  events?: never;
+}> & (Readonly<{
+  readback: AircraftIntegrationReadback;
+  readbacks?: never;
+}> | Readonly<{
+  readback?: never;
+  /** A shared selector can control several independently confirmed outputs. */
+  readbacks: readonly AircraftIntegrationReadback[];
+}>) | Readonly<{
+  inputEvent?: never;
+  value?: never;
+  /** Bounded, fixed native writes under one control lock, with no retry. */
+  events: readonly Readonly<{ inputEvent: string; value: number }>[];
+  readback?: never;
+  /** Every independently dated field must confirm; acknowledgement is dispatch only. */
+  readbacks: readonly AircraftIntegrationReadback[];
+}>);
 
 export type LvarActionRoute = Readonly<{
   id: string;

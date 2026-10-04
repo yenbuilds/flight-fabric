@@ -865,37 +865,45 @@ addDetentActions({
   ],
 });
 
-for (const definition of [
-  ['lighting.dome.set', 'lighting.domePercent', 69658],
-  ['lighting.circuitBreaker.set', 'lighting.circuitBreakerPercent', 72133],
-  ['lighting.overheadPanel.set', 'lighting.overheadPanelPercent', 69657],
-  ['lighting.glareshieldPanel.set', 'lighting.glareshieldPanelPercent', 69653],
-  ['lighting.glareshieldFlood.set', 'lighting.glareshieldFloodPercent', 71733],
-  ['lighting.masterBrightness.set', 'lighting.masterBrightnessPercent', 69660],
-  ['lighting.leftPanel.set', 'lighting.leftPanelPercent', 69954],
-  ['lighting.leftFlood.set', 'lighting.leftFloodPercent', 72852],
-  ['lighting.leftOutboardDisplay.set', 'lighting.leftOutboardDisplayPercent', 69952],
-  ['lighting.leftInboardDisplay.set', 'lighting.leftInboardDisplayPercent', 69953],
-  ['lighting.rightPanel.set', 'lighting.rightPanelPercent', 69917],
-  ['lighting.rightFlood.set', 'lighting.rightFloodPercent', 72482],
-  ['lighting.rightInboardDisplay.set', 'lighting.rightInboardDisplayPercent', 69918],
-  ['lighting.rightOutboardDisplay.set', 'lighting.rightOutboardDisplayPercent', 69919],
-  ['lighting.upperDisplay.set', 'lighting.upperDisplayPercent', 70112],
-  ['lighting.lowerDisplay.set', 'lighting.lowerDisplayPercent', 70113],
-  ['lighting.aislePanel.set', 'lighting.aislePanelPercent', 70368],
-  ['lighting.aisleFlood.set', 'lighting.aisleFloodPercent', 70369],
+// PMDG 777-300ER 2.4.146 77W_Cockpit_Behavior.xml writes these knob LVARs directly,
+// clamped to 0..100. The SDK's 0..100 data members are readbacks, not proof that
+// the similarly named events accept percentage payloads (the dome event did not).
+// Keep matching SDK connectivity and independent SDK confirmation for each write.
+for (const [actionId, fieldId, name] of [
+  ['lighting.dome.set', 'lighting.domePercent', 'OH_DOME_SWITCH'],
+  ['lighting.circuitBreaker.set', 'lighting.circuitBreakerPercent', 'OH_CB_LIGHT_CONTROL'],
+  ['lighting.overheadPanel.set', 'lighting.overheadPanelPercent', 'OH_PANEL_LIGHT_CONTROL'],
+  ['lighting.glareshieldPanel.set', 'lighting.glareshieldPanelPercent', 'OH_GS_PANEL_LIGHT_CONTROL'],
+  ['lighting.glareshieldFlood.set', 'lighting.glareshieldFloodPercent', 'OH_GS_FLOOD_LIGHT_CONTROL'],
+  ['lighting.masterBrightness.set', 'lighting.masterBrightnessPercent', 'OH_MASTER_BRIGHT_ROTATE'],
+  ['lighting.leftPanel.set', 'lighting.leftPanelPercent', 'LEFT_PANEL_LIGHT_CONTROL'],
+  ['lighting.leftFlood.set', 'lighting.leftFloodPercent', 'LEFT_FLOOD_LIGHT_CONTROL'],
+  ['lighting.leftOutboardDisplay.set', 'lighting.leftOutboardDisplayPercent', 'LEFT_OUTBD_BRIGHT_CONTROL'],
+  ['lighting.leftInboardDisplay.set', 'lighting.leftInboardDisplayPercent', 'LEFT_INBD_BRIGHT_CONTROL'],
+  ['lighting.rightPanel.set', 'lighting.rightPanelPercent', 'RIGHT_PANEL_LIGHT_CONTROL'],
+  ['lighting.rightFlood.set', 'lighting.rightFloodPercent', 'RIGHT_FLOOD_LIGHT_CONTROL'],
+  ['lighting.rightInboardDisplay.set', 'lighting.rightInboardDisplayPercent', 'RIGHT_INBD_BRIGHT_CONTROL'],
+  ['lighting.rightOutboardDisplay.set', 'lighting.rightOutboardDisplayPercent', 'RIGHT_OUTBD_BRIGHT_CONTROL'],
+  ['lighting.upperDisplay.set', 'lighting.upperDisplayPercent', 'PED_UPPER_BRIGHT_CONTROL'],
+  ['lighting.lowerDisplay.set', 'lighting.lowerDisplayPercent', 'PED_LOWER_BRIGHT_CONTROL'],
+  ['lighting.aislePanel.set', 'lighting.aislePanelPercent', 'PED_PANEL_LIGHT_CONTROL'],
+  ['lighting.aisleFlood.set', 'lighting.aisleFloodPercent', 'PED_FLOOD_LIGHT_CONTROL'],
 ] as const) {
-  actions[definition[0]] = setSdkNumberAction({
-    actionId: definition[0],
-    fieldId: definition[1],
-    eventId: definition[2],
-    groupId: `pmdg777.${definition[1]}`,
-    input: { min: 0, max: 100, step: 1 },
-    round: 'nearest',
-    // Absolute dimmer settings can follow a completed global preset immediately.
-    // The per-knob in-flight guard and whole-preset lock still prevent overlap.
-    cooldownMs: 0,
-  });
+  actions[actionId] = {
+    id: actionId,
+    input: { type: 'number', min: 0, max: 100, step: 1 },
+    // Absolute dimmers can follow a confirmed preset immediately; in-flight and
+    // whole-preset locks still prevent overlap.
+    guard: { cooldownMs: 0, groupId: `pmdg777.${fieldId}`, retry: 'never' },
+    routes: [{
+      id: `pmdg777.${actionId}.lvar`,
+      transport: 'simconnect-sequence',
+      requiredSdkAdapter: SDK_ADAPTER_ID,
+      operations: [{ type: 'lvar', name: `L:${name}`, unit: 'Number', inputValue: { source: 'input' } }],
+      readback: { fieldId, expectedInput: true, timeoutMs: DEFAULT_READBACK_TIMEOUT_MS },
+    }],
+    verification: 'untested',
+  };
 }
 
 for (const definition of [

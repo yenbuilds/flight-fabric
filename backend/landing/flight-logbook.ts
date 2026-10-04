@@ -2,6 +2,8 @@
 
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
+import type { TakeoffLogEntry } from '../takeoff/takeoff-record';
+const { extractRecordedTakeoff } = require('../takeoff/takeoff-record') as typeof import('../takeoff/takeoff-record');
 const { getBundleFromCsvPath, listBundleCsvPaths } = require('../flight-recording/recording-bundle-layout') as {
   getBundleFromCsvPath: (_csvPath: unknown) => { bundleName: string } | null;
   listBundleCsvPaths: (_outputDir: string) => string[];
@@ -38,8 +40,9 @@ const { safeReplaceTextFileSync } = require('../utils/safe-fs.js') as {
     targetPath: string;
   }) => string;
 };
-const { getCsvRowWidthError } = require('../utils/csv.js') as {
+const { getCsvRowWidthError, isTextCsvColumn } = require('../utils/csv.js') as {
   getCsvRowWidthError: (_headers: unknown[], _values: unknown[], _rowNumber: number) => string | null;
+  isTextCsvColumn: (_column: string) => boolean;
 };
 const { normalizeRetiredSpoilerStability } = require('../stability/retired-spoiler-compat.js') as {
   normalizeRetiredSpoilerStability: (value: unknown) => GenericRecord | null;
@@ -181,7 +184,8 @@ type GroupTrendSummary = {
   latestTimestampMs: number | null;
 };
 
-type FileLandingCacheEntry = {
+type FlightRecords = { landings: LandingEntry[]; takeoffs: TakeoffLogEntry[] };
+type FileLandingCacheEntry = FlightRecords & {
   landings: LandingEntry[];
   mtimeMs: number;
   bundleStatusRequired: boolean;
@@ -1038,6 +1042,7 @@ function parseLandingsFromContent(
   splitCsvLines: (content: string, options?: { trimAndDropEmpty?: boolean }) => string[],
   gradeLandingForImpactProfile: (vsFpm: number, profileId: unknown) => GenericRecord | null
     = gradeLandingForRecordedProfile,
+  takeoffs?: TakeoffLogEntry[],
 ): LandingEntry[] {
   const lines = splitCsvLines(content, { trimAndDropEmpty: true });
   if (lines.length < 2) return [];
@@ -1051,6 +1056,9 @@ function parseLandingsFromContent(
   const landings: LandingEntry[] = [];
   const compactDefaults: GenericRecord = {};
   const bounceState = createHistoryBounceState();
+  const recording: { bundleName: string; recordingSessionId?: string; flightId?: string; rowIndex?: number } = {
+    bundleName: getBundleFromCsvPath(filePath)?.bundleName || path.basename(filePath),
+  };
 
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index];
@@ -1068,6 +1076,10 @@ function parseLandingsFromContent(
       const value = values[valueIndex];
       if (value === '' || value === undefined) {
         row[headers[valueIndex]] = null;
+        continue;
+      }
+      if (isTextCsvColumn(headers[valueIndex])) {
+        row[headers[valueIndex]] = value;
         continue;
       }
       if (value === 'true') {
@@ -1099,6 +1111,15 @@ function parseLandingsFromContent(
     );
 
     const recordType = toText(row.record_type) || values[recordTypeIndex];
+    if (recordType === 'RECORDING_MANIFEST') {
+      recording.recordingSessionId = toText(row.recording_session_id) || undefined;
+      recording.flightId = toText(row.flight_id) || undefined;
+    }
+    if (recordType === 'TAKEOFF' && takeoffs) {
+      const takeoff = extractRecordedTakeoff(row, { ...recording, rowIndex: index - 1 });
+      if (takeoff) takeoffs.push(takeoff);
+      continue;
+    }
     if (recordType === 'SAMPLE') {
       observeHistoryBounceSample(bounceState, row, impactGradeFromVs);
       continue;
@@ -1376,7 +1397,7 @@ function applySavedFlightAnalysis(
   return savedLandings.map((entry) => ({ ...entry })) as LandingEntry[];
 }
 
-async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOptions = {}): Promise<LandingEntry[]> {
+async function getFlightRecordsFromCsvFile(filePath: string, options: CsvFileReadOptions = {}): Promise<FlightRecords> {
   const { parseCsvLine, splitCsvLines } = require('../utils/csv.js') as {
     parseCsvLine: (line: string, options?: { trimValues?: boolean }) => string[];
     splitCsvLines: (content: string, options?: { trimAndDropEmpty?: boolean }) => string[];
@@ -1389,7 +1410,7 @@ async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOpti
   let fileHandle: import('fs/promises').FileHandle | null = null;
   try {
     const before = fs.lstatSync(filePath);
-    if (!before.isFile() || before.isSymbolicLink() || before.size > MAX_LOGBOOK_CSV_BYTES) return [];
+    if (!before.isFile() || before.isSymbolicLink() || before.size > MAX_LOGBOOK_CSV_BYTES) return { landings: [], takeoffs: [] };
     fileHandle = await fs.promises.open(filePath, 'r');
     const stat = await fileHandle.stat();
     const after = fs.lstatSync(filePath);
@@ -1402,12 +1423,12 @@ async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOpti
       || after.dev !== before.dev
       || after.ino !== before.ino
       || stat.size > MAX_LOGBOOK_CSV_BYTES
-    ) return [];
+    ) return { landings: [], takeoffs: [] };
     const mtimeMs = Number.isFinite(Number(options.mtimeMs)) ? Number(options.mtimeMs) : stat.mtimeMs;
     const cacheKey = normalizeCachePath(filePath);
     const cached = landingsFileCache.get(cacheKey);
     if (!options.bypassCache && !options.ignoreAnalysisRescore && canReuseLandingCache(cached, filePath, mtimeMs)) {
-      return cached.landings.slice();
+      return { landings: cached.landings.slice(), takeoffs: cached.takeoffs.slice() };
     }
 
     // Passing the already-verified FileHandle preserves the inode pin while
@@ -1417,14 +1438,15 @@ async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOpti
     const completion = await verifyRecordingBundleStatusWithCsvBuffer(filePath, fileBuffer);
     if (completion.required && !completion.healthy) {
       landingsFileCache.delete(cacheKey);
-      return [];
+      return { landings: [], takeoffs: [] };
     }
     const bundleFingerprint = completion.strictBundle ? getBundleFingerprint(filePath) : null;
     if (completion.strictBundle && bundleFingerprint === null) {
       landingsFileCache.delete(cacheKey);
-      return [];
+      return { landings: [], takeoffs: [] };
     }
     const content = fileBuffer.toString('utf8');
+    const takeoffs: TakeoffLogEntry[] = [];
     const recordedLandings = parseLandingsFromContent(
       content,
       filePath,
@@ -1432,6 +1454,7 @@ async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOpti
       gradeLandingForRecordedProfile,
       splitCsvLines,
       gradeLandingForProfile,
+      takeoffs,
     );
     const fileLandings = options.ignoreAnalysisRescore
       ? recordedLandings
@@ -1440,18 +1463,23 @@ async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOpti
       landingsFileCache.set(cacheKey, {
         mtimeMs,
         landings: fileLandings,
+        takeoffs,
         bundleStatusRequired: completion.required,
         strictBundle: completion.strictBundle,
         bundleFingerprint,
       });
     }
-    return fileLandings.slice();
+    return { landings: fileLandings.slice(), takeoffs: takeoffs.slice() };
   } finally {
     try { await fileHandle?.close(); } catch {}
   }
 }
 
-async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<LandingEntry[]> {
+async function getLandingsFromCsvFile(filePath: string, options: CsvFileReadOptions = {}): Promise<LandingEntry[]> {
+  return (await getFlightRecordsFromCsvFile(filePath, options)).landings;
+}
+
+async function getFlightRecordsFromCSVs(options: CsvLogbookOptions = {}): Promise<FlightRecords> {
   const bypassCachePaths = new Set(
     Array.isArray(options.bypassCachePaths)
       ? options.bypassCachePaths
@@ -1462,6 +1490,7 @@ async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<Lan
 
   const csvFiles = listLogbookCsvFiles({ allowedCsvPaths: options.allowedCsvPaths });
   const allLandings: LandingEntry[] = [];
+  const allTakeoffs: TakeoffLogEntry[] = [];
   const misses: Array<{ filePath: string; mtimeMs: number }> = [];
   const csvFilePaths = csvFiles.map(({ filePath }) => filePath);
   pruneStaleLandingsFileCache(csvFilePaths);
@@ -1472,6 +1501,7 @@ async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<Lan
     const shouldBypassCache = bypassCachePaths.has(cacheKey);
     if (!shouldBypassCache && canReuseLandingCache(cached, filePath, mtimeMs)) {
       allLandings.push(...cached.landings);
+      allTakeoffs.push(...cached.takeoffs);
     } else {
       misses.push({ filePath, mtimeMs });
     }
@@ -1486,8 +1516,9 @@ async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<Lan
         if (missIndex >= misses.length) return;
         const { filePath, mtimeMs } = misses[missIndex];
         try {
-          const fileLandings = await getLandingsFromCsvFile(filePath, { bypassCache: true, mtimeMs });
-          allLandings.push(...fileLandings);
+          const records = await getFlightRecordsFromCsvFile(filePath, { bypassCache: true, mtimeMs });
+          allLandings.push(...records.landings);
+          allTakeoffs.push(...records.takeoffs);
         } catch {
           landingsFileCache.delete(normalizeCachePath(filePath));
         }
@@ -1498,7 +1529,12 @@ async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<Lan
 
   pruneExcessLandingsFileCache(csvFilePaths);
   allLandings.sort((left, right) => (right.timestampMs ?? 0) - (left.timestampMs ?? 0));
-  return allLandings;
+  allTakeoffs.sort((left, right) => (right.timestampMs ?? 0) - (left.timestampMs ?? 0));
+  return { landings: allLandings, takeoffs: allTakeoffs };
+}
+
+async function getLandingsFromCSVs(options: CsvLogbookOptions = {}): Promise<LandingEntry[]> {
+  return (await getFlightRecordsFromCSVs(options)).landings;
 }
 
 function computeStatsFromEntries(entries: LandingEntry[]): GenericRecord {
@@ -1577,6 +1613,8 @@ function computeStatsFromEntries(entries: LandingEntry[]): GenericRecord {
 }
 
 const flightLogbookApi = {
+  getFlightRecordsFromCsvFile,
+  getFlightRecordsFromCSVs,
   LOGBOOK_FILE,
   addEntry,
   clearAll,

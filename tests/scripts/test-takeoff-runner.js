@@ -50,7 +50,7 @@ const MOCK_RUNWAY = {
   surface: 'ASP',
 };
 
-function withMockRunwayProvider(mockRunwayDatabase, fn, enabled = true) {
+function withMockRunwayProvider(mockRunwayDatabase, fn, enabled = sharedSettings.TAKEOFF_SCORING_ENABLED) {
   const previousRunner = require.cache[takeoffRunnerPath];
   const previousRunwayDatabase = require.cache[runwayDatabasePath];
   const previousSettings = require.cache[sharedSettingsPath];
@@ -231,9 +231,12 @@ function runTakeoff(createRunner, {
   return { out, finals, runner };
 }
 
-test('the release gate disables all takeoff publications and pending state', () => {
-  assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, false, 'takeoff capture is disabled for this release');
+test('the production capability enables takeoff capture and remains immutable', () => {
+  assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, true, 'takeoff capture is enabled in the normal build');
   assert.equal(Object.isFrozen(sharedSettings), true, 'settings cannot mutate the release capability');
+});
+
+test('an explicitly disabled capability prevents all takeoff publications and pending state', () => {
   withMockRunwayProvider({}, (createTakeoffRunner) => {
     for (const options of [{}, { settleBack: true }, { settleBack: true, abortAfterSettle: true }]) {
       const { out, finals, runner } = runTakeoff(createTakeoffRunner, options);
@@ -276,6 +279,7 @@ test('a standing-start takeoff is scored once the aircraft is clearly airborne',
     assert.equal(typeof final.liftoff.flapsNotch, 'number', 'the flap setting at liftoff is recorded');
     assert.equal(final.screenHeight.reached, true);
     assert.equal(final.screenHeight.heightFt, 35);
+    assert.equal(final.screenHeight.heightSource, 'radio');
     assert.ok(final.screenHeight.remainingFt > 0 && final.screenHeight.remainingFt < 2000, `screen remaining ${final.screenHeight.remainingFt}`);
     assert.equal(final.hopCount, 0);
     assert.equal(final.runwayExcursion, false);
@@ -288,6 +292,7 @@ test('a standing-start takeoff is scored once the aircraft is clearly airborne',
     const payload = finals[0];
     assert.equal(payload.phase, 'TAKEOFF');
     assert.equal(payload.takeoff_final, true);
+    assert.equal(payload.takeoff_analysis.screenHeight.heightSource, 'radio');
     assert.equal(payload.takeoff_runway_use_grade, 'Recorded');
     assert.equal(payload.icao, 'YSCB');
     assert.equal(payload.flight_elapsed_ms, pending.timestampMs - (payload.timestamp_ms - payload.flight_elapsed_ms), 'elapsed time is measured at liftoff');
@@ -510,21 +515,24 @@ test('takeoff:final payload carries every critical CSV mapping into a TAKEOFF ro
     ];
     historical = { rows, payload };
   });
-  // Replay still uses recorded results, never reconstructing or rescoring them.
-  assert.equal(require(sharedSettingsPath).TAKEOFF_SCORING_ENABLED, false);
-  assert.equal(require(schemaFieldMapPath).getV1Columns().length, 331);
-  const { rows, payload } = historical;
-  const generated = generateTimelineFromRows('C:/tmp/takeoff-test/telemetry.csv', rows);
-  const events = generated?.timeline?.events || generated?.events || [];
-  const marker = events.find((event) => event.type === 'marker' && event.markerType === 'takeoff');
-  assert(marker, 'disabled scoring must still replay a recorded takeoff marker');
-  assert.equal(marker.timestampMs, payload.timestamp_ms, 'the marker sits at the liftoff moment, not the scoring moment');
-  assert.equal(marker.elapsedMs, payload.flight_elapsed_ms, 'and its elapsed time matches the liftoff');
-  assert.equal(marker.context.runway_use_grade, 'Recorded');
-  assert.equal(marker.context.icao, 'YSCB');
-  assert.equal(marker.context.ias_kts, 146);
-  assert.ok(Math.abs(marker.context.runway_remaining_ft - 2000) <= 30);
-  assert.ok(Array.isArray(marker.context.flags));
+  // Recorded results remain readable even if capture is disabled again later.
+  for (const enabled of [true, false]) {
+    withMockRunwayProvider({}, () => {
+      assert.equal(require(schemaFieldMapPath).getV1Columns().length, enabled ? 352 : 331);
+      const { rows, payload } = historical;
+      const generated = generateTimelineFromRows('C:/tmp/takeoff-test/telemetry.csv', rows);
+      const events = generated?.timeline?.events || generated?.events || [];
+      const marker = events.find((event) => event.type === 'marker' && event.markerType === 'takeoff');
+      assert(marker, 'recorded takeoff markers remain readable regardless of the capture gate');
+      assert.equal(marker.timestampMs, payload.timestamp_ms, 'the marker sits at the liftoff moment, not the scoring moment');
+      assert.equal(marker.elapsedMs, payload.flight_elapsed_ms, 'and its elapsed time matches the liftoff');
+      assert.equal(marker.context.runway_use_grade, 'Recorded');
+      assert.equal(marker.context.icao, 'YSCB');
+      assert.equal(marker.context.ias_kts, 146);
+      assert.ok(Math.abs(marker.context.runway_remaining_ft - 2000) <= 30);
+      assert.ok(Array.isArray(marker.context.flags));
+    }, enabled);
+  }
 });
 
 const offRunway = { valid: true, onGround: true, onRunway: false, runwayLike: false, class: 'UNPAVED' };
@@ -567,7 +575,7 @@ test('a 60-second airborne gap cannot fabricate a screen crossing', () => {
     const { out } = runTakeoff(createRunner, { climbDurationMs: 65_000, transform(frame, time) {
       if (!frame.wow) {
         firstAir ??= time.nowEpochMs;
-        if (time.nowEpochMs > firstAir && time.nowEpochMs < firstAir + 60_000) return null;
+        if (time.nowEpochMs > firstAir + 100 && time.nowEpochMs < firstAir + 60_000) return null;
       }
       return frame;
     } });
@@ -633,7 +641,10 @@ test('repeated source snapshots cannot fabricate a crossing and stale snapshots 
     let firstAir = null;
     const { out } = runTakeoff(createRunner, { transform(frame, time) {
       if (!frame.wow) firstAir ??= time.nowEpochMs;
-      frame.simconnect.rustSimvars = { updatedAt: new Date(firstAir ?? time.nowEpochMs).toISOString() };
+      // Establish liftoff with two distinct observations before the source stops updating.
+      frame.simconnect.rustSimvars = {
+        updatedAt: new Date(firstAir == null ? time.nowEpochMs : Math.min(time.nowEpochMs, firstAir + 100)).toISOString(),
+      };
       return frame;
     } });
     const final = out.find((message) => message.final);
@@ -979,12 +990,134 @@ test('a telemetry gap after one contact indication preserves its uncertainty', (
   });
 });
 
+for (const interruption of ['missing-frames', 'stale-source']) test(`a single WOW release followed by ${interruption} cannot publish a departure`, () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const result = runTakeoff(createRunner, { transform(frame, time) {
+      const ms = time.nowEpochMs - 1_700_300_000_000;
+      if (interruption === 'stale-source') {
+        frame.simconnect.rustSimvars = {
+          updatedAt: new Date(1_700_300_000_000 + Math.min(ms, 32200)).toISOString(),
+        };
+      } else if (ms > 32200 && ms < 36200) return null;
+      if (ms > 32200) {
+        frame.wow = true;
+        frame.surface.onGround = true;
+        frame.display.raFt = 0;
+        frame.ra = 0;
+      }
+      return frame;
+    } });
+    assert.equal(result.finals.length, 0, 'missing data cannot corroborate the only airborne observation');
+    assert.ok(result.out.some(message => message.cancelled && message.reason === 'unconfirmed_liftoff'));
+    assert.equal(result.runner.isPending(), false);
+  });
+});
+
 test('two distinct ground observations retain a short genuine settle-back', () => {
   withMockRunway(MOCK_RUNWAY, (createRunner) => {
     const result = runTakeoff(createRunner, { settleBack: true, settleForMs: 200 });
     assert.equal(result.finals.length, 1);
     assert.equal(result.finals[0].takeoff_hop_count, 1);
     assert.ok(!result.finals[0].takeoff_analysis.flags.some((flag) => flag.code === 'ground_contact_uncertain'));
+  });
+});
+
+test('repeated WOW chatter without physical lift cannot become a confirmed settle-back', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const result = runTakeoff(createRunner, { transform(frame, time) {
+      const ms = time.nowEpochMs - 1_700_300_000_000;
+      frame.fdm = { altPlaneFt: 1900 + frame.display.raFt };
+      if (ms >= 25300 && ms <= 26100) frame.attitudeDebug.pitchDegPrimary = (ms - 25300) / 100;
+      if (ms === 26000 || ms === 26100) {
+        frame.wow = false;
+        frame.surface.onGround = false;
+      }
+      return frame;
+    } });
+    assert.equal(result.finals.length, 1);
+    assert.equal(result.finals[0].takeoff_hop_count, 0, 'two wheel-state samples alone cannot prove physical liftoff');
+    assert.equal(result.finals[0].takeoff_analysis.rotation.priorMaxRateDegS, null,
+      'pitch movement during unconfirmed WOW release is not an earlier liftoff rotation');
+    assert.ok(!result.finals[0].takeoff_analysis.flags.some(flag => flag.code === 'settled_after_liftoff'));
+    assert.ok(!result.out.some(message => message.settled === true));
+  });
+});
+
+test('missing lift evidence retains uncertain contact without inventing a settle-back', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const result = runTakeoff(createRunner, { transform(frame, time) {
+      const ms = time.nowEpochMs - 1_700_300_000_000;
+      if (ms >= 25900 && ms <= 26400) {
+        frame.ra = frame.display.raFt = frame.alt_msl = null;
+        frame.vs = frame.display.vsFpm = null;
+        if (ms === 26000 || ms === 26100) {
+          frame.wow = false;
+          frame.surface.onGround = false;
+        }
+      }
+      return frame;
+    } });
+    assert.equal(result.finals.length, 1);
+    assert.equal(result.finals[0].takeoff_hop_count, 0);
+    assert.ok(result.finals[0].takeoff_roll_distance_ft > 3700, 'uncertain contact cannot discard the established roll');
+    assert.ok(result.finals[0].takeoff_analysis.flags.some(flag => flag.code === 'ground_contact_uncertain'));
+    assert.ok(!result.finals[0].takeoff_analysis.flags.some(flag => flag.code === 'settled_after_liftoff'));
+  });
+});
+
+for (const end of ['stop', 'reset', 'expiry']) test(`an uncertain ground return is cancelled on ${end} without leaking into a later departure`, () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const wrappedCreateRunner = () => {
+      const runner = createRunner();
+      const update = runner.update.bind(runner);
+      runner.update = (frame, broadcast, time, ctx) => {
+        if (end === 'reset' && time.nowEpochMs === 1_700_300_027_000) runner.reset();
+        update(frame, broadcast, time, ctx);
+      };
+      return runner;
+    };
+    const result = runTakeoff(wrappedCreateRunner, { climbDurationMs: 70000, transform(frame, time) {
+      const ms = time.nowEpochMs - 1_700_300_000_000;
+      if (ms === 26000 || ms === 26100) {
+        frame.wow = false;
+        frame.surface.onGround = false;
+      }
+      if (end !== 'reset' && ms >= 26400) {
+        frame.wow = true;
+        frame.surface.onGround = true;
+        frame.ra = frame.display.raFt = 0;
+        frame.gs = frame.display.gsKts = end === 'stop' ? 0 : 100;
+      }
+      return frame;
+    } });
+    assert.ok(result.out.some(message => message.cancelled === true));
+    assert.equal(result.runner.isPending(), false);
+    assert.equal(result.finals.length, end === 'reset' ? 1 : 0);
+    if (end === 'reset') {
+      assert.equal(result.finals[0].takeoff_hop_count, 0);
+      assert.ok(!result.finals[0].takeoff_analysis.flags.some(flag => flag.code === 'ground_contact_uncertain'));
+    }
+  });
+});
+
+test('a sustained shallow takeoff hop retains corroborating lift below the individual hard thresholds', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const result = runTakeoff(createRunner, { transform(frame, time) {
+      const ms = time.nowEpochMs - 1_700_300_000_000;
+      frame.fdm = { altPlaneFt: 1900 + frame.display.raFt };
+      if (ms >= 26000 && ms < 27000) {
+        frame.wow = false;
+        frame.surface.onGround = false;
+        frame.display.raFt = 0.4;
+        frame.ra = 0.4 / 3.280839895;
+        frame.fdm.altPlaneFt = 1900.8;
+        frame.display.vsFpm = 48;
+      }
+      return frame;
+    } });
+    assert.equal(result.finals.length, 1);
+    assert.equal(result.finals[0].takeoff_hop_count, 1, 'corroborated shallow lift must survive chatter suppression');
+    assert.ok(result.finals[0].takeoff_analysis.flags.some(flag => flag.code === 'settled_after_liftoff'));
   });
 });
 
@@ -1037,6 +1170,221 @@ for (const variation of ['duplicate', 'drop-third', 'missing-surface']) test(`re
     }
     assert.equal(result.finals[0].takeoff_roll_start_source, 'runway_aligned', 'missing entry evidence remains a rolling-start estimate');
   });
+});
+
+test('a recovered departure onto a paved runway shoulder keeps the edge finding without inventing an excursion', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const { finals } = runTakeoff(createRunner, { transform(frame, time) {
+      const ms = time.nowEpochMs - 1_700_300_000_000;
+      if (frame.wow && ms >= 25000 && ms <= 26000) {
+        frame.simconnect.lon = pointAlong(0, 90).lon;
+        frame.surface.onRunway = false;
+        frame.surface.class = 'PAVED';
+      }
+      return frame;
+    } });
+    assert.equal(finals.length, 1);
+    const final = finals[0];
+    assert.equal(final.takeoff_analysis.lateral.liftoffOffsetFt, 0);
+    assert.equal(final.runway_excursion, false, 'paved shoulder is outside the surface-filter coverage');
+    assert.equal(final.takeoff_assessment, 'warning');
+    assert.deepEqual(final.takeoff_analysis.flags.map(flag => flag.code), ['lateral_offset']);
+    assert.match(JSON.stringify(buildTakeoffCsvEventData(final).takeoff_analysis), /lateral_offset/);
+  });
+});
+
+for (const simRate of [0.5, 1, 2, 4]) test(`time measurements use simulation seconds at ${simRate}x while UTC and distances stay unchanged`, () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const baseline = runTakeoff(createRunner).finals[0];
+    const actual = runTakeoff(createRunner, { transform(frame, time) {
+      frame.simTime = { absoluteSec: 63_884_999_000 + (time.nowEpochMs - 1_700_300_000_000) / 1000 * simRate };
+      return frame;
+    } }).finals[0];
+    assert.ok(actual);
+    assert.equal(actual.takeoff_liftoff_timestamp_ms, baseline.takeoff_liftoff_timestamp_ms);
+    assert.equal(actual.takeoff_roll_distance_ft, baseline.takeoff_roll_distance_ft);
+    assert.equal(actual.takeoff_roll_duration_s, Math.round(baseline.takeoff_roll_duration_s * simRate * 10) / 10);
+    assert.ok(Math.abs(actual.takeoff_rotation_rate_deg_s - baseline.takeoff_rotation_rate_deg_s / simRate) <= 0.02);
+    assert.ok(Math.abs(actual.takeoff_screen_height_elapsed_s - baseline.takeoff_screen_height_elapsed_s * simRate) <= 0.2);
+    assert.equal(actual.takeoff_analysis.rollDurationBasis, 'simulator');
+    assert.deepEqual(actual.takeoff_analysis.flags, []);
+  });
+});
+
+test('the final rotation cannot reuse the initial rotation across an airborne settle-back interval', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const final = runTakeoff(createRunner, { settleBack: true }).finals[0];
+    assert.equal(final.takeoff_hop_count, 1);
+    assert.equal(final.takeoff_rotation_rate_deg_s, null, 'held pitch during the short second ground contact does not observe a new rotation');
+    assert.ok(final.takeoff_analysis.rotation.priorMaxRateDegS > 0, 'the first rotation remains recorded separately');
+    assert.ok(final.takeoff_analysis.rotation.maxRateDegS > 0);
+  });
+});
+
+test('a simulator speed change during the roll uses elapsed simulation time rather than the final rate', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const baseline = runTakeoff(createRunner).finals[0];
+    const final = runTakeoff(createRunner, { transform(frame, time) {
+      const seconds = (time.nowEpochMs - 1_700_300_000_000) / 1000;
+      frame.simTime = { absoluteSec: 63_884_999_000 + seconds + Math.max(0, seconds - 28) };
+      return frame;
+    } }).finals[0];
+    assert.equal(final.takeoff_liftoff_timestamp_ms, baseline.takeoff_liftoff_timestamp_ms);
+    assert.equal(final.takeoff_roll_duration_s, 32.6, '28.4 capture seconds include only 4.2 additional simulation seconds');
+    assert.ok(Math.abs(final.takeoff_rotation_rate_deg_s - baseline.takeoff_rotation_rate_deg_s / 2) <= 0.01,
+      'rates are independently rounded to two decimal places');
+    assert.equal(final.takeoff_assessment, 'normal');
+  });
+});
+
+test('liftoff detection respects the configured speed floor and upper plausibility limit', () => {
+  for (const speed of [34.9, 35, 250, 250.1]) {
+    withMockRunway(MOCK_RUNWAY, (createRunner) => {
+      const result = runTakeoff(createRunner, { transform(frame) {
+        const scaled = frame.wow ? frame.display.gsKts / 140 * speed : speed;
+        frame.gs = frame.ias = frame.display.gsKts = frame.display.iasKts = scaled;
+        return frame;
+      } });
+      assert.equal(result.finals.length, speed >= 35 && speed <= 250 ? 1 : 0, `${speed} kt`);
+    });
+  }
+});
+
+test('missing radio height uses geometric climb without joining different height sources', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    const geometric = runTakeoff(createRunner, { transform(frame) {
+      frame.ra = null;
+      frame.display.raFt = null;
+      frame.fdm = { ...frame.fdm, altPlaneFt: frame.alt_msl };
+      return frame;
+    } }).finals[0];
+    assert.equal(geometric.takeoff_analysis.screenHeight.reached, true);
+    assert.equal(geometric.takeoff_analysis.screenHeight.heightSource, 'plane');
+    assert.ok(geometric.takeoff_screen_height_elapsed_s > 0);
+    const switched = runTakeoff(createRunner, { climbDurationMs: 50000, transform(frame, time) {
+      frame.fdm = { ...frame.fdm, altPlaneFt: frame.alt_msl };
+      if (!frame.wow) {
+        frame.display.raFt = 20;
+        frame.ra = 20 / 3.280839895;
+        if (time.nowEpochMs >= 1_700_300_033_000) {
+          frame.ra = null;
+          frame.display.raFt = null;
+          frame.fdm.altPlaneFt = 1980;
+        }
+      }
+      return frame;
+    } }).finals[0];
+    assert.equal(switched.takeoff_analysis.screenHeight.reached, false, 'a source switch is not an observed height crossing');
+    assert.equal(switched.takeoff_analysis.screenHeight.heightSource, null);
+    assert.equal(switched.takeoff_assessment, 'caution');
+  });
+});
+
+test('altimeter corrections cannot invent a height crossing or early finalization without radio height', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    for (const physicalAltitudeAvailable of [true, false]) {
+      const result = runTakeoff(createRunner, { climbDurationMs: 50000, transform(frame, time) {
+        const corrected = time.nowEpochMs >= 1_700_300_034_000;
+        frame.ra = null; frame.display.raFt = null;
+        frame.alt_msl = corrected ? 2020 : 1900;
+        frame.fdm = {
+          altPlaneFt: physicalAltitudeAvailable ? 1905 : null,
+          altCalibratedFt: corrected ? 2025 : 1905,
+        };
+        return frame;
+      } });
+      assert.equal(result.finals.length, 1);
+      const payload = result.finals[0];
+      assert.equal(payload.takeoff_analysis.screenHeight.reached, false);
+      assert.equal(payload.takeoff_analysis.screenHeight.heightSource, null);
+      const final = result.out.find(event => event.final === true);
+      assert.equal(final.finalizeReason, physicalAltitudeAvailable ? 'timeout' : 'timeout_no_height');
+      assert.equal(final.assessment, 'caution');
+    }
+  });
+});
+
+test('geometric climb survives indicated-altitude changes and raw-plane fallback without mixing a missing baseline', () => {
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    for (const source of ['fdm', 'raw', 'missing_liftoff']) {
+      const result = runTakeoff(createRunner, { climbDurationMs: 50000, transform(frame, time) {
+        const physicalAltitudeFt = frame.alt_msl;
+        frame.ra = null; frame.display.raFt = null;
+        frame.alt_msl = time.nowEpochMs >= 1_700_300_034_000 ? 2400 : 1900;
+        if (source === 'raw') frame.alt_plane_ft = physicalAltitudeFt;
+        else frame.fdm = { altPlaneFt: source === 'missing_liftoff' && time.nowEpochMs <= 1_700_300_032_200 ? null : physicalAltitudeFt };
+        return frame;
+      } });
+      const payload = result.finals[0];
+      assert.ok(payload);
+      assert.equal(payload.takeoff_analysis.screenHeight.reached, source !== 'missing_liftoff');
+      assert.equal(payload.takeoff_analysis.screenHeight.heightSource, source === 'missing_liftoff' ? null : 'plane');
+      if (source !== 'missing_liftoff') assert.ok(payload.takeoff_screen_height_elapsed_s > 2);
+    }
+  });
+});
+
+test('height crossings are unchanged below sea level, at sea level and at a high-elevation airport', () => {
+  for (const heightSource of ['radio', 'plane']) {
+    let reference = null;
+    for (const elevationFt of [0, -1200, 14000]) {
+      withMockRunway({ ...MOCK_RUNWAY, elevation_ft: elevationFt }, (createRunner) => {
+        const { out, finals } = runTakeoff(createRunner, { transform(frame) {
+          const heightFt = frame.display.raFt;
+          // Move the airport and the entire flight vertically together. The
+          // aircraft reference point starts above the pavement, not at MSL.
+          frame.alt_msl = elevationFt + 14 + heightFt;
+          frame.fdm = { altPlaneFt: elevationFt + 14 + heightFt };
+          if (heightSource === 'plane') frame.ra = frame.display.raFt = null;
+          return frame;
+        } });
+        assert.equal(finals.length, 1);
+        const final = out.find((event) => event.final === true);
+        assert.equal(final.finalizeReason, 'airborne');
+        assert.equal(final.screenHeight.heightSource, heightSource);
+        assert.equal(final.screenHeight.reached, true);
+        assert.ok(final.screenHeight.elapsedS > 2, 'absolute aircraft altitude cannot satisfy the height target at liftoff');
+        const observed = {
+          screenHeight: final.screenHeight,
+          runwayUse: final.runwayUse,
+          assessment: final.assessment,
+          flags: final.flags,
+        };
+        if (reference) assert.deepEqual(observed, reference, `${heightSource} at ${elevationFt} ft elevation`);
+        else reference = observed;
+      });
+    }
+  }
+});
+
+test('terrain-relative radio height and geometric gain retain their distinct reference without a screen-end penalty', () => {
+  const results = {};
+  withMockRunway(MOCK_RUNWAY, (createRunner) => {
+    for (const heightSource of ['radio', 'plane']) {
+      const { finals } = runTakeoff(createRunner, { liftoffAlongFt: 5000, transform(frame) {
+        // The terrain falls away: radio height rises four times as fast as
+        // the aircraft's physical altitude. Neither is an AAL measurement.
+        const physicalClimbFt = frame.display.raFt / 4;
+        frame.alt_msl = 1900 + physicalClimbFt;
+        frame.fdm = { altPlaneFt: 1900 + physicalClimbFt };
+        if (heightSource === 'plane') frame.ra = frame.display.raFt = null;
+        return frame;
+      } });
+      assert.equal(finals.length, 1);
+      const analysis = finals[0].takeoff_analysis;
+      assert.equal(analysis.screenHeight.heightSource, heightSource);
+      assert.equal(analysis.screenHeight.reached, true);
+      assert.equal(analysis.assessment, 'normal', 'an observed height crossing is not a runway-performance assessment');
+      assert.equal(analysis.runwayUse.score, null);
+      assert.deepEqual(analysis.flags, []);
+      results[heightSource] = analysis.screenHeight;
+    }
+  });
+  assert.ok(results.radio.elapsedS < results.plane.elapsedS);
+  assert.equal(results.radio.beyondRunwayEnd, false);
+  assert.equal(results.plane.beyondRunwayEnd, true);
+  assert.ok(results.radio.remainingFt > 0);
+  assert.ok(results.plane.remainingFt < 0);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

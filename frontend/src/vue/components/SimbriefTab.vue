@@ -116,9 +116,9 @@ function hasValues(object) {
         <span>Flight briefing</span>
       </div>
       <div class="simbrief-import-form">
-        <div class="simbrief-card-head sr-only">
-          <label for="sb-username-input" class="simbrief-fetch-label">SimBrief username or pilot ID</label>
-          <div id="sb-username-help" class="text-xs text-muted-fg">Use the account you planned your flight with.</div>
+        <div class="simbrief-card-head">
+          <label for="sb-username-input" class="simbrief-fetch-label text-xs font-medium text-muted-fg">SimBrief username or pilot ID</label>
+          <div id="sb-username-help" class="sr-only">Use the account you planned your flight with.</div>
         </div>
         <div class="simbrief-fetch-row">
           <input

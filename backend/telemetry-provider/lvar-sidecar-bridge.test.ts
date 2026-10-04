@@ -959,16 +959,27 @@ test('LvarSidecarBridge tracks MobiFlight health and uses the bounded ACK comman
   assert.equal(capturedAckType, 'executeMobiFlightCodeAck');
 });
 
-test('LvarSidecarBridge clears native Input Event availability across disconnects', () => {
+test('LvarSidecarBridge keeps native Input Events during readback refresh but revokes them at session boundaries', () => {
   withPatchedBridge({}, (LvarSidecarBridge) => {
     const bridge = new LvarSidecarBridge();
     assert.equal(bridge.getSnapshot().inputEventsAvailable, false);
+    bridge._onStdout('{"type":"status","state":"connecting"}\n');
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, false, 'connecting cannot grant an unreported API');
     bridge._onStdout('{"type":"inputEventStatus","available":true}\n');
     assert.equal(bridge.getSnapshot().inputEventsAvailable, true);
-    bridge._onStdout('{"type":"status","state":"disconnected"}\n');
-    assert.equal(bridge.getSnapshot().inputEventsAvailable, false);
-    bridge._onStdout('{"type":"status","state":"connected"}\n');
-    assert.equal(bridge.getSnapshot().inputEventsAvailable, false);
+    bridge._onStdout('{"type":"status","state":"running"}\n');
+    bridge.setSubscriptions([{ key: 'lightStates', name: 'A:LIGHT STATES', unit: 'Mask' }], 'max8');
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, true, 'profile refresh keeps the same native API');
+    assert.deepEqual(bridge.getSnapshot().values, {}, 'subscription transition still invalidates readback');
+    bridge._onStdout('{"type":"status","state":"connecting","error":"LVAR values unavailable yet"}\n');
+    assert.equal(bridge.getSnapshot().inputEventsAvailable, true, 'missing gauge data does not revoke native API');
+    for (const state of ['disconnected', 'error', 'stopped', 'starting', 'disabled']) {
+      bridge._onStdout('{"type":"inputEventStatus","available":true}\n');
+      bridge._onStdout(JSON.stringify({ type: 'status', state }) + '\n');
+      assert.equal(bridge.getSnapshot().inputEventsAvailable, false, `${state} revokes the API`);
+      bridge._onStdout('{"type":"status","state":"connected"}\n');
+      assert.equal(bridge.getSnapshot().inputEventsAvailable, false, 'reconnect requires a new capability report');
+    }
   });
 });
 

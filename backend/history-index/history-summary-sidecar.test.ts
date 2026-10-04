@@ -14,11 +14,11 @@ const {
   writeHistorySummary,
 } = require('./history-summary-sidecar.js');
 
-test('history summary analysis contract is bumped for approach assessment v4', () => {
-  assert.equal(HISTORY_ANALYSIS_VERSION, 11);
+test('history summary analysis contract includes recorded takeoffs', () => {
+  assert.equal(HISTORY_ANALYSIS_VERSION, 12);
 });
 
-test('history summary sidecar round-trips portable flight and landing metadata', () => {
+test('history summary sidecar round-trips portable flight, landing and takeoff metadata', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-history-summary-'));
   try {
     const paths = getBundlePaths(root, '2026-07-22_10-42-00Z--12345678');
@@ -36,6 +36,7 @@ test('history summary sidecar round-trips portable flight and landing metadata',
         displayRouteLabel: 'YMML → YSSY',
       },
       landings: [{ id: 'landing-1', timestampMs: 123, vsFpm: -164 }],
+      takeoffs: [{ id: 'takeoff-1', timestampMs: 100, analysis: { schemaVersion: 3, provenance: { ruleVersion: 'recorded-rule' } } }],
     }), true);
 
     const summaryPath = getHistorySummaryPath(csvPath);
@@ -45,6 +46,7 @@ test('history summary sidecar round-trips portable flight and landing metadata',
     assert.equal(restored.flight.aircraft, 'Test Aircraft');
     assert.equal(restored.landings.length, 1);
     assert.equal(restored.landings[0].vsFpm, -164);
+    assert.deepEqual(restored.takeoffs, [{ id: 'takeoff-1', timestampMs: 100, analysis: { schemaVersion: 3, provenance: { ruleVersion: 'recorded-rule' } } }]);
 
     const raw = fs.readFileSync(summaryPath, 'utf8');
     assert.equal(raw.includes(csvPath), false, 'portable summary must not persist an absolute CSV path');

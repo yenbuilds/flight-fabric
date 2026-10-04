@@ -243,6 +243,37 @@ test('detects the Microsoft / iniBuilds A320neo V2 and A321LR from documented id
   }
 });
 
+test('path-only AircraftLoaded identities use path rules before TITLE is available', () => {
+  // Recorded included-aircraft paths, not broad model-name aliases.
+  for (const [cfgPath, expectedId] of [
+    ['SimObjects\\Airplanes\\microsoft-a320neo\\presets\\inibuilds\\a20n\\config\\aircraft.CFG', 'inibuilds-a320neo-v2'],
+    ['SimObjects\\Airplanes\\microsoft-a321\\presets\\inibuilds\\a21n\\config\\aircraft.CFG', 'inibuilds-a321lr'],
+    ['SimObjects\\Airplanes\\asobo_b737max\\presets\\asobo\\b737max8_passengers\\config\\aircraft.CFG', 'microsoft-737-max-8'],
+  ]) {
+    for (const path of [cfgPath, cfgPath.replaceAll('\\', '/')]) {
+      assertEqual(profileLoader.detectProfile(path).id, expectedId, 'path-only identity');
+      assertEqual(profileLoader.detectProfile(path, { hint: path }).id, expectedId, 'explicit path hint');
+    }
+  }
+});
+
+test('path-only normalization preserves vendor exclusions and explicit path precedence', () => {
+  const fenixPath = 'Community/fnx-aircraft-320/SimObjects/Airplanes/FNX_32X/aircraft.cfg';
+  assertEqual(profileLoader.detectProfile(fenixPath).id, 'fenix-a320', 'existing Fenix path');
+  assertEqual(profileLoader.detectProfile(
+    'SimObjects/Airplanes/microsoft-a321/presets/inibuilds/a21n/config/aircraft.CFG',
+    { hint: fenixPath },
+  ).id, 'fenix-a320', 'an explicit current hint must not be replaced by a conflicting path alias');
+  for (const path of [
+    'Community/latinvfr-aircraft-a321neo/SimObjects/Airplanes/LVFR_A321neo/aircraft.cfg',
+    'Community/fsltl-traffic-base/SimObjects/Airplanes/FSLTL_FNX_A321/aircraft.cfg',
+    'SimObjects/Airplanes/A321/aircraft.cfg',
+  ]) assertNotEqual(profileLoader.detectProfile(path).id, 'inibuilds-a321lr', path);
+  assertNotEqual(profileLoader.detectProfile(
+    'Community/somevendor/SimObjects/Airplanes/FlyByWire_A380X_Copy/aircraft.cfg',
+  ).id, 'fbw-a380x', 'path must not bypass exclusions by matching as a display title');
+});
+
 test('Microsoft / iniBuilds A32x matchers do not misclassify legacy, Fenix, FBW, LatinVFR, or sibling variants', () => {
   const cases = [
     ['Fenix A320neo', undefined, 'inibuilds-a320neo-v2'],

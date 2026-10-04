@@ -1,4 +1,4 @@
-import { aircraftSprite, createChaseCamera, projectTaxiScene, smoothRoute } from './autotaxi-chase-view.js';
+import { renderTaxiMap } from './taxi-map.js';
 import { splitRoute } from './taxi-progress.js';
 import { createDeparturePreview } from './departure-preview.js';
 import { renderPushbackMap, pushbackCaption } from './pushback-map.js';
@@ -39,9 +39,9 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   const pushbackView = node('button', 'button button-quiet', 'Pushback');
   pushbackView.id = 'taxi-pushback-view'; pushbackView.type = 'button'; figure.appendChild(pushbackView);
   pushbackView.addEventListener('click', () => { pushbackSelected = true; refresh(); });
-  const viewButton = node('button', 'button button-quiet', 'Overview');
+  const viewButton = node('button', 'button button-quiet', 'Taxi map');
   viewButton.id = 'taxi-view'; viewButton.type = 'button'; figure.appendChild(viewButton);
-  viewButton.addEventListener('click', () => { if (pushbackSelected && departure.data) { pushbackSelected = false; overview = false; } else overview = !overview; refresh(); });
+  viewButton.addEventListener('click', () => { pushbackSelected = false; refresh(); });
   const map = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   map.setAttribute('viewBox', '0 0 360 300'); map.setAttribute('role', 'img');
   map.setAttribute('aria-label', 'Taxi route'); map.setAttribute('focusable', 'false');
@@ -49,10 +49,9 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   const caption = figure.appendChild(node('figcaption', 'taxi-caption'));
   const cautions = element.appendChild(node('p', 'taxi-cautions'));
   element.appendChild(node('p', 'taxi-note muted', 'Routes use simulator scenery and may cross runways. Follow your ATC clearance and check traffic, obstacles and aircraft clearance.'));
-  const camera = createChaseCamera(), sprite = aircraftSprite(camera);
   const prefix = 'taxi-' + now() + '-' + Math.random().toString(36).slice(2) + '-';
   let connection = {}, context = '', catalogue = {}, state = {}, route = null, scene = null;
-  let overview = false, timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = '', standsLoaded = false, drawn = null;
+  let timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = '', standsLoaded = false;
   const pending = new Map();
   let departure = { data: null, fresh: false }, pushbackSelected = true, planDefault = {};
   let pushback = { active: false, pending: '', canStart: false, state: {} };
@@ -241,14 +240,16 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
       || (has('preview') || has('parkings') ? 'Loading airport guidance…' : completed && !pushback.completed ? TAXI_COPY.complete : '');
     reason.className = 'taxi-reason ' + (completed && !error && !unavailable && !busy ? 'taxi-complete' : 'muted');
     reason.hidden = !reason.textContent;
-    const displayRoute = route || departure.data?.route, displayScene = route ? scene : departure.data?.scene;
+    const displayRoute = route || departure.data?.route;
     figure.hidden = !displayRoute; cautions.hidden = !displayRoute;
     pushbackView.hidden = !departure.data;
+    viewButton.hidden = !departure.data;
     const pushing = !!(pushbackSelected && departure.data);
     pushbackView.setAttribute('aria-pressed', String(pushing));
+    viewButton.setAttribute('aria-pressed', String(!pushing));
     if (!displayRoute || !connection.visible) return;
     if (pushing) {
-      drawn = null; viewButton.textContent = 'Route ribbon'; viewButton.disabled = false;
+      map.removeAttribute('data-taxi-map');
       renderPushbackMap(map, departure.data, departure.fresh);
       caption.textContent = pushbackCaption(departure.data, departure.fresh);
       cautions.hidden = true;
@@ -257,9 +258,9 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     map.removeAttribute('data-pushback-map');
     const poseSource = route ? (fresh() ? state.aircraft : null) : (departure.fresh ? departure.data.aircraft : null);
     const a = poseSource && [poseSource.x, poseSource.z, poseSource.headingDeg].every(Number.isFinite) ? poseSource : null;
-    renderRoute(displayRoute, displayScene, a);
+    renderRoute(displayRoute, a);
   }
-  function renderRoute(route, scene, a) {
+  function renderRoute(route, a) {
     const progress = splitRoute(route.points, a), end = route.points[route.points.length - 1];
     const offRoute = progress.distanceM > 25;
     const arrived = a && Math.hypot(end.x - a.x, end.z - a.z) <= 5;
@@ -272,52 +273,8 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     cautions.textContent = [(route.runwayTravelM > 1 ? 'Includes ' + Math.round(route.runwayTravelM) + ' m along an intervening runway.' : ''),
       (route.joinM >= 1 ? 'The first ' + Math.round(route.joinM) + ' m cross open ground to reach the centreline. Check for obstacles.' : '')].filter(Boolean).join(' ');
     cautions.hidden = !cautions.textContent;
-    viewButton.textContent = overview ? 'Follow aircraft' : 'Overview'; viewButton.disabled = !a;
-    map.setAttribute('aria-label', 'Taxi route to ' + destination + '. ' + caption.textContent);
-    const pose = a ? [a.x, a.z, a.headingDeg].join(':') : '';
-    if (drawn && drawn.route === route && drawn.scene === scene && drawn.overview === overview && drawn.pose === pose) return;
-    drawn = { route, scene, overview, pose };
-    clear(map);
-    if (a && !overview) drawChase(a, route, scene); else drawOverview(a, route, scene);
-  }
-  function svg(tag, attributes, text) {
-    const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    Object.keys(attributes).forEach(key => n.setAttribute(key, attributes[key]));
-    if (text !== undefined) n.textContent = text;
-    map.appendChild(n); return n;
-  }
-  function path(d, className, attrs = {}) { if (d) svg('path', Object.assign({ d, class: className }, attrs)); }
-  function drawChase(a, route, scene) {
-    const parts = splitRoute(smoothRoute(route.points), a);
-    const projected = projectTaxiScene(camera, { scene, route, aircraft: a, done: parts.done, ahead: parts.ahead });
-    path(projected.pavement.taxi, 'taxi-pavement'); path(projected.pavement.runway, 'taxi-runway');
-    projected.runways.forEach(rw => {
-      path(rw.slab, 'taxi-runway'); path(rw.dashes, 'taxi-marking');
-      rw.labels.forEach(l => svg('text', { x: l.x, y: l.y, 'font-size': l.size, class: 'taxi-map-label', 'text-anchor': 'middle' }, l.text));
-    });
-    path(projected.centrelines.taxi, 'taxi-centreline');
-    projected.stands.forEach(st => {
-      path(st.d, 'taxi-stand');
-      if (st.label) svg('text', { x: st.label.x, y: st.label.y, 'font-size': st.label.size, class: 'taxi-map-label', 'text-anchor': 'middle' }, st.label.text);
-    });
-    path(projected.route.done, 'taxi-done'); path(projected.route.glow, 'taxi-glow'); path(projected.route.ahead, 'taxi-ahead');
-    if (projected.hold) { path(projected.hold.dash, 'taxi-ahead'); path(projected.hold.bar, 'taxi-hold'); }
-    path(projected.destinationStand, 'taxi-destination'); path(projected.stop, 'taxi-stop');
-    path(sprite.shadow, 'taxi-shadow');
-    sprite.faces.forEach(face => path(face.d, '', { fill: face.fill, stroke: 'var(--taxi-ground)', 'stroke-width': 0.5 }));
-  }
-  function drawOverview(a, route, scene) {
-    const points = route.points.concat(route.holdShort ? [route.holdShort] : [], a ? [a] : []);
-    const xs = points.map(p => p.x), zs = points.map(p => p.z);
-    const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
-    const scale = Math.min(312 / Math.max(50, maxX - minX), 252 / Math.max(50, maxZ - minZ));
-    const xy = p => [180 + (p.x - (minX + maxX) / 2) * scale, 150 - (p.z - (minZ + maxZ) / 2) * scale];
-    const line = ps => ps.map((p, i) => (i ? 'L' : 'M') + xy(p).join(',')).join('');
-    (scene && scene.links || []).forEach(l => path(line([l.a, l.b]), 'taxi-overview-pavement', { 'stroke-width': Math.max(1, l.widthM * scale) }));
-    path(line(route.points), 'taxi-overview-route');
-    const end = xy(route.points[route.points.length - 1]);
-    svg('circle', { cx: end[0], cy: end[1], r: 5, class: 'taxi-stop' });
-    if (a) { const p = xy(a); svg('path', { d: 'M0,-8L5,6L0,3L-5,6Z', class: 'taxi-marker', transform: 'translate(' + p.join(',') + ') rotate(' + a.headingDeg + ')' }); }
+    map.setAttribute('aria-label', 'North-up taxi route to ' + destination + '. ' + caption.textContent);
+    renderTaxiMap(map, route, a);
   }
   refresh();
   return { element, update, receive, reset, destroy() { pushbackControls.destroy(); connection = {}; reset(); departurePreview.destroy(); if (timer !== null) clearTimeout(timer); timer = null; } };

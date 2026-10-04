@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia';
-import { joystickBindingFromRuntime } from '../../voice/joystick-binding.js';
 import { readStorageValue, writeStorageValue } from '../../app/browser-environment.js';
 import { initialVoiceTestState } from '../../voice/voice-setup-test.js';
 
@@ -10,29 +9,19 @@ const DEFAULT_RUNTIME = Object.freeze({
   development: false,
   enabled: false,
   error: '',
-  joystick: null,
-  joystickAvailable: false,
-  joystickConnected: false,
   modelId: '',
   readbackError: '',
   shortcut: '',
   shortcutError: '',
   shortcutRegistered: false,
+  controllerEnabled: false,
+  controller: { binding: null, state: 'unbound', error: '' },
 });
-
-// While the user binds a joystick button: the sticks the desktop runtime can
-// read, the first button pressed, and why detection stopped if it failed.
-const DEFAULT_JOYSTICK_LEARN = Object.freeze({
-  active: false,
-  devices: [],
-  captured: null,
-  error: '',
-});
-const MAX_LEARN_DEVICES = 16;
 
 export const useVoiceControlStore = defineStore('voiceControl', {
   state: () => ({
     runtime: { ...DEFAULT_RUNTIME },
+    controllerSetup: { active: false, phase: 'idle', held: false, selection: null, message: '' },
     // True only in the desktop app, where the Electron voice bridge exists.
     // Recognition can still be off or failing; this says voice is possible.
     bridgeAvailable: false,
@@ -50,7 +39,6 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     spokenReadbacks: true,
     voiceTest: initialVoiceTestState(),
     activeSessionId: '',
-    joystickLearn: { ...DEFAULT_JOYSTICK_LEARN },
     _runtimeActions: null,
   }),
   getters: {
@@ -59,7 +47,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     // setup. Only runtime registration confirms a working push-to-talk binding.
     setupTask: (state) => {
       if (!state.bridgeAvailable || state.status === 'initializing') return null;
-      const hasBinding = Boolean(state.runtime.shortcut || state.runtime.joystick);
+      const hasBinding = Boolean(state.runtime.shortcut
+        || (state.runtime.controllerEnabled && state.runtime.controller.binding));
       if (!state.runtime.enabled) {
         // A previously configured user can deliberately turn voice off.
         return hasBinding ? null : { action: 'Set up voice control', detail: 'Choose your microphone and how to talk.', optional: true };
@@ -68,7 +57,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
       if (state.inputDevicesError) return { action: 'Check voice setup', detail: 'Microphone access needs attention.' };
       if (!state.runtime.shortcutRegistered) return {
         action: hasBinding ? 'Check voice setup' : 'Set up voice control',
-        detail: hasBinding ? 'Push-to-talk needs attention.' : 'Choose a push-to-talk shortcut.',
+        detail: hasBinding ? 'Push-to-talk needs attention.'
+          : state.runtime.controllerEnabled ? 'Choose a keyboard shortcut or controller button.' : 'Choose a push-to-talk shortcut.',
         optional: !hasBinding,
       };
       return null;
@@ -85,7 +75,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     // Recognition/capture failures and unmatched speech are terminal for only
     // the current attempt. Keep the button usable so begin() can re-check the
     // live runtime/aircraft gates and start an immediate retry.
-    ready() { return !this.voiceTestBusy && ['ready', 'sent', 'failed', 'error', 'unmatched', 'transcribed'].includes(this.status); },
+    ready() { return !this.controllerSetup.active && !this.voiceTestBusy && ['ready', 'sent', 'failed', 'error', 'unmatched', 'transcribed'].includes(this.status); },
   },
   actions: {
     dismissSetup() {
@@ -101,14 +91,17 @@ export const useVoiceControlStore = defineStore('voiceControl', {
       if (info.enabled !== true) this.inputDevicesError = '';
       const engine = info?.engine || {};
       const ptt = info?.pushToTalk || {};
+      const controllerEnabled = ptt.controllerEnabled === true;
+      this.controllerSetup = controllerEnabled && info.controllerSetup ? {
+        active: info.controllerSetup.active === true, phase: info.controllerSetup.phase || 'idle',
+        held: info.controllerSetup.held === true, selection: info.controllerSetup.selection || null,
+        message: typeof info.controllerSetup.message === 'string' ? info.controllerSetup.message : '',
+      } : { active: false, phase: 'idle', held: false, selection: null, message: '' };
       this.runtime = {
         available: info.available === true,
         development: info.development === true,
         enabled: info.enabled === true,
         error: typeof info.error === 'string' ? info.error : '',
-        joystickAvailable: ptt.joystickAvailable === true,
-        joystick: ptt.joystickAvailable === true ? joystickBindingFromRuntime(ptt.joystick) : null,
-        joystickConnected: ptt.joystickAvailable === true && ptt.joystickConnected === true,
         modelId: typeof engine.modelId === 'string' ? engine.modelId : '',
         readbackError: typeof info.readback?.lastError === 'string' ? info.readback.lastError : '',
         shortcut: typeof ptt.accelerator === 'string'
@@ -116,6 +109,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
           : DEFAULT_RUNTIME.shortcut,
         shortcutError: typeof ptt.error === 'string' ? ptt.error : '',
         shortcutRegistered: ptt.registered === true,
+        controllerEnabled,
+        controller: controllerEnabled && ptt.controller ? ptt.controller : DEFAULT_RUNTIME.controller,
       };
     },
     setState(status, text = '') {
@@ -147,52 +142,15 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     },
     setSpokenReadbacks(value = true) { this.spokenReadbacks = value === true; },
     setVoiceTestState(patch) { this.voiceTest = { ...this.voiceTest, ...patch }; },
-    setJoystickLearn({ active = false, error = '' } = {}) {
-      this.joystickLearn = {
-        ...DEFAULT_JOYSTICK_LEARN,
-        active: active === true,
-        error: typeof error === 'string' ? error.slice(0, 240) : '',
-      };
-    },
-    // Events from the desktop runtime's detection session. A device event
-    // adds or removes a stick, the first button press is what gets bound,
-    // and a stopped event ends the session whatever its reason.
-    applyJoystickLearnEvent(event = {}) {
-      if (!this.joystickLearn.active) return;
-      if (event?.type === 'device') {
-        const device = joystickBindingFromRuntime({ ...event, button: 1 });
-        if (!device) return;
-        const devices = this.joystickLearn.devices.filter((known) => known.path !== device.path);
-        if (event.connected === true && devices.length < MAX_LEARN_DEVICES) {
-          devices.push({ vendorId: device.vendorId, productId: device.productId, name: device.name, path: device.path });
-        }
-        this.joystickLearn = { ...this.joystickLearn, devices };
-        return;
-      }
-      if (event?.type === 'button') {
-        if (event.down !== true || this.joystickLearn.captured) return;
-        const captured = joystickBindingFromRuntime(event);
-        if (captured) this.joystickLearn = { ...this.joystickLearn, captured };
-        return;
-      }
-      if (event?.type === 'stopped') {
-        this.joystickLearn = {
-          ...this.joystickLearn,
-          active: false,
-          error: event.reason === 'error'
-            ? String(event.error || 'Joystick detection stopped.').slice(0, 240)
-            : this.joystickLearn.error,
-        };
-      }
-    },
     pressToTalk() { return this._runtimeActions?.begin?.() || false; },
     releaseToTalk() { return this._runtimeActions?.finish?.() || false; },
     cancel() { return this._runtimeActions?.cancel?.('user') || false; },
     setRecognitionEnabled(value) { return this._runtimeActions?.setRecognitionEnabled?.(value) || false; },
+    startControllerSetup() { return this._runtimeActions?.startControllerSetup?.() || false; },
+    cancelControllerSetup() { return this._runtimeActions?.cancelControllerSetup?.() || false; },
+    saveControllerButton() { return this._runtimeActions?.saveControllerButton?.() || false; },
+    clearControllerButton() { return this._runtimeActions?.clearControllerButton?.() || false; },
     setShortcut(value) { return this._runtimeActions?.setShortcut?.(value) || false; },
-    setJoystick(value) { return this._runtimeActions?.setJoystick?.(value) || false; },
-    startJoystickLearn() { return this._runtimeActions?.startJoystickLearn?.() || false; },
-    stopJoystickLearn() { return this._runtimeActions?.stopJoystickLearn?.() || false; },
     refreshInputDevices(options) { return this._runtimeActions?.refreshInputDevices?.(options) || []; },
     selectInputDevice(value) { return this._runtimeActions?.setInputDevice?.(value) || false; },
     toggleSpokenReadbacks(value) { return this._runtimeActions?.setSpokenReadbacks?.(value) || false; },

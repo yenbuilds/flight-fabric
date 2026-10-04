@@ -54,6 +54,7 @@ type SourceIndexInput = {
   };
   flights?: FlightIndexInput[];
   landings?: LandingIndexInput[];
+  takeoffs?: AnyRecord[];
 };
 type FlightIndexInput = {
   flightId: string;
@@ -105,6 +106,7 @@ type QueryFlightsOptions = {
 type QueryLandingsOptions = {
   limit?: unknown;
   offset?: unknown;
+  legacyTakeoffs?: AnyRecord[];
 };
 type OpenStoreResult =
   | {
@@ -661,12 +663,35 @@ function createHistoryIndexStore(db: AnyRecord) {
     };
   }
 
+  // Takeoffs share the existing debrief (historically named landing) freshness
+  // lane and transaction. Callers that only replace landing analysis preserve
+  // takeoffs; an explicit array replaces the complete recorded takeoff set.
+  function replaceSourceTakeoffsInTransaction(identity: HistorySourceIdentity, takeoffs?: AnyRecord[]): void {
+    if (!Array.isArray(takeoffs)) return;
+    db.prepare('DELETE FROM history_takeoffs WHERE source_id = ?').run(identity.sourceId);
+    const insert = db.prepare(`
+      INSERT INTO history_takeoffs (takeoff_id, source_id, timestamp_ms, payload_json)
+      VALUES (?, ?, ?, ?)
+    `);
+    for (const takeoff of takeoffs) {
+      const id = nullableString(takeoff.id);
+      if (!id) throw new Error('Recorded takeoff is missing its event identity');
+      insert.run(
+        `${identity.sourceId}:${id}`,
+        identity.sourceId,
+        nullableInteger(takeoff.timestampMs) || 0,
+        JSON.stringify(takeoff),
+      );
+    }
+  }
+
   function replaceSourceLandingsIndexInTransaction(input: SourceIndexInput, indexedAtMs = Date.now()): AnyRecord {
     const identity = upsertSourceInTransaction(input, indexedAtMs, 'landings');
     const landings = Array.isArray(input.landings) ? input.landings : [];
     const { primaryFlightId, flightKeysById } = getSourceFlightIds(identity.sourceId);
 
     db.prepare('DELETE FROM history_landings WHERE source_id = ?').run(identity.sourceId);
+    replaceSourceTakeoffsInTransaction(identity, input.takeoffs);
 
     const insertLanding = db.prepare(`
       INSERT INTO history_landings (
@@ -718,6 +743,7 @@ function createHistoryIndexStore(db: AnyRecord) {
 
     db.prepare('DELETE FROM history_landings WHERE source_id = ?').run(identity.sourceId);
     db.prepare('DELETE FROM history_flights WHERE source_id = ?').run(identity.sourceId);
+    replaceSourceTakeoffsInTransaction(identity, input.takeoffs || []);
 
     const insertFlight = db.prepare(`
       INSERT INTO history_flights (
@@ -947,6 +973,7 @@ function createHistoryIndexStore(db: AnyRecord) {
     let sourcesPruned = 0;
     let landingsPruned = 0;
     const deleteLandings = db.prepare('DELETE FROM history_landings WHERE source_id = ?');
+    const deleteTakeoffs = db.prepare('DELETE FROM history_takeoffs WHERE source_id = ?');
     const clearLandingFreshness = db.prepare(`
       UPDATE history_source_files
       SET landings_mtime_ms = NULL, landings_size_bytes = NULL, landings_indexed_at_ms = NULL
@@ -959,6 +986,7 @@ function createHistoryIndexStore(db: AnyRecord) {
     for (const row of rows || []) {
       if (!keepPaths.has(normalizeHistorySourcePath(row.csv_path))) {
         const result = deleteLandings.run(row.source_id);
+        deleteTakeoffs.run(row.source_id);
         clearLandingFreshness.run(row.source_id);
         deleteOrphanSource.run(row.source_id);
         sourcesPruned += 1;
@@ -1112,14 +1140,125 @@ function createHistoryIndexStore(db: AnyRecord) {
     try {
       const page = queryLogbookEntries(options);
       const stats = queryLogbookStats();
+      const takeoffs = queryTakeoffEntries(options);
+      const takeoffStats = queryTakeoffStats(options);
       db.exec('COMMIT');
-      return { page, stats };
+      return { page, stats, takeoffs, takeoffStats };
     } catch (err) {
       try {
         db.exec('ROLLBACK');
       } catch {}
       throw err;
     }
+  }
+
+  // Keep legacy JSON-only records available without making the derived SQLite
+  // cache their sole store. This bounded compatibility input is shared by the
+  // page and aggregate queries, so totals always describe the same entries.
+  const takeoffRowsSql = `
+    WITH takeoff_rows AS (
+      SELECT takeoff_id, timestamp_ms, payload_json FROM history_takeoffs
+      UNION ALL
+      SELECT json_extract(value, '$.id'),
+        COALESCE(CAST(json_extract(value, '$.timestampMs') AS INTEGER), 0), value
+      FROM json_each(?) WHERE type = 'object'
+    )
+  `;
+
+  function legacyTakeoffsJson(entries: unknown): string {
+    return JSON.stringify(Array.isArray(entries)
+      ? entries.filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry)).slice(0, 2000)
+      : []);
+  }
+
+  function queryTakeoffEntries(options: QueryLandingsOptions = {}): AnyRecord {
+    const limit = normalizeLimit(options.limit, 500, 1000);
+    const offset = normalizeOffset(options.offset);
+    const legacy = legacyTakeoffsJson(options.legacyTakeoffs);
+    // nosemgrep: ff.sqlite.dynamic-sql-construction -- takeoffRowsSql is a fixed application-owned CTE; legacy data remains bound.
+    const total = db.prepare(`${takeoffRowsSql} SELECT COUNT(*) AS total FROM takeoff_rows`).get(legacy);
+    const rows = limit === 0 ? []
+      // nosemgrep: ff.sqlite.dynamic-sql-construction -- the shared CTE is fixed SQL, with all input values bound.
+      : db.prepare(`${takeoffRowsSql}
+        SELECT takeoff_id, payload_json FROM takeoff_rows
+        ORDER BY timestamp_ms DESC, takeoff_id ASC LIMIT ? OFFSET ?
+      `).all(legacy, limit, offset);
+    return {
+      entries: rows.map((row: AnyRecord) => ({ ...JSON.parse(row.payload_json), indexId: row.takeoff_id })),
+      totalMatching: Number(total?.total) || 0,
+      limit,
+      offset,
+    };
+  }
+
+  function queryTakeoffStats(options: QueryLandingsOptions = {}): AnyRecord {
+    const legacy = legacyTakeoffsJson(options.legacyTakeoffs);
+    // nosemgrep: ff.sqlite.dynamic-sql-construction -- takeoffRowsSql is fixed application SQL; compatibility records remain bound.
+    const totals = db.prepare(`${takeoffRowsSql}
+      SELECT COUNT(*) AS total,
+        COUNT(DISTINCT NULLIF(json_extract(payload_json, '$.icao'), '')) AS airports,
+        COUNT(DISTINCT NULLIF(json_extract(payload_json, '$.aircraft'), '')) AS aircraft,
+        SUM(CASE WHEN json_extract(payload_json, '$.assessment') IN ('caution', 'warning', 'critical')
+          OR json_extract(payload_json, '$.runwayUseGrade') IN ('Late Liftoff', 'Dangerous', 'Overrun')
+          OR EXISTS (SELECT 1 FROM json_each(payload_json, '$.flags') AS flag
+            WHERE json_extract(CASE WHEN flag.type = 'object' THEN flag.value ELSE '{}' END, '$.severity')
+              IN ('caution', 'warning', 'critical'))
+          THEN 1 ELSE 0 END) AS caution_count,
+        AVG(CASE WHEN json_type(payload_json, '$.rollDistanceFt') IN ('integer', 'real')
+          THEN json_extract(payload_json, '$.rollDistanceFt') END) AS avg_roll_distance_ft,
+        AVG(CASE WHEN json_type(payload_json, '$.runwayUsedPct') IN ('integer', 'real')
+          THEN json_extract(payload_json, '$.runwayUsedPct') END) AS avg_runway_used_pct,
+        MIN(CASE WHEN json_type(payload_json, '$.runwayRemainingFt') IN ('integer', 'real')
+          THEN json_extract(payload_json, '$.runwayRemainingFt') END) AS min_runway_remaining_ft
+      FROM takeoff_rows
+    `).get(legacy);
+    // nosemgrep: ff.sqlite.dynamic-sql-construction -- fixed CTE and fixed query; all input values remain bound.
+    const grades = db.prepare(`${takeoffRowsSql}
+      SELECT COALESCE(NULLIF(json_extract(payload_json, '$.runwayUseGrade'), ''), 'Unknown') AS label,
+        COUNT(*) AS count FROM takeoff_rows GROUP BY label
+    `).all(legacy);
+    const averageUsed = nullableNumber(totals?.avg_runway_used_pct);
+    return {
+      total: Number(totals?.total) || 0,
+      grades: readCountMap(grades),
+      cautionCount: Number(totals?.caution_count) || 0,
+      avgRollDistanceFt: roundNullableNumber(totals?.avg_roll_distance_ft),
+      avgRunwayUsedPct: averageUsed === null ? null : Math.round(averageUsed * 10) / 10,
+      minRunwayRemainingFt: nullableNumber(totals?.min_runway_remaining_ft),
+      airports: Number(totals?.airports) || 0,
+      aircraft: Number(totals?.aircraft) || 0,
+    };
+  }
+
+  /** Return only legacy records whose canonical CSV counterpart is unambiguous. */
+  function queryRecordedTakeoffMatches(entries: AnyRecord[]): string[] {
+    const rows = db.prepare(`
+      SELECT json_extract(legacy.value, '$.id') AS id
+      FROM json_each(?) AS legacy
+      JOIN history_takeoffs AS recorded
+        ON recorded.timestamp_ms = json_extract(legacy.value, '$.timestampMs')
+      WHERE legacy.type = 'object'
+        AND json_type(legacy.value, '$.id') = 'text'
+        AND CASE
+          WHEN NULLIF(json_extract(legacy.value, '$.recording.recordingSessionId'), '') IS NOT NULL
+            AND NULLIF(json_extract(recorded.payload_json, '$.recording.recordingSessionId'), '') IS NOT NULL
+          THEN json_extract(legacy.value, '$.recording.recordingSessionId')
+            = json_extract(recorded.payload_json, '$.recording.recordingSessionId')
+          ELSE NULLIF(json_extract(legacy.value, '$.recording.bundleName'), '')
+            = NULLIF(json_extract(recorded.payload_json, '$.recording.bundleName'), '')
+        END
+        AND (NULLIF(json_extract(legacy.value, '$.eventId'), '') IS NULL
+          OR json_extract(legacy.value, '$.eventId') = json_extract(recorded.payload_json, '$.eventId'))
+      GROUP BY json_extract(legacy.value, '$.id')
+      HAVING COUNT(DISTINCT recorded.takeoff_id) = 1
+        AND NOT EXISTS (
+          SELECT 1 FROM json_each(legacy.value) AS old_field
+          LEFT JOIN json_each(recorded.payload_json) AS saved_field ON saved_field.key = old_field.key
+          WHERE old_field.key NOT IN ('id', 'timestamp', 'recording') AND old_field.type <> 'null'
+            AND (saved_field.type IS NULL OR old_field.type <> saved_field.type OR old_field.value IS NOT saved_field.value)
+        )
+    `).all(legacyTakeoffsJson(entries));
+    return rows.map((row: AnyRecord) => row.id);
   }
 
   function queryLogbookTrendRows(kind: 'aircraft' | 'airports' | 'runways', limit = 5): AnyRecord[] {
@@ -1271,6 +1410,7 @@ function createHistoryIndexStore(db: AnyRecord) {
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare('DELETE FROM history_landings').run();
+      db.prepare('DELETE FROM history_takeoffs').run();
       db.prepare('DELETE FROM history_flights').run();
       db.prepare('DELETE FROM history_source_files').run();
       db.exec('COMMIT');
@@ -1302,6 +1442,9 @@ function createHistoryIndexStore(db: AnyRecord) {
     queryLogbookEntries,
     queryLogbookSnapshot,
     queryLogbookStats,
+    queryRecordedTakeoffMatches,
+    queryTakeoffEntries,
+    queryTakeoffStats,
     refreshSourcesLandingsIndex,
     replaceSourceIndex,
     replaceSourcesFlightsIndex,

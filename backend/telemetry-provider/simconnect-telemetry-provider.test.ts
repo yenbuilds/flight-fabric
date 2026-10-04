@@ -1725,69 +1725,164 @@ test('FBW A380X AP1 targets guard the vendor toggle with fresh logical readback'
     'direct AP1 coverage must not fabricate an independent AP2 control channel');
 });
 
-for (const profileKey of [
-  MICROSOFT_INIBUILDS_A320_PROFILE_KEY,
-  MICROSOFT_INIBUILDS_A321_PROFILE_KEY,
-]) {
-  test(`${profileKey} typed heading target dispatches once and requires exact newer readback`, async () => {
-    const provider = new SimConnectTelemetryProvider();
-    const rustSnapshot: any = {
-      status: 'running',
-      updatedAt: new Date().toISOString(),
-    };
-    const events = [];
-    provider._data = { apHdgTargetDeg: 180 };
-    provider._rustSimvarSnapshotSequence = 2;
-    provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
-    const bridge = {
-      _started: true,
-      getSnapshot: () => ({ source: 'mock-sidecar' }),
-      async setNamedVar() {
-        return { ok: true };
-      },
-      async sendEvent(name, value, parameters) {
-        events.push({ name, value, parameters });
-        provider._data.apHdgTargetDeg = value;
-        provider._rustSimvarSnapshotSequence += 1;
+// Parked selector values, not airborne mode simulation. The VS disagreement is
+// from the 2026-10-02 A320 acceptance record: native 0, generic -700.
+const iniA32xTargets = [
+  { name: 'speed', id: 'speedKts', variable: 'INI_Airspeed_Dial', simvar: 'AUTOPILOT AIRSPEED HOLD VAR', path: 'apSpeedTargetKts', baseline: 100, target: 101 },
+  { name: 'heading', id: 'headingDeg', variable: 'INI_HEADING_DIAL', simvar: 'AUTOPILOT HEADING LOCK DIR', path: 'apHdgTargetDeg', baseline: 180, target: 271 },
+  { name: 'altitude', id: 'altitudeFt', variable: 'INI_Altitude_Dial', simvar: 'AUTOPILOT ALTITUDE LOCK VAR', path: 'apAltTargetFt', baseline: 100, target: 200 },
+  { name: 'verticalSpeed', id: 'verticalSpeedFpm', variable: 'INI_vvi_dial', simvar: 'AUTOPILOT VERTICAL HOLD VAR', path: 'apVsTargetFpm', baseline: 0, target: 100 },
+];
+
+function iniA32xNativeFixture(profileKey, target = iniA32xTargets[1]) {
+  const provider = new SimConnectTelemetryProvider();
+  provider._connected = true;
+  const stamp = new Date().toISOString();
+  const values = { voltage: 28, managed: 0, dashed: 0, track: 0, nativeTarget: target.baseline, fd: 0 };
+  const snapshot: any = { source: 'mock-sidecar', status: 'running', profileId: profileKey,
+    snapshotSequence: 5, updatedAt: stamp, values,
+    valueUpdatedAt: Object.fromEntries(Object.keys(values).map(key => [key, stamp])) };
+  const rustSnapshot = { status: 'running', updatedAt: stamp, valueUpdatedAt: { [target.path]: stamp } };
+  const writes = [];
+  const behavior = { updateStandard: true, updateNative: true, refresh: true };
+  provider._data = { [target.path]: target.name === 'verticalSpeed' ? -700 : target.baseline, apFlightDirectorActive: true };
+  provider._rustSimvarSnapshotSequence = 2;
+  provider._rustSimvarBridge = { getSnapshot: () => {
+    rustSnapshot.updatedAt = rustSnapshot.valueUpdatedAt[target.path] = new Date().toISOString();
+    return rustSnapshot;
+  } };
+  const bridge = { _started: true, getSnapshot: () => {
+    if (behavior.refresh) {
+      snapshot.updatedAt = new Date().toISOString();
+      for (const key of Object.keys(values)) snapshot.valueUpdatedAt[key] = snapshot.updatedAt;
+    }
+    return snapshot;
+  },
+    async setNamedVar(operation) {
+      writes.push(operation);
+      setTimeout(() => {
+        const key = operation.name === 'L:INI_FD1_ON' ? 'fd' : 'nativeTarget';
+        if (behavior.updateNative) snapshot.values[key] = operation.value;
+        snapshot.snapshotSequence++;
+        snapshot.updatedAt = snapshot.valueUpdatedAt[key] = new Date().toISOString();
+        if (behavior.updateStandard && key !== 'fd') provider._data[target.path] = operation.value;
+        provider._rustSimvarSnapshotSequence++;
         rustSnapshot.updatedAt = new Date().toISOString();
-        return { ok: true };
-      },
-    };
-    provider._lvarBridge = bridge;
-    provider._ensureControlWriteBridge = async () => bridge;
-    stubMicrosoftIniBuildsA32xIntegrationFields(provider, profileKey, {
-      'fcu.headingDeg': {
-        id: 'fcu.headingDeg',
-        source: {
-          type: 'simvar',
-          name: 'AUTOPILOT HEADING LOCK DIR',
-          path: 'fdm.apHdgTargetDeg',
-        },
-        decode: { type: 'number', precision: 0 },
-      },
+        rustSnapshot.valueUpdatedAt[target.path] = rustSnapshot.updatedAt;
+      }, 25);
+      return { ok: true };
+    },
+    async sendEvent() { throw new Error('Generic FD/FCU events must not be dispatched'); },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  const fields = Object.fromEntries([
+    ['systems.mainBusVoltage', 'voltage', false], ['fcu.headingManaged', 'managed', true],
+    ['fcu.headingDashed', 'dashed', true], ['fcu.trackFpa', 'track', true],
+    ['fcu.speedManaged', 'managed', true], ['fcu.speedDashed', 'dashed', true],
+    ['fcu.verticalSpeedDashed', 'dashed', true],
+    [`fcu.${target.id}Native`, 'nativeTarget', false], ['flightGuidance.flightDirector', 'fd', true],
+  ].map(([id, key, bool]) => [id, { id, source: { type: 'lvar', key },
+    decode: bool ? { type: 'boolean', trueValues: [1], falseValues: [0] } : { type: 'number', precision: 0 } }]));
+  fields[`fcu.${target.id}`] = { id: `fcu.${target.id}`, source: { type: 'simvar', name: target.simvar, path: `fdm.${target.path}` }, decode: { type: 'number', precision: 0 } };
+  stubMicrosoftIniBuildsA32xIntegrationFields(provider, profileKey, fields);
+  const execute = (actionId = `flightGuidance.${target.name}.set`, value = actionId === `flightGuidance.${target.name}.set` ? target.target : undefined) => provider.executeAircraftControlAction({
+    type: 'aircraft-integration', name: MICROSOFT_INIBUILDS_A32X_ADAPTER_ID, verification: 'partial',
+  }, microsoftIniBuildsA32xIntegrationOptions(profileKey, actionId, value));
+  return { provider, snapshot, writes, behavior, execute };
+}
+
+for (const profileKey of [MICROSOFT_INIBUILDS_A320_PROFILE_KEY, MICROSOFT_INIBUILDS_A321_PROFILE_KEY]) {
+  for (const target of iniA32xTargets) {
+    test(`${profileKey} native ${target.name} confirms a parked target and restoration through both sources`, async () => {
+      const f = iniA32xNativeFixture(profileKey, target);
+      assertEqual((await f.execute()).ok, true, 'both target sources confirm');
+      assertDeepEqual(f.writes, [{ name: `L:${target.variable}`, unit: 'Number', value: target.target, dataType: 'float64' }], 'exact native selector write');
+      f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+      assertEqual((await f.execute()).noOp, true, 'matching fresh sources permit a repeat no-op');
+      f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+      assertEqual((await f.execute(`flightGuidance.${target.name}.set`, target.baseline)).ok, true, 'restore the native selector baseline');
+      assertEqual(f.writes.length, 2, 'one change and one restoration, no repeat write');
+      assertEqual(f.snapshot.values.nativeTarget, target.baseline, 'native baseline restored');
+      assertEqual(f.provider._data[target.path], target.baseline, 'standard target also confirms restoration');
     });
-
-    const action = {
-      type: 'aircraft-integration',
-      name: MICROSOFT_INIBUILDS_A32X_ADAPTER_ID,
-      verification: 'untested',
-    };
-    const result = await provider.executeAircraftControlAction(
-      action,
-      microsoftIniBuildsA32xIntegrationOptions(profileKey, 'flightGuidance.heading.set', 271),
-    );
-    assertEqual(result.ok, true, `${profileKey} heading should confirm`);
-    assertEqual(result.confirmedValue, 271, 'heading confirmation retains the exact target');
-    assertDeepEqual(events, [{ name: 'HEADING_BUG_SET', value: 271, parameters: [0] }],
-      'shared adapter dispatches one standard heading event');
-
-    const invalid = await provider.executeAircraftControlAction(
-      action,
-      microsoftIniBuildsA32xIntegrationOptions(profileKey, 'flightGuidance.heading.set', 360),
-    );
-    assertEqual(invalid.ok, false, 'out-of-range shared A32x heading fails closed');
-    assertEqual(invalid.code, 'invalid_value', 'invalid shared heading retains its validation code');
-    assertEqual(events.length, 1, 'invalid shared heading never reaches SimConnect');
+    if (target.name !== 'heading') {
+      test(`${profileKey} native ${target.name} rejects echo-only and generic-only confirmation`, async () => {
+        for (const source of ['updateStandard', 'updateNative']) {
+          const f = iniA32xNativeFixture(profileKey, target); f.behavior[source] = false;
+          assertEqual((await f.execute()).code, 'aircraft_integration_readback_timeout', 'ACK and one updated source cannot confirm');
+          assertEqual(f.writes.length, 1, 'partial confirmation never retries');
+          assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, 'timeout releases lock');
+        }
+      });
+    }
+    test(`${profileKey} native ${target.name} refuses missing or stale power data before dispatch`, async () => {
+      for (const fault of ['missing', 'stale']) {
+        const f = iniA32xNativeFixture(profileKey, target);
+        if (fault === 'missing') delete f.snapshot.values.voltage;
+        else {
+          f.behavior.refresh = false;
+          f.snapshot.valueUpdatedAt.voltage = new Date(Date.now() - 10000).toISOString();
+        }
+        assertEqual((await f.execute()).ok, false, `${fault} individual guard data refuses write`);
+        assertEqual(f.writes.length, 0, 'other fresh telemetry cannot establish power readiness');
+      }
+    });
+  }
+  for (const [name, keys] of [['speed', ['managed', 'dashed']], ['verticalSpeed', ['dashed', 'track']]] as const) {
+    test(`${profileKey} native ${name} refuses incompatible or unknown mode data`, async () => {
+      const target = iniA32xTargets.find(target => target.name === name);
+      for (const key of keys) for (const fault of ['active', 'missing', 'stale']) {
+        const f = iniA32xNativeFixture(profileKey, target);
+        if (fault === 'active') f.snapshot.values[key] = 1;
+        if (fault === 'missing') delete f.snapshot.values[key];
+        if (fault === 'stale') {
+          f.behavior.refresh = false;
+          f.snapshot.valueUpdatedAt[key] = new Date(Date.now() - 10000).toISOString();
+        }
+        assertEqual((await f.execute()).ok, false, `${key} ${fault} must refuse a selected target`);
+        assertEqual(f.writes.length, 0, 'mode guard acts before dispatch');
+      }
+    });
+  }
+  test(`${profileKey} native heading requires both newer targets and repeats without a write`, async () => {
+    const f = iniA32xNativeFixture(profileKey);
+    assertEqual((await f.execute()).ok, true, 'native and standard target both confirm');
+    assertEqual(f.writes[0].name, 'L:INI_HEADING_DIAL', 'one native selector write');
+    f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+    assertEqual((await f.execute()).noOp, true, 'repeat is a no-op after both sources agree');
+    assertEqual((await f.execute('flightGuidance.heading.set', 360)).code, 'invalid_value', 'heading bounds stay enforced');
+    assertEqual(f.writes.length, 1, 'no retry or invalid write');
+  });
+  test(`${profileKey} native heading rejects echo-only and generic-only confirmation`, async () => {
+    for (const source of ['updateStandard', 'updateNative']) {
+      const f = iniA32xNativeFixture(profileKey); f.behavior[source] = false;
+      const result = await f.execute();
+      assertEqual(result.code, 'aircraft_integration_readback_timeout', 'one matching source cannot confirm');
+      assertEqual(f.writes.length, 1, 'partial confirmation never retries');
+      assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, 'timeout releases lock');
+    }
+  });
+  test(`${profileKey} native heading refuses unpowered, managed, dashed, track and stale mode data`, async () => {
+    for (const [key, value] of [['voltage', 0], ['managed', 1], ['dashed', 1], ['track', 1]]) {
+      const f = iniA32xNativeFixture(profileKey); f.snapshot.values[key] = value;
+      assertEqual((await f.execute()).ok, false, 'incompatible mode refuses write');
+      assertEqual(f.writes.length, 0, 'guard acts before dispatch');
+    }
+    const f = iniA32xNativeFixture(profileKey);
+    f.behavior.refresh = false;
+    f.snapshot.valueUpdatedAt.track = new Date(Date.now() - 10000).toISOString();
+    assertEqual((await f.execute()).ok, false, 'stale individual mode refuses write');
+    assertEqual(f.writes.length, 0, 'fresh snapshot cannot hide stale mode');
+  });
+  test(`${profileKey} captain FD ignores a disagreeing generic simulator FD flag`, async () => {
+    const f = iniA32xNativeFixture(profileKey);
+    assertEqual((await f.execute('flightGuidance.flightDirector.on', undefined)).ok, true, 'native FD ON confirms');
+    assertEqual(f.writes[0].name, 'L:INI_FD1_ON', 'captain channel only');
+    assertEqual(f.writes.length, 1, 'generic ON does not cause false no-op');
+    f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+    assertEqual((await f.execute('flightGuidance.flightDirector.off', undefined)).ok, true, 'native OFF confirms while generic remains ON');
+    assertEqual(f.writes.length, 2, 'explicit native OFF dispatched once');
   });
 }
 
@@ -1863,9 +1958,14 @@ test('Microsoft 737 MAX 8 typed MCP target dispatches once and requires exact ne
   provider._data = { apAltTargetFt: 12000 };
   provider._rustSimvarSnapshotSequence = 6;
   provider._rustSimvarBridge = { getSnapshot: () => rustSnapshot };
+  const gaugeSnapshot = { source: 'mock-sidecar', status: 'running',
+    profileId: MICROSOFT_737_MAX_8_PROFILE_KEY, snapshotSequence: 6,
+    updatedAt: new Date().toISOString(), values: { altitude_slot3: 12000 },
+    valueUpdatedAt: { altitude_slot3: new Date().toISOString() } };
+  let updateActualSlot = true;
   const bridge = {
     _started: true,
-    getSnapshot: () => ({ source: 'mock-sidecar' }),
+    getSnapshot: () => gaugeSnapshot,
     async setNamedVar() {
       return { ok: true };
     },
@@ -1874,6 +1974,9 @@ test('Microsoft 737 MAX 8 typed MCP target dispatches once and requires exact ne
       provider._data.apAltTargetFt = value;
       provider._rustSimvarSnapshotSequence += 1;
       rustSnapshot.updatedAt = new Date().toISOString();
+      gaugeSnapshot.snapshotSequence += 1;
+      gaugeSnapshot.updatedAt = gaugeSnapshot.valueUpdatedAt.altitude_slot3 = new Date().toISOString();
+      if (updateActualSlot) gaugeSnapshot.values.altitude_slot3 = value;
       return { ok: true };
     },
   };
@@ -1883,9 +1986,8 @@ test('Microsoft 737 MAX 8 typed MCP target dispatches once and requires exact ne
     'mcp.altitudeFt': {
       id: 'mcp.altitudeFt',
       source: {
-        type: 'simvar',
-        name: 'AUTOPILOT ALTITUDE LOCK VAR',
-        path: 'fdm.apAltTargetFt',
+        type: 'lvar',
+        key: 'altitude_slot3',
       },
       decode: { type: 'number', precision: 0 },
     },
@@ -1905,7 +2007,7 @@ test('Microsoft 737 MAX 8 typed MCP target dispatches once and requires exact ne
   assertDeepEqual(events, [{
     name: 'AP_ALT_VAR_SET_ENGLISH',
     value: 12300,
-    parameters: [0],
+    parameters: [3],
   }], 'the bounded MAX altitude target dispatches exactly once');
 
   const invalid = await provider.executeAircraftControlAction(
@@ -1915,19 +2017,44 @@ test('Microsoft 737 MAX 8 typed MCP target dispatches once and requires exact ne
   assertEqual(invalid.ok, false, 'off-step MAX altitude targets fail closed');
   assertEqual(invalid.code, 'invalid_value', 'off-step MAX altitude retains its validation code');
   assertEqual(events.length, 1, 'invalid MAX targets never reach SimConnect');
+  provider._aircraftIntegrationActionLastAttemptAt.clear();
+  updateActualSlot = false;
+  const wrongSlot = await provider.executeAircraftControlAction(
+    action, microsoft737Max8IntegrationOptions('flightGuidance.altitude.set', 12400));
+  assertEqual(provider._data.apAltTargetFt, 12400, 'generic slot zero can change without the MCP');
+  assertEqual(wrongSlot.code, 'aircraft_integration_readback_timeout',
+    'a matching generic altitude must not confirm the unchanged actual MCP slot');
+  assertEqual(events.length, 2, 'missing MCP confirmation never retries');
+  provider._aircraftIntegrationActionLastAttemptAt.clear();
+  gaugeSnapshot.valueUpdatedAt.altitude_slot3 = new Date(Date.now() - 10000).toISOString();
+  const stale = await provider.executeAircraftControlAction(
+    action, microsoft737Max8IntegrationOptions('flightGuidance.altitude.set', 12500));
+  assertEqual(stale.code, 'aircraft_integration_readback_unavailable',
+    'fresh standard telemetry cannot conceal a stale MCP slot');
+  assertEqual(events.length, 2, 'stale MCP data prevents the write');
 });
 
-test('Microsoft 737 MAX 8 NAV light dispatches despite satisfied output and requires newer confirmation', async () => {
+function maxNavFixture(initialNav = false) {
   const provider = new SimConnectTelemetryProvider();
   const events = [];
+  const native = [];
+  const state = { nav: initialNav, navFresh: true, strobe: false, strobeFresh: true, confirm: true, loseNav: false, sequence: 18 };
+  provider._connected = true;
+  provider._lastDetectedAircraftTitle = 'SimObjects\\Airplanes\\asobo_b737max\\presets\\asobo\\b737max8_passengers\\config\\aircraft.CFG';
   const bridge = {
     _started: true,
-    getSnapshot: () => ({ source: 'mock-sidecar' }),
-    async setNamedVar() {
-      return { ok: true };
-    },
+    getSnapshot: () => ({ source: 'mock-sidecar', inputEventsAvailable: true }),
     async sendEvent(name, value, parameters) {
       events.push({ name, value, parameters });
+      return { ok: true };
+    },
+    async sendInputEvent(name, value, aircraft) {
+      native.push({ name, value, aircraft });
+      if (state.confirm) setTimeout(() => {
+        state.nav = value !== 1 && !state.loseNav;
+        state.strobe = value === 2;
+        state.sequence += 1;
+      }, 25);
       return { ok: true };
     },
   };
@@ -1935,44 +2062,251 @@ test('Microsoft 737 MAX 8 NAV light dispatches despite satisfied output and requ
   provider._ensureControlWriteBridge = async () => bridge;
   stubMicrosoft737Max8IntegrationFields(provider, {});
 
-  const baseline = {
-    observed: true,
-    sequence: 18,
-    fresh: true,
+  provider._captureAircraftIntegrationReadback = (_bridge, readback) => ({
+    observed: readback.fieldId === 'lights.strobe' ? state.strobe : state.nav,
+    sequence: state.sequence,
+    updatedAtMs: Date.now(),
+    fresh: readback.fieldId === 'lights.strobe' ? state.strobeFresh : state.navFresh,
     sourceId: 'simvar:lightStates',
-  };
-  let confirmationCalls = 0;
-  provider._captureAircraftIntegrationReadback = () => baseline;
-  provider._waitForAircraftIntegrationReadback = async (_bridge, _readback, context, captured) => {
-    confirmationCalls += 1;
-    assertEqual(context.profileKey, MICROSOFT_737_MAX_8_PROFILE_KEY,
-      'MAX light confirmation remains bound to the exact bundled profile');
-    assertEqual(captured, baseline, 'MAX light confirmation retains the satisfied pre-dispatch baseline');
-    return {
-      confirmed: true,
-      observed: true,
-      sequence: 19,
-      fresh: true,
-      sequenceAdvanced: true,
-    };
-  };
-
-  const result = await provider.executeAircraftControlAction({
+  });
+  const execute = (suffix, light = 'nav') => provider.executeAircraftControlAction({
     type: 'aircraft-integration',
     name: MICROSOFT_737_MAX_8_ADAPTER_ID,
     verification: 'untested',
-  }, microsoft737Max8IntegrationOptions('lights.nav.on'));
+  }, microsoft737Max8IntegrationOptions(`lights.${light}.${suffix}`));
+  return { provider, events, native, state, execute };
+}
 
-  assertEqual(result.ok, true, 'a newer matching MAX lamp output should confirm fixed NAV light ON');
-  assertEqual(result.noOp, undefined,
-    'skipIfSatisfied false must not suppress the MAX NAV light selector reconciliation');
-  assertEqual(result.confirmedValue, true, 'the newer MAX lamp output confirms the fixed intent');
-  assertEqual(confirmationCalls, 1, 'the MAX light intent waits for one newer confirmation');
-  assertDeepEqual(events, [{
-    name: 'NAV_LIGHTS_SET',
-    value: 1,
-    parameters: [0],
-  }], 'the fixed MAX NAV light intent dispatches exactly once');
+test('Microsoft 737 MAX 8 NAV selector uses native detents and confirms newer lamp state', async () => {
+  for (const initial of [false, true]) {
+    const f = maxNavFixture(initial);
+    const on = await f.execute('on');
+    assertEqual(on.ok, true, 'native STEADY confirms NAV ON');
+    assertEqual(on.noOp, undefined, 'lamp output alone does not suppress selector reconciliation');
+    assertEqual(on.confirmedValue, true, 'newer NAV lamp state is confirmed');
+    f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+    const off = await f.execute('off');
+    assertEqual(off.ok, true, 'native OFF confirms NAV OFF');
+    assertEqual(off.confirmedValue, false, 'newer OFF lamp state is confirmed');
+    assertDeepEqual(f.native.map(({ name, value }) => ({ name, value })), [
+      { name: 'LIGHTING_POSITION_LIGHT', value: 0 },
+      { name: 'LIGHTING_POSITION_LIGHT', value: 1 },
+    ], 'each detent is sent exactly once');
+    assertEqual(f.native.every(call => call.aircraft === f.provider._lastDetectedAircraftTitle), true,
+      'native requests retain exact AircraftLoaded identity');
+    assertEqual(f.events.length, 0, 'failed standard NAV event is never used as fallback');
+  }
+});
+
+test('Microsoft 737 MAX 8 NAV refuses active or unknown strobes and releases its lock after failure', async () => {
+  for (const [strobe, fresh] of [[true, true], [false, false]]) {
+    const f = maxNavFixture();
+    f.state.strobe = strobe;
+    f.state.strobeFresh = fresh;
+    for (const suffix of ['on', 'off']) {
+      const result = await f.execute(suffix);
+      assertEqual(result.ok, false, 'shared POSITION selector must preserve strobes');
+    }
+    assertEqual(f.native.length, 0, 'unsafe POSITION requests send nothing');
+    assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, 'preflight leaves no lock held');
+  }
+  const f = maxNavFixture();
+  f.state.confirm = false;
+  const ignored = await f.execute('on');
+  assertEqual(ignored.code, 'aircraft_integration_readback_timeout', 'ACK without lamp movement fails');
+  assertEqual(f.native.length, 1, 'ignored native request is not retried');
+  assertEqual(f.events.length, 0, 'ignored native request does not fall back to a standard event');
+  assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, 'timeout releases the selector lock');
+});
+
+test('Microsoft 737 MAX 8 strobe native detents preserve NAV and share the POSITION lock', async () => {
+  const f = maxNavFixture(true);
+  const on = f.execute('on', 'strobe');
+  const conflictingNav = await f.execute('off');
+  assertEqual(conflictingNav.ok, false, 'NAV cannot move the shared selector during strobe confirmation');
+  assertEqual((await on).confirmedValue, true, 'native STROBE & STEADY confirms strobes ON');
+  assertEqual(f.state.nav, true, 'strobe ON keeps NAV on');
+  f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+  assertEqual((await f.execute('on', 'strobe')).noOp, undefined, 'repeat reconciles selector once');
+  f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+  assertEqual((await f.execute('off', 'strobe')).confirmedValue, false, 'native STEADY confirms strobes OFF');
+  assertEqual(f.state.nav, true, 'strobe OFF keeps NAV on');
+  assertDeepEqual(f.native.map(call => call.value), [2, 2, 0], 'only the evidenced POSITION detents are sent');
+  assertEqual(f.events.length, 0, 'ineffective standard strobe route is never used');
+});
+
+test('Microsoft 737 MAX 8 strobe refuses missing NAV and rejects loss of NAV during confirmation', async () => {
+  for (const [nav, fresh] of [[false, true], [true, false]]) {
+    const f = maxNavFixture(nav);
+    f.state.navFresh = fresh;
+    for (const suffix of ['on', 'off']) assertEqual((await f.execute(suffix, 'strobe')).ok, false,
+      'both strobe requests require fresh NAV on');
+    assertEqual(f.native.length, 0, 'missing NAV sends no POSITION event');
+  }
+  const f = maxNavFixture(true);
+  f.state.loseNav = true;
+  const lost = await f.execute('on', 'strobe');
+  assertEqual(lost.ok, false, 'strobe confirmation cannot conceal NAV loss');
+  assertEqual(f.native.length, 1, 'NAV loss does not trigger another write');
+  assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, 'failure releases shared lock');
+});
+
+test('MAX 8 shared POSITION preset confirms both outputs from every initial detent', async () => {
+  for (const [nav, strobe] of [[false, false], [true, false], [true, true]]) {
+    const f = maxNavFixture(nav);
+    f.state.strobe = strobe;
+    assertEqual((await f.execute('strobeAndSteady', 'position')).ok, true, 'combined takeoff target accepts every initial POSITION detent');
+    f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+    assertEqual((await f.execute('strobeAndSteady', 'position')).ok, true, 'repeat preset reconciles the same fixed detent');
+    f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+    assertEqual((await f.execute('steady', 'position')).ok, true, 'after landing confirms steady NAV and strobes OFF');
+    assertDeepEqual(f.native.map(call => call.value), [2, 2, 0], 'one native write per combined request');
+  }
+  const partial = maxNavFixture(false);
+  partial.state.loseNav = true;
+  assertEqual((await partial.execute('strobeAndSteady', 'position')).ok, false, 'strobes alone cannot confirm the combined target');
+  assertEqual(partial.native.length, 1, 'partial confirmation is not retried');
+  const stale = maxNavFixture(false);
+  stale.state.navFresh = false;
+  assertEqual((await stale.execute('strobeAndSteady', 'position')).ok, false, 'stale NAV prevents the combined request');
+  assertEqual(stale.native.length, 0, 'stale combined readback sends nothing');
+});
+
+function maxLandingFixture() {
+  const provider = new SimConnectTelemetryProvider();
+  provider._connected = true;
+  provider._lastDetectedAircraftTitle = 'SimObjects\\Airplanes\\asobo_b737max\\presets\\asobo\\b737max8_passengers\\config\\aircraft.CFG';
+  const calls = [];
+  const state = { ignoreRight: false, rejectRight: false, afterFirst: '', afterSecond: '', available: true };
+  const stamp = new Date().toISOString();
+  const snapshot = { source: 'mock-sidecar', status: 'running', profileId: MICROSOFT_737_MAX_8_PROFILE_KEY,
+    snapshotSequence: 8, updatedAt: stamp,
+    valueUpdatedAt: { left: stamp, right: stamp }, values: { left: 0, right: 0 } };
+  const bridge = { _started: true, getSnapshot: () => ({ ...snapshot, inputEventsAvailable: state.available }),
+    findRecentSimConnectException: ids => (state.afterFirst === 'exception' || (state.afterSecond === 'exception' && calls.length === 2))
+      && ids.includes(1) ? { sendId: 1, exception: 3 } : null,
+    async sendInputEvent(inputEvent, value, aircraft) {
+      calls.push({ inputEvent, value, aircraft });
+      const key = inputEvent.endsWith('_L') ? 'left' : 'right';
+      if (key === 'right' && state.rejectRight) return { ok: false, error: 'rejected second event' };
+      if (!(key === 'right' && state.ignoreRight)) setTimeout(() => {
+        snapshot.values[key] = value === 0 ? 1 : 0;
+        snapshot.snapshotSequence++;
+        snapshot.updatedAt = snapshot.valueUpdatedAt[key] = new Date().toISOString();
+      }, 25);
+      if (calls.length === 1) {
+        if (state.afterFirst === 'identity') provider._lastDetectedAircraftTitle = 'SimObjects\\Airplanes\\Other\\aircraft.cfg';
+        if (state.afterFirst === 'transport') state.available = false;
+      }
+      if (calls.length === 2) {
+        if (state.afterSecond === 'identity') provider._lastDetectedAircraftTitle = 'SimObjects\\Airplanes\\Other\\aircraft.cfg';
+        if (state.afterSecond === 'transport') state.available = false;
+      }
+      return { ok: true, sendId: calls.length };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubMicrosoft737Max8IntegrationFields(provider, Object.fromEntries(['Left', 'Right'].map(side => [
+    `lights.landing${side}`, { id: `lights.landing${side}`, source: { type: 'lvar', key: side.toLowerCase() },
+      decode: { type: 'boolean', trueValues: [1, true], falseValues: [0, false] } },
+  ])));
+  const execute = suffix => provider.executeAircraftControlAction({ type: 'aircraft-integration',
+    name: MICROSOFT_737_MAX_8_ADAPTER_ID, verification: 'untested' }, microsoft737Max8IntegrationOptions(`lights.landing.${suffix}`));
+  return { provider, calls, state, snapshot, execute };
+}
+
+test('MAX 8 paired native landing requests lock both switches and confirm both independent fields', async () => {
+  const f = maxLandingFixture();
+  const on = f.execute('on');
+  assertEqual((await f.execute('off')).code, 'action_in_progress', 'opposite request cannot interleave the pair');
+  assertEqual((await on).ok, true, 'both landing fields confirm ON');
+  f.provider._aircraftIntegrationActionLastAttemptAt.clear();
+  assertEqual((await f.execute('off')).ok, true, 'both landing fields confirm OFF');
+  assertDeepEqual(f.calls.map(({ inputEvent, value }) => ({ inputEvent, value })), [
+    { inputEvent: 'LIGHTING_LANDING_LIGHT_FIXED_L', value: 0 },
+    { inputEvent: 'LIGHTING_LANDING_LIGHT_FIXED_R', value: 0 },
+    { inputEvent: 'LIGHTING_LANDING_LIGHT_FIXED_L', value: 1 },
+    { inputEvent: 'LIGHTING_LANDING_LIGHT_FIXED_R', value: 1 },
+  ], 'fixed pairs are sent once in order');
+  assertEqual(f.calls.every(call => call.aircraft === f.provider._lastDetectedAircraftTitle), true, 'pair binds one exact aircraft');
+});
+
+test('MAX 8 paired native landing rejects partial confirmation and stale individual data', async () => {
+  const stale = maxLandingFixture();
+  stale.snapshot.valueUpdatedAt.right = new Date(Date.now() - 10000).toISOString();
+  assertEqual((await stale.execute('on')).code, 'aircraft_integration_readback_unavailable', 'both sides must start fresh');
+  assertEqual(stale.calls.length, 0, 'stale side prevents all writes');
+  const f = maxLandingFixture();
+  f.provider._data = { lightStates: 4 };
+  f.snapshot.values['standard_light_states'] = 4;
+  f.state.ignoreRight = true;
+  const result = await f.execute('on');
+  assertEqual(result.code, 'aircraft_integration_readback_timeout',
+    'taxi AUTO lighting the aggregate landing lamps cannot confirm an unchanged fixed selector');
+  assertEqual(result.executionStarted, true, 'partial execution remains explicit');
+  assertEqual(f.calls.length, 2, 'missing readback triggers no retry');
+  assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, 'timeout releases pair lock');
+});
+
+test('MAX 8 native pair stops across aircraft/transport changes, exceptions and partial rejection', async () => {
+  for (const mode of ['identity', 'transport', 'exception', 'rejectRight']) {
+    const f = maxLandingFixture();
+    if (mode === 'rejectRight') f.state.rejectRight = true;
+    else f.state.afterFirst = mode;
+    const result = await f.execute('on');
+    assertEqual(result.code, 'input_event_execution_failed', `${mode} rejects the pair`);
+    assertEqual(result.executionStarted, true, `${mode} preserves partial execution`);
+    assertEqual(f.calls.length, mode === 'rejectRight' ? 2 : 1, `${mode} sends no further native events`);
+    assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, `${mode} releases pair lock`);
+  }
+});
+
+test('MAX 8 native pair retains identity, transport and all send IDs through final confirmation', async () => {
+  for (const [mode, expectedCode] of [['identity', 'stale_profile'], ['transport', 'input_event_transport_unavailable'],
+    ['exception', 'aircraft_integration_simconnect_exception']]) {
+    const f = maxLandingFixture();
+    f.state.afterSecond = mode;
+    const result = await f.execute('on');
+    assertEqual(result.code, expectedCode, `${mode} after the last write prevents a success result`);
+    assertEqual(result.executionStarted, true, `${mode} retains partial execution status`);
+    assertEqual(f.calls.length, 2, `${mode} sends no recovery or retry`);
+    assertEqual(f.provider._aircraftIntegrationActionsInFlight.size, 0, `${mode} releases pair lock`);
+  }
+});
+
+test('Microsoft 737 MAX 8 wing confirms its individual A-var and rejects stale field data despite a fresh mask', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  provider._connected = true;
+  const stamp = new Date().toISOString();
+  const snapshot = { source: 'mock-sidecar', status: 'running', profileId: MICROSOFT_737_MAX_8_PROFILE_KEY,
+    snapshotSequence: 8, updatedAt: stamp, valueUpdatedAt: { light_wing: stamp },
+    values: { light_wing: 0, standard_light_states: 17 } };
+  const events = [];
+  const bridge = { _started: true, getSnapshot: () => snapshot,
+    async setNamedVar() { throw new Error('No direct variable writes expected'); },
+    async sendEvent(name, value, parameters) {
+      events.push({ name, value, parameters });
+      setTimeout(() => { snapshot.values.light_wing = value; snapshot.snapshotSequence++;
+        snapshot.updatedAt = snapshot.valueUpdatedAt.light_wing = new Date().toISOString(); }, 25);
+      return { ok: true };
+    },
+  };
+  provider._lvarBridge = bridge;
+  provider._ensureControlWriteBridge = async () => bridge;
+  stubMicrosoft737Max8IntegrationFields(provider, { 'lights.wing': {
+    id: 'lights.wing', source: { type: 'lvar', key: 'light_wing' },
+    decode: { type: 'boolean', trueValues: [1, true], falseValues: [0, false] },
+  } });
+  const execute = suffix => provider.executeAircraftControlAction({ type: 'aircraft-integration',
+    name: MICROSOFT_737_MAX_8_ADAPTER_ID, verification: 'untested' }, microsoft737Max8IntegrationOptions(`lights.wing.${suffix}`));
+  assertEqual((await execute('on')).confirmedValue, true, 'individual wing A-var confirms ON despite the unchanged mask');
+  assertEqual(snapshot.values.standard_light_states, 17, 'combined mask never published wing');
+  provider._aircraftIntegrationActionLastAttemptAt.clear();
+  snapshot.valueUpdatedAt.light_wing = new Date(Date.now() - 10000).toISOString();
+  snapshot.updatedAt = new Date().toISOString();
+  assertEqual((await execute('off')).code, 'aircraft_integration_readback_unavailable', 'fresh unrelated data cannot make stale wing state usable');
+  assertDeepEqual(events, [{ name: 'WING_LIGHTS_SET', value: 1, parameters: [0] }], 'only the confirmed ON request wrote');
 });
 
 test('Microsoft 737 MAX 8 FLC targets no-op on same state and confirm standard events with newer readback', async () => {
@@ -3592,6 +3926,28 @@ test('Fenix heading initialization rebases a first-detent jump before sizing tar
   assertEqual(heading.codes.length, 5, 'one initialization and four bounded batches reach the target without retries');
 });
 
+test('Fenix heading waits for a delayed initializing detent before sending another step', async () => {
+  let finishPrime;
+  const primeApplied = new Promise<void>((resolve) => { finishPrime = resolve; });
+  const heading = buildFenixFcuProvider({ fenix_heading: 0 }, ({ code, codes, snapshot }) => {
+    if (codes.length === 1) {
+      setTimeout(() => {
+        applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360 });
+        finishPrime();
+      }, 550);
+    } else applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360 });
+    return { ok: true };
+  });
+  const result = await heading.provider.executeAircraftControlAction(
+    { type: 'aircraft-integration', name: FENIX_A32X_ADAPTER_ID, verification: 'untested' },
+    fenixA320IntegrationOptions('flightGuidance.heading.set', 1),
+  );
+  await primeApplied;
+  assertEqual(result.ok, true, 'the initializing detent alone reaches the target');
+  assertEqual(heading.codes.length, 1, 'no second increment while initialization is still in flight');
+  assertEqual(heading.snapshot.values.fenix_heading, 1, 'confirmed heading cannot later overshoot to two');
+});
+
 test('Fenix heading still stops on unexpected movement after initialization', async () => {
   const heading = buildFenixFcuProvider({ fenix_heading: 0 }, ({ code, codes, snapshot }) => {
     if (codes.length === 1) {
@@ -3608,6 +3964,28 @@ test('Fenix heading still stops on unexpected movement after initialization', as
   assertEqual(result.ok, false, 'only initialization can rebase an unexpected heading');
   assertEqual(result.code, 'aircraft_integration_selector_drift', 'a short batch still reports drift');
   assertEqual(heading.codes.length, 2, 'the first unconfirmed batch stops further writes');
+});
+
+test('Fenix heading stops after an unconfirmed initialization without caching or retrying it', async () => {
+  let acceptWrites = false;
+  const heading = buildFenixFcuProvider({ fenix_heading: 0 }, ({ code, snapshot }) => {
+    if (acceptWrites) applyFenixEncoderCode(snapshot, 'fenix_heading', code, { modulo: 360 });
+    return { ok: true };
+  });
+  const action = { type: 'aircraft-integration', name: FENIX_A32X_ADAPTER_ID, verification: 'untested' };
+  const options = fenixA320IntegrationOptions('flightGuidance.heading.set', 1);
+  const result = await heading.provider.executeAircraftControlAction(action, options);
+  assertEqual(result.ok, false, 'acknowledgement alone cannot confirm a moving initializer');
+  assertEqual(result.code, 'aircraft_integration_selector_readback_timeout', 'initialization has a bounded deadline');
+  assertEqual(result.executionStarted, true, 'the unconfirmed initialization was dispatched');
+  assertEqual(heading.codes.length, 1, 'no target step or automatic retry follows missing initialization');
+  assertEqual(heading.provider._primedCalculatorEncoders.size, 0, 'failed initialization is not cached as complete');
+  acceptWrites = true;
+  heading.snapshot.snapshotSequence += 1;
+  heading.snapshot.updatedAt = new Date().toISOString();
+  assertEqual((await heading.provider.executeAircraftControlAction(action, options)).ok, true,
+    'a subsequent explicit request can initialize after the group lock releases');
+  assertEqual(heading.codes.length, 2, 'the new request uses one confirmed initializing detent');
 });
 
 test('Fenix FCU numeric targets pace every relative step against exact aircraft progress', async () => {
@@ -4267,6 +4645,45 @@ test('Rust AircraftLoaded ignores stale previous TITLE snapshot before delayed e
     }
     provider._clearRustTitleFallbackTimer();
   }
+});
+
+test('Rust AircraftLoaded enriches a path-only identity when initial TITLE arrives late without announcing a swap', async () => {
+  const provider = new SimConnectTelemetryProvider();
+  const configPath = 'SimObjects\\Airplanes\\microsoft-a321\\presets\\inibuilds\\a21n\\config\\aircraft.CFG';
+  const events = [];
+  const unsubscribe = eventBus.on('simconnect:aircraftChanged', payload => events.push(payload));
+  try {
+    provider._handleRustSystemState({ name: 'AircraftLoaded', string: configPath });
+    await sleep(550);
+    assertEqual(events.length, 1, 'path identity is emitted without waiting indefinitely for TITLE');
+    assertEqual(events[0].displayName, null, 'initial emission has no fabricated display name');
+    provider._data = { ias: 0 };
+    const telemetry = provider._data;
+    provider._handleRustAircraftTitleReadback('A321', new Date().toISOString());
+    assertEqual(events.length, 2, 'late initial TITLE refreshes the active profile and display');
+    assertEqual(events[1].displayName, 'A321', 'fresh display name');
+    assertEqual(events[1].aircraftConfigPath, configPath, 'retain the confirmed path');
+    assertEqual(events[1].previousAircraftConfigPath, configPath, 'same identity must not split a flight');
+    assertEqual(provider._data, telemetry, 'identity enrichment must not reset telemetry');
+    provider._handleRustAircraftTitleReadback('A321', new Date().toISOString());
+    assertEqual(events.length, 2, 'unchanged TITLE does not repeatedly reconfigure the aircraft');
+    assertEqual(provider._rustTitleFallbackTimer, null, 'no delayed TITLE-only downgrade');
+  } finally {
+    unsubscribe();
+    if (provider._rustAircraftChangedTimer) clearTimeout(provider._rustAircraftChangedTimer);
+    provider._clearRustTitleFallbackTimer();
+  }
+});
+
+test('Rust initial TITLE without AircraftLoaded does not fabricate a confirmed path', () => {
+  const provider = new SimConnectTelemetryProvider();
+  const events = [];
+  const unsubscribe = eventBus.on('simconnect:aircraftChanged', payload => events.push(payload));
+  try {
+    provider._handleRustAircraftTitleReadback('A321', new Date().toISOString());
+    assertEqual(events.length, 0, 'unconfirmed initial name must not borrow another aircraft path');
+    assertEqual(provider._lastDetectedAircraftTitle, null, 'path stays unknown');
+  } finally { unsubscribe(); }
 });
 
 test('Rust AircraftLoaded restores config-path identity after a same-aircraft TITLE fallback', async () => {

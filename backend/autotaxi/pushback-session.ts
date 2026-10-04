@@ -94,8 +94,7 @@ export function createPushbackSession(deps: PushbackDependencies) {
         return;
       }
       if (s.tug.forwardSpeedFps > 0.5) { await stop('Pushback stopped: unexpected forward movement.'); return; }
-      if (s.tug.state === 3) {
-        if (status === 'connecting' && deps.now() - started <= 1000) return;
+      if (s.tug.state === 3 && status === 'pushing') {
         await stop('Simulator pushback stopped.'); return;
       }
       if (status === 'connecting') {
@@ -138,7 +137,7 @@ export function createPushbackSession(deps: PushbackDependencies) {
         const latest = deps.capture();
         // Bridge startup and heading acknowledgements can yield. A command
         // calculated before a pause, brake input or position jump must expire.
-        return valid() && latest.tug?.state !== 3 && latest.tug!.forwardSpeedFps <= 0.5
+        return valid() && (status === 'connecting' || latest.tug?.state !== 3) && latest.tug!.forwardSpeedFps <= 0.5
           && distance(p, localPosition(latest.lat, latest.lon, airport!.origin)) <= 6
           && Math.abs(angle(desired - latest.headingDeg)) <= 40
           && Math.abs(angle(tugTarget - latest.headingDeg)) <= 65;

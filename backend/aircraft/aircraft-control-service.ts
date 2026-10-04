@@ -1782,6 +1782,8 @@ async function executeAircraftCommandSteps(
       label: step.label,
       ok: result.ok === true,
       code: result.code,
+      ...(result.noOp === true ? { noOp: true } : {}),
+      ...(result.idempotent === true ? { idempotent: true } : {}),
       ...(result.transportAcknowledged === true ? { transportAcknowledged: true } : {}),
       ...(result.ok === true ? {} : { error: result.error }),
       request: result.request || step.resolved.request,
@@ -1792,7 +1794,8 @@ async function executeAircraftCommandSteps(
     if (!result.ok) {
       return {
         ...result,
-        ...(completedSteps.length > 0 || result.executionStarted === true
+        // Confirming an already-correct group completes a step without a write.
+        ...(completedSteps.some((completed) => completed.noOp !== true) || result.executionStarted === true
           ? { executionStarted: true }
           : {}),
         error: `${translated.definition.label} stopped at ${step.label}: ${result.error || 'The action failed.'}`,
@@ -1828,6 +1831,10 @@ async function executeAircraftCommandSteps(
   return {
     ...result,
     ok: true,
+    // A final group that was already at its target says nothing about earlier
+    // groups. Only report the whole command as a no-op when every step was one.
+    ...(result.noOp !== undefined ? { noOp: completedSteps.every((step) => step.noOp === true) } : {}),
+    ...(result.idempotent !== undefined ? { idempotent: completedSteps.every((step) => step.idempotent === true) } : {}),
     code: unconfirmedStepCount > 0 ? 'sent_unconfirmed' : (result.code || 'executed'),
     ...(unconfirmedStepCount > 0 ? { unconfirmedStepCount } : {}),
     ...(transportAcknowledged ? { transportAcknowledged: true } : {}),

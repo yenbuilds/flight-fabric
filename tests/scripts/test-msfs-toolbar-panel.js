@@ -660,11 +660,12 @@ test('voice status relay is bounded and projected for unpaired clients', () => {
   assert.equal(fields.transcript.length, 400);
   assert.equal(fields.enabled, false);
   assert.equal(fields.available, true);
+  assert.equal('joystick' in fields, false, 'retired controller status is not relayed');
   assert.equal(sanitizeVoiceStatusFields({ status: 'made-up' }).status, 'unknown');
 
   const projected = projectServerMessageForClient({ __ffPrivilegedClient: false }, {
     type: 'voiceStatus', updatedAt: 123, status: 'sent', statusText: 'Sent heading 270.', transcript: 'set heading 270',
-    lastCommand: 'set heading 270', shortcut: 'Ctrl+Shift+Space', joystick: '', enabled: true, available: true, profileKey: 'bundled/msfs/pmdg-737',
+    lastCommand: 'set heading 270', shortcut: 'Ctrl+Shift+Space', enabled: true, available: true, profileKey: 'bundled/msfs/pmdg-737',
     secretPath: 'C:\\Users\\pilot\\private.txt',
   });
   assert.equal(projected.type, 'voiceStatus');

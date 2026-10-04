@@ -141,9 +141,21 @@ async function enableVoice() {
         <div class="app-prompt-title">That was voice control.</div>
         <div id="voice-first-command-result" class="app-prompt-intent text-fg">{{ doneDetail }}</div>
         <div class="app-prompt-intent">
-          <template v-if="voice.runtime.shortcut">
+          <template v-if="voice.runtime.controllerEnabled && voice.runtime.controller.binding">
+            <template v-if="voice.runtime.controller.state === 'ready'">
+              Hold Button {{ voice.runtime.controller.binding.button }} on {{ voice.runtime.controller.binding.label }}
+              with the simulator in front and FlightFabric listens the same way.
+            </template>
+            <template v-else>
+              Check your controller button in Settings › Voice control, or keep using the on-screen button.
+            </template>
+          </template>
+          <template v-else-if="voice.runtime.shortcut">
             Hold <KeyboardShortcutKeys :shortcut="voice.runtime.shortcut" class="text-[11px]" />
             with the simulator in front and FlightFabric listens the same way.
+          </template>
+          <template v-else-if="voice.runtime.controllerEnabled">
+            Choose a keyboard shortcut or controller button under Settings › Voice control to talk with the simulator in front.
           </template>
           <template v-else>
             Set a push-to-talk shortcut under Settings › Voice control to use it with the simulator in front.

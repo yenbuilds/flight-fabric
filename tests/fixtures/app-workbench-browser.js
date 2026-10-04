@@ -27,6 +27,9 @@ const query = new URLSearchParams(location.search);
 let scope = query.get('scope') || 'full-control';
 const disconnected = query.get('disconnected') === '1';
 const toolbarFixture = { status: 'not_installed', reads: 0, writes: [] };
+if (query.get('desktop') === '1') window.electronAPI = {
+  getBackendBootstrap: async () => ({ ok: false, body: { ok: false } }),
+};
 if (query.get('toolbar') === '1') window.electronAPI = {
   toolbarPanel: {
     async getStatus() {

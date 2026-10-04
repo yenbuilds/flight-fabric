@@ -295,11 +295,13 @@ source as third-party code.
   Attribution 4.0 licences, the ONNX Runtime MIT licence, and ONNX Runtime
   upstream third-party notices under
   `resources/legal/voice`.
-- The Windows push-to-talk helper is FlightFabric code compiled with the Rust
-  standard library and has no third-party crate dependencies; it reads
-  keyboard and joystick input through the Windows APIs that ship with the
-  operating system. Rust standard library components are available under
-  Apache-2.0 OR MIT terms.
+- The production Windows push-to-talk helper reads keyboard and controller
+  input through the Windows APIs that ship with the operating system. It is
+  FlightFabric code compiled with the Rust standard library (Apache-2.0 OR MIT).
+  Controller support in the normal helper and the opt-in diagnostic use Microsoft's
+  `windows-sys` 0.61.2 and `windows-link` 0.2.1 under MIT OR Apache-2.0 terms.
+  Controller support is enabled by default; the separate diagnostic is not
+  packaged with the application. Source: <https://github.com/microsoft/windows-rs>.
 - Spoken command readbacks use Windows' locally installed SAPI speech engine
   and voices. Windows speech components and voice packs are not bundled with
   FlightFabric and retain their installed licence terms.
@@ -602,7 +604,7 @@ notices:
 - Splide: Copyright (c) 2022 Naotoshi Fujita
 - Rust `chrono`: Copyright (c) 2014-2026 Kang Seonghoon and contributors
 - Rust `num-traits`: Copyright (c) 2014 The Rust Project Developers
-- Rust `windows-link`: Copyright (c) Microsoft Corporation
+- Rust `windows-sys` and `windows-link`: Copyright (c) Microsoft Corporation
 - Rust `serde`, `serde_core`, `serde_derive`, and `serde_json`: Erick
   Tryzelaar, David Tolnay, and contributors
 - Rust `proc-macro2`: David Tolnay, Alex Crichton, and contributors

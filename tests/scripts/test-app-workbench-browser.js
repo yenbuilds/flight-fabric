@@ -31,6 +31,41 @@ async function browser() {
     await win.webContents.capturePage(); await wait(70);
     fs.writeFileSync(path.join(OUTPUT, `${name}.png`), (await win.webContents.capturePage()).toPNG());
   }
+  async function checkDesktopAuthorizationRecovery() {
+    const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+    fixtureUrl.search = '?desktop=1&scope=read-only';
+    for (const width of [1440, 320]) {
+      win.setContentSize(width, width === 320 ? 844 : 900);
+      await win.loadURL(fixtureUrl.href);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      assert(await evaluate('return Boolean(window.workbenchTest);'), 'desktop recovery fixture mounted');
+      await evaluate('workbenchTest.voice.setBridgeAvailable(true); workbenchTest.profiles.resetAuthorizationScope(); await workbenchTest.nextTick();');
+      for (const tab of ['settings', 'timeline']) {
+        await evaluate(`await workbenchTest.open('${tab}');`);
+        await wait(80);
+        const state = await evaluate(`const panel=document.getElementById('tab-${tab}'); return {
+          text:panel.textContent,
+          overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1,
+          preferencesHidden:getComputedStyle(document.getElementById('settings-desktop-preferences')).display==='none',
+          settingsDisabled:document.querySelector('#settings-form fieldset').disabled,
+          flightActions:panel.querySelectorAll('.timeline-flight-open').length};`);
+        assert.match(state.text, tab === 'settings' ? /Waiting for app settings/ : /Waiting for your flight history/);
+        assert.doesNotMatch(state.text, /App settings are managed on your PC|Open your history on desktop/);
+        assert.equal(state.overflow, false, `${tab}/${width}: desktop recovery guidance fits the viewport`);
+        assert.equal(state.preferencesHidden, true);
+        assert.equal(state.settingsDisabled, true, 'recognizing the desktop must not bypass authorization');
+        if (tab === 'settings') assert.match(state.text, /Voice control/, 'voice configuration survives backend connection loss');
+        else assert.equal(state.flightActions, 0, 'history cannot be opened while awaiting access');
+        await capture(`desktop-recovery-${tab}-${width}`);
+      }
+      await evaluate("await workbenchTest.authorize('full-control'); await workbenchTest.open('settings');");
+      assert(await evaluate("return !document.getElementById('settings-connection-note') && getComputedStyle(document.getElementById('settings-desktop-preferences')).display!=='none' && !document.querySelector('#settings-form fieldset').disabled;"), 'a fresh grant restores settings without an app restart');
+      await evaluate("await workbenchTest.open('timeline');");
+      assert(await evaluate("return !!document.querySelector('.timeline-flight-open');"), 'a fresh grant restores saved flights without an app restart');
+      await evaluate("await workbenchTest.authorize('read-only');");
+      assert(await evaluate("return !document.querySelector('.timeline-flight-open') && document.getElementById('tab-timeline').textContent.includes('Waiting for your flight history');"), 'revoked desktop access removes retained history and returns to recovery guidance');
+    }
+  }
   try {
     await win.loadURL(process.env.FF_WORKBENCH_TEST_URL);
     win.webContents.debugger.attach('1.3');
@@ -42,12 +77,19 @@ async function browser() {
       app.exit(0);
       return;
     }
+    if (process.env.FF_DESKTOP_AUTH_RECOVERY_ONLY === '1') {
+      await checkDesktopAuthorizationRecovery();
+      assert.deepEqual(errors, [], 'desktop authorization recovery has no renderer errors');
+      console.log('Desktop authorization recovery passed: Settings and Logbook at 1440px and 320px, independent voice settings, fail-closed permissions, grant recovery and revocation.');
+      app.exit(0);
+      return;
+    }
     await evaluate(`workbenchTest.takeoff.handleTakeoffMessage({ type:'takeoff', final:true, timestampMs:Date.now(),
       aircraft:'PMDG 737-800', icao:'YSSY', runway:'16R', grade:'Recorded', score:null, zone:'Observed runway remaining',
-      assessment:'critical', runwayExcursion:true, flags:[{code:'runway_excursion',severity:'critical',label:'Runway excursion during the takeoff roll'},
+      assessment:'critical', runwayExcursion:true, hopCount:1, flags:[{code:'runway_excursion',severity:'critical',label:'Runway excursion during the takeoff roll'},
         {code:'ground_contact_uncertain',severity:'caution',label:'Brief ground-contact indication; contact not confirmed'}],
       runwayUse:{remainingFt:3200,runwayLengthFt:8000,usedPct:60,verified:true},
-      roll:{distanceFt:4600,durationS:32,startSource:'standstill'}, liftoff:{iasKts:146,pitchDeg:9},
+      roll:{distanceFt:4600,durationS:32,durationBasis:'capture',startSource:'standstill'}, liftoff:{iasKts:146,pitchDeg:9},
       rotation:{rateDegS:5,priorMaxRateDegS:8,maxPitchDeg:18},
       lateral:{liftoffOffsetFt:90,liftoffOffsetSide:'right',score:null,grade:'Recorded',verified:true},
       heading:{liftoffDeviationDeg:15,liftoffDeviationSide:'right'},
@@ -298,17 +340,47 @@ async function browser() {
           assert.notEqual(takeoff.display, 'none');
           await evaluate(`document.getElementById('data-last-takeoff-card').scrollIntoView({block:'start'});`);
           await capture(`${name}-takeoff-summary`);
-          await evaluate(`document.getElementById('data-open-takeoff-btn').click(); await workbenchTest.nextTick();`);
+          if (name === 'desktop-wide') {
+            await evaluate(`document.getElementById('data-open-takeoff-btn').click();
+              workbenchTest.tabs.requestTabChange('livemap'); await workbenchTest.nextTick();`);
+            await win.webContents.capturePage();
+            await wait(70);
+            const staleReport = await evaluate(`return {tab:workbenchTest.tabs.activeTabId,focus:document.activeElement?.id};`);
+            assert.equal(staleReport.tab, 'livemap', 'a newer navigation wins over the pending takeoff report action');
+            assert.notEqual(staleReport.focus, 'takeoff-card', 'a stale report action cannot move focus into the hidden debrief');
+            await evaluate(`await workbenchTest.open('flight'); document.getElementById('data-last-takeoff-card').scrollIntoView({block:'start'});`);
+          }
+          const guardedScroll = await evaluate(`workbenchTest.stopTakeoffGuard=workbenchTest.tabs.registerBeforeChangeGuard((from,to)=>to!=='landing');
+            return document.getElementById('vue-main-root').scrollTop;`);
+          await pointerActivate('#data-open-takeoff-btn', touch);
+          const blockedReport = await evaluate(`return {tab:workbenchTest.tabs.activeTabId,scroll:document.getElementById('vue-main-root').scrollTop};`);
+          assert.equal(blockedReport.tab, 'flight', `${name}: Full Report honors the navigation guard`);
+          assert.equal(blockedReport.scroll, guardedScroll, `${name}: blocked navigation does not scroll to the hidden report`);
+          await evaluate(`workbenchTest.stopTakeoffGuard(); delete workbenchTest.stopTakeoffGuard;`);
+          if (touch) await pointerActivate('#data-open-takeoff-btn', true);
+          else {
+            await evaluate(`document.getElementById('data-open-takeoff-btn').focus({preventScroll:true});`);
+            await key('Return');
+          }
           await wait(200);
-          await evaluate(`document.getElementById('takeoff-card').scrollIntoView({block:'start'});`);
+          // Hidden Electron windows need a compositor frame to run the app's
+          // deferred focus/scroll action, just as the visible window would.
+          await win.webContents.capturePage();
+          await wait(70);
           const report = await evaluate(`const card=document.getElementById('takeoff-card');
+            const bounds=card.getBoundingClientRect(), main=document.getElementById('vue-main-root').getBoundingClientRect();
             return {tab:workbenchTest.tabs.activeTabId,text:card.textContent,visible:card.getClientRects().length>0,
+              focus:document.activeElement?.id,top:bounds.top,viewportTop:Math.max(0,main.top),viewportBottom:Math.min(innerHeight,main.bottom),
               aircraftCopyWidth:card.querySelector('.landing-aircraft-hero__copy').getBoundingClientRect().width,
               overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1};`);
           assert.equal(report.tab, 'landing', `${name}: Full Report opens the debrief`);
           assert.equal(report.visible, true);
+          assert.equal(report.focus, 'takeoff-card', `${name}: Full Report moves keyboard focus to the takeoff report`);
+          assert(report.top >= report.viewportTop - 1 && report.top < report.viewportBottom - 40,
+            `${name}: Full Report scrolls the takeoff heading into view without test assistance`);
           assert.equal(report.overflow, false, `${name}: takeoff report fits the viewport`);
-          assert.match(report.text, /RUNWAY EXCURSION/);
+          assert.match(report.text, /Runway excursion during the takeoff roll/);
+          assert.equal(report.text.split('Runway excursion during the takeoff roll').length - 1, 1, 'the critical finding appears once');
           assert.match(report.text, /More runway remaining does not mean a better takeoff/);
           assert.match(report.text, /RECORDED/);
           assert.match(report.text, /Earlier liftoff: 8.0 deg\/s/);
@@ -316,10 +388,26 @@ async function browser() {
           assert.match(report.text, /Measured at liftoff/);
           assert.doesNotMatch(report.text, /Steady rotation|Rapid rotation|Outstanding|Runway use grade|Major heading error|Stayed airborne/);
           if (width <= 390) assert(report.aircraftCopyWidth >= 180, `${name}: aircraft identity has readable width`);
+          const hierarchy = await evaluate(`const findings=document.getElementById('takeoff-debrief-factors'), summary=document.getElementById('takeoff-summary-remaining');
+            return {above:findings.getBoundingClientRect().bottom<=summary.getBoundingClientRect().top,
+              collapsed:document.getElementById('takeoff-detailed-metrics-toggle-btn').getAttribute('aria-expanded')==='false',
+              detailsHidden:document.getElementById('takeoff-detailed-metrics-content').getClientRects().length===0};`);
+          assert(hierarchy.above && hierarchy.collapsed && hierarchy.detailsHidden, `${name}: findings lead, supplementary detail is collapsed`);
           await capture(`${name}-takeoff-report`);
+          await evaluate(`document.getElementById('takeoff-detailed-metrics-toggle-btn').click(); await workbenchTest.nextTick();`);
+          assert.equal(await evaluate("return document.getElementById('takeoff-detailed-metrics-content').getClientRects().length>0;"), true, 'supplementary observations can be expanded');
+          await capture(`${name}-takeoff-details`);
+          await evaluate(`document.getElementById('takeoff-detailed-metrics-toggle-btn').click(); await workbenchTest.nextTick();`);
           await evaluate(`await workbenchTest.open('flight'); document.getElementById('vue-main-root').scrollTop=0;`);
         }
         await capture(`${name}-${tab}`);
+        if (tab === 'system' && ['desktop', 'phone', 'phone-narrow'].includes(name)) {
+          await evaluate("document.getElementById('system-start-all-btn').parentElement.parentElement.scrollIntoView({block:'center'});");
+          await capture(`${name}-system-services`);
+          await evaluate("document.getElementById('system-history-index').scrollIntoView({block:'center'});");
+          await capture(`${name}-system-history`);
+          await evaluate("document.getElementById('vue-main-root').scrollTop=0;");
+        }
         if (tab === 'timeline' && ['desktop', 'desktop-compact', 'phone', 'phone-narrow'].includes(name)) await checkReplayLayout(name, width);
       }
       // Long task content scrolls independently of primary navigation.
@@ -331,6 +419,54 @@ async function browser() {
       if (name === 'desktop' || width <= 390) {
         await checkAircraftCorrection(name, width, height, touch);
         await checkRecordingPointer(name, touch);
+      }
+    }
+    // Scenario text and progressive disclosure must remain understandable on
+    // a desktop and a narrow phone, not just for the critical fixture above.
+    if (TAKEOFF_SCORING_ENABLED) {
+      for (const width of [1440, 320]) {
+        win.setContentSize(width, width === 320 ? 844 : 900);
+        for (const scenario of ['normal', 'interrupted', 'settle-back', 'barometric', 'geometric']) {
+          await evaluate(`const scenario=${JSON.stringify(scenario)};
+            workbenchTest.takeoff.handleTakeoffMessage({ type:'takeoff', final:true, timestampMs:Date.now(),
+              icao:'YSSY',runway:'16R',grade:'Recorded',score:null,assessment:scenario==='settle-back'?'caution':'normal',
+              runwayUse:{remainingFt:3500,runwayLengthFt:8000,liftoffDistanceFt:4500,usedPct:56.25,verified:true},
+              roll:{distanceFt:2000,durationS:25,durationBasis:'simulator',startSource:'standstill'},
+              liftoff:{iasKts:146,gsKts:140,pitchDeg:9,flapsNotch:5},rotation:{rateDegS:2.8,maxPitchDeg:14},
+              lateral:{liftoffOffsetFt:7,verified:true},
+              screenHeight:{heightFt:35,reached:scenario!=='interrupted',heightSource:scenario==='geometric'?'plane':scenario==='barometric'?'baro':'radio',remainingFt:scenario==='interrupted'?null:2500,elapsedS:4},
+              hopCount:scenario==='settle-back'?1:0,finalizeReason:scenario==='interrupted'?'telemetry_gap':'airborne',
+              flags:scenario==='settle-back'?[{code:'settled_after_liftoff',severity:'caution',label:'Settled back after liftoff'}]:[] });
+            await workbenchTest.open('landing'); await workbenchTest.nextTick();
+            document.getElementById('takeoff-card').scrollIntoView({block:'start'});`);
+          await win.webContents.capturePage(); await wait(70);
+          const report = await evaluate(`const card=document.getElementById('takeoff-card'); return {text:card.textContent,
+            overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1,
+            collapsed:document.getElementById('takeoff-detailed-metrics-toggle-btn').getAttribute('aria-expanded')==='false'};`);
+          assert.equal(report.overflow, false, `${scenario}/${width}: report fits`);
+          assert.equal(report.collapsed, true, `${scenario}/${width}: observations start collapsed`);
+          assert.doesNotMatch(report.text, /Stayed airborne|\bClean\b/);
+          if (scenario === 'interrupted') assert.match(report.text, /Not observed[\s\S]*capture incomplete/);
+          if (scenario === 'settle-back') assert.match(report.text, /Distance to final liftoff[\s\S]*Includes airborne intervals/);
+          if (scenario === 'barometric') assert.match(report.text, /Height gained[\s\S]*height gained since liftoff/);
+          if (scenario === 'geometric') assert.match(report.text, /Height gained[\s\S]*geometric height gained since liftoff/);
+          if (scenario === 'normal') assert.match(report.text, /radio height/);
+          await capture(`takeoff-${scenario}-${width}`);
+          if (scenario === 'barometric' || scenario === 'geometric') {
+            await evaluate("document.getElementById('takeoff-summary-screen').scrollIntoView({block:'center'});");
+            await capture(`takeoff-${scenario}-metrics-${width}`);
+            await evaluate("await workbenchTest.open('flight'); await workbenchTest.nextTick(); document.getElementById('data-last-takeoff-screen').scrollIntoView({block:'center'});");
+            await win.webContents.capturePage(); await wait(70);
+            const preview = await evaluate(`const detail=document.getElementById('data-last-takeoff-screen-detail');
+              return {text:detail.textContent,visible:detail.getClientRects().length>0,
+                overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1};`);
+            assert.match(preview.text, scenario === 'geometric'
+              ? /Runway left at 35 ft geometric height gained since liftoff/ : /Runway left at 35 ft height gained since liftoff/);
+            assert.equal(preview.visible, true, `${width}: Overview qualifies the runway distance with its height reference`);
+            assert.equal(preview.overflow, false, `${width}: Overview height reference wraps within the card`);
+            await capture(`takeoff-${scenario}-overview-${width}`);
+          }
+        }
       }
     }
     // A manual preference takes priority over compact-window defaults, and the
@@ -537,9 +673,11 @@ async function browser() {
     assert.equal(await evaluate('return workbenchTest.voice.runtime.enabled;'), true);
     await pointerActivate('[data-voice-detect-microphones]', false);
     await evaluate("const mic=document.getElementById('voice-input-device');mic.value='test-mic';mic.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();");
+    await evaluate("document.querySelector('label:has([data-voice-spoken-feedback])').scrollIntoView({block:'center'});");
     await pointerActivate('label:has([data-voice-spoken-feedback])', false);
     assert.equal(await evaluate('return workbenchTest.voice.selectedInputDeviceId;'), 'test-mic');
     assert.equal(await evaluate('return workbenchTest.voice.spokenReadbacks;'), false);
+    await evaluate("document.getElementById('voice-ptt-shortcut').scrollIntoView({block:'center'});");
     await pointerActivate('#voice-ptt-shortcut', false);
     await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F8',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}));await workbenchTest.nextTick();");
     assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), '', 'capturing a shortcut does not activate it');
@@ -561,6 +699,21 @@ async function browser() {
     assert.equal(await evaluate('return document.activeElement.id;'), 'voice-ptt-shortcut', 'keyboard shortcut save leaves focus on its recorder after the Save button disappears');
     assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'settings', 'saving does not redirect');
     assert.equal(await evaluate("return document.querySelectorAll('[data-voice-setup-trigger]').length;"), 0, 'registered shortcut clears reminders');
+    async function recordSavedShortcut(touch) {
+      await evaluate("document.getElementById('voice-ptt-shortcut').scrollIntoView({block:'center'});");
+      await pointerActivate('#voice-ptt-shortcut', touch);
+      for (const type of ['keyDown', 'keyUp']) {
+        await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', {
+          type, key: 'F8', code: 'F8', windowsVirtualKeyCode: 119, modifiers: 10,
+        });
+      }
+      await wait(70);
+      assert.match(await evaluate("return document.getElementById('voice-ptt-shortcut-help').textContent;"), /already your saved shortcut.*No changes to save/, 'recording the saved combination explicitly acknowledges the keypress');
+      assert.equal(await evaluate("return Boolean(document.querySelector('[data-voice-shortcut-save]'));"), false, 'an unchanged shortcut has no redundant save action');
+      assert(await evaluate("const r=document.getElementById('voice-ptt-shortcut-help').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight && document.documentElement.scrollWidth<=innerWidth;"), 'unchanged shortcut feedback fits the viewport');
+    }
+    await recordSavedShortcut(false);
+    await capture('voice-shortcut-unchanged-desktop');
     await pointerActivate('#voice-ptt-shortcut', false);
     await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F9',ctrlKey:true,bubbles:true,cancelable:true}));await workbenchTest.nextTick();document.querySelector('[data-voice-shortcut-cancel]').focus();");
     await key('Return');
@@ -617,11 +770,76 @@ async function browser() {
       assert(await evaluate("return !workbenchTest.tabs.moreSheetOpen && workbenchTest.tabs.activeTabId==='settings' && document.activeElement.id==='settings-voice-control';"), 'More closes and focuses the Settings section');
       assert.equal(await evaluate("return Boolean(document.getElementById('voice-first-command-card'));"), false, 'first-command guidance does not cover configuration');
       await capture(`voice-settings-${width}`);
+      await recordSavedShortcut(true);
+      assert(await evaluate("return document.getElementById('settings-voice-control').textContent.includes('Saved shortcut unavailable: Already in use');"), 'unchanged feedback preserves the existing registration error');
+      await capture(`voice-shortcut-unchanged-${width}`);
       await evaluate("document.getElementById('voice-input-device').scrollIntoView({block:'center'});");
       assert(await evaluate("const mic=document.getElementById('voice-input-device'),r=mic.getBoundingClientRect();return r.width>=200 && r.top>=0 && r.bottom<=innerHeight && document.documentElement.scrollWidth<=innerWidth;"), 'microphone controls fit and remain reachable');
       await capture(`voice-settings-microphone-${width}`);
     }
     assert.deepEqual(await evaluate('return voiceSetupCalls;'), [['enabled',true],['microphones',true],['microphone','test-mic'],['readbacks',false],['shortcut','Control+Shift+F8'],['shortcut','Control+F9']], 'only explicit configuration actions reached the runtime; navigation never began voice capture');
+    // Native controller setup uses a renderer-safe summary and explicit actions.
+    await evaluate(`const voice=workbenchTest.voice; window.controllerActions=[];
+      voice.runtime.controllerEnabled=true; voice.runtime.enabled=true; voice.runtime.shortcutRegistered=true;
+      voice.runtime.controller={binding:null,state:'unbound',error:''};
+      voice.bindRuntime({
+        startControllerSetup:async()=>{controllerActions.push('start');voice.controllerSetup={active:true,phase:'listening',held:false,selection:null,message:'Press and release your button.'};return true;},
+        cancelControllerSetup:async()=>{controllerActions.push('cancel');voice.controllerSetup={active:false,phase:'idle'};return true;},
+        saveControllerButton:async()=>{controllerActions.push('save');voice.runtime.controller={binding:voice.controllerSetup.selection,state:'ready',error:''};voice.controllerSetup={active:false,phase:'idle'};return true;},
+        clearControllerButton:async()=>{controllerActions.push('clear');voice.runtime.controller={binding:null,state:'unbound',error:''};return true;}});
+      await workbenchTest.open('settings'); await workbenchTest.nextTick();`);
+    for (const width of [1440, 390, 320]) {
+      win.setContentSize(width, width === 1440 ? 900 : 760);
+      await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {enabled:width!==1440,maxTouchPoints:5});
+      await evaluate("document.querySelector('[data-voice-ptt-settings]').scrollIntoView({block:'center'});");
+      assert(await evaluate("const group=document.querySelector('[data-voice-ptt-settings]');return group.contains(document.getElementById('voice-ptt-shortcut')) && group.contains(document.querySelector('[data-voice-controller-choose]')) && Boolean(group.compareDocumentPosition(document.querySelector('[data-voice-test]')) & Node.DOCUMENT_POSITION_FOLLOWING);"), 'both push-to-talk choices are together before the voice test');
+      const options = await evaluate("const keyboard=document.querySelector('[aria-labelledby=voice-keyboard-title]').getBoundingClientRect(),controller=document.querySelector('[data-voice-controller-settings]').getBoundingClientRect();return {keyboard:keyboard.toJSON(),controller:controller.toJSON(),overflow:document.documentElement.scrollWidth>innerWidth};");
+      assert.equal(options.overflow, false, 'push-to-talk options fit the viewport');
+      if (width === 1440) assert(Math.abs(options.keyboard.top-options.controller.top)<1 && options.keyboard.right<options.controller.left, 'desktop presents the two input methods side by side');
+      else assert(options.keyboard.bottom<options.controller.top && Math.abs(options.keyboard.left-options.controller.left)<1, 'phones stack both input methods in reading order');
+      await capture(`voice-controller-options-${width}`);
+      await evaluate("document.querySelector('[data-voice-controller-choose]').scrollIntoView({block:'center'});");
+      await pointerActivate('[data-voice-controller-choose]', width!==1440);
+      assert(await evaluate("return document.querySelector('[data-voice-controller-save]').disabled && document.getElementById('voice-ptt-shortcut').disabled && document.querySelector('[data-voice-test-start]').disabled;"), 'setup requires release and pauses other voice editors/tests');
+      await evaluate("Object.assign(workbenchTest.voice.controllerSetup,{message:'Release the button, then press and release it again.'});await workbenchTest.nextTick();document.querySelector('[data-voice-controller-settings]').scrollIntoView({block:'center'});");
+      await capture(`controller-button-first-press-${width}`);
+      await evaluate("Object.assign(workbenchTest.voice.controllerSetup,{phase:'held',held:true,selection:{label:'T.16000M',button:400},message:'Release the button.'});await workbenchTest.nextTick();document.querySelector('[data-voice-controller-choose]').focus();");
+      assert(await evaluate("return document.querySelector('[data-voice-controller-save]').disabled;"), 'a held button cannot be saved');
+      await evaluate("Object.assign(workbenchTest.voice.controllerSetup,{phase:'ready',held:false,message:'Button released. You can hold it again to test, or save it.'});await workbenchTest.nextTick();document.querySelector('[data-voice-controller-settings]').scrollIntoView({block:'center'});");
+      assert(await evaluate("return !document.querySelector('[data-voice-controller-save]').disabled && document.documentElement.scrollWidth<=innerWidth;"), 'released button can be saved without horizontal overflow');
+      assert(await evaluate("return document.querySelector('[data-voice-controller-save]').classList.contains('ff-button-primary') && document.activeElement.matches('[data-voice-controller-save]');"), 'release highlights Save and moves chooser focus to the next action');
+      assert(await evaluate("return document.querySelector('[data-voice-controller-save]').parentElement.firstElementChild.matches('[data-voice-controller-save]');"), 'Save comes first in visual and keyboard order');
+      assert(await evaluate("return document.querySelector('[data-voice-controller-test]').textContent.includes('T.16000M');"), 'friendly controller name appears in setup');
+      await evaluate("document.querySelector('[data-voice-controller-cancel]').focus();Object.assign(workbenchTest.voice.controllerSetup,{phase:'held',held:true});await workbenchTest.nextTick();Object.assign(workbenchTest.voice.controllerSetup,{phase:'ready',held:false});await workbenchTest.nextTick();");
+      assert(await evaluate("return document.activeElement.matches('[data-voice-controller-cancel]');"), 'retesting never steals focus from another chosen action');
+      await win.webContents.capturePage();
+      await evaluate("const save=document.querySelector('[data-voice-controller-save]');save.getAnimations().forEach(animation=>animation.finish());");
+      assert(await evaluate("const save=document.querySelector('[data-voice-controller-save]');return !save.disabled && getComputedStyle(save).opacity==='1';"), 'Save remains enabled and fully visible after retesting');
+      await capture(`controller-button-setup-${width}`);
+      await pointerActivate('[data-voice-controller-save]', width!==1440);
+      assert(await evaluate("return document.querySelector('[data-voice-controller-saved]').textContent.includes('400') && document.activeElement.matches('[data-voice-controller-choose]');"), 'save persists the summary and restores usable focus');
+      await evaluate("workbenchTest.voice.runtime.controller.state='waiting';await workbenchTest.nextTick();document.querySelector('[data-voice-controller-settings]').scrollIntoView({block:'center'});");
+      await capture(`controller-button-first-use-${width}`);
+      await evaluate("workbenchTest.voice.runtime.controller.state='disconnected';await workbenchTest.nextTick();");
+      assert(await evaluate("return document.querySelector('[data-voice-controller-status]').textContent.includes('disconnected');"), 'device availability stays next to the binding');
+      await pointerActivate('[data-voice-controller-choose]', width!==1440);
+      await evaluate("await workbenchTest.open('autopilot');await workbenchTest.nextTick();");
+      assert(await evaluate("return !workbenchTest.voice.controllerSetup.active;"), 'navigation cancels input learning');
+      await evaluate("await workbenchTest.open('settings');await workbenchTest.nextTick();document.querySelector('[data-voice-controller-clear]').scrollIntoView({block:'center'});");
+      await pointerActivate('[data-voice-controller-clear]', width!==1440);
+      assert(await evaluate("return !workbenchTest.voice.runtime.controller.binding;"), 'remove retains keyboard configuration');
+    }
+    assert.deepEqual(await evaluate('return controllerActions;'), Array(3).fill(['start','save','start','cancel','clear']).flat(), 'only explicit controller setup actions reach the runtime');
+    await evaluate(`window.pendingControllerActions=[];
+      workbenchTest.voice.bindRuntime({
+        startControllerSetup:()=>{pendingControllerActions.push('start');return new Promise(resolve=>{window.completeControllerStart=resolve;});},
+        cancelControllerSetup:async()=>{pendingControllerActions.push('cancel');return true;}});
+      document.querySelector('[data-voice-controller-choose]').click();
+      await workbenchTest.open('autopilot');await workbenchTest.nextTick();`);
+    assert.deepEqual(await evaluate('return pendingControllerActions;'), ['start','cancel'], 'leaving during setup startup cancels before the runtime replies');
+    await evaluate("completeControllerStart(false);await workbenchTest.nextTick();await workbenchTest.open('settings');await workbenchTest.nextTick();");
+    assert(await evaluate("return !document.querySelector('[data-voice-controller-settings] [role=alert]');"), 'abandoned setup does not leave a false failure notice');
+    await evaluate("workbenchTest.voice.runtime.controllerEnabled=false;await workbenchTest.nextTick();");
     // Exercise the real test controller/UI with microphone and recognition I/O
     // substituted. A disconnected simulator must not block setup diagnostics.
     await evaluate(`const {createVoiceSetupTest}=await import('/frontend/src/voice/voice-setup-test.js');
@@ -639,6 +857,7 @@ async function browser() {
     for (const width of [1440, 320]) {
       win.setContentSize(width, 900);
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width === 320, maxTouchPoints: 5 });
+      await evaluate("document.querySelector('[data-voice-test-start]').scrollIntoView({block:'center'});");
       await pointerActivate('[data-voice-test-start]', width === 320);
       if (width === 1440) assert(await evaluate("return document.activeElement.matches('[data-voice-test-cancel]');"), 'starting a test moves focus from the disabled Start button to Cancel');
       await evaluate("voiceTestChunk({sampleRate:16000,samples:new Float32Array([0.1,-0.1]),sequence:0});document.querySelector('[data-voice-test]').scrollIntoView({block:'center'});await workbenchTest.nextTick();");
@@ -728,6 +947,7 @@ async function browser() {
     assert(await evaluate("return originalSettingsField===document.getElementById('setting-recording-auto-start') && originalSettingsField.matches(':disabled') && !originalSettingsField.getClientRects().length;"), 'revocation disables and hides the retained settings bindings');
     assert.equal(await evaluate("return workbenchTest.sent.some(message=>message.type==='saveAppSettings');"), false, 'revoked settings submit cannot send a save request');
     await capture('authorization-revoked-settings');
+    await checkDesktopAuthorizationRecovery();
     assert.deepEqual(errors, [], 'no browser runtime or asset errors');
     fs.writeFileSync(path.join(OUTPUT, 'layout-results.json'), JSON.stringify(checks, null, 2));
     console.log(`App workbench passed: ${checks.length} populated views across ${SIZES.length} desktop, tablet and phone layouts; compact 3D replay, adaptive navigation, map, touch targets, view search, four remote states, muted telemetry and authorization grant/revocation. Screenshots: ${OUTPUT}`);

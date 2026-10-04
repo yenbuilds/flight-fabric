@@ -5,7 +5,7 @@ defineProps({
   kind: {
     type: String,
     required: true,
-    validator: value => ['devices', 'toolbar', 'recording', 'audio'].includes(value),
+    validator: value => ['devices', 'toolbar', 'recording', 'audio', 'keyboard', 'controller'].includes(value),
   },
 });
 
@@ -13,7 +13,7 @@ const id = `settings-art-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 </script>
 
 <template>
-  <div class="settings-section-watermark" :data-settings-watermark="kind" aria-hidden="true">
+  <div class="settings-section-watermark" :class="{ 'settings-section-watermark--compact': kind === 'keyboard' || kind === 'controller' }" :data-settings-watermark="kind" aria-hidden="true">
     <svg viewBox="0 0 480 300" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false">
       <defs>
         <linearGradient :id="`${id}-wash`" x1=".8" y1="0" x2=".2" y2="1">
@@ -87,6 +87,41 @@ const id = `settings-art-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
         <circle cx="405" cy="79" r="4" /><circle cx="109" cy="216" r="4" />
       </g>
 
+      <g v-else-if="kind === 'keyboard'">
+        <!-- Physical keyboard with raised keycaps and a wide space bar. -->
+        <g transform="rotate(-8 296 158)">
+          <path d="M296 89V73c0-12 9-18 21-18h35" opacity=".45" />
+          <rect x="160" y="89" width="274" height="136" rx="12" :fill="`url(#${id}-wash)`" stroke-width="2" />
+          <rect x="168" y="97" width="258" height="120" rx="6" opacity=".4" />
+          <g opacity=".7">
+            <rect v-for="key in 10" :key="`function-${key}`" :x="174 + (key - 1) * 24" y="104" width="20" height="9" rx="2" />
+            <g v-for="row in 3" :key="row">
+              <rect v-for="key in 10" :key="key" :x="174 + (key - 1) * 24" :y="120 + (row - 1) * 25" width="20" height="18" rx="3" />
+            </g>
+            <rect x="174" y="195" width="40" height="15" rx="3" />
+            <rect x="222" y="195" width="136" height="15" rx="3" :fill="`url(#${id}-wash)`" />
+            <rect x="366" y="195" width="44" height="15" rx="3" />
+          </g>
+          <path d="M177 222h239" opacity=".45" />
+        </g>
+      </g>
+
+      <g v-else-if="kind === 'controller'">
+        <!-- Flight joystick with a thumb hat, trigger, and stable desktop base. -->
+        <path d="M238 201h140l31 38c5 7 1 15-8 15H215c-9 0-13-8-8-15Z" :fill="`url(#${id}-wash)`" stroke-width="2" />
+        <path d="M216 241h184M241 210h35m63 0h35" opacity=".45" />
+        <ellipse cx="307" cy="215" rx="37" ry="14" :fill="`url(#${id}-wash)`" />
+        <path d="M297 189v24q10 8 20 0v-27" stroke-width="2" />
+        <path d="M286 193c-4-15-10-29-13-48l-4-27c-2-16 7-30 22-34l27-7c10-3 19 2 22 12l8 29c3 12-2 23-11 29l-18 12 2 32q-17 11-35 2Z" :fill="`url(#${id}-wash)`" stroke-width="2" />
+        <path d="M284 119c1 20 3 39 11 57m35-25-19 12v19M338 111l-8 7 5 15 10-7" opacity=".65" />
+        <rect x="288" y="94" width="18" height="16" rx="4" transform="rotate(-14 297 102)" />
+        <path d="M297 97v10m-5-5h10" opacity=".7" />
+        <circle cx="322" cy="102" r="7" />
+        <circle cx="246" cy="226" r="6" />
+        <rect x="357" y="220" width="23" height="12" rx="3" />
+        <path d="M378 203h20c17 0 25-10 25-25v-22" opacity=".45" />
+      </g>
+
       <g v-else>
         <!-- Cabin PA speaker with acoustic waves and a row of aircraft windows. -->
         <rect x="166" y="60" width="63" height="91" rx="28" opacity=".28" />
@@ -128,6 +163,13 @@ const id = `settings-art-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   mask-composite: intersect;
 }
 
+.settings-section-watermark--compact svg {
+  top: 50%;
+  right: -2rem;
+  width: clamp(18rem, 90%, 26rem);
+  transform: translateY(-50%);
+}
+
 @media (max-width: 639px) {
   .settings-section-watermark svg {
     top: -0.5rem;
@@ -135,6 +177,12 @@ const id = `settings-art-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
     width: 24rem;
     opacity: .18;
     mask-image: linear-gradient(110deg, transparent 24%, #000 85%), linear-gradient(to bottom, #000 40%, transparent 90%);
+  }
+
+  .settings-section-watermark--compact svg {
+    top: 50%;
+    right: -3rem;
+    width: 22rem;
   }
 }
 

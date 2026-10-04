@@ -65,26 +65,26 @@ const controlSessionReady = computed(() => (
 
 const selectorControls = Object.freeze([
   {
-    id: 'speed', label: 'SPD', fieldId: 'fcu.speedKts', actionId: 'flightGuidance.speed.set',
+    id: 'speed', label: 'SPD', fieldId: 'fcu.speedKtsNative', actionId: 'flightGuidance.speed.set',
     groupId: 'flightGuidance.speed', min: 100, max: 399, step: 1, unit: 'kt', inputmode: 'numeric',
   },
   {
-    id: 'heading', label: 'HDG', fieldId: 'fcu.headingDeg', actionId: 'flightGuidance.heading.set',
+    id: 'heading', label: 'HDG', fieldId: 'fcu.headingDegNative', actionId: 'flightGuidance.heading.set',
     groupId: 'flightGuidance.heading', min: 0, max: 359, step: 1, unit: 'deg', inputmode: 'numeric',
   },
   {
-    id: 'altitude', label: 'ALT', fieldId: 'fcu.altitudeFt', actionId: 'flightGuidance.altitude.set',
-    groupId: 'flightGuidance.altitude', min: 0, max: 49000, step: 100, unit: 'ft', inputmode: 'numeric',
+    id: 'altitude', label: 'ALT', fieldId: 'fcu.altitudeFtNative', actionId: 'flightGuidance.altitude.set',
+    groupId: 'flightGuidance.altitude', min: 100, max: 49000, step: 100, unit: 'ft', inputmode: 'numeric',
   },
   {
-    id: 'vertical-speed', label: 'V/S', fieldId: 'fcu.verticalSpeedFpm', actionId: 'flightGuidance.verticalSpeed.set',
+    id: 'vertical-speed', label: 'V/S', fieldId: 'fcu.verticalSpeedFpmNative', actionId: 'flightGuidance.verticalSpeed.set',
     groupId: 'flightGuidance.verticalSpeed', min: -6000, max: 6000, step: 100, unit: 'fpm', inputmode: 'decimal',
   },
 ]);
 
 const modeControls = Object.freeze([
   { id: 'ap', label: 'AP MASTER', fieldId: 'flightGuidance.apMaster', prefix: 'flightGuidance.apMaster' },
-  { id: 'fd', label: 'FD', fieldId: 'flightGuidance.flightDirector', prefix: 'flightGuidance.flightDirector' },
+  { id: 'fd', label: 'FD CAPT', fieldId: 'flightGuidance.flightDirector', prefix: 'flightGuidance.flightDirector' },
   { id: 'athr', label: 'A/THR ARM', fieldId: 'flightGuidance.autothrottleArmed', prefix: 'flightGuidance.autothrottleArmed' },
   { id: 'speed', label: 'SPD', fieldId: 'flightGuidance.speedHold', prefix: 'flightGuidance.speedHold' },
   { id: 'heading', label: 'HDG', fieldId: 'flightGuidance.headingHold', prefix: 'flightGuidance.headingHold' },
@@ -366,11 +366,11 @@ const pageStatus = computed(() => {
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0">
         <h3 class="text-base font-semibold text-gray-100">{{ title }}</h3>
-        <p class="mt-0.5 text-xs leading-relaxed text-gray-500">Compact FCU, exterior-light and flight-configuration controls with standard live readback.</p>
+        <p class="mt-0.5 text-xs leading-relaxed text-gray-500">Selected FCU targets, captain flight director, exterior lights and flight configuration with live readback.</p>
       </div>
       <div class="flex flex-wrap justify-end gap-1.5">
         <span class="rounded border border-surface-300 px-2 py-1 text-[9px] uppercase tracking-widest text-gray-400">{{ sourceStatus }}</span>
-        <span class="rounded border border-cyan-500/35 bg-cyan-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-cyan-300">Standard controls</span>
+        <span class="rounded border border-cyan-500/35 bg-cyan-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-cyan-300">Aircraft controls</span>
         <span class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300">Experimental</span>
       </div>
     </header>

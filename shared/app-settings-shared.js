@@ -14,9 +14,9 @@
   // Experimental Autotaxi is enabled for 0.10.0. This source-only release gate
   // is not configurable through environment, saved settings or request payloads.
   const LIVE_AUTOTAXI_ENABLED = true;
-  // Takeoff capture and debrief are disabled for the next release.
+  // Takeoff capture and debrief are enabled for the upcoming release candidate.
   // Source-only release gate: never restore this from user settings or env.
-  const TAKEOFF_SCORING_ENABLED = false;
+  const TAKEOFF_SCORING_ENABLED = true;
 
   const APP_SETTINGS_DEFAULTS = Object.freeze({
     aircraftProfile: 'auto',

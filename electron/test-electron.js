@@ -991,6 +991,12 @@ test('build bundles backend cleanup policy', electronPkg.build.files.includes('b
 test('build bundles backend lifecycle helper', electronPkg.build.files.includes('backend-lifecycle.js'));
 test('build bundles main window sizing helper', electronPkg.build.files.includes('main-window-bounds.js'));
 test('build bundles desktop placement controller', electronPkg.build.files.includes('main-window-state.js'));
+test('build bundles the native controller binding and setup modules',
+  ['voice-controller-button.js', 'voice-controller-setup.js'].every(file => electronPkg.build.files.includes(file)));
+test('normal helper builds use the locked default controller-enabled binary',
+  electronPkg.scripts['build:voice-ptt'].includes('--locked')
+    && electronPkg.scripts['build:voice-ptt'].includes('--bin flight-fabric-ptt-hook')
+    && !electronPkg.scripts['build:voice-ptt'].includes('--no-default-features'));
 test('build bundles native application menu', electronPkg.build.files.includes('desktop-menu.js'));
 test('build bundles Windows process identity helper', electronPkg.build.files.includes('backend-process-identity.js'));
 test(

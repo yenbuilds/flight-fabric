@@ -47,7 +47,8 @@ export function createPushbackPreviews(deps: Dependencies) {
     if (message.operation === 'status') return view(entry.plan && matches(entry.plan, message) ? entry.plan : null, message.scene === true);
     if (message.operation !== 'preview') throw new Error('Pushback guidance supports preview and status only.');
     const generation = ++entry.generation;
-    entry.plan = null;
+    // Keep the previous coordinate frame for read-only guidance if recapture
+    // fails. Advancing generation immediately revokes its start eligibility.
     const initial = deps.capture();
     if (!fresh(initial) || initial.speedKts > 0.5) throw new Error('Stop on the ground to preview pushback.');
     if (message.profileKey !== initial.profileKey || message.profileRevision !== initial.profileRevision) throw new Error('Aircraft changed. Wait for current aircraft data.');
@@ -69,7 +70,7 @@ export function createPushbackPreviews(deps: Dependencies) {
     const created = deps.now();
     const valid = () => {
       const latest = deps.capture();
-      return sameAircraft() && fresh(latest) && latest.speedKts <= 0.5 && deps.now() - created <= 60000
+      return generation === entry.generation && sameAircraft() && fresh(latest) && latest.speedKts <= 0.5 && deps.now() - created <= 60000
         && distance(position, localPosition(latest.lat, latest.lon, airport.origin)) <= 2
         && Math.abs(angle(latest.headingDeg - current.headingDeg)) <= 5;
     };

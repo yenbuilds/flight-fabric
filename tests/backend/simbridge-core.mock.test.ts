@@ -234,6 +234,8 @@ test('simbridge-core: provider lifecycle and profile detection smoke test', asyn
 
   // Expect provider lifecycle markers in output
   assert.ok(outStr.includes('TEST:provider_start'), 'Missing provider_start marker');
+  assert.ok(outStr.includes('TEST:path_only_profile:inibuilds-a321lr'), 'Path-only startup must select the exact A321LR profile');
+  assert.ok(outStr.includes('TEST:enriched_profile:inibuilds-a321lr'), 'Late display-name enrichment must retain the exact profile');
   assert.ok(outStr.includes('[SIMBRIDGE_READY]'), 'Missing canonical backend readiness marker');
   assert.ok(
     outStr.indexOf('[http] Bound') < outStr.indexOf('[SIMBRIDGE_READY]'),
@@ -343,12 +345,12 @@ test('simbridge-core: aircraft change during accepted rollout waits for frozen l
   assert.doesNotMatch(outStr, /TEST:runner_error/);
 });
 
-for (const scenario of ['normal', 'disconnect', 'inactive', 'release-disabled']) {
+for (const scenario of ['normal', 'disconnect', 'inactive', 'capture-disabled']) {
   test(`simbridge-core: takeoff recording lifecycle (${scenario})`, async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-core-takeoff-'));
     const child = spawn(process.execPath, [
       path.join(__dirname, '..', 'support', 'simbridge-takeoff-runner.js'),
-      ...(scenario === 'release-disabled' ? [] : ['--enable-takeoff-fixture']),
+      ...(scenario === 'capture-disabled' ? ['--disable-takeoff-fixture'] : []),
       ...(scenario === 'disconnect' ? ['--disconnect'] : []),
     ], {
       env: {
@@ -393,7 +395,7 @@ for (const scenario of ['normal', 'disconnect', 'inactive', 'release-disabled'])
       } else {
         assert.equal(finals.length, 0, output);
         if (scenario === 'inactive') assert.doesNotMatch(output, /TEST:flight_started/);
-        if (scenario === 'release-disabled') assert.match(output, /TEST:flight_started/, 'normal recording remains active with takeoff disabled');
+        if (scenario === 'capture-disabled') assert.match(output, /TEST:flight_started/, 'normal recording remains active with takeoff disabled');
       }
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });

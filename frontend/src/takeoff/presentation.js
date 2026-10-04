@@ -90,6 +90,34 @@ function reasonToneForSeverity(severity) {
   return 'good';
 }
 
+const FINDING_RANK = Object.freeze({ critical: 3, warning: 2, caution: 1 });
+
+function takeoffFindings(msg) {
+  const findings = new Map();
+  for (const flag of Array.isArray(msg.flags) ? msg.flags : []) {
+    const label = typeof flag?.label === 'string' ? flag.label.trim() : '';
+    if (!label) continue;
+    const key = String(flag.code || label).trim().toLowerCase();
+    const previous = findings.get(key);
+    if (!previous || (FINDING_RANK[flag.severity] || 0) > (FINDING_RANK[previous.severity] || 0)) {
+      findings.set(key, { ...flag, label });
+    }
+  }
+  if (msg.runwayExcursion === true && !findings.has('runway_excursion')) {
+    findings.set('runway_excursion', { code: 'runway_excursion', label: 'Runway excursion', severity: 'critical' });
+  }
+  const assessment = String(msg.assessment || '').toLowerCase();
+  const assessmentRank = FINDING_RANK[assessment] || 0;
+  if (assessmentRank && ![...findings.values()].some((flag) => (FINDING_RANK[flag.severity] || 0) >= assessmentRank)) {
+    findings.set('recorded_assessment', {
+      label: `${assessment[0].toUpperCase()}${assessment.slice(1)} assessment recorded`, severity: assessment,
+    });
+  }
+  // Stable ordering keeps serious findings ahead of informational context, even
+  // for older recordings whose flags were written in a different order.
+  return [...findings.values()].sort((left, right) => (FINDING_RANK[right.severity] || 0) - (FINDING_RANK[left.severity] || 0));
+}
+
 export function createDefaultTakeoffCardState() {
   return {
     gradeAnimationNonce: 0,
@@ -114,6 +142,7 @@ export function createDefaultTakeoffCardState() {
       runwayLengthText: '-- ft',
     },
     roll: {
+      label: 'Ground roll',
       distanceText: '-- ft',
       durationText: '--',
       startNoteText: '',
@@ -124,12 +153,13 @@ export function createDefaultTakeoffCardState() {
       pitchText: '-- deg',
       pitchTone: 'text-gray-100',
       flapsText: '--',
-      hopText: 'Clean',
+      hopText: 'None observed',
       hopTone: 'text-gray-100',
       hopDetailText: '',
       hopDetailTone: 'text-gray-500',
     },
     climb: {
+      screenLabel: 'Screen height',
       screenText: '--',
       screenTone: 'text-gray-100',
       screenDetailText: '',
@@ -138,6 +168,7 @@ export function createDefaultTakeoffCardState() {
       rotationTone: 'text-gray-100',
       rotationDetailText: '',
       maxPitchText: '-- deg',
+      maxPitchIntervalText: 'During capture',
     },
     alignment: {
       lateralText: '-- ft',
@@ -179,9 +210,9 @@ function buildRunwayUseState(msg, severity) {
         ? `${Math.abs(Math.round(remainingFt)).toLocaleString()} ft past end`
         : formatFeet(remainingFt),
     remainingTone: remainingFt === null ? 'text-gray-100' : toneClassForSeverity(severity, 'text-gray-100'),
-    remainingDetailText: msg.zone || use.zone || (remainingFt === null ? 'Runway geometry unavailable' : '--'),
+    remainingDetailText: msg.zone || use.zone || (remainingFt === null ? 'Runway geometry unavailable' : 'At liftoff'),
     remainingDetailTone: remainingFt === null ? 'text-gray-500' : toneClassForSeverity(severity, 'text-gray-500'),
-    usedText: usedPct === null ? '--' : `${Math.round(usedPct)}% of runway used`,
+    usedText: usedPct === null ? '--' : `${Math.round(usedPct)}% from runway start`,
     liftoffDistanceText: formatFeet(liftoffDistanceFt),
     runwayLengthText: formatFeet(lengthFt),
   };
@@ -198,7 +229,11 @@ function buildClimbState(msg) {
   const priorRateDegS = finiteNumber(rotation.priorMaxRateDegS);
   const recordedRotationCaution = Array.isArray(msg.flags) && msg.flags.some((flag) => flag?.code === 'rapid_rotation');
   const maxPitchDeg = finiteNumber(rotation.maxPitchDeg);
-  const heightLabel = heightFt === null ? 'Screen height' : `${Math.round(heightFt)} ft`;
+  const screenLabel = screen.heightSource === 'baro' || screen.heightSource === 'plane' ? 'Height gained' : 'Screen height';
+  const heightReference = screen.heightSource === 'radio' ? ' radio height'
+    : screen.heightSource === 'baro' ? ' height gained since liftoff'
+      : screen.heightSource === 'plane' ? ' geometric height gained since liftoff' : '';
+  const heightLabel = heightFt === null ? screenLabel : `${Math.round(heightFt)} ft${heightReference}`;
 
   let screenText = '--';
   let screenTone = 'text-gray-100';
@@ -219,12 +254,18 @@ function buildClimbState(msg) {
     if (screenElapsedS !== null && screenRemainingFt !== null) {
       screenDetailText += ` · ${screenElapsedS.toFixed(1)} s after liftoff`;
     }
+    if (screen.timeBasis === 'capture') screenDetailText += ' · Time measured in real time';
   } else if (heightFt !== null) {
     screenText = 'Not observed';
     screenDetailText = `${heightLabel} not observed during capture`;
   }
 
+  const rotationDetail = rateDegS === null
+    ? 'Rotation not resolved'
+    : rotation.timeBasis === 'capture' ? 'Measured average in real time to liftoff' : 'Measured average to liftoff';
+
   return {
+    screenLabel,
     screenText,
     screenTone,
     screenDetailText,
@@ -232,11 +273,10 @@ function buildClimbState(msg) {
     rotationText: rateDegS === null ? '-- deg/s' : `${rateDegS.toFixed(1)} deg/s`,
     rotationTone: recordedRotationCaution ? 'text-amber-400' : 'text-gray-100',
     rotationDetailText: priorRateDegS !== null
-      ? `Earlier liftoff: ${priorRateDegS.toFixed(1)} deg/s`
-      : rateDegS === null
-        ? 'Rotation not resolved'
-        : 'Measured average to liftoff',
+      ? `${rotationDetail} · Earlier liftoff: ${priorRateDegS.toFixed(1)} deg/s`
+      : rotationDetail,
     maxPitchText: maxPitchDeg === null ? '-- deg' : `${maxPitchDeg > 0 ? '+' : ''}${maxPitchDeg.toFixed(1)} deg`,
+    maxPitchIntervalText: 'During capture',
   };
 }
 
@@ -290,24 +330,13 @@ export function buildTakeoffDebriefReasons(msg, { limit = 6 } = {}) {
   if (!msg || typeof msg !== 'object') return reasons;
   const grade = msg.grade || msg.runwayUse?.grade || null;
   const severity = takeoffGradeSeverity(grade);
-  const flags = Array.isArray(msg.flags) ? msg.flags : [];
+  const flags = takeoffFindings(msg);
   const assessment = String(msg.assessment || '').toLowerCase();
   const serious = severity >= 2 || msg.runwayExcursion === true
     || assessment === 'warning' || assessment === 'critical'
     || flags.some((flag) => flag?.severity === 'warning' || flag?.severity === 'critical');
-  if (grade && severity >= 0 && (!serious || severity > 0)) {
-    // Late Liftoff is the app's orange caution band, not an aviation-standard
-    // failure; only the runway-end lines (severity 3) paint danger red.
-    const color = severity >= 3
-      ? DANGER_COLOR
-      : severity === 2
-        ? ORANGE_COLOR
-        : severity === 1
-          ? WARNING_COLOR
-          : GOOD_COLOR;
-    const tone = severity >= 3 ? 'danger' : severity >= 1 ? 'warning' : 'good';
-    reasons.push(buildReasonTag(`${grade} runway use`, color, reasons.length, tone));
-  }
+  // The recorded grade has its own summary. These chips explain specific
+  // findings instead of repeating that grade as another assessment.
   for (const flag of flags) {
     if (!flag || !flag.label) continue;
     reasons.push(buildReasonTag(
@@ -325,7 +354,8 @@ export function buildTakeoffDebriefReasons(msg, { limit = 6 } = {}) {
       reasons.push(buildReasonTag('Lifted off on the centerline', GOOD_COLOR, reasons.length, 'good'));
     }
   }
-  return reasons.slice(0, limit);
+  const seriousCount = flags.filter((flag) => (FINDING_RANK[flag.severity] || 0) >= 2).length;
+  return reasons.slice(0, Math.max(limit, seriousCount));
 }
 
 export function buildTakeoffDebriefConfidence(msg) {
@@ -372,15 +402,10 @@ export function buildTakeoffPresentation(msg, { previousNonce = 0, capturedAtMs 
   card.capturedAtMs = timestampMs !== null && timestampMs > 0 ? timestampMs : Date.now();
   card.excursionVisible = msg.runwayExcursion === true;
   const flags = Array.isArray(msg.flags) ? msg.flags : [];
-  const rank = { critical: 3, warning: 2, caution: 1 };
-  const findings = flags.filter((flag) => flag?.label && rank[flag.severity])
-    .sort((left, right) => rank[right.severity] - rank[left.severity]);
-  if (msg.runwayExcursion === true && !findings.some((flag) => flag.code === 'runway_excursion')) {
-    findings.unshift({ label: 'Runway excursion', severity: 'critical' });
-  }
+  const findings = takeoffFindings(msg).filter((flag) => FINDING_RANK[flag.severity]);
   card.assessmentText = findings.map((flag) => flag.label).join(' · ')
-    || (rank[msg.assessment] ? `${msg.assessment} assessment recorded` : '');
-  card.assessmentTone = Math.max(rank[msg.assessment] || 0, ...findings.map((flag) => rank[flag.severity])) >= 2
+    || '';
+  card.assessmentTone = Math.max(FINDING_RANK[msg.assessment] || 0, ...findings.map((flag) => FINDING_RANK[flag.severity])) >= 2
     ? 'text-danger' : 'text-warning';
   card.airportText = msg.icao || '--';
   card.runwayText = msg.runway ? `RWY ${msg.runway}` : '--';
@@ -395,14 +420,18 @@ export function buildTakeoffPresentation(msg, { previousNonce = 0, capturedAtMs 
   const roll = msg.roll || {};
   const rollDistanceFt = finiteNumber(roll.distanceFt);
   const rollDurationS = finiteNumber(roll.durationS);
+  const rollStartNote = roll.startSource === 'standstill'
+    ? 'From low speed (8 kt or less)'
+    : roll.startSource === 'runway_aligned'
+      ? 'Rolling start; measured from runway alignment'
+      : rollDistanceFt === null ? 'Roll start not resolved' : '';
   card.roll = {
+    label: finiteNumber(msg.hopCount) > 0 ? 'Distance to final liftoff' : 'Ground roll',
     distanceText: formatFeet(rollDistanceFt),
-    durationText: rollDurationS === null ? '--' : `${rollDurationS.toFixed(0)} s`,
-    startNoteText: roll.startSource === 'standstill'
-      ? 'From standstill'
-      : roll.startSource === 'runway_aligned'
-        ? 'Rolling start; measured from runway alignment'
-        : rollDistanceFt === null ? 'Roll start not resolved' : '',
+    durationText: rollDurationS === null ? '--' : `${rollDurationS.toFixed(0)} s${roll.durationBasis === 'capture' ? ' (real time)' : ''}`,
+    startNoteText: finiteNumber(msg.hopCount) > 0
+      ? [rollStartNote, 'Includes airborne intervals before settling back'].filter(Boolean).join(' · ')
+      : rollStartNote,
   };
 
   const liftoff = msg.liftoff || {};
@@ -412,20 +441,23 @@ export function buildTakeoffPresentation(msg, { previousNonce = 0, capturedAtMs 
   const flapsNotch = finiteNumber(liftoff.flapsNotch);
   const hopCount = Math.max(0, Math.round(finiteNumber(msg.hopCount) ?? 0));
   const contactUncertain = flags.some((flag) => flag?.code === 'ground_contact_uncertain');
+  const incompleteCapture = msg.screenHeight?.reached !== true || msg.finalizeReason === 'telemetry_gap'
+    || String(msg.finalizeReason || '').startsWith('timeout');
   card.liftoff = {
     iasText: iasKts === null ? '-- kt' : `${Math.round(iasKts)} kt`,
     gsText: gsKts === null ? 'GS: --' : `GS: ${Math.round(gsKts)}`,
     pitchText: pitchDeg === null ? '-- deg' : `${pitchDeg > 0 ? '+' : ''}${pitchDeg.toFixed(1)} deg`,
-    pitchTone: pitchDeg !== null && pitchDeg < 0 ? 'text-amber-400' : 'text-gray-100',
+    pitchTone: 'text-gray-100',
     flapsText: flapsNotch === null ? '--' : `Flaps ${Math.round(flapsNotch)}`,
-    hopText: hopCount === 0 ? (contactUncertain ? 'Uncertain' : 'Clean') : `${hopCount}x`,
+    hopText: hopCount === 0 ? (contactUncertain ? 'Uncertain' : 'None observed') : `${hopCount}x`,
     hopTone: hopCount === 0 && !contactUncertain ? 'text-gray-100' : 'text-amber-400',
     hopDetailText: hopCount === 0
-      ? (contactUncertain ? 'Brief ground contact not confirmed' : 'Stayed airborne')
+      ? (contactUncertain ? 'Brief ground contact not confirmed'
+        : incompleteCapture ? 'No confirmed contacts; climb-out capture incomplete' : 'No confirmed ground contacts during capture')
       : hopCount === 1
         ? 'Settled back once'
         : `Settled back ${hopCount} times`,
-    hopDetailTone: hopCount === 0 && !contactUncertain ? 'text-green-400' : 'text-amber-500',
+    hopDetailTone: hopCount === 0 && !contactUncertain ? 'text-gray-500' : 'text-amber-500',
   };
 
   card.climb = buildClimbState(msg);
@@ -484,8 +516,11 @@ export function buildTakeoffPreview(card, { available = false, pending = false, 
     remainingTone: card.runwayUse.remainingTone,
     remainingDetail: card.runwayUse.remainingDetailText,
     roll: card.roll.distanceText,
+    rollLabel: card.roll.label,
     liftoff: card.liftoff.iasText,
     screen: card.climb.screenText,
+    screenLabel: card.climb.screenLabel,
+    screenDetail: card.climb.screenDetailText,
     screenTone: card.climb.screenTone,
     runway: card.airportText !== '--' && card.runwayText !== '--'
       ? `${card.airportText} ${card.runwayText.replace(/^RWY /, '')}`

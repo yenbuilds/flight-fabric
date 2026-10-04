@@ -20,7 +20,7 @@ function makeVoiceStore(overrides = {}) {
   };
 }
 
-test('voice status snapshot is bounded and names the joystick binding', () => {
+test('voice status snapshot is bounded and ignores retired joystick bindings', () => {
   const snapshot = voiceStatusSnapshot(makeVoiceStore({ transcript: 'x'.repeat(1000) }), {
     aircraftCommandCatalogue: { profileKey: 'bundled/msfs/pmdg-737' },
   });
@@ -28,7 +28,7 @@ test('voice status snapshot is bounded and names the joystick binding', () => {
   assert.equal(snapshot.status, 'ready');
   assert.equal(snapshot.transcript.length, 400);
   assert.equal(snapshot.shortcut, 'Ctrl+Shift+Space');
-  assert.equal(snapshot.joystick, 'T.16000M button 5');
+  assert.equal('joystick' in snapshot, false);
   assert.equal(snapshot.available, true);
   assert.equal(snapshot.profileKey, 'bundled/msfs/pmdg-737');
   assert.equal(voiceStatusSnapshot({ bridgeAvailable: false, runtime: {} }).available, false);
@@ -77,7 +77,7 @@ test('relay stays silent without the desktop voice bridge and retries a failed s
   assert.equal(sent.length, 1);
 });
 
-test('unchanged disabled voice status is sent after authorization on each connection', async () => {
+test('unchanged disabled voice status is sent after each authorized desktop recovery', async () => {
   const sockets = [], sent = [];
   class WebSocketRef {
     static OPEN = 1;
@@ -101,13 +101,23 @@ test('unchanged disabled voice status is sent after authorization on each connec
     send: payload => connection.getAuthorizationScope() === 'full-control' ? connection.send(payload) : false,
   });
   for (let index = 0; index < 2; index += 1) {
-    await connection.initialize(); sockets[index].onopen();
+    await connection.initialize();
+    const viewerSocket = connection.getWs();
+    viewerSocket.onopen();
+    const staleAuthorization = viewerSocket.onmessage;
     assert.equal(sent.length, index, 'opening is not authorization');
-    sockets[index].onmessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'read-only' }) });
+    viewerSocket.onmessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'read-only' }) });
+    assert.equal(connection.getWs(), null, 'a desktop viewer grant retires the rejected connection');
     assert.equal(sent.length, index);
-    sockets[index].onmessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'full-control' }) });
+    await connection.connect();
+    const authorizedSocket = connection.getWs();
+    authorizedSocket.onopen();
+    staleAuthorization({ data: JSON.stringify({ type: 'authorizationScope', scope: 'full-control' }) });
+    assert.equal(sent.length, index, 'a retired socket cannot authorize a voice status relay');
+    authorizedSocket.onmessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'full-control' }) });
     assert.equal(sent.length, index + 1, 'authorized reconnect sends an unchanged snapshot');
     assert.equal(sent[index].status, 'disabled');
   }
+  assert.equal(sockets.length, 4, 'each rejected desktop session is replaced by a fresh authorized connection');
   relay.stop();
 });

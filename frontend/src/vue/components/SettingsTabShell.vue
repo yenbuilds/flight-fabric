@@ -23,6 +23,7 @@ import { useProfilesStore } from '../stores/profiles.js';
 import { useSettingsEditorStore } from '../stores/settings-editor.js';
 import { useSettingsFormStore } from '../stores/settings-form.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
+import { useSystemHostStore } from '../stores/system-host.js';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
@@ -34,6 +35,7 @@ const toolbarPanel = useToolbarPanelStore();
 const voice = useVoiceControlStore();
 const tabs = useTabsStore();
 const profiles = useProfilesStore();
+const systemHost = useSystemHostStore();
 const canManageSettings = computed(() => profiles.authorizationScope === 'full-control');
 let settingsRuntime = null;
 
@@ -77,12 +79,17 @@ onUnmounted(() => {
       <p class="text-xs text-gray-500">Choose how FlightFabric works on this device.</p>
     </div>
 
-    <VoiceControlSettings v-if="voice.bridgeAvailable" />
+    <section v-if="!canManageSettings && systemHost.isElectron" id="settings-connection-note" class="settings-panel" aria-labelledby="settings-connection-title" role="status">
+      <h3 id="settings-connection-title" class="settings-panel-title">Waiting for app settings</h3>
+      <p class="mt-2 text-sm text-muted-fg">App preferences will return when FlightFabric reconnects. Open System to check the connection.</p>
+    </section>
 
-    <section v-if="!canManageSettings" id="settings-pc-managed-note" class="settings-panel" aria-labelledby="settings-pc-managed-title">
+    <section v-else-if="!canManageSettings" id="settings-pc-managed-note" class="settings-panel" aria-labelledby="settings-pc-managed-title">
       <h3 id="settings-pc-managed-title" class="settings-panel-title">App settings are managed on your PC</h3>
       <p class="mt-2 text-sm text-muted-fg">Open Settings in FlightFabric on the simulator PC to change simulator, recording, network, and app preferences.</p>
     </section>
+
+    <VoiceControlSettings v-if="voice.bridgeAvailable" />
 
     <!-- Keep the form mounted: the settings runtime binds its fields before the connection grants access. -->
     <div id="settings-desktop-preferences" v-show="canManageSettings" :inert="!canManageSettings" class="page-stack">

@@ -108,7 +108,8 @@ export function aircraftParityBindings(adapterId: string): readonly AircraftComm
     if (adapterId === 'microsoft-737-max-8') onOff('flightGuidance.flightLevelChange.set', 'flightGuidance.flightLevelChange');
     for (const [target, min, max, step, units] of [
       ['speed', 100, 399, 1, 'knots'], ['heading', 0, 359, 1, 'degrees'],
-      ['altitude', 0, 49000, 100, 'feet'], ['verticalSpeed', -6000, 6000, 100, 'feet-per-minute'],
+      ['altitude', adapterId === 'microsoft-inibuilds-a32x' ? 100 : 0, 49000, 100, 'feet'],
+      ['verticalSpeed', -6000, 6000, 100, 'feet-per-minute'],
     ] as const) number(`flightGuidance.${target}.set`, `flightGuidance.${target}.set`, min, max, step, units);
   }
   if (adapterId === 'fbw-a380x') {

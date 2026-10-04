@@ -8,6 +8,18 @@ type CsvParseOptions = {
   trimValues?: boolean;
 };
 
+// These flight-recording identifiers and labels remain text even when they
+// contain only digits. Share this boundary between Logbook and Timeline so
+// leading zeros and long identifiers survive both projections unchanged.
+const TEXT_CSV_COLUMNS = new Set([
+  'record_type', 'event_id', 'recording_session_id', 'flight_id', 'aircraft',
+  'aircraft_profile_id', 'icao', 'runway',
+]);
+
+function isTextCsvColumn(column: string): boolean {
+  return TEXT_CSV_COLUMNS.has(column);
+}
+
 function splitCsvLines(content: string, options: CsvSplitOptions = {}): string[] {
   const { trimAndDropEmpty = false } = options;
   const lines: string[] = [];
@@ -113,6 +125,7 @@ function getCsvRowWidthError(headers: unknown[], values: unknown[], rowNumber: n
 
 const csvApi = {
   getCsvRowWidthError,
+  isTextCsvColumn,
   parseCsvLine,
   splitCsvLines,
 };

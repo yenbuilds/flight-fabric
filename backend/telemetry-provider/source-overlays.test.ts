@@ -393,6 +393,25 @@ test('standard gauge LIGHT STATES repairs a zero native mask before profile ligh
   assert.equal(lights.available, true);
 });
 
+test('MAX 8 individual wing A-var overrides the incomplete combined mask and missing data stays unavailable', () => {
+  const profile = require('../aircraft/aircraft-profile-loader').loadProfile('bundled/msfs/microsoft-737-max-8');
+  for (const wing of [0, 1, undefined]) {
+    const lights = resolveLightsForBroadcast({
+      baseLights: { wing: false, nav: true, strobe: true, available: true },
+      profile,
+      sourceContext: makeContext({ lvars: { values: { standard_light_states: 17,
+        light_landing_left: 1, light_landing_right: 1,
+        light_taxi: 0, light_turnoff_left: 0, light_turnoff_right: 0,
+        ...(wing === undefined ? {} : { light_wing: wing }) } } },
+      [{ type: 'lvar-sidecar', connected: true }], profile),
+    });
+    assert.equal(lights.available, wing !== undefined);
+    if (wing !== undefined) assert.equal(lights.wing, wing === 1);
+    assert.equal(lights.nav, true);
+    assert.equal(lights.strobe, true);
+  }
+});
+
 test('lights use SDK data even when profile LVAR source is unavailable', () => {
   const frame = {
     sdk: {

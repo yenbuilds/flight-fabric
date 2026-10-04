@@ -14,7 +14,22 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   }).map(button => button.textContent);`), [], 'toolbar navigation labels fit their targets at ' + width);
   const type = text => { for (const c of text) { key('keyDown', c); key('char', c); key('keyUp', c); } };
   const fill = async (id, text) => { await click(id); key('keyDown', 'A', ['control']); key('keyUp', 'A', ['control']); type(text); };
-  await page(`await fetch('/fixture/taxi?position=live&pushback=false&phase=preview');`);
+  const assertSimpleMap = async () => {
+    const map = await page(`const svg = document.querySelector('.taxi-figure svg');
+      const route = svg.querySelector('.taxi-simple-route');
+      return { mode: svg.getAttribute('data-taxi-map'), route: route && route.tagName.toLowerCase(),
+        fill: route && getComputedStyle(route).fill, paths: svg.querySelectorAll('path').length,
+        nodes: svg.querySelectorAll('*').length, aircraftLines: svg.querySelectorAll('.taxi-simple-aircraft line').length };`);
+    assert.equal(map.mode, '2d');
+    assert.equal(map.route, 'polyline');
+    assert.equal(map.fill, 'none');
+    assert.equal(map.paths, 0, 'the toolbar taxi map has no filled or compound SVG paths');
+    assert.equal(map.aircraftLines, 3, 'the live aircraft is a small line marker');
+    assert.ok(map.nodes <= 16, 'the route diagram has a bounded number of SVG nodes');
+  };
+  const markerVisible = `const marker = document.querySelector('.taxi-simple-aircraft');
+    return !!marker && getComputedStyle(marker).display !== 'none' && getComputedStyle(marker).visibility !== 'hidden';`;
+  await page(`await fetch('/fixture/taxi?position=live&pushback=false&phase=preview&departing=false');`);
   await click('#taxi-mode'); press('Home'); press('Enter');
   await fill('#taxi-airport', 'YSSY'); await fill('#taxi-runway', '16R');
   await until(page, `return !document.querySelector('#taxi-show-route').disabled;`);
@@ -23,14 +38,19 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   key('keyDown', 'Enter'); key('keyDown', 'Enter'); key('keyUp', 'Enter');
   await until(page, `return !document.querySelector('.taxi-figure').hidden;`);
   await wait(550);
-  if (await page(`return document.querySelector('#taxi-view').textContent === 'Follow aircraft';`)) await click('#taxi-view');
   assert.match(await page(`return document.querySelector('.taxi-caption').textContent;`), /m to holding point before runway 16R/);
-  assert.ok(await page(`return document.querySelectorAll('.taxi-figure svg path').length > 20;`));
+  await assertSimpleMap();
+  assert.equal(await page(`return document.querySelector('#taxi-view').hidden;`), true, 'a standalone taxi route needs no view toggle');
+  await page(`window.taxiRouteNode = document.querySelector('.taxi-simple-route');
+    window.taxiRoutePoints = window.taxiRouteNode.getAttribute('points');
+    window.taxiMapNodeCount = document.querySelector('.taxi-figure svg').querySelectorAll('*').length;`);
   assert.equal(await root('return keyboardClaimed;'), true, 'Taxi buttons retain capture through pending state');
   await click('#taxi-airport');
   await page(`window.taxiInput = document.activeElement; document.activeElement.setSelectionRange(1, 3);`);
   await wait(1100);
   assert.deepEqual(await page(`return [document.activeElement === window.taxiInput, document.activeElement.selectionStart, document.activeElement.selectionEnd];`), [true, 1, 3]);
+  assert.equal(await page(`return document.querySelector('.taxi-simple-route') === window.taxiRouteNode;`), true,
+    'status polling retains the existing route geometry');
   const output = path.resolve(__dirname, '../../.tmp/toolbar-taxi'); fs.mkdirSync(output, { recursive: true });
   await page(`document.querySelector('.taxi-figure').scrollIntoView({block:'center'});`); await wait(80);
   fs.writeFileSync(path.join(output, 'taxi-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
@@ -40,15 +60,20 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
     await page(`document.documentElement.setAttribute('data-theme', 'dark');`);
   }
   assert.equal(await page(`return document.documentElement.scrollWidth > innerWidth;`), false, 'Taxi fits ' + width);
-  await click('#taxi-view');
-  assert.equal(await page(`return document.querySelector('#taxi-view').textContent;`), 'Follow aircraft');
-  assert.ok(await page(`return !!document.querySelector('.taxi-marker');`));
+  assert.equal(await page(markerVisible), true);
   await page(`await fetch('/fixture/taxi?position=stale');`);
   await until(page, `return document.querySelector('.taxi-caption').textContent.includes('Reference only');`);
-  assert.equal(await page(`return !!document.querySelector('.taxi-marker');`), false, 'stale route has no live aircraft marker');
+  assert.equal(await page(markerVisible), false, 'stale route does not show a live aircraft marker');
   await page(`await fetch('/fixture/taxi?position=off');`);
   await until(page, `return document.querySelector('.taxi-caption').textContent.includes('Off route');`);
+  await assertSimpleMap();
+  assert.deepEqual(await page(`return [document.querySelector('.taxi-simple-route') === window.taxiRouteNode,
+    document.querySelector('.taxi-simple-route').getAttribute('points') === window.taxiRoutePoints,
+    document.querySelector('.taxi-figure svg').querySelectorAll('*').length === window.taxiMapNodeCount];`), [true, true, true],
+    'stale and changed aircraft positions preserve fixed route geometry without growing the map');
   await page(`await fetch('/fixture/taxi?position=live');`);
+  await until(page, `return document.querySelector('.taxi-caption').textContent.includes('m to holding point');`);
+  assert.equal(await page(markerVisible), true, 'fresh telemetry restores the aircraft marker');
   await click('#taxi-hide-route');
   assert.equal(await page(`return document.querySelector('.taxi-figure').hidden;`), true);
   // Native select keyboard events must remain captured, just like text fields.
@@ -81,9 +106,27 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   await until(page, `return document.querySelector('#taxi-pushback-reason').textContent.includes('parking brake');`);
   await page(`document.querySelector('.taxi-figure').scrollIntoView({block:'center'});`); await wait(180);
   fs.writeFileSync(path.join(output, 'pushback-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+  assert.equal(await page(`return document.querySelector('#taxi-view').textContent;`), 'Taxi map');
+  assert.equal(await page(`return document.querySelector('#taxi-view').hidden;`), false);
   await click('#taxi-view');
   assert.equal(await page(`return !!document.querySelector('[data-pushback-map]');`), false);
+  assert.equal(await page(`return document.querySelector('#taxi-view').getAttribute('aria-pressed');`), 'true');
+  await assertSimpleMap();
+  await page(`window.departureRouteNode = document.querySelector('.taxi-simple-route');
+    window.departureMapNodeCount = document.querySelector('.taxi-figure svg').querySelectorAll('*').length;`);
+  const departureReplies = await page(`return (await (await fetch('/fixture/taxi')).json()).filter(r => r.pushback && r.operation === 'status').length;`);
+  await until(page, `return (await (await fetch('/fixture/taxi')).json()).filter(r => r.pushback && r.operation === 'status').length >= ${departureReplies + 2};`);
+  assert.deepEqual(await page(`return [document.querySelector('.taxi-simple-route') === window.departureRouteNode,
+    document.querySelector('.taxi-figure svg').querySelectorAll('*').length === window.departureMapNodeCount];`), [true, true],
+    'freshly deserialized departure replies retain route nodes and keep the map size bounded');
   await click('#taxi-pushback-view'); press('Enter');
+  await until(page, `return !!document.querySelector('[data-pushback-map]');`);
+  assert.equal(await page(`return document.querySelector('#taxi-view').getAttribute('aria-pressed');`), 'false');
+  await click('#taxi-view');
+  await assertSimpleMap();
+  assert.equal(await page(`return !!document.querySelector('[data-pushback-aircraft]');`), false, 'taxi map reentry removes pushback geometry');
+  await click('#taxi-pushback-view');
+  await until(page, `return !!document.querySelector('[data-pushback-path]');`);
   assert.equal(await root('return keyboardClaimed;'), true, 'preview view buttons preserve keyboard capture');
   await page(`await fetch('/fixture/pushback?brake=false');`);
   await until(page, `return !document.querySelector('#taxi-pushback-action').disabled;`);
@@ -113,6 +156,7 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   assert.equal(await page(`return !!document.querySelector('[data-pushback-aircraft]');`), false);
   await page(`await fetch('/fixture/taxi?position=live&phase=complete');`);
   await until(page, `return !document.querySelector('[data-pushback-map]');`);
+  await assertSimpleMap();
   await until(page, `return document.querySelector('#taxi-pushback-reason').textContent.includes('Pushback complete');`);
   assert.ok((await page(`return await (await fetch('/fixture/taxi')).json();`)).every(r => ['status', 'preview', 'parkings'].includes(r.operation)));
   assert.equal(await page(`return document.documentElement.scrollWidth > innerWidth;`), false);
@@ -123,6 +167,44 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Stop pushback';`);
   await click('#taxi-pushback-action');
   await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Start pushback' && !document.querySelector('#taxi-pushback-action').disabled;`);
+  if (width === 1200) {
+    await click('#taxi-view');
+    await assertSimpleMap();
+    await page(`window.departingRoute = document.querySelector('.taxi-simple-route');
+      window.departingPoints = window.departingRoute.getAttribute('points');
+      window.departingMarker = document.querySelector('.taxi-simple-aircraft');
+      window.departingPose = window.departingMarker.getAttribute('transform');
+      window.departingNodes = [...document.querySelector('.taxi-figure svg').querySelectorAll('*')];`);
+    const previewCount = await page(`return (await (await fetch('/fixture/taxi')).json()).filter(r => r.pushback && r.operation === 'preview').length;`);
+    const controlCount = await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation !== 'status').length;`);
+    await page(`await fetch('/fixture/taxi?departing=true');`);
+    for (let sample = 0; sample < 3; sample++) {
+      await until(page, `const marker = document.querySelector('.taxi-simple-aircraft');
+        return marker === window.departingMarker && getComputedStyle(marker).display !== 'none'
+          && marker.getAttribute('transform') !== window.departingPose;`);
+      const pose = await page(`window.departingPose = window.departingMarker.getAttribute('transform');
+        const box = window.departingMarker.getBoundingClientRect();
+        return { transform: window.departingPose, width: box.width, height: box.height };`);
+      assert.ok(pose.width > 0 && pose.height > 0, 'the retained aircraft marker has a visible browser layout');
+    }
+    const retainedMap = `return document.querySelector('.taxi-simple-route') === window.departingRoute
+      && window.departingRoute.getAttribute('points') === window.departingPoints
+      && [...document.querySelector('.taxi-figure svg').querySelectorAll('*')].every((node, i) => node === window.departingNodes[i])
+      && document.querySelector('.taxi-figure svg').querySelectorAll('*').length === window.departingNodes.length;`;
+    assert.equal(await page(retainedMap), true, 'moving status retains every route/marker node without map growth');
+    assert.equal(await page(`return document.querySelector('#taxi-pushback-action').disabled;`), true, 'the invalid moving plan cannot start pushback');
+    await page(`await fetch('/fixture/taxi?position=stale');`);
+    await until(page, markerVisible, false);
+    await page(`await fetch('/fixture/taxi?position=live');`);
+    await until(page, markerVisible);
+    assert.equal(await page(retainedMap), true, 'stale recovery keeps the same map and restores its marker');
+    assert.equal(await page(`return (await (await fetch('/fixture/taxi')).json()).filter(r => r.pushback && r.operation === 'preview').length;`), previewCount,
+      'moving and stale positions keep status polling instead of attempting pushback recapture');
+    assert.equal(await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation !== 'status').length;`), controlCount,
+      'live map updates issue no new Start or Stop command');
+    await page(`await fetch('/fixture/taxi?departing=false');`);
+    await until(page, `return !document.querySelector('#taxi-pushback-action').disabled;`);
+  }
   await click('#taxi-pushback-action');
   await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Stop pushback';`);
   const stops = await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation === 'stop').length;`);

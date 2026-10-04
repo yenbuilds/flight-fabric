@@ -40,7 +40,7 @@ test('history index schema initializes tables, indexes, and meta', (t) => {
   }
 
   withTempDb((db) => {
-    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v16');
+    assert.equal(HISTORY_INDEX_SOURCE_CONTRACT_VERSION, 'flight-bundle-history-index-v17');
     const result = initializeHistoryIndexSchema(db);
     assert.equal(result.contractInvalidated, false);
     assert.equal(result.schemaVersion, HISTORY_INDEX_SCHEMA_VERSION);
@@ -63,6 +63,7 @@ test('history index schema initializes tables, indexes, and meta', (t) => {
     assert.ok(tableNames.includes('history_source_files'));
     assert.ok(tableNames.includes('history_flights'));
     assert.ok(tableNames.includes('history_landings'));
+    assert.ok(tableNames.includes('history_takeoffs'));
 
     const indexRows = db.prepare(`
       SELECT name
@@ -74,6 +75,8 @@ test('history index schema initializes tables, indexes, and meta', (t) => {
     assert.ok(indexNames.includes('history_flights_started_at_idx'));
     assert.ok(indexNames.includes('history_landings_timestamp_idx'));
     assert.ok(indexNames.includes('history_landings_flight_key_idx'));
+    assert.ok(indexNames.includes('history_takeoffs_timestamp_idx'));
+    assert.ok(indexNames.includes('history_takeoffs_source_idx'));
   });
 });
 
@@ -141,7 +144,9 @@ test('history index schema clears derived rows when the source contract changes'
       4096,
       JSON.stringify({ aircraft: 'old-derived-value' }),
     );
-    db.prepare("UPDATE history_index_meta SET value = 'flight-bundle-history-index-v15' WHERE key = 'source_contract_version'").run();
+    db.prepare('INSERT INTO history_takeoffs (takeoff_id, source_id, timestamp_ms, payload_json) VALUES (?, ?, ?, ?)')
+      .run('stale-takeoff', 'stale-source', 100, '{}');
+    db.prepare("UPDATE history_index_meta SET value = 'flight-bundle-history-index-v16' WHERE key = 'source_contract_version'").run();
 
     const result = initializeHistoryIndexSchema(db);
 
@@ -149,6 +154,7 @@ test('history index schema clears derived rows when the source contract changes'
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_source_files').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_flights').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_landings').get().count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM history_takeoffs').get().count, 0);
     assert.equal(result.meta.source_contract_version, HISTORY_INDEX_SOURCE_CONTRACT_VERSION);
   });
 });

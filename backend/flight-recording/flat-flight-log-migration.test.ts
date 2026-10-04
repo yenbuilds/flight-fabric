@@ -12,6 +12,7 @@ const { AircraftSpecificJsonlRecorder } = require('./aircraft-specific-jsonl-rec
 const { inspectFlatFlightLogs, migrateFlatFlightLogs } = require('./flat-flight-log-migration.js');
 const layout = require('./recording-bundle-layout.js');
 const { acquireRecordingBundleLease } = require('./recording-bundle-lease.js');
+const { HISTORY_ANALYSIS_VERSION } = require('../history-index/history-summary-sidecar.js');
 const {
   inspectCsvBundleForCatalogSync,
   publishRecordingBundleStatus,
@@ -111,7 +112,7 @@ test('one-off migration republishes a strict flat recording as one certified bun
     assert.equal(sha256(destination.csv), rawHashes.csv);
     assert.equal(sha256(destination.automation), rawHashes.automation);
     assert.equal(sha256(destination.aircraftSpecific), rawHashes.aircraftSpecific);
-    assert.equal(fs.existsSync(destination.summary), true);
+    assert.equal(fs.existsSync(destination.summary), false, 'obsolete cache must be rebuilt from the authoritative CSV');
     const catalog = inspectCsvBundleForCatalogSync(destination.csv);
     assert.equal(catalog.allowed, true, catalog.error || 'migrated strict bundle must validate');
     assert.equal(catalog.recordingSessionId, identity.recordingSessionId);
@@ -143,6 +144,38 @@ test('one-off migration keeps an older non-strict CSV readable without productio
     assert.equal(fs.readFileSync(migrated[0], 'utf8').includes('legacy-flight'), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('migration reuses only current summaries with explicit takeoff coverage', async () => {
+  for (const hasTakeoffs of [true, false]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-flat-migration-summary-'));
+    try {
+      const legacyCsv = path.join(root, 'summary.csv');
+      fs.writeFileSync(legacyCsv, [
+        'record_type,flight_id,flight_start_iso,timestamp_utc',
+        'SAMPLE,legacy-flight,2026-01-02T03:04:05.000Z,2026-01-02T03:04:05.000Z',
+      ].join('\n') + '\n');
+      const takeoff = { id: 'departure', analysis: { schemaVersion: 3, provenance: { ruleVersion: 'recorded' } } };
+      fs.writeFileSync(path.join(root, 'summary.history-summary.json'), JSON.stringify({
+        schemaVersion: 1,
+        analysisVersion: HISTORY_ANALYSIS_VERSION,
+        source: { csvBasename: 'summary.csv' },
+        flight: { flightId: 'legacy-flight' },
+        landings: [],
+        ...(hasTakeoffs ? { takeoffs: [takeoff] } : {}),
+      }));
+      const result = await migrateFlatFlightLogs(root);
+      assert.equal(result.failed, 0, JSON.stringify(result));
+      assert.equal(result.migrated, 1);
+      const destination = layout.getBundlePaths(root, result.details[0].destination);
+      assert.equal(fs.existsSync(destination.summary), hasTakeoffs);
+      if (hasTakeoffs) {
+        assert.deepEqual(JSON.parse(fs.readFileSync(destination.summary, 'utf8')).takeoffs, [takeoff]);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 

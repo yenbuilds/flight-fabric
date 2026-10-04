@@ -81,20 +81,10 @@
 .taxi-figure svg { display: block; width: 100%; max-width: 720px; max-height: 440px; margin: 8px auto; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--taxi-ground); pointer-events: none; }
 .taxi-caption { font-size: 0.9em; line-height: 1.5; }
 .taxi-cautions { color: var(--warn); }
-.taxi-pavement, .taxi-stand { fill: var(--taxi-pavement); }
-.taxi-runway { fill: var(--taxi-runway); }
-.taxi-marking, .taxi-map-label { fill: var(--taxi-marking); }
-.taxi-centreline { fill: none; stroke: var(--warn); stroke-width: 0.8; opacity: 0.6; }
-.taxi-done { fill: var(--taxi-route); opacity: 0.3; }
-.taxi-glow { fill: var(--taxi-route); opacity: 0.25; }
-.taxi-ahead { fill: var(--taxi-route); }
-.taxi-hold { fill: var(--taxi-hold); }
-.taxi-destination { fill: none; stroke: var(--taxi-hold); stroke-width: 2.5; }
-.taxi-stop { fill: var(--taxi-ground); stroke: #e8eef5; stroke-width: 2; }
-.taxi-shadow { fill: #000; opacity: 0.3; }
-.taxi-overview-pavement { fill: none; stroke: var(--taxi-pavement); }
-.taxi-overview-route { fill: none; stroke: var(--taxi-route); stroke-width: 3; }
-.taxi-marker { fill: #e8eef5; stroke: var(--taxi-ground); stroke-width: 1; }
+.taxi-simple-route { fill: none; stroke: var(--taxi-route); stroke-width: 3; }
+.taxi-simple-hold, .taxi-simple-destination { fill: none; stroke: var(--taxi-hold); stroke-width: 3; }
+.taxi-simple-aircraft { fill: none; stroke: var(--taxi-aircraft); stroke-width: 2.5; }
+.taxi-simple-label { fill: var(--taxi-marking); font-size: 12px; }
 
 /* Presets share the Aircraft page's grouping, icon, accent rail and artwork. */
 .presets-section.card { position: relative; border-left: 3px solid var(--accent); }

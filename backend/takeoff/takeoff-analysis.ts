@@ -41,6 +41,7 @@ type AnyRecord = Record<string, any>;
 
 export type TakeoffRollSample = {
   timestampMs: number;
+  simTimeSec?: number | null;
   onGround: boolean;
   onRunway: boolean | null;
   runwayLike: boolean | null;
@@ -56,6 +57,7 @@ export type TakeoffRollSample = {
 
 export type TakeoffPoint = {
   timestampMs: number;
+  simTimeSec?: number | null;
   lat: number | null;
   lon: number | null;
   gsKts?: number | null;
@@ -64,6 +66,7 @@ export type TakeoffPoint = {
   bankDeg?: number | null;
   headingTrueDeg?: number | null;
   aglFt?: number | null;
+  aglSource?: 'radio' | 'plane' | 'baro' | null;
 };
 
 export type TakeoffAnalysisContext = {
@@ -77,9 +80,11 @@ export type TakeoffAnalysisContext = {
    * a settle-back the ground samples have an airborne gap, so the roll is
    * taken from this point instead of being rediscovered behind the gap.
    */
-  rollStart?: { timestampMs: number; lat?: number | null; lon?: number | null; gsKts?: number | null; source?: string | null } | null;
+  rollStart?: { timestampMs: number; simTimeSec?: number | null; lat?: number | null; lon?: number | null; gsKts?: number | null; source?: string | null } | null;
   climb?: { maxPitchDeg?: number | null; maxBankDeg?: number | null } | null;
   priorRotationMaxRateDegS?: number | null;
+  /** First observed ground contact after the most recent airborne segment. */
+  rotationGroundStartMs?: number | null;
   groundContactUncertain?: boolean;
   lightAircraft?: boolean;
   source?: string;
@@ -118,6 +123,15 @@ const MIN_ROTATION_DURATION_S = 0.4;
 export const TRANSPORT_SCREEN_HEIGHT_FT = 35;
 export const LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT = 50;
 
+// Schema version describes the JSON shape; this contract identifies the
+// measurement and assessment rules that produced a newly recorded result.
+// Increment its version when those rules change. Never stamp it onto an old
+// result while reading history.
+export const TAKEOFF_ASSESSMENT_CONTRACT = Object.freeze({
+  id: 'takeoff-assessment',
+  version: 1,
+});
+
 export type RunwayUseScore = {
   score: number | null;
   grade: string;
@@ -134,6 +148,19 @@ function round(value: number | null | undefined, digits = 1): number | null {
   if (value == null || !Number.isFinite(value)) return null;
   const factor = 10 ** Math.max(0, digits);
   return Math.round(value * factor) / factor;
+}
+
+/** Measurement seconds follow the simulator clock; UTC remains the event and
+ * freshness clock. Older captures without simulator time retain capture time. */
+function elapsedTime(before: TakeoffPoint, after: TakeoffPoint): { seconds: number; basis: 'simulator' | 'capture' } {
+  const start = finiteNumberOrNull(before.simTimeSec);
+  const end = finiteNumberOrNull(after.simTimeSec);
+  if (start != null && end != null && end >= start) {
+    // MSFS absolute time is a large seconds value. Millisecond rounding avoids
+    // floating-point cancellation changing the 400 ms rotation boundary.
+    return { seconds: Math.round((end - start) * 1000) / 1000, basis: 'simulator' };
+  }
+  return { seconds: Math.max(0, after.timestampMs - before.timestampMs) / 1000, basis: 'capture' };
 }
 
 function sideForSigned(value: number | null): 'left' | 'right' | 'center' | null {
@@ -221,6 +248,7 @@ function normalizeSample(value: AnyRecord): TakeoffRollSample | null {
   const onGround = value?.onGround === true || value?.wow === true || value?.on_ground === true;
   return {
     timestampMs,
+    simTimeSec: finiteNumberOrNull(value?.simTimeSec),
     onGround,
     onRunway: typeof value?.onRunway === 'boolean' ? value.onRunway : null,
     runwayLike: typeof value?.runwayLike === 'boolean' ? value.runwayLike : null,
@@ -396,7 +424,7 @@ export function findTakeoffRollStart(
   rawSamples: AnyRecord[] | null | undefined,
   liftoffTimestampMs: number,
   referenceHeadingDeg: number | null,
-): { timestampMs: number; lat: number | null; lon: number | null; gsKts: number | null; source: string } | null {
+): { timestampMs: number; simTimeSec: number | null; lat: number | null; lon: number | null; gsKts: number | null; source: string } | null {
   if (!Number.isFinite(liftoffTimestampMs)) return null;
   const samples = (Array.isArray(rawSamples) ? rawSamples : [])
     .map(normalizeSample)
@@ -405,6 +433,7 @@ export function findTakeoffRollStart(
   if (!rollStart) return null;
   return {
     timestampMs: rollStart.sample.timestampMs,
+    simTimeSec: rollStart.sample.simTimeSec ?? null,
     lat: rollStart.sample.lat,
     lon: rollStart.sample.lon,
     gsKts: rollStart.sample.gsKts,
@@ -441,6 +470,7 @@ export function analyzeTakeoffRoll(
     ? {
       sample: {
         timestampMs: establishedRollStartMs,
+        simTimeSec: finiteNumberOrNull(context.rollStart?.simTimeSec),
         onGround: true,
         onRunway: null,
         runwayLike: null,
@@ -485,9 +515,8 @@ export function analyzeTakeoffRoll(
       }
     }
   }
-  const rollDurationS = rollStart
-    ? round(Math.max(0, liftoff.timestampMs - rollStart.sample.timestampMs) / 1000, 1)
-    : null;
+  const rollTime = rollStart ? elapsedTime(rollStart.sample, liftoff) : null;
+  const rollDurationS = rollTime ? round(rollTime.seconds, 1) : null;
 
   const liftoffDistanceFt = liftoffProjection.alongTrackFt == null
     ? null
@@ -515,12 +544,16 @@ export function analyzeTakeoffRoll(
   });
 
   // Rotation
-  const rotationStart = findRotationStart(roll, liftoff.timestampMs);
+  const rotationGroundStartMs = finiteNumberOrNull(context.rotationGroundStartMs);
+  const rotationRoll = rotationGroundStartMs == null ? roll
+    : roll.filter(sample => sample.timestampMs >= rotationGroundStartMs);
+  const rotationStart = findRotationStart(rotationRoll, liftoff.timestampMs);
   const liftoffPitchDeg = finiteNumberOrNull(liftoff.pitchDeg);
   let rotationRateDegS: number | null = null;
   let rotationDurationS: number | null = null;
-  if (rotationStart && liftoffPitchDeg != null) {
-    const durationS = (liftoff.timestampMs - rotationStart.sample.timestampMs) / 1000;
+  const rotationTime = rotationStart ? elapsedTime(rotationStart.sample, liftoff) : null;
+  if (rotationStart && rotationTime && liftoffPitchDeg != null) {
+    const durationS = rotationTime.seconds;
     if (durationS >= MIN_ROTATION_DURATION_S) {
       rotationDurationS = round(durationS, 1);
       rotationRateDegS = round((liftoffPitchDeg - (rotationStart.sample.pitchDeg as number)) / durationS, 2);
@@ -541,10 +574,13 @@ export function analyzeTakeoffRoll(
   let peakHeadingDeviationSignedDeg: number | null = null;
   let previousHeading: { timestampMs: number; deviation: number } | null = null;
   let confirmedHeadingDeviationDeg = 0;
+  let previousEdge: { timestampMs: number; offsetFt: number } | null = null;
+  let confirmedOutsideEdge = false;
   let surfaceGeometryConflict = false;
   for (const sample of roll) {
     if (sample.gsKts == null || sample.gsKts < MIN_ROLL_TRACKING_GS_KTS) {
       previousHeading = null;
+      previousEdge = null;
       continue;
     }
     const projection = alongTrack(runway.origin, runway.headingTrueDeg, sample);
@@ -560,6 +596,20 @@ export function analyzeTakeoffRoll(
         peakLateralSignedFt = projection.crossTrackFt;
       }
     }
+    // Retain corroborated edge departures throughout the accepted roll, even
+    // if the aircraft returns before liftoff. A lone spike, duplicate, unknown
+    // surface or long observation gap cannot establish the finding.
+    const outsideEdge = sample.onRunway === false && projection.crossTrackFt != null
+      && runway.widthFt != null && runway.widthFt > 0
+      && Math.abs(projection.crossTrackFt) > runway.widthFt / 2;
+    if (outsideEdge && projection.crossTrackFt != null) {
+      if (previousEdge && sample.timestampMs > previousEdge.timestampMs
+        && sample.timestampMs - previousEdge.timestampMs <= 3000
+        && Math.sign(projection.crossTrackFt) === Math.sign(previousEdge.offsetFt)) {
+        confirmedOutsideEdge = true;
+      }
+      previousEdge = { timestampMs: sample.timestampMs, offsetFt: projection.crossTrackFt };
+    } else previousEdge = null;
     if (runway.headingTrueDeg != null && sample.headingTrueDeg != null) {
       const deviation = headingDifferenceDegrees(sample.headingTrueDeg, runway.headingTrueDeg);
       if (
@@ -582,11 +632,7 @@ export function analyzeTakeoffRoll(
     ? null
     : Math.round(liftoffProjection.crossTrackFt);
   const lateralVerified = geometryScorable && !surfaceGeometryConflict && liftoffLateralSignedFt != null;
-  const groundOutsideEdge = geometryScorable && !surfaceGeometryConflict
-    && groundEndProjections.length === 2
-    && groundEndProjections.every((point) => point.crossTrackFt != null
-      && Math.abs(point.crossTrackFt) > (runway.widthFt as number) / 2)
-    && Math.sign(groundEndProjections[0].crossTrackFt as number) === Math.sign(groundEndProjections[1].crossTrackFt as number);
+  const groundOutsideEdge = geometryScorable && !surfaceGeometryConflict && confirmedOutsideEdge;
   const liftoffHeadingDeviationDeg = runway.headingTrueDeg != null && liftoffHeadingDeg != null
     ? headingDifferenceDegrees(liftoffHeadingDeg, runway.headingTrueDeg)
     : null;
@@ -636,13 +682,16 @@ export function analyzeTakeoffRoll(
   }
 
   const screenHeightFt = finiteNumberOrNull(context.screenHeightFt) ?? TRANSPORT_SCREEN_HEIGHT_FT;
+  const screenTime = screen ? elapsedTime(liftoff, screen) : null;
   return {
     schemaVersion: 3,
+    assessmentContract: { ...TAKEOFF_ASSESSMENT_CONTRACT },
     source: typeof context.source === 'string' && context.source ? context.source : 'computed',
     assessment: maxSeverity(flags),
     sampleCount: roll.length,
     rollStart: rollStart ? {
       timestampMs: rollStart.sample.timestampMs,
+      simTimeSec: rollStart.sample.simTimeSec ?? null,
       lat: rollStart.sample.lat,
       lon: rollStart.sample.lon,
       gsKts: round(rollStart.sample.gsKts),
@@ -651,8 +700,10 @@ export function analyzeTakeoffRoll(
     rollDistanceFt,
     rollDistanceSource,
     rollDurationS,
+    rollDurationBasis: rollTime?.basis ?? null,
     liftoff: {
       timestampMs: liftoff.timestampMs,
+      simTimeSec: finiteNumberOrNull(liftoff.simTimeSec),
       lat: liftoff.lat,
       lon: liftoff.lon,
       iasKts: round(finiteNumberOrNull(liftoff.iasKts)),
@@ -675,9 +726,11 @@ export function analyzeTakeoffRoll(
     screenHeight: {
       heightFt: screenHeightFt,
       basis: typeof context.screenHeightBasis === 'string' ? context.screenHeightBasis : null,
+      heightSource: screen?.aglSource === 'radio' || screen?.aglSource === 'plane' || screen?.aglSource === 'baro' ? screen.aglSource : null,
       reached: Boolean(screen),
       timestampMs: screen?.timestampMs ?? null,
-      elapsedS: screen ? round(Math.max(0, screen.timestampMs - liftoff.timestampMs) / 1000, 1) : null,
+      elapsedS: screenTime ? round(screenTime.seconds, 1) : null,
+      timeBasis: screenTime?.basis ?? null,
       distanceFt: screenDistanceFt,
       remainingFt: runwayUse.screenRemainingFt,
       beyondRunwayEnd: runwayUse.screenBeyondEnd,
@@ -689,6 +742,7 @@ export function analyzeTakeoffRoll(
       startPitchDeg: round(rotationStart?.sample.pitchDeg ?? null),
       liftoffPitchDeg: round(liftoffPitchDeg),
       durationS: rotationDurationS,
+      timeBasis: rotationTime?.basis ?? null,
       rateDegS: rotationRateDegS,
       maxRateDegS: maxRotationRateDegS,
       priorMaxRateDegS: priorRotationMaxRateDegS,
@@ -741,4 +795,5 @@ module.exports = {
   scoreTakeoffRunwayUse,
   TRANSPORT_SCREEN_HEIGHT_FT,
   LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT,
+  TAKEOFF_ASSESSMENT_CONTRACT,
 };

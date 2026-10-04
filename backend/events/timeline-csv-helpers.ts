@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('fs');
-const { getCsvRowWidthError, parseCsvLine } = require('../utils/csv');
+const { getCsvRowWidthError, isTextCsvColumn, parseCsvLine } = require('../utils/csv');
 const { streamUtf8Records } = require('../utils/bounded-utf8-record-reader') as {
   streamUtf8Records: (_options: {
     expectedStat: import('fs').BigIntStats;
@@ -157,7 +157,9 @@ function mapCsvRow(
 ): CsvRow {
   const row: CsvRow = {};
   for (let index = 0; index < headers.length && index < values.length; index++) {
-    const value = parseValue(values[index]);
+    const raw = values[index];
+    const value = isTextCsvColumn(headers[index]) && raw !== '' && raw !== undefined
+      ? raw : parseValue(raw);
     if (options.sparseRows === true && value === null) continue;
     row[headers[index]] = value;
   }

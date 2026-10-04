@@ -293,7 +293,7 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
         || routeIds.has(route.id)
         || !ACTION_ROUTE_TRANSPORTS.has(normalizeString(route.transport))
         || (routeRecord.readbacks !== undefined && route.transport !== 'simconnect-sequence' && (
-          !supportsCalculatorReadbacks
+          (!supportsCalculatorReadbacks && route.transport !== 'input-event')
           || !Array.isArray(routeRecord.readbacks)
           || routeReadbacks.length < 2
           || routeReadbacks.length > (routeRecord.mode === 'fenix-baro' ? 7 : 4)
@@ -303,14 +303,25 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
       ) {
         throw new TypeError(`Aircraft integration "${adapterId}" has an invalid action route.`);
       }
-      if (route.transport === 'input-event' && (
-        typeof route.inputEvent !== 'string'
-        || !/^[A-Za-z0-9_:.]{1,63}$/.test(route.inputEvent)
-        || typeof route.value !== 'number' || !Number.isFinite(route.value)
-        || !route.readback || route.readback.freshness !== 'field' || action.input !== undefined
-        || Object.keys(routeRecord).some((key) => !['id', 'transport', 'inputEvent', 'value', 'readback', 'precondition'].includes(key))
-      )) {
-        throw new TypeError(`Aircraft integration "${adapterId}" has an invalid native Input Event route.`);
+      if (route.transport === 'input-event') {
+        const events = route.events === undefined ? [{ inputEvent: route.inputEvent, value: route.value }] : route.events;
+        const readbacks = routeReadbacks;
+        const pairedShape = route.events === undefined
+          ? true
+          : Array.isArray(route.events) && route.events.length >= 2 && route.events.length <= 4
+            && route.inputEvent === undefined && route.value === undefined && route.readback === undefined
+            && readbacks.length === route.events.length;
+        if (!pairedShape || !Array.isArray(events)
+          || events.some(event => !event || typeof event.inputEvent !== 'string'
+            || !/^[A-Za-z0-9_:.]{1,63}$/.test(event.inputEvent)
+            || typeof event.value !== 'number' || !Number.isFinite(event.value)
+            || Object.keys(event).some(key => !['inputEvent', 'value'].includes(key)))
+          || new Set(events.map(event => event.inputEvent)).size !== events.length
+          || readbacks.some(readback => !readback || readback.freshness !== 'field')
+          || action.input !== undefined
+          || Object.keys(routeRecord).some(key => !['id', 'transport', 'inputEvent', 'value', 'events', 'readback', 'readbacks', 'precondition'].includes(key))) {
+          throw new TypeError(`Aircraft integration "${adapterId}" has an invalid native Input Event route.`);
+        }
       }
       if (route.transport === 'input-event' && route.precondition !== undefined) {
         const prerequisite = route.precondition;

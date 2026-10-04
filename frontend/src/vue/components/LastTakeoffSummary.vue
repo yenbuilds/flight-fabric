@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, nextTick } from 'vue';
 import { useTakeoffStore } from '../stores/takeoff.js';
 import { useTabsStore } from '../stores/tabs.js';
 
@@ -9,6 +9,18 @@ const tabs = useTabsStore();
 const gradeStyle = computed(() => ({
   color: takeoff.preview.gradeColor || '#4a5e74',
 }));
+
+async function openReport() {
+  if (!takeoff.preview.available || !tabs.requestTabChange('landing')) return;
+  await nextTick();
+  // Let the tab runtime restore its saved scroll before targeting this report.
+  await new Promise(resolve => window.requestAnimationFrame(resolve));
+  if (tabs.activeTabId !== 'landing' || !takeoff.preview.available) return;
+  const report = document.getElementById('takeoff-card');
+  if (!report?.getClientRects().length || report.closest('[inert]')) return;
+  report.focus({ preventScroll: true });
+  report.scrollIntoView({ block: 'start', behavior: 'instant' });
+}
 </script>
 
 <template>
@@ -26,7 +38,7 @@ const gradeStyle = computed(() => ({
         type="button"
         :disabled="!takeoff.preview.available"
         class="ff-button-secondary flight-summary-action px-3 py-2 text-xs font-medium rounded transition-colors"
-        @click="tabs.requestTabChange('landing')"
+        @click="openReport"
       >
         Full Report
       </button>
@@ -53,7 +65,7 @@ const gradeStyle = computed(() => ({
         <div v-if="takeoff.preview.remainingDetail" class="mt-0.5 text-[10px] text-gray-500">{{ takeoff.preview.remainingDetail }}</div>
       </div>
       <div class="px-4 py-3">
-        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Ground roll</div>
+        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.preview.rollLabel || 'Ground roll' }}</div>
         <div id="data-last-takeoff-roll" class="text-base font-semibold tabular text-gray-200" style="font-family:'B612 Mono',monospace;">{{ takeoff.preview.roll }}</div>
       </div>
       <div class="px-4 py-3">
@@ -61,8 +73,9 @@ const gradeStyle = computed(() => ({
         <div id="data-last-takeoff-ias" class="text-base font-semibold tabular text-gray-200" style="font-family:'B612 Mono',monospace;">{{ takeoff.preview.liftoff }}</div>
       </div>
       <div class="px-4 py-3">
-        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Screen height</div>
+        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{{ takeoff.preview.screenLabel || 'Screen height' }}</div>
         <div id="data-last-takeoff-screen" class="text-base font-semibold tabular" :class="takeoff.preview.screenTone" style="font-family:'B612 Mono',monospace;">{{ takeoff.preview.screen }}</div>
+        <div v-if="takeoff.preview.screenDetail" id="data-last-takeoff-screen-detail" class="mt-0.5 text-[10px] text-muted-fg">{{ takeoff.preview.screenDetail }}</div>
       </div>
       <div class="px-4 py-3">
         <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Runway</div>

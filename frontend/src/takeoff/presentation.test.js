@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { buildTimelineEventDetailState } from '../timeline/detail-state.js';
 import {
   buildTakeoffDebriefConfidence,
   buildTakeoffDebriefReasons,
@@ -9,6 +10,51 @@ import {
   takeoffGradeHex,
   takeoffGradeSeverity,
 } from './presentation.js';
+
+test('recorded Takeoff inspector preserves findings and qualifies capture time without exposing storage metadata', () => {
+  const event = { type: 'marker', markerType: 'takeoff', context: {
+    takeoff_id: 'internal-takeoff', event_id: 'event-1', sample_index: 123,
+    roll_duration_s: 22.4, roll_duration_basis: 'capture', rotation_rate_deg_s: 2.1,
+    flags: [{ severity: 'warning', label: 'Recorded runway-edge contact' }],
+    takeoff_analysis: { rotation: { timeBasis: 'capture' }, assessmentContract: { id: 'takeoff-assessment', version: 1 } },
+  } };
+  const before = structuredClone(event);
+  const state = buildTimelineEventDetailState(event);
+  const rows = state.metricSections.flatMap((section) => section.rows);
+  assert.equal(rows.find((row) => row.key === 'roll_duration_s').value, '22.4 (real time)');
+  assert.equal(rows.find((row) => row.key === 'rotation_rate_deg_s').value, '2.10 (real time)');
+  assert.match(rows.find((row) => row.key === 'flags').value, /warning: Recorded runway-edge contact/);
+  assert.equal(rows.some((row) => ['takeoff_id', 'event_id', 'sample_index', 'takeoff_analysis', 'roll_duration_basis'].includes(row.key)), false);
+  assert.deepEqual(event, before, 'presentation must preserve recorded metadata');
+});
+
+test('recorded Takeoff inspector qualifies physical position, airborne intervals and observed height source', () => {
+  for (const [heightSource, reached, expectedLabel] of [
+    ['radio', true, 'Radio-height target (ft)'],
+    ['baro', true, 'Height-gain target from liftoff (ft)'],
+    ['plane', true, 'Geometric height-gain target from liftoff (ft)'],
+    ['radio', false, 'Radio-height target (ft)'],
+    [undefined, undefined, 'Screen-height target (ft)'],
+  ]) {
+    const event = { type: 'marker', markerType: 'takeoff', context: {
+      roll_distance_ft: 4400, hop_count: 1, runway_used_pct: 80,
+      liftoff_distance_ft: 4800, runway_remaining_ft: 1200, max_pitch_deg: 14,
+      screen_height_ft: 35, screen_height_remaining_ft: 400,
+      takeoff_analysis: { screenHeight: { heightSource, reached } },
+    } };
+    const before = structuredClone(event);
+    const rows = buildTimelineEventDetailState(event).metricSections.flatMap((section) => section.rows);
+    assert.equal(rows.find((row) => row.key === 'screen_height_ft').label, expectedLabel);
+    assert.equal(rows.find((row) => row.key === 'runway_used_pct').label, 'Liftoff position (% from runway start)');
+    assert.equal(rows.find((row) => row.key === 'roll_distance_ft').label, 'Distance to final liftoff including airborne intervals (ft)');
+    assert.equal(rows.find((row) => row.key === 'max_pitch_deg').label, 'Max pitch during capture (deg)');
+    const observation = rows.find((row) => row.key === 'screen_height_observation');
+    if (reached === undefined) assert.equal(observation, undefined, 'unknown legacy observation is not inferred');
+    else assert.equal(observation.value, reached ? 'Observed' : 'Not observed during capture');
+    if (reached === false) assert.equal(rows.find((row) => row.key === 'screen_height_remaining_ft').value, '--');
+    assert.deepEqual(event, before, 'display qualifications never change the recording');
+  }
+});
 
 function scoredTakeoff(overrides = {}) {
   return {
@@ -74,17 +120,17 @@ test('a scored takeoff renders every fact as text with a tone', () => {
   assert.equal(card.runwayText, 'RWY 35');
   assert.equal(card.runwayUse.remainingText, '2,000 ft');
   assert.equal(card.runwayUse.remainingTone, 'text-green-400');
-  assert.equal(card.runwayUse.usedText, '67% of runway used');
+  assert.equal(card.runwayUse.usedText, '67% from runway start');
   assert.equal(card.runwayUse.liftoffDistanceText, '4,000 ft');
   assert.equal(card.runwayUse.runwayLengthText, '6,000 ft');
   assert.equal(card.roll.distanceText, '3,800 ft');
   assert.equal(card.roll.durationText, '30 s');
-  assert.equal(card.roll.startNoteText, 'From standstill');
+  assert.equal(card.roll.startNoteText, 'From low speed (8 kt or less)');
   assert.equal(card.liftoff.iasText, '140 kt');
   assert.equal(card.liftoff.gsText, 'GS: 138');
   assert.equal(card.liftoff.pitchText, '+8.7 deg');
   assert.equal(card.liftoff.flapsText, 'Flaps 1');
-  assert.equal(card.liftoff.hopText, 'Clean');
+  assert.equal(card.liftoff.hopText, 'None observed');
   assert.equal(card.climb.screenText, '1,000 ft left');
   assert.match(card.climb.screenDetailText, /Runway left at 35 ft · 4\.2 s after liftoff/);
   assert.equal(card.climb.rotationText, '2.6 deg/s');
@@ -100,7 +146,6 @@ test('a scored takeoff renders every fact as text with a tone', () => {
   assert.match(card.wind.ariaLabel, /^Wind at liftoff/);
   assert.equal(card.debrief.confidenceText, 'High');
   assert.deepEqual(card.debrief.reasons.map((reason) => reason.text), [
-    'Good runway use',
     'Lifted off on the centerline',
   ]);
   assert.equal(card.excursionVisible, false);
@@ -124,9 +169,9 @@ test('an overrun keeps the runway-end facts explicit and never reads as praise',
   assert.equal(card.climb.screenText, '900 ft past end');
   assert.equal(card.climb.screenTone, 'text-gray-100');
   assert.match(card.climb.screenDetailText, /reached beyond the runway end/);
-  assert.equal(card.debrief.reasons[0].text, 'Overrun runway use');
+  assert.equal(card.debrief.reasons[0].text, 'Lifted off beyond the runway end');
   assert.equal(card.debrief.reasons[0].tone, 'danger');
-  assert.equal(card.debrief.reasons[1].text, 'Lifted off beyond the runway end');
+  assert.equal(card.debrief.reasons.length, 1, 'the grade is already shown in the summary');
   assert.ok(!card.debrief.reasons.some((reason) => reason.tone === 'good'), 'praise stays off a critical debrief');
   assert.equal(card.alignment.lateralGradeText, 'Recorded grade: Good', 'the saved grade remains visible in the metrics');
 });
@@ -187,8 +232,7 @@ test('settle-backs, late liftoff and rapid rotation escalate their tiles', () =>
   assert.equal(card.climb.rotationTone, 'text-amber-400');
   assert.equal(card.climb.rotationDetailText, 'Measured average to liftoff');
   const tones = card.debrief.reasons.map((reason) => reason.tone);
-  assert.deepEqual(tones.slice(0, 4), ['warning', 'warning', 'warning', 'warning'], 'a late liftoff is a caution, never styled as a failure');
-  assert.equal(card.debrief.reasons[0].color, '#fb923c', 'the grade tag matches the orange headline');
+  assert.deepEqual(tones, ['warning', 'warning', 'warning'], 'recorded cautions stay visible without a duplicate grade tag');
 });
 
 test('a smoother final rotation keeps the earlier liftoff caution and peak pitch visible', () => {
@@ -199,7 +243,7 @@ test('a smoother final rotation keeps the earlier liftoff caution and peak pitch
   }));
   assert.equal(card.climb.rotationText, '2.6 deg/s', 'the final rotation measurement remains distinct');
   assert.equal(card.climb.rotationTone, 'text-amber-400');
-  assert.equal(card.climb.rotationDetailText, 'Earlier liftoff: 12.0 deg/s');
+  assert.equal(card.climb.rotationDetailText, 'Measured average to liftoff · Earlier liftoff: 12.0 deg/s');
   assert.equal(card.climb.maxPitchText, '+18.0 deg');
   assert.ok(card.debrief.reasons.some((reason) => reason.text === 'Rapid rotation during an earlier liftoff'));
   assert.ok(!card.debrief.reasons.some((reason) => reason.text === 'Steady rotation'));
@@ -224,7 +268,7 @@ test('new takeoffs show neutral measurements without runway points or generic ro
     assert.equal(card.scoreText, '');
     assert.equal(card.runwayUse.remainingTone, 'text-gray-100');
     assert.equal(card.climb.rotationTone, 'text-gray-100');
-    assert.equal(card.climb.rotationDetailText, 'Earlier liftoff: 12.0 deg/s');
+    assert.equal(card.climb.rotationDetailText, 'Measured average to liftoff · Earlier liftoff: 12.0 deg/s');
     assert.ok(!card.debrief.reasons.some((reason) => /rotation|runway use/i.test(reason.text)));
   }
 });
@@ -292,6 +336,12 @@ test('unverified runway use remains qualified in the preview', () => {
   assert.equal(card.alignment.headingGradeText, 'Unverified');
 });
 
+test('runway remaining without a recorded zone identifies when it was measured', () => {
+  const card = buildTakeoffPresentation(scoredTakeoff({ zone: null, runwayUse: { remainingFt: 1500 } }));
+  assert.equal(card.runwayUse.remainingDetailText, 'At liftoff');
+  assert.equal(buildTakeoffPreview(card, { available: true }).remainingDetail, 'At liftoff');
+});
+
 test('liftoff alignment stays neutral and recorded ground findings remain explicit', () => {
   for (const deviation of [0, 5, 15, 25]) {
     const card = buildTakeoffPresentation(scoredTakeoff({
@@ -319,4 +369,146 @@ test('one unconfirmed ground-contact indication never reads as a clean departure
   assert.match(card.liftoff.hopDetailText, /not confirmed/);
   assert.equal(card.debrief.confidenceText, 'Medium');
   assert.match(buildTakeoffPreview(card, { available: true }).assessment, /not confirmed/);
+});
+
+test('confidence evaluates each capture limitation separately and the lowest confidence wins', () => {
+  for (const [overrides, expected, reason] of [
+    [{}, 'High', ''],
+    [{ roll: { startSource: 'runway_aligned' } }, 'Medium', 'Rolling start'],
+    [{ lateral: { verified: false } }, 'Medium', 'alignment unverified'],
+    [{ screenHeight: { reached: false } }, 'Medium', 'screen height not observed'],
+    [{ finalizeReason: 'timeout' }, 'Medium', 'timeout'],
+    [{ finalizeReason: 'telemetry_gap' }, 'Low', 'Telemetry gap'],
+    [{ runwayUse: { remainingFt: null } }, 'Low', 'No runway geometry'],
+    [{ runwayUse: { remainingFt: 2000, verified: false } }, 'Low', 'geometry unverified'],
+    [{ roll: { startSource: 'runway_aligned' }, finalizeReason: 'telemetry_gap' }, 'Low', 'Telemetry gap'],
+  ]) {
+    const confidence = buildTakeoffDebriefConfidence(scoredTakeoff(overrides));
+    assert.equal(confidence.confidenceText, expected);
+    assert.ok(confidence.confidenceReason.includes(reason));
+  }
+});
+
+test('a recovered ground-edge event remains visible beside neutral liftoff measurements', () => {
+  const card = buildTakeoffPresentation(scoredTakeoff({
+    grade: 'Recorded', score: null, assessment: 'warning',
+    runwayUse: { remainingFt: 2000, grade: 'Recorded', score: null, verified: true },
+    lateral: { liftoffOffsetFt: 0, maxOffsetFt: 90, grade: 'Recorded', score: null, verified: true },
+    flags: [{ code: 'lateral_offset', label: 'Ground contact outside the runway reference edge', severity: 'warning' }],
+  }));
+  assert.equal(card.alignment.lateralText, '0 ft');
+  assert.match(card.assessmentText, /outside the runway reference edge/);
+  assert.equal(card.assessmentTone, 'text-danger');
+  assert.match(buildTakeoffPreview(card, { available: true }).assessment, /outside the runway reference edge/);
+  assert.ok(!card.debrief.reasons.some(reason => reason.tone === 'good'));
+});
+
+test('capture-time fallback and airborne settle-back intervals are qualified without changing legacy measurements', () => {
+  const card = buildTakeoffPresentation(scoredTakeoff({
+    hopCount: 1,
+    roll: { distanceFt: 4400, durationS: 35, durationBasis: 'capture', startSource: 'standstill' },
+    rotation: { rateDegS: 2.5, timeBasis: 'capture' },
+    screenHeight: { heightFt: 35, reached: true, elapsedS: 4, remainingFt: 2000, timeBasis: 'capture' },
+  }));
+  assert.equal(card.roll.durationText, '35 s (real time)');
+  assert.match(card.roll.startNoteText, /Includes airborne intervals/);
+  assert.match(card.climb.rotationDetailText, /real time/);
+  assert.match(card.climb.screenDetailText, /Time measured in real time/);
+  const simulator = buildTakeoffPresentation(scoredTakeoff({ rotation: { rateDegS: 2.5, timeBasis: 'simulator' } }));
+  assert.equal(simulator.climb.rotationDetailText, 'Measured average to liftoff');
+});
+
+test('specific findings are deduplicated and serious findings stay ahead of the reason limit', () => {
+  const flags = [
+    ...Array.from({ length: 6 }, (_, index) => ({ code: `context_${index}`, label: `Recorded caution ${index}`, severity: 'caution' })),
+    { code: 'edge', label: 'Earlier edge caution', severity: 'caution' },
+    { code: 'edge', label: 'Ground contact outside the runway reference edge', severity: 'warning' },
+    { code: 'end', label: 'Ground contact beyond the runway end', severity: 'critical' },
+  ];
+  const message = scoredTakeoff({ flags, assessment: 'critical' });
+  const before = structuredClone(message);
+  const card = buildTakeoffPresentation(message);
+  assert.deepEqual(card.debrief.reasons.slice(0, 2).map((reason) => reason.text), [
+    'Ground contact beyond the runway end', 'Ground contact outside the runway reference edge',
+  ]);
+  assert.equal(card.debrief.reasons.length, 6);
+  assert.doesNotMatch(card.assessmentText, /Earlier edge caution/);
+  assert.ok(!card.debrief.reasons.some((reason) => /runway use|centerline/.test(reason.text)));
+  assert.deepEqual(message, before, 'display ordering does not change the recorded assessment');
+
+  const serious = Array.from({ length: 7 }, (_, index) => ({ code: `warning_${index}`, label: `Warning ${index}`, severity: 'warning' }));
+  assert.equal(buildTakeoffDebriefReasons(scoredTakeoff({ flags: serious })).length, 7, 'a display limit never hides a serious finding');
+});
+
+test('a recorded serious assessment without matching flags remains visible in the full debrief', () => {
+  for (const flags of [[],
+    [{ code: 'climb_incomplete', label: 'Screen height not observed', severity: 'caution' }],
+    [{ code: 'missing_label', label: '   ', severity: 'critical' }],
+  ]) {
+    const card = buildTakeoffPresentation(scoredTakeoff({ grade: 'Recorded', score: null, assessment: 'critical', flags }));
+    assert.equal(card.debrief.visible, true);
+    assert.equal(card.debrief.reasons[0].text, 'Critical assessment recorded');
+    assert.equal(card.debrief.reasons[0].tone, 'danger');
+    assert.match(card.assessmentText, /^Critical assessment recorded/);
+    assert.equal(card.assessmentTone, 'text-danger');
+  }
+});
+
+test('incomplete observation does not claim a clean departure or uninterrupted flight', () => {
+  for (const overrides of [
+    { screenHeight: { heightFt: 35, reached: false } },
+    { finalizeReason: 'telemetry_gap' },
+    { finalizeReason: 'timeout_no_height' },
+  ]) {
+    const card = buildTakeoffPresentation(scoredTakeoff(overrides));
+    assert.equal(card.liftoff.hopText, 'None observed');
+    assert.match(card.liftoff.hopDetailText, /capture incomplete/);
+    assert.equal(card.liftoff.hopDetailTone, 'text-gray-500');
+    assert.doesNotMatch(card.liftoff.hopDetailText, /Stayed airborne|Clean/);
+    assert.equal(card.climb.maxPitchIntervalText, 'During capture');
+  }
+  const complete = buildTakeoffPresentation(scoredTakeoff());
+  assert.equal(complete.liftoff.hopDetailText, 'No confirmed ground contacts during capture');
+  assert.equal(complete.climb.maxPitchIntervalText, 'During capture', 'confirmation can continue beyond screen height');
+});
+
+test('a repeated liftoff keeps timing provenance and labels airborne intervals as takeoff distance', () => {
+  const card = buildTakeoffPresentation(scoredTakeoff({
+    hopCount: 1,
+    rotation: { rateDegS: 2.5, priorMaxRateDegS: 5.4, timeBasis: 'capture' },
+  }));
+  assert.equal(card.roll.label, 'Distance to final liftoff');
+  assert.match(card.roll.startNoteText, /Includes airborne intervals/);
+  assert.equal(card.climb.rotationDetailText, 'Measured average in real time to liftoff · Earlier liftoff: 5.4 deg/s');
+  assert.equal(buildTakeoffPreview(card, { available: true }).rollLabel, 'Distance to final liftoff');
+  assert.equal(buildTakeoffPresentation(scoredTakeoff()).roll.label, 'Ground roll');
+});
+
+test('screen-height display distinguishes radio height, geometric gain and recorded barometric gain', () => {
+  for (const [heightSource, label, detail] of [
+    ['radio', 'Screen height', '35 ft radio height'],
+    ['baro', 'Height gained', '35 ft height gained since liftoff'],
+    ['plane', 'Height gained', '35 ft geometric height gained since liftoff'],
+    [undefined, 'Screen height', '35 ft'],
+  ]) {
+    const card = buildTakeoffPresentation(scoredTakeoff({
+      screenHeight: { heightFt: 35, heightSource, reached: true, elapsedS: 4, remainingFt: 1000 },
+    }));
+    assert.equal(card.climb.screenLabel, label);
+    assert.ok(card.climb.screenDetailText.includes(detail));
+    assert.equal(buildTakeoffPreview(card, { available: true }).screenLabel, label);
+    assert.equal(buildTakeoffPreview(card, { available: true }).screenDetail, card.climb.screenDetailText, 'Overview preserves the height reference beside the runway distance');
+    if (!heightSource) assert.doesNotMatch(card.climb.screenDetailText, /radio height|height gained/);
+  }
+});
+
+test('a negative measured liftoff pitch alone does not manufacture an aircraft-independent caution', () => {
+  const card = buildTakeoffPresentation(scoredTakeoff({
+    grade: 'Recorded', score: null,
+    liftoff: { pitchDeg: -0.5 }, lateral: { grade: 'Recorded', verified: true },
+  }));
+  assert.equal(card.liftoff.pitchText, '-0.5 deg');
+  assert.equal(card.liftoff.pitchTone, 'text-gray-100');
+  assert.equal(card.assessmentText, '');
+  assert.deepEqual(card.debrief.reasons, []);
 });

@@ -15,6 +15,10 @@ function number(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function measurementTimeBasis(value: unknown): 'simulator' | 'capture' | null {
+  return value === 'simulator' || value === 'capture' ? value : null;
+}
+
 export function sanitizeToolbarLanding(value: unknown): AnyRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const landing = record(value);
@@ -59,10 +63,13 @@ export function sanitizeToolbarTakeoff(value: unknown): AnyRecord | null {
       beyondRunwayEnd: runwayUse.beyondRunwayEnd === true,
       verified: typeof runwayUse.verified === 'boolean' ? runwayUse.verified : null,
     },
-    roll: { distanceFt: number(roll.distanceFt), durationS: number(roll.durationS), startSource: text(roll.startSource, 32) },
+    roll: { distanceFt: number(roll.distanceFt), durationS: number(roll.durationS), startSource: text(roll.startSource, 32),
+      durationBasis: measurementTimeBasis(roll.durationBasis) },
     liftoff: { iasKts: number(liftoff.iasKts), pitchDeg: number(liftoff.pitchDeg) },
-    screenHeight: { heightFt: number(screen.heightFt), reached: screen.reached === true, remainingFt: number(screen.remainingFt) },
-    rotation: { rateDegS: number(rotation.rateDegS) },
+    screenHeight: { heightFt: number(screen.heightFt), reached: screen.reached === true, remainingFt: number(screen.remainingFt),
+      heightSource: screen.heightSource === 'radio' || screen.heightSource === 'plane' || screen.heightSource === 'baro' ? screen.heightSource : null,
+      timeBasis: measurementTimeBasis(screen.timeBasis) },
+    rotation: { rateDegS: number(rotation.rateDegS), timeBasis: measurementTimeBasis(rotation.timeBasis) },
     lateral: {
       liftoffOffsetFt: number(lateral.liftoffOffsetFt), liftoffOffsetSide: text(lateral.liftoffOffsetSide, 16),
       verified: lateral.verified === true,

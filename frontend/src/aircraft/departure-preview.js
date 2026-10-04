@@ -6,7 +6,8 @@ export function createDeparturePreview({ send, changed, now = Date.now, setTimeo
   let data = null, error = '', lastReply = -Infinity, nextAt = 0, destroyed = false;
   const usable = () => context.connected && context.visible !== false && context.enabled !== false
     && context.profileKey && /^[A-Z0-9]{3,8}$/.test(context.icao) && /^(0?[1-9]|[12][0-9]|3[0-6])[LRC]?$/.test(context.runway);
-  function publish() { changed({ data, error, loading: pending?.operation === 'preview', fresh: Boolean(data?.aircraft) && now() - lastReply < 2000 }); }
+  const fresh = () => Boolean(data?.aircraft) && now() - lastReply < 2000;
+  function publish() { changed({ data, error, loading: pending?.operation === 'preview', fresh: fresh() }); }
   function reset() { revision++; pending = null; data = null; error = ''; lastReply = -Infinity; nextAt = now() + 400; publish(); }
   function update(next) {
     context = { ...next, icao: String(next.icao || '').trim().toUpperCase(), runway: String(next.runway || '').trim().toUpperCase() };
@@ -31,7 +32,15 @@ export function createDeparturePreview({ send, changed, now = Date.now, setTimeo
       if (pending && now() - pending.at > (pending.operation === 'preview' ? 12000 : 2000)) {
         error = 'Pushback preview unavailable. Retrying…'; pending = null; nextAt = now() + 3000;
       }
-      if (!pending && now() >= nextAt) request(!data || (data.pushbackPreview.phase === 'preview' && !data.pushbackPreview.valid) ? 'preview' : 'status');
+      if (!pending && now() >= nextAt) {
+        // An expired pushback start plan can still locate the aircraft on its
+        // route. Keep reading that same frame while taxiing or position is
+        // unknown; recapturing a pushback plan requires a fresh stationary pose.
+        const speed = data?.aircraft?.speedKts;
+        const replan = data?.pushbackPreview.phase === 'preview' && !data.pushbackPreview.valid
+          && fresh() && Number.isFinite(speed) && speed >= 0 && speed <= 0.5;
+        request(!data || replan ? 'preview' : 'status');
+      }
       publish();
     }
     timer = setTimeout(tick, 250);

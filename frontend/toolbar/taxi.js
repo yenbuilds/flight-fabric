@@ -41,279 +41,113 @@ var FlightFabricToolbarTaxi = (() => {
     createTaxiPanel: () => createTaxiPanel
   });
 
-  // frontend/src/aircraft/autotaxi-chase-view.js
-  var DEG = Math.PI / 180;
-  var MARGIN = 40;
-  function createChaseCamera({ w = 360, h = 300, hfovDeg = 60, pitchDeg = 14, backM = 72, upM = 40, nearM = 2, farM = 1600 } = {}) {
-    const F = w / 2 / Math.tan(hfovDeg / 2 * DEG);
-    const sin = Math.sin(pitchDeg * DEG), cos = Math.cos(pitchDeg * DEG);
-    const cx = w / 2, cy = h / 2;
-    const toCamera = (r, u, f) => ({ x: r, y: (u - upM) * cos + (f + backM) * sin, d: (f + backM) * cos - (u - upM) * sin });
-    const toScreen = (c) => [cx + F * c.x / c.d, cy - F * c.y / c.d];
-    const kx = (w / 2 + MARGIN) / F, ky = (h + MARGIN - cy) / F;
-    const planes = [(p) => p.d - nearM, (p) => p.x + kx * p.d, (p) => -p.x + kx * p.d, (p) => p.y + ky * p.d];
-    return { w, h, F, cx, cy, horizonY: cy - F * sin / cos, nearM, farM, backM, upM, toCamera, toScreen, planes };
+  // frontend/src/aircraft/taxi-map.js
+  var NS = "http://www.w3.org/2000/svg";
+  var views = /* @__PURE__ */ new WeakMap();
+  var finitePoint = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.z);
+  var samePoint = (a, b) => a.x === b.x && a.z === b.z;
+  var rounded = (n) => Math.round(n * 1e3) / 1e3;
+  function set(node, name, value) {
+    const text = String(value);
+    if (node.getAttribute(name) !== text) node.setAttribute(name, text);
   }
-  function aircraftFrame({ x, z, headingDeg }) {
-    const s = Math.sin(headingDeg * DEG), c = Math.cos(headingDeg * DEG);
-    return (p) => ({ r: (p.x - x) * c - (p.z - z) * s, f: (p.x - x) * s + (p.z - z) * c });
+  function clear(root) {
+    while (root.firstChild) root.removeChild(root.firstChild);
+    views.delete(root);
   }
-  function clip(points, inside) {
-    const out = [];
-    for (let i = 0; i < points.length; i++) {
-      const a = points[i], b = points[(i + 1) % points.length], da = inside(a), db = inside(b);
-      if (da >= 0) out.push(a);
-      if (da >= 0 !== db >= 0) {
-        const t = da / (da - db);
-        out.push({ x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), d: a.d + t * (b.d - a.d) });
-      }
+  function geometry(route) {
+    if (!Array.isArray(route == null ? void 0 : route.points) || !route.points.every(finitePoint)) return null;
+    const points = route.points.filter((p, i, all) => !i || !samePoint(p, all[i - 1]));
+    if (points.length < 2) return null;
+    const stand = route.kind === "stand";
+    const destination = points[points.length - 1];
+    let minX = destination.x, maxX = destination.x, minZ = destination.z, maxZ = destination.z;
+    for (const p of points) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z);
+      maxZ = Math.max(maxZ, p.z);
     }
-    return out;
-  }
-  var fmt = ([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`;
-  function cameraPath(cam, points) {
-    if (points.every((p) => p.d > cam.farM)) return null;
-    const clipped = cam.planes.reduce(clip, points);
-    return clipped.length < 3 ? null : `M${clipped.map((p) => fmt(cam.toScreen(p))).join("L")}Z`;
-  }
-  var groundPath = (cam, frame, points) => cameraPath(cam, points.map((p) => {
-    const l = frame(p);
-    return cam.toCamera(l.r, 0, l.f);
-  }));
-  function groundSegment(cam, frame, from, to) {
-    let [a, b] = [from, to].map((p) => {
-      const l = frame(p);
-      return cam.toCamera(l.r, 0, l.f);
+    const width = maxX - minX, height = maxZ - minZ;
+    if (![width, height].every(Number.isFinite)) return null;
+    const scale = Math.min(304 / Math.max(50, width), 244 / Math.max(50, height));
+    const xy = (p) => ({
+      x: rounded(28 + (304 - width * scale) / 2 + (p.x - minX) * scale),
+      y: rounded(28 + (244 - height * scale) / 2 + (maxZ - p.z) * scale)
     });
-    if (a.d > cam.farM && b.d > cam.farM) return null;
-    for (const inside of cam.planes) {
-      const da = inside(a), db = inside(b);
-      if (da < 0 && db < 0) return null;
-      if (da < 0 || db < 0) {
-        const t = da / (da - db), m = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), d: a.d + t * (b.d - a.d) };
-        if (da < 0) a = m;
-        else b = m;
-      }
+    const projected = points.map(xy).filter((p, i, all) => !i || p.x !== all[i - 1].x || p.y !== all[i - 1].y);
+    if (projected.length < 2) return null;
+    const key = JSON.stringify([stand, points.map((p) => [p.x, p.z])]);
+    return { key, stand, projected, destination: xy(destination), xy };
+  }
+  function build(root, shape) {
+    clear(root);
+    function node(tag, attributes, parent = root) {
+      const result = root.ownerDocument.createElementNS(NS, tag);
+      for (const name of Object.keys(attributes)) result.setAttribute(name, String(attributes[name]));
+      parent.appendChild(result);
+      return result;
     }
-    return `M${fmt(cam.toScreen(a))}L${fmt(cam.toScreen(b))}`;
-  }
-  function label(cam, frame, p, text, basePx) {
-    const l = frame(p), c = cam.toCamera(l.r, 0, l.f);
-    if (c.d < cam.nearM) return null;
-    const size = Math.min(basePx, basePx * cam.F / c.d);
-    if (size < 6) return null;
-    const [x, y] = cam.toScreen(c);
-    if (x < -20 || x > cam.w + 20 || y > cam.h + 20) return null;
-    return { text, x: Math.round(x), y: Math.round(y), size: Math.round(size * 10) / 10 };
-  }
-  function quad(a, b, half, capM = 0) {
-    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-    const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len, nx = -uz * half, nz = ux * half;
-    const p = { x: a.x - ux * capM, z: a.z - uz * capM }, q = { x: b.x + ux * capM, z: b.z + uz * capM };
-    return [{ x: p.x + nx, z: p.z + nz }, { x: q.x + nx, z: q.z + nz }, { x: q.x - nx, z: q.z - nz }, { x: p.x - nx, z: p.z - nz }];
-  }
-  function disc(c, r, n = 12) {
-    return Array.from({ length: n }, (_, i) => ({ x: c.x + r * Math.sin(i / n * 2 * Math.PI), z: c.z + r * Math.cos(i / n * 2 * Math.PI) }));
-  }
-  function dashes(from, to, dashM, gapM, half) {
-    const len = Math.hypot(to.x - from.x, to.z - from.z), ux = (to.x - from.x) / (len || 1), uz = (to.z - from.z) / (len || 1);
-    const out = [];
-    for (let s = 0; s < len; s += dashM + gapM) {
-      const e = Math.min(len, s + dashM);
-      out.push(quad({ x: from.x + ux * s, z: from.z + uz * s }, { x: from.x + ux * e, z: from.z + uz * e }, half));
+    function line(a, b, className, extra = {}, parent = root) {
+      if (a.x === b.x && a.y === b.y) return null;
+      return node("line", __spreadValues({
+        x1: a.x,
+        y1: a.y,
+        x2: b.x,
+        y2: b.y,
+        class: className,
+        fill: "none",
+        "stroke-linecap": "butt"
+      }, extra), parent);
     }
-    return out;
-  }
-  function smoothRoute(points, radiusM = 25) {
-    if (!Array.isArray(points) || points.length < 3) return points;
-    const out = [points[0]];
-    for (let i = 1; i < points.length - 1; i++) {
-      const a = points[i - 1], p = points[i], b = points[i + 1];
-      const inLen = Math.hypot(p.x - a.x, p.z - a.z), outLen = Math.hypot(b.x - p.x, b.z - p.z);
-      if (!inLen || !outLen) {
-        out.push(p);
-        continue;
-      }
-      const ux = (p.x - a.x) / inLen, uz = (p.z - a.z) / inLen, vx = (b.x - p.x) / outLen, vz = (b.z - p.z) / outLen;
-      const turn = Math.acos(Math.max(-1, Math.min(1, ux * vx + uz * vz)));
-      if (turn < 3 * DEG) {
-        out.push(p);
-        continue;
-      }
-      const t = Math.min(radiusM * Math.tan(turn / 2), 24 / Math.sin(turn / 2), inLen * 0.45, outLen * 0.45);
-      const start = { x: p.x - ux * t, z: p.z - uz * t }, end = { x: p.x + vx * t, z: p.z + vz * t };
-      const steps = Math.max(2, Math.ceil(turn / (10 * DEG)));
-      for (let k = 0; k <= steps; k++) {
-        const s = k / steps, w0 = (1 - s) ** 2, w1 = 2 * (1 - s) * s, w2 = s * s;
-        out.push({ x: w0 * start.x + w1 * p.x + w2 * end.x, z: w0 * start.z + w1 * p.z + w2 * end.z });
-      }
-    }
-    out.push(points[points.length - 1]);
-    return out;
-  }
-  function projectTaxiScene(cam, { scene, route, aircraft, done = [], ahead = route.points }) {
-    const frame = aircraftFrame(aircraft);
-    const ground = (points) => groundPath(cam, frame, points);
-    const join = (paths) => paths.filter(Boolean).join("");
-    const ribbon = (points, half) => join([...points.slice(1).map((p, i) => ground(quad(points[i], p, half))), ...points.map((p) => ground(disc(p, half)))]);
-    const pavement = { taxi: [], runway: [] }, centrelines = { taxi: [], runway: [] }, edges = { taxi: [], runway: [] };
-    const toCamera = (p) => {
-      const l = frame(p);
-      return cam.toCamera(l.r, 0, l.f);
-    };
-    for (const l of (scene == null ? void 0 : scene.links) || []) {
-      const a = toCamera(l.a), b = toCamera(l.b);
-      if (a.d > cam.farM && b.d > cam.farM || cam.planes.some((inside) => inside(a) < -l.widthM && inside(b) < -l.widthM)) continue;
-      const kind = l.runway ? "runway" : "taxi";
-      const slab = ground(quad(l.a, l.b, l.widthM / 2, l.widthM / 2));
-      if (!slab) continue;
-      pavement[kind].push(slab);
-      centrelines[kind].push(groundSegment(cam, frame, l.a, l.b));
-      const rim = quad(l.a, l.b, l.widthM / 2 + 0.6);
-      edges[kind].push(groundSegment(cam, frame, rim[0], rim[1]), groundSegment(cam, frame, rim[3], rim[2]));
-    }
-    const runways = ((scene == null ? void 0 : scene.runways) || []).map((rw) => ({
-      id: rw.id,
-      reciprocal: rw.reciprocal,
-      slab: ground(rw.corners),
-      // ICAO centreline stripes: 30 m on, 20 m off, 0.9 m wide.
-      dashes: join(dashes(rw.ends[0], rw.ends[1], 30, 20, 0.45).map(ground)),
-      labels: rw.ends.map((end, i) => label(cam, frame, end, i ? rw.reciprocal : rw.id, 11)).filter(Boolean)
-    })).filter((rw) => rw.slab);
-    const stands = ((scene == null ? void 0 : scene.stands) || []).map((st) => ({ d: ground(disc(st, st.radiusM, 16)), label: label(cam, frame, st, st.label, 9) })).filter((st) => st.d);
-    let hold = null;
-    if (route.kind !== "stand") {
-      const from = route.points[route.points.length - 1], to = route.holdShort;
-      const len = Math.hypot(to.x - from.x, to.z - from.z) || 1;
-      const ux = (to.x - from.x) / len, uz = (to.z - from.z) / len, nx = -uz, nz = ux;
-      hold = {
-        dash: join(dashes(from, to, 4, 4, 0.7).map(ground)),
-        bar: ground([
-          { x: to.x + nx * 14 + ux * 1.5, z: to.z + nz * 14 + uz * 1.5 },
-          { x: to.x - nx * 14 + ux * 1.5, z: to.z - nz * 14 + uz * 1.5 },
-          { x: to.x - nx * 14 - ux * 1.5, z: to.z - nz * 14 - uz * 1.5 },
-          { x: to.x + nx * 14 - ux * 1.5, z: to.z + nz * 14 - uz * 1.5 }
-        ])
-      };
-    }
-    return {
-      pavement: { taxi: join(pavement.taxi), runway: join(pavement.runway) },
-      centrelines: { taxi: join(centrelines.taxi), runway: join(centrelines.runway) },
-      edges: { taxi: join(edges.taxi), runway: join(edges.runway) },
-      runways,
-      stands,
-      destinationStand: route.stand ? ground(disc(route.stand, route.stand.radiusM, 16)) : null,
-      route: { done: ribbon(done, 3.5), glow: ribbon(ahead, 5), ahead: ribbon(ahead, 1.8) },
-      hold,
-      stop: ground(disc(route.points[route.points.length - 1], 2.2, 10))
-    };
-  }
-  var FUSELAGE = [
-    { f: 19, w: 0.15, b: 2.9, t: 3.1 },
-    { f: 17.5, w: 0.9, b: 2.2, t: 3.9 },
-    { f: 15, w: 1.5, b: 1.5, t: 4.6 },
-    { f: 11, w: 1.85, b: 1.2, t: 5 },
-    { f: -8, w: 1.9, b: 1.2, t: 5 },
-    { f: -12, w: 1.7, b: 1.6, t: 5 },
-    { f: -16, w: 1.1, b: 3, t: 4.9 },
-    { f: -19, w: 0.4, b: 4, t: 4.6 }
-  ];
-  var ENGINE = [{ f: 5.5, w: 1.3, b: 0.5, t: 3.1 }, { f: 0, w: 1.2, b: 0.6, t: 3 }];
-  var WING = [[2.2, 1.8, 3], [17.5, 3.6, -6], [17.5, 3.6, -9], [2.2, 1.8, -5]];
-  var WINGLET = [[17.5, 3.6, -6], [17.5, 3.6, -9], [18.3, 6.2, -9.6], [18.3, 6.2, -7.6]];
-  var STABILISER = [[0.4, 4.6, -13], [7, 4.9, -17], [7, 4.9, -19], [0.4, 4.6, -17.4]];
-  var FIN = (sign) => [[sign * 0.4, 4.8, -10], [sign * 0.15, 11.5, -17.5], [sign * 0.15, 11.5, -19.8], [sign * 0.4, 4.6, -19]];
-  var FIN_EDGE = [[0.4, 4.6, -19], [0.15, 11.5, -19.8], [-0.15, 11.5, -19.8], [-0.4, 4.6, -19]];
-  var WINDSCREEN = [[-1.1, 4.25, 15.3], [1.1, 4.25, 15.3], [0.75, 3.95, 17], [-0.75, 3.95, 17]];
-  var SILHOUETTE = [
-    [0, 19],
-    [2.2, 14],
-    [2.2, 3],
-    [17.5, -6],
-    [17.5, -9],
-    [2.2, -5],
-    [2.2, -13],
-    [7, -17],
-    [7, -19],
-    [0, -17.4],
-    [-7, -19],
-    [-7, -17],
-    [-2.2, -13],
-    [-2.2, -5],
-    [-17.5, -9],
-    [-17.5, -6],
-    [-2.2, 3],
-    [-2.2, 14]
-  ];
-  var LIGHT = [-0.3, 0.9, 0.35];
-  var DARK = "#1b222c";
-  var sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-  var dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  var cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  var unit = (v) => {
-    const l = Math.hypot(...v) || 1;
-    return v.map((c) => c / l);
-  };
-  var centroid = (pts) => pts.reduce((s, p) => [s[0] + p[0] / pts.length, s[1] + p[1] / pts.length, s[2] + p[2] / pts.length], [0, 0, 0]);
-  var normal = (pts) => unit(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])));
-  var mirror = (pts) => pts.map(([r, u, f]) => [-r, u, f]).reverse();
-  function ring({ f, w, b, t }, rOffset, sides) {
-    const m = (b + t) / 2, v = (t - b) / 2;
-    return Array.from({ length: sides }, (_, k) => {
-      const a = k / sides * 2 * Math.PI;
-      return [rOffset + w * Math.cos(a), m + v * Math.sin(a), f];
+    const route = node("polyline", {
+      points: shape.projected.map((p) => p.x + "," + p.y).join(" "),
+      class: "taxi-simple-route",
+      fill: "none",
+      "stroke-linejoin": "bevel",
+      "stroke-linecap": "butt",
+      "data-taxi-route": ""
     });
-  }
-  function loft(stations, rOffset = 0, sides = 8) {
-    const rings = stations.map((st) => ring(st, rOffset, sides));
-    const faces = [];
-    for (let i = 0; i + 1 < rings.length; i++) for (let k = 0; k < sides; k++) {
-      const pts = [rings[i][k], rings[i][(k + 1) % sides], rings[i + 1][(k + 1) % sides], rings[i + 1][k]];
-      const c = centroid(pts), axis = [rOffset, (stations[i].b + stations[i].t + stations[i + 1].b + stations[i + 1].t) / 4, c[2]];
-      let n = normal(pts);
-      if (dot(n, sub(c, axis)) < 0) n = n.map((v) => -v);
-      faces.push({ pts, n, solid: true });
+    const end = shape.destination;
+    if (shape.stand) {
+      line({ x: end.x - 5, y: end.y }, { x: end.x + 5, y: end.y }, "taxi-simple-destination");
+      line({ x: end.x, y: end.y - 5 }, { x: end.x, y: end.y + 5 }, "taxi-simple-destination");
+    } else {
+      const before = shape.projected[shape.projected.length - 2];
+      const length = Math.hypot(end.x - before.x, end.y - before.y);
+      const nx = -(end.y - before.y) / length * 7, ny = (end.x - before.x) / length * 7;
+      line(
+        { x: rounded(end.x + nx), y: rounded(end.y + ny) },
+        { x: rounded(end.x - nx), y: rounded(end.y - ny) },
+        "taxi-simple-hold",
+        { "data-taxi-hold": "" }
+      );
     }
-    return faces;
+    const north = node("text", { x: 340, y: 19, "text-anchor": "end", class: "taxi-simple-label", "aria-hidden": "true" });
+    north.textContent = "N";
+    const marker = node("g", { class: "taxi-simple-aircraft", fill: "none", display: "none", "data-taxi-aircraft": "" });
+    line({ x: 0, y: -9 }, { x: 0, y: 7 }, "", {}, marker);
+    line({ x: -6, y: 1 }, { x: 6, y: 1 }, "", {}, marker);
+    line({ x: -3, y: 6 }, { x: 3, y: 6 }, "", {}, marker);
+    const view = { key: shape.key, route, marker, xy: shape.xy };
+    views.set(root, view);
+    return view;
   }
-  var cap = (station, rOffset) => ({ pts: ring(station, rOffset, 8), n: [0, 0, -1], solid: true, fill: DARK });
-  function shade(n, toCam) {
-    const l = unit(LIGHT), h = unit([l[0] + toCam[0], l[1] + toCam[1], l[2] + toCam[2]]);
-    const k = 0.42 + 0.58 * Math.max(0, dot(n, l)) + 0.3 * Math.max(0, dot(n, h)) ** 24;
-    return `rgb(${Math.min(255, Math.round(238 * k))},${Math.min(255, Math.round(243 * k))},${Math.min(255, Math.round(248 * k))})`;
-  }
-  function aircraftSprite(cam) {
-    const camPos = [0, cam.upM, -cam.backM];
-    const flat = (pts) => ({ pts, n: normal(pts), solid: false });
-    const faces = [
-      ...loft(FUSELAGE),
-      cap(FUSELAGE[FUSELAGE.length - 1], 0),
-      ...[].concat(...[5.5, -5.5].map((r) => [...loft(ENGINE, r), cap(ENGINE[ENGINE.length - 1], r)])),
-      ...[WING, mirror(WING), WINGLET, mirror(WINGLET), STABILISER, mirror(STABILISER), FIN(1), FIN(-1), FIN_EDGE].map(flat),
-      // Painted on the nose: nudged nearer so it sorts above the skin it sits on.
-      __spreadProps(__spreadValues({}, flat(WINDSCREEN)), { fill: DARK, overlay: true })
-    ];
-    const visible = [];
-    for (const face of faces) {
-      const toCam = unit(sub(camPos, centroid(face.pts)));
-      let n = face.n;
-      if (dot(n, toCam) < 0) {
-        if (face.solid) continue;
-        n = n.map((v) => -v);
-      }
-      const pts = face.pts.map(([r, u, f]) => cam.toCamera(r, u, f));
-      visible.push({
-        depth: pts.reduce((s, p) => s + p.d, 0) / pts.length - (face.overlay ? 0.5 : 0),
-        fill: face.fill || shade(n, toCam),
-        d: `M${pts.map((p) => fmt(cam.toScreen(p))).join("L")}Z`
-      });
+  function renderTaxiMap(root, route, aircraft) {
+    set(root, "viewBox", "0 0 360 300");
+    set(root, "data-taxi-map", "2d");
+    const shape = geometry(route);
+    if (!shape) {
+      clear(root);
+      return false;
     }
-    visible.sort((a, b) => b.depth - a.depth);
-    return {
-      faces: visible.map(({ fill, d }) => ({ fill, d })),
-      shadow: cameraPath(cam, SILHOUETTE.map(([r, f]) => cam.toCamera(r + 1.2, 0, f - 1))),
-      halo: cameraPath(cam, disc({ x: 0, z: 0 }, 24, 24).map((p) => cam.toCamera(p.x, 0, p.z)))
-    };
+    let view = views.get(root);
+    if (!view || view.key !== shape.key || !root.contains(view.route) || !root.contains(view.marker)) view = build(root, shape);
+    const pose = finitePoint(aircraft) && Number.isFinite(aircraft.headingDeg) ? view.xy(aircraft) : null;
+    const visible = pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) && pose.x >= 10 && pose.x <= 350 && pose.y >= 10 && pose.y <= 290;
+    set(view.marker, "display", visible ? "inline" : "none");
+    if (visible) set(view.marker, "transform", "translate(" + pose.x + "," + pose.y + ") rotate(" + rounded((aircraft.headingDeg % 360 + 360) % 360) + ")");
+    return true;
   }
 
   // frontend/src/aircraft/taxi-progress.js
@@ -338,8 +172,9 @@ var FlightFabricToolbarTaxi = (() => {
     let context = {}, key = "", revision = 0, sequence = 0, pending = null, timer = null;
     let data = null, error = "", lastReply = -Infinity, nextAt = 0, destroyed = false;
     const usable = () => context.connected && context.visible !== false && context.enabled !== false && context.profileKey && /^[A-Z0-9]{3,8}$/.test(context.icao) && /^(0?[1-9]|[12][0-9]|3[0-6])[LRC]?$/.test(context.runway);
+    const fresh = () => Boolean(data == null ? void 0 : data.aircraft) && now() - lastReply < 2e3;
     function publish() {
-      changed({ data, error, loading: (pending == null ? void 0 : pending.operation) === "preview", fresh: Boolean(data == null ? void 0 : data.aircraft) && now() - lastReply < 2e3 });
+      changed({ data, error, loading: (pending == null ? void 0 : pending.operation) === "preview", fresh: fresh() });
     }
     function reset() {
       revision++;
@@ -387,6 +222,7 @@ var FlightFabricToolbarTaxi = (() => {
       publish();
     }
     function tick() {
+      var _a;
       timer = null;
       if (destroyed || !usable()) return;
       if (usable()) {
@@ -395,7 +231,11 @@ var FlightFabricToolbarTaxi = (() => {
           pending = null;
           nextAt = now() + 3e3;
         }
-        if (!pending && now() >= nextAt) request(!data || data.pushbackPreview.phase === "preview" && !data.pushbackPreview.valid ? "preview" : "status");
+        if (!pending && now() >= nextAt) {
+          const speed = (_a = data == null ? void 0 : data.aircraft) == null ? void 0 : _a.speedKts;
+          const replan = (data == null ? void 0 : data.pushbackPreview.phase) === "preview" && !data.pushbackPreview.valid && fresh() && Number.isFinite(speed) && speed >= 0 && speed <= 0.5;
+          request(!data || replan ? "preview" : "status");
+        }
         publish();
       }
       timer = setTimeout(tick, 250);
@@ -443,7 +283,7 @@ var FlightFabricToolbarTaxi = (() => {
   // frontend/src/aircraft/pushback-map.js
   var plane = "M0,-12L3,-4L11,2L11,5L3,2L3,8L6,10L6,12L0,10L-6,12L-6,10L-3,8L-3,2L-11,5L-11,2L-3,-4Z";
   var point = (p) => p && [p.x, p.z].every(Number.isFinite);
-  var views = /* @__PURE__ */ new WeakMap();
+  var views2 = /* @__PURE__ */ new WeakMap();
   var amber = "var(--taxi-pushback, #e8b35c)";
   var green = "var(--taxi-success, #34d399)";
   function pushbackCaption(data, fresh = true) {
@@ -465,14 +305,14 @@ var FlightFabricToolbarTaxi = (() => {
     const preview = data == null ? void 0 : data.pushbackPreview, points = preview == null ? void 0 : preview.points;
     if (!Array.isArray(points) || points.length < 2 || !points.every(point) || !Number.isFinite(preview.headingDeg)) {
       while (root.firstChild) root.removeChild(root.firstChild);
-      views.delete(root);
+      views2.delete(root);
       return;
     }
-    let view = views.get(root);
+    let view = views2.get(root);
     if (!view || view.id !== preview.id || view.sceneKey !== ((_a = data.scene) == null ? void 0 : _a.key) || !root.contains(view.background)) {
       while (root.firstChild) root.removeChild(root.firstChild);
       view = buildMap(root, data);
-      views.set(root, view);
+      views2.set(root, view);
     }
     const completed = preview.phase === "complete", color = completed ? green : amber;
     const aircraft = fresh && point(data.aircraft) && Number.isFinite(data.aircraft.headingDeg) ? data.aircraft : null;
@@ -806,15 +646,12 @@ var FlightFabricToolbarTaxi = (() => {
       pushbackSelected = true;
       refresh();
     });
-    const viewButton = node("button", "button button-quiet", "Overview");
+    const viewButton = node("button", "button button-quiet", "Taxi map");
     viewButton.id = "taxi-view";
     viewButton.type = "button";
     figure.appendChild(viewButton);
     viewButton.addEventListener("click", () => {
-      if (pushbackSelected && departure.data) {
-        pushbackSelected = false;
-        overview = false;
-      } else overview = !overview;
+      pushbackSelected = false;
       refresh();
     });
     const map = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -826,10 +663,9 @@ var FlightFabricToolbarTaxi = (() => {
     const caption = figure.appendChild(node("figcaption", "taxi-caption"));
     const cautions = element.appendChild(node("p", "taxi-cautions"));
     element.appendChild(node("p", "taxi-note muted", "Routes use simulator scenery and may cross runways. Follow your ATC clearance and check traffic, obstacles and aircraft clearance."));
-    const camera = createChaseCamera(), sprite = aircraftSprite(camera);
     const prefix = "taxi-" + now() + "-" + Math.random().toString(36).slice(2) + "-";
     let connection = {}, context = "", catalogue = {}, state = {}, route = null, scene = null;
-    let overview = false, timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = "", standsLoaded = false, drawn = null;
+    let timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = "", standsLoaded = false;
     const pending = /* @__PURE__ */ new Map();
     let departure = { data: null, fresh: false }, pushbackSelected = true, planDefault = {};
     let pushback = { active: false, pending: "", canStart: false, state: {} };
@@ -887,40 +723,40 @@ var FlightFabricToolbarTaxi = (() => {
       if (text !== void 0) n.textContent = text;
       return n;
     }
-    function field(label2, control, id) {
-      const wrapper = fields.appendChild(node("label", "taxi-field", label2));
+    function field(label, control, id) {
+      const wrapper = fields.appendChild(node("label", "taxi-field", label));
       control.id = id;
       control.className = "taxi-value";
       wrapper.appendChild(control);
       return { control, wrapper };
     }
-    function input(label2, id, maxLength) {
+    function input(label, id, maxLength) {
       const n = document.createElement("input");
       n.type = "text";
       n.maxLength = maxLength;
       n.autocomplete = "off";
       n.spellcheck = false;
-      return field(label2, n, id);
+      return field(label, n, id);
     }
-    function select(label2, id, choices) {
+    function select(label, id, choices) {
       const n = document.createElement("select");
-      choices.forEach(([value, label3]) => {
-        const option = node("option", "", label3);
+      choices.forEach(([value, label2]) => {
+        const option = node("option", "", label2);
         option.value = value;
         n.appendChild(option);
       });
       n.value = choices[0][0];
-      return field(label2, n, id);
+      return field(label, n, id);
     }
-    function button(label2, id, action) {
-      const n = node("button", "button", label2);
+    function button(label, id, action) {
+      const n = node("button", "button", label);
       n.type = "button";
       n.id = id;
       n.addEventListener("click", action);
       actions.appendChild(n);
       return n;
     }
-    function clear(target) {
+    function clear2(target) {
       while (target.firstChild) target.removeChild(target.firstChild);
     }
     function invalidate() {
@@ -941,7 +777,7 @@ var FlightFabricToolbarTaxi = (() => {
     function clearStands() {
       if (!standsLoaded) return;
       standsLoaded = false;
-      clear(stand.control);
+      clear2(stand.control);
       const empty = node("option", "", "Load airport stands");
       empty.value = "";
       stand.control.appendChild(empty);
@@ -1079,7 +915,7 @@ var FlightFabricToolbarTaxi = (() => {
       }
       if (p.operation === "parkings") {
         clearStands();
-        const options = message.standOptions || (message.stands || []).map((label2) => ({ label: label2 }));
+        const options = message.standOptions || (message.stands || []).map((label) => ({ label }));
         standsLoaded = options.length > 0;
         options.forEach((item) => {
           const n = node("option", "", item.label + (item.typeLabel ? " \xB7 " + item.typeLabel : ""));
@@ -1105,7 +941,7 @@ var FlightFabricToolbarTaxi = (() => {
       refresh();
     }
     function refresh() {
-      var _a, _b, _c, _d;
+      var _a, _b, _c;
       const busy = has("preview") || has("parkings") || pushback.active;
       intro.textContent = pushback.active ? TAXI_COPY.departureIntro : mode.control.value === "stand" ? TAXI_COPY.arrivalIntro : pushback.completed ? TAXI_COPY.complete : TAXI_COPY.departureIntro;
       departureHelp.hidden = startHelp.hidden = pushback.active || pushback.completed || mode.control.value !== "runway";
@@ -1135,17 +971,17 @@ var FlightFabricToolbarTaxi = (() => {
       reason.textContent = (pushbackSelected && departure.data ? "" : error) || unavailable || (has("preview") || has("parkings") ? "Loading airport guidance\u2026" : completed && !pushback.completed ? TAXI_COPY.complete : "");
       reason.className = "taxi-reason " + (completed && !error && !unavailable && !busy ? "taxi-complete" : "muted");
       reason.hidden = !reason.textContent;
-      const displayRoute = route || ((_c = departure.data) == null ? void 0 : _c.route), displayScene = route ? scene : (_d = departure.data) == null ? void 0 : _d.scene;
+      const displayRoute = route || ((_c = departure.data) == null ? void 0 : _c.route);
       figure.hidden = !displayRoute;
       cautions.hidden = !displayRoute;
       pushbackView.hidden = !departure.data;
+      viewButton.hidden = !departure.data;
       const pushing = !!(pushbackSelected && departure.data);
       pushbackView.setAttribute("aria-pressed", String(pushing));
+      viewButton.setAttribute("aria-pressed", String(!pushing));
       if (!displayRoute || !connection.visible) return;
       if (pushing) {
-        drawn = null;
-        viewButton.textContent = "Route ribbon";
-        viewButton.disabled = false;
+        map.removeAttribute("data-taxi-map");
         renderPushbackMap(map, departure.data, departure.fresh);
         caption.textContent = pushbackCaption(departure.data, departure.fresh);
         cautions.hidden = true;
@@ -1154,9 +990,9 @@ var FlightFabricToolbarTaxi = (() => {
       map.removeAttribute("data-pushback-map");
       const poseSource = route ? fresh() ? state.aircraft : null : departure.fresh ? departure.data.aircraft : null;
       const a = poseSource && [poseSource.x, poseSource.z, poseSource.headingDeg].every(Number.isFinite) ? poseSource : null;
-      renderRoute(displayRoute, displayScene, a);
+      renderRoute(displayRoute, a);
     }
-    function renderRoute(route2, scene2, a) {
+    function renderRoute(route2, a) {
       var _a;
       const progress = splitRoute(route2.points, a), end = route2.points[route2.points.length - 1];
       const offRoute = progress.distanceM > 25;
@@ -1170,68 +1006,8 @@ var FlightFabricToolbarTaxi = (() => {
         route2.joinM >= 1 ? "The first " + Math.round(route2.joinM) + " m cross open ground to reach the centreline. Check for obstacles." : ""
       ].filter(Boolean).join(" ");
       cautions.hidden = !cautions.textContent;
-      viewButton.textContent = overview ? "Follow aircraft" : "Overview";
-      viewButton.disabled = !a;
-      map.setAttribute("aria-label", "Taxi route to " + destination + ". " + caption.textContent);
-      const pose = a ? [a.x, a.z, a.headingDeg].join(":") : "";
-      if (drawn && drawn.route === route2 && drawn.scene === scene2 && drawn.overview === overview && drawn.pose === pose) return;
-      drawn = { route: route2, scene: scene2, overview, pose };
-      clear(map);
-      if (a && !overview) drawChase(a, route2, scene2);
-      else drawOverview(a, route2, scene2);
-    }
-    function svg(tag, attributes, text) {
-      const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
-      Object.keys(attributes).forEach((key) => n.setAttribute(key, attributes[key]));
-      if (text !== void 0) n.textContent = text;
-      map.appendChild(n);
-      return n;
-    }
-    function path(d, className, attrs = {}) {
-      if (d) svg("path", Object.assign({ d, class: className }, attrs));
-    }
-    function drawChase(a, route2, scene2) {
-      const parts = splitRoute(smoothRoute(route2.points), a);
-      const projected = projectTaxiScene(camera, { scene: scene2, route: route2, aircraft: a, done: parts.done, ahead: parts.ahead });
-      path(projected.pavement.taxi, "taxi-pavement");
-      path(projected.pavement.runway, "taxi-runway");
-      projected.runways.forEach((rw) => {
-        path(rw.slab, "taxi-runway");
-        path(rw.dashes, "taxi-marking");
-        rw.labels.forEach((l) => svg("text", { x: l.x, y: l.y, "font-size": l.size, class: "taxi-map-label", "text-anchor": "middle" }, l.text));
-      });
-      path(projected.centrelines.taxi, "taxi-centreline");
-      projected.stands.forEach((st) => {
-        path(st.d, "taxi-stand");
-        if (st.label) svg("text", { x: st.label.x, y: st.label.y, "font-size": st.label.size, class: "taxi-map-label", "text-anchor": "middle" }, st.label.text);
-      });
-      path(projected.route.done, "taxi-done");
-      path(projected.route.glow, "taxi-glow");
-      path(projected.route.ahead, "taxi-ahead");
-      if (projected.hold) {
-        path(projected.hold.dash, "taxi-ahead");
-        path(projected.hold.bar, "taxi-hold");
-      }
-      path(projected.destinationStand, "taxi-destination");
-      path(projected.stop, "taxi-stop");
-      path(sprite.shadow, "taxi-shadow");
-      sprite.faces.forEach((face) => path(face.d, "", { fill: face.fill, stroke: "var(--taxi-ground)", "stroke-width": 0.5 }));
-    }
-    function drawOverview(a, route2, scene2) {
-      const points = route2.points.concat(route2.holdShort ? [route2.holdShort] : [], a ? [a] : []);
-      const xs = points.map((p) => p.x), zs = points.map((p) => p.z);
-      const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
-      const scale = Math.min(312 / Math.max(50, maxX - minX), 252 / Math.max(50, maxZ - minZ));
-      const xy = (p) => [180 + (p.x - (minX + maxX) / 2) * scale, 150 - (p.z - (minZ + maxZ) / 2) * scale];
-      const line = (ps) => ps.map((p, i) => (i ? "L" : "M") + xy(p).join(",")).join("");
-      (scene2 && scene2.links || []).forEach((l) => path(line([l.a, l.b]), "taxi-overview-pavement", { "stroke-width": Math.max(1, l.widthM * scale) }));
-      path(line(route2.points), "taxi-overview-route");
-      const end = xy(route2.points[route2.points.length - 1]);
-      svg("circle", { cx: end[0], cy: end[1], r: 5, class: "taxi-stop" });
-      if (a) {
-        const p = xy(a);
-        svg("path", { d: "M0,-8L5,6L0,3L-5,6Z", class: "taxi-marker", transform: "translate(" + p.join(",") + ") rotate(" + a.headingDeg + ")" });
-      }
+      map.setAttribute("aria-label", "North-up taxi route to " + destination + ". " + caption.textContent);
+      renderTaxiMap(map, route2, a);
     }
     refresh();
     return { element, update, receive, reset, destroy() {

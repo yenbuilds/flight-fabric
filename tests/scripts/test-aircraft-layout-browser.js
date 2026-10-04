@@ -9,9 +9,10 @@ const { LIVE_AUTOTAXI_ENABLED } = require('../../shared/app-settings-shared.js')
 const OUTPUT = process.env.FF_AIRCRAFT_LAYOUT_OUTPUT || path.join(ROOT, '.tmp', 'aircraft-layout-browser');
 const AIRCRAFT = ['pmdg-737', 'pmdg-777', 'fenix-a320', 'fbw-a32nx', 'fbw-a380x', 'inibuilds-a350-900'];
 const A380 = 'inibuilds-a380-800-rr';
+const INCLUDED_A32X = ['inibuilds-a320neo-v2', 'inibuilds-a321lr'];
 const AUTOTAXI_AIRCRAFT = ['generic', 'pmdg-737', 'pmdg-777', 'fenix-a319', 'fenix-a320', 'fenix-a321'];
 const AUTOTAXI_FIXTURE = process.env.FF_AUTOTAXI_LAYOUT_FIXTURE === '1';
-const templateFor = id => id === A380 ? 'inibuilds-a380' : ['fenix-a319', 'fenix-a320', 'fenix-a321'].includes(id) ? 'fenix-a32x' : id.startsWith('inibuilds-a350') ? 'inibuilds-a350' : id;
+const templateFor = id => INCLUDED_A32X.includes(id) ? 'microsoft-inibuilds-a32x' : id === A380 ? 'inibuilds-a380' : ['fenix-a319', 'fenix-a320', 'fenix-a321'].includes(id) ? 'fenix-a32x' : id.startsWith('inibuilds-a350') ? 'inibuilds-a350' : id;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function browser() {
@@ -55,6 +56,30 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    if (process.env.FF_A32X_LAYOUT_ONLY === '1') {
+      for (const id of INCLUDED_A32X) {
+        await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});`);
+        await ready('[data-aircraft-template="microsoft-inibuilds-a32x"]');
+        for (const width of [1440, 390]) {
+          win.setContentSize(width, 1000); await wait(150);
+          await evaluate(`document.querySelector('[data-aircraft-template="microsoft-inibuilds-a32x"]').scrollIntoView({ behavior: 'instant' });`);
+          const layout = await evaluate(`return {
+            overflow: document.documentElement.scrollWidth > innerWidth,
+            targets: [...document.querySelectorAll('[data-microsoft-inibuilds-a32x-selector] input')].map(input => ({ value: input.value, disabled: input.disabled, height: input.getBoundingClientRect().height })),
+            vs: document.querySelector('[data-microsoft-inibuilds-a32x-selector="vertical-speed"]').textContent,
+            fd: document.querySelector('[data-microsoft-inibuilds-a32x-mode="fd"]').textContent,
+          };`);
+          assert.equal(layout.overflow, false, `${id} ${width}: no horizontal overflow`);
+          assert.deepEqual(layout.targets.map(target => target.value), ['151', '278', '11000', '0']);
+          assert.ok(layout.targets.every(target => !target.disabled && target.height >= 44));
+          assert.match(layout.fd, /FD CAPT/);
+          assert.doesNotMatch(layout.vs, /-700/, 'generic VS disagreement cannot overwrite the native FCU display');
+          fs.writeFileSync(path.join(OUTPUT, `${id}-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        }
+      }
+      assert.deepEqual(errors, [], 'Included Airbus panels have no browser runtime errors');
+      win.destroy(); app.exit(0); return;
+    }
     if (process.env.FF_PUSHBACK_E2E === '1') {
       await require('./pushback-e2e-browser')({ win, evaluate, ready, settled, wait, output: OUTPUT });
       assert.deepEqual(errors, [], 'Real-controller pushback journey has no browser errors');
@@ -350,6 +375,22 @@ async function browser() {
         }
         if (id === 'inibuilds-a350-900') {
           assert.equal(await evaluate(`return document.querySelectorAll('[data-aircraft-control-group="flightGuidance.lsCaptain"], [data-aircraft-control-group="flightGuidance.lsFirstOfficer"]').length;`), 0, 'A350 LS controls appear only in shared EFIS');
+          for (const [target, value] of [['cockpit', 50], ['displays', 75]]) {
+            await evaluate(`const form = document.querySelector('[data-lighting-preset="${target}"]');
+              form.scrollIntoView({ behavior: 'instant', block: 'center' });
+              const input = form.querySelector('input[type="number"]'); input.value = '${value}';
+              input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();
+              form.querySelector('button[type="submit"]').click(); await layoutTest.settle();`);
+            assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), {
+              type: 'canonical', commandId: `configuration.lighting.${target}`, input: { value },
+            }, `A350 ${width}px: ${target} brightness dispatches its numeric command`);
+          }
+          await evaluate(`document.querySelector('[data-cockpit-lighting-presets]').scrollIntoView({ behavior: 'instant', block: 'start' });`);
+          await win.webContents.capturePage(); await wait(120);
+          const brightnessPosition = await evaluate(`const rect = document.querySelector('[data-cockpit-lighting-presets]').getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom };`);
+          assert.ok(brightnessPosition.top >= -1 && brightnessPosition.top < height, `A350 ${width}px: brightness controls are reachable`);
+          fs.writeFileSync(path.join(OUTPUT, `${id}-brightness-${width}.png`), (await win.webContents.capturePage()).toPNG());
+          await evaluate("window.scrollTo({ top: 0, behavior: 'instant' });");
         }
         if (width !== 320) {
           fs.writeFileSync(path.join(OUTPUT, `${id}-${width}.png`), (await win.webContents.capturePage()).toPNG());
@@ -856,7 +897,7 @@ async function main() {
     const screen = id.startsWith('pmdg-') ? decodePmdgScreen(raw) : decodeFbwScreen({ title: '{green}APPR{end}', scratchpad: '{cyan}YSSY{end}', lines, displayBrightness: 1 });
     return { mode: 'integrated', label: adapter.label, setup: adapter.setup, functionKeys: adapter.functionKeys, entryKeys: adapter.entryKeys, screen, sessionId: 'fixture' };
   };
-  const fixtures = Object.fromEntries([...new Set([...AIRCRAFT, ...AUTOTAXI_AIRCRAFT, A380])].map(id => {
+  const fixtures = Object.fromEntries([...new Set([...AIRCRAFT, ...AUTOTAXI_AIRCRAFT, A380, ...INCLUDED_A32X])].map(id => {
     const templateId = templateFor(id);
     const profile = loader.loadProfile(`bundled/msfs/${id}`);
     const capabilities = buildAircraftControlCapabilities(profile, { profileRevision: 1,
@@ -880,6 +921,11 @@ async function main() {
     if (id === A380) Object.assign(values, { 'flightGuidance.powered': true,
       'flightGuidance.speedValue': 200, 'flightGuidance.headingValue': 270,
       'flightGuidance.altitudeValue': 10000, 'flightGuidance.verticalSpeedValue': 0 });
+    if (INCLUDED_A32X.includes(id)) Object.assign(values, {
+      'fcu.speedKtsNative': 151, 'fcu.headingDegNative': 278,
+      'fcu.altitudeFtNative': 11000, 'fcu.verticalSpeedFpmNative': 0,
+      'fcu.verticalSpeedFpm': -700, 'systems.mainBusVoltage': 28,
+    });
     const taxiSupport = { family: templateId, aircraftLabel: id === 'generic' ? 'Generic aircraft' : id.startsWith('fenix-') ? `Fenix ${id.slice(6).toUpperCase()}` : id.replace('pmdg-', 'PMDG '), qualificationStatus: 'candidate', reason: null,
       setupInstructions: id.startsWith('pmdg-') ? ['In PMDG setup, select Tiller + Rudder steering hardware.'] : id.startsWith('fenix-') ? ['Prepare the aircraft with automatic thrust control off.'] : ['Use standard simulator throttle, brake and steering controls.'] };
     return [id, { templateId, capabilities, values, cdu: cduFixture(id), taxiSupport }];

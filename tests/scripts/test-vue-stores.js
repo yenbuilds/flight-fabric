@@ -2649,6 +2649,26 @@ async function main() {
     assert.equal(voice.setupTask, null, 'remote browsers never advertise desktop-only voice setup');
   });
 
+  await test('a controller-only binding counts as configured voice setup', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    voice.setBridgeAvailable(true);
+    voice.setState('ready');
+    const pushToTalk = { controllerEnabled: true, accelerator: '', registered: true,
+      controller: { binding: { label: 'Controller', button: 15 }, state: 'ready', error: '' } };
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk });
+    assert.equal(voice.setupTask, null);
+    voice.applyRuntimeInfo({ enabled: false, pushToTalk: { ...pushToTalk, registered: false } });
+    assert.equal(voice.setupTask, null, 'turning off configured voice does not suggest first-time setup');
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { ...pushToTalk, registered: false } });
+    assert.equal(voice.setupTask.action, 'Check voice setup', 'failed registration is a configured binding needing attention');
+    assert.notEqual(voice.setupTask.optional, true);
+    voice.applyRuntimeInfo({ enabled: false, pushToTalk: { ...pushToTalk, controllerEnabled: false, registered: false } });
+    assert.equal(voice.setupTask.optional, true, 'a gated-off binding is inert');
+    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { controllerEnabled: true, registered: false } });
+    assert.equal(voice.setupTask.detail, 'Choose a keyboard shortcut or controller button.');
+  });
+
   await test('voice command results stay retryable while acknowledgement remains visible', () => {
     resetStoreTestContext();
     const voice = useVoiceControlStore();
@@ -2694,72 +2714,19 @@ async function main() {
     assert.equal(voice.ready, false, 'an unavailable aircraft-control gate should still disable PTT');
   });
 
-  await test('voice store ignores stale joystick state when desktop capability is absent or disabled', () => {
+  await test('voice store ignores retired joystick state even if an old capability flag is set', () => {
     resetStoreTestContext();
     const voice = useVoiceControlStore();
-    for (const joystickAvailable of [false, undefined]) {
+    for (const joystickAvailable of [true, false, undefined]) {
       voice.applyRuntimeInfo({ enabled: true, available: true, pushToTalk: {
         accelerator: 'Control+Alt+Space', registered: true, joystickAvailable,
         joystick: { vendorId: '044F', productId: 'B10A', button: 5 }, joystickConnected: true,
       } });
-      assert.equal(voice.runtime.joystickAvailable, false);
-      assert.equal(voice.runtime.joystick, null);
-      assert.equal(voice.runtime.joystickConnected, false);
+      assert.equal('joystickAvailable' in voice.runtime, false);
+      assert.equal('joystick' in voice.runtime, false);
+      assert.equal('joystickConnected' in voice.runtime, false);
       assert.equal(voice.runtime.shortcutRegistered, true);
     }
-  });
-
-  await test('voice joystick binding and detection state stay bounded in the store', () => {
-    resetStoreTestContext();
-    const voice = useVoiceControlStore();
-    assert.equal(voice.runtime.joystick, null, 'voice should not claim a joystick button before the user binds one');
-    assert.equal(voice.runtime.joystickConnected, false);
-
-    voice.applyRuntimeInfo({
-      available: true,
-      enabled: true,
-      pushToTalk: {
-        accelerator: '',
-        joystickAvailable: true,
-        joystick: { vendorId: '044f', productId: 'b10a', button: '5', name: ' T.16000M ', path: 'p' },
-        joystickConnected: true,
-        registered: true,
-      },
-    });
-    assert.deepEqual(voice.runtime.joystick, { vendorId: '044F', productId: 'B10A', button: 5, name: 'T.16000M', path: 'p' });
-    assert.equal(voice.runtime.joystickConnected, true);
-    voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { joystick: { vendorId: '044F', productId: 'B10A', button: 0 } } });
-    assert.equal(voice.runtime.joystick, null, 'a malformed binding must not survive into the store');
-
-    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
-    assert.deepEqual(voice.joystickLearn.devices, [], 'events outside a detection session are ignored');
-    voice.setJoystickLearn({ active: true });
-    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
-    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: true });
-    assert.equal(voice.joystickLearn.devices.length, 1, 'a stick is listed once however often it reports');
-    voice.applyJoystickLearnEvent({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', button: 7, down: false });
-    assert.equal(voice.joystickLearn.captured, null, 'a release does not choose a button');
-    voice.applyJoystickLearnEvent({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', button: 7, down: true });
-    voice.applyJoystickLearnEvent({ type: 'button', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', button: 8, down: true });
-    assert.equal(voice.joystickLearn.captured.button, 7, 'the first press wins');
-    voice.applyJoystickLearnEvent({ type: 'device', vendorId: '044F', productId: 'B10A', name: 'T.16000M', path: 'p', buttons: 16, connected: false });
-    assert.deepEqual(voice.joystickLearn.devices, [], 'an unplugged stick leaves the list');
-    voice.applyJoystickLearnEvent({ type: 'stopped', reason: 'error', error: 'x'.repeat(400) });
-    assert.equal(voice.joystickLearn.active, false);
-    assert.equal(voice.joystickLearn.error.length, 240, 'detection errors stay bounded');
-    voice.setJoystickLearn();
-    assert.deepEqual(voice.joystickLearn, { active: false, devices: [], captured: null, error: '' });
-
-    const calls = [];
-    voice.bindRuntime({
-      setJoystick: (value) => calls.push(['joystick', value]),
-      startJoystickLearn: () => calls.push(['learn-start']),
-      stopJoystickLearn: () => calls.push(['learn-stop']),
-    });
-    voice.startJoystickLearn();
-    voice.stopJoystickLearn();
-    voice.setJoystick(null);
-    assert.deepEqual(calls, [['learn-start'], ['learn-stop'], ['joystick', null]]);
   });
 
   await test('microphone setup failures remain visible after optional dismissal and clear when voice is disabled', () => {

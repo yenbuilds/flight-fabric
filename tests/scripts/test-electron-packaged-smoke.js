@@ -190,7 +190,23 @@ function validatePackagedVoiceRuntime(unpackedExe) {
     const path = require('node:path');
     const resourcesPath = process.env.FF_VOICE_PROBE_RESOURCES;
     const { createVoiceSpeechEngine } = require(path.join(resourcesPath, 'app.asar', 'voice-speech-engine.js'));
+    const { createVoiceRuntime } = require(path.join(resourcesPath, 'app.asar', 'voice-runtime.js'));
     (async () => {
+      // Inspect the shipped runtime, not a source fixture. Initialization is
+      // deliberately omitted: no real user settings, microphone or hooks.
+      delete process.env.FF_CONTROLLER_PTT;
+      const runtime = createVoiceRuntime({
+        app: { isPackaged: true, getPath: () => resourcesPath }, resourcesPath,
+        ipcMain: new (require('node:events').EventEmitter)(), getMainWindow: () => null,
+        registerTrustedIpcHandler() {},
+        speechEngine: { getInfo: () => ({ ready: false }), onEvent() {}, shutdown: async () => {} },
+        readbackEngine: { getInfo: () => ({}), cancel() {} },
+      });
+      const runtimeInfo = runtime.runtimeInfo();
+      if (runtimeInfo.pushToTalk.controllerEnabled !== true || runtimeInfo.enabled !== false || runtimeInfo.development !== false) {
+        throw new Error('Packaged controller availability or default voice/aircraft safeguards changed');
+      }
+      await runtime.shutdown();
       const engine = createVoiceSpeechEngine({ isPackaged: true, resourcesPath });
       const terminal = new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Packaged recognizer did not finalize')), 20000);
@@ -242,7 +258,19 @@ function validatePackagedVoiceRuntime(unpackedExe) {
     );
     return;
   }
+  ok('packaged controller settings enabled without opt-in; voice defaults and aircraft safeguards retained');
   ok('packaged Zipformer native runtime initializes and finalizes PCM');
+}
+
+function validatePackagedControllerHelper() {
+  const result = childProcess.spawnSync(process.execPath, [
+    path.join(__dirname, 'test-controller-ptt-native.js'), '--helper', PACKAGED_PTT_HELPER,
+  ], { cwd: ROOT, encoding: 'utf8', timeout: 45000, windowsHide: true });
+  if (result.error || result.status !== 0) {
+    fail(`packaged controller helper supports monitoring, failure cancellation and bounded setup: ${result.error?.message || result.stderr || result.stdout}`);
+    return;
+  }
+  ok('packaged controller helper supports monitoring, failure cancellation and bounded setup');
 }
 
 function collectPackagedPackageRoots(modulesRoot, relativeModulesPrefix = '') {
@@ -579,7 +607,7 @@ if (exists(WIN_UNPACKED, 'win-unpacked exists')) {
     }
   }
   exists(PACKAGED_VOICE_HOTWORDS, 'aviation voice hotwords bundled');
-  exists(PACKAGED_PTT_HELPER, 'native push-to-talk helper bundled');
+  if (exists(PACKAGED_PTT_HELPER, 'native push-to-talk helper bundled')) validatePackagedControllerHelper();
   for (const relativePath of REQUIRED_PACKAGED_BACKEND_STARTUP_FILES) {
     exists(
       resolvePackagedBackendStartupFile(PACKAGED_BACKEND, relativePath),

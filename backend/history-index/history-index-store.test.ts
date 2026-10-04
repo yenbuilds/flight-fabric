@@ -45,6 +45,106 @@ function sourcePath(tmpRoot, name) {
   return path.join(tmpRoot, name);
 }
 
+test('takeoff history pages recorded and JSON-only entries with complete consistent statistics', (t) => {
+  if (skipIfNoSqlite(t)) return;
+  withTempStore((store, root) => {
+    const source = { filePath: sourcePath(root, 'takeoffs.csv'), mtimeMs: 1, sizeBytes: 10 };
+    const analysis = { schemaVersion: 3, provenance: { ruleVersion: 'old-recorded-rule' }, rollDurationBasis: 'simulator' };
+    store.replaceSourceIndex({ source, takeoffs: [
+      { id: 'takeoff-a', timestampMs: 100, aircraft: 'A', icao: 'YSSY', runwayUseGrade: 'Recorded',
+        rollDistanceFt: 1000, runwayUsedPct: 20, runwayRemainingFt: 4000, assessment: 'normal', analysis },
+      { id: 'takeoff-b', timestampMs: 200, aircraft: 'A', icao: 'YMML', runwayUseGrade: 'Recorded',
+        rollDistanceFt: 1500, runwayUsedPct: 30, runwayRemainingFt: 3500, assessment: 'warning' },
+    ] });
+    const legacyTakeoffs = [
+      { id: 'legacy-only', timestampMs: 300, aircraft: 'B', icao: 'YSSY', runwayUseGrade: 'Unknown',
+        rollDistanceFt: 2000, runwayUsedPct: 40, runwayRemainingFt: 3000, flags: [{ severity: 'caution' }] },
+    ];
+    const snapshot = store.queryLogbookSnapshot({ limit: 1, legacyTakeoffs });
+    assert.equal(snapshot.page.totalMatching, 0, 'landing snapshot remains independent');
+    assert.equal(snapshot.takeoffs.totalMatching, 3);
+    assert.equal(snapshot.takeoffs.entries.length, 1);
+    assert.equal(snapshot.takeoffs.entries[0].id, 'legacy-only');
+    assert.deepEqual(snapshot.takeoffStats, {
+      total: 3, grades: { Recorded: 2, Unknown: 1 }, cautionCount: 2,
+      avgRollDistanceFt: 1500, avgRunwayUsedPct: 30, minRunwayRemainingFt: 3000,
+      airports: 2, aircraft: 2,
+    });
+    const entries = store.queryTakeoffEntries({ limit: 3, legacyTakeoffs }).entries;
+    assert.deepEqual(entries[2].analysis, analysis, 'stored rule/timing metadata is preserved without reevaluation');
+    assert.equal(entries[2].id, 'takeoff-a', 'the recorded identity agrees across timeline and logbook');
+    assert.equal(store.queryTakeoffEntries({ limit: 0, legacyTakeoffs }).entries.length, 0);
+    assert.equal(store.queryTakeoffStats({ legacyTakeoffs: [{ id: 'malformed-flags', flags: ['bad', 3, null] }] }).cautionCount, 1);
+  });
+});
+
+test('takeoffs share source replacement, rollback, lane pruning and rebuild lifecycle', (t) => {
+  if (skipIfNoSqlite(t)) return;
+  withTempStore((store, root) => {
+    const source = { filePath: sourcePath(root, 'lifecycle.csv'), mtimeMs: 1, sizeBytes: 10 };
+    const takeoff = { id: 'departure', timestampMs: 100, rollDistanceFt: 1000 };
+    store.replaceSourceIndex({ source, takeoffs: [takeoff] });
+    const originalId = store.queryTakeoffEntries().entries[0].indexId;
+    store.replaceSourcesLandingsIndex([{ source, landings: [] }]);
+    store.replaceSourcesFlightsIndex([{ source, flights: [] }]);
+    assert.equal(store.queryTakeoffEntries().entries[0].indexId, originalId, 'landing analysis and flight listing refreshes retain takeoffs');
+    assert.throws(() => store.replaceSourceIndex({ source, takeoffs: [takeoff, takeoff] }), /UNIQUE/);
+    assert.equal(store.queryTakeoffEntries().totalMatching, 1, 'failed replacement rolls back the complete transaction');
+    store.replaceSourcesLandingsIndex([{ source, landings: [], takeoffs: [] }]);
+    assert.equal(store.queryTakeoffEntries().totalMatching, 0);
+    store.replaceSourceIndex({ source, takeoffs: [takeoff] });
+    store.pruneMissingLandingSources([]);
+    assert.equal(store.queryTakeoffEntries().totalMatching, 0, 'removing the debrief lane prunes takeoffs even while a flight row survives');
+    store.replaceSourceIndex({ source, takeoffs: [takeoff] });
+    store.clearDerivedHistoryIndex();
+    assert.equal(store.queryTakeoffEntries().totalMatching, 0);
+    assert.equal(store.queryTakeoffEntries({ legacyTakeoffs: [{ id: 'legacy', timestampMs: 1 }] }).totalMatching, 1,
+      'rebuilding the derived index does not discard the independent compatibility input');
+  });
+});
+
+test('takeoff identity survives recording moves and remains scoped to its recording source', (t) => {
+  if (skipIfNoSqlite(t)) return;
+  withTempStore((store, root) => {
+    const first = { filePath: sourcePath(root, 'first.csv'), recordingSessionId: 'session-one', mtimeMs: 1, sizeBytes: 10 };
+    const takeoff = { id: 'same-display-id', timestampMs: 100 };
+    store.replaceSourceIndex({ source: first, takeoffs: [takeoff] });
+    const originalId = store.queryTakeoffEntries().entries[0].indexId;
+    store.replaceSourceIndex({ source: { ...first, filePath: sourcePath(root, 'moved.csv') }, takeoffs: [takeoff] });
+    assert.equal(store.queryTakeoffEntries().entries[0].indexId, originalId);
+    store.replaceSourceIndex({ source: { ...first, filePath: sourcePath(root, 'other.csv'), recordingSessionId: 'session-two' }, takeoffs: [takeoff] });
+    const entries = store.queryTakeoffEntries().entries;
+    assert.equal(entries.length, 2);
+    assert.equal(new Set(entries.map((entry) => entry.indexId)).size, 2);
+  });
+});
+
+test('legacy takeoff retirement requires one exact recorded counterpart in the same recording', (t) => {
+  if (skipIfNoSqlite(t)) return;
+  withTempStore((store, root) => {
+    const source = { filePath: sourcePath(root, 'matches.csv'), mtimeMs: 1, sizeBytes: 10 };
+    const recording = { recordingSessionId: 'session-one', bundleName: 'bundle-one' };
+    store.replaceSourceIndex({ source, takeoffs: [
+      { id: 'a', eventId: 'event-a', timestampMs: 100, recording },
+      { id: 'b', timestampMs: 200, recording },
+      { id: 'c', timestampMs: 200, recording },
+    ] });
+    const matches = store.queryRecordedTakeoffMatches([
+      { id: 'exact-session', timestampMs: 100, recording: { ...recording, bundleName: 'renamed-bundle' } },
+      { id: 'bundle-fallback', timestampMs: 100, recording: { bundleName: 'bundle-one' } },
+      { id: 'exact-event', eventId: 'event-a', timestampMs: 100, recording },
+      { id: 'wrong-event', eventId: 'event-b', timestampMs: 100, recording },
+      { id: 'wrong-session', timestampMs: 100, recording: { ...recording, recordingSessionId: 'other-session' } },
+      { id: 'missing-identity', timestampMs: 100 },
+      { id: 'different-time', timestampMs: 101, recording },
+      { id: 'ambiguous', timestampMs: 200, recording },
+      { id: 'richer-legacy', timestampMs: 100, rollDistanceFt: 1234, recording },
+      { id: 'legacy-warning', timestampMs: 100, flags: [{ code: 'edge', severity: 'warning' }], recording },
+    ]);
+    assert.deepEqual(matches.sort(), ['bundle-fallback', 'exact-event', 'exact-session']);
+  });
+});
+
 test('history index integrity check fails closed on a non-ok SQLite result', () => {
   const db = {
     prepare(sql) {

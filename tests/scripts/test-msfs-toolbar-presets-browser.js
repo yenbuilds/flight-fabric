@@ -100,7 +100,11 @@ async function checkNativeInputBridge(win) {
   await click(lighting + ' input[type=range]');
   await until(root, 'return keyboardClaimed;');
   const sliderValue = await page(`return Number(document.activeElement.value);`);
+  // Wait for queued native input to arrive before reading the slider value.
+  await page(`window.fixtureArrowReleased = false;
+    document.addEventListener('keyup', event => { window.fixtureArrowReleased = event.key === 'ArrowRight'; }, { once: true });`);
   press('Right');
+  await until(page, 'return window.fixtureArrowReleased;');
   assert.equal(await page(`return Number(document.activeElement.value);`), sliderValue + 1, 'real arrow key edits the focused slider');
   const range = await bounds(lighting + ' input[type=range]');
   mouse('mouseDown', range.x + range.width / 2, range.y + range.height / 2, { button: 'left', clickCount: 1 });
@@ -251,10 +255,11 @@ async function main() {
   const { buildAircraftControlCapabilities } = require('../../dist/backend/aircraft/aircraft-control-service');
   const presentation = require('../../shared/aircraft-presets');
   const requests = [];
-  const taxiRequests = [], taxiScenes = new WeakMap(), pushbackRequests = [];
+  const taxiRequests = [], taxiScenes = new WeakMap(), departurePlans = new WeakMap(), pushbackRequests = [];
   let pushbackBrake = false;
   let taxiPosition = 'live';
   let departurePreviewEnabled = false, departurePhase = 'preview';
+  let departingAt = null;
   let fixture, revision = 0, stale = false, plan = null, planRevision = 0, appVersion = '0.11.0-fixture';
   const sessionToken = 'isolated-toolbar-browser-fixture';
   function select(id) {
@@ -306,9 +311,9 @@ async function main() {
         socket.send(JSON.stringify({ type: 'pushbackState', requestId: message.requestId, ok: true,
           currentProfileKey: catalogue.profileKey, currentProfileRevision: catalogue.profileRevision,
           icao: message.icao, runway: message.runway, active: departurePhase === 'pushing',
-          status: departurePhase === 'preview' ? 'idle' : departurePhase, remainingM: 48,
-          canStart: !pushbackBrake && departurePhase === 'preview',
-          unavailableReason: pushbackBrake ? 'Release the parking brake to push back.' : null }));
+          status: departingAt !== null ? 'stopped' : departurePhase === 'preview' ? 'idle' : departurePhase, remainingM: 48,
+          canStart: !pushbackBrake && departurePhase === 'preview' && departingAt === null,
+          unavailableReason: pushbackBrake ? 'Release the parking brake to push back.' : departingAt !== null ? 'Stop the aircraft before pushing back.' : null }));
         return;
       }
       if (message.type === 'requestTaxiGuidance') {
@@ -319,6 +324,24 @@ async function main() {
         const reply = { type: 'toolbarTaxiState', requestId: message.requestId, ok: true, canGuide: taxiPosition !== 'stale',
           currentProfileKey: catalogue.profileKey, currentProfileRevision: catalogue.profileRevision };
         if (message.pushback) {
+          if (departingAt !== null) {
+            const retained = departurePlans.get(socket);
+            assert.ok(retained, 'departure taxi begins with an existing viewer plan');
+            // A stopped tug releases the aircraft to taxi from its endpoint.
+            // Status retains the old local frame; moving cannot recapture a
+            // pushback start plan. This fixture has no simulator transport.
+            if (message.operation === 'preview') {
+              socket.send(JSON.stringify({ ...reply, ok: false, error: 'Stop on the ground to preview pushback.' })); return;
+            }
+            const endpoint = retained.pushbackPreview.points.at(-1);
+            Object.assign(reply, { pushbackPreview: { id: retained.pushbackPreview.id, icao: message.icao, runway: message.runway,
+              phase: 'preview', valid: false, headingDeg: 0, lengthM: 78, remainingM: 78 },
+              aircraft: taxiPosition === 'stale' ? null : { x: endpoint.x, z: endpoint.z + (Date.now() - departingAt) / 1000 * 2,
+                headingDeg: 0, speedKts: 2 / 0.514444 }, sceneKey: retained.scene.key });
+            if (message.scene) Object.assign(reply, { pushbackPreview: { ...reply.pushbackPreview, points: retained.pushbackPreview.points },
+              preview: retained.preview, scene: retained.scene });
+            socket.send(JSON.stringify(reply)); return;
+          }
           const points = [{ x: 30, z: 60 }, { x: 30, z: 30 }, { x: 25, z: 10 }, { x: 0, z: 0 }];
           Object.assign(reply, { ok: departurePreviewEnabled, error: departurePreviewEnabled ? null : 'No simple pushback fixture.',
             pushbackPreview: { id: 'shown-' + message.runway, icao: message.icao, runway: message.runway, phase: departurePhase,
@@ -326,6 +349,7 @@ async function main() {
             aircraft: taxiPosition === 'stale' ? null : { ...points[departurePhase === 'pushing' ? 1 : 0], headingDeg: 0, speedKts: 0 },
             preview: { points: [{ x: 0, z: 0 }, { x: 0, z: 140 }], holdShort: { x: 0, z: 165 }, runway: message.runway, lengthM: 140 },
             scene: { key: 42, links: [{ a: { x: 0, z: -50 }, b: { x: 0, z: 200 }, widthM: 24 }], runways: [], stands: [] } });
+          if (departurePreviewEnabled) departurePlans.set(socket, reply);
           socket.send(JSON.stringify(reply)); return;
         }
         if (message.operation === 'parkings') reply.standOptions = [{ label: 'Gate A 12', typeLabel: 'Heavy gate' }, { label: 'Ramp 3', typeLabel: 'GA ramp' }];
@@ -397,6 +421,7 @@ async function main() {
       if (url.searchParams.has('position')) taxiPosition = url.searchParams.get('position');
       if (url.searchParams.has('pushback')) departurePreviewEnabled = url.searchParams.get('pushback') === 'true';
       if (url.searchParams.has('phase')) departurePhase = url.searchParams.get('phase');
+      if (url.searchParams.has('departing')) departingAt = url.searchParams.get('departing') === 'true' ? Date.now() : null;
       return json(taxiRequests);
     }
     if (url.pathname === '/fixture/stale') { stale = true; return json({ ok: true }); }
@@ -411,7 +436,7 @@ async function main() {
     delete env.ELECTRON_RUN_AS_NODE;
     const child = require('node:child_process').spawn(require('../../electron/node_modules/electron'), [__filename], { env, cwd: ROOT, windowsHide: true, stdio: 'inherit' });
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 90000);
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 120000);
     const [code] = await once(child, 'exit'); clearTimeout(timer);
     assert.equal(timedOut, false); assert.equal(code, 0);
   } finally { clearInterval(interval); for (const socket of wss.clients) socket.terminate(); wss.close(); http.close(); }
