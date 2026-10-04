@@ -69,7 +69,7 @@ useDocumentEvent('focusin', event => {
                 <button id="msfs-installs-btn" type="button" class="ff-button-ghost" :class="{ hidden: !settingsUi.canDetectMsfsInstalls }" @click="settingsUi.openMsfsInstallsModal()">MSFS installs</button>
                 <button id="debug-toggle-btn" type="button" class="ff-button-ghost" :class="{ hidden: !debug.toggleVisible }" @click="debug.toggleModal()">Debug telemetry</button>
               </div>
-              <div class="footer-diagnostics-tools footer-experimental" aria-label="Experimental features">
+              <div v-if="EXPERIMENTAL_TABS.length" class="footer-diagnostics-tools footer-experimental" aria-label="Experimental features">
                 <span class="footer-experimental-label">Experimental</span>
                 <button v-for="tab in EXPERIMENTAL_TABS" :id="'footer-open-' + tab.id + '-btn'" :key="tab.id" type="button" class="ff-button-ghost" :data-tab="tab.id" :aria-current="tabs.activeTabId === tab.id ? 'page' : undefined" @click="tabs.requestTabChange(tab.id)">{{ tab.label }}</button>
               </div>

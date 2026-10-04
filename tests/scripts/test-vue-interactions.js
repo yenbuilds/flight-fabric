@@ -8637,6 +8637,11 @@ async function main() {
     assert.equal(resolveInitialTabId({ persistedTabId: 'landing' }), 'landing', 'returning users should restore the landing debrief after a refresh');
     assert.equal(resolveInitialTabId({ persistedTabId: 'lvars' }), 'lvars', 'returning users should restore the LVAR inspector after a refresh');
     assert.equal(resolveInitialTabId({ persistedTabId: 'not-a-tab' }), 'flight', 'invalid remembered tabs should fall back to Overview');
+    for (const disabledTab of ['cues', 'zen']) {
+      assert.equal(resolveInitialTabId({ persistedTabId: disabledTab }), 'flight', 'disabled saved tabs fall back to Overview');
+      assert.equal(resolveInitialTabId({ requestedTabId: disabledTab }), 'flight', 'disabled deep links fall back to Overview');
+      assert.equal(resolveInitialTabId({ requestedTabId: disabledTab, persistedTabId: 'timeline' }), 'timeline', 'disabled deep links preserve valid saved-page fallback');
+    }
     assert.equal(resolveInitialTabId({ requestedTabId: 'systems', persistedTabId: 'timeline' }), 'system', 'valid deep links should override remembered navigation');
     assert.equal(resolveInitialTabId({ requestedTabId: 'not-a-tab', persistedTabId: 'timeline' }), 'timeline', 'invalid deep links should fall back to a valid remembered tab');
 

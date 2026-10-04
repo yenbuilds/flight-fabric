@@ -172,7 +172,7 @@ useDocumentEvent('keydown', onKeydown);
         <TabIcon :kind="tab.icon" class="w-5 h-5 text-gray-400" />
         <span class="text-sm font-medium">{{ tab.label }}</span>
       </button>
-      <div class="mobile-more-experimental border-t border-surface-300 mt-2 pt-2">
+      <div v-if="EXPERIMENTAL_TABS.length" class="mobile-more-experimental border-t border-surface-300 mt-2 pt-2">
         <h3 class="px-4 pb-1 text-[10px] uppercase tracking-widest text-amber-300/80" style="font-family: 'B612 Mono', monospace;">Experimental</h3>
         <button
           v-for="tab in EXPERIMENTAL_TABS"

@@ -36,6 +36,9 @@ async function browser() {
       return { active: document.getElementById(field.getAttribute('aria-activedescendant'))?.getAttribute('aria-selected'),
         tabStops: options.filter(option => option.tabIndex >= 0).length };`);
     assert.deepEqual(semantics, { active: 'true', tabStops: 0 }, 'combobox owns one active result without duplicate Tab stops');
+    assert.equal(await evaluate("return Boolean(document.querySelector('#navigator-result-cues'));"), false, 'disabled Flight Cues is absent from navigation');
+    await evaluate("navigatorTest.query('flight cues'); await navigatorTest.settle();");
+    assert.equal(await evaluate("return document.querySelectorAll('[role=option]').length;"), 0, 'search cannot expose disabled Flight Cues');
 
     await evaluate("navigatorTest.query('  PRESETS  cockpit '); await navigatorTest.settle();");
     assert.deepEqual(await evaluate("return [...document.querySelectorAll('[role=option]')].map(element => element.id);"), ['navigator-result-autopilot'], 'search is case-insensitive and matches independent terms');

@@ -330,6 +330,7 @@ async function main() {
     return {
       html: normalizeHtml(html),
       storage: context.storage,
+      pinia,
     };
   }
 
@@ -1809,19 +1810,18 @@ async function main() {
     assert.doesNotMatch(html, /data-tab="cues"/, 'Flight cues should not render as a primary workspace tab while experimental');
   });
 
-  await test('MobileTabs lists Flight cues under Experimental in the More sheet only', async () => {
+  await test('MobileTabs omits disabled Flight cues and its empty Experimental section', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'MobileTabs.vue'),
       ({ useTabsStore }) => {
         useTabsStore().setActiveTab('cues');
+        assert.equal(useTabsStore().activeTabId, 'flight', 'disabled cues should fall back to Overview');
+        useTabsStore().toggleMoreSheet();
       },
     );
 
-    const moreButtonIndex = html.indexOf('id="mobile-more-btn"');
-    const cuesIndex = html.indexOf('data-tab="cues"');
-    assert.ok(cuesIndex > moreButtonIndex, 'Flight cues should render inside the mobile More sheet, not the primary bar');
-    assert.match(html, /Experimental[\s\S]*data-tab="cues"[^>]*aria-current="page"[\s\S]*?>Flight cues</, 'Flight cues should sit under the Experimental heading and reflect the active tab');
-    assert.match(html, /id="mobile-more-btn"[^>]*class="mobile-tab active"/, 'the More button should light up while an experimental tab is active');
+    assert.match(html, /id="mobile-more-btn"/, 'normal mobile navigation remains available');
+    assert.doesNotMatch(html, /data-tab="cues"|mobile-more-experimental/, 'disabled cues leave no link or empty group');
   });
 
   console.log('\n--- fixed navigation ---\n');
@@ -1851,7 +1851,7 @@ async function main() {
     assert.ok(html.indexOf('data-tab="system"') > more);
     assert.doesNotMatch(html, /data-tab="flight"|data-workspace|workspace-switcher/);
     assert.match(html, /class="mobile-tab relative active"[^>]*data-tab="livemap"/);
-    assert.match(html, /Experimental/);
+    assert.doesNotMatch(html, /mobile-more-experimental/, 'disabled experiments leave no empty menu section');
   });
 
   console.log('\n--- support ---\n');
@@ -2077,12 +2077,10 @@ async function main() {
 
   console.log('\n--- main content shell ---\n');
   await test('MainContentShell renders the tab scaffold and embedded Vue panels', async () => {
-    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'MainContentShell.vue'));
+    const { html, pinia } = await renderComponent(path.join('src', 'vue', 'components', 'MainContentShell.vue'));
     const ids = [
       'tab-flight',
       'vue-flight-tab-root',
-      'tab-cues',
-      'vue-flight-cues-tab-root',
       'tab-autopilot',
       'vue-autopilot-root',
       'tab-landing',
@@ -2111,6 +2109,8 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render from the main Vue shell`);
     }
     assert.doesNotMatch(html, /id="tab-profiles"/, 'the retired Profiles workspace should not render in the main shell');
+    assert.doesNotMatch(html, /id="tab-cues"|id="vue-flight-cues-tab-root"|data-flight-cues-page/, 'disabled Flight Cues must not mount');
+    assert.equal(Object.hasOwn(pinia.state.value, 'flightCues'), false, 'disabled Flight Cues must not start its background store');
     assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, true);
     for (const id of ['vue-takeoff-root', 'vue-last-takeoff-root', 'takeoff-card']) assert.match(html, new RegExp(`id="${id}"`), 'takeoff panels render in the normal build');
     assert.match(html, /id="tab-flight" class="tab-section active"/, 'Overview should keep the state-driven active marker for first paint');
@@ -2743,7 +2743,7 @@ async function main() {
     assert.doesNotMatch(html, /Open telemetry debug panel/, 'footer debug toggle should not render tooltip copy');
     assert.match(html, /id="connection-info"[^>]*>ws:\/\/127\.0\.0\.1:8123</, 'footer connection info should render from status state');
     assert.match(html, /id="footer-open-lvars-btn"/, 'footer should expose the compact LVARs shortcut');
-    assert.match(html, /footer-experimental-label"[^>]*>Experimental<[\s\S]*id="footer-open-cues-btn"[^>]*data-tab="cues"[\s\S]*?>\s*Flight cues\s*</, 'footer diagnostics should expose Flight cues under an Experimental label');
+    assert.doesNotMatch(html, /footer-open-cues-btn|footer-experimental-label/, 'disabled Flight Cues must not leave a footer link or empty Experimental group');
     assert.match(html, /id="footer-open-lvars-btn"[\s\S]*LVAR inspector/, 'footer LVAR shortcut should render its label');
     assert.doesNotMatch(html, /data-tab="lvars"/, 'footer should not expose hidden tab-routing hooks');
   });

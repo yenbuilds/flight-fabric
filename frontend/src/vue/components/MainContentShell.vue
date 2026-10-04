@@ -16,12 +16,13 @@ import FlightCuesTabShell from './FlightCuesTabShell.vue';
 import { useLandingStore } from '../stores/landing.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useFlightCuesStore } from '../stores/flight-cues.js';
+import { FLIGHT_CUES_ENABLED } from '../tab-config.js';
 import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
 
 const { TAKEOFF_SCORING_ENABLED } = getFlightFabricAppSettings();
 const landing = useLandingStore();
 const tabs = useTabsStore();
-useFlightCuesStore();
+if (FLIGHT_CUES_ENABLED) useFlightCuesStore();
 </script>
 
 <template>
@@ -37,7 +38,7 @@ useFlightCuesStore();
       </div>
     </div>
 
-    <div id="tab-cues" class="tab-section" :class="tabs.tabSectionClass('cues')">
+    <div v-if="FLIGHT_CUES_ENABLED" id="tab-cues" class="tab-section" :class="tabs.tabSectionClass('cues')">
       <div id="vue-flight-cues-tab-root">
         <FlightCuesTabShell v-if="tabs.activeTabId === 'cues'" />
       </div>

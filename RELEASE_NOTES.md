@@ -69,6 +69,8 @@ Voice settings put keyboard and controller push-to-talk together. Connection
 recovery, SimBrief guidance and saved-flight search controls are clearer, with
 layout improvements on narrow screens.
 
+The experimental Flight Cues page is temporarily unavailable.
+
 </details>
 
 <details>
