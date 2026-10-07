@@ -826,7 +826,7 @@ test('PMDG 777 commands map canonical intent only to guarded adapter actions', (
     requireProfileToken: true,
     capabilities: {
       actionTypes: ['aircraft-integration'],
-      integrationTransports: ['sdk'],
+      integrationTransports: ['sdk', 'simconnect-sequence'],
     },
   };
   for (const [commandId, value, actionId] of [

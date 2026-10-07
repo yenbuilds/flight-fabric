@@ -3175,6 +3175,22 @@ async function main() {
     assert.match(html, /id="ap-fd-state"[^>]*>---</, 'unknown flight director state should render as neutral placeholder');
   });
 
+  await test('AutopilotControlsTab displays unconfirmed gear feedback without labelling the command failed', async () => {
+    const { html } = await renderComponent(
+      path.join('src', 'vue', 'components', 'AutopilotControlsTab.vue'),
+      ({ useAircraftControlsStore }) => useAircraftControlsStore().setFeedback({
+        actionText: 'Gear selection not confirmed. Check the cockpit.',
+        routeText: 'The transport accepted the command, but handle readback did not confirm it.',
+        commandKey: 'aircraft-command:surfaces.gear.set',
+        status: 'unconfirmed',
+      }),
+    );
+    const feedback = html.match(/<div[^>]+data-status="unconfirmed"[\s\S]*?<\/div>/)?.[0] || '';
+    assert.match(feedback, /Gear selection not confirmed/, 'the selection outcome must remain visible');
+    assert.match(feedback, /Aircraft response unconfirmed\. Check the cockpit\./, 'the summary must also preserve uncertainty');
+    assert.doesNotMatch(feedback, /could not be completed|command failed/i, 'secondary feedback must not turn uncertainty into failure');
+  });
+
   await test('AutopilotControlsTab disables unsupported profile AP writes without hiding readbacks', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AutopilotControlsTab.vue'),
@@ -10453,8 +10469,9 @@ async function main() {
     assert.equal((html.match(/data-aircraft-visual-key="lockheed-l1011-500"/g) || []).length, 2, 'both replay headers should receive the recorded aircraft profile id');
     assert.match(html, /id="timeline-mobile-viewer-local-time"[^>]*[\s\S]*?2026-08-13 19:24\s*</, 'mobile timeline viewer should show the simulator-local flight datetime in international 24-hour format');
     assert.match(html, /id="timeline-mobile-viewer-utc-time"[^>]*[\s\S]*?2026-08-13 09:24\s*</, 'mobile timeline viewer should show the simulator UTC flight datetime in international 24-hour format');
-    assert.match(html, /Flight start local[\s\S]*Flight start UTC/, 'the replay header should identify its simulator timestamps as flight-start values');
-    assert.match(html, /id="timeline-mobile-viewer-recording-time"[^>]*[\s\S]*?2026-08-14 07:05\s*</, 'mobile timeline viewer should distinguish the device-local recording start from simulator time');
+    assert.match(html, /Sim start local[\s\S]*Sim start UTC/, 'the replay header should identify its simulator timestamps as start values');
+    assert.match(html, /Recording start \(real-world local\)/, 'the recording timestamp identifies the real-world local clock');
+    assert.match(html, /id="timeline-mobile-viewer-recording-time"[^>]*[\s\S]*?2026-08-14 07:05 UTC[+-]\d{2}:\d{2}\s*</, 'mobile timeline viewer should distinguish the device-local recording start and its timezone from simulator time');
     assert.match(html, /Distance[\s\S]*144 NM/, 'mobile timeline viewer should render whole-flight distance in the summary');
     assert.match(html, /id="timeline-card"/, 'mobile fullscreen viewer should include the inspector card');
     assert.match(html, /id="timeline-map-card"/, 'mobile fullscreen viewer should include the replay map');
@@ -10499,7 +10516,7 @@ async function main() {
       },
     );
 
-    assert.match(html, /id="timeline-mobile-viewer-recording-time"[^>]*[\s\S]*?2026-08-01 01:14\s*</, 'legacy timeline headers should retain a minimal recording time fallback');
+    assert.match(html, /id="timeline-mobile-viewer-recording-time"[^>]*[\s\S]*?2026-08-01 01:14 UTC[+-]\d{2}:\d{2}\s*</, 'legacy timeline headers should retain a recording time fallback with its timezone');
     assert.doesNotMatch(html, /id="timeline-mobile-viewer-local-time"|id="timeline-mobile-viewer-utc-time"/, 'legacy timeline headers should not invent missing simulator clocks');
   });
 

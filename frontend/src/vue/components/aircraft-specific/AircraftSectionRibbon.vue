@@ -155,11 +155,11 @@ function handleRibbonPointerUp(event) {
 function syncActiveSection() {
   sectionSyncTimer = null;
   if (!aircraftTabIsActive()) return;
-  const anchorY = aircraftSectionAnchorY(sectionRibbon.value, sectionScrollTarget);
   let nextIndex = 0;
 
   for (let index = 0; index < sections.value.length; index += 1) {
     const target = sectionElement(index);
+    const anchorY = aircraftSectionAnchorY(sectionRibbon.value, sectionScrollTarget, target);
     if (!target || target.getBoundingClientRect().top > anchorY) break;
     nextIndex = index;
   }

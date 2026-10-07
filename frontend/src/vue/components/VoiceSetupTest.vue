@@ -27,7 +27,8 @@ onBeforeUnmount(() => { void voice.cancelVoiceTest(); });
     <h4 id="voice-test-title" class="text-sm font-semibold text-fg">Test voice</h4>
     <p class="mt-1 text-xs text-muted-fg">Check your microphone and speech recognition without MSFS. Test only — no aircraft commands will be sent.</p>
     <p class="mt-3 text-sm text-fg">Say: <strong>“{{ VOICE_TEST_PHRASE }}”</strong></p>
-    <p class="mt-1 text-xs text-muted-fg">Records up to five seconds using your selected microphone. Your recording isn’t saved and is cleared when you leave Settings.</p>
+    <p class="mt-1 text-xs text-muted-fg">Records up to five seconds using your selected microphone. FlightFabric keeps a temporary recording for playback and clears it when you leave Settings.</p>
+    <p v-if="voice.runtime.mode === 'cloud'" class="mt-1 text-xs text-muted-fg">Cloud mode sends this recording to {{ voice.runtime.cloud.providerLabel }} when recording finishes and uses your provider API account.</p>
     <p v-if="!voice.runtime.enabled" id="voice-test-unavailable" class="mt-2 text-xs text-muted-fg">Enable voice control above to run the test.</p>
     <p v-else-if="!voice.runtime.available" id="voice-test-unavailable" class="mt-2 text-xs text-warning">{{ voice.runtime.error || 'Speech recognition is unavailable. Try turning voice control off and on again.' }}</p>
     <p v-else-if="blocked" class="mt-2 text-xs text-muted-fg">Finish the current voice action or shortcut setup before testing.</p>
@@ -46,6 +47,6 @@ onBeforeUnmount(() => { void voice.cancelVoiceTest(); });
       <meter id="voice-test-level" class="mt-1 block h-3 w-full accent-primary" min="0" max="100" :value="state.level">{{ state.level }}%</meter>
     </div>
     <p class="mt-2 text-xs" :class="state.phase === 'error' ? 'text-warning' : state.recognized ? 'text-success' : 'text-muted-fg'" role="status" aria-live="polite" data-voice-test-status>{{ state.phase === 'playing' ? 'Playing your recording…' : state.message }}</p>
-    <p v-if="state.transcript" class="mt-2 break-words text-sm text-fg" data-voice-test-transcript><span class="text-muted-fg">Heard:</span> {{ state.transcript }}</p>
+    <p v-if="state.transcript" class="mt-2 break-words text-sm text-fg" data-voice-test-transcript><span class="text-muted-fg">{{ state.interpreted ? 'Interpreted:' : 'Heard:' }}</span> {{ state.transcript }}</p>
   </section>
 </template>

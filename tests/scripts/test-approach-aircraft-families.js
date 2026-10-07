@@ -6,6 +6,7 @@ const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(run
 const { SimConnectTelemetryProvider } = require(runtime('telemetry-provider/simconnect-telemetry-provider.js'));
 const { LvarSidecarBridge } = require(runtime('telemetry-provider/lvar-sidecar-bridge.js'));
 const { buildAircraftSpecificState } = require(runtime('aircraft/aircraft-specific-state.js'));
+const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/aircraft-integrations/index.js'));
 const capabilities = { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };
 const families = {
   'pmdg-737': ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900'],
@@ -40,6 +41,42 @@ function harness(profileId, initial) {
     }),
   };
 }
+
+test('every advertised exact flap target has a reviewed lever source rather than aerodynamic position', () => {
+  const sources = {
+    'pmdg-737': { type: 'lvar', name: 'L:NGXFlapLever' },
+    'pmdg-777': { type: 'sdk', adapter: 'clientdata-manifest', path: 'flaps.label' },
+    'fenix-a32x': { type: 'lvar', name: 'L:S_FC_FLAPS' },
+    'fbw-a32nx': { type: 'lvar', name: 'L:A32NX_FLAPS_HANDLE_INDEX' },
+  };
+  const covered = new Set();
+  for (const entry of loader.listProfiles().filter(p => p.simulator === 'msfs')) {
+    const profileKey = `bundled/msfs/${entry.id}`, profile = loader.loadProfile(profileKey);
+    const catalogue = buildAircraftControlCapabilities(profile, { capabilities }).aircraftCommands;
+    const command = catalogue.commands.find(c => c.id === 'surfaces.flaps.set');
+    if (!command) continue;
+    covered.add(entry.id);
+    for (const value of command.input.values) {
+      const resolved = resolveAircraftCommand({ commandId: command.id, input: { value } }, { profile, capabilities });
+      assert.equal(resolved.ok, true, profileKey);
+      const adapterId = resolved.action.name;
+      assert.ok(sources[adapterId], `${profileKey}: exact selection needs a reviewed lever source`);
+      const action = registry.resolveAction({ adapterId, profileKey, actionId: resolved.controlRequest.actionId });
+      const integration = registry.resolveIntegration(adapterId, { profileKey });
+      for (const route of action.routes) {
+        assert.ok(Object.hasOwn(route.readback, 'expectedValue'), 'selection must match an exact target');
+        assert.notEqual(route.readback.confirmation, 'changed');
+        const field = integration.fields[route.readback.fieldId];
+        assert.equal(field.sources[0].decode.type, 'enum', 'unknown lever values cannot round into a selection');
+        for (const [key, sourceValue] of Object.entries(sources[adapterId])) assert.equal(field.sources[0].route[key], sourceValue);
+        if (adapterId !== 'pmdg-777') assert.equal(route.readback.freshness, 'field');
+      }
+    }
+  }
+  assert.deepEqual([...covered].sort(), [
+    ...families['pmdg-737'], ...families['pmdg-777'], ...families['fenix-a32x'], 'fbw-a32nx',
+  ].sort(), 'fixed flap coverage must not disappear silently');
+});
 
 test('all thirteen profiles accept only aircraft-appropriate flap, autobrake and speedbrake voice targets', async () => {
   const { interpretAircraftVoiceCommand: interpret } = await import('../../frontend/src/voice/command-interpreter.js');

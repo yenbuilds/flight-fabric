@@ -16,10 +16,14 @@ export function useAircraftPageSections(templateSections) {
   });
 }
 
-export function aircraftSectionAnchorY(ribbon, scroller) {
+export function aircraftSectionAnchorY(ribbon, scroller, target) {
   const rect = ribbon?.getBoundingClientRect?.();
   const viewportTop = scroller?.getBoundingClientRect?.().top || 0;
   // The ribbon sits below shell-owned cards until it becomes sticky. Its natural
   // position must not make every preceding card count as already scrolled past.
-  return Math.min(rect?.bottom || 0, viewportTop + (rect?.height || 0) + 16) + 16;
+  const ribbonAnchor = Math.min(rect?.bottom || 0, viewportTop + (rect?.height || 0) + 16) + 16;
+  // scrollIntoView stops at the section's CSS margin. Count that destination
+  // as reached, including fractional layout rounded to a whole-pixel scroll.
+  const scrollMargin = target ? parseFloat(window.getComputedStyle(target).scrollMarginTop) || 0 : 0;
+  return Math.max(ribbonAnchor, viewportTop + scrollMargin) + 1;
 }

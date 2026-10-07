@@ -44,12 +44,15 @@ test('aviation readbacks use natural state confirmations', () => {
   assert.equal(formatAviationReadback({
     commandId: 'surfaces.parkingBrake.set', label: 'Parking brake', input: { value: false },
   }), 'Parking brake released.');
+  for (const value of ['up', 'down']) assert.equal(formatAviationReadback({
+    commandId: 'surfaces.gear.set', input: { value },
+  }), `Gear ${value} selected.`);
   assert.equal(formatAviationReadback({
     commandId: 'surfaces.spoilersArmed.set', label: 'Ground spoilers', input: { value: true },
   }), 'Ground spoilers armed.');
   assert.equal(formatAviationReadback({
     commandId: 'surfaces.flaps.adjust', label: 'Flaps one detent', input: { value: 'increase' },
-  }), 'Flaps increased one detent.');
+  }), 'Flap command sent. Check the cockpit.');
   assert.equal(formatAviationReadback({
     commandId: 'surfaces.autobrake.set', label: 'Autobrake', input: { value: 'rto' },
   }), 'Autobrake R T O set.');

@@ -61,14 +61,7 @@ async function remove(row) {
     </div>
 
     <template v-else>
-      <div class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/40 px-4 py-3 text-xs leading-relaxed">
-        <h3 class="font-semibold text-fg">Get started in three steps</h3>
-        <ol class="mt-2 list-decimal space-y-1 pl-5 text-muted-fg">
-          <li>Close Microsoft Flight Simulator 2024 before installing or updating.</li>
-          <li>Choose Install below for your simulator. If it is already installed, use the Update or Repair action shown when needed.</li>
-          <li>Start MSFS again, load a flight and open <strong class="text-fg">FlightFabric</strong> from the in-flight toolbar. Keep the FlightFabric desktop app running.</li>
-        </ol>
-      </div>
+      <p class="mt-3 text-xs text-muted-fg">Close MSFS before installing, updating or removing the toolbar package, then restart it.</p>
 
       <div id="toolbar-panel-source-error" v-if="toolbarPanel.sourceError" class="mt-4 rounded-r-lg border-l-2 border-danger/70 bg-danger/5 px-4 py-3 text-xs leading-relaxed text-danger">
         {{ toolbarPanel.sourceError }}
@@ -125,16 +118,29 @@ async function remove(row) {
         <span v-if="toolbarPanel.restartNotice" class="text-warning">{{ toolbarPanel.restartNotice }}</span>
       </div>
 
-      <div class="mt-4 grid gap-2 text-xs leading-relaxed text-muted-fg sm:grid-cols-2">
-        <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Updates and reinstalls</div>
-          <p class="mt-1">After each FlightFabric version update, return here and choose Update when shown. Same-version package fixes, such as a new toolbar icon, need Reinstall. Panel page content updates automatically and does not require reinstalling on its own.</p>
+      <details class="settings-instructions" :open="toolbarPanel.rows.some(row => row.found && row.status === 'not_installed')">
+        <summary>Installation and update help</summary>
+        <div class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/40 px-4 py-3 text-xs leading-relaxed">
+          <h3 class="font-semibold text-fg">Get started in three steps</h3>
+          <ol class="mt-2 list-decimal space-y-1 pl-5 text-muted-fg">
+            <li>Close Microsoft Flight Simulator 2024 before installing or updating.</li>
+            <li>Choose Install for your simulator. If it is already installed, use the Update or Repair action shown when needed.</li>
+            <li>Start MSFS again, load a flight and open <strong class="text-fg">FlightFabric</strong> from the in-flight toolbar. Keep the FlightFabric desktop app running.</li>
+          </ol>
         </div>
-        <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Installing safely</div>
-          <p class="mt-1">Close MSFS before installing, updating or removing the package, then restart it. If FlightFabric's network ports change, choose Update ports. Removal is limited to the flightfabric-toolbar package folders and their contents; other Community packages are left untouched.</p>
+
+        <div class="mt-4 grid gap-2 text-xs leading-relaxed text-muted-fg sm:grid-cols-2">
+          <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Updates and reinstalls</div>
+            <p class="mt-1">After each FlightFabric version update, return here and choose Update when shown. Same-version package fixes, such as a new toolbar icon, need Reinstall. Panel page content updates automatically and does not require reinstalling on its own.</p>
+          </div>
+          <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Installing safely</div>
+            <p class="mt-1">Close MSFS before installing, updating or removing the package, then restart it. If FlightFabric's network ports change, choose Update ports. Removal is limited to the flightfabric-toolbar package folders and their contents; other Community packages are left untouched.</p>
+          </div>
         </div>
-      </div>
+
+      </details>
 
       <div class="mt-3 flex items-center justify-between gap-3">
         <span v-if="toolbarPanel.packageVersion" class="text-[11px] text-gray-500" style="font-family: var(--ff-font-mono);">Package {{ toolbarPanel.packageVersion }}</span>

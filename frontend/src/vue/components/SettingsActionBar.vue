@@ -68,6 +68,7 @@ const settingsFilePath = computed(() => (
       </AppTooltip>
       <button
         id="settings-save-btn"
+        form="settings-form"
         type="submit"
         class="settings-btn-accent px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         :class="{ 'save-flash': settingsForm.saveFlashActive }"

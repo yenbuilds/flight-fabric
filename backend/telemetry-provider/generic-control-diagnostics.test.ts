@@ -11,20 +11,20 @@ const profileRevision = 12;
 const events = { nav: 'NAV_LIGHTS_SET', beacon: 'BEACON_LIGHTS_SET', strobe: 'STROBES_SET', landing: 'LANDING_LIGHTS_SET', taxi: 'TAXI_LIGHTS_SET' };
 const bits = { nav: 1, beacon: 2, landing: 4, taxi: 8, strobe: 16 };
 
-function harness() {
+function harness({ initialLightMask = 0, initialSampleAgeMs = 0 } = {}) {
   const provider = new SimConnectTelemetryProvider();
   const bridge = new LvarSidecarBridge();
   const messages = [];
   const native = { status: 'running', updatedAt: new Date().toISOString() };
   const gauge = { status: 'running', source: 'test-sidecar', profileId: profileKey, values: {} as Record<string, unknown>, snapshotSequence: 1, updatedAt: native.updatedAt };
   provider._rustSimvarBridge = { getSnapshot: () => native };
-  const updateNative = (mask) => {
-    native.updatedAt = new Date().toISOString();
+  const updateNative = (mask, updatedAtMs = Date.now()) => {
+    native.updatedAt = new Date(updatedAtMs).toISOString();
     const values = typeof mask === 'object' && mask !== null ? mask : { lightStates: mask };
     provider._handleRustSimvarSnapshot({ values, updatedAt: native.updatedAt,
       valueUpdatedAt: Object.fromEntries(Object.keys(values).map((key) => [key, native.updatedAt])) });
   };
-  updateNative(0);
+  updateNative(initialLightMask, Date.now() - initialSampleAgeMs);
   provider._getActiveAircraftControlProfileGeneration = () => ({ profileKey, profileRevision });
   provider._ensureControlWriteBridge = async () => bridge;
   bridge.getSnapshot = () => gauge;
@@ -38,10 +38,35 @@ function harness() {
   return { provider, bridge, messages, native, gauge, execute, updateNative };
 }
 
+test('generic flap adjustments report delivery without inventing aircraft-specific lever confirmation', async () => {
+  for (const value of ['increase', 'decrease']) for (const outcome of ['accepted', 'rejected']) {
+    const h = harness();
+    h.updateNative({ flapsIndex: 1 });
+    const send = h.bridge._sendWithAck;
+    h.bridge._sendWithAck = async (...args) => {
+      const ack = await send(...args);
+      h.updateNative({ flapsIndex: value === 'increase' ? 2 : 0 });
+      if (outcome === 'rejected') h.bridge._onStdout(`${JSON.stringify({
+        type: 'exception', exception: 5, sendId: 42, index: 0,
+      })}\n`);
+      return ack;
+    };
+    const result = await executeAircraftCommand(h.provider, {
+      commandId: 'surfaces.flaps.adjust', input: { value }, profileKey, profileRevision,
+    }, { profile: { ...genericProfile, _profileKey: profileKey }, profileRevision, requireProfileToken: true });
+    assert.equal(result.ok, outcome === 'accepted');
+    assert.equal(result.code, outcome === 'accepted' ? 'sent_unconfirmed' : 'simconnect_exception');
+    assert.equal(result.confirmedValue, undefined, 'standard index movement does not prove cockpit lever selection');
+    assert.equal(h.messages.length, 1, 'never repeat a relative flap command');
+    assert.equal(h.messages[0].message.name, value === 'increase' ? 'FLAPS_INCR' : 'FLAPS_DECR');
+  }
+});
+
 test('all five generic light ON/OFF requests reach the real provider and bridge with numeric state then index', async () => {
   await Promise.all(Object.entries(events).flatMap(([light, eventName]) => [false, true].map(async (value) => {
-    const h = harness();
-    h.updateNative(value ? 0 : bits[light]);
+    // The baseline is the preceding telemetry frame. The response must have
+    // a newer timestamp even when this fixture dispatches within one millisecond.
+    const h = harness({ initialLightMask: value ? 0 : bits[light], initialSampleAgeMs: 100 });
     const send = h.bridge._sendWithAck;
     h.bridge._sendWithAck = async (...args) => {
       const ack = await send(...args);

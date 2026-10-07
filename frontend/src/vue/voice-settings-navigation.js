@@ -1,4 +1,5 @@
 import { nextTick } from 'vue';
+import { focusSettingsSection } from './settings-section-navigation.js';
 
 // Wait for page scroll restoration and the narrow More sheet to release focus.
 export async function focusVoiceSettings(tabs) {
@@ -7,10 +8,7 @@ export async function focusVoiceSettings(tabs) {
   // A second tick runs after it, including when the desktop window is hidden.
   await nextTick();
   if (tabs.activeTabId !== 'settings') return;
-  const section = document.getElementById('settings-voice-control');
-  if (!section?.getClientRects().length || section.closest('[inert]')) return;
-  section.focus({ preventScroll: true });
-  section.scrollIntoView({ block: 'start', behavior: 'instant' });
+  await focusSettingsSection('settings-voice-control');
 }
 
 export async function openVoiceSettings(tabs, voice, { fromAircraft = false } = {}) {

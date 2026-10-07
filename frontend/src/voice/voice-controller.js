@@ -12,11 +12,14 @@ import {
 import { createLocalReadback, formatAviationReadback, formatComRadioReadback, formatBaroReadback } from './local-readback.js';
 import { baroResultText } from '../aircraft/baro.js';
 import { comRadioResultText } from '../aircraft/com-radio.js';
+import { flapResultText } from '../aircraft/flap-controls.js';
+import { gearResultText } from '../aircraft/gear-controls.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
 import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';
 import { formatSquawk } from '../aircraft/transponder.js';
 import { createVoiceSetupTest } from './voice-setup-test.js';
+import { createContext, validateIntent, sameContext, feedback, cloudSelectionKey } from './cloud-intent.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
 const VOICE_RELEASE_TAIL_MS = 250;
@@ -50,14 +53,15 @@ export function createVoiceControlController({
   let resultHeld = false;
   let disposed = false;
   let capturePreferencesLoaded = false;
-  let deviceDiscoveryPromise = null;
+  let deviceDiscovery = null;
+  let deviceRefreshRevision = 0;
   let controllerActionRevision = 0;
   const spokenReadback = readback || createLocalReadback({ globalRef });
   const acknowledgementTone = pushToTalkTone || createPushToTalkTone({ globalRef });
   const unsubscribers = [];
   const voiceTest = createVoiceSetupTest({ api, voiceStore, globalRef, createCapture,
     cancelReadback: () => spokenReadback.cancel?.(),
-    canStart: () => !disposed && !active && !voiceStore.controllerSetup?.active && !deviceDiscoveryPromise && !pendingCommand,
+    canStart: () => !disposed && !active && !voiceStore.controllerSetup?.active && !deviceDiscovery && !pendingCommand,
   });
 
   function storageRef() {
@@ -82,30 +86,53 @@ export function createVoiceControlController({
     }, { storage: storageRef() });
   }
 
+  async function releaseDiscoverySession(discovery) {
+    const sessionId = discovery.sessionId;
+    discovery.sessionId = '';
+    if (sessionId) {
+      try { await api?.cancelRecognition?.(sessionId); } catch {}
+    }
+  }
+
+  function cancelDeviceDiscovery() {
+    deviceRefreshRevision++;
+    const discovery = deviceDiscovery;
+    deviceDiscovery = null;
+    if (!discovery) return;
+    discovery.abort.abort();
+    // Browser device/permission requests cannot be cancelled themselves. Let
+    // Settings finish its action while late replies retain their own cleanup.
+    discovery.resolveCancellation([]);
+    void releaseDiscoverySession(discovery);
+  }
+
   async function refreshInputDevices({ requestAccess = false } = {}) {
+    if (disposed) return [];
     if (voiceStore.runtime.enabled !== true) {
       voiceStore.setInputDevices?.([]);
       voiceStore.setInputDevicesError?.('');
       return [];
     }
-    if (requestAccess && !active && !voiceTest.busy && !deviceDiscoveryPromise) {
+    if (requestAccess && !active && !voiceTest.busy && !voiceStore.controllerSetup?.active && !deviceDiscovery) {
+      deviceRefreshRevision++;
       voiceStore.setInputDevicesError?.('');
-      deviceDiscoveryPromise = (async () => {
-        let sessionId = '';
+      const discovery = { abort: new AbortController(), sessionId: '', promise: null };
+      deviceDiscovery = discovery;
+      const cancelled = new Promise(resolve => { discovery.resolveCancellation = resolve; });
+      const isCurrent = () => !disposed && deviceDiscovery === discovery && voiceStore.runtime.enabled === true;
+      const work = (async () => {
         try {
           const recognition = await api?.startRecognition?.();
-          sessionId = typeof recognition?.sessionId === 'string' ? recognition.sessionId : '';
-          if (!sessionId) throw new Error('Microphone discovery session could not start.');
-          const devices = await discoverAudioInputDevices(globalRef);
-          if (voiceStore.runtime.enabled !== true) {
-            voiceStore.setInputDevices?.([]);
-            return [];
-          }
+          discovery.sessionId = typeof recognition?.sessionId === 'string' ? recognition.sessionId : '';
+          if (!isCurrent()) return [];
+          if (!discovery.sessionId) throw new Error('Microphone discovery session could not start.');
+          const devices = await discoverAudioInputDevices(globalRef, { signal: discovery.abort.signal });
+          if (!isCurrent()) return [];
           voiceStore.setInputDevices?.(devices);
           refreshReadyState();
           return devices;
         } catch (error) {
-          if (!disposed && voiceStore.runtime.enabled === true) {
+          if (isCurrent()) {
             const message = error?.message || 'Microphones could not be detected. Check Windows microphone access and try again.';
             // Setup errors need their own lifetime: simulator readiness and
             // held command results must not erase microphone-access feedback.
@@ -114,16 +141,18 @@ export function createVoiceControlController({
           }
           return Array.isArray(voiceStore.inputDevices) ? voiceStore.inputDevices : [];
         } finally {
-          if (sessionId) {
-            try { await api?.cancelRecognition?.(sessionId); } catch {}
-          }
+          await releaseDiscoverySession(discovery);
         }
-      })().finally(() => { deviceDiscoveryPromise = null; });
-      return deviceDiscoveryPromise;
+      })();
+      discovery.promise = Promise.race([work, cancelled])
+        .finally(() => { if (deviceDiscovery === discovery) deviceDiscovery = null; });
+      return discovery.promise;
     }
-    if (deviceDiscoveryPromise) return deviceDiscoveryPromise;
+    if (deviceDiscovery) return deviceDiscovery.promise;
+    const request = ++deviceRefreshRevision;
     try {
       const devices = await enumerateAudioInputDevices(globalRef);
+      if (disposed || voiceStore.runtime.enabled !== true || request !== deviceRefreshRevision) return [];
       voiceStore.setInputDevices?.(devices);
       return devices;
     } catch {
@@ -158,9 +187,19 @@ export function createVoiceControlController({
   }
 
   function voiceCommandCount() {
+    if (voiceStore.runtime.mode === 'cloud') {
+      try { return cloudContext().commands.length; } catch { return 0; }
+    }
     return Object.values(activeCatalogue().commands || {})
       .filter((command) => Array.isArray(command?.speech?.patterns) && command.speech.patterns.length > 0)
       .length;
+  }
+
+  function cloudContext() {
+    return createContext(activeCatalogue(), [
+      ...flightPlanQueryExamples(),
+      ...(canQueryAircraftState(aircraftSpecificStore) ? stateQueryExamples(aircraftSpecificStore) : []),
+    ]);
   }
 
   function isDevelopmentTranscriptionOnly() {
@@ -213,7 +252,7 @@ export function createVoiceControlController({
     }
     if (voiceStore.runtime.enabled !== true) {
       resultHeld = false;
-      voiceStore.setState('disabled', 'Voice control is off. Enable it to use local speech recognition.');
+      voiceStore.setState('disabled', 'Voice control is off. Enable it in Voice settings.');
       return;
     }
     if (voiceStore.controllerSetup?.active) {
@@ -222,7 +261,7 @@ export function createVoiceControlController({
     }
     if (!voiceStore.runtime.available) {
       resultHeld = false;
-      voiceStore.setState('unavailable', voiceStore.runtime.error || 'Offline recognition is unavailable.');
+      voiceStore.setState('unavailable', voiceStore.runtime.error || 'Voice recognition is unavailable.');
       return;
     }
     if (isDevelopmentTranscriptionOnly()) {
@@ -254,6 +293,22 @@ export function createVoiceControlController({
     if (pendingCommand !== command) return;
     pendingCommand = null;
     resultHeld = true;
+    const gear = gearResultText(result, command);
+    if (gear) {
+      const detail = typeof result.error === 'string' && result.error.trim() ? ` ${result.error.trim()}` : '';
+      voiceStore.setState(gear.outcome === 'unconfirmed' ? 'error'
+        : gear.outcome === 'failed' ? 'failed' : 'sent', `${gear.text}${detail}`);
+      speakReadback(gear.text);
+      return;
+    }
+    const flap = flapResultText(result, command);
+    if (flap) {
+      const detail = typeof result.error === 'string' && result.error.trim() ? ` ${result.error.trim()}` : '';
+      voiceStore.setState(flap.outcome === 'unconfirmed' ? 'error'
+        : flap.outcome === 'failed' ? 'failed' : 'sent', `${flap.text}${detail}`);
+      speakReadback(flap.text);
+      return;
+    }
     if (/^baro\.(captain|firstOfficer|both)\./.test(command.commandId || '')) {
       const status = baroResultText(result);
       voiceStore.setState(status.confirmed ? 'sent' : 'error', status.text);
@@ -339,7 +394,7 @@ export function createVoiceControlController({
   }
 
   async function begin(source = 'local') {
-    if (disposed || active || voiceStore.controllerSetup?.active || voiceTest.busy || deviceDiscoveryPromise || voiceStore.runtime.enabled !== true) return false;
+    if (disposed || active || voiceStore.controllerSetup?.active || voiceTest.busy || deviceDiscovery || voiceStore.runtime.enabled !== true) return false;
     spokenReadback.cancel?.();
     // A confirmed result stays visible until the next command. Starting that
     // command explicitly releases the hold before readiness is recomputed. A
@@ -366,6 +421,8 @@ export function createVoiceControlController({
       generation: ++captureGeneration,
       source,
       sessionId: '',
+      mode: voiceStore.runtime.mode === 'cloud' ? 'cloud' : 'offline',
+      cloudSelection: cloudSelectionKey(voiceStore.runtime.cloud),
       // Freeze this decision for the entire utterance. A simulator/profile
       // appearing midway through an off-aircraft test must not make it send.
       transcriptionOnly: isDevelopmentTranscriptionOnly(),
@@ -377,6 +434,12 @@ export function createVoiceControlController({
       finishPromise: null,
       capture: null,
     };
+    if (session.mode === 'cloud' && !session.transcriptionOnly) {
+      try { session.cloudContext = cloudContext(); } catch {
+        voiceStore.setState('error', 'The aircraft voice catalogue is unavailable. Nothing was executed.');
+        return false;
+      }
+    }
     // Publish before the short press cue. This retains a very quick key-up
     // without opening a recognition or microphone session.
     active = session;
@@ -393,10 +456,11 @@ export function createVoiceControlController({
     }
     voiceStore.setTranscript('');
     voiceStore.setLastCommand('');
+    voiceStore.setCloudUsage?.(null);
     voiceStore.setState('starting', 'Opening microphone…');
     let recognition;
     try {
-      recognition = await api.startRecognition();
+      recognition = await api.startRecognition(session.cloudContext ? { context: session.cloudContext } : undefined);
       session.sessionId = recognition.sessionId;
       if (active !== session) {
         try { await api.cancelRecognition(session.sessionId); } catch {}
@@ -558,8 +622,23 @@ export function createVoiceControlController({
     }
     const transcript = String(event.text || '').trim();
     voiceStore.setTranscript(transcript);
+    if (session.mode === 'cloud') voiceStore.setCloudUsage?.(event.usage);
     const catalogue = activeCatalogue();
+    if ((event.mode || 'offline') !== session.mode || (voiceStore.runtime.mode || 'offline') !== session.mode) {
+      voiceStore.setState('error', 'Voice mode changed before the request could execute.');
+      return;
+    }
+    if (session.mode === 'cloud' && (cloudSelectionKey(voiceStore.runtime.cloud) !== session.cloudSelection
+        || cloudSelectionKey(event.selection) !== session.cloudSelection)) {
+      voiceStore.setState('error', 'Cloud voice settings changed before the request could execute. Nothing was executed.');
+      return;
+    }
     if (session.transcriptionOnly) {
+      if (session.mode === 'cloud') {
+        voiceStore.setLastCommand('Development only · No command was sent');
+        voiceStore.setState('transcribed', 'Cloud interpretation complete. Use the Voice settings test to check heading recognition. Nothing was sent.');
+        return;
+      }
       const catalogueUnchanged = catalogue.profileKey === session.profileKey
         && catalogue.profileRevision === session.profileRevision
         && catalogue.configurationId === session.configurationId;
@@ -592,7 +671,22 @@ export function createVoiceControlController({
       voiceStore.setState('error', 'Aircraft changed before the command could execute.');
       return;
     }
-    const planQuery = answerFlightPlanQuery(transcript, simbriefStore?.plan);
+    let cloudIntent = null;
+    if (session.mode === 'cloud') {
+      try {
+        if (!sameContext(session.cloudContext, cloudContext())) throw new Error();
+        cloudIntent = validateIntent(event.intent, session.cloudContext);
+      } catch {
+        voiceStore.setState('error', 'The cloud result is invalid or aircraft controls changed. Nothing was executed.');
+        return;
+      }
+      if (['clarify', 'no-action'].includes(cloudIntent.decision)) {
+        voiceStore.setState('unmatched', feedback(cloudIntent));
+        return;
+      }
+    }
+    const queryText = cloudIntent ? (cloudIntent.decision === 'query' ? cloudIntent.query : '') : transcript;
+    const planQuery = answerFlightPlanQuery(queryText, simbriefStore?.plan);
     if (planQuery) {
       resultHeld = true;
       voiceStore.setLastCommand(`Read flight plan: ${planQuery.id}`);
@@ -600,7 +694,7 @@ export function createVoiceControlController({
       speakReadback(planQuery.spoken);
       return;
     }
-    const query = answerAircraftStateQuery(transcript, aircraftSpecificStore, session);
+    const query = answerAircraftStateQuery(queryText, aircraftSpecificStore, session);
     if (query) {
       resultHeld = true;
       voiceStore.setLastCommand(`Read aircraft state: ${query.id}`);
@@ -608,7 +702,14 @@ export function createVoiceControlController({
       speakReadback(query.text);
       return;
     }
-    const match = interpretAircraftVoiceCommand(transcript, catalogue);
+    if (cloudIntent?.decision === 'query') {
+      voiceStore.setState('unmatched', 'That answer is currently unavailable. Nothing was executed.');
+      return;
+    }
+    const match = cloudIntent ? {
+      ok: true, commandId: cloudIntent.commandId, input: cloudIntent.input,
+      label: session.cloudContext.commands.find(command => command.id === cloudIntent.commandId).label,
+    } : interpretAircraftVoiceCommand(transcript, catalogue);
     if (!match.ok) {
       const retryPrompt = match.reason === 'unmatched'
         ? incompleteVoiceCommandPrompt(transcript, catalogue)
@@ -634,6 +735,7 @@ export function createVoiceControlController({
       commandId: match.commandId,
       description,
       spokenResult: formatAviationReadback(match),
+      input: match.input,
     };
     pendingCommand = command;
     const sent = aircraftControl.sendCommand(match.commandId, match.input, {
@@ -654,6 +756,7 @@ export function createVoiceControlController({
     if (disposed || !api?.[method] || !voiceStore.runtime.controllerEnabled) return false;
     const request = ++controllerActionRevision;
     if (method === 'startControllerSetup') {
+      cancelDeviceDiscovery();
       await voiceTest.cancel();
       if (disposed || request !== controllerActionRevision || voiceStore.runtime.enabled !== true) return false;
       if (active) await cancel('button-setup');
@@ -677,8 +780,28 @@ export function createVoiceControlController({
     }
   }
 
+  async function changeCloudSetting(method, ...args) {
+    if (disposed || !api?.[method] || pendingCommand) return false;
+    cancelDeviceDiscovery();
+    await voiceTest.cancel();
+    if (active) await cancel('voice-settings');
+    if (disposed) return false;
+    try {
+      const info = await api[method](...args);
+      if (disposed) return false;
+      voiceStore.applyRuntimeInfo(info);
+      refreshReadyState();
+      return true;
+    } catch {
+      voiceStore.setState('error', 'Voice settings could not be saved. Check the key format and protected storage availability.');
+      return false;
+    }
+  }
+
   function applyPushToTalkInfo(info) {
     voiceStore.applyRuntimeInfo({
+      mode: voiceStore.runtime.mode,
+      cloud: voiceStore.runtime.cloud,
       available: voiceStore.runtime.available,
       development: voiceStore.runtime.development,
       enabled: voiceStore.runtime.enabled,
@@ -692,8 +815,9 @@ export function createVoiceControlController({
   }
 
   async function setRecognitionEnabled(value) {
-    if (!api?.setRecognitionEnabled) return false;
+    if (disposed || !api?.setRecognitionEnabled) return false;
     const nextEnabled = value === true;
+    if (!nextEnabled) cancelDeviceDiscovery();
     if (!nextEnabled) controllerActionRevision++;
     if (!nextEnabled) await voiceTest.cancel();
     if (!nextEnabled && active) await cancel('voice-disabled');
@@ -730,6 +854,8 @@ export function createVoiceControlController({
     else if (event.type === 'error') {
       const message = event.error || 'Global push-to-talk stopped.';
       voiceStore.applyRuntimeInfo({
+        mode: voiceStore.runtime.mode,
+        cloud: voiceStore.runtime.cloud,
         available: voiceStore.runtime.available,
         development: voiceStore.runtime.development,
         enabled: voiceStore.runtime.enabled,
@@ -760,6 +886,10 @@ export function createVoiceControlController({
       finish: () => active?.source === 'local' ? finish() : false,
       refreshInputDevices,
       setRecognitionEnabled,
+      setMode: value => changeCloudSetting('setMode', value),
+      setCloudProvider: value => changeCloudSetting('setCloudProvider', value),
+      saveCloudKey: (providerId, value) => changeCloudSetting('saveCloudKey', providerId, value),
+      removeCloudKey: providerId => changeCloudSetting('removeCloudKey', providerId),
       setInputDevice,
       setSpokenReadbacks,
       setShortcut,
@@ -782,14 +912,29 @@ export function createVoiceControlController({
     }
     if (!api) { refreshReadyState(); return false; }
     unsubscribers.push(api.onRecognitionEvent((event) => {
+      // Offline capture expiry finalizes an empty worker session; cloud expiry
+      // emits an error. Either terminal event must retire discovery's stream.
+      if (deviceDiscovery && ['final', 'error', 'cancelled'].includes(event.type)
+          && (event.sessionId === deviceDiscovery.sessionId || (event.fatal === true && !event.sessionId))) {
+        cancelDeviceDiscovery();
+      }
       void voiceTest.handleRecognitionEvent(event);
       return handleRecognitionEvent(event);
     }));
     unsubscribers.push(api.onPushToTalk(handlePushToTalk));
     unsubscribers.push(api.onRuntimeState((info) => {
       const wasEnabled = voiceStore.runtime.enabled;
+      const wasMode = voiceStore.runtime.mode;
+      const wasCloudSelection = cloudSelectionKey(voiceStore.runtime.cloud);
       voiceStore.applyRuntimeInfo(info);
+      if (wasMode !== voiceStore.runtime.mode || wasCloudSelection !== cloudSelectionKey(voiceStore.runtime.cloud)) {
+        cancelDeviceDiscovery();
+        voiceStore.setCloudUsage?.(null);
+        void voiceTest.cancel();
+        if (active) void cancel('voice-mode-changed');
+      }
       if (voiceStore.controllerSetup?.active) {
+        cancelDeviceDiscovery();
         void voiceTest.cancel();
         if (active) void cancel('button-setup');
       }
@@ -797,6 +942,7 @@ export function createVoiceControlController({
           || (voiceTest.busy && voiceStore.runtime.available !== true)) {
         void voiceTest.cancel(voiceTest.busy ? 'Voice recognition stopped. Try the test again when it is available.' : '');
       }
+      if (voiceStore.runtime.enabled !== true || voiceStore.runtime.available !== true) cancelDeviceDiscovery();
       if (voiceStore.runtime.enabled !== true) voiceStore.setInputDevices?.([]);
       // Also retire startup attempts whose recognition IPC reply has not yet
       // arrived; a session-scoped failure cannot be correlated there yet.
@@ -849,6 +995,7 @@ export function createVoiceControlController({
 
   async function dispose() {
     disposed = true;
+    cancelDeviceDiscovery();
     controllerActionRevision++;
     pendingCommand = null;
     resultHeld = false;

@@ -6,6 +6,8 @@ import { useAircraftControlsStore } from '../vue/stores/aircraft-controls.js';
 import { createAircraftControlController } from '../aircraft/control-controller.js';
 import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
 import { initialVoiceTestState } from './voice-setup-test.js';
+import { flapResultText } from '../aircraft/flap-controls.js';
+import { gearResultText } from '../aircraft/gear-controls.js';
 
 function createHarness(options = {}) {
   const command = {
@@ -45,6 +47,8 @@ function createHarness(options = {}) {
         available: info.available === true,
         development: info.development === true,
         enabled: info.enabled === true,
+        mode: info.mode === 'cloud' ? 'cloud' : 'offline',
+        cloud: info.cloud || { keyConfigured: false, storageAvailable: false },
         error: info.error || '',
         modelId: info.engine?.modelId || '',
         shortcut: typeof info.pushToTalk?.accelerator === 'string'
@@ -161,6 +165,204 @@ function createHarness(options = {}) {
     readbackCancellations, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
+
+const cloudRuntime = { available: true, enabled: true, mode: 'cloud',
+  cloud: { keyConfigured: true, storageAvailable: true, providerId: 'openai', modelId: 'gpt-realtime-2.1-mini', revision: 0 } };
+const headingIntent = { decision: 'command', commandId: 'flightGuidance.heading.set', input: { value: 270 } };
+function cloudFinal(intent = headingIntent) {
+  return { type: 'final', mode: 'cloud', selection: { providerId: 'openai', modelId: 'gpt-realtime-2.1-mini', revision: 0 }, sessionId: 'session_12345678', text: '', intent: structuredClone(intent) };
+}
+
+test('cloud PTT passes the resolved context and executes once through the existing command/readback path', async t => {
+  let supplied;
+  const h = createHarness({ runtimeInfo: cloudRuntime, startRecognition: async options => {
+    supplied = options; return { sessionId: 'session_12345678' };
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  await h.controller.begin();
+  assert.equal(supplied.context.profileRevision, 1);
+  assert.equal(supplied.context.commands[0].input.max, 359);
+  assert.equal(h.sentCommands.length, 0);
+  await h.controller.finish();
+  await h.emitRecognition(cloudFinal()); await h.emitRecognition(cloudFinal());
+  assert.equal(h.sentCommands.length, 1);
+  assert.equal(h.sentCommands[0].commandId, headingIntent.commandId);
+  assert.deepEqual(h.sentCommands[0].input, { value: 270 });
+  assert.equal(h.voiceStore.status, 'sending');
+  assert.deepEqual(h.spokenReadbacks, []);
+  h.completeLastCommand({ ok: true });
+  assert.equal(h.voiceStore.status, 'sent');
+  assert.equal(h.spokenReadbacks.length, 1);
+});
+
+test('cloud capture limit closes the microphone and preserves the error through runtime cancellation', async t => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { EventEmitter } = await import('node:events');
+  const { createVoiceRuntime } = await import('../../../electron/voice-runtime.js');
+  const { createVoiceCloudEngine } = await import('../../../electron/voice-cloud-engine.js');
+  const { default: contract } = await import('../../../shared/voice-intent.js');
+  const root = path.resolve('.tmp'); fs.mkdirSync(root, { recursive: true });
+  const directory = fs.mkdtempSync(path.join(root, 'voice-capture-regression-'));
+  const handlers = new Map(), deliveries = [];
+  let h, uploads = 0;
+  fs.writeFileSync(path.join(directory, 'voice-control.json'), JSON.stringify({ voiceMode: 'cloud', voiceRecognitionEnabled: true }));
+  const engine = createVoiceCloudEngine({ loadContract: () => contract, getApiKey: () => 'synthetic-key',
+    interpret: async () => { uploads++; return { intent: headingIntent }; } });
+  const runtime = createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory }, appDir: directory,
+    cloudVoiceEnabled: true, // Keep the preview lifecycle regression active while release builds disable it.
+    ipcMain: new EventEmitter(), cloudEngine: engine,
+    credentialStore: { info: () => ({ keyConfigured: true, storageAvailable: true }) },
+    readbackEngine: { getInfo: () => ({}), cancel() {} },
+    registerTrustedIpcHandler: (name, handler) => handlers.set(name, handler),
+    pushToTalkHookFactory: () => ({ setBinding: async () => {}, getInfo: () => ({}), dispose() {} }),
+    getMainWindow: () => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false,
+      send(channel, data) { if (channel === 'voice:speech-event' && h) deliveries.push(h.emitRecognition(data)); } } }),
+  });
+  t.after(async () => {
+    await h?.controller.dispose(); await runtime.shutdown();
+    assert.equal(path.dirname(directory), root); fs.rmSync(directory, { recursive: true, force: true });
+  });
+  const owner = { id: 77 };
+  const invoke = (name, value) => handlers.get(`voice:${name}`)({ sender: owner }, value);
+  await runtime.initialize();
+  h = createHarness({ controllerApi: {
+    getRuntimeInfo: async () => runtime.runtimeInfo(), startRecognition: async options => invoke('speech-start', options),
+    sendAudio: value => invoke('speech-audio', value), cancelRecognition: async id => invoke('speech-cancel', id),
+    finishRecognition: async id => invoke('speech-finish', id),
+  } });
+  await h.controller.initialize(); await h.controller.begin();
+  // Synthetic PCM at normal 48 kHz/worklet chunk size crosses ten seconds of capture.
+  for (let sequence = 0; sequence < 235; sequence++) h.captures[0].callbacks.onChunk({
+    sequence, sampleRate: 48000, samples: new Float32Array(2048).fill(0.1),
+  });
+  await Promise.all(deliveries);
+  assert.equal(h.voiceStore.status, 'error');
+  assert.match(h.voiceStore.statusText, /ten seconds.*shorter request/i);
+  assert.equal(h.captureCancellations.length, 1);
+  assert.equal(runtime.isAudioCaptureAuthorized(owner), false);
+  assert.equal(engine.getInfo().activeSessionId, null);
+  assert.equal(uploads, 0); assert.deepEqual(h.sentCommands, []);
+  assert.equal(await h.controller.begin(), true, 'the user can start a fresh request after the error');
+  await h.controller.cancel('user');
+});
+
+test('cloud proposals cannot fall back to offline parsing or dispatch after context/cancellation changes', async t => {
+  for (const failure of ['invalid', 'extra', 'transcript-only', 'mode', 'profile', 'contract', 'cancel', 'disable', 'disconnect']) {
+    const h = createHarness({ runtimeInfo: cloudRuntime }); t.after(() => h.controller.dispose());
+    await h.controller.initialize(); await h.controller.begin(); await h.controller.finish();
+    let event = cloudFinal();
+    if (failure === 'invalid') event.intent.input = { value: 900 };
+    if (failure === 'extra') event.intent = { ...headingIntent, rawRecipe: 'execute' };
+    if (failure === 'transcript-only') event = { ...event, intent: undefined, text: 'set heading two seven zero' };
+    if (failure === 'mode') event.mode = 'offline';
+    if (failure === 'profile') h.aircraftControlsStore.aircraftCommandCatalogue.profileRevision++;
+    if (failure === 'contract') h.aircraftControlsStore.aircraftCommandCatalogue.commands['flightGuidance.heading.set'].input.max = 180;
+    if (failure === 'cancel') await h.controller.cancel();
+    if (failure === 'disable') await h.voiceStore.actions.setRecognitionEnabled(false);
+    if (failure === 'disconnect') h.controller.handleSimulatorStateChange({ blocked: true });
+    await h.emitRecognition(event);
+    assert.deepEqual(h.sentCommands, [], failure);
+    assert.deepEqual(h.spokenReadbacks, [], failure);
+  }
+});
+
+test('cloud questions and clarification never write or manufacture a state answer', async t => {
+  for (const intent of [
+    { decision: 'clarify', reason: 'unclear' }, { decision: 'no-action', reason: 'multiple-requests' },
+    { decision: 'query', query: 'what is my flight plan' },
+  ]) {
+    let supplied;
+    const h = createHarness({ runtimeInfo: cloudRuntime, startRecognition: async options => {
+      supplied = options; return { sessionId: 'session_12345678' };
+    } });
+    t.after(() => h.controller.dispose()); await h.controller.initialize(); await h.controller.begin(); await h.controller.finish();
+    if (intent.decision === 'query') intent.query = supplied.context.queries.find(q => /flight plan/.test(q)) || supplied.context.queries[0];
+    await h.emitRecognition(cloudFinal(intent));
+    assert.deepEqual(h.sentCommands, []);
+    if (intent.decision === 'query') assert.match(h.voiceStore.statusText, /plan|SimBrief/i);
+    else assert.equal(h.voiceStore.status, 'unmatched');
+  }
+});
+
+test('both cloud providers answer aircraft questions from current local telemetry only', async t => {
+  for (const providerId of ['openai', 'gemini']) for (const condition of ['fresh', 'stale', 'unknown', 'disconnected', 'profile-changed']) {
+    const now = Date.now();
+    const state = { activeProfileKey: 'bundled/msfs/fbw-a32nx', activeProfileRevision: 2, sourceStatus: 'connected',
+      values: { 'controls.spoilersArmed': true }, receivedAt: now, updatedAt: new Date(now).toISOString(),
+      valueUpdatedAt: { 'controls.spoilersArmed': new Date(now).toISOString() } };
+    const selection = { providerId, modelId: providerId === 'openai' ? 'gpt-realtime-2.1-mini' : 'gemini-3.8-flash', revision: 0 };
+    const h = createHarness({ runtimeInfo: { ...cloudRuntime, cloud: { ...cloudRuntime.cloud, ...selection } },
+      aircraftSpecificStore: state, availability: { enabled: false, reason: 'Read only' },
+      catalogue: { profileKey: state.activeProfileKey, profileRevision: 2, configurationId: 'fbw-a32nx', commands: {} } });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    assert.equal(await h.controller.begin(), true);
+    await h.controller.finish();
+    // Telemetry can change while a provider interprets the clip. The answer
+    // must use the current sample, never a snapshot or a provider's prose.
+    if (condition === 'stale') state.valueUpdatedAt['controls.spoilersArmed'] = new Date(now - 5000).toISOString();
+    if (condition === 'unknown') state.values['controls.spoilersArmed'] = null;
+    if (condition === 'disconnected') state.sourceStatus = 'disconnected';
+    if (condition === 'profile-changed') state.activeProfileRevision++;
+    await h.emitRecognition({ ...cloudFinal({ decision: 'query', query: 'are spoilers armed' }), selection });
+    assert.deepEqual(h.sentCommands, [], `${providerId}/${condition}`);
+    assert.equal(h.voiceStore.status, condition === 'fresh' ? 'sent' : 'error', `${providerId}/${condition}`);
+    if (condition === 'fresh') assert.deepEqual(h.spokenReadbacks, ['Ground spoilers armed.']);
+    else assert.equal(h.spokenReadbacks.some(text => text.includes('Ground spoilers armed')), false);
+  }
+});
+
+test('cloud setup test checks an interpreted heading without aircraft access and clears on mode switch', async t => {
+  const h = createHarness({ runtimeInfo: cloudRuntime, availability: { enabled: false } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  await h.voiceStore.actions.startVoiceTest(); await h.voiceStore.actions.finishVoiceTest();
+  await h.emitRecognition(cloudFinal()); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.voiceTest.recognized, true);
+  assert.equal(h.voiceStore.voiceTest.interpreted, true);
+  assert.deepEqual(h.sentCommands, []);
+  h.emitRuntime({ ...cloudRuntime, mode: 'offline' }); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.voiceTest.phase, 'idle');
+});
+
+test('Gemini proposals share command dispatch and cannot survive provider/model/key changes', async t => {
+  const selection = { providerId: 'gemini', modelId: 'gemini-3.8-flash', revision: 1 };
+  for (const scenario of ['valid', 'provider-changed', 'model-changed', 'key-changed', 'wrong-provider-result', 'runtime-switch']) {
+    const runtimeInfo = { ...cloudRuntime, cloud: { ...cloudRuntime.cloud, ...selection } };
+    const h = createHarness({ runtimeInfo }); t.after(() => h.controller.dispose());
+    await h.controller.initialize(); await h.controller.begin(); await h.controller.finish();
+    const final = { ...cloudFinal(), selection };
+    if (scenario === 'provider-changed') h.voiceStore.runtime.cloud = { ...runtimeInfo.cloud, providerId: 'openai' };
+    if (scenario === 'model-changed') h.voiceStore.runtime.cloud = { ...runtimeInfo.cloud, modelId: 'new-model' };
+    if (scenario === 'key-changed') h.voiceStore.runtime.cloud = { ...runtimeInfo.cloud, revision: 2 };
+    if (scenario === 'wrong-provider-result') final.selection = cloudFinal().selection;
+    if (scenario === 'runtime-switch') {
+      h.emitRuntime({ ...runtimeInfo, cloud: { ...runtimeInfo.cloud, revision: 2 } });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(h.cancellations.length, 1);
+    }
+    await h.emitRecognition(final);
+    assert.equal(h.sentCommands.length, scenario === 'valid' ? 1 : 0, scenario);
+  }
+});
+
+test('cloud settings actions keep the selected provider attached to key writes and retire setup tests', async t => {
+  const calls = [];
+  const info = { ...cloudRuntime, cloud: { ...cloudRuntime.cloud, providerId: 'gemini', modelId: 'gemini-3.8-flash', revision: 1 } };
+  const h = createHarness({ runtimeInfo: cloudRuntime, controllerApi: {
+    setCloudProvider: async selection => { calls.push(['provider', selection]); return info; },
+    saveCloudKey: async (id, key) => { calls.push(['key', id, key.length]); return info; },
+    removeCloudKey: async id => { calls.push(['remove', id]); return info; },
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize(); await h.voiceStore.actions.startVoiceTest();
+  await h.voiceStore.actions.setCloudProvider({ providerId: 'gemini' });
+  await h.emitRecognition(cloudFinal());
+  await h.voiceStore.actions.saveCloudKey('gemini', 'synthetic');
+  await h.voiceStore.actions.removeCloudKey('gemini');
+  assert.deepEqual(calls, [['provider', { providerId: 'gemini' }], ['key', 'gemini', 9], ['remove', 'gemini']]);
+  assert.equal(h.voiceStore.voiceTest.phase, 'idle');
+  assert.deepEqual(h.sentCommands, []);
+});
 
 test('Settings voice test works in a release without an aircraft and cannot dispatch after reconnect', async () => {
   const h = createHarness({ availability: { enabled: false, reason: 'MSFS is not connected.' } });
@@ -451,6 +653,8 @@ test('generic flap buttons and voice cannot send overlapping relative adjustment
     assert.equal(controls.isCommandPending(button), true, 'the generic flap button shows the voice request as pending');
     aircraftControl.handleResult({ requestId: sent[0].requestId, commandId: command.id, ok: true, code: 'executed' });
     assert.equal(controls.isCommandPending(button), false);
+    assert.equal(controls.feedback.actionText, 'Flap command sent. Check the cockpit.');
+    assert.deepEqual(h.spokenReadbacks, [controls.feedback.actionText], 'buttons and voice share the same delivery-only result');
     assert.equal(await controls.requestControlCommand(button), true);
     await speak();
     assert.equal(sent.length, 2, 'voice cannot add a flap detent while the page request is pending');
@@ -767,6 +971,221 @@ test('explicit microphone refresh discovers named devices without sending recogn
   assert.deepEqual(harness.cancellations, ['session_12345678']);
   assert.equal(harness.captures.length, 0, 'device discovery must not start the PCM capture path');
   assert.equal(harness.audio.length, 0, 'device discovery must not send audio to recognition');
+});
+
+test('turning voice off ignores a pending device-change enumeration', async (t) => {
+  let resolveDevices;
+  const mediaDevices = { async enumerateDevices() { return []; } };
+  const h = createHarness({ globalRef: { navigator: { mediaDevices } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  mediaDevices.enumerateDevices = () => new Promise(resolve => { resolveDevices = resolve; });
+  const refresh = h.controller.refreshInputDevices();
+  await h.controller.setRecognitionEnabled(false);
+  resolveDevices([{ kind: 'audioinput', deviceId: 'headset', label: 'USB headset' }]);
+  await refresh;
+  assert.deepEqual(h.voiceStore.inputDevices, [], 'a late device list must not repopulate disabled voice settings');
+});
+
+test('turning voice off closes microphone discovery while device enumeration is pending', async (t) => {
+  let resolveDevices;
+  let enumerationStarted;
+  const started = new Promise(resolve => { enumerationStarted = resolve; });
+  let trackStops = 0;
+  const mediaDevices = {
+    async enumerateDevices() { return []; },
+    async getUserMedia() { return { getTracks: () => [{ stop() { trackStops++; } }] }; },
+  };
+  const h = createHarness({ runtimeInfo: cloudRuntime, globalRef: { navigator: { mediaDevices } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  mediaDevices.enumerateDevices = () => new Promise(resolve => {
+    resolveDevices = resolve;
+    enumerationStarted();
+  });
+  const discovery = h.controller.refreshInputDevices({ requestAccess: true });
+  await started;
+  await h.controller.setRecognitionEnabled(false);
+  try {
+    assert.equal(trackStops, 1, 'turning voice off must close the temporary microphone immediately');
+    assert.deepEqual(h.cancellations, ['session_12345678']);
+  } finally {
+    resolveDevices([{ kind: 'audioinput', deviceId: 'headset', label: 'USB headset' }]);
+    await discovery;
+  }
+  assert.deepEqual(h.voiceStore.inputDevices, []);
+  assert.equal(trackStops, 1);
+  assert.equal(h.audio.length, 0);
+});
+
+test('recognition terminal events close pending microphone discovery and release its caller', async (t) => {
+  for (const [label, event, runtimeInfo] of [
+    // The offline engine's 11-second watchdog asks the worker to finish;
+    // a healthy empty discovery session ends with this final event.
+    ['offline watchdog final', { type: 'final', text: '', reason: 'requested' }],
+    ['cloud capture timeout', { type: 'error', code: 'CAPTURE_TIMEOUT', message: 'Capture expired.' }, cloudRuntime],
+    ['session cancellation', { type: 'cancelled' }, cloudRuntime],
+  ]) {
+    await t.test(label, async (t) => {
+      let resolveDevices;
+      let enumerationStarted;
+      const started = new Promise(resolve => { enumerationStarted = resolve; });
+      let trackStops = 0;
+      const mediaDevices = {
+        async enumerateDevices() { return []; },
+        async getUserMedia() { return { getTracks: () => [{ stop() { trackStops++; } }] }; },
+      };
+      const h = createHarness({ runtimeInfo, globalRef: { navigator: { mediaDevices } } });
+      t.after(() => h.controller.dispose());
+      await h.controller.initialize();
+      mediaDevices.enumerateDevices = () => new Promise(resolve => {
+        resolveDevices = resolve;
+        enumerationStarted();
+      });
+      let discoverySettled = false;
+      const discovery = h.controller.refreshInputDevices({ requestAccess: true })
+        .then(value => { discoverySettled = true; return value; });
+      await started;
+      await h.emitRecognition({ ...event, sessionId: 'session_12345678' });
+      await new Promise(resolve => setImmediate(resolve));
+      try {
+        assert.equal(trackStops, 1, 'termination must close discovery before enumeration completes');
+        assert.equal(discoverySettled, true, 'Settings must unlock without waiting for the browser reply');
+        assert.equal(h.audio.length, 0);
+        assert.equal(h.sentCommands.length, 0);
+      } finally {
+        resolveDevices([{ kind: 'audioinput', deviceId: 'headset', label: 'USB headset' }]);
+        await discovery;
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      assert.deepEqual(h.voiceStore.inputDevices, [], 'retired discovery must not publish a late list');
+      assert.equal(trackStops, 1, 'late cleanup must not stop an already released stream again');
+      mediaDevices.enumerateDevices = async () => [];
+      assert.equal(await h.controller.begin(), true, 'termination must leave the next capture usable');
+    });
+  }
+});
+
+test('discovery expiry releases the enable action while microphone access is still pending', async (t) => {
+  let grantAccess;
+  let accessStarted;
+  const started = new Promise(resolve => { accessStarted = resolve; });
+  let trackStops = 0;
+  const h = createHarness({ runtimeInfo: { ...cloudRuntime, available: false, enabled: false }, globalRef: { navigator: { mediaDevices: {
+    async enumerateDevices() { return []; },
+    getUserMedia() { accessStarted(); return new Promise(resolve => { grantAccess = resolve; }); },
+  } } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  let enableSettled = false;
+  const enabling = h.controller.setRecognitionEnabled(true).then(value => { enableSettled = true; return value; });
+  await started;
+  await h.emitRecognition({ type: 'error', sessionId: 'session_12345678', code: 'CAPTURE_TIMEOUT', message: 'Capture expired.' });
+  await new Promise(resolve => setImmediate(resolve));
+  try {
+    assert.equal(enableSettled, true, 'Settings must unlock so the user can turn voice off after discovery expires');
+  } finally {
+    grantAccess({ getTracks: () => [{ stop() { trackStops++; } }] });
+    await enabling;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(trackStops, 1, 'a late microphone grant is still stopped after the enable action has returned');
+  assert.equal(h.audio.length, 0);
+  assert.equal(await h.controller.setRecognitionEnabled(false), true);
+});
+
+test('provider changes retire pending microphone discovery and permit a new capture', async (t) => {
+  let grantAccess;
+  let accessStarted;
+  const started = new Promise(resolve => { accessStarted = resolve; });
+  let enumerations = 0;
+  let trackStops = 0;
+  const h = createHarness({ runtimeInfo: cloudRuntime, globalRef: { navigator: { mediaDevices: {
+    async enumerateDevices() { enumerations++; return []; },
+    getUserMedia() { accessStarted(); return new Promise(resolve => { grantAccess = resolve; }); },
+  } } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  const discovery = h.controller.refreshInputDevices({ requestAccess: true });
+  await started;
+  h.emitRuntime({ ...cloudRuntime, cloud: { ...cloudRuntime.cloud, providerId: 'gemini', modelId: 'gemini-3.8-flash', revision: 1 } });
+  try {
+    assert.deepEqual(h.cancellations, ['session_12345678'], 'provider changes release the discovery session');
+    assert.equal(await h.controller.begin(), true, 'an abandoned permission request must not block push-to-talk');
+  } finally {
+    grantAccess({ getTracks: () => [{ stop() { trackStops++; } }] });
+    await discovery;
+  }
+  assert.equal(trackStops, 1, 'a late permission grant must close its obsolete stream');
+  assert.equal(enumerations, 2, 'only initialization and the new capture enumerate devices');
+  assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+  assert.equal(h.captureCancellations.length, 0, 'late discovery cleanup must not cancel the new capture');
+});
+
+test('shutdown before discovery authorization returns prevents opening the microphone', async () => {
+  let resolveRecognition;
+  let accessRequests = 0;
+  const h = createHarness({
+    startRecognition: () => new Promise(resolve => { resolveRecognition = resolve; }),
+    globalRef: { navigator: { mediaDevices: {
+      async enumerateDevices() { return []; },
+      async getUserMedia() { accessRequests++; return { getTracks: () => [] }; },
+    } } },
+  });
+  await h.controller.initialize();
+  const discovery = h.controller.refreshInputDevices({ requestAccess: true });
+  await h.controller.dispose();
+  resolveRecognition({ sessionId: 'session_discovery' });
+  await discovery;
+  assert.equal(accessRequests, 0);
+  assert.deepEqual(h.cancellations, ['session_discovery']);
+  assert.equal(h.voiceStore.actions, null);
+  assert.deepEqual(h.voiceStore.inputDevices, []);
+});
+
+test('late discovery replies and terminal events cannot retire a newer microphone refresh', async (t) => {
+  const requests = [];
+  let signalAccess;
+  let trackStops = 0;
+  const h = createHarness({ runtimeInfo: cloudRuntime, globalRef: { navigator: { mediaDevices: {
+    async enumerateDevices() { return [{ kind: 'audioinput', deviceId: 'headset', label: 'USB headset' }]; },
+    getUserMedia() {
+      const promise = new Promise((resolve, reject) => { requests.push({ resolve, reject }); });
+      signalAccess();
+      return promise;
+    },
+  } } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  let started = new Promise(resolve => { signalAccess = resolve; });
+  const oldDiscovery = h.controller.refreshInputDevices({ requestAccess: true });
+  await started;
+  h.emitRuntime({ ...cloudRuntime, cloud: { ...cloudRuntime.cloud, revision: 1 } });
+  started = new Promise(resolve => { signalAccess = resolve; });
+  const newDiscovery = h.controller.refreshInputDevices({ requestAccess: true });
+  await started;
+  for (const event of [
+    { type: 'final', text: '', reason: 'requested' },
+    { type: 'error', code: 'CAPTURE_TIMEOUT', message: 'Capture expired.' },
+    { type: 'cancelled' },
+  ]) {
+    await h.emitRecognition({ ...event, sessionId: 'session_12345678' });
+    assert.deepEqual(h.cancellations, ['session_12345678'], 'a retired session event cannot cancel the new discovery');
+    assert.equal(await h.controller.begin(), false, 'the new discovery must keep microphone ownership');
+    assert.equal(trackStops, 0, 'the new permission request has not granted a stream yet');
+  }
+  requests[0].reject(new Error('Obsolete microphone access failure.'));
+  await oldDiscovery;
+  assert.equal(h.voiceStore.inputDevicesError, '');
+  assert.equal(await h.controller.begin(), false, 'the new discovery still owns the microphone');
+  requests[1].resolve({ getTracks: () => [{ stop() { trackStops++; } }] });
+  await newDiscovery;
+  assert.equal(trackStops, 1);
+  assert.deepEqual(h.cancellations, ['session_12345678', 'session_next_2']);
+  assert.equal(h.voiceStore.inputDevices[0].label, 'USB headset');
+  assert.equal(h.audio.length, 0);
+  assert.equal(h.sentCommands.length, 0);
+  assert.equal(await h.controller.begin(), true);
 });
 
 test('one push-to-talk session dispatches one exact shared aircraft command', async () => {
@@ -1186,11 +1605,269 @@ test('approach voice waits for confirmation and never speaks a selection after f
     await harness.controller.initialize(); await harness.controller.begin(); await harness.controller.finish();
     await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: `select ${value}` });
     assert.equal(harness.spokenReadbacks.length, 0, 'dispatch alone cannot confirm selection');
-    harness.completeLastCommand({ ok: code !== 'aircraft_integration_readback_timeout', code });
+    harness.completeLastCommand({ ok: code !== 'aircraft_integration_readback_timeout', code,
+      ...(id === 'surfaces.flaps.set' && code === 'executed' ? { confirmedValue: 'full' } : {}) });
     assert.equal(harness.sentCommands.length, 1);
     if (code === 'executed') assert.deepEqual(harness.spokenReadbacks, [spoken]);
     else assert.equal(harness.spokenReadbacks.includes(spoken), false);
   }
+});
+
+test('flap voice distinguishes observed selection, unconfirmed dispatch and rejected commands across aircraft', async () => {
+  for (const profile of ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900',
+    'pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f',
+    'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx']) {
+    for (const code of ['executed', 'sent_unconfirmed', 'aircraft_integration_readback_timeout',
+      'aircraft_integration_simconnect_exception', 'aircraft_integration_readback_unavailable', 'observation_interrupted']) {
+      const harness = createHarness({ catalogue: {
+        configurationId: profile, profileKey: `bundled/msfs/${profile}`, profileRevision: 1,
+        commands: { flaps: { id: 'surfaces.flaps.set', label: 'Flap detent',
+          input: { kind: 'enum', values: ['1', '5'] }, speech: { patterns: ['flaps {value}'] } } },
+      } });
+      await harness.controller.initialize(); await harness.controller.begin(); await harness.controller.finish();
+      await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'flaps one' });
+      assert.equal(harness.spokenReadbacks.length, 0, 'dispatch alone does not confirm selection');
+      harness.completeLastCommand({ ok: ['executed', 'sent_unconfirmed'].includes(code), code,
+        ...(code === 'executed' ? { confirmedValue: '1' } : {}),
+        executionStarted: code !== 'aircraft_integration_readback_unavailable',
+        error: code === 'executed' ? '' : 'Aircraft diagnostic retained.' });
+      assert.equal(harness.sentCommands.length, 1, 'no automatic retry after any outcome');
+      if (code === 'executed') {
+        assert.deepEqual(harness.spokenReadbacks, ['Flaps 1 selected.']);
+        assert.equal(harness.voiceStore.status, 'sent');
+      } else if (['aircraft_integration_readback_timeout', 'observation_interrupted'].includes(code)) {
+        assert.deepEqual(harness.spokenReadbacks, ['Flap selection not confirmed. Check the cockpit.']);
+        assert.equal(harness.voiceStore.status, 'error');
+        assert.match(harness.voiceStore.statusText, /Aircraft diagnostic retained/);
+      } else if (code === 'sent_unconfirmed') {
+        assert.deepEqual(harness.spokenReadbacks, ['Flap command sent. Check the cockpit.']);
+        assert.equal(harness.voiceStore.status, 'sent');
+      } else {
+        assert.deepEqual(harness.spokenReadbacks, ['Flap command failed. Check the cockpit.']);
+        assert.equal(harness.voiceStore.status, 'failed');
+      }
+    }
+  }
+});
+
+test('generic and relative flap voice never infer an exact lever change from delivery or index movement', async () => {
+  for (const profile of ['generic', 'fbw-a380x', 'inibuilds-a350-900', 'inibuilds-a350-1000',
+    'microsoft-737-max-8', 'inibuilds-a320neo-v2', 'inibuilds-a321lr']) {
+    for (const value of ['increase', 'decrease']) {
+      const harness = createHarness({ catalogue: {
+        configurationId: profile, profileKey: `bundled/msfs/${profile}`, profileRevision: 1,
+        commands: { flaps: { id: 'surfaces.flaps.adjust', label: 'Adjust flaps',
+          input: { kind: 'enum', values: ['increase', 'decrease'] }, speech: { patterns: ['flaps {value}'] } } },
+      } });
+      await harness.controller.initialize(); await harness.controller.begin(); await harness.controller.finish();
+      await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: `flaps ${value}` });
+      assert.equal(harness.spokenReadbacks.length, 0);
+      harness.completeLastCommand({ ok: true, code: profile === 'generic' ? 'sent_unconfirmed' : 'executed',
+        ...(profile === 'generic' ? {} : { confirmedValue: 2 }) });
+      assert.deepEqual(harness.spokenReadbacks, ['Flap command sent. Check the cockpit.']);
+      assert.equal(harness.sentCommands.length, 1);
+      await harness.controller.dispose();
+    }
+  }
+});
+
+test('flap feedback requires explicit confirmation and keeps preflight failures distinct from interrupted dispatch', () => {
+  const request = { commandId: 'surfaces.flaps.set', input: { value: 'up' } };
+  assert.equal(flapResultText({ ok: true, confirmedValue: 0 }, request).text, 'Flaps up selected.');
+  assert.equal(flapResultText({ ok: true, confirmedValue: 0, noOp: true }, request).outcome, 'confirmed');
+  for (const extra of [{}, { confirmedValue: null }, { confirmedValue: NaN }, { confirmedValue: '' },
+    { confirmedValue: false }, { confirmedValue: 0, transportAcknowledged: true },
+    { confirmedValue: 0, code: 'sent_unconfirmed' }]) {
+    assert.equal(flapResultText({ ok: true, ...extra }, request).outcome, 'sent');
+  }
+  assert.equal(flapResultText({ ok: true, noOp: true }, request).outcome, 'unconfirmed', 'an unproven no-op cannot claim a write');
+  for (const code of ['stale_profile', 'sdk_transport_unavailable', 'observation_interrupted']) {
+    assert.equal(flapResultText({ ok: false, code }, request).outcome, 'failed');
+    assert.equal(flapResultText({ ok: false, code, executionStarted: true }, request).outcome, 'unconfirmed');
+  }
+  for (const code of ['simconnect_exception', 'aircraft_integration_simconnect_exception', 'action_failed']) {
+    assert.equal(flapResultText({ ok: false, code, executionStarted: true }, request).outcome, 'failed');
+  }
+  assert.equal(flapResultText({ ok: true }, { control: 'flaps', operation: 'increment' }).outcome, 'sent');
+  assert.equal(flapResultText({ ok: true }, { commandId: 'surfaces.gear.set' }), null);
+});
+
+test('flap button feedback preserves confirmation, uncertainty, rejection and request ownership', () => {
+  setActivePinia(createPinia());
+  const controls = useAircraftControlsStore(), sent = [], toasts = [], replies = [];
+  const controller = createAircraftControlController({
+    WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+    getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true,
+    aircraftControlsStore: controls, showToast: (...toast) => toasts.push(toast),
+  });
+  const profileKey = 'bundled/msfs/fbw-a32nx', commandId = 'surfaces.flaps.set';
+  controller.setActiveProfileToken({ _profileKey: profileKey, profileRevision: 1 });
+  controller.applyControlCapabilities({ aircraftCommands: { profileKey, profileRevision: 1,
+    commands: [{ id: commandId, label: 'Flaps', input: { kind: 'enum', values: ['1'] } }] } });
+  for (const [result, text, tone] of [
+    [{ ok: true, code: 'executed', confirmedValue: '1' }, 'Flaps 1 selected.', 'success'],
+    [{ ok: true, code: 'sent_unconfirmed' }, 'Flap command sent. Check the cockpit.', 'warning'],
+    [{ ok: false, code: 'aircraft_integration_readback_timeout', executionStarted: true }, 'Flap selection not confirmed. Check the cockpit.', 'warning'],
+    [{ ok: false, code: 'aircraft_integration_simconnect_exception', executionStarted: true }, 'Flap command failed. Check the cockpit.', 'error'],
+  ]) {
+    const input = { value: '1' };
+    assert.equal(controller.sendCommand(commandId, input, { onResult: result => replies.push(result) }), true);
+    const message = { ...result, commandId, request: { commandId, input }, requestId: sent.at(-1).requestId };
+    controller.handleResult(message);
+    assert.equal(controls.feedback.actionText, text);
+    assert.equal(toasts.at(-1)[0], tone);
+    assert.equal(controls.isCommandPending(`aircraft-command:${commandId}`), false);
+    const count = toasts.length;
+    controller.handleResult(message);
+    assert.equal(toasts.length, count, 'duplicate replies do not replace feedback');
+  }
+  assert.equal(sent.length, 4, 'no retry on unconfirmed or rejected selection');
+  assert.equal(replies.length, 4, 'each caller settles once');
+  controller.clearPendingRequests();
+});
+
+test('gear feedback accepts only matching handle evidence and separates observation loss from rejection', () => {
+  const request = { commandId: 'surfaces.gear.set', input: { value: 'up' } };
+  for (const confirmedValue of [false, 'up']) {
+    assert.equal(gearResultText({ ok: true, confirmedValue, noOp: true }, request).text, 'Gear up selected.');
+    for (const extra of [{ code: 'sent_unconfirmed' }, { transportAcknowledged: true }]) {
+      assert.equal(gearResultText({ ok: true, confirmedValue, ...extra }, request).outcome, 'sent');
+    }
+  }
+  assert.equal(gearResultText({ ok: true }, request).outcome, 'sent');
+  assert.equal(gearResultText({ ok: true, noOp: true }, request).outcome, 'unconfirmed');
+  // Deliberately inconsistent result payloads must never invent a selection.
+  for (const confirmedValue of [true, 'down', 'off', 0, NaN, '']) {
+    assert.equal(gearResultText({ ok: true, confirmedValue }, request).outcome, 'unconfirmed');
+  }
+  for (const code of ['aircraft_integration_readback_timeout', 'aircraft_integration_selector_readback_timeout',
+    'observation_interrupted', 'stale_profile', 'sdk_transport_unavailable']) {
+    assert.equal(gearResultText({ ok: false, code }, request).outcome, 'failed');
+    assert.equal(gearResultText({ ok: false, code, executionStarted: true }, request).outcome, 'unconfirmed');
+  }
+  for (const code of ['aircraft_integration_readback_unavailable', 'simconnect_exception',
+    'aircraft_integration_simconnect_exception', 'simconnect_sequence_execution_failed', 'action_failed']) {
+    assert.equal(gearResultText({ ok: false, code, executionStarted: true }, request).outcome, 'failed');
+  }
+  assert.equal(gearResultText({ ok: true, confirmedValue: false }, { control: 'gear', operation: 'toggle' }).outcome, 'sent');
+  for (const request of [{ commandId: 'surfaces.flaps.set' },
+    { control: 'aircraft-specific', operation: 'execute', actionId: 'gear.parkingBrake.set' },
+    { control: 'aircraft-specific', operation: 'execute', actionId: 'controls.gear.off' }]) {
+    assert.equal(gearResultText({ ok: true }, request), null);
+  }
+  assert.equal(gearResultText({ ok: true, commandId: 'configuration.takeoff.set',
+    request: { control: 'aircraft-specific', operation: 'execute', actionId: 'controls.gear.up' } }), null,
+  'a step within an unrelated command must not replace its overall feedback');
+});
+
+test('gear buttons and voice agree on confirmation, delivery, observation failure and rejection', async () => {
+  const commandId = 'surfaces.gear.set', pendingKey = `aircraft-command:${commandId}`;
+  // Boundary fixtures reflect the actual string SDK, boolean handle and generic
+  // result contracts. They validate feedback, not an aircraft moving in MSFS.
+  for (const profile of ['pmdg-737', 'pmdg-777', 'fbw-a380x', 'generic']) {
+    setActivePinia(createPinia());
+    const controls = useAircraftControlsStore(), sent = [], toasts = [];
+    const profileKey = `bundled/msfs/${profile}`;
+    const aircraftControl = createAircraftControlController({
+      WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+      getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true,
+      aircraftControlsStore: controls, showToast: (...toast) => toasts.push(toast),
+    });
+    aircraftControl.setActiveProfileToken({ _profileKey: profileKey, profileRevision: 1 });
+    aircraftControl.applyControlCapabilities({ aircraftCommands: { profileKey, profileRevision: 1,
+      configurationId: profile, commands: [{ id: commandId, label: 'Landing gear',
+        input: { kind: 'enum', values: ['up', 'down'] }, speech: { patterns: ['gear {value}'] } }] } });
+    aircraftControl.updateAvailability();
+    const h = createHarness({ aircraftControlsStore: controls, aircraftControl });
+    try {
+      await h.controller.initialize();
+      for (const value of ['up', 'down']) {
+        const confirmedValue = profile === 'pmdg-737' ? value : value === 'down';
+        const cases = [
+          ...(profile === 'generic'
+            ? [[{ ok: true, code: 'sent_unconfirmed' }, 'Gear command sent. Check the cockpit.', 'sent', 'warning']]
+            : [
+              [{ ok: true, code: 'executed', confirmedValue }, `Gear ${value} selected.`, 'sent', 'success'],
+              [{ ok: true, code: 'executed', confirmedValue, noOp: true }, `Gear ${value} selected.`, 'sent', 'success'],
+              [{ ok: false, code: 'aircraft_integration_readback_timeout', executionStarted: true },
+                'Gear selection not confirmed. Check the cockpit.', 'unconfirmed', 'warning'],
+            ]),
+          [{ ok: false, code: 'stale_profile', executionStarted: true },
+            'Gear selection not confirmed. Check the cockpit.', 'unconfirmed', 'warning'],
+          ...(profile === 'fbw-a380x' ? [] : [[
+            { ok: false, code: profile === 'generic' ? 'observation_interrupted' : 'sdk_transport_unavailable', executionStarted: true },
+            'Gear selection not confirmed. Check the cockpit.', 'unconfirmed', 'warning',
+          ]]),
+          [{ ok: false, code: 'stale_profile' }, 'Gear command failed. Check the cockpit.', 'failed', 'error'],
+          [{ ok: false, code: profile === 'generic' ? 'simconnect_exception' : 'aircraft_integration_simconnect_exception', executionStarted: true },
+            'Gear command failed. Check the cockpit.', 'failed', 'error'],
+        ];
+        for (const [result, text, status, tone] of cases) {
+          const before = sent.length, spokenBefore = h.spokenReadbacks.length;
+          assert.equal(await h.controller.begin(), true);
+          const sessionId = h.voiceStore.activeSessionId;
+          await h.controller.finish();
+          await h.emitRecognition({ type: 'final', sessionId, text: `gear ${value}` });
+          assert.equal(sent.length, before + 1);
+          assert.equal(h.spokenReadbacks.length, spokenBefore, 'dispatch alone cannot announce selection');
+          assert.equal(aircraftControl.sendCommand(commandId, { value }), false, 'button cannot overlap voice');
+          const message = { ...result, commandId, request: { commandId, input: { value } },
+            requestId: sent.at(-1).requestId, profileKey, stepCount: 1, completedStepCount: result.ok ? 1 : 0,
+            ...(!result.ok ? { error: 'Aircraft diagnostic retained.' } : {}) };
+          aircraftControl.handleResult(message);
+          assert.equal(controls.feedback.actionText, text);
+          assert.equal(controls.feedback.status, status);
+          assert.equal(toasts.at(-1)[0], tone);
+          assert.equal(h.spokenReadbacks.at(-1), text);
+          assert.equal(h.voiceStore.status, status === 'unconfirmed' ? 'error' : status);
+          if (!result.ok) {
+            assert.match(controls.feedback.routeText, /Aircraft diagnostic retained/);
+            assert.match(h.voiceStore.statusText, /Aircraft diagnostic retained/);
+          }
+          assert.equal(controls.isCommandPending(pendingKey), false);
+          const count = toasts.length;
+          aircraftControl.handleResult(message);
+          assert.equal(toasts.length, count, 'duplicate replies do not replace feedback');
+          assert.equal(h.spokenReadbacks.length, spokenBefore + 1, 'caller settles once');
+          assert.equal(sent.length, before + 1, 'unconfirmed results never trigger a retry');
+        }
+      }
+    } finally { await h.controller.dispose(); aircraftControl.clearPendingRequests(); }
+  }
+});
+
+test('direct gear buttons retain shared feedback and ignore replies from a retired profile', () => {
+  setActivePinia(createPinia());
+  const controls = useAircraftControlsStore(), sent = [], toasts = [], replies = [];
+  const controller = createAircraftControlController({
+    WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+    getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true,
+    aircraftControlsStore: controls, showToast: (...toast) => toasts.push(toast),
+  });
+  controller.setActiveProfileToken({ _profileKey: 'test/gear', profileRevision: 1 });
+  const requests = [
+    [{ control: 'gear', operation: 'down' }, true, 'down'],
+    [{ control: 'aircraft-specific', operation: 'execute', actionId: 'controls.gear.up' }, false, 'up'],
+    [{ control: 'aircraft-specific', operation: 'execute', target: 'gear.handle.off' }, 'off', 'off'],
+  ];
+  for (const [request, confirmedValue, target] of requests) for (const confirmed of [true, false]) {
+    assert.equal(controller.send(request, { onResult: result => replies.push(result) }), true);
+    controller.handleResult({ request, requestId: sent.at(-1).requestId,
+      ...(confirmed ? { ok: true, code: 'executed', confirmedValue }
+        : { ok: false, code: 'aircraft_integration_readback_timeout', executionStarted: true }) });
+    assert.equal(controls.feedback.actionText, confirmed ? `Gear ${target} selected.` : 'Gear selection not confirmed. Check the cockpit.');
+    assert.deepEqual(controls.pendingCommands, {});
+  }
+  assert.equal(sent.length, 6); assert.equal(replies.length, 6);
+  const request = requests[0][0];
+  controller.send(request, { onResult: result => replies.push(result) });
+  const requestId = sent.at(-1).requestId;
+  controller.resetProfileState('Aircraft changed.');
+  const before = { ...controls.feedback }, replyCount = replies.length, toastCount = toasts.length;
+  controller.handleResult({ requestId, request, ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' });
+  assert.deepEqual(controls.feedback, before);
+  assert.equal(toasts.length, toastCount); assert.equal(replies.length, replyCount);
+  assert.deepEqual(controls.pendingCommands, {});
 });
 
 test('both altimeters voice feedback requires both readbacks and speaks partial failure', async () => {

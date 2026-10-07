@@ -6,6 +6,8 @@ import {
 } from './control-ui.js';
 import { comRadioResultText } from './com-radio.js';
 import { baroResultText } from './baro.js';
+import { flapResultText } from './flap-controls.js';
+import { gearResultText } from './gear-controls.js';
 
 export function createAircraftControlController({
   WebSocketRef = WebSocket,
@@ -374,6 +376,39 @@ export function createAircraftControlController({
       ? `${completedStepCount} of ${stepCount} steps`
       : '';
 
+    const gear = gearResultText(msg);
+    if (gear) {
+      const needsAttention = gear.outcome === 'failed' || gear.outcome === 'unconfirmed';
+      const incompleteProgress = needsAttention && Number.isSafeInteger(completedStepCount)
+        && completedStepCount >= 0 && Number.isSafeInteger(stepCount) && stepCount > 0
+        && completedStepCount < stepCount && (completedStepCount > 0 || msg.executionStarted === true)
+        ? `${completedStepCount} of ${stepCount} ${stepCount === 1 ? 'step' : 'steps'} confirmed${gear.outcome === 'failed' ? ' before failure' : ''}`
+        : '';
+      const routeText = [
+        incompleteProgress,
+        msg.error || (gear.outcome === 'confirmed'
+          ? 'Gear handle selection confirmed. Gear may still be moving.' : 'Check the gear handle in the cockpit.'),
+        needsAttention && (incompleteProgress || msg.executionStarted === true) ? 'Verify aircraft state.' : '',
+      ].filter(Boolean).join(' \u00b7 ');
+      setFeedback({ actionText: gear.text, routeText, profileText: profileKey,
+        status: gear.outcome === 'unconfirmed' ? 'unconfirmed' : gear.outcome === 'failed' ? 'failed' : 'sent',
+        commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request) });
+      emitToast(gear.outcome === 'confirmed' ? 'success' : gear.outcome === 'failed' ? 'error' : 'warning',
+        gear.text, routeText, { durationMs: 6000 });
+      notifyResult(pending, msg);
+      return;
+    }
+    const flap = flapResultText(msg);
+    if (flap) {
+      const routeText = msg.error || (flap.outcome === 'confirmed'
+        ? 'Flap lever selection confirmed. Surfaces may still be moving.' : 'Check the flap lever in the cockpit.');
+      setFeedback({ actionText: flap.text, routeText, profileText: profileKey,
+        status: ['confirmed', 'sent'].includes(flap.outcome) ? 'sent' : 'failed', commandKey: pending?.pendingKey });
+      emitToast(flap.outcome === 'confirmed' ? 'success' : flap.outcome === 'failed' ? 'error' : 'warning',
+        flap.text, routeText, { durationMs: 6000 });
+      notifyResult(pending, msg);
+      return;
+    }
     if (/^baro\.(captain|firstOfficer|both)\./.test(msg.commandId || '')) {
       const result = baroResultText(msg);
       const routeText = result.confirmed ? 'Aircraft altimeter readbacks confirmed.' : 'Check the aircraft altimeters.';

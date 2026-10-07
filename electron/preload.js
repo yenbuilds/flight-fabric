@@ -148,8 +148,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstall: (installId) => ipcRenderer.invoke('toolbar-panel-uninstall', requireInstallId(installId)),
   }),
 
-  // Offline voice control. Audio is accepted only while a bounded recognition
-  // session is active and never leaves the local Electron process tree.
+  // Voice audio is accepted only during a bounded, authorized capture session.
+  // Explicit cloud mode sends released audio through the trusted desktop runtime.
   voice: Object.freeze({
     cancelReadback: () => ipcRenderer.invoke('voice:readback-cancel'),
     cancelRecognition: (sessionId) => ipcRenderer.invoke(
@@ -162,6 +162,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     getReadbackInfo: () => ipcRenderer.invoke('voice:get-readback-info'),
     getRuntimeInfo: () => ipcRenderer.invoke('voice:get-runtime-info'),
+    setMode: (mode) => ipcRenderer.invoke('voice:set-mode', mode),
+    setCloudProvider: (selection) => ipcRenderer.invoke('voice:set-cloud-provider', selection),
+    saveCloudKey: (providerId, key) => {
+      if (typeof key !== 'string' || key.length > 512) throw new TypeError('Invalid API key.');
+      return ipcRenderer.invoke('voice:save-cloud-key', { providerId, key });
+    },
+    removeCloudKey: (providerId) => ipcRenderer.invoke('voice:remove-cloud-key', providerId),
     startControllerSetup: () => ipcRenderer.invoke('voice:controller-setup-start'),
     cancelControllerSetup: () => ipcRenderer.invoke('voice:controller-setup-cancel'),
     saveControllerButton: () => ipcRenderer.invoke('voice:controller-setup-save'),
@@ -182,7 +189,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'voice:readback-speak',
       requireReadbackText(text),
     ),
-    startRecognition: () => ipcRenderer.invoke('voice:speech-start'),
+    startRecognition: (options) => {
+      if (options !== undefined && (!options || typeof options !== 'object' || JSON.stringify(options).length > 65000)) {
+        throw new TypeError('Invalid voice context.');
+      }
+      return ipcRenderer.invoke('voice:speech-start', options);
+    },
   }),
   
   // App info

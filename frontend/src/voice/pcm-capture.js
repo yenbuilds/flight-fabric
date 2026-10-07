@@ -53,18 +53,30 @@ export async function enumerateAudioInputDevices(globalRef = globalThis) {
   return inputs;
 }
 
-export async function discoverAudioInputDevices(globalRef = globalThis) {
+export async function discoverAudioInputDevices(globalRef = globalThis, { signal } = {}) {
+  if (signal?.aborted) return [];
   const mediaDevices = globalRef?.navigator?.mediaDevices;
   if (typeof mediaDevices?.getUserMedia !== 'function') {
     return enumerateAudioInputDevices(globalRef);
   }
   const stream = await mediaDevices.getUserMedia(createMicrophoneConstraints());
-  try {
-    return await enumerateAudioInputDevices(globalRef);
-  } finally {
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
     for (const track of stream?.getTracks?.() || []) {
       try { track.stop?.(); } catch {}
     }
+  };
+  signal?.addEventListener('abort', stop, { once: true });
+  try {
+    // getUserMedia cannot be aborted. Close a late grant before enumerating,
+    // and close an existing stream immediately if its owner goes away.
+    if (signal?.aborted) return [];
+    return await enumerateAudioInputDevices(globalRef);
+  } finally {
+    signal?.removeEventListener('abort', stop);
+    stop();
   }
 }
 

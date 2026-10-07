@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const { ROOT, getRepoScratchAppData, getRepoScratchPath } = require('../scripts/repo-scratch');
 
 const TEST_STEPS = [
+  ['node', ['--test', 'tests/scripts/test-build-dependency-compatibility.js']],
   ['node', ['--test', 'tests/scripts/test-vite-test-server.js']],
   ['node', ['--test', 'tests/scripts/test-support-redirect.js']],
   ['node', ['--test', 'tests/scripts/test-http-static-file-lifecycle.js']],
@@ -171,6 +172,7 @@ const TEST_STEPS = [
   ['node', ['--test', 'dist/backend/telemetry-provider/md11-controls.test.js']],
   ['node', ['dist/backend/telemetry-provider/simconnect-telemetry-provider.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/generic-control-diagnostics.test.js']],
+  ['node', ['--test', 'dist/backend/telemetry-provider/input-event-integration.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/pmdg-737-sdk-integration.test.js']],
   ['node', ['--test', 'dist/backend/telemetry-provider/pmdg-777-sdk-integration.test.js']],
   ['npm', ['run', 'test:rust-sidecar']],

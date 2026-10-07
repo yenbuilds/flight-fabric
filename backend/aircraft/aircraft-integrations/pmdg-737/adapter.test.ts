@@ -50,8 +50,8 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     decode: { type: 'enum', values: { off: 'off', bat: 'bat', on: 'on' } },
   });
   assert.deepEqual(PMDG_737_INTEGRATION.fields['flightControls.flapHandleIndex'].sources[0], {
-    route: { type: 'simvar', name: 'FLAPS HANDLE INDEX', unit: 'Number' },
-    decode: { type: 'number', precision: 0 },
+    route: { type: 'lvar', name: 'L:NGXFlapLever', unit: 'Number' },
+    decode: { type: 'enum', values: { 0: 0, 10: 1, 20: 2, 30: 3, 40: 4, 50: 5, 60: 6, 70: 7, 80: 8 } },
   });
   assert.deepEqual(PMDG_737_INTEGRATION.fields['lighting.afdsFloodPercent'].sources[0], {
     route: { type: 'lvar', name: 'L:CA_AFDS_FLOOD_LIGHT_CONTROL', unit: 'Number' },
@@ -157,7 +157,7 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     'simconnect-sequence');
 
   for (const [actionId, command, value, fieldId, expectedValue] of [
-    ['gear.handle.up', '#70087', 0, 'gear.handleMode', 'up'],
+    ['gear.handle.off', '#70087', 1, 'gear.handleMode', 'off'],
     ['gear.autobrake.max', '#70092', 5, 'gear.autobrakeMode', 'max'],
     ['systems.air.packLeft.high', '#69832', 2, 'systems.packLeftMode', 'high'],
     ['systems.air.apuBleed.on', '#69843', 1, 'systems.apuBleed', true],
@@ -172,6 +172,22 @@ test('PMDG 737 adapter shares one trusted contract across exact family profiles'
     assert.equal(action.routes[0].value, value);
     assert.equal(action.routes[0].readback.fieldId, fieldId);
     assert.equal(action.routes[0].readback.expectedValue, expectedValue);
+  }
+
+  for (const profileKey of PMDG_737_INTEGRATION.trustedProfileKeys) {
+    for (const [target, event] of [['up', 'GEAR_UP'], ['down', 'GEAR_DOWN']]) {
+      const context = { adapterId: PMDG_737_ADAPTER_ID, profileKey, actionId: `gear.handle.${target}` };
+      const action = defaultAircraftIntegrationRegistry.resolveAction(context);
+      assert.equal(action.routes.length, 1, 'no fallback after an unconfirmed gear selection');
+      assert.equal(action.guard.retry, 'never');
+      assert.deepEqual(action.routes[0].operations, [{ type: 'event', name: event, value: 0 }]);
+      assert.deepEqual(action.routes[0].readback, { fieldId: 'gear.handleMode', expectedValue: target, timeoutMs: 2500 });
+      assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(context, ['simconnect-sequence']), null);
+      assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(context, ['sdk']), null);
+      assert.equal(action.routes[0].requiredSdkAdapter, 'clientdata-manifest');
+      assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(context, ['sdk', 'simconnect-sequence']).transport,
+        'simconnect-sequence');
+    }
   }
 
   for (const [actionId, command, fieldId, expectedValue] of [

@@ -348,6 +348,8 @@ test('voice recognition is default-off and starts local resources only after exp
       ...(process.platform === 'win32' ? { controllerBindingV1: null } : {}),
       pushToTalkShortcut: '',
       voiceRecognitionEnabled: true,
+      voiceMode: 'offline',
+      // The disabled preview does not add cloud preferences for a new offline user.
     });
 
     const disabled = await handlers.get('voice:set-recognition-enabled')({}, false);

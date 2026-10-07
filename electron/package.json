@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "FlightFabric - airline flying telemetry and debrief app",
   "main": "main.js",
   "author": "FlightFabric",
@@ -26,7 +26,14 @@
   },
   "dependencies": {
     "sherpa-onnx-node": "1.13.5",
-    "sherpa-onnx-win-x64": "1.13.5"
+    "sherpa-onnx-win-x64": "1.13.5",
+    "ws": "8.21.3"
+  },
+  "overrides": {
+    "postcss-selector-parser": "7.1.6",
+    "@electron/get": {
+      "global-agent": "4.1.3"
+    }
   },
   "devDependencies": {
     "@electron/asar": "4.2.1",
@@ -75,9 +82,16 @@
       "voice-push-to-talk-hook.js",
       "voice-push-to-talk.js",
       "voice-runtime.js",
+      "voice-cloud-credentials.js",
+      "voice-cloud-engine.js",
+      "voice-cloud-provider.js",
+      "voice-cloud-contract.js",
+      "voice-cloud-openai.js",
+      "voice-cloud-gemini.js",
       "voice-speech-engine.js",
       "voice-speech-worker.js",
       "windows-local-tts.js",
+      "node_modules/ws/**/*",
       "node_modules/sherpa-onnx-node/**/*",
       "node_modules/sherpa-onnx-win-x64/**/*"
     ],
@@ -101,6 +115,14 @@
       {
         "from": "taskbar-finalizing-icon.png",
         "to": "taskbar-finalizing-icon.png"
+      },
+      {
+        "from": "taskbar-recording-icon.ico",
+        "to": "taskbar-recording-icon.ico"
+      },
+      {
+        "from": "taskbar-finalizing-icon.ico",
+        "to": "taskbar-finalizing-icon.ico"
       },
       {
         "from": "recording-overlay.png",
@@ -229,6 +251,10 @@
       {
         "from": "resources/voice/hotwords.txt",
         "to": "voice/hotwords.txt"
+      },
+      {
+        "from": "../shared/voice-intent.js",
+        "to": "voice/voice-intent.js"
       },
       {
         "from": "licenses",

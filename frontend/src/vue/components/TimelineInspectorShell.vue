@@ -4,9 +4,14 @@ import AircraftArtwork from './AircraftArtwork.vue';
 import TimelineDetailPanel from './TimelineDetailPanel.vue';
 import { useTimelineStore } from '../stores/timeline.js';
 import { INSPECTOR_FILTER_OPTIONS } from '../../timeline/constants.js';
+import { formatRecordedDateTime } from '../../timeline/recording-time.js';
 
 const props = defineProps({ inlineDetails: { type: Boolean, default: false } });
 const timeline = useTimelineStore();
+const recordingStartTime = computed(() => (
+  timeline.timelineLoading || timeline.inspectorRouteVisible
+    ? '' : formatRecordedDateTime(timeline.loadedTimelineRecordingStartTime)
+));
 const eventList = ref(null);
 const eventScroller = ref(null);
 const hiddenListTypeCount = computed(() => INSPECTOR_FILTER_OPTIONS.filter(option => timeline.inspectorFilters[option.key] === false).length);
@@ -81,7 +86,16 @@ const timelineAircraftName = computed(() => {
         </svg>
         <div>
           <div class="text-xs sm:text-sm font-semibold">Flight events</div>
-          <div id="timeline-flight-id" class="text-[10px] sm:text-xs text-gray-500">{{ timeline.inspectorFlightIdText }}</div>
+          <div id="timeline-flight-id" class="text-[10px] sm:text-xs text-gray-500">
+            <template v-if="recordingStartTime">
+              <span class="block">Recording start (real-world local)</span>
+              <time :datetime="timeline.loadedTimelineRecordingStartTime">{{ recordingStartTime }}</time>
+            </template>
+            <template v-else-if="!timeline.timelineLoading && !timeline.inspectorRouteVisible && timeline.loadedTimelineFlightId">
+              Recording ID: {{ timeline.loadedTimelineFlightId }}
+            </template>
+            <template v-else>{{ timeline.inspectorFlightIdText }}</template>
+          </div>
           <div
             id="timeline-flight-route"
             class="text-xs text-accent"

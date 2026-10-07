@@ -28,7 +28,7 @@ const groups = computed(() => {
 
 <template>
   <div class="sidebar-brand">
-    <img src="/assets/app-icon.png" alt="" width="28" height="28" aria-hidden="true">
+    <img src="/assets/app-mark.svg" alt="" width="28" height="28" aria-hidden="true">
     <span class="sidebar-label">FlightFabric</span>
     <button class="sidebar-collapse" type="button" :aria-label="shell.sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'" :aria-expanded="!shell.sidebarCollapsed" @click="shell.toggleSidebar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>

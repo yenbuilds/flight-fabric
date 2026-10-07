@@ -501,6 +501,7 @@ const TASKBAR_ICON_PATH = isDev
   ? path.join(appRoot, 'electron', 'taskbar-icon.ico')
   : path.join(appRoot, 'resources', 'taskbar-icon.ico');
 const TASKBAR_TRAY_ICON_PATH = firstExistingPath([
+  ...(process.platform === 'win32' ? [TASKBAR_ICON_PATH] : []),
   isDev
     ? path.join(appRoot, 'electron', 'taskbar-icon.png')
     : path.join(appRoot, 'resources', 'taskbar-icon.png'),
@@ -511,11 +512,11 @@ const RECORDING_BADGE_ASSET_DIR = isDev
   : path.join(appRoot, 'resources');
 const RECORDING_BADGE_ASSET_NAMES = Object.freeze({
   recording: Object.freeze({
-    tray: 'taskbar-recording-icon.png',
+    tray: process.platform === 'win32' ? 'taskbar-recording-icon.ico' : 'taskbar-recording-icon.png',
     overlay: 'recording-overlay.png',
   }),
   finalizing: Object.freeze({
-    tray: 'taskbar-finalizing-icon.png',
+    tray: process.platform === 'win32' ? 'taskbar-finalizing-icon.ico' : 'taskbar-finalizing-icon.png',
     overlay: 'finalizing-overlay.png',
   }),
 });
@@ -2608,10 +2609,6 @@ function createTaskbarRecordingOverlayIcon(state) {
   return loadRecordingBadgeImage(state, 'overlay');
 }
 
-function createTrayRecordingIcon(state) {
-  return loadRecordingBadgeImage(state, 'tray');
-}
-
 function stopTrayRecordingBadge({ restoreDefault = true } = {}) {
   if (restoreDefault) {
     setTrayDefaultImage();
@@ -2624,8 +2621,10 @@ function setTrayRecordingBadgeImage(state, { force = false } = {}) {
   const normalizedState = state === 'finalizing' ? 'finalizing' : 'recording';
   if (!force && trayRecordingBadgeAppliedState === normalizedState) return;
 
-  const recordingIcon = createTrayRecordingIcon(state);
-  if (!recordingIcon || recordingIcon.isEmpty()) {
+  // Pass the ICO path to Windows so it can select the native tray-size frame,
+  // rather than flattening a 256px bitmap before handing it to the shell.
+  const recordingIcon = getRecordingBadgeAssetPath(state, 'tray');
+  if (!recordingIcon) {
     setTrayDefaultImage();
     return;
   }

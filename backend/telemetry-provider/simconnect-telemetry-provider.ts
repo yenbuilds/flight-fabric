@@ -3699,6 +3699,24 @@ class SimConnectTelemetryProvider {
           baselineReadbacks[index],
         )
       )));
+      // SDK-backed standard-event routes (including PMDG gear) must keep their
+      // SDK/profile generation through confirmation. A cached matching handle
+      // or a late SimConnect rejection must not turn a failed command into success.
+      if (route.transport === 'simconnect-sequence' && requiredSdkAdapter) {
+        const exception = bridge.findRecentSimConnectException?.(ack.sendIds || [], dispatchedAtMs);
+        if (exception) return { ok: false, code: 'aircraft_integration_simconnect_exception',
+          error: 'SimConnect rejected the aircraft control after initial transport acknowledgement.',
+          simConnectException: exception, ...executionState, backendSource };
+        if (!this._getActiveAircraftIntegrationConfig(profileKey, adapterId, options.profileRevision)) {
+          return { ok: false, code: 'stale_profile', error: 'Aircraft changed during control confirmation.',
+            ...executionState, backendSource };
+        }
+        if (this._sdkBridge?.isDataConnected?.() !== true
+          || this._sdkBridge?.getSnapshot?.()?.adapterId !== requiredSdkAdapter) {
+          return { ok: false, code: 'sdk_transport_unavailable', error: 'SDK connectivity changed during control confirmation.',
+            ...executionState, backendSource };
+        }
+      }
       const finalRequiredState = this._checkAircraftIntegrationActionConditions(bridge, requiredConditions, readbackContext);
       if (!finalRequiredState.ok) return { ...finalRequiredState, backendSource, ...executionState };
       if (route.transport === 'input-event') {

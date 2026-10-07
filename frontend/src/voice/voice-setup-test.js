@@ -1,5 +1,6 @@
 import { createPcmCapture } from './pcm-capture.js';
 import { normalizeVoiceText, parseAviationNumber } from './aviation-number-parser.js';
+import { cloudSelectionKey } from './cloud-intent.js';
 
 export const VOICE_TEST_PHRASE = 'Set heading two seven zero';
 const RECORDING_MS = 5000;
@@ -7,7 +8,7 @@ const SESSION_MS = 15000;
 
 export function initialVoiceTestState() {
   return { phase: 'idle', message: '', transcript: '', recognized: false, level: 0,
-    heardAudio: false, deviceLabel: '', playbackAvailable: false, feedbackMessage: '' };
+    heardAudio: false, deviceLabel: '', playbackAvailable: false, feedbackMessage: '', interpreted: false };
 }
 
 // This controller has no aircraft catalogue, command sender or simulator access.
@@ -103,7 +104,8 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
     feedbackGeneration++;
     feedbackOwned = false;
     cancelReadback();
-    const session = { id: '', capture: null, ready: false, finishing: false,
+    const session = { id: '', mode: voiceStore.runtime.mode || 'offline', capture: null, ready: false, finishing: false,
+      cloudSelection: cloudSelectionKey(voiceStore.runtime.cloud),
       chunks: [], frames: 0, sampleRate: 0, heardAudio: false };
     active = session;
     update({ ...initialVoiceTestState(), phase: 'starting', message: 'Opening microphone…' });
@@ -167,6 +169,10 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
       return;
     }
     if (event.type !== 'final') return;
+    if ((event.mode || 'offline') !== session.mode || (voiceStore.runtime.mode || 'offline') !== session.mode) {
+      await fail(session, 'Voice mode changed. Please start the test again.');
+      return;
+    }
     if (!session.finishing) {
       await fail(session, 'Recognition ended before the test finished. Please try again.');
       return;
@@ -174,12 +180,23 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
     clearTimers(session);
     try { await session.capture?.cancel(); } catch {}
     if (active !== session) return;
-    const transcript = String(event.text || '').trim().slice(0, 4096);
+    const cloud = session.mode === 'cloud';
+    if (cloud && (session.cloudSelection !== cloudSelectionKey(voiceStore.runtime.cloud)
+        || session.cloudSelection !== cloudSelectionKey(event.selection))) {
+      await fail(session, 'Cloud voice settings changed. Please start the test again.');
+      return;
+    }
+    const proposedHeading = event.intent?.input?.value;
+    const cloudHeading = cloud && event.intent?.decision === 'command'
+      && event.intent.commandId === 'flightGuidance.heading.set'
+      && Number.isInteger(proposedHeading) && proposedHeading >= 0 && proposedHeading <= 359
+      ? proposedHeading : null;
+    const transcript = cloud ? (cloudHeading !== null ? `Selected heading ${cloudHeading}°` : '') : String(event.text || '').trim().slice(0, 4096);
     const heading = /^set heading (.+)$/.exec(normalizeVoiceText(transcript).replace(/\.$/, ''));
-    const recognized = Boolean(heading && parseAviationNumber(heading[1], { units: 'degrees' }) === 270);
+    const recognized = cloud ? cloudHeading === 270 : Boolean(heading && parseAviationNumber(heading[1], { units: 'degrees' }) === 270);
     recording = session.frames ? { chunks: session.chunks, frames: session.frames, sampleRate: session.sampleRate } : null;
     active = null;
-    update({ phase: 'complete', transcript, recognized, level: 0,
+    update({ phase: 'complete', transcript, interpreted: cloud, recognized, level: 0,
       playbackAvailable: Boolean(recording), message: recognized
         ? 'Test phrase recognized: heading 270°. No command was sent.'
         : transcript ? 'Speech recognized. Try saying the displayed test phrase again.'

@@ -99,11 +99,14 @@ export function formatAviationReadback(match = {}) {
   if (commandId === 'surfaces.parkingBrake.set') {
     return `Parking brake ${value === true ? 'set' : 'released'}.`;
   }
+  if (commandId === 'surfaces.gear.set') {
+    return `Gear ${String(value)} selected.`;
+  }
   if (commandId === 'surfaces.spoilersArmed.set') {
     return `Ground spoilers ${value === true ? 'armed' : 'disarmed'}.`;
   }
   if (commandId === 'surfaces.flaps.adjust') {
-    return `Flaps ${value === 'increase' ? 'increased' : 'decreased'} one detent.`;
+    return 'Flap command sent. Check the cockpit.';
   }
   if (commandId === 'surfaces.flaps.set') {
     return `Flaps ${String(value)} selected.`;

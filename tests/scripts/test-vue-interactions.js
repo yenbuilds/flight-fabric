@@ -2777,6 +2777,25 @@ async function main() {
 
     controller.handleResult({
       ok: false,
+      code: 'aircraft_integration_readback_timeout',
+      request: { commandId: 'surfaces.gear.set', input: { value: 'down' } },
+      commandId: 'surfaces.gear.set',
+      completedStepCount: 0,
+      stepCount: 1,
+      executionStarted: true,
+      error: 'The transport accepted the command, but handle readback did not confirm it.',
+      profileKey: 'bundled/msfs/pmdg-777',
+    });
+    assert.equal(aircraftControlsStore.feedback.actionText, 'Gear selection not confirmed. Check the cockpit.');
+    assert.equal(aircraftControlsStore.feedback.status, 'unconfirmed');
+    assert.match(aircraftControlsStore.feedback.routeText, /0 of 1 step confirmed/i, 'timeout details must retain execution progress');
+    assert.match(aircraftControlsStore.feedback.routeText, /transport accepted.*readback did not confirm/i, 'timeout details must retain the backend diagnosis');
+    assert.doesNotMatch(aircraftControlsStore.feedback.routeText, /before failure/i, 'a confirmation timeout must not become a definite command failure');
+    assert.equal(toasts.at(-1).kind, 'warning');
+    assert.match(toasts.at(-1).message, /verify aircraft state/i);
+
+    controller.handleResult({
+      ok: false,
       request: { commandId: 'surfaces.gear.set', input: { value: 'down' } },
       commandId: 'surfaces.gear.set',
       completedStepCount: 0,

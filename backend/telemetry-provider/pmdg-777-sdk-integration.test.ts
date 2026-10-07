@@ -2,12 +2,135 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const profileLoader = require('../aircraft/aircraft-profile-loader');
+const { executeAircraftCommand } = require('../aircraft/aircraft-control-service');
 const userSettings = require('../core/user-settings');
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
 
 const PMDG_777_PROFILE_KEY = 'bundled/msfs/pmdg-777';
 const PMDG_777_PROFILE_REVISION = 11;
 const PMDG_777_ADAPTER_ID = 'pmdg-777';
+
+async function withGearFixture(profileKey, run) {
+  const originalProfileKey = profileLoader.getActiveProfileId();
+  try {
+    profileLoader.setActiveProfile(profileKey);
+    const profileRevision = profileLoader.getActiveProfileRevision();
+    const provider = new SimConnectTelemetryProvider();
+    provider._connected = true;
+    provider._systemState = { sim: 1 };
+    provider._data = { userInput: true, gearLeft: 0, gearRight: 0, gearNose: 0 };
+    const snapshot: any = { adapterId: 'clientdata-manifest', status: 'running',
+      snapshotSequence: 1, updatedAt: new Date().toISOString(), normalized: { gear: { down: false } } };
+    const events: Array<{ name: string; value: number }> = [];
+    const fixture = { provider, snapshot, events, connected: true, exception: null as any,
+      publish(down) {
+        snapshot.normalized.gear.down = down;
+        snapshot.snapshotSequence += 1;
+        snapshot.updatedAt = new Date().toISOString();
+      },
+      onEvent(name) {
+        fixture.publish(name === 'GEAR_DOWN');
+        return { ok: true, sendId: 42 };
+      },
+      async execute(value) {
+        // Independent requests do not need to spend real time on cooldowns.
+        provider._aircraftIntegrationActionLastAttemptAt.clear();
+        return executeAircraftCommand(provider, {
+          commandId: 'surfaces.gear.set', input: { value }, profileKey, profileRevision,
+        }, { profile: profileLoader.loadProfile(profileKey), profileRevision,
+          requireProfileToken: true, capabilities: provider.getAircraftControlCapabilities() });
+      },
+    };
+    provider._sdkBridge = { getSnapshot: () => snapshot, isDataConnected: () => fixture.connected };
+    const bridge = {
+      _started: true, getSnapshot: () => ({ status: 'running' }),
+      async sendEvent(name, value) {
+        events.push({ name, value });
+        return fixture.onEvent(name);
+      },
+      async setNamedVar() { throw new Error('Gear must not write an LVar'); },
+      async sendSdkEvent() { throw new Error('Gear must not fall back to the numeric SDK recipe'); },
+      findRecentSimConnectException(sendIds) { return sendIds.includes(42) ? fixture.exception : null; },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    await run(fixture);
+  } finally {
+    profileLoader.setActiveProfile(originalProfileKey);
+  }
+}
+
+test('all PMDG 777 profiles confirm SDK gear lever selection ahead of physical travel', async () => {
+  // The -300ER live capture showed lever selection well before physical travel;
+  // see docs/PMDG-777-GEAR-VALIDATION.md. Other variants have contract coverage only.
+  for (const profileKey of [PMDG_777_PROFILE_KEY, 'bundled/msfs/pmdg-777-200er',
+    'bundled/msfs/pmdg-777-200lr', 'bundled/msfs/pmdg-777f']) {
+    await withGearFixture(profileKey, async ({ execute, events, provider, snapshot }) => {
+      // Event-driven ClientData silence alone does not invalidate a live lever.
+      snapshot.updatedAt = new Date(Date.now() - 60000).toISOString();
+      assert.equal((await execute('up')).noOp, true);
+      assert.equal(events.length, 0);
+      for (const target of ['down', 'up']) {
+        const before = events.length;
+        const result = await execute(target);
+        assert.equal(result.ok, true, `${profileKey} ${target}: ${result.error}`);
+        assert.equal(result.confirmedValue, target === 'down');
+        assert.equal(result.transportAcknowledged, undefined);
+        assert.deepEqual(events.slice(before), [{ name: target === 'down' ? 'GEAR_DOWN' : 'GEAR_UP', value: 0 }]);
+        for (const key of ['gearLeft', 'gearRight', 'gearNose']) {
+          assert.equal(provider._data[key], target === 'down' ? 0 : 100, 'do not wait for full gear travel');
+        }
+        assert.equal((await execute(target)).noOp, true);
+        assert.equal(events.length, before + 1);
+        // Let physical travel finish before reversing, as in the live test.
+        for (const key of ['gearLeft', 'gearRight', 'gearNose']) provider._data[key] = target === 'down' ? 100 : 0;
+      }
+    });
+  }
+});
+
+test('PMDG 777 gear refuses unavailable SDK lever state before any write', async () => {
+  for (const condition of ['missing', 'invalid', 'stopped', 'disconnected', 'wrong-adapter']) {
+    await withGearFixture(PMDG_777_PROFILE_KEY, async (fixture) => {
+      if (condition === 'missing') delete fixture.snapshot.normalized.gear.down;
+      // Deliberately invalid telemetry: unknown must not become a lever selection.
+      if (condition === 'invalid') fixture.snapshot.normalized.gear.down = 'unknown';
+      if (condition === 'stopped') fixture.snapshot.status = 'stopped';
+      if (condition === 'disconnected') fixture.connected = false;
+      if (condition === 'wrong-adapter') fixture.snapshot.adapterId = 'other-adapter';
+      const result = await fixture.execute('down');
+      assert.equal(result.ok, false, condition);
+      assert.equal(fixture.events.length, 0, condition);
+    });
+  }
+});
+
+test('PMDG 777 gear retains no-retry, fresh confirmation, SDK/profile and late-exception safeguards', async () => {
+  for (const [condition, expectedCode] of [
+    ['unchanged-lever', 'aircraft_integration_readback_timeout'],
+    ['unchanged-sequence', 'aircraft_integration_readback_timeout'],
+    ['rejected', 'simconnect_sequence_execution_failed'],
+    ['sdk-disconnected', 'sdk_transport_unavailable'],
+    ['profile-changed', 'stale_profile'],
+    ['simconnect-exception', 'aircraft_integration_simconnect_exception'],
+  ]) {
+    await withGearFixture(PMDG_777_PROFILE_KEY, async (fixture) => {
+      fixture.onEvent = () => {
+        if (condition === 'unchanged-sequence') fixture.snapshot.normalized.gear.down = true;
+        else fixture.publish(condition !== 'unchanged-lever');
+        if (condition === 'sdk-disconnected') fixture.connected = false;
+        if (condition === 'profile-changed') profileLoader.setActiveProfile('bundled/msfs/generic');
+        if (condition === 'simconnect-exception') fixture.exception = { sendId: 42, exception: 1 };
+        return { ok: condition !== 'rejected', sendId: 42 };
+      };
+      const result = await fixture.execute('down');
+      assert.equal(result.ok, false, condition);
+      assert.equal(result.code, expectedCode, condition);
+      assert.equal(result.executionStarted, true, condition);
+      assert.deepEqual(fixture.events, [{ name: 'GEAR_DOWN', value: 0 }]);
+    });
+  }
+});
 
 function stubPmdg777SdkIntegration(provider) {
   const fields = {

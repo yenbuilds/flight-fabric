@@ -756,20 +756,26 @@ const taskbarIcoSizes = Array.from({ length: taskbarIcoImageCount }, (_, index) 
   return encodedSize === 0 ? 256 : encodedSize;
 });
 test(
-  'compact Windows icon contains every optically rendered taskbar size',
-  JSON.stringify(taskbarIcoSizes) === JSON.stringify([16, 20, 24, 32, 40, 48, 64, 128, 256])
+  'Windows icon contains every directly rendered taskbar size',
+  JSON.stringify(taskbarIcoSizes) === JSON.stringify([16, 20, 24, 28, 32, 40, 48, 56, 64, 128, 256])
 );
 
-const iconGeneratorSource = fs.readFileSync(path.join(projectRoot, 'scripts', 'generate-app-icons.ps1'), 'utf8');
+const { buildAssets, compactLogo, renderIco, TRAY_BADGE, overlaySvg } = require('../scripts/generate-app-icons');
+const logoMaster = fs.readFileSync(path.join(projectRoot, 'readme-assets', 'flightfabric-logo.svg'), 'utf8');
 test(
-  'compact icon frames use direct small-size rendering and an optical scale',
-  iconGeneratorSource.includes('$compactOpticalScale = 1.12') &&
-    iconGeneratorSource.includes('-RenderCompactDirect')
+  'all generated logo assets match the shared vector master',
+  [...buildAssets()].every(([file, expected]) => {
+    const target = path.join(projectRoot, file);
+    return fs.existsSync(target) && fs.readFileSync(target).equals(expected);
+  })
+);
+test(
+  'primary and taskbar ICO frames use the shared compact vector mark',
+  appIconIco.equals(taskbarIconIco) && taskbarIconIco.equals(renderIco(compactLogo(logoMaster)))
 );
 test(
   'tray recording badge is enlarged independently from the taskbar overlay',
-  iconGeneratorSource.includes('$trayBadgeFillDiameter = 124.0') &&
-    iconGeneratorSource.includes('New-OverlayBadgeBitmap -Size 32')
+  TRAY_BADGE.fill === 48 && overlaySvg('#ef4444').includes('viewBox="0 0 32 32"')
 );
 
 for (const [filename, expectedSize] of [
@@ -1041,7 +1047,8 @@ test('build bundles taskbar icon resource', JSON.stringify(electronPkg.build?.ex
 test('build bundles tray bitmap icon resource', JSON.stringify(electronPkg.build?.extraResources || []).includes('"from":"taskbar-icon.png"'));
 test(
   'build bundles recording badge artwork',
-  ['taskbar-recording-icon.png', 'taskbar-finalizing-icon.png', 'recording-overlay.png', 'finalizing-overlay.png']
+  ['taskbar-recording-icon.png', 'taskbar-finalizing-icon.png',
+    'taskbar-recording-icon.ico', 'taskbar-finalizing-icon.ico', 'recording-overlay.png', 'finalizing-overlay.png']
     .every((filename) => JSON.stringify(electronPkg.build?.extraResources || []).includes(`"from":"${filename}"`)),
 );
 test('build uses backend dependency afterPack hook', electronPkg.build?.afterPack === './after-pack.js');
@@ -1085,9 +1092,10 @@ test('imports Tray', mainSource.includes('Tray'));
 test('imports Notification', mainSource.includes('Notification'));
 test('imports nativeImage', mainSource.includes('nativeImage'));
 test(
-  'uses a dedicated taskbar icon for the window and bitmap tray icon for the tray',
+  'uses a dedicated taskbar icon for the window and prefers ICO frames for the Windows tray',
   mainSource.includes('TASKBAR_ICON_PATH') &&
     mainSource.includes('TASKBAR_TRAY_ICON_PATH') &&
+    mainSource.includes("...(process.platform === 'win32' ? [TASKBAR_ICON_PATH] : [])") &&
     mainSource.includes('new Tray(trayIconPath)')
 );
 test(

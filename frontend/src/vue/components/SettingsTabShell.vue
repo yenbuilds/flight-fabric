@@ -17,8 +17,9 @@ import SettingsAboutLegal from './SettingsAboutLegal.vue';
 import SettingsActionBar from './SettingsActionBar.vue';
 import SettingsFormPanels from './SettingsFormPanels.vue';
 import VoiceControlSettings from './VoiceControlSettings.vue';
-import HelpTooltip from './HelpTooltip.vue';
 import SettingsPendingBar from './SettingsPendingBar.vue';
+import SettingsSectionNav from './SettingsSectionNav.vue';
+import '../../styles/settings-workspace.css';
 import { useProfilesStore } from '../stores/profiles.js';
 import { useSettingsEditorStore } from '../stores/settings-editor.js';
 import { useSettingsFormStore } from '../stores/settings-form.js';
@@ -37,6 +38,16 @@ const tabs = useTabsStore();
 const profiles = useProfilesStore();
 const systemHost = useSystemHostStore();
 const canManageSettings = computed(() => profiles.authorizationScope === 'full-control');
+const sections = computed(() => [
+  ...(canManageSettings.value ? [{ id: 'settings-general', label: 'General' }] : []),
+  ...(voice.bridgeAvailable ? [{ id: 'settings-voice-control', label: 'Voice' }] : []),
+  ...(canManageSettings.value ? [
+    { id: 'settings-phone-tablet-access', label: 'Devices & MSFS' },
+    { id: 'settings-cabin-audio', label: 'Cabin audio' },
+    { id: 'settings-advanced', label: 'Advanced' },
+    { id: 'vue-settings-about-root', label: 'About' },
+  ] : []),
+]);
 let settingsRuntime = null;
 
 function showSettingsToast(...args) {
@@ -79,6 +90,8 @@ onUnmounted(() => {
       <p class="text-xs text-gray-500">Choose how FlightFabric works on this device.</p>
     </div>
 
+    <SettingsSectionNav :sections="sections" />
+
     <section v-if="!canManageSettings && systemHost.isElectron" id="settings-connection-note" class="settings-panel" aria-labelledby="settings-connection-title" role="status">
       <h3 id="settings-connection-title" class="settings-panel-title">Waiting for app settings</h3>
       <p class="mt-2 text-sm text-muted-fg">App preferences will return when FlightFabric reconnects. Open System to check the connection.</p>
@@ -89,34 +102,35 @@ onUnmounted(() => {
       <p class="mt-2 text-sm text-muted-fg">Open Settings in FlightFabric on the simulator PC to change simulator, recording, network, and app preferences.</p>
     </section>
 
-    <VoiceControlSettings v-if="voice.bridgeAvailable" />
-
     <!-- Keep the form mounted: the settings runtime binds its fields before the connection grants access. -->
     <div id="settings-desktop-preferences" v-show="canManageSettings" :inert="!canManageSettings" class="page-stack">
-      <form id="settings-form" class="settings-form-shell" @submit.prevent="canManageSettings && settingsForm.requestSave()">
+      <form id="settings-form" @submit.prevent="canManageSettings && settingsForm.requestSave()">
         <fieldset :disabled="!canManageSettings" class="min-w-0 m-0 border-0 p-0">
-          <div class="settings-form-head">
-            <div class="settings-form-heading">App preferences</div>
-            <HelpTooltip label="App settings help">Changes are written to the settings file. Simulator, aircraft profile, network, and recording changes require restart.</HelpTooltip>
-          </div>
-
           <div id="vue-settings-form-root">
-            <SettingsFormPanels />
-          </div>
-
-          <div id="vue-settings-action-bar-root">
-            <SettingsActionBar />
+            <SettingsFormPanels section="general" />
           </div>
         </fieldset>
       </form>
+    </div>
 
-      <div id="vue-settings-pending-bar-root">
-        <SettingsPendingBar />
-      </div>
+    <VoiceControlSettings v-if="voice.bridgeAvailable" />
 
-      <div id="vue-settings-about-root">
-        <SettingsAboutLegal />
-      </div>
+    <!-- These controls belong to the same form through their form attribute.
+         Voice owns separate forms and remains available during backend recovery. -->
+    <fieldset v-for="section in ['devices', 'audio', 'advanced']" :key="section"
+      v-show="canManageSettings" :inert="!canManageSettings" :disabled="!canManageSettings"
+      class="settings-preference-group">
+      <SettingsFormPanels :section="section" />
+    </fieldset>
+
+    <div v-show="canManageSettings" :inert="!canManageSettings" id="vue-settings-action-bar-root">
+      <SettingsActionBar />
+    </div>
+    <div id="vue-settings-pending-bar-root">
+      <SettingsPendingBar />
+    </div>
+    <div v-show="canManageSettings" :inert="!canManageSettings" id="vue-settings-about-root" data-settings-section tabindex="-1">
+      <SettingsAboutLegal />
     </div>
   </div>
 </template>

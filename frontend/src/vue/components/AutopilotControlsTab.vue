@@ -34,6 +34,7 @@ const sections = computed(() => [
 const feedbackSummary = computed(() => ({
   sending: 'Sending command…',
   sent: 'Command sent. Check the aircraft response.',
+  unconfirmed: 'Aircraft response unconfirmed. Check the cockpit.',
   failed: 'Command could not be completed. Check aircraft state and details.',
 }[aircraftControls.feedback.status] || ''));
 const diagnostics = ref(null);

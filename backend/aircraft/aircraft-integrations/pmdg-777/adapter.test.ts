@@ -30,6 +30,19 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
     assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['sdk']), null);
     assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(apuContext, ['sdk', 'simconnect-sequence']).transport,
       'simconnect-sequence');
+    for (const [target, event, expectedValue] of [['up', 'GEAR_UP', false], ['down', 'GEAR_DOWN', true]]) {
+      const context = { adapterId: PMDG_777_ADAPTER_ID, profileKey, actionId: `controls.gear.${target}` };
+      const action = defaultAircraftIntegrationRegistry.resolveAction(context);
+      assert.equal(action.routes.length, 1, 'no fallback after an unconfirmed gear request');
+      assert.deepEqual(action.guard, { groupId: 'pmdg777.controls.gear', cooldownMs: 650, retry: 'never' });
+      assert.deepEqual(action.routes[0].operations, [{ type: 'event', name: event, value: 0 }]);
+      assert.equal(action.routes[0].requiredSdkAdapter, 'clientdata-manifest');
+      assert.deepEqual(action.routes[0].readback, { fieldId: 'controls.gearDown', expectedValue, timeoutMs: 2500 });
+      assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(context, ['simconnect-sequence']), null);
+      assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(context, ['sdk']), null);
+      assert.equal(defaultAircraftIntegrationRegistry.selectActionRoute(context, ['sdk', 'simconnect-sequence']).transport,
+        'simconnect-sequence');
+    }
   }
 
   assert.equal(PMDG_777_INTEGRATION.presentation.templateId, 'pmdg-777');
@@ -282,7 +295,11 @@ test('PMDG 777 adapter shares one official-SDK contract across exact family prof
         ]);
         continue;
       }
-      if (action.id.startsWith('lighting.') && action.id.endsWith('.set')) {
+      if (['controls.gear.up', 'controls.gear.down'].includes(action.id)) {
+        assert.equal(route.transport, 'simconnect-sequence');
+        assert.equal(route.requiredSdkAdapter, 'clientdata-manifest');
+        assert.equal(route.confirmation, undefined, 'gear success requires lever readback');
+      } else if (action.id.startsWith('lighting.') && action.id.endsWith('.set')) {
         assert.equal(route.transport, 'simconnect-sequence');
         assert.equal(route.requiredSdkAdapter, 'clientdata-manifest');
         assert.equal(route.operations.length, 1);

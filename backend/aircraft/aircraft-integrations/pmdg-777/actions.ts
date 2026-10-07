@@ -543,19 +543,26 @@ for (const definition of [
   });
 }
 
-for (const [suffix, rawValue, expectedValue] of [
-  ['up', 0, false],
-  ['down', 1, true],
+// The numeric #69927 DOWN payload was accepted without moving the lever live.
+// Standard events moved both ways; retain exact SDK lever confirmation without
+// waiting for physical gear travel. See docs/PMDG-777-GEAR-VALIDATION.md.
+for (const [suffix, event, expectedValue] of [
+  ['up', 'GEAR_UP', false],
+  ['down', 'GEAR_DOWN', true],
 ] as const) {
   const actionId = `controls.gear.${suffix}`;
-  actions[actionId] = setSdkPositionAction({
-    actionId,
-    eventId: 69927,
-    fieldId: 'controls.gearDown',
-    groupId: 'pmdg777.controls.gear',
-    rawValue,
-    expectedValue,
-  });
+  actions[actionId] = {
+    id: actionId,
+    verification: 'untested',
+    guard: { groupId: 'pmdg777.controls.gear', cooldownMs: DEFAULT_COOLDOWN_MS, retry: 'never' },
+    routes: [{
+      id: `pmdg777.${actionId}.simconnectSequence`,
+      transport: 'simconnect-sequence',
+      requiredSdkAdapter: SDK_ADAPTER_ID,
+      operations: [{ type: 'event', name: event, value: 0 }],
+      readback: { fieldId: 'controls.gearDown', expectedValue, timeoutMs: DEFAULT_READBACK_TIMEOUT_MS },
+    }],
+  };
 }
 
 addDetentActions({

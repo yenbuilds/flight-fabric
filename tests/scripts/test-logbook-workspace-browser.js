@@ -105,6 +105,26 @@ async function browser() {
     await evaluate("document.querySelector('.logbook-storage summary').click();");
     await evaluate("const search=document.querySelector('.logbook-flight-search input'); search.value='YSSY'; search.dispatchEvent(new Event('input',{bubbles:true})); await logbookTest.settle();");
     await evaluate("document.querySelector('.timeline-flight-open').click(); await logbookTest.settle();");
+    win.webContents.debugger.attach('1.3');
+    await win.webContents.debugger.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'Australia/Sydney' });
+    for (const [iso, expected] of [
+      ['2026-10-06T06:41:19.904Z', '2026-10-06 17:41 UTC+11:00'],
+      ['2026-07-06T06:41:19.904Z', '2026-07-06 16:41 UTC+10:00'],
+    ]) {
+      await evaluate(`logbookTest.loadFlight({ flightId: ${JSON.stringify(iso)}, recordingStartIso: ${JSON.stringify(iso)} }); await logbookTest.settle();`);
+      assert.equal(await evaluate("return document.getElementById('timeline-mobile-viewer-recording-time').textContent;"), expected, 'recording time uses the viewer timezone and daylight-saving offset at the recorded date');
+      assert.equal(await evaluate("return document.querySelector('#timeline-flight-id time').textContent;"), expected, 'a recording without a route shows the same real-world local clock in Flight events');
+      assert.match(await evaluate("return document.getElementById('timeline-flight-id').textContent;"), /Recording start \(real-world local\)/, 'the event header labels the clock explicitly');
+    }
+    for (const width of [1440, 320]) {
+      win.setContentSize(width, 1000); await win.webContents.capturePage(); await wait(100);
+      assert.equal(await evaluate('return document.documentElement.scrollWidth > innerWidth;'), false, 'labelled event-header time fits desktop and phone');
+      fs.writeFileSync(path.join(OUTPUT, `recording-time-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    win.setContentSize(1255, 1000);
+    await evaluate('logbookTest.loadFlight(); await logbookTest.settle();');
+    win.webContents.debugger.detach();
+    assert.match(await evaluate("return document.getElementById('timeline-mobile-viewer-flight-times').textContent;"), /Sim start local[\s\S]*Sim start UTC[\s\S]*Recording start \(real-world local\)/, 'header distinguishes the simulator clock from the viewer clock');
     await evaluate("window.retainedReplay=document.querySelector('#timeline-map'); document.getElementById('logbook-panel-toggle').focus();");
     win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Return' });
     win.webContents.sendInputEvent({ type:'char', keyCode:'Return' });

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createVoiceSetupTest, initialVoiceTestState } from './voice-setup-test.js';
+import { createPcmCapture } from './pcm-capture.js';
 
 function harness(options = {}) {
   const state = { runtime: { enabled: true, available: true }, selectedInputDeviceId: 'selected-mic',
@@ -36,10 +37,10 @@ function harness(options = {}) {
   }
   const controller = createVoiceSetupTest({ api, voiceStore: state, timers,
     canStart: options.canStart || (() => true),
-    globalRef: { AudioContext },
+    globalRef: options.globalRef || { AudioContext },
     cancelReadback: () => calls.push(['cancel-readback']),
     createCapture(callbacks) {
-      const capture = { callbacks,
+      const capture = options.createCapture ? options.createCapture(callbacks) : { callbacks,
         start: options.captureStart || (async () => ({ deviceLabel: 'Selected microphone', sampleRate: 48000 })),
         async stop() { calls.push(['capture-stop']); },
         async cancel() { calls.push(['capture-cancel']); },
@@ -91,6 +92,23 @@ test('silence is distinct from audible input without a transcript', async () => 
     await h.controller.finish(); await h.final('');
     assert.match(h.state.voiceTest.message, message);
     assert.equal(h.state.voiceTest.recognized, false);
+    await h.controller.dispose();
+  }
+});
+
+test('cloud setup shows a different interpreted heading without calling it unrecognized speech', async () => {
+  for (const value of [0, 270, 280]) {
+    const h = harness();
+    const selection = { providerId: 'openai', modelId: 'gpt-realtime-2.1-mini', revision: 0 };
+    h.state.runtime = { enabled: true, available: true, mode: 'cloud', cloud: selection };
+    await h.controller.start(); h.audio(); await h.controller.finish();
+    await h.controller.handleRecognitionEvent({ type: 'final', sessionId: 'test-session', mode: 'cloud', selection,
+      intent: { decision: 'command', commandId: 'flightGuidance.heading.set', input: { value } } });
+    assert.equal(h.state.voiceTest.recognized, value === 270);
+    assert.equal(h.state.voiceTest.interpreted, true);
+    assert.equal(h.state.voiceTest.transcript, `Selected heading ${value}°`);
+    assert.match(h.state.voiceTest.message, value === 270 ? /No command was sent/ : /Try saying the displayed test phrase/);
+    assert.equal(h.calls.some(([type]) => type === 'speak'), false);
     await h.controller.dispose();
   }
 });
@@ -162,6 +180,62 @@ test('navigation during a pending start cancels its late session without opening
   assert.equal(h.captures.length, 0);
   assert(h.calls.some(([type, session]) => type === 'cancel' && session === 'late-session'));
   assert.equal(h.state.voiceTest.phase, 'idle');
+});
+
+test('setup cancellation and disposal close real PCM capture across delayed browser startup replies', async () => {
+  // Browser timing is simulated; this checks ownership across the real setup
+  // controller and PCM capture without opening a physical microphone.
+  for (const stage of ['permission', 'worklet', 'resume']) {
+    for (const action of ['cancel', 'dispose']) {
+      let release, reached;
+      const pending = new Promise(resolve => { release = resolve; });
+      const ready = new Promise(resolve => { reached = resolve; });
+      const waitAt = async boundary => {
+        if (boundary === stage) { reached(); await pending; }
+      };
+      const contexts = [];
+      let trackStops = 0, connected = 0;
+      const track = { label: 'USB headset', readyState: 'live',
+        addEventListener() {}, removeEventListener() {},
+        stop() { trackStops++; this.readyState = 'ended'; } };
+      const stream = { getAudioTracks: () => [track], getVideoTracks: () => [], getTracks: () => [track] };
+      class AudioContext {
+        constructor() {
+          contexts.push(this);
+          this.sampleRate = 48000; this.state = 'suspended'; this.destination = {};
+          this.audioWorklet = { addModule: () => waitAt('worklet') };
+        }
+        createMediaStreamSource() { return { connect() { connected++; }, disconnect() {} }; }
+        async resume() { await waitAt('resume'); }
+        async close() { this.state = 'closed'; }
+      }
+      class AudioWorkletNode {
+        port = { close() {}, postMessage() {} };
+        connect() {} disconnect() {}
+      }
+      const h = harness({ createCapture: createPcmCapture, globalRef: {
+        AudioContext, AudioWorkletNode, isSecureContext: true, setTimeout, clearTimeout,
+        navigator: { mediaDevices: { async getUserMedia() { await waitAt('permission'); return stream; } } },
+      } });
+      const started = h.controller.start();
+      await ready;
+      await h.controller[action]();
+      const state = { ...h.state.voiceTest };
+      assert.equal(trackStops, stage === 'permission' ? 0 : 1, `${action} immediately closes a granted stream at ${stage}`);
+      assert.equal(h.controller.busy, false);
+      assert.equal(h.scheduled.size, 0);
+      assert(h.calls.some(([type, session]) => type === 'cancel' && session === 'test-session'));
+      release();
+      assert.equal(await started, false);
+      assert.equal(trackStops, 1, `${action} closes a late ${stage} grant exactly once`);
+      assert.equal(connected, stage === 'resume' ? 1 : 0);
+      assert(contexts.every(context => context.state === 'closed'));
+      assert.deepEqual(h.state.voiceTest, state);
+      assert.equal(h.calls.some(([type]) => type === 'audio'), false);
+      if (action === 'dispose') assert.equal(await h.controller.start(), false);
+      await h.controller.dispose();
+    }
+  }
 });
 
 test('cancel and fatal errors close capture; stale final results cannot resurrect tests', async () => {

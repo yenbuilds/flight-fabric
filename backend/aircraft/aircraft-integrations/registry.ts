@@ -305,7 +305,8 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
       }
       if (route.transport === 'input-event') {
         const events = route.events === undefined ? [{ inputEvent: route.inputEvent, value: route.value }] : route.events;
-        const readbacks = routeReadbacks;
+        const readbacks = routeReadbacks.length > 0
+          ? routeReadbacks : (route.readback ? [route.readback] : []);
         const pairedShape = route.events === undefined
           ? true
           : Array.isArray(route.events) && route.events.length >= 2 && route.events.length <= 4
@@ -317,6 +318,7 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
             || typeof event.value !== 'number' || !Number.isFinite(event.value)
             || Object.keys(event).some(key => !['inputEvent', 'value'].includes(key)))
           || new Set(events.map(event => event.inputEvent)).size !== events.length
+          || readbacks.length === 0
           || readbacks.some(readback => !readback || readback.freshness !== 'field')
           || action.input !== undefined
           || Object.keys(routeRecord).some(key => !['id', 'transport', 'inputEvent', 'value', 'events', 'readback', 'readbacks', 'precondition'].includes(key))) {

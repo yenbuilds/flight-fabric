@@ -1,0 +1,39 @@
+/* Settings geometry stays local; controls continue to use the shared theme. */
+.settings-page { display: grid; gap: 1rem; --settings-navigation-height: 3.25rem; }
+.app-workbench[data-active-view='settings'] .app-main { scroll-padding-bottom: var(--settings-pending-space, 0px); }
+.settings-page { padding-bottom: var(--settings-pending-space, 0px); }
+.settings-page [data-settings-section],
+.settings-page #settings-toolbar-panel { scroll-margin-top: calc(var(--settings-navigation-height) + 1rem); }
+.settings-page .settings-panel-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 0; }
+.settings-page .settings-preference-group { min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-section-nav { position: sticky; top: 0; z-index: 25; min-width: 0; padding: .35rem; border: 1px solid rgb(var(--border)); border-radius: var(--ff-radius-panel); background: rgb(var(--panel)); box-shadow: var(--ff-shadow-soft); }
+.settings-section-links { display: flex; align-items: center; gap: .25rem; }
+.settings-section-links a { display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem; padding: .45rem .8rem; border-radius: var(--ff-radius-panel); color: rgb(var(--muted-foreground)); font-size: .875rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.settings-section-links a:hover { color: rgb(var(--foreground)); background: rgb(var(--muted)); }
+.settings-section-links a[aria-current] { color: rgb(var(--foreground)); background: rgb(var(--selection) / .18); box-shadow: inset 0 -2px rgb(var(--selection)); }
+.settings-section-select { display: none; align-items: center; gap: .75rem; color: rgb(var(--muted-foreground)); font-size: .875rem; }
+.settings-section-select select { min-height: 2.5rem; min-width: 0; flex: 1; border: 1px solid rgb(var(--border)); border-radius: var(--ff-radius-panel); padding: .35rem .6rem; color: rgb(var(--foreground)); background: rgb(var(--panel-subtle)); }
+.settings-section-description { color: rgb(var(--muted-foreground)); font-size: .8125rem; line-height: 1.5; }
+.settings-page .settings-panel-header { margin-bottom: .75rem; }
+.settings-page .settings-panel > .settings-section-watermark { max-height: 5.5rem; opacity: .4; }
+.settings-page .settings-option-row { display: flex; align-items: center; gap: .75rem; padding-block: .8rem; border-top: 1px solid rgb(var(--border) / .5); }
+.settings-page .settings-option-row > input[type="checkbox"] { order: 2; flex: none; width: 1.125rem; height: 1.125rem; margin-left: auto; }
+.settings-page .settings-option-row > div { flex: 1; }
+.settings-page .settings-option-row.flex-col { align-items: stretch; }
+.settings-page .settings-runtime-connection { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 26rem); align-items: center; gap: 1rem; padding-block: .5rem 1rem; }
+.settings-page .settings-label-row { min-width: 0; }
+.settings-page #settings-cabin-audio > .mt-4 { max-width: 40rem; }
+.settings-voice-summary { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding-top: .85rem; }
+.settings-summary-actions { display: flex; flex-wrap: wrap; flex-shrink: 0; gap: .5rem; }
+.settings-instructions { margin-top: 1rem; border-top: 1px solid rgb(var(--border) / .5); padding-top: .75rem; color: rgb(var(--muted-foreground)); font-size: .8125rem; }
+.settings-instructions > summary { cursor: pointer; color: rgb(var(--foreground)); font-weight: 600; }
+.settings-page .settings-action-bar { padding: 1rem 0; }
+@media (max-width: 1000px) {
+  .settings-section-links { display: none; }
+  .settings-section-select { display: flex; padding-inline: .35rem; }
+}
+@media (max-width: 640px) {
+  .settings-page .settings-runtime-connection { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+  .settings-voice-summary { align-items: stretch; flex-direction: column; }
+  .settings-summary-actions { flex-wrap: wrap; }
+}

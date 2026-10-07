@@ -1,58 +1,100 @@
 'use strict';
 
-// Monochrome adaptation of frontend/icons/icon-512.svg: broken outer orbit,
-// inner orbit, curved flight trail and northeast-pointing aircraft.
-// The native toolbar can override SVG fills. Expand every ring into a solid,
-// closed contour so forced fills cannot turn open stroked arcs into wedges.
-// Absolute M/L/Z geometry avoids stroke, transforms, masks and hole fill rules.
+const fs = require('node:fs');
+const path = require('node:path');
 
-// Inset the artwork within the native 64px button to match nearby toolbar icons.
-const ARTWORK_SCALE = 0.75;
-
-function arcPoints(cx, cy, radius, start, end) {
-  const steps = Math.max(1, Math.ceil(Math.abs(end - start) / 5));
-  return Array.from({ length: steps + 1 }, (_, index) => {
-    const angle = (start + (end - start) * index / steps) * Math.PI / 180;
-    return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
-  });
-}
-
-function orbit(radius, start, end, width) {
-  const half = width / 2;
-  const endCenter = arcPoints(32, 32, radius, end, end)[0];
-  const startCenter = arcPoints(32, 32, radius, start, start)[0];
-  return [
-    ...arcPoints(32, 32, radius + half, start, end),
-    ...arcPoints(...endCenter, half, end, end + 180).slice(1),
-    ...arcPoints(32, 32, radius - half, end, start).slice(1),
-    ...arcPoints(...startCenter, half, start + 180, start + 360).slice(1),
-  ];
-}
+// The native toolbar forces white fills. Flatten the shared vector master into
+// closed filled contours so strokes cannot turn into wedges in Coherent GT.
+const SOURCE = path.resolve(__dirname, '../../readme-assets/flightfabric-logo.svg');
 
 function bezier(points) {
-  return Array.from({ length: 21 }, (_, index) => {
-    const t = index / 20, u = 1 - t;
+  return Array.from({ length: 25 }, (_, index) => {
+    const t = index / 24, u = 1 - t;
     return [0, 1].map(axis => u * u * u * points[0][axis]
       + 3 * u * u * t * points[1][axis]
       + 3 * u * t * t * points[2][axis] + t * t * t * points[3][axis]);
   });
 }
 
+function flatten(data) {
+  if (/[^MCQLZ0-9.\s,-]/.test(data)) throw new Error('Unsupported logo path command.');
+  const tokens = data.match(/[MCQLZ]|-?\d+(?:\.\d+)?/g);
+  const points = [];
+  let current = [0, 0];
+  let index = 0;
+  const pair = () => {
+    const result = [Number(tokens[index++]), Number(tokens[index++])];
+    if (!result.every(Number.isFinite)) throw new Error('Invalid logo path coordinates.');
+    return result;
+  };
+  while (index < tokens.length) {
+    const command = tokens[index++];
+    if (command === 'Z') break;
+    if (command === 'M' || command === 'L') {
+      current = pair();
+      points.push(current);
+    } else if (command === 'C') {
+      const first = pair(), second = pair(), end = pair();
+      points.push(...bezier([current, first, second, end]).slice(1));
+      current = end;
+    } else if (command === 'Q') {
+      const control = pair(), end = pair();
+      const first = current.map((value, axis) => value + (control[axis] - value) * 2 / 3);
+      const second = end.map((value, axis) => value + (control[axis] - value) * 2 / 3);
+      points.push(...bezier([current, first, second, end]).slice(1));
+      current = end;
+    } else {
+      throw new Error(`Unsupported logo path command: ${command}`);
+    }
+  }
+  return points;
+}
+
+function arc(cx, cy, radius, start, sweep, steps = 16) {
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const angle = start + sweep * index / steps;
+    return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
+  });
+}
+
+function expandStroke(points, width) {
+  const radius = width / 2;
+  const normals = points.map((point, index) => {
+    const before = points[Math.max(0, index - 1)];
+    const after = points[Math.min(points.length - 1, index + 1)];
+    return Math.atan2(after[1] - before[1], after[0] - before[0]) + Math.PI / 2;
+  });
+  const side = sign => points.map((point, index) => [
+    point[0] + sign * radius * Math.cos(normals[index]),
+    point[1] + sign * radius * Math.sin(normals[index]),
+  ]);
+  const last = points.length - 1;
+  return [
+    ...side(1),
+    ...arc(...points[last], radius, normals[last], -Math.PI).slice(1),
+    ...side(-1).reverse().slice(1),
+    ...arc(...points[0], radius, normals[0] + Math.PI, -Math.PI).slice(1),
+  ];
+}
+
 function contour(points) {
-  return points.map((point, index) => `${index ? 'L' : 'M'}${point.map(value => Number((32 + (value - 32) * ARTWORK_SCALE).toFixed(2))).join(' ')}`).join('') + 'Z';
+  return points.map((point, index) => `${index ? 'L' : 'M'}${point.map(value => Number((value / 8).toFixed(2))).join(' ')}`).join('') + 'Z';
 }
 
 function renderToolbarIcon() {
-  const paths = [
-    orbit(22.5, 145, 309, 4),
-    orbit(22.5, -12, 76, 4),
-    orbit(13.5, 145, 309, 3.6),
-    [
-      ...bezier([[8, 53], [18, 51.5], [28, 44.5], [36, 35]]),
-      ...bezier([[37, 36.1], [29.5, 47.5], [19.5, 54.5], [9.5, 57]]),
-    ],
-    [[49, 18.9], [42.1, 40.2], [37.9, 33.4], [30.8, 29.8]],
-  ];
+  const source = fs.readFileSync(SOURCE, 'utf8');
+  const paths = [];
+  for (const match of source.matchAll(/<path\b([^>]+)>/g)) {
+    const attributes = Object.fromEntries([...match[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(item => [item[1], item[2]]));
+    // The folded plane facet is already covered by its full white silhouette.
+    if (attributes.fill === 'url(#fold)') continue;
+    const points = flatten(attributes.d);
+    paths.push(attributes.fill === 'none' ? expandStroke(points, Number(attributes['stroke-width'])) : points);
+  }
+  for (const match of source.matchAll(/<circle\b([^>]+)>/g)) {
+    const attributes = Object.fromEntries([...match[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(item => [item[1], item[2]]));
+    paths.push(arc(Number(attributes.cx), Number(attributes.cy), Number(attributes.r), 0, Math.PI * 2, 32));
+  }
   return '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">\n'
     + '  <title>ICON_TOOLBAR_FLIGHTFABRIC</title>\n'
     + paths.map(points => `  <path d="${contour(points)}" fill="#ffffff" />\n`).join('')

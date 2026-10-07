@@ -1,22 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">FlightFabric</title>
-  <desc id="desc">Navigation-display-inspired flight path and aircraft mark</desc>
+  <desc id="desc">FlightFabric small-size mark: a white paper plane and blue-to-magenta orbit.</desc>
   <defs>
-    <linearGradient id="orbit" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#8b5cf6"/>
-      <stop offset="0.52" stop-color="#3b82f6"/>
-      <stop offset="1" stop-color="#06b6ff"/>
+    <radialGradient id="tile" cx="0.51" cy="0.49" r="0.72">
+      <stop offset="0" stop-color="#040d29"/>
+      <stop offset="0.62" stop-color="#020d27"/>
+      <stop offset="1" stop-color="#020c26"/>
+    </radialGradient>
+    <linearGradient id="upper-orbit" x1="146" y1="317" x2="320" y2="139" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1e92f7"/>
+      <stop offset="0.1" stop-color="#336ddc"/>
+      <stop offset="0.2" stop-color="#4550c8"/>
+      <stop offset="0.3" stop-color="#5a41c1"/>
+      <stop offset="0.4" stop-color="#6c3bbf"/>
+      <stop offset="0.5" stop-color="#8135be"/>
+      <stop offset="0.6" stop-color="#9730bc"/>
+      <stop offset="0.7" stop-color="#ad2cbb"/>
+      <stop offset="0.8" stop-color="#c529bb"/>
+      <stop offset="0.9" stop-color="#db26bb"/>
+      <stop offset="1" stop-color="#f529be"/>
+    </linearGradient>
+    <linearGradient id="lower-orbit" x1="202" y1="369" x2="375" y2="201" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2091f6"/>
+      <stop offset="0.1" stop-color="#2e71df"/>
+      <stop offset="0.2" stop-color="#4352c9"/>
+      <stop offset="0.3" stop-color="#583fbf"/>
+      <stop offset="0.4" stop-color="#6c39be"/>
+      <stop offset="0.5" stop-color="#7c34bd"/>
+      <stop offset="0.6" stop-color="#9230bd"/>
+      <stop offset="0.7" stop-color="#a42dbb"/>
+      <stop offset="0.8" stop-color="#bb2abc"/>
+      <stop offset="0.9" stop-color="#d627bd"/>
+      <stop offset="1" stop-color="#f726bd"/>
+    </linearGradient>
+    <linearGradient id="trail" x1="143" y1="366" x2="277" y2="240" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2091f6"/><stop offset="0.5" stop-color="#6240c4"/><stop offset="1" stop-color="#c32cc1"/></linearGradient>
+    <linearGradient id="dot" x1="350" y1="146" x2="368" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f92bbc"/>
+      <stop offset="1" stop-color="#fc26c0"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="308" y1="204" x2="290" y2="266" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e6e7f0"/>
+      <stop offset="1" stop-color="#dcdeea"/>
     </linearGradient>
   </defs>
-  <rect x="4" y="4" width="504" height="504" rx="108" fill="#06142e"/>
-  <g fill="none" stroke="url(#orbit)" stroke-width="26" stroke-linecap="round">
-    <path d="M116.8 355.5A170 170 0 0 1 365.3 127.8"/>
-    <path d="M421 216.9A170 170 0 0 1 300 422.2"/>
-    <path d="M168.7 318.8A102.5 102.5 0 0 1 316.3 183.5" stroke-width="24"/>
-  </g>
-  <path d="M74 418C153 405 240 356 310 257L318 264C251 365 169 425 86 447Z" fill="#ff168f"/>
-  <circle cx="406" cy="155" r="15" fill="#06142e" stroke="#ff168f" stroke-width="8"/>
-  <g transform="rotate(45 312 250)" stroke="#031027" stroke-width="6" stroke-linejoin="round">
-    <path d="M312 166L358 286L312 266L266 286Z" fill="#f8fbff"/>
+  <g transform="translate(256 256) scale(1.72) translate(-256 -251)">
+  <path d="M323 139.8 C303.2 127.7 280.4 120.7 256.2 120.7 C186.2 120.7 129.5 179.1 129.5 250.5 C129.5 274.6 135.4 297.2 146.3 316.6" fill="none" stroke="url(#upper-orbit)" stroke-width="26" stroke-linecap="round"/>
+  <path d="M375.2 201.4 C381.1 216.2 383.6 232.2 383.6 248.9 C383.6 322.9 326.5 381.7 256 381.7 C237.1 381.7 219.5 377.4 202.3 369.2" fill="none" stroke="url(#lower-orbit)" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="358.2" cy="162" r="18.15" fill="url(#dot)"/>
+  <path d="M277.7 237.3 C238.3 275.33 211.68 312.67 127.27 350 L149.5 377 C230.11 330.67 253.03 284.33 277.7 237.3Z" fill="url(#trail)"/>
+  <g transform="translate(278 235) scale(1.12) translate(-278 -235)"><path d="M325.4 187.8 C326.7 187.1 328.1 188.4 327.4 189.9 L289.4 268.6 C288.6 270.4 286.8 270.3 286.3 268.1 L278.5 236.8 Q278.1 235.1 276.4 234.8 L246.8 231 C244.7 230.7 244.5 228.9 246.5 227.9Z" fill="#fefefe" stroke="#031027" stroke-width="8" stroke-linejoin="round"/></g>
   </g>
 </svg>

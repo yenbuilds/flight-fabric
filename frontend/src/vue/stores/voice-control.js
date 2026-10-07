@@ -8,6 +8,8 @@ const DEFAULT_RUNTIME = Object.freeze({
   available: false,
   development: false,
   enabled: false,
+  mode: 'offline',
+  cloud: { enabled: false, keyConfigured: false, storageAvailable: false, providerId: 'openai', providerLabel: 'OpenAI', modelId: '', revision: 0, selectionValid: true, providers: [] },
   error: '',
   modelId: '',
   readbackError: '',
@@ -29,9 +31,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     settingsReturnToAircraft: false,
     setupDismissed: readStorageValue(SETUP_DISMISSED_KEY, { fallback: '' }) === 'yes',
     status: 'initializing',
-    statusText: 'Starting offline voice control…',
+    statusText: 'Starting voice control…',
     transcript: '',
     lastCommand: '',
+    cloudUsage: null,
     deviceLabel: '',
     inputDevices: [],
     inputDevicesError: '',
@@ -101,6 +104,20 @@ export const useVoiceControlStore = defineStore('voiceControl', {
         available: info.available === true,
         development: info.development === true,
         enabled: info.enabled === true,
+        mode: info.mode === 'cloud' ? 'cloud' : 'offline',
+        cloud: {
+          enabled: info.cloud?.enabled === true,
+          keyConfigured: info.cloud?.keyConfigured === true, storageAvailable: info.cloud?.storageAvailable === true,
+          providerId: String(info.cloud?.providerId || 'openai').slice(0, 40),
+          providerLabel: String(info.cloud?.providerLabel || 'OpenAI').slice(0, 120),
+          modelId: String(info.cloud?.modelId || '').slice(0, 120),
+          revision: Number.isSafeInteger(info.cloud?.revision) ? info.cloud.revision : 0,
+          selectionValid: info.cloud?.selectionValid !== false,
+          providers: (Array.isArray(info.cloud?.providers) ? info.cloud.providers : []).slice(0, 8).map(provider => ({
+            id: String(provider.id || '').slice(0, 40), label: String(provider.label || '').slice(0, 120), keyConfigured: provider.keyConfigured === true,
+            models: (Array.isArray(provider.models) ? provider.models : []).slice(0, 16).map(model => ({ id: String(model.id || '').slice(0, 120), label: String(model.label || '').slice(0, 120) })),
+          })),
+        },
         error: typeof info.error === 'string' ? info.error : '',
         modelId: typeof engine.modelId === 'string' ? engine.modelId : '',
         readbackError: typeof info.readback?.lastError === 'string' ? info.readback.lastError : '',
@@ -120,6 +137,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     setSession(sessionId = '') { this.activeSessionId = String(sessionId || ''); },
     setTranscript(value = '') { this.transcript = String(value || '').slice(0, 4096); },
     setLastCommand(value = '') { this.lastCommand = String(value || '').slice(0, 240); },
+    setCloudUsage(usage = null) {
+      this.cloudUsage = usage && [usage.inputTokens, usage.outputTokens].every(value => Number.isSafeInteger(value) && value >= 0)
+        ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : null;
+    },
     setDeviceLabel(value = '') { this.deviceLabel = String(value || '').slice(0, 160); },
     setInputDevicesError(value = '') {
       this.inputDevicesError = typeof value === 'string' ? value.slice(0, 240) : '';
@@ -146,6 +167,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     releaseToTalk() { return this._runtimeActions?.finish?.() || false; },
     cancel() { return this._runtimeActions?.cancel?.('user') || false; },
     setRecognitionEnabled(value) { return this._runtimeActions?.setRecognitionEnabled?.(value) || false; },
+    setMode(value) { return this._runtimeActions?.setMode?.(value) || false; },
+    setCloudProvider(value) { return this._runtimeActions?.setCloudProvider?.(value) || false; },
+    saveCloudKey(providerId, value) { return this._runtimeActions?.saveCloudKey?.(providerId, value) || false; },
+    removeCloudKey(providerId) { return this._runtimeActions?.removeCloudKey?.(providerId) || false; },
     startControllerSetup() { return this._runtimeActions?.startControllerSetup?.() || false; },
     cancelControllerSetup() { return this._runtimeActions?.cancelControllerSetup?.() || false; },
     saveControllerButton() { return this._runtimeActions?.saveControllerButton?.() || false; },

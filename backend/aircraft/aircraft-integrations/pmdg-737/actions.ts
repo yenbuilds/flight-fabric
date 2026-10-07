@@ -878,17 +878,32 @@ actions['systems.electrical.apuGenerators.connect'] = rotorBrakeOutcomeAction({
   ],
 });
 
-// Main-panel and control-stand selectors. These fixed intents use PMDG's
-// published direct event IDs and must confirm the exact NG3 ClientData state.
+// The numeric #70087 DOWN payload was accepted without moving the lever live.
+// GEAR_DOWN/UP moved the handle in ~1.4 s, ahead of ~9 s gear travel. Keep
+// SDK handle confirmation and allow scheduling headroom, not a gear-travel wait.
+// See docs/PMDG-737-GEAR-VALIDATION.md. OFF is a separate, unverified SDK recipe.
+for (const [target, event] of [['up', 'GEAR_UP'], ['down', 'GEAR_DOWN']] as const) {
+  const id = `gear.handle.${target}`;
+  actions[id] = {
+    id,
+    verification: 'untested',
+    guard: { groupId: 'pmdg737.gear.handle', cooldownMs: DEFAULT_COOLDOWN_MS, retry: 'never' },
+    routes: [{
+      id: `pmdg737.${id}.simconnectSequence`,
+      transport: 'simconnect-sequence',
+      requiredSdkAdapter: SDK_ADAPTER_ID,
+      operations: [{ type: 'event', name: event, value: 0 }],
+      readback: { fieldId: 'gear.handleMode', expectedValue: target, timeoutMs: 2500 },
+    }],
+  };
+}
 addDetentActions({
   prefix: 'gear.handle',
   fieldId: 'gear.handleMode',
   groupId: 'pmdg737.gear.handle',
   eventId: 70087,
   positions: [
-    { id: 'up', rawValue: 0, value: 'up' },
     { id: 'off', rawValue: 1, value: 'off' },
-    { id: 'down', rawValue: 2, value: 'down' },
   ],
 });
 
@@ -945,8 +960,8 @@ for (const [suffix, eventId, expectedValue] of [
 }
 
 // PMDG publishes dedicated mouse targets for every normal 737 flap detent.
-// The direct targets avoid long relative sequences; standard handle index is
-// used only as a newer exact confirmation signal.
+// The direct targets avoid long relative sequences. Confirm a fresh cockpit
+// lever selection without waiting for the surfaces to finish travelling.
 for (const [suffix, eventId, expectedValue] of [
   ['up', 76773, 0],
   ['detent1', 76774, 1],
@@ -964,6 +979,7 @@ for (const [suffix, eventId, expectedValue] of [
     fieldId: 'flightControls.flapHandleIndex',
     groupId: 'pmdg737.flightControls.flaps',
     expectedValue,
+    freshness: 'field',
   });
 }
 

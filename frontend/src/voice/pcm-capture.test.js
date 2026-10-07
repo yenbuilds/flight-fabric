@@ -145,3 +145,227 @@ test('PCM capture sends the selected microphone constraints to getUserMedia', as
   await capture.cancel();
   assert.equal(capture.state, 'idle');
 });
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+// These fakes simulate browser reply timing, not physical microphone behavior.
+function createLifecycleHarness({ pauseAt = '', failAt = '', pendingClose = false } = {}) {
+  const pending = deferred();
+  const reachedPause = deferred();
+  const closeReply = deferred();
+  const counters = { tracksStopped: 0, contextsCreated: 0, sourcesDisconnected: 0, nodesDisconnected: 0 };
+  const listeners = new Map();
+  const nodes = [];
+  const contexts = [];
+  const timers = new Map();
+  const chunks = [];
+  const errors = [];
+  let nextTimer = 0;
+  const track = {
+    label: 'USB headset',
+    readyState: 'live',
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    removeEventListener(type, listener) { if (listeners.get(type) === listener) listeners.delete(type); },
+    stop() { counters.tracksStopped += 1; this.readyState = 'ended'; },
+  };
+  const stream = { getAudioTracks: () => [track], getVideoTracks: () => [], getTracks: () => [track] };
+  async function browserReply(stage, value) {
+    if (stage === pauseAt) {
+      reachedPause.resolve();
+      await pending.promise;
+    }
+    if (stage === failAt) throw new Error(`Browser ${stage} failed.`);
+    return value;
+  }
+  class AudioContext {
+    constructor() {
+      counters.contextsCreated += 1;
+      contexts.push(this);
+      this.sampleRate = 48_000;
+      this.destination = {};
+      this.state = 'suspended';
+      this.audioWorklet = { addModule: () => browserReply('worklet') };
+    }
+    createMediaStreamSource() {
+      return { connect() {}, disconnect() { counters.sourcesDisconnected += 1; } };
+    }
+    async resume() { await browserReply('resume'); if (this.state !== 'closed') this.state = 'running'; }
+    async close() {
+      if (pendingClose) await closeReply.promise;
+      this.state = 'closed';
+    }
+  }
+  class AudioWorkletNode {
+    constructor() {
+      nodes.push(this);
+      this.messages = [];
+      this.port = { onmessage: null, close() {}, postMessage: (message) => this.messages.push(message) };
+    }
+    connect() {}
+    disconnect() { counters.nodesDisconnected += 1; }
+  }
+  const globalRef = {
+    isSecureContext: true,
+    AudioContext,
+    AudioWorkletNode,
+    navigator: { mediaDevices: { getUserMedia: () => browserReply('permission', stream) } },
+    setTimeout(callback, milliseconds) {
+      const id = ++nextTimer;
+      timers.set(id, { callback, milliseconds });
+      return id;
+    },
+    clearTimeout(id) { timers.delete(id); },
+  };
+  const capture = new PcmCapture({
+    globalRef,
+    onChunk: (chunk) => chunks.push(chunk),
+    onError: (error) => errors.push(error),
+  });
+  return { capture, pending, reachedPause, closeReply, counters, track, listeners, nodes, contexts, timers, chunks, errors };
+}
+
+test('PCM cancellation closes tracks across delayed microphone and audio initialization replies', async (t) => {
+  for (const pauseAt of ['permission', 'worklet', 'resume']) {
+    await t.test(pauseAt, async () => {
+      const h = createLifecycleHarness({ pauseAt });
+      const startup = h.capture.start();
+      const rejectedStartup = assert.rejects(startup, { name: 'AbortError' });
+      await h.reachedPause.promise;
+      await h.capture.cancel();
+      assert.equal(h.capture.state, 'idle');
+      assert.equal(h.counters.tracksStopped, pauseAt === 'permission' ? 0 : 1);
+      h.pending.resolve();
+      await rejectedStartup;
+      assert.equal(h.counters.tracksStopped, 1, 'late permission grants must close before capture can start');
+      assert.equal(h.counters.contextsCreated, pauseAt === 'permission' ? 0 : 1);
+      assert.equal(h.capture.state, 'idle');
+      assert.equal(h.listeners.size, 0);
+      assert.equal(h.chunks.length, 0);
+      assert.equal(h.errors.length, 0, 'intentional cancellation is not a microphone failure');
+      assert.ok(h.contexts.every((context) => context.state === 'closed'));
+    });
+  }
+});
+
+test('PCM initialization failures release every acquired microphone track', async (t) => {
+  for (const failAt of ['permission', 'worklet', 'resume']) {
+    await t.test(failAt, async () => {
+      const h = createLifecycleHarness({ failAt });
+      await assert.rejects(h.capture.start(), new RegExp(`Browser ${failAt} failed`));
+      assert.equal(h.counters.tracksStopped, failAt === 'permission' ? 0 : 1);
+      assert.equal(h.capture.state, 'idle');
+      assert.equal(h.listeners.size, 0);
+      assert.equal(h.errors.length, 1);
+      assert.ok(h.contexts.every((context) => context.state === 'closed'));
+    });
+  }
+});
+
+test('PCM cancellation stops the microphone before waiting for AudioContext closure', async () => {
+  const h = createLifecycleHarness({ pendingClose: true });
+  await h.capture.start();
+  const cancel = h.capture.cancel();
+  assert.equal(h.counters.tracksStopped, 1);
+  assert.equal(h.nodes[0].port.onmessage, null);
+  assert.equal(h.counters.nodesDisconnected, 1);
+  assert.equal(h.counters.sourcesDisconnected, 1);
+  h.closeReply.resolve();
+  await cancel;
+  assert.equal(h.capture.state, 'idle');
+});
+
+test('PCM release stops the microphone after the bounded flush timeout', async () => {
+  const h = createLifecycleHarness();
+  await h.capture.start();
+  const stop = h.capture.stop();
+  assert.deepEqual(h.nodes[0].messages, [{ type: 'flush' }]);
+  assert.equal(h.counters.tracksStopped, 0, 'normal release permits the final buffered audio to flush');
+  assert.equal(h.timers.size, 1);
+  const timer = [...h.timers.values()][0];
+  assert.equal(timer.milliseconds, 250);
+  timer.callback();
+  await stop;
+  assert.equal(h.counters.tracksStopped, 1);
+  assert.equal(h.capture.state, 'idle');
+  assert.equal(h.timers.size, 0);
+});
+
+test('PCM cancellation interrupts a pending release flush and rejects late audio', async () => {
+  const h = createLifecycleHarness();
+  await h.capture.start();
+  const staleMessageHandler = h.nodes[0].port.onmessage;
+  const stop = h.capture.stop();
+  await h.capture.cancel();
+  await stop;
+  staleMessageHandler({ data: { type: 'pcm', samples: new Float32Array(128) } });
+  assert.equal(h.counters.tracksStopped, 1);
+  assert.deepEqual(h.nodes[0].messages, [{ type: 'flush' }, { type: 'cancel' }]);
+  assert.equal(h.chunks.length, 0);
+  assert.equal(h.timers.size, 0);
+});
+
+test('PCM browser capture failures close the microphone without waiting for a flush', async (t) => {
+  for (const failure of ['track-ended', 'processor-error']) {
+    await t.test(failure, async () => {
+      const h = createLifecycleHarness();
+      await h.capture.start();
+      if (failure === 'track-ended') h.listeners.get('ended')();
+      else h.nodes[0].onprocessorerror();
+      assert.equal(h.counters.tracksStopped, 1);
+      await h.capture.cancel();
+      assert.equal(h.capture.state, 'idle');
+      assert.equal(h.errors.length, 1);
+      assert.equal(h.timers.size, 0);
+    });
+  }
+});
+
+test('microphone discovery cancellation closes a stream while device enumeration is pending', async () => {
+  const pending = deferred();
+  const enumerating = deferred();
+  const abort = new AbortController();
+  let trackStops = 0;
+  const discovery = discoverAudioInputDevices({ navigator: { mediaDevices: {
+    async getUserMedia() { return { getTracks: () => [{ stop: () => { trackStops += 1; } }] }; },
+    enumerateDevices() { enumerating.resolve(); return pending.promise; },
+  } } }, { signal: abort.signal });
+  await enumerating.promise;
+  abort.abort();
+  assert.equal(trackStops, 1, 'cancellation cannot wait for the browser device-list reply');
+  pending.resolve([]);
+  await discovery;
+  assert.equal(trackStops, 1);
+});
+
+test('microphone discovery closes a late permission grant without enumerating devices', async () => {
+  const pending = deferred();
+  const abort = new AbortController();
+  let trackStops = 0;
+  let enumerations = 0;
+  const discovery = discoverAudioInputDevices({ navigator: { mediaDevices: {
+    getUserMedia() { return pending.promise; },
+    async enumerateDevices() { enumerations += 1; return []; },
+  } } }, { signal: abort.signal });
+  abort.abort();
+  pending.resolve({ getTracks: () => [{ stop: () => { trackStops += 1; } }] });
+  assert.deepEqual(await discovery, []);
+  assert.equal(trackStops, 1);
+  assert.equal(enumerations, 0);
+});
+
+test('microphone discovery closes its stream when browser enumeration fails', async () => {
+  let trackStops = 0;
+  await assert.rejects(discoverAudioInputDevices({ navigator: { mediaDevices: {
+    async getUserMedia() { return { getTracks: () => [{ stop: () => { trackStops += 1; } }] }; },
+    async enumerateDevices() { throw new Error('Device enumeration failed.'); },
+  } } }), /Device enumeration failed/);
+  assert.equal(trackStops, 1);
+});

@@ -326,15 +326,13 @@ const PMDG_737_FIELDS: Readonly<Record<string, AircraftIntegrationField>> = {
 
   'flightControls.flapNeedleLeft': numberField('flightControls.flapNeedleLeft', 'flaps.needleLeft', 1),
   'flightControls.flapNeedleRight': numberField('flightControls.flapNeedleRight', 'flaps.needleRight', 1),
-  // The NG3 ClientData struct publishes flap needles but not the physical
-  // handle detent. Use the standard handle index solely to confirm the
-  // PMDG-published direct detent events.
-  'flightControls.flapHandleIndex': simvarNumberField(
-    'flightControls.flapHandleIndex',
-    'FLAPS HANDLE INDEX',
-    'Number',
-    0,
-  ),
+  // PMDG's cockpit lever animation reads NGXFlapLever. The standard handle
+  // index lags selection while the surfaces travel; see PMDG-737-FLAPS-VALIDATION.md.
+  // Exact detents keep unknown/intermediate values from confirming a selection.
+  'flightControls.flapHandleIndex': { id: 'flightControls.flapHandleIndex', sources: [{
+    route: { type: 'lvar', name: 'L:NGXFlapLever', unit: 'Number' },
+    decode: { type: 'enum', values: { 0: 0, 10: 1, 20: 2, 30: 3, 40: 4, 50: 5, 60: 6, 70: 7, 80: 8 } },
+  }] },
   'flightControls.leadingEdgeExtended': booleanField('flightControls.leadingEdgeExtended', 'flaps.leadingEdgeExtended'),
   'flightControls.leadingEdgeTransit': booleanField('flightControls.leadingEdgeTransit', 'flaps.leadingEdgeTransit'),
   'flightControls.speedbrakeArmed': booleanField('flightControls.speedbrakeArmed', 'spoilers.armed'),

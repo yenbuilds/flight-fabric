@@ -435,7 +435,7 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
       if (typeof actionText === 'string') this.feedback.actionText = actionText;
       if (typeof routeText === 'string') this.feedback.routeText = routeText;
       if (typeof profileText === 'string') this.feedback.profileText = profileText;
-      if (['idle', 'sending', 'sent', 'failed'].includes(status)) this.feedback.status = status;
+      if (['idle', 'sending', 'sent', 'unconfirmed', 'failed'].includes(status)) this.feedback.status = status;
       if (typeof commandKey === 'string') this.feedback.commandKey = commandKey.trim();
     },
 

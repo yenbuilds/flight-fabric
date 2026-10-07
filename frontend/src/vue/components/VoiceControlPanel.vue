@@ -7,6 +7,7 @@ import { useVoicePushToTalk } from '../composables/useVoicePushToTalk.js';
 import { canQueryAircraftState, stateQueryExamples } from '../../voice/state-queries.js';
 import { flightPlanQueryExamples } from '../../voice/flight-plan-queries.js';
 import { voiceCommandExamples } from '../../voice/command-examples.js';
+import { createContext } from '../../voice/cloud-intent.js';
 import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
 
 const props = defineProps({
@@ -24,9 +25,15 @@ const queriesAvailable = computed(() => canQueryAircraftState(specific));
 const queryExamples = computed(() => stateQueryExamples(specific));
 const isModalPresentation = computed(() => props.presentation === 'modal');
 
-const examples = computed(() => voiceCommandExamples(
-  Object.values(aircraftControls.aircraftCommandCatalogue.commands || {}),
-));
+const examples = computed(() => {
+  const catalogue = aircraftControls.aircraftCommandCatalogue;
+  const commands = Object.values(catalogue.commands || {});
+  if (voice.runtime.mode !== 'cloud') return voiceCommandExamples(commands);
+  try {
+    const ids = new Set(createContext(catalogue).commands.map(command => command.id));
+    return voiceCommandExamples(commands.filter(command => ids.has(command.id)));
+  } catch { return []; }
+});
 const developmentTranscription = computed(() => voice.runtime.development
   && !queriesAvailable.value
   && (aircraftControls.availability.enabled !== true || examples.value.length === 0));
@@ -167,6 +174,7 @@ const emit = defineEmits(['open-settings']);
       No voice commands are exposed by the active aircraft configuration.
     </p>
 
-    <p class="mt-3 text-[11px] text-muted-fg">After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. Audio remains local and is not saved.</p>
+    <p v-if="voice.runtime.mode === 'cloud' && voice.cloudUsage" class="mt-3 text-[11px] text-muted-fg">Last {{ voice.runtime.cloud.providerLabel }} request: {{ voice.cloudUsage.inputTokens }} input tokens · {{ voice.cloudUsage.outputTokens }} output tokens. Check your provider account for billed usage.</p>
+    <p class="mt-3 text-[11px] text-muted-fg">After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. {{ voice.runtime.mode === 'cloud' ? `Cloud preview sends the audio and supported aircraft controls to ${voice.runtime.cloud.providerLabel} using your API key.` : 'Audio remains local and is not saved.' }}</p>
   </section>
 </template>

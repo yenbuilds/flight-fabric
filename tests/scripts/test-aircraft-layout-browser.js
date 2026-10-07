@@ -56,6 +56,11 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    if (process.env.FF_AIRCRAFT_SECTIONS_ONLY === '1') {
+      await require('./aircraft-section-browser-checks')({ win, evaluate, settled, wait, output: OUTPUT });
+      assert.deepEqual(errors, [], 'Aircraft section navigation has no browser errors');
+      win.destroy(); app.exit(0); return;
+    }
     if (process.env.FF_A32X_LAYOUT_ONLY === '1') {
       for (const id of INCLUDED_A32X) {
         await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});`);
@@ -280,6 +285,9 @@ async function browser() {
       assert.deepEqual(errors, []);
       console.log('PASS Taxi assistant: six aircraft at 1440/390/320px; manual ribbon, live distance, stale/off-route guidance, navigation, optional Autotaxi, stop/release and reconnect.');
       app.exit(0); return;
+    }
+    if (!process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY && !process.env.FF_AUTOTAXI_LAYOUT_ONLY) {
+      await require('./aircraft-section-browser-checks')({ win, evaluate, settled, wait, output: OUTPUT });
     }
     for (const id of (process.env.FF_CDU_LAYOUT_ONLY === '1' || process.env.FF_AIRCRAFT_TOOLS_ONLY === '1' ? [] : process.env.FF_AUTOTAXI_LAYOUT_ONLY === '1' ? ['pmdg-737'] : AIRCRAFT)) {
       const priorTaxiRequests = await evaluate('return layoutTest.taxiSent.length;');

@@ -2776,6 +2776,29 @@ async function main() {
     ]);
   });
 
+  await test('cloud voice stores mode and safe key status without retaining credentials', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    assert.equal(voice.runtime.mode, 'offline');
+    assert.equal(voice.runtime.cloud.enabled, false);
+    voice.applyRuntimeInfo({ enabled: true, mode: 'cloud', cloud: { enabled: true, keyConfigured: true, storageAvailable: true, apiKey: 'synthetic-private-value' } });
+    assert.equal(voice.runtime.mode, 'cloud');
+    assert.equal(voice.runtime.cloud.enabled, true);
+    assert.equal(voice.runtime.cloud.keyConfigured, true);
+    assert.equal(voice.runtime.cloud.storageAvailable, true);
+    assert.equal(voice.runtime.cloud.providerId, 'openai');
+    assert.equal(JSON.stringify(voice.$state).includes('synthetic-private-value'), false);
+    voice.applyRuntimeInfo({ enabled: true, mode: 'offline', cloud: { enabled: false } });
+    assert.equal(voice.runtime.cloud.enabled, false);
+    assert.equal(voice.runtime.mode, 'offline');
+    voice.setCloudUsage({ inputTokens: 120, outputTokens: 14, providerPayload: 'discard' });
+    assert.deepEqual(voice.cloudUsage, { inputTokens: 120, outputTokens: 14 });
+    voice.setCloudUsage({ inputTokens: -1, outputTokens: 14 });
+    assert.equal(voice.cloudUsage, null);
+    voice.applyRuntimeInfo({ enabled: false, mode: 'arbitrary-provider' });
+    assert.equal(voice.runtime.mode, 'offline');
+  });
+
   await test('aircraft-specific store scopes snapshots to the active profile revision and resets safely', () => {
     resetStoreTestContext();
     const aircraftSpecific = useAircraftSpecificStore();

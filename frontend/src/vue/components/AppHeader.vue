@@ -48,7 +48,7 @@ async function openMobileAccess() {
     <div class="app-header-shell app-shell-container">
       <div class="app-header-row flex items-center justify-between gap-4">
         <div class="app-brand-block flex items-center gap-4">
-          <img id="app-brand-logo" class="app-brand-mark" src="/assets/app-icon.png" alt="" aria-hidden="true">
+          <img id="app-brand-logo" class="app-brand-mark" src="/assets/app-mark.svg" alt="" aria-hidden="true">
           <div class="app-brand-copy min-w-0">
             <div class="app-brand-title">FlightFabric</div>
           </div>

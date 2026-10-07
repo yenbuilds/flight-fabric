@@ -66,11 +66,103 @@ async function browser() {
       assert(await evaluate("return !document.querySelector('.timeline-flight-open') && document.getElementById('tab-timeline').textContent.includes('Waiting for your flight history');"), 'revoked desktop access removes retained history and returns to recovery guidance');
     }
   }
+  async function checkCloudVoiceSettings() {
+    const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+    fixtureUrl.search = '?desktop=1';
+    for (const width of [1440, 320]) {
+      win.setContentSize(width, 900);
+      await win.loadURL(fixtureUrl.href);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      assert(await evaluate('return Boolean(window.workbenchTest);'), 'cloud settings fixture mounted');
+      await evaluate(`
+        workbenchTest.voice.setBridgeAvailable(true);
+        workbenchTest.voice.applyRuntimeInfo({ enabled: true, available: true, mode: 'offline', cloud: { enabled: false } });
+        workbenchTest.voice.setState('ready');
+        await workbenchTest.open('settings');
+        const {focusVoiceSettings}=await import('/frontend/src/vue/voice-settings-navigation.js');
+        await focusVoiceSettings(workbenchTest.tabs);
+      `);
+      assert(await evaluate("return !document.querySelector('[data-cloud-voice-settings]') && !document.getElementById('voice-mode') && !document.getElementById('voice-cloud-key');"), 'release settings hide cloud mode and credentials');
+      assert(await evaluate("return document.querySelector('[data-voice-test]') && document.getElementById('settings-voice-control').textContent.includes('Offline');"), 'offline setup remains available');
+      await capture(`cloud-voice-disabled-${width}`);
+      // Simulate a future enabled build so retained preview UI coverage still runs.
+      await evaluate(`
+        const voice = workbenchTest.voice;
+        const providers = [
+          { id:'openai', label:'OpenAI', keyConfigured:false, models:[{id:'gpt-realtime-2.1-mini',label:'GPT Realtime 2.1 Mini'}] },
+          { id:'gemini', label:'Google Gemini', keyConfigured:false, models:[{id:'gemini-3.8-flash',label:'Gemini 3.8 Flash'}] }
+        ];
+        const info = { enabled: false, available: false, mode: 'offline', cloud: { enabled: true, storageAvailable: true, keyConfigured: false,
+          providerId:'openai', providerLabel:'OpenAI', modelId:providers[0].models[0].id, revision:0, providers } };
+        const publish = () => { const selected=providers.find(p=>p.id===info.cloud.providerId); info.cloud.keyConfigured=selected.keyConfigured; info.cloud.providerLabel=selected.label; info.cloud.revision++; voice.applyRuntimeInfo(info); };
+        voice.setBridgeAvailable(true); voice.applyRuntimeInfo(info); voice.setState('disabled');
+        voice.bindRuntime({
+          setMode: async mode => { info.mode = mode; voice.applyRuntimeInfo(info); return true; },
+          setCloudProvider: async selection => { const selected=providers.find(p=>p.id===selection.providerId); info.cloud.providerId=selected.id; info.cloud.modelId=selection.modelId||selected.models[0].id; info.cloud.selectionValid=true; publish(); return true; },
+          saveCloudKey: async (id,value) => { window.keySaveLength = value.length; providers.find(p=>p.id===id).keyConfigured=true; publish(); return true; },
+          removeCloudKey: async id => { providers.find(p=>p.id===id).keyConfigured=false; publish(); return true; }
+        });
+        await workbenchTest.open('settings');
+        const {focusVoiceSettings}=await import('/frontend/src/vue/voice-settings-navigation.js');
+        await focusVoiceSettings(workbenchTest.tabs);
+        const mode = document.getElementById('voice-mode'); mode.value = 'cloud'; mode.dispatchEvent(new Event('change', { bubbles: true }));
+        await workbenchTest.nextTick();
+      `);
+      await wait(60);
+      assert(await evaluate("return document.querySelector('[data-cloud-voice-settings]').textContent.includes('No key saved');"), 'cloud mode can be selected before adding a key');
+      await evaluate(`const key = document.getElementById('voice-cloud-key'); key.value = 'synthetic-key-for-ui-only'; key.dispatchEvent(new Event('input', { bubbles: true })); await workbenchTest.nextTick(); key.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await workbenchTest.nextTick();`);
+      await wait(60);
+      assert(await evaluate("return window.keySaveLength === 25 && document.getElementById('voice-cloud-key').value === '';"), 'saving clears the input immediately');
+      assert(await evaluate("return document.getElementById('voice-cloud-key-status').textContent.includes('protected storage');"), 'saved status contains no secret');
+      await evaluate("document.getElementById('voice-mode-title').scrollIntoView({block:'start'});");
+      assert.equal(await evaluate('return Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1;'), false, 'cloud setup has no horizontal overflow');
+      await capture(`cloud-voice-settings-${width}`);
+      await evaluate(`const key=document.getElementById('voice-cloud-key'); key.value='unsaved-openai-secret'; key.dispatchEvent(new Event('input',{bubbles:true})); const select=document.getElementById('voice-cloud-provider'); select.value='gemini'; select.dispatchEvent(new Event('change',{bubbles:true})); await workbenchTest.nextTick();`);
+      await wait(60);
+      assert.equal(await evaluate("return document.getElementById('voice-cloud-key').value;"), '', 'switching provider clears unsaved key entry');
+      assert(await evaluate("return document.getElementById('voice-cloud-key-status').textContent.includes('No key saved for Google Gemini');"), 'OpenAI key is never reused for Gemini');
+      assert.equal(await evaluate("return document.getElementById('voice-cloud-model').value;"), 'gemini-3.8-flash');
+      await evaluate(`const key=document.getElementById('voice-cloud-key'); key.value='synthetic-google-key-for-ui'; key.dispatchEvent(new Event('input',{bubbles:true})); await workbenchTest.nextTick(); key.form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); await workbenchTest.nextTick();`);
+      await wait(60);
+      assert(await evaluate("return document.getElementById('voice-cloud-key-status').textContent.includes('Google Gemini key saved');"), 'Gemini key status is separate');
+      assert.equal(await evaluate('return Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1;'), false, 'Gemini setup has no horizontal overflow');
+      await capture(`cloud-voice-settings-${width}-gemini`);
+      await evaluate("workbenchTest.voice.setState('finishing'); await workbenchTest.nextTick();");
+      assert(await evaluate("return document.getElementById('voice-mode').disabled && document.getElementById('voice-cloud-provider').disabled && document.getElementById('voice-cloud-model').disabled && document.getElementById('voice-cloud-key').disabled;"), 'cloud settings lock while interpreting');
+      await evaluate(`workbenchTest.voice.setState('disabled'); await workbenchTest.nextTick(); const key=document.getElementById('voice-cloud-key'); key.value='unsaved-synthetic-value'; key.dispatchEvent(new Event('input',{bubbles:true})); await workbenchTest.open('autopilot'); await workbenchTest.open('settings');`);
+      assert.equal(await evaluate("return document.getElementById('voice-cloud-key').value;"), '', 'leaving Settings clears an unsaved key');
+      await evaluate(`const select=document.getElementById('voice-cloud-provider'); select.value='openai'; select.dispatchEvent(new Event('change',{bubbles:true})); await workbenchTest.nextTick();`);
+      await wait(60);
+      assert(await evaluate("return document.getElementById('voice-cloud-key-status').textContent.includes('OpenAI key saved');"), 'returning to OpenAI preserves its key');
+      await evaluate(`const remove=[...document.querySelectorAll('[data-cloud-voice-settings] button')].find(b=>b.textContent==='Remove key'); remove.click(); await workbenchTest.nextTick();`);
+      await wait(60);
+      assert(await evaluate("return !workbenchTest.voice.runtime.cloud.keyConfigured && workbenchTest.voice.runtime.cloud.providers.find(p=>p.id==='gemini').keyConfigured;"), 'removal affects only the selected provider');
+      await evaluate(`workbenchTest.voice.applyRuntimeInfo({ ...workbenchTest.voice.runtime, cloud: { ...workbenchTest.voice.runtime.cloud, selectionValid:false } }); await workbenchTest.nextTick();`);
+      assert(await evaluate("return document.getElementById('voice-cloud-provider').value==='' && !document.getElementById('voice-cloud-key') && document.querySelector('[data-cloud-voice-settings]').textContent.includes('no longer supported');"), 'unsupported saved selections require a choice and cannot present another provider key form');
+      await evaluate(`const select=document.getElementById('voice-cloud-provider'); select.value='openai'; select.dispatchEvent(new Event('change',{bubbles:true})); await workbenchTest.nextTick();`);
+      await wait(60);
+      assert(await evaluate("return workbenchTest.voice.runtime.cloud.selectionValid && document.getElementById('voice-cloud-key-status').textContent.includes('No key saved for OpenAI');"), 'user can explicitly recover an unsupported saved selection by choosing OpenAI');
+    }
+  }
+  const checkSettingsNavigation = () => require('./settings-navigation-checks')({ win, evaluate, capture, wait });
   try {
     await win.loadURL(process.env.FF_WORKBENCH_TEST_URL);
     win.webContents.debugger.attach('1.3');
     for (let n = 0; n < 180; n++) { if (await evaluate('return Boolean(window.workbenchTest);')) break; await wait(50); }
     assert(await evaluate('return Boolean(window.workbenchTest);'), `fixture initialized: ${errors.join('\n')}`);
+    if (process.env.FF_SETTINGS_UX_ONLY === '1') {
+      await checkSettingsNavigation();
+      assert.deepEqual(errors, [], 'settings navigation has no renderer errors');
+      app.exit(0);
+      return;
+    }
+    if (process.env.FF_CLOUD_VOICE_ONLY === '1') {
+      await checkCloudVoiceSettings();
+      assert.deepEqual(errors, [], 'cloud voice settings have no renderer errors');
+      console.log('Cloud voice settings passed: 1440px and 320px, mode selection, transient key entry, protected status and capture locks.');
+      app.exit(0);
+      return;
+    }
     if (process.env.FF_README_CAPTURE_DATE) {
       await require('../../scripts/dev/capture-readme-assets').capture({ win, evaluate });
       assert.deepEqual(errors, [], 'README captures have no renderer errors');
@@ -602,7 +694,7 @@ async function browser() {
     await pointerActivate(setupButton, false);
     await settleToolbarNavigation();
     assert.equal(await evaluate('return document.activeElement.id;'), 'settings-toolbar-panel', `setup link focuses the installation section: ${await evaluate('return document.activeElement.outerHTML.slice(0,300);')}`);
-    assert(await evaluate("const r=document.getElementById('settings-toolbar-panel').getBoundingClientRect(), main=document.getElementById('vue-main-root').getBoundingClientRect(); return r.top>=main.top && r.top<main.top+60;"), 'setup section is scrolled into view');
+    assert(await evaluate("const r=document.getElementById('settings-toolbar-panel').getBoundingClientRect(), nav=document.querySelector('.settings-section-nav').getBoundingClientRect(); return r.top>=nav.bottom && r.top<nav.bottom+20;"), 'setup section is scrolled into view below Settings navigation');
     assert.deepEqual(await evaluate('return workbenchTest.toolbarFixture.writes;'), [], 'discovery does not install automatically');
     await capture('toolbar-setup-instructions');
     await pointerActivate('[data-toolbar-action="install"]', false);
@@ -948,6 +1040,8 @@ async function browser() {
     assert.equal(await evaluate("return workbenchTest.sent.some(message=>message.type==='saveAppSettings');"), false, 'revoked settings submit cannot send a save request');
     await capture('authorization-revoked-settings');
     await checkDesktopAuthorizationRecovery();
+    await checkCloudVoiceSettings();
+    await checkSettingsNavigation();
     assert.deepEqual(errors, [], 'no browser runtime or asset errors');
     fs.writeFileSync(path.join(OUTPUT, 'layout-results.json'), JSON.stringify(checks, null, 2));
     console.log(`App workbench passed: ${checks.length} populated views across ${SIZES.length} desktop, tablet and phone layouts; compact 3D replay, adaptive navigation, map, touch targets, view search, four remote states, muted telemetry and authorization grant/revocation. Screenshots: ${OUTPUT}`);

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
 const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(runtime('aircraft/aircraft-control-service.js'));
+const cloudVoice = require('../../shared/voice-intent');
 
 const msfsCapabilities = {
   simulator: 'msfs',
@@ -53,11 +54,13 @@ for (const entry of loader.listProfiles()) {
   const profileKey = `bundled/${entry.simulator}/${entry.id}`;
   test(`${profileKey}: advertised commands, voice values and lifecycle gates agree`, async (t) => {
     const [{ interpretAircraftVoiceCommand: interpret }, { parseComRadioFrequency },
-      { parseNavRadioFrequency }, { parseSquawk }] = await Promise.all([
+      { parseNavRadioFrequency }, { parseSquawk }, { stateQueryExamples }, { flightPlanQueryExamples }] = await Promise.all([
       import('../../frontend/src/voice/command-interpreter.js'),
       import('../../frontend/src/aircraft/com-radio.js'),
       import('../../frontend/src/aircraft/nav-radio.js'),
       import('../../frontend/src/aircraft/transponder.js'),
+      import('../../frontend/src/voice/state-queries.js'),
+      import('../../frontend/src/voice/flight-plan-queries.js'),
     ]);
     const profile = loader.loadProfile(profileKey);
     assert.equal(profile._profileKey, profileKey);
@@ -67,6 +70,20 @@ for (const entry of loader.listProfiles()) {
         : { simulator: 'xplane', actionTypes: [], integrationTransports: [] },
     };
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    // This checks semantic contract parity only; it is not an acoustic model
+    // evaluation or evidence of a cockpit response.
+    const cloudContext = cloudVoice.createContext(catalogue, [
+      ...stateQueryExamples({ activeProfileKey: profileKey }), ...flightPlanQueryExamples(),
+    ]);
+    cloudVoice.validateContext(cloudContext);
+    for (const command of cloudContext.commands) {
+      for (const value of candidateValues(command.input)) {
+        const intent = cloudVoice.validateIntent({ decision: 'command', commandId: command.id,
+          input: value === undefined ? {} : { value } }, cloudContext);
+        assert.equal(resolveAircraftCommand(intent, options).ok, true,
+          `${profileKey}: cloud ${command.id} ${JSON.stringify(intent.input)} agrees with backend`);
+      }
+    }
     if (['inibuilds-a320neo-v2', 'inibuilds-a321lr'].includes(entry.id)) {
       for (const target of ['speed', 'heading', 'altitude', 'verticalSpeed']) {
         assert.ok(catalogue.commands.some(command => command.id === `flightGuidance.${target}.set`),

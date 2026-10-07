@@ -8,6 +8,7 @@ import {
   subscribeWsMessage,
 } from '../../app/runtime-signals.js';
 import { initTimelinePage } from '../../timeline/bootstrap.js';
+import { formatRecordedDateTime } from '../../timeline/recording-time.js';
 import AircraftArtwork from './AircraftArtwork.vue';
 import LogbookPanel from './LogbookPanel.vue';
 import TimelineAnalysisRescoreModal from './TimelineAnalysisRescoreModal.vue';
@@ -79,12 +80,6 @@ const timelineViewerAircraft = computed(() => {
 function formatFlightDateTime(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(value || '').trim());
   return match ? `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}` : '';
-}
-function formatRecordedDateTime(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '';
-  const pad = (part) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 const timelineViewerRecordingStartTime = computed(() => (
   timeline.timelineLoading ? '' : formatRecordedDateTime(timeline.loadedTimelineRecordingStartTime)
@@ -257,7 +252,7 @@ onUnmounted(() => {
               class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-400"
             >
               <span v-if="timelineViewerLocalDateTime">
-                <span class="uppercase tracking-wide text-gray-500">Flight start local</span>
+                <span class="uppercase tracking-wide text-gray-500">Sim start local</span>
                 <time
                   id="timeline-mobile-viewer-local-time"
                   class="ml-1 font-mono text-gray-300"
@@ -265,7 +260,7 @@ onUnmounted(() => {
                 >{{ timelineViewerLocalDateTime }}</time>
               </span>
               <span v-if="timelineViewerUtcDateTime">
-                <span class="uppercase tracking-wide text-gray-500">Flight start UTC</span>
+                <span class="uppercase tracking-wide text-gray-500">Sim start UTC</span>
                 <time
                   id="timeline-mobile-viewer-utc-time"
                   class="ml-1 font-mono text-gray-300"
@@ -274,9 +269,9 @@ onUnmounted(() => {
               </span>
               <span
                 v-if="timelineViewerRecordingStartTime"
-                title="Recording start in this device's local timezone"
+                title="Real-world recording start in this device's local timezone"
               >
-                <span class="uppercase tracking-wide text-gray-500">Recorded</span>
+                <span class="uppercase tracking-wide text-gray-500">Recording start (real-world local)</span>
                 <time
                   id="timeline-mobile-viewer-recording-time"
                   class="ml-1 font-mono text-gray-300"
@@ -336,7 +331,6 @@ onUnmounted(() => {
           <button type="button" :aria-pressed="reviewView === 'events'" @click="setReviewView('events')">Events</button>
           <button type="button" :aria-pressed="reviewView === 'map'" @click="setReviewView('map')">Replay map</button>
         </div>
-        <span class="logbook-history-label">Historical measurements</span>
       </div>
 
       <div v-show="hasReview && !timeline.timelineLoadError" id="vue-timeline-summary-root">

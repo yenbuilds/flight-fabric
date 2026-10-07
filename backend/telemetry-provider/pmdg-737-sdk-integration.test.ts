@@ -10,6 +10,256 @@ const PMDG_737_PROFILE_KEY = 'bundled/msfs/pmdg-737';
 const PMDG_737_PROFILE_REVISION = 11;
 const PMDG_737_ADAPTER_ID = 'pmdg-737';
 
+// Recorded 737-800 cockpit lever values, independently observed through all
+// nine detents on 2026-10-06; see docs/PMDG-737-FLAPS-VALIDATION.md.
+const FLAP_DETENTS = [
+  ['up', 0], ['1', 10], ['2', 20], ['5', 30], ['10', 40],
+  ['15', 50], ['25', 60], ['30', 70], ['40', 80],
+] as const;
+const PMDG_737_FAMILY = [
+  'bundled/msfs/pmdg-737-600', 'bundled/msfs/pmdg-737-700',
+  PMDG_737_PROFILE_KEY, 'bundled/msfs/pmdg-737-900',
+];
+
+async function withFlapFixture(profileKey, run) {
+  const originalProfileKey = profileLoader.getActiveProfileId();
+  try {
+    profileLoader.setActiveProfile(profileKey);
+    const profileRevision = profileLoader.getActiveProfileRevision();
+    const config = profileLoader.getAircraftSpecificConfig();
+    const field = config.confirmationFields.find((entry) => entry.id === 'flightControls.flapHandleIndex');
+    assert.equal(field.source.type, 'lvar');
+    const key = field.source.key;
+    let timestamp = Date.now() - 100;
+    const initialAt = new Date(timestamp).toISOString();
+    const snapshot: any = { status: 'running', profileId: profileKey, snapshotSequence: 1,
+      updatedAt: initialAt, valueUpdatedAt: { [key]: initialAt }, values: { [key]: 30 } };
+    const provider = new SimConnectTelemetryProvider();
+    provider._connected = true;
+    provider._systemState = { sim: 1 };
+    // The live reproduction started at flaps 5; standard index and needles
+    // remained there after the lever had already reached the requested detent.
+    provider._data = { userInput: true, flapsIndex: 3 };
+    provider._rustSimvarSnapshotSequence = 1;
+    provider._rustSimvarBridge = { getSnapshot: () => ({ status: 'running', updatedAt: initialAt }) };
+    const sdkSnapshot = { adapterId: 'clientdata-manifest', status: 'running',
+      snapshotSequence: 1, updatedAt: initialAt, normalized: { flaps: { needleLeft: 5, needleRight: 5 } } };
+    provider._sdkBridge = { getSnapshot: () => sdkSnapshot, isDataConnected: () => true };
+    const events: Array<{ name: string; value: number }> = [];
+    const publish = (raw, freshField = true) => {
+      snapshot.values[key] = raw;
+      snapshot.snapshotSequence += 1;
+      snapshot.updatedAt = new Date(++timestamp).toISOString();
+      if (freshField) snapshot.valueUpdatedAt[key] = snapshot.updatedAt;
+    };
+    const fixture = { provider, snapshot, key, events, publish,
+      onRelease: (name) => publish(FLAP_DETENTS[Number(name.slice(1)) - 76773][1]),
+      async execute(value) {
+        // Exercise independent requests without spending real time on cooldowns.
+        provider._aircraftIntegrationActionLastAttemptAt.clear();
+        return executeAircraftCommand(provider, {
+          commandId: 'surfaces.flaps.set', input: { value }, profileKey, profileRevision,
+        }, { profile: profileLoader.loadProfile(profileKey), profileRevision,
+          requireProfileToken: true, capabilities: provider.getAircraftControlCapabilities() });
+      },
+    };
+    const bridge = { getSnapshot: () => snapshot, async sendSdkEvent(name, value) {
+      events.push({ name, value });
+      if (value === 0x00020000) fixture.onRelease(name);
+      return { ok: true };
+    } };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    await run(fixture);
+  } finally {
+    profileLoader.setActiveProfile(originalProfileKey);
+  }
+}
+
+test('all PMDG 737 profiles confirm exact flap selections while the surfaces and standard index lag', async () => {
+  for (const profileKey of PMDG_737_FAMILY) {
+    await withFlapFixture(profileKey, async ({ execute, events, provider }) => {
+      for (const [index, [value]] of FLAP_DETENTS.entries()) {
+        const before = events.length;
+        const result = await execute(value);
+        assert.equal(result.ok, true, `${profileKey} flaps ${value}: ${result.error}`);
+        assert.equal(result.confirmedValue, index);
+        assert.deepEqual(events.slice(before), [
+          { name: `#${76773 + index}`, value: 0x20000000 },
+          { name: `#${76773 + index}`, value: 0x00020000 },
+        ]);
+      }
+      assert.equal(provider._data.flapsIndex, 3, 'confirmation must not wait for standard index');
+      assert.equal((await execute('40')).noOp, true, 'fresh lever selection avoids duplicate writes');
+      assert.equal(events.length, 18);
+      assert.equal((await execute('5')).ok, true);
+      assert.equal(events.length, 20, 'return to 5 must dispatch even when lagging standard index is already 3');
+    });
+  }
+});
+
+test('PMDG 737 flap selection requires a fresh usable lever before writing or returning already-selected', async () => {
+  for (const condition of ['missing', 'stale-field', 'invalid-detent', 'disconnected', 'paused', 'wrong-profile']) {
+    await withFlapFixture(PMDG_737_PROFILE_KEY, async ({ execute, events, snapshot, key, provider }) => {
+      if (condition === 'missing') delete snapshot.values[key];
+      if (condition === 'stale-field') snapshot.valueUpdatedAt[key] = new Date(Date.now() - 60000).toISOString();
+      // Deliberately invalid telemetry: do not round it into a valid detent.
+      if (condition === 'invalid-detent') snapshot.values[key] = 31;
+      if (condition === 'disconnected') provider._connected = false;
+      if (condition === 'paused') provider._data.userInput = false;
+      if (condition === 'wrong-profile') snapshot.profileId = 'bundled/msfs/generic';
+      const result = await execute('5');
+      assert.equal(result.ok, false, condition);
+      assert.equal(result.code, 'aircraft_integration_readback_unavailable', condition);
+      assert.equal(events.length, 0, condition);
+    });
+  }
+});
+
+test('PMDG 737 flap selection never substitutes lagging standard state or unrelated fresh samples for lever confirmation', async () => {
+  for (const condition of ['unchanged-lever', 'unchanged-field-timestamp']) {
+    await withFlapFixture(PMDG_737_PROFILE_KEY, async (fixture) => {
+      fixture.onRelease = () => {
+        fixture.provider._data.flapsIndex = 1;
+        fixture.provider._rustSimvarSnapshotSequence += 1;
+        fixture.publish(condition === 'unchanged-lever' ? 30 : 10, condition === 'unchanged-lever');
+      };
+      const result = await fixture.execute('1');
+      assert.equal(result.ok, false, condition);
+      assert.equal(result.code, 'aircraft_integration_readback_timeout', condition);
+      assert.equal(result.executionStarted, true);
+      assert.equal(fixture.events.length, 2, 'one press/release, no retry after an accepted command');
+    });
+  }
+});
+
+async function withGearFixture(profileKey, run) {
+  const originalProfileKey = profileLoader.getActiveProfileId();
+  try {
+    profileLoader.setActiveProfile(profileKey);
+    const profileRevision = profileLoader.getActiveProfileRevision();
+    const provider = new SimConnectTelemetryProvider();
+    provider._connected = true;
+    provider._systemState = { sim: 1 };
+    provider._data = { userInput: true, gearLeft: 0, gearRight: 0, gearNose: 0 };
+    const snapshot: any = { adapterId: 'clientdata-manifest', status: 'running',
+      snapshotSequence: 1, updatedAt: new Date().toISOString(), normalized: { gear: { handle: 'up' } } };
+    const events: Array<{ name: string; value: number }> = [];
+    const fixture = { provider, snapshot, events, connected: true, exception: null as any,
+      publish(value) {
+        snapshot.normalized.gear.handle = value;
+        snapshot.snapshotSequence += 1;
+        snapshot.updatedAt = new Date().toISOString();
+      },
+      onEvent(name) {
+        fixture.publish(name === 'GEAR_DOWN' ? 'down' : 'up');
+        return { ok: true, sendId: 42 };
+      },
+      async execute(value) {
+        provider._aircraftIntegrationActionLastAttemptAt.clear();
+        return executeAircraftCommand(provider, {
+          commandId: 'surfaces.gear.set', input: { value }, profileKey, profileRevision,
+        }, { profile: profileLoader.loadProfile(profileKey), profileRevision,
+          requireProfileToken: true, capabilities: provider.getAircraftControlCapabilities() });
+      },
+    };
+    provider._sdkBridge = { getSnapshot: () => snapshot, isDataConnected: () => fixture.connected };
+    const bridge = {
+      _started: true,
+      getSnapshot: () => ({ status: 'running' }),
+      async sendEvent(name, value) {
+        events.push({ name, value });
+        return fixture.onEvent(name);
+      },
+      async setNamedVar() { throw new Error('Gear must not write an LVar'); },
+      async sendSdkEvent() { throw new Error('Gear must not fall back to a numeric SDK event'); },
+      findRecentSimConnectException(sendIds) { return sendIds.includes(42) ? fixture.exception : null; },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    await run(fixture);
+  } finally {
+    profileLoader.setActiveProfile(originalProfileKey);
+  }
+}
+
+test('all PMDG 737 profiles select gear DOWN and UP through standard events and confirm the SDK handle before travel completes', async () => {
+  for (const profileKey of PMDG_737_FAMILY) {
+    await withGearFixture(profileKey, async ({ execute, events, provider }) => {
+      for (const target of ['down', 'up']) {
+        const before = events.length;
+        const result = await execute(target);
+        assert.equal(result.ok, true, `${profileKey} ${target}: ${result.error}`);
+        assert.equal(result.confirmedValue, target);
+        assert.equal(result.transportAcknowledged, undefined);
+        assert.deepEqual(events.slice(before), [{ name: target === 'down' ? 'GEAR_DOWN' : 'GEAR_UP', value: 0 }]);
+        assert.equal(provider._data.gearLeft, target === 'down' ? 0 : 100,
+          'handle confirmation must not wait for physical travel');
+        assert.equal((await execute(target)).noOp, true);
+        assert.equal(events.length, before + 1, 'already selected must not write again');
+        // Realistic starting point for the next request: allow gear to finish travel.
+        for (const key of ['gearLeft', 'gearRight', 'gearNose']) provider._data[key] = target === 'down' ? 100 : 0;
+      }
+    });
+  }
+});
+
+test('PMDG 737 gear requires usable SDK handle telemetry before dispatch', async () => {
+  for (const condition of ['missing', 'invalid', 'stopped', 'sdk-disconnected']) {
+    await withGearFixture(PMDG_737_PROFILE_KEY, async (fixture) => {
+      if (condition === 'missing') delete fixture.snapshot.normalized.gear.handle;
+      // Deliberately invalid telemetry must never be interpreted as a selection.
+      if (condition === 'invalid') fixture.snapshot.normalized.gear.handle = 'unknown';
+      if (condition === 'stopped') fixture.snapshot.status = 'stopped';
+      if (condition === 'sdk-disconnected') fixture.connected = false;
+      const result = await fixture.execute('down');
+      assert.equal(result.ok, false, condition);
+      assert.equal(fixture.events.length, 0, condition);
+    });
+  }
+});
+
+test('PMDG 737 gear does not retry or accept unchanged or cached handle state after dispatch', async () => {
+  for (const condition of ['unchanged-handle', 'unchanged-sequence', 'rejected']) {
+    await withGearFixture(PMDG_737_PROFILE_KEY, async (fixture) => {
+      fixture.onEvent = () => {
+        if (condition === 'unchanged-handle') fixture.publish('up');
+        if (condition === 'unchanged-sequence') fixture.snapshot.normalized.gear.handle = 'down';
+        return { ok: condition !== 'rejected', sendId: 42 };
+      };
+      const result = await fixture.execute('down');
+      assert.equal(result.ok, false, condition);
+      assert.equal(result.code, condition === 'rejected'
+        ? 'simconnect_sequence_execution_failed' : 'aircraft_integration_readback_timeout', condition);
+      assert.equal(result.executionStarted, true, condition);
+      assert.deepEqual(fixture.events, [{ name: 'GEAR_DOWN', value: 0 }]);
+    });
+  }
+});
+
+test('PMDG 737 gear never confirms a matching handle after SDK loss, profile change or a correlated SimConnect exception', async () => {
+  for (const [condition, code] of [
+    ['sdk-disconnected', 'sdk_transport_unavailable'],
+    ['profile-changed', 'stale_profile'],
+    ['simconnect-exception', 'aircraft_integration_simconnect_exception'],
+  ]) {
+    await withGearFixture(PMDG_737_PROFILE_KEY, async (fixture) => {
+      fixture.onEvent = () => {
+        fixture.publish('down');
+        if (condition === 'sdk-disconnected') fixture.connected = false;
+        if (condition === 'profile-changed') profileLoader.setActiveProfile('bundled/msfs/generic');
+        if (condition === 'simconnect-exception') fixture.exception = { sendId: 42, exception: 1 };
+        return { ok: true, sendId: 42 };
+      };
+      const result = await fixture.execute('down');
+      assert.equal(result.ok, false, condition);
+      assert.equal(result.code, code, condition);
+      assert.equal(result.executionStarted, true, condition);
+      assert.equal(fixture.events.length, 1, condition);
+    });
+  }
+});
+
 function stubPmdg737SdkIntegration(provider) {
   const fields = {
     'lights.beacon': {
