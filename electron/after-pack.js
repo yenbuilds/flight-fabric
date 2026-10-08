@@ -433,6 +433,11 @@ async function afterPack(context) {
   );
 
   await finalizeWindowsExecutables(context);
+  if (context.electronPlatformName === 'win32') {
+    await require('./windows-runtime').verifyRuntimeInstaller(
+      path.join(context.appOutDir, 'resources', 'vc-runtime', 'vc_redist.x64.exe'),
+    );
+  }
 }
 
 module.exports = afterPack;

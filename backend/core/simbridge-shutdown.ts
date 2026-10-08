@@ -118,3 +118,27 @@ export async function runSimbridgeShutdownSequence({
     throw new AggregateError(failures, 'One or more Simbridge shutdown tasks failed');
   }
 }
+
+/** Update installation requires a positive cleanup result, including deadlines. */
+export function runShutdownTask(task: () => unknown, timeoutMs: number, label: string, strict = false): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (value: unknown, error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (strict && error) reject(error);
+      else resolve(value);
+    };
+    const timer = setTimeout(() => {
+      const error = new Error(label + ' timed out');
+      console.warn('[simbridge] ' + error.message);
+      finish(null, error);
+    }, timeoutMs);
+    timer.unref?.();
+    Promise.resolve().then(task).then(value => finish(value)).catch(error => {
+      console.warn('[simbridge] ' + label + ' failed:', error?.message || String(error));
+      finish(null, error);
+    });
+  });
+}

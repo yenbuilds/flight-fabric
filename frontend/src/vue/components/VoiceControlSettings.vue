@@ -8,6 +8,7 @@ import SettingsSectionWatermark from './SettingsSectionWatermark.vue';
 import VoiceSetupTest from './VoiceSetupTest.vue';
 import ControllerButtonSettings from './ControllerButtonSettings.vue';
 import CloudVoiceSettings from './CloudVoiceSettings.vue';
+import VoiceRestartHint from './VoiceRestartHint.vue';
 
 const voice = useVoiceControlStore();
 const tabs = useTabsStore();
@@ -213,6 +214,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
       <p v-if="recognitionError" class="mt-3 text-sm text-warning" data-voice-recognition-error role="alert">{{ recognitionError }}</p>
       <p v-if="voice.status === 'initializing'" class="mt-3 text-xs text-muted-fg" role="status">Starting voice control…</p>
       <p v-else-if="voice.runtime.enabled && !voice.runtime.available" class="mt-3 text-sm text-warning" role="status">{{ voice.runtime.error || 'Voice could not start. Try turning voice off and on again.' }}</p>
+      <VoiceRestartHint />
       <div id="voice-settings-configuration" v-show="configurationOpen">
         <p class="mt-3 text-xs text-muted-fg">{{ voice.runtime.controllerEnabled
           ? 'Voice preferences apply immediately on this PC. Use Save shortcut or Save button to confirm a new way to talk.'

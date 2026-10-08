@@ -2,8 +2,10 @@
 import { useBodyStyle } from '../composables/useBodyStyle.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 import { useStatusStore } from '../stores/status.js';
+import { useDesktopUpdatesStore } from '../stores/desktop-updates.js';
 
 const status = useStatusStore();
+const updates = useDesktopUpdatesStore();
 const settingsUi = useSettingsUiStore();
 const bannerInnerClass = 'max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-3';
 const bannerMessageWrapClass = 'min-w-0 flex items-center gap-2';
@@ -103,19 +105,23 @@ useBodyStyle(
       class="backdrop-blur-sm border-b"
       :class="[status.updateBannerToneClass, { hidden: !status.updateBannerVisible }]"
     >
-      <div :class="bannerInnerClass">
+      <div :class="bannerInnerClass" class="h-10">
         <div :class="bannerMessageWrapClass">
           <svg id="update-icon" class="w-4 h-4" :class="status.updateIconToneClass" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span class="text-sm text-white">
-            Update available: <span id="update-version" class="font-semibold">{{ status.updateVersionLabel }}</span>
-            <span id="update-message" class="ml-2" :class="[status.updateMessageToneClass, { hidden: !status.updateMessageVisible }]">{{ status.updateMessageLabel }}</span>
+          <span class="text-sm text-white truncate">
+            <span class="hidden sm:inline">Update available: </span><span id="update-version" class="font-semibold">{{ status.updateVersionLabel }}</span>
+            <span id="update-message" class="ml-2 hidden lg:inline" :class="[status.updateMessageToneClass, { hidden: !status.updateMessageVisible }]">{{ status.updateMessageLabel }}</span>
           </span>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="shrink-0 flex items-center gap-3">
+          <button v-if="updates.supported" type="button" class="text-xs sm:text-sm whitespace-nowrap font-medium text-white underline underline-offset-2 disabled:opacity-60"
+            :disabled="updates.busy || (updates.phase === 'ready' && Boolean(updates.installBlocker))"
+            :title="updates.phase === 'ready' ? updates.installBlocker : ''"
+            @click="updates.primaryAction()">{{ updates.actionLabel }}</button>
           <a
-            v-if="status.updateDownloadUrl"
+            v-if="!updates.supported && status.updateDownloadUrl"
             id="update-download-link"
             :href="status.updateDownloadUrl"
             target="_blank"

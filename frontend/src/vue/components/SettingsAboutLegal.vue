@@ -1,6 +1,7 @@
 <script setup>
 import AppTooltip from './AppTooltip.vue';
 import SupportSection from './SupportSection.vue';
+import DesktopUpdates from './DesktopUpdates.vue';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 
 const settingsUi = useSettingsUiStore();
@@ -37,6 +38,8 @@ async function copyStorageLocationPath(location) {
         </div>
         <div class="text-xs text-gray-500 shrink-0">AGPL-3.0-only</div>
       </div>
+
+      <DesktopUpdates />
 
       <div class="px-4 py-4 space-y-2">
         <div class="text-[10px] uppercase tracking-widest text-cyan-400" style="font-family: 'B612 Mono', monospace;">Simulator Support</div>

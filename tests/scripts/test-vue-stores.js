@@ -2612,6 +2612,31 @@ async function main() {
   });
 
   console.log('\n--- aircraft controls store ---\n');
+  await test('voice restart guidance appears only for a failed local recognition engine', () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    const failed = { enabled: true, available: false, mode: 'offline',
+      modelBundled: true, engine: { state: 'failed' }, error: 'Local voice recognition stopped.' };
+    voice.setBridgeAvailable(true);
+    voice.applyRuntimeInfo(failed);
+    voice.setState('unavailable', failed.error);
+    assert.equal(voice.restartHintVisible, true, 'a failed engine gets quiet recovery guidance');
+    assert.equal(voice.statusText, failed.error, 'the actual failure remains visible');
+    voice.applyRuntimeInfo({ ...failed, engine: { state: 'starting' } });
+    assert.equal(voice.restartHintVisible, false, 'normal startup must not suggest restarting');
+    voice.applyRuntimeInfo({ ...failed, available: true, engine: { state: 'ready' } });
+    for (const status of ['ready', 'listening', 'finishing', 'unmatched', 'error', 'blocked']) {
+      voice.setState(status);
+      assert.equal(voice.restartHintVisible, false, `${status} alone is not an engine failure`);
+    }
+    for (const patch of [{ enabled: false }, { mode: 'cloud' }, { modelBundled: false }]) {
+      voice.applyRuntimeInfo({ ...failed, ...patch });
+      assert.equal(voice.restartHintVisible, false, 'off, cloud setup and missing models need their specific guidance');
+    }
+    voice.applyRuntimeInfo(failed);
+    voice.setBridgeAvailable(false);
+    assert.equal(voice.restartHintVisible, false, 'browser views cannot restart the desktop voice engine');
+  });
   await test('voice setup reminder follows desktop registration, not simulator or microphone selection', () => {
     resetStoreTestContext();
     const voice = useVoiceControlStore();

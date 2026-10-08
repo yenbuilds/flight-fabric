@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "feedUrl": "https://raw.githubusercontent.com/yenbuilds/ff-releases/main/desktop/windows-x64.json",
+  "keys": [
+    {
+      "id": "ba8f1cfc443b092b0d19e5f7253af9f9",
+      "publicKey": "MCowBQYDK2VwAyEAbhxjFwnP9d7qsztqhOg3Rym1k8FFuWEIKSPR3B72Yv0="
+    }
+  ]
+}

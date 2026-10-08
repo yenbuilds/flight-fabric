@@ -199,8 +199,9 @@ function createLifecycleHarness({ pauseAt = '', failAt = '', pendingClose = fals
     }
     async resume() { await browserReply('resume'); if (this.state !== 'closed') this.state = 'running'; }
     async close() {
-      if (pendingClose) await closeReply.promise;
+      this.closeRequests = (this.closeRequests || 0) + 1;
       this.state = 'closed';
+      if (pendingClose) await closeReply.promise;
     }
   }
   class AudioWorkletNode {
@@ -234,12 +235,17 @@ function createLifecycleHarness({ pauseAt = '', failAt = '', pendingClose = fals
 
 test('PCM cancellation closes tracks across delayed microphone and audio initialization replies', async (t) => {
   for (const pauseAt of ['permission', 'worklet', 'resume']) {
-    await t.test(pauseAt, async () => {
-      const h = createLifecycleHarness({ pauseAt });
+    await t.test(pauseAt, async (t) => {
+      const h = createLifecycleHarness({ pauseAt, pendingClose: true });
+      t.after(() => { h.pending.resolve(); h.closeReply.resolve(); });
       const startup = h.capture.start();
       const rejectedStartup = assert.rejects(startup, { name: 'AbortError' });
       await h.reachedPause.promise;
-      await h.capture.cancel();
+      let cancelled = false;
+      const cancellation = h.capture.cancel().then(() => { cancelled = true; });
+      await new Promise(setImmediate);
+      assert.equal(cancelled, true, 'startup cancellation cannot wait for context closure');
+      await cancellation;
       assert.equal(h.capture.state, 'idle');
       assert.equal(h.counters.tracksStopped, pauseAt === 'permission' ? 0 : 1);
       h.pending.resolve();
@@ -251,6 +257,7 @@ test('PCM cancellation closes tracks across delayed microphone and audio initial
       assert.equal(h.chunks.length, 0);
       assert.equal(h.errors.length, 0, 'intentional cancellation is not a microphone failure');
       assert.ok(h.contexts.every((context) => context.state === 'closed'));
+      assert.ok(h.contexts.every((context) => context.closeRequests === 1), 'late startup cleanup cannot close the context again');
     });
   }
 });
@@ -269,17 +276,84 @@ test('PCM initialization failures release every acquired microphone track', asyn
   }
 });
 
-test('PCM cancellation stops the microphone before waiting for AudioContext closure', async () => {
+test('PCM cancellation settles with browser context closure pending and permits a fresh capture', async () => {
   const h = createLifecycleHarness({ pendingClose: true });
   await h.capture.start();
-  const cancel = h.capture.cancel();
-  assert.equal(h.counters.tracksStopped, 1);
-  assert.equal(h.nodes[0].port.onmessage, null);
-  assert.equal(h.counters.nodesDisconnected, 1);
-  assert.equal(h.counters.sourcesDisconnected, 1);
-  h.closeReply.resolve();
-  await cancel;
-  assert.equal(h.capture.state, 'idle');
+  const staleMessageHandler = h.nodes[0].port.onmessage;
+  let settled = false;
+  const cancel = h.capture.cancel().then(() => { settled = true; });
+  try {
+    assert.equal(h.counters.tracksStopped, 1);
+    assert.equal(h.nodes[0].port.onmessage, null);
+    assert.equal(h.counters.nodesDisconnected, 1);
+    assert.equal(h.counters.sourcesDisconnected, 1);
+    await new Promise(setImmediate);
+    assert.equal(settled, true, 'cancellation must not depend on the browser close reply');
+    assert.equal(h.capture.state, 'idle');
+    assert.equal(h.listeners.size, 0);
+
+    const nextTrack = { ...h.track, readyState: 'live' };
+    h.capture.globalRef.navigator.mediaDevices.getUserMedia = async () => ({
+      getAudioTracks: () => [nextTrack], getVideoTracks: () => [], getTracks: () => [nextTrack],
+    });
+    await h.capture.start();
+    h.closeReply.reject(new Error('Retired browser context close failed.'));
+    staleMessageHandler({ data: { type: 'pcm', samples: new Float32Array(128) } });
+    await new Promise(setImmediate);
+    assert.equal(h.capture.state, 'running');
+    assert.equal(nextTrack.readyState, 'live');
+    assert.equal(h.counters.tracksStopped, 1);
+    assert.equal(h.contexts[0].closeRequests, 1);
+    assert.equal(h.chunks.length, 0);
+    assert.equal(h.errors.length, 0);
+  } finally {
+    h.closeReply.resolve();
+    await cancel;
+    await h.capture.cancel();
+  }
+});
+
+test('PCM release preserves final audio while browser context closure remains pending', async () => {
+  const h = createLifecycleHarness({ pendingClose: true });
+  await h.capture.start();
+  let settled = false;
+  const stop = h.capture.stop().then(() => { settled = true; });
+  try {
+    assert.equal(h.track.readyState, 'live', 'the normal final audio flush still owns its microphone');
+    const samples = new Float32Array([0.1, 0.2, 0.3]);
+    h.nodes[0].port.onmessage({ data: { type: 'pcm', samples } });
+    h.nodes[0].port.onmessage({ data: { type: 'flushed' } });
+    await new Promise(setImmediate);
+    assert.equal(settled, true, 'release must settle without the browser close reply');
+    assert.deepEqual(h.chunks.map((chunk) => chunk.samples), [samples]);
+    assert.equal(h.track.readyState, 'ended');
+    assert.equal(h.contexts[0].closeRequests, 1);
+    assert.equal(h.capture.state, 'idle');
+    assert.equal(h.listeners.size, 0);
+    assert.equal(h.timers.size, 0);
+  } finally {
+    h.closeReply.resolve();
+    await stop;
+  }
+});
+
+test('PCM initialization failure settles while browser context closure remains pending', async () => {
+  const h = createLifecycleHarness({ failAt: 'resume', pendingClose: true });
+  let settled = false;
+  const startup = assert.rejects(h.capture.start(), /Browser resume failed/)
+    .then(() => { settled = true; });
+  try {
+    await new Promise(setImmediate);
+    assert.equal(settled, true, 'cleanup must not hide the original initialization failure');
+    assert.equal(h.capture.state, 'idle');
+    assert.equal(h.track.readyState, 'ended');
+    assert.equal(h.contexts[0].closeRequests, 1);
+    assert.equal(h.listeners.size, 0);
+    assert.equal(h.errors.length, 1);
+  } finally {
+    h.closeReply.resolve();
+    await startup;
+  }
 });
 
 test('PCM release stops the microphone after the bounded flush timeout', async () => {
@@ -298,12 +372,17 @@ test('PCM release stops the microphone after the bounded flush timeout', async (
   assert.equal(h.timers.size, 0);
 });
 
-test('PCM cancellation interrupts a pending release flush and rejects late audio', async () => {
-  const h = createLifecycleHarness();
+test('PCM cancellation interrupts a pending release flush and rejects late audio', async (t) => {
+  const h = createLifecycleHarness({ pendingClose: true });
+  t.after(() => h.closeReply.resolve());
   await h.capture.start();
   const staleMessageHandler = h.nodes[0].port.onmessage;
   const stop = h.capture.stop();
-  await h.capture.cancel();
+  let cancelled = false;
+  const cancellation = h.capture.cancel().then(() => { cancelled = true; });
+  await new Promise(setImmediate);
+  assert.equal(cancelled, true, 'cancelling a flush must settle before context closure');
+  await cancellation;
   await stop;
   staleMessageHandler({ data: { type: 'pcm', samples: new Float32Array(128) } });
   assert.equal(h.counters.tracksStopped, 1);

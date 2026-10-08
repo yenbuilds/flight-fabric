@@ -98,7 +98,8 @@ const eventBus = require('./event-bus');
 const { getAppVersion } = require('./app-version');
 const { getUserId, getSessionId } = require('../utils/user-identity');
 const profileLoader = require('../aircraft/aircraft-profile-loader');
-const { finalizeRecordingForShutdown, runSimbridgeShutdownSequence } = require('./simbridge-shutdown') as {
+const { finalizeRecordingForShutdown, runSimbridgeShutdownSequence, runShutdownTask: runWithTimeout } = require('./simbridge-shutdown') as {
+  runShutdownTask: (task: () => unknown, timeoutMs: number, label: string, strict?: boolean) => Promise<unknown>;
   finalizeRecordingForShutdown: (options: AnyRecord) => Promise<void>;
   runSimbridgeShutdownSequence: (options: AnyRecord) => Promise<void>;
 };
@@ -394,46 +395,22 @@ async function waitForNextFrameOrShutdown(provider, shutdownSignal): Promise<Fra
   }
 }
 
-function runWithTimeout(promiseFactory, timeoutMs, label) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
-    const timer = setTimeout(() => {
-      console.warn(`[simbridge] ${label} timed out after ${timeoutMs}ms.`);
-      finish(null);
-    }, timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    Promise.resolve()
-      .then(promiseFactory)
-      .then((value) => finish(value))
-      .catch((error) => {
-        console.warn(`[simbridge] ${label} failed:`, error?.message || String(error));
-        finish(null);
-      });
-  });
-}
-
-function stopHandle(handle, label, timeoutMs = 2000) {
+function stopHandle(handle, label, timeoutMs = 2000, strict = false) {
   if (!handle || typeof handle.stop !== 'function') return Promise.resolve(null);
-  return runWithTimeout(() => handle.stop(), timeoutMs, `${label} stop`);
+  return runWithTimeout(() => handle.stop(), timeoutMs, `${label} stop`, strict);
 }
 
-function closeHttpServer(httpServer, timeoutMs = 2000) {
+function closeHttpServer(httpServer, timeoutMs = 2000, strict = false) {
   if (!httpServer || typeof httpServer.close !== 'function') return Promise.resolve(null);
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = () => {
+    const finish = (error = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(null);
+      if (strict && error) reject(error);
+      else resolve(null);
     };
     const timer = setTimeout(() => {
       try {
@@ -441,7 +418,7 @@ function closeHttpServer(httpServer, timeoutMs = 2000) {
           httpServer.closeAllConnections();
         }
       } catch {}
-      finish();
+      finish(new Error('HTTP server close timed out'));
     }, timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
 
@@ -450,27 +427,28 @@ function closeHttpServer(httpServer, timeoutMs = 2000) {
         if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') {
           console.warn('[simbridge] HTTP server close failed:', error?.message || String(error));
         }
-        finish();
+        finish(error?.code === 'ERR_SERVER_NOT_RUNNING' ? null : error);
       });
     } catch (error) {
       if (error?.code !== 'ERR_SERVER_NOT_RUNNING') {
         console.warn('[simbridge] HTTP server close failed:', error?.message || String(error));
       }
-      finish();
+      finish(error?.code === 'ERR_SERVER_NOT_RUNNING' ? null : error);
     }
   });
 }
 
-function closeWsServer(wss, timeoutMs = 2000) {
+function closeWsServer(wss, timeoutMs = 2000, strict = false) {
   if (!wss || typeof wss.close !== 'function') return Promise.resolve(null);
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = () => {
+    const finish = (error = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(null);
+      if (strict && error) reject(error);
+      else resolve(null);
     };
     const closeClients = () => {
       try {
@@ -497,7 +475,7 @@ function closeWsServer(wss, timeoutMs = 2000) {
 
     const timer = setTimeout(() => {
       terminateClients();
-      finish();
+      finish(new Error('WebSocket server close timed out'));
     }, timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
 
@@ -507,11 +485,11 @@ function closeWsServer(wss, timeoutMs = 2000) {
         if (error) {
           console.warn('[simbridge] WebSocket server close failed:', error?.message || String(error));
         }
-        finish();
+        finish(error?.code === 'ERR_SERVER_NOT_RUNNING' ? null : error);
       });
     } catch (error) {
       console.warn('[simbridge] WebSocket server close failed:', error?.message || String(error));
-      finish();
+      finish(error?.code === 'ERR_SERVER_NOT_RUNNING' ? null : error);
     }
   });
 }
@@ -598,6 +576,7 @@ async function runSimbridgeCore({
   httpPort = null,
   shutdownSignal = null,
   onFatalError = null,
+  onUpdateReadiness = null,
 }: AnyRecord = {}) {
   let httpServerHandle = null;
   let cabinAnnouncementsHandle = null;
@@ -605,6 +584,8 @@ async function runSimbridgeCore({
   let flightCsvStore: AnyRecord | null = null;
   let coreShutdownStarted = false;
   let inSimReplay: ReturnType<typeof createReplaySession> | null = null;
+  let activeUpdateBoundaryRequests = 0;
+  let updateObservedAt = 0;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Sim state cache (for menu/flight status on reconnect)
@@ -847,6 +828,12 @@ async function runSimbridgeCore({
 
     },
     onClientMessage: async (ws, msg) => {
+      if (isShutdownRequested(shutdownSignal)) {
+        ws.close(1012, 'FlightFabric is restarting');
+        return;
+      }
+      activeUpdateBoundaryRequests += 1;
+      try {
       if (!isClientMessageAuthorized(ws, msg?.type)) {
         // Preserve the standard command-specific denial envelopes without
         // constructing replay/storage/provider context for a denied command.
@@ -1018,6 +1005,9 @@ async function runSimbridgeCore({
         return;
       }
       await handleClientMessageImpl(ws, msg, context);
+      } finally {
+        activeUpdateBoundaryRequests -= 1;
+      }
     },
   });
 
@@ -1094,6 +1084,7 @@ async function runSimbridgeCore({
 
   // HTTP server (remote device access)
   httpServerHandle = startHttpServer({
+    isShuttingDown: () => isShutdownRequested(shutdownSignal),
     wsPort,
     httpPort: httpPort ?? config.http?.port,
     remoteAccessEnable: config.http?.remoteAccessEnable,
@@ -1109,6 +1100,19 @@ async function runSimbridgeCore({
     httpServerHandle?.httpServer,
     'HTTP',
   );
+  httpServerHandle?.httpServer?.prependListener('request', (_req, res) => {
+    activeUpdateBoundaryRequests += 1;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      activeUpdateBoundaryRequests -= 1;
+      res.removeListener('finish', finish);
+      res.removeListener('close', finish);
+    };
+    res.once('finish', finish);
+    res.once('close', finish);
+  });
 
   // Initialize debug module with WS broadcast
   try {
@@ -3419,6 +3423,7 @@ async function runSimbridgeCore({
     inSimReplay?.stop();
 
     const reason = getShutdownReason(shutdownSignal);
+    const strict = reason === 'desktop_update';
     const nowEpochMs = timeSource.now();
     console.log(`[simbridge] Core cleanup started (${reason}).`);
 
@@ -3432,15 +3437,16 @@ async function runSimbridgeCore({
         }),
         SHUTDOWN_RECORDING_FINALIZATION_TIMEOUT_MS,
         'recording finalization',
+        strict,
       ),
       provider,
       historyIndexHandle: flightCsvStore,
       cabinAnnouncementsHandle,
       updateCheckerHandle,
-      stopHandle,
+      stopHandle: (handle, label, timeoutMs) => stopHandle(handle, label, timeoutMs, strict),
       closeServersTask: () => Promise.all([
-        runWithTimeout(() => closeWsServer(wss, 2000), 2500, 'WebSocket server close'),
-        runWithTimeout(() => closeHttpServer(httpServerHandle?.httpServer, 2000), 2500, 'HTTP server close'),
+        runWithTimeout(() => closeWsServer(wss, 2000, strict), 2500, 'WebSocket server close', strict),
+        runWithTimeout(() => closeHttpServer(httpServerHandle?.httpServer, 2000, strict), 2500, 'HTTP server close', strict),
       ]),
     });
 
@@ -4784,6 +4790,21 @@ async function runSimbridgeCore({
   // ═══════════════════════════════════════════════════════════════════════════
   try {
   let isFirstIteration = true;
+  if (typeof onUpdateReadiness === 'function') {
+    const { getUpdateBlocker } = require('./update-readiness');
+    onUpdateReadiness(() => getUpdateBlocker({
+      connected: runtimeState.sim.latestTickFrame?.simconnect?.connected,
+      observedAt: updateObservedAt,
+      now: timeSource.now(),
+      recording: flightActive || flightCsvWriter.isRecording?.() === true
+        || automationJsonlRecorder.isRecording?.() === true || aircraftSpecificJsonlRecorder.isRecording?.() === true,
+      finalizing: Boolean(getRecordingFinalizationBlocker() || recordingBundleFailureHandling
+        || recordingBundleAggregateFinalizingSessionId || pendingRecordingBundleStartupErrors.size),
+      replay: inSimReplay?.isBlocking() === true,
+      requests: activeUpdateBoundaryRequests,
+      shuttingDown: coreShutdownStarted || isShutdownRequested(shutdownSignal),
+    }));
+  }
 
   while (!isShutdownRequested(shutdownSignal)) {
     // Every continue returns through this yield and wait. The serial loop
@@ -4806,6 +4827,7 @@ async function runSimbridgeCore({
     const rawFrame = acquisition.frame;
     const frame = tickFrameFactory.create(rawFrame);
     runtimeState.sim.latestTickFrame = frame;
+    updateObservedAt = timeSource.now();
 
     // Track previous frame for telemetry activity detection
     // Retain only the primitive fields used for comparison to bound memory use.
@@ -5009,6 +5031,7 @@ async function runSimbridgeCore({
     // ENGINE ASYMMETRY DETECTION hook reserved for future implementation.
   }
   } finally {
+    if (typeof onUpdateReadiness === 'function') onUpdateReadiness(null);
     await shutdownCore();
   }
 }

@@ -9,6 +9,7 @@ import { flightPlanQueryExamples } from '../../voice/flight-plan-queries.js';
 import { voiceCommandExamples } from '../../voice/command-examples.js';
 import { createContext } from '../../voice/cloud-intent.js';
 import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
+import VoiceRestartHint from './VoiceRestartHint.vue';
 
 const props = defineProps({
   presentation: {
@@ -101,6 +102,7 @@ const emit = defineEmits(['open-settings']);
         <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Configure voice control in FlightFabric on the simulator PC.</p>
         <p v-else-if="recognitionOff" class="mt-2 text-xs text-muted-fg">Enable voice control in Settings to talk.</p>
         <p v-else-if="voice.setupTask" class="mt-2 text-xs text-muted-fg">{{ voice.setupTask.detail }}</p>
+        <VoiceRestartHint />
         <p v-if="voice.transcript" class="mt-2 truncate text-sm text-gray-200" aria-live="polite">
           “{{ voice.transcript }}”
         </p>

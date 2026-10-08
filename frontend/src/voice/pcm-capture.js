@@ -338,10 +338,13 @@ export class PcmCapture {
       || [...(resources.stream?.getAudioTracks?.() || []), ...(resources.stream?.getVideoTracks?.() || [])];
     for (const track of new Set(streamTracks)) { try { track.stop(); } catch {} }
     resources.stream = null;
-    if (resources.context && resources.context.state !== 'closed') {
-      try { await resources.context.close(); } catch {}
-    }
+    const context = resources.context;
     resources.context = null;
+    // Input is detached and every track is stopped. Browser resource release
+    // must not hold up this retired capture or a newer session.
+    if (context && context.state !== 'closed') {
+      try { void Promise.resolve(context.close()).catch(() => {}); } catch {}
+    }
   }
 }
 

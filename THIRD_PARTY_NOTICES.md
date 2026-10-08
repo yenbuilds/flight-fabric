@@ -103,6 +103,19 @@ its other project code under GNU AGPL version 3 only (`AGPL-3.0-only`). This
 entry preserves historical attribution and does not identify any current Rust
 source as third-party code.
 
+## Microsoft Visual C++ x64 Redistributable
+
+- Official Windows packages include Microsoft's signed Visual C++ Redistributable
+  installer at `resources/vc-runtime/vc_redist.x64.exe` for native runtime prerequisites.
+- Source and deployment guidance: https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+- License/terms: Microsoft software license terms supplied by the Redistributable;
+  this proprietary prerequisite is not covered by FlightFabric's AGPL license.
+- The source repository records the version, official download URL and SHA-256 in
+  `electron/vc-runtime.json`. Build provisioning verifies the exact bytes, version
+  and Microsoft Authenticode signature; the downloaded binary is not source code.
+- Setup retains an adequate installed version. FlightFabric uninstall does not
+  remove this shared Microsoft runtime.
+
 ## Microsoft Flight Simulator SimConnect Client Runtime
 
 - Source: Microsoft Flight Simulator SDK / SimConnect SDK.
@@ -349,6 +362,19 @@ source as third-party code.
 - Used for: the Vue 3 frontend application, Pinia stores, accessible
   tooltip/popover positioning, and Vite-based frontend development/build
   tooling.
+
+## Desktop Update Runtime
+
+- Packages: electron-updater 6.8.9, builder-util-runtime, argparse, debug,
+  fs-extra, graceful-fs, js-yaml, jsonfile, lazy-val, lodash.escaperegexp,
+  lodash.isequal, ms, sax, tiny-typed-emitter, universalify and semver.
+- Declared/resolved in: electron/package.json and electron/package-lock.json.
+- Used for: user-controlled NSIS update download and installation. FlightFabric
+  authenticates its own signed release metadata before giving it to the updater.
+- Licences: MIT except argparse (Python-2.0), graceful-fs and semver (ISC),
+  and sax (BlueOak-1.0.0). Package licence files and notices are retained with
+  their runtime packages inside resources/app.asar. lazy-val declares MIT in
+  its package metadata; its attribution is included below.
 
 ## Electron and Release Tooling Packages
 
@@ -599,6 +625,7 @@ notices:
 - `superjson`: Copyright (c) 2020 Simon Knott and contributors
 - Electron: Copyright (c) Electron contributors; Copyright (c) 2013-2020
   GitHub Inc.
+- lazy-val: Vladimir Krivosheev (MIT)
 - Tailwind CSS: Copyright (c) Tailwind Labs, Inc.
 - QRCode for JavaScript: Copyright (c) 2009 Kazuhiko Arase
 - Splide: Copyright (c) 2022 Naotoshi Fujita

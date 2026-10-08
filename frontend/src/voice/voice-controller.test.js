@@ -8,6 +8,7 @@ import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
 import { initialVoiceTestState } from './voice-setup-test.js';
 import { flapResultText } from '../aircraft/flap-controls.js';
 import { gearResultText } from '../aircraft/gear-controls.js';
+import { createPcmCapture } from './pcm-capture.js';
 
 function createHarness(options = {}) {
   const command = {
@@ -128,7 +129,7 @@ function createHarness(options = {}) {
     },
     async dispose() {},
   };
-  const createCapture = (callbacks) => {
+  const createCapture = options.createCapture || ((callbacks) => {
     const capture = {
       callbacks,
       start: async () => ({ deviceLabel: 'Test microphone', sampleRate: 48000 }),
@@ -146,7 +147,7 @@ function createHarness(options = {}) {
     };
     captures.push(capture);
     return capture;
-  };
+  });
   const controller = createVoiceControlController({
     api, aircraftControl, aircraftControlsStore, voiceStore, createCapture,
     aircraftSpecificStore: options.aircraftSpecificStore,
@@ -2371,6 +2372,182 @@ test('push-to-talk cues bracket capture without adding sound to microphone audio
     { phase: 'release', stoppedCaptures: 1 },
   ]);
 });
+
+// Deliberately pending browser replies exercise the real capture/controller
+// boundary; they do not reproduce a physical microphone or browser failure.
+function createPendingPcmCloseFixture() {
+  const tracks = [];
+  const nodes = [];
+  const contexts = [];
+  const events = [];
+  class AudioContext {
+    constructor() {
+      this.state = 'running';
+      this.sampleRate = 48000;
+      this.destination = {};
+      this.audioWorklet = { addModule: async () => {} };
+      this.closeCalls = 0;
+      this.closeSettled = false;
+      this.closeReply = new Promise(resolve => { this.resolveClose = () => {
+        this.closeSettled = true;
+        resolve();
+      }; });
+      contexts.push(this);
+    }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    close() {
+      this.closeCalls += 1;
+      this.state = 'closed';
+      events.push('close-request');
+      return this.closeReply;
+    }
+  }
+  class AudioWorkletNode {
+    constructor() {
+      this.port = {
+        onmessage: null,
+        close() {},
+        postMessage: message => {
+          if (message.type !== 'flush') return;
+          queueMicrotask(() => {
+            events.push('final-pcm');
+            this.port.onmessage?.({ data: { type: 'pcm', samples: new Float32Array([0.25, -0.25]) } });
+            this.port.onmessage?.({ data: { type: 'flushed' } });
+          });
+        },
+      };
+      nodes.push(this);
+    }
+    connect() {}
+    disconnect() {}
+  }
+  const globalRef = {
+    isSecureContext: true, AudioContext, AudioWorkletNode, setTimeout, clearTimeout,
+    navigator: { mediaDevices: { async getUserMedia() {
+      const track = {
+        readyState: 'live', label: 'Synthetic microphone',
+        addEventListener() {}, removeEventListener() {},
+        stop() { this.readyState = 'ended'; events.push('track-stop'); },
+      };
+      tracks.push(track);
+      return { getTracks: () => [track], getAudioTracks: () => [track], getVideoTracks: () => [] };
+    } } },
+  };
+  return {
+    tracks, nodes, contexts, events,
+    createCapture: callbacks => createPcmCapture({ ...callbacks, globalRef }),
+    resolveAllCloses: () => contexts.forEach(context => context.resolveClose()),
+  };
+}
+
+test('PTT completion and retry do not await browser context closure', async t => {
+  const browser = createPendingPcmCloseFixture();
+  const harness = createHarness({
+    createCapture: browser.createCapture,
+    controllerApi: { async finishRecognition() { browser.events.push('recognition-finish'); } },
+    pushToTalkTone: {
+      async play(phase) {
+        if (phase === 'release') browser.events.push('release-cue');
+        return true;
+      },
+      async dispose() {},
+    },
+  });
+  t.after(async () => { browser.resolveAllCloses(); await harness.controller.dispose(); });
+  await harness.controller.initialize();
+  assert.equal(await harness.controller.begin(), true);
+  const staleMessage = browser.nodes[0].port.onmessage;
+  let completed = false;
+  const finishing = harness.controller.finish().then(result => { completed = true; return result; });
+  // Drain this operation's promise jobs without resolving browser close.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(completed, true, 'PTT completion must not wait for the browser close reply');
+  assert.equal(await finishing, true);
+  assert.deepEqual(browser.events, ['final-pcm', 'track-stop', 'close-request', 'release-cue', 'recognition-finish']);
+  assert.equal(harness.audio.length, 1);
+  assert.equal(harness.audio[0].sequence, 0);
+  assert.equal(browser.contexts[0].closeCalls, 1);
+  assert.equal(browser.contexts[0].closeSettled, false);
+  await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  assert.equal(harness.sentCommands.length, 1);
+  harness.completeLastCommand({ ok: true });
+  assert.equal(await harness.controller.begin(), true, 'a fresh PTT attempt can begin while old closure is pending');
+  browser.contexts[0].resolveClose();
+  staleMessage({ data: { type: 'pcm', samples: new Float32Array([0.1]) } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(browser.tracks[1].readyState, 'live');
+  assert.equal(harness.voiceStore.status, 'listening');
+  assert.equal(harness.audio.length, 1, 'the retired capture cannot send audio into the new session');
+  assert.equal(harness.sentCommands.length, 1);
+});
+
+test('voice disable settles with browser context closure pending and prevents late dispatch', async t => {
+  const browser = createPendingPcmCloseFixture();
+  const harness = createHarness({ createCapture: browser.createCapture });
+  t.after(async () => { browser.resolveAllCloses(); await harness.controller.dispose(); });
+  await harness.controller.initialize();
+  await harness.controller.begin();
+  const finishing = harness.controller.finish();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(browser.tracks[0].readyState, 'ended');
+  assert.equal(browser.contexts[0].closeSettled, false);
+  let disabled = false;
+  const disabling = harness.voiceStore.actions.setRecognitionEnabled(false).then(() => { disabled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(disabled, true, 'turning voice off must not wait for the browser close reply');
+  await disabling;
+  await finishing;
+  assert.equal(harness.voiceStore.runtime.enabled, false);
+  assert.deepEqual(harness.cancellations, ['session_12345678']);
+  await harness.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  browser.contexts[0].resolveClose();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(harness.sentCommands, []);
+  assert.equal(harness.voiceStore.activeSessionId, '');
+  assert.equal(browser.contexts[0].closeCalls, 1);
+});
+
+for (const event of [
+  { type: 'error', code: 'CAPTURE_TIMEOUT', message: 'Voice capture exceeded ten seconds. Please try a shorter request.' },
+  { type: 'cancelled', reason: 'user' },
+]) {
+  test(`recognition ${event.type} settles and permits retry while browser context closure is pending`, async t => {
+    const browser = createPendingPcmCloseFixture();
+    const harness = createHarness({ createCapture: browser.createCapture, runtimeInfo: cloudRuntime });
+    t.after(async () => { browser.resolveAllCloses(); await harness.controller.dispose(); });
+    await harness.controller.initialize();
+    assert.equal(await harness.controller.begin(), true);
+    const staleMessage = browser.nodes[0].port.onmessage;
+    let settled = false;
+    const terminated = harness.emitRecognition({ ...event, sessionId: 'session_12345678' })
+      .then(() => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, true, 'a terminal event must settle without the browser close reply');
+    await terminated;
+    assert.equal(browser.tracks[0].readyState, 'ended');
+    assert.equal(browser.contexts[0].closeCalls, 1);
+    assert.equal(browser.contexts[0].closeSettled, false);
+    assert.equal(harness.voiceStore.activeSessionId, '');
+    assert.equal(harness.voiceStore.status, event.type === 'error' ? 'error' : 'ready');
+    if (event.type === 'error') assert.equal(harness.voiceStore.statusText, event.message);
+    else assert.match(harness.voiceStore.statusText, /hold|push-to-talk/i);
+    assert.deepEqual(harness.sentCommands, []);
+    assert.deepEqual(harness.audio, []);
+
+    assert.equal(await harness.controller.begin(), true, 'the next PTT attempt must not wait for old closure');
+    await harness.emitRecognition(cloudFinal());
+    staleMessage({ data: { type: 'pcm', samples: new Float32Array([0.1]) } });
+    browser.contexts[0].resolveClose();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(browser.tracks[1].readyState, 'live');
+    assert.equal(harness.voiceStore.activeSessionId, 'session_next_2');
+    assert.equal(harness.voiceStore.status, 'listening');
+    assert.equal(browser.contexts[0].closeCalls, 1);
+    assert.deepEqual(harness.sentCommands, [], 'the retired result cannot dispatch a command');
+    assert.deepEqual(harness.audio, [], 'the retired capture cannot upload audio into the new session');
+    assert.deepEqual(harness.spokenReadbacks, []);
+  });
+}
 
 test('microphone capture failures stay visible instead of being replaced by ready state', async () => {
   const harness = createHarness();

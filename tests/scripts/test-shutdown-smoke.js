@@ -299,6 +299,66 @@ async function runScenario({ label, shutdownLabel, shutdownAction, parentStdinLi
   }
 }
 
+
+async function runUpdatePreparationScenario(mode) {
+  const assert = require('node:assert/strict');
+  const { prepareBackendForUpdate } = require('../../electron/update-backend');
+  const hookPath = path.join(TEST_ROOT, 'update-provider-' + mode + '.js');
+  // A simulator closed/disconnected, or open at its menu. Failure mode is
+  // deliberate cleanup fault injection, not a claim about real aircraft.
+  fs.writeFileSync(hookPath, `
+    const Module = require('module');
+    const originalLoad = Module._load;
+    const provider = {
+      capabilities: { isMock: true, enableLandingRunner: false },
+      setBroadcast() {}, async start() {},
+      async nextFrame() {
+        setImmediate(() => console.log('[UPDATE_FIXTURE_FRAME]'));
+        return { simconnect: { connected: ${mode === 'connected'} }, display: {}, fdm: {} };
+      },
+      async stop() { if (${mode === 'failed-stop'}) throw new Error('injected cleanup failure'); },
+    };
+    Module._load = function(request) {
+      if (request === '../telemetry-provider') return {
+        createProvider: () => provider,
+        getDataSourceInfo: () => ({ primary: { type: 'mock', name: 'Update fixture', connected: ${mode === 'connected'} }, secondary: [], sources: [] }),
+      };
+      return originalLoad.apply(this, arguments);
+    };
+  `);
+  const child = startBackendProcess({ parentStdinLifeline: true, requireHook: hookPath });
+  let output = '';
+  child.stdout.on('data', data => { output += data; });
+  child.stderr.on('data', data => { output += data; });
+  const closed = new Promise(resolve => child.once('close', resolve));
+  try {
+    await waitForReady(child);
+    const deadline = Date.now() + 5000;
+    while (!output.includes('[UPDATE_FIXTURE_FRAME]') && Date.now() < deadline) await wait(10);
+    assert(output.includes('[UPDATE_FIXTURE_FRAME]'), 'fixture produced a connection observation');
+    if (mode === 'clean') {
+      await prepareBackendForUpdate(child);
+      assert.equal(await closed, 0);
+    } else {
+      await assert.rejects(prepareBackendForUpdate(child), error => error.code === 'blocked');
+      if (mode === 'connected') {
+        assert.equal(child.exitCode, null, 'blocked update keeps the simulator service running');
+        child.stdin.write(JSON.stringify({ type: 'shutdown' }) + '\n');
+        await closed;
+      } else assert.equal(await closed, 1, 'cleanup failure exits without an installable acknowledgement');
+    }
+    assert.equal(await canListenOnPort(testWsPort), true);
+    assert.equal(await canListenOnPort(testHttpPort), true);
+    ok('Desktop update handshake: ' + mode);
+  } catch (error) {
+    fail('Desktop update handshake ' + mode + ': ' + error.message);
+    console.log(output);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+  }
+}
+
 async function main() {
   testWsPort = await findFreePort();
   testHttpPort = await findFreePort();
@@ -309,6 +369,7 @@ async function main() {
   console.log(`Test ports: WS ${testWsPort}, HTTP ${testHttpPort}`);
 
   await runFatalStartupScenario();
+  for (const mode of ['clean', 'connected', 'failed-stop']) await runUpdatePreparationScenario(mode);
 
   await runScenario({
     label: 'Graceful shutdown (SIGTERM)',

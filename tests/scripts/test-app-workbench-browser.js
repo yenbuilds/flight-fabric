@@ -144,12 +144,82 @@ async function browser() {
       assert(await evaluate("return workbenchTest.voice.runtime.cloud.selectionValid && document.getElementById('voice-cloud-key-status').textContent.includes('No key saved for OpenAI');"), 'user can explicitly recover an unsupported saved selection by choosing OpenAI');
     }
   }
+  async function checkVoiceRestartHint() {
+    const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+    fixtureUrl.search = '?desktop=1';
+    for (const width of [1440, 1280, 320]) {
+      win.setContentSize(width, width === 320 ? 844 : width === 1280 ? 720 : 900);
+      await win.loadURL(fixtureUrl.href);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      assert(await evaluate('return Boolean(window.workbenchTest);'), 'voice recovery fixture mounted');
+      await evaluate(`workbenchTest.voice.setBridgeAvailable(true);
+        workbenchTest.voice.applyRuntimeInfo({ enabled:true, available:false, mode:'offline',
+          engine:{state:'failed'}, modelBundled:true, error:'Local voice recognition stopped.' });
+        workbenchTest.voice.setState('unavailable','Local voice recognition stopped.');
+        workbenchTest.voice.setupDismissed=true; workbenchTest.shell.sidebarCollapsed=false;`);
+      const navigation = width === 320 ? '#mobile-more-sheet' : '.app-sidebar';
+      for (const tab of ['flight', 'timeline', 'autopilot', 'settings']) {
+        await evaluate(`await workbenchTest.open('${tab}');
+          ${width === 320 ? "document.getElementById('mobile-more-btn').click();" : ''}
+          await workbenchTest.nextTick();`);
+        await wait(100);
+        const state = await evaluate(`const nav=document.querySelector('${navigation}');
+          const hint=nav.querySelector('[data-voice-restart-hint]'); const r=hint.getBoundingClientRect();
+          const container=hint.closest('.sidebar-navigation, .mobile-more-panel').getBoundingClientRect();
+          return {text:hint.textContent, visible:!!hint.getClientRects().length,
+            fits:r.left>=0 && r.right<=innerWidth+1 && r.top>=container.top && r.bottom<=Math.min(container.bottom,innerHeight)+1,
+            overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1};`);
+        assert.equal(state.visible && state.fits && !state.overflow, true, `${tab}/${width}: navigation shows restart advice without visiting Settings or scrolling`);
+        assert.match(state.text, /Quit FlightFabric in the system tray/);
+        if (tab === 'flight') await capture(`voice-restart-navigation-${width}`);
+        if (width === 320) await evaluate('workbenchTest.tabs.closeMoreSheet(); await workbenchTest.nextTick();');
+      }
+      await evaluate(`await workbenchTest.open('flight');
+        ${width === 320 ? "document.getElementById('mobile-more-btn').click();" : 'workbenchTest.shell.sidebarCollapsed=true;'}
+        await workbenchTest.nextTick();`);
+      assert.match(await evaluate(`return document.querySelector('${navigation} [data-voice-setup-trigger]').title;`), /restart guidance/, 'collapsed sidebar retains an informative voice attention target');
+      if (width !== 320) {
+        assert.equal(await evaluate("return document.querySelector('.app-sidebar [data-voice-restart-hint]').getClientRects().length;"), 0, 'collapsed sidebar does not overflow with recovery text');
+        await capture(`voice-restart-collapsed-${width}`);
+      }
+      await evaluate(`document.querySelector('${navigation} [data-voice-setup-trigger]').click();`);
+      await wait(150);
+      assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && !workbenchTest.tabs.moreSheetOpen && document.activeElement.id==='settings-voice-control';"), 'navigation opens and focuses voice settings for details');
+      await evaluate('workbenchTest.shell.sidebarCollapsed=false; await workbenchTest.nextTick();');
+      for (const tab of ['settings', 'autopilot']) {
+        await evaluate(`await workbenchTest.open('${tab}');
+          workbenchTest.voice.panelOpen=${tab === 'autopilot'}; await workbenchTest.nextTick();`);
+        const selector = tab === 'settings' ? '#settings-voice-control' : '[data-voice-control-panel]';
+        await evaluate(`document.querySelector('${selector} [data-voice-restart-hint]').scrollIntoView({block:'center'});`);
+        await wait(100);
+        const state = await evaluate(`const panel=document.querySelector('${selector}');
+          const hint=panel.querySelector('[data-voice-restart-hint]'); const r=hint.getBoundingClientRect();
+          return { text:hint.textContent, panelText:panel.textContent, visible:!!hint.getClientRects().length,
+            fits:r.left>=0 && r.right<=innerWidth+1 && r.top>=0 && r.bottom<=innerHeight+1,
+            overflow:Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1 };`);
+        assert.equal(state.visible && state.fits && !state.overflow, true, `${tab}/${width}: recovery hint remains visible and fits`);
+        assert.match(state.text, /Quit FlightFabric in the system tray/);
+        assert.match(state.panelText, /Local voice recognition stopped\./, 'the actual error stays visible');
+        await capture(`voice-restart-${tab}-${width}`);
+      }
+      await evaluate(`workbenchTest.voice.applyRuntimeInfo({ enabled:true, available:true, engine:{state:'ready'} });
+        workbenchTest.voice.setState('unmatched','Command not recognized. Nothing was executed.'); await workbenchTest.nextTick();`);
+      assert.equal(await evaluate("return document.querySelectorAll('[data-voice-restart-hint]').length;"), 0, 'recovered engine and unrecognized speech do not show restart guidance');
+    }
+  }
   const checkSettingsNavigation = () => require('./settings-navigation-checks')({ win, evaluate, capture, wait });
   try {
     await win.loadURL(process.env.FF_WORKBENCH_TEST_URL);
     win.webContents.debugger.attach('1.3');
     for (let n = 0; n < 180; n++) { if (await evaluate('return Boolean(window.workbenchTest);')) break; await wait(50); }
     assert(await evaluate('return Boolean(window.workbenchTest);'), `fixture initialized: ${errors.join('\n')}`);
+    if (process.env.FF_VOICE_RECOVERY_ONLY === '1') {
+      await checkVoiceRestartHint();
+      assert.deepEqual(errors, [], 'voice recovery views have no renderer errors');
+      console.log('Voice recovery guidance passed: app-wide sidebar/More navigation, collapsed navigation, Settings and Aircraft at 1440px, 1280px and 320px; hidden after recovery and unrecognized speech.');
+      app.exit(0);
+      return;
+    }
     if (process.env.FF_SETTINGS_UX_ONLY === '1') {
       await checkSettingsNavigation();
       assert.deepEqual(errors, [], 'settings navigation has no renderer errors');
@@ -1041,6 +1111,7 @@ async function browser() {
     await capture('authorization-revoked-settings');
     await checkDesktopAuthorizationRecovery();
     await checkCloudVoiceSettings();
+    await checkVoiceRestartHint();
     await checkSettingsNavigation();
     assert.deepEqual(errors, [], 'no browser runtime or asset errors');
     fs.writeFileSync(path.join(OUTPUT, 'layout-results.json'), JSON.stringify(checks, null, 2));

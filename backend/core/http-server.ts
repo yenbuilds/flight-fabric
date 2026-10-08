@@ -689,6 +689,7 @@ export function startHttpServer({
   devicePairing = null,
   Debug,
   onFatalError,
+  isShuttingDown = () => false,
 }: {
   wsPort: number;
   httpPort: number | null | undefined;
@@ -702,6 +703,7 @@ export function startHttpServer({
   } | null;
   Debug: DebugLike;
   onFatalError?: (error: Error) => void;
+  isShuttingDown?: () => boolean;
 }): {
   httpServer: import('http').Server;
   httpPort: number;
@@ -713,6 +715,11 @@ export function startHttpServer({
   const httpBindAddress = remoteAccessEnable ? '0.0.0.0' : '127.0.0.1';
   const simbriefRequestLimiter = createSimbriefRequestLimiter();
   const httpServer = http.createServer((req: RequestLike, res: ResponseLike) => {
+    if (isShuttingDown()) {
+      res.writeHead(503, { 'Content-Type': 'text/plain', 'Connection': 'close', 'Cache-Control': 'no-store' });
+      res.end('FlightFabric is restarting. Reconnect shortly.');
+      return;
+    }
     if (!isTrustedHttpRequest(req, remoteAccessEnable)) {
       res.writeHead(403, {
         'Content-Type': 'text/plain; charset=utf-8',

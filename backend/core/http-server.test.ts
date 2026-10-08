@@ -152,11 +152,12 @@ async function waitFor(predicate: () => boolean, message: string): Promise<void>
   }
 }
 
-async function startTestServer(): Promise<{
+async function startTestServer(isShuttingDown = () => false): Promise<{
   server: import('node:http').Server;
   port: number;
 }> {
   const { httpServer: server } = startHttpServer({
+    isShuttingDown,
     wsPort: 9199,
     httpPort: 0,
     remoteAccessEnable: false,
@@ -505,4 +506,18 @@ test('MSFS toolbar page is served under a frameable CSP with an allowlisted file
   } finally {
     await closeServer(server);
   }
+});
+
+
+test('update shutdown refuses new HTTP work before routing or provider requests', async () => {
+  const fake = installFakeHttps();
+  let closing = false;
+  const { server, port } = await startTestServer(() => closing);
+  try {
+    closing = true;
+    const result = await requestText(port, '/api/simbrief?username=fixture');
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.headers.connection, 'close');
+    assert.equal(fake.pending.length, 0);
+  } finally { fake.restore(); await closeServer(server); }
 });

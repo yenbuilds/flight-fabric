@@ -32,6 +32,7 @@ type RunSimbridgeCore = (options: {
   httpPort: number | null;
   shutdownSignal?: AbortSignal;
   onFatalError?: (source: string, error: unknown) => void;
+  onUpdateReadiness?: (check: (() => string) | null) => void;
 }) => Promise<void>;
 
 function loadEnvFiles(fileName: string, options: { override?: boolean } = {}): void {
@@ -96,17 +97,19 @@ let shutdownInProgress = false;
 let shutdownExitCode = 0;
 const shutdownController = new AbortController();
 let coreRunPromise: Promise<void> | null = null;
+let updateReadiness: (() => string) | null = null;
+let updateRequestId = '';
 
-function waitForCoreShutdown(timeoutMs: number): Promise<void> {
-  if (!coreRunPromise) return Promise.resolve();
+function waitForCoreShutdown(timeoutMs: number): Promise<boolean> {
+  if (!coreRunPromise) return Promise.resolve(false);
 
   return new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    const finish = (clean = false) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      resolve();
+      resolve(clean);
     };
     const timeout = setTimeout(() => {
       console.warn('[simbridge] Core cleanup timed out; exiting.');
@@ -115,7 +118,7 @@ function waitForCoreShutdown(timeoutMs: number): Promise<void> {
     timeout.unref();
 
     coreRunPromise
-      .then(() => finish())
+      .then(() => finish(true))
       .catch((error) => {
         console.error('[simbridge] Core cleanup failed:', error?.message || error);
         finish();
@@ -144,7 +147,12 @@ async function handleShutdown(signal: string, exitCode = 0): Promise<void> {
     shutdownController.abort(signal);
   }
 
-  await waitForCoreShutdown(CORE_SHUTDOWN_WAIT_TIMEOUT_MS);
+  const clean = await waitForCoreShutdown(CORE_SHUTDOWN_WAIT_TIMEOUT_MS);
+  if (updateRequestId) {
+    const result = { id: updateRequestId, ok: clean && shutdownExitCode === 0 };
+    await new Promise<void>((resolve) => process.stdout.write(`[FF_UPDATE_SHUTDOWN]${JSON.stringify(result)}\n`, () => resolve()));
+    if (!result.ok) shutdownExitCode = 1;
+  }
 
   clearTimeout(forceExitTimer);
   process.exit(shutdownExitCode);
@@ -167,7 +175,7 @@ if (config.env.parentStdinLifeline && !process.stdin.isTTY) {
   });
 
   parentInput.on('line', (line: string) => {
-    let message: { type?: unknown; reason?: unknown } | null = null;
+    let message: { type?: unknown; reason?: unknown; id?: unknown } | null = null;
     try {
       message = JSON.parse(line);
     } catch {
@@ -175,6 +183,19 @@ if (config.env.parentStdinLifeline && !process.stdin.isTTY) {
       return;
     }
 
+    if (message?.type === 'prepare-update' && typeof message.id === 'string' && /^[a-f0-9]{32}$/.test(message.id)) {
+      const blocker = shutdownInProgress ? 'FlightFabric is already shutting down.'
+        : updateReadiness?.() ?? 'Wait for FlightFabric to finish starting before updating.';
+      if (blocker) {
+        process.stdout.write(`[FF_UPDATE_SHUTDOWN]${JSON.stringify({ id: message.id, ok: false, message: blocker })}\n`);
+        return;
+      }
+      updateRequestId = message.id;
+      // Abort synchronously after checking readiness, before another client or
+      // telemetry tick can begin recording. Only the owned stdin pipe can ask.
+      void handleShutdown('desktop_update');
+      return;
+    }
     if (message?.type !== 'shutdown') return;
     const reason = typeof message.reason === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(message.reason)
       ? message.reason
@@ -252,6 +273,7 @@ void (async () => {
     wsPort,
     httpPort,
     shutdownSignal: shutdownController.signal,
+    onUpdateReadiness: (check) => { updateReadiness = check; },
     onFatalError: (source, error) => {
       console.error(`[simbridge] Fatal ${source} error:`, (error as Error)?.message || error);
       void handleShutdown(`fatal_${source}`, 1);

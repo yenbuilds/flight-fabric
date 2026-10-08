@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "FlightFabric - airline flying telemetry and debrief app",
   "main": "main.js",
   "author": "FlightFabric",
@@ -25,6 +25,7 @@
     "dist": "npm run build:win"
   },
   "dependencies": {
+    "electron-updater": "6.8.9",
     "sherpa-onnx-node": "1.13.5",
     "sherpa-onnx-win-x64": "1.13.5",
     "ws": "8.21.3"
@@ -50,16 +51,25 @@
     "copyright": "Copyright (c) 2026 FlightFabric",
     "npmRebuild": false,
     "icon": "taskbar-icon.ico",
+    "beforePack": "./before-pack.js",
     "afterPack": "./after-pack.js",
     "directories": {
       "output": "../dist/electron"
     },
     "files": [
       "main.js",
+      "windows-runtime.js",
+      "vc-runtime.json",
       "main-window-bounds.js",
       "main-window-state.js",
       "desktop-menu.js",
       "preload.js",
+      "update-service.js",
+      "update-engine.js",
+      "update-feed.js",
+      "update-manifest.js",
+      "update-backend.js",
+      "update-trust.json",
       "backend-cleanup-policy.js",
       "backend-lifecycle.js",
       "backend-process-identity.js",
@@ -93,13 +103,36 @@
       "windows-local-tts.js",
       "node_modules/ws/**/*",
       "node_modules/sherpa-onnx-node/**/*",
-      "node_modules/sherpa-onnx-win-x64/**/*"
+      "node_modules/sherpa-onnx-win-x64/**/*",
+      "node_modules/electron-updater/**/*",
+      "node_modules/builder-util-runtime/**/*",
+      "node_modules/argparse/**/*",
+      "node_modules/debug/**/*",
+      "node_modules/fs-extra/**/*",
+      "node_modules/graceful-fs/**/*",
+      "node_modules/js-yaml/**/*",
+      "node_modules/jsonfile/**/*",
+      "node_modules/lazy-val/**/*",
+      "node_modules/lodash.escaperegexp/**/*",
+      "node_modules/lodash.isequal/**/*",
+      "node_modules/ms/**/*",
+      "node_modules/sax/**/*",
+      "node_modules/tiny-typed-emitter/**/*",
+      "node_modules/universalify/**/*"
     ],
     "asarUnpack": [
       "node_modules/sherpa-onnx-node/**/*",
       "node_modules/sherpa-onnx-win-x64/**/*"
     ],
     "extraResources": [
+      {
+        "from": "resources/vc-runtime/vc_redist.x64.exe",
+        "to": "vc-runtime/vc_redist.x64.exe"
+      },
+      {
+        "from": "updater-config.yml",
+        "to": "app-update.yml"
+      },
       {
         "from": "taskbar-icon.ico",
         "to": "taskbar-icon.ico"
@@ -283,6 +316,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
+      "include": "installer-prerequisites.nsh",
       "oneClick": false,
       "perMachine": false,
       "license": "installer-notice.txt",

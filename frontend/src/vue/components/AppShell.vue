@@ -25,6 +25,7 @@ import { useLogbookStore } from '../stores/logbook.js';
 import { usePromptsStore } from '../stores/prompts.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 import { useStatusStore } from '../stores/status.js';
+import { useDesktopUpdatesStore } from '../stores/desktop-updates.js';
 import { useSupportStore } from '../stores/support.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useShellStore } from '../stores/shell.js';
@@ -41,6 +42,8 @@ import { initVoiceFirstCommandRuntime } from '../../voice/first-command.js';
 import { getAppSettings, getReconnect, setAppService } from '../../../app-shared.js';
 
 const status = useStatusStore();
+const desktopUpdates = useDesktopUpdatesStore();
+let cleanupDesktopUpdates = null;
 const tabs = useTabsStore();
 const shell = useShellStore();
 const logbook = useLogbookStore();
@@ -63,6 +66,7 @@ useBodyClass(() => status.quickGlanceVisible, 'quick-glance-active');
 useVisualViewportCssVars();
 
 onMounted(() => {
+  cleanupDesktopUpdates = desktopUpdates.connect();
   cabinAnnouncementsRuntime = initCabinAnnouncementsRuntime({
     getAppSettings,
     statusStore: status,
@@ -113,6 +117,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  cleanupDesktopUpdates?.();
+  cleanupDesktopUpdates = null;
   setAppService('cabinAnnouncements', null);
   cabinAnnouncementsRuntime?.cleanup?.();
   cabinAnnouncementsRuntime = null;

@@ -720,6 +720,153 @@ async function testDesktopRecoversAgainstBackendWithRotatedToken() {
   }
 }
 
+async function testBrowserReconnectsAcrossBackendRestart() {
+  const { createConnection } = await loadConnectionModule();
+  const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
+  const { createWsServer } = require(resolveBackendRuntimeFile('core/ws-bootstrap.js'));
+  const { createDevicePairingManager } = require(resolveBackendRuntimeFile('core/device-pairing.js'));
+  const WebSocket = require('ws');
+  const clients = [];
+  let server;
+  let pairing;
+  let generation = 0;
+  let port = 0;
+  let failedConnections = 0;
+
+  async function until(predicate, description) {
+    const deadline = Date.now() + 5000;
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error(description);
+      await wait(10);
+    }
+  }
+
+  async function startBackendTransport() {
+    pairing = createDevicePairingManager();
+    generation += 1;
+    // Exercise production LAN authorization while keeping this test listener
+    // strictly on loopback. No simulator, profiles or real phone are involved.
+    const OriginalServer = WebSocket.Server;
+    WebSocket.Server = class LoopbackServer extends OriginalServer {
+      constructor(options) { super({ ...options, host: '127.0.0.1' }); }
+    };
+    try {
+      server = createWsServer({
+        wsPort: port,
+        remoteAccessEnable: true,
+        remoteAircraftControlEnable: true,
+        wsAuthToken: 'fixture-desktop-session-' + generation,
+        aircraftControlToken: 'fixture-phone-session-' + generation,
+        devicePairing: pairing,
+        Debug: { log() {} },
+        tlog() {},
+        onClientConnected: socket => socket.send(JSON.stringify({
+          type: 'simState', state: 'menu', generation,
+        })),
+        onClientMessage() {},
+      });
+    } finally { WebSocket.Server = OriginalServer; }
+    await new Promise((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    assert.equal(server.address().address, '127.0.0.1');
+    port = server.address().port;
+  }
+
+  async function stopBackendTransport() {
+    for (const socket of server.clients) socket.close(1001, 'Backend restarting');
+    await new Promise(resolve => server.close(resolve));
+  }
+
+  function approvePhone() {
+    const created = pairing.createRequest('127.0.0.1');
+    assert.equal(created.ok, true);
+    assert.equal(pairing.approveRequest(created.request.id, created.request.confirmationCode), true);
+    const session = pairing.claimApprovedRequest(created.request.id, '127.0.0.1');
+    assert.ok(session);
+    return 'ff_aircraft_pair=' + session;
+  }
+
+  async function openBrowser({ search = '', cookie = '' } = {}) {
+    const client = { connection: null, cookie, messages: [], closes: 0 };
+    class PhoneWebSocket extends WebSocket {
+      constructor(url) {
+        super(url, { origin: 'http://127.0.0.1:8100', headers: { Cookie: client.cookie } });
+      }
+    }
+    client.connection = createConnection({
+      windowRef: {
+        location: { search, hostname: '127.0.0.1', protocol: 'http:', port: '8100' },
+        // LAN bootstrap intentionally does not disclose either session token.
+        // This isolates the real WebSocket restart and pairing contract from
+        // HTTP routing, browser rendering and operating-system installation.
+        fetch: async () => ({ ok: true, json: async () => ({
+          wsAuthToken: '', aircraftControlToken: '', networkInfo: { wsPort: port },
+        }) }),
+      },
+      WebSocketRef: PhoneWebSocket,
+      reconnectDelay: 30,
+      onMessage: message => client.messages.push(message),
+      onClose: () => { client.closes += 1; },
+      onError: () => { failedConnections += 1; },
+    });
+    clients.push(client);
+    await client.connection.initialize();
+    return client;
+  }
+
+  try {
+    await startBackendTransport();
+    const viewer = await openBrowser();
+    const qrPhone = await openBrowser({ search: '?aircraftControlToken=fixture-phone-session-1' });
+    const approvedPhone = await openBrowser({ cookie: approvePhone() });
+    await until(() => clients.every(client => client.messages.some(message => message.generation === 1)), 'Initial phone state was not delivered');
+    assert.equal(viewer.connection.getAuthorizationScope(), 'read-only');
+    assert.equal(qrPhone.connection.getAuthorizationScope(), 'aircraft-control');
+    assert.equal(approvedPhone.connection.getAuthorizationScope(), 'aircraft-control');
+
+    await stopBackendTransport();
+    await until(() => clients.every(client => client.closes > 0), 'Browsers did not observe backend shutdown');
+    for (const client of clients) {
+      assert.equal(client.connection.getAuthorizationScope(), 'read-only', 'backend shutdown revokes previously acknowledged controls');
+      assert.equal(client.connection.isAuthorizationAcknowledged(), false);
+    }
+    await until(() => failedConnections > 0, 'The test must cover at least one reconnect while the backend is unavailable');
+    await startBackendTransport();
+    await until(() => clients.every(client => client.messages.some(message => message.generation === 2)), 'Already loaded browsers did not receive replacement-backend state');
+    for (const client of clients) {
+      assert.equal(client.connection.getAuthorizationScope(), 'read-only');
+      assert.equal(client.connection.isAuthorizationAcknowledged(), true);
+    }
+    for (const client of [qrPhone, approvedPhone]) {
+      const acknowledgement = client.messages.filter(message => message.type === 'authorizationScope').at(-1);
+      assert.equal(acknowledgement.aircraftControlPairingStatus, 'expired', 'old QR and approval sessions must be identified as expired after restart');
+    }
+
+    approvedPhone.cookie = approvePhone();
+    approvedPhone.connection.reconnect();
+    const currentQrPhone = await openBrowser({ search: '?aircraftControlToken=fixture-phone-session-2' });
+    await until(() => approvedPhone.connection.getAuthorizationScope() === 'aircraft-control'
+      && currentQrPhone.connection.getAuthorizationScope() === 'aircraft-control', 'Fresh approval or the current QR did not restore control');
+    assert.equal(viewer.connection.getAuthorizationScope(), 'read-only', 'restoring one phone must not grant viewer controls');
+    assert.equal(qrPhone.connection.getAuthorizationScope(), 'read-only', 'an old QR remains expired until replaced');
+    console.log('PASS: loaded browser reconnects after backend downtime; old QR/cookie expire; fresh approval/current QR restore aircraft control');
+  } finally {
+    for (const client of clients) {
+      const socket = client.connection.getWs();
+      if (socket) {
+        socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+        socket.terminate();
+      }
+    }
+    if (server?.address()) {
+      for (const socket of server.clients) socket.terminate();
+      await new Promise(resolve => server.close(resolve));
+    }
+  }
+}
+
 async function run() {
   await testPortMismatchBootstrapFallback();
   await testDirectBackendBootstrap();
@@ -733,6 +880,7 @@ async function run() {
   await testManualReconnectCancelsPendingDesktopRetry();
   await testBrowserKeepsAcknowledgedLimitedAccess();
   await testDesktopRecoversAgainstBackendWithRotatedToken();
+  await testBrowserReconnectsAcrossBackendRestart();
   console.log('✅ ws connection bootstrap tests passed');
 }
 

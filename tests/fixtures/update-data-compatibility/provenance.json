@@ -1,0 +1,93 @@
+{
+  "kind": "Synthetic inputs generated from repository release source; not a real flight or installed upgrade",
+  "settings": [
+    {
+      "tag": "v0.9.9",
+      "commit": "c4ac1ad90f2203575636800aed060f145849296d",
+      "file": "v0.9.9-settings.json",
+      "sha256": "76be77850060925204a9fb079bb36fe154409c48fd8fe826a5c63be7745705ac",
+      "overrides": "Remote access on; aircraft control/update checks/online tiles/auto-recording off; bundled FBW A32NX; custom cabin pack; speed tolerance +7 kt; no credentials",
+      "sources": {
+        "backend/core/user-settings.ts": "cb377db83b2699e7dbf768b766721de6135f8b02005008be105cd66e7205a007",
+        "backend/aircraft/aircraft-profile-identity.ts": "2874e94dfa305634bbe628e557874ea212ddf971522dea2806aeed3ee96d5edd",
+        "shared/app-settings-shared.js": "51f61ee287b3bf54e9d5d242107ef3b5ab653435b0c3b35cb074cd28d5d1be20",
+        "backend/utils/storage-paths.ts": "1eae68a7006ecfbc157efd0a015abf9f97c8733da97329a781483995bc9524ce",
+        "backend/utils/safe-fs.ts": "9cb47a855de6f6ed6ea815cc0f82e1af2eb8cac97e0e562a4290ea88e4773b57",
+        "backend/utils/path-guard.ts": "6f48d5018636be6b2c6ee247e595d32bb6e5d0a2b961d1afc85f8f6227fb70ab"
+      }
+    },
+    {
+      "tag": "v0.10.0",
+      "commit": "c93bbae0c53a17f99e005ac4f30326361759ec29",
+      "file": "v0.10.0-settings.json",
+      "sha256": "754a79d53e5c10ac5aaf11ecd6c33aa4a0060d0443d9b44f15d3901030f560ed",
+      "overrides": "Remote access on; aircraft control/update checks/online tiles/auto-recording off; bundled FBW A32NX; custom cabin pack; speed tolerance +7 kt; no credentials",
+      "sources": {
+        "backend/core/user-settings.ts": "dc60da7b22f0891570476227b35d220ee00d85ec8876eea2628e2ea92317df38",
+        "backend/aircraft/aircraft-profile-identity.ts": "2874e94dfa305634bbe628e557874ea212ddf971522dea2806aeed3ee96d5edd",
+        "shared/app-settings-shared.js": "199b54d2d53e59dc82af34de639839c60f31cf97b4783623a6f7444b69622dd9",
+        "backend/utils/storage-paths.ts": "1eae68a7006ecfbc157efd0a015abf9f97c8733da97329a781483995bc9524ce",
+        "backend/utils/safe-fs.ts": "9cb47a855de6f6ed6ea815cc0f82e1af2eb8cac97e0e562a4290ea88e4773b57",
+        "backend/utils/path-guard.ts": "6f48d5018636be6b2c6ee247e595d32bb6e5d0a2b961d1afc85f8f6227fb70ab"
+      }
+    },
+    {
+      "tag": "v0.11.0",
+      "commit": "5005c54d89a73cacb0af0d04a87175fb18e8b926",
+      "file": "v0.11.0-settings.json",
+      "sha256": "754a79d53e5c10ac5aaf11ecd6c33aa4a0060d0443d9b44f15d3901030f560ed",
+      "overrides": "Remote access on; aircraft control/update checks/online tiles/auto-recording off; bundled FBW A32NX; custom cabin pack; speed tolerance +7 kt; no credentials",
+      "sources": {
+        "backend/core/user-settings.ts": "dc60da7b22f0891570476227b35d220ee00d85ec8876eea2628e2ea92317df38",
+        "backend/aircraft/aircraft-profile-identity.ts": "2874e94dfa305634bbe628e557874ea212ddf971522dea2806aeed3ee96d5edd",
+        "shared/app-settings-shared.js": "504f5fa9d06f514175a4233c98225ea165567ed60c89b3236b7082f497ef030f",
+        "backend/utils/storage-paths.ts": "39049310f044d7341ab899b00f9dfccec7808fcbeddc0f6054c95dd84e3fd482",
+        "backend/utils/safe-fs.ts": "9cb47a855de6f6ed6ea815cc0f82e1af2eb8cac97e0e562a4290ea88e4773b57",
+        "backend/utils/path-guard.ts": "6f48d5018636be6b2c6ee247e595d32bb6e5d0a2b961d1afc85f8f6227fb70ab"
+      }
+    }
+  ],
+  "recording": {
+    "tag": "v0.10.0",
+    "commit": "c93bbae0c53a17f99e005ac4f30326361759ec29",
+    "directory": "v0.10.0-recording/2026-09-24_03-00-00Z--e77136e2",
+    "description": "Synthetic 60-second cruise segment: 61 one-second samples, IAS 240 kt, TAS/GS 400 kt, 30000 ft, zero vertical speed, northbound 6.67 NM. Recorder closed manually. No landing, runway or control parity claim.",
+    "sources": {
+      "backend/flight-recording/flight-csv-writer.ts": "98ef4374a9983317c6d5a879e2404de31a50130226fdf66d7c3d40ab146a17f5",
+      "backend/utils/flight-logs-dir.ts": "384976f6797129fe9c9e92c20cbe6347de47c65925f6aabe079fa657fc0ffe7b",
+      "backend/flight-recording/recording-bundle-layout.ts": "a4a5157761ea2c2ba69316602207d5682011cbb4c31cc6b6647441765237b629",
+      "backend/utils/storage-paths.ts": "1eae68a7006ecfbc157efd0a015abf9f97c8733da97329a781483995bc9524ce",
+      "backend/flight-recording/recording-path-guard.ts": "3809ca9f3baf6d1bb7482761fe55ffd893d47df4605891ae6ad90f70cb0bc7bb",
+      "backend/utils/safe-fs.ts": "9cb47a855de6f6ed6ea815cc0f82e1af2eb8cac97e0e562a4290ea88e4773b57",
+      "backend/utils/path-guard.ts": "6f48d5018636be6b2c6ee247e595d32bb6e5d0a2b961d1afc85f8f6227fb70ab",
+      "backend/flight-recording/recording-stream-durability.ts": "328afd323e64d84a1f236da4fe8cb471b85f957e09e1a3e9f595218a73844ef2",
+      "backend/core/time-source.ts": "207ec444f02c6bffc56ee64f307656707f025613836921c68f6c63a2e14734d0",
+      "backend/core/config.ts": "c35c41de439f533d155df1e4ae2b0f7183f0191763e69d59dcdd5d5e2c51a49f",
+      "backend/core/user-settings.ts": "dc60da7b22f0891570476227b35d220ee00d85ec8876eea2628e2ea92317df38",
+      "backend/aircraft/aircraft-profile-identity.ts": "2874e94dfa305634bbe628e557874ea212ddf971522dea2806aeed3ee96d5edd",
+      "shared/app-settings-shared.js": "199b54d2d53e59dc82af34de639839c60f31cf97b4783623a6f7444b69622dd9",
+      "backend/core/xplane-startup-gate.ts": "b82c1cfc643686d3c747bb581916aee8fead6aa46b25b003d173176586f00b6e",
+      "backend/flight-recording/schema-field-map.ts": "01755e809893580b6e086428220d75065e66b0d3ddb1f74acdd06532d64d2856",
+      "backend/core/event-bus.ts": "7f3062ff3c2165fb4177064ec2a631e50acdca9391ec65426e418622ee7bc3d7",
+      "backend/flight-recording/automation-jsonl-recorder.ts": "a5ef2d52f3ca53bf2cb3765763d9080fd9ee735f2048c2b5d3b60033a6485b3a",
+      "backend/flight-recording/aircraft-specific-jsonl-recorder.ts": "be926e6b4f23f045a10f604e32eb4d1b5e927cb5863f98ff5e64d5789484ca67",
+      "backend/flight-recording/recording-bundle-status.ts": "7d12e9aaebed9f4c0b74f17149a80cf6cbecc6779fe3beee4acb4d6841175825",
+      "backend/utils/csv.ts": "218f6cd86fb4414cada06c9a75b3953084b0824917093b8dbf9b21e7bfbe3872"
+    },
+    "files": {
+      "aircraft-specific.jsonl": "82b81142fb0983350f9a840e0da6fb2f646dc0211b511061a8fe6a6b229741cc",
+      "automation.jsonl": "a89373577cd3197db0205ab4aad1d1b6433711dc971d3935ecaf7385051425e4",
+      "manifest.json": "f5ffda7207f23570122220fb6de542fd9d30d47a8cec7fe2e00cac114f782e77",
+      "telemetry.csv": "313d30bf9d4069274fe1ad3c179046e6063b8d548d761e2e2e0652211698d79a"
+    }
+  },
+  "profile": {
+    "tag": "v0.9.9",
+    "source": "backend/aircraft/profiles/bundled/msfs/fbw-a32nx.json",
+    "file": "v0.9.9-fbw-a32nx.json",
+    "sha256": "785788bbdf4a712aeda922b06128d28f34cac2bfd63740deba9f9c9d71a505ae",
+    "note": "Exact release-owned JSON copied unchanged into retired Local/Community directories only to check preservation and exclusion."
+  },
+  "generation": "Generated locally from the listed git tags with their original user-settings and recorder modules, transpiled from TypeScript and loaded with isolated AppData/Documents paths. Only disposable fixture inputs were supplied; no released executable was run. Source SHA-256 values identify exact module text. Certified recording members are immutable test inputs.",
+  "limits": "These tests exercise current readers directly across skipped release schemas. They do not establish NSIS installation/rollback behavior, real recorded-landing compatibility, every historic schema, or support for retired user profile overrides."
+}

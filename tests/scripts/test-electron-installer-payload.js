@@ -19,6 +19,7 @@ const EXTRACT_ROOT = getRepoScratchPath('electron-installer-payload');
 const REQUIRED_PAYLOAD_FILES = [
   buildExecutableFileName(),
   path.join('resources', 'app.asar'),
+  path.join('resources', 'vc-runtime', 'vc_redist.x64.exe'),
   path.join('resources', 'backend', SIMCONNECT_DLL_RELATIVE),
   ...REQUIRED_PACKAGED_BACKEND_STARTUP_FILES.map((relativePath) => (
     path.join('resources', 'backend', ...relativePath.split('/'))
@@ -74,6 +75,9 @@ async function extractInstallerPayload(installerPath) {
   resetRepoScratchDirectory('electron-installer-payload');
   const result = childProcess.spawnSync(sevenZipPath, [
     'x',
+    // The prerequisite EXE precedes the app archive in NSIS. Allow a bounded
+    // prefix beyond 7-Zip's default 8 MiB, while selecting only the app's 7z.
+    '-t7z:s64m',
     '-bd',
     '-y',
     `-o${EXTRACT_ROOT}`,

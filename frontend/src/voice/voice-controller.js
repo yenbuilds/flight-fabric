@@ -565,7 +565,7 @@ export function createVoiceControlController({
         // those final samples until the capture has completely stopped.
         await session.capture.stop();
         if (active !== session) return false;
-        // stop() closes the capture context and stops the microphone tracks.
+        // stop() detaches capture input and stops the microphone tracks.
         // The release cue therefore cannot become microphone input.
         void acknowledgementTone.play?.('release');
         await api.finishRecognition(session.sessionId);

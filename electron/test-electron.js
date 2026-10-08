@@ -1545,7 +1545,8 @@ const trustedIpcChannels = [...mainSource.matchAll(/registerTrustedIpcHandler\('
   .map((match) => match[1]);
 test(
   'every incoming Electron IPC channel uses the trusted sender registrar',
-  trustedIpcChannels.length === 30
+  trustedIpcChannels.length === 35
+    && ['state', 'check', 'download', 'cancel', 'install'].every(action => trustedIpcChannels.includes(`desktop-update-${action}`))
     && trustedIpcChannels.includes('autotaxi-background-set')
     && new Set(trustedIpcChannels).size === trustedIpcChannels.length
     && (mainSource.match(/ipcMain\.handle\(/g) || []).length === 1

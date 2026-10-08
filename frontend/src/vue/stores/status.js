@@ -233,6 +233,7 @@ function normalizeRestartReasons(value) {
 
 export const useStatusStore = defineStore('status', {
   state: () => ({
+    desktopUpdateManaged: false,
     websocket: 'connecting',
     phase: '--',
     simConnected: false,
@@ -505,6 +506,7 @@ export const useStatusStore = defineStore('status', {
       this.systemBanners.disk.visible = false;
     },
     showUpdateBanner(message = {}) {
+      if (this.desktopUpdateManaged && message.desktop !== true) return;
       this.systemBanners.update = {
         visible: true,
         currentVersion: message.currentVersion || '',

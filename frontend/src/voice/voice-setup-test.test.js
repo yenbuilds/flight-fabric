@@ -182,14 +182,16 @@ test('navigation during a pending start cancels its late session without opening
   assert.equal(h.state.voiceTest.phase, 'idle');
 });
 
-test('setup cancellation and disposal close real PCM capture across delayed browser startup replies', async () => {
+test('setup cancellation and disposal close real PCM capture across delayed browser startup and closure replies', async (t) => {
   // Browser timing is simulated; this checks ownership across the real setup
   // controller and PCM capture without opening a physical microphone.
   for (const stage of ['permission', 'worklet', 'resume']) {
     for (const action of ['cancel', 'dispose']) {
-      let release, reached;
+      let release, reached, releaseClose;
       const pending = new Promise(resolve => { release = resolve; });
       const ready = new Promise(resolve => { reached = resolve; });
+      const closing = new Promise(resolve => { releaseClose = resolve; });
+      t.after(() => { release(); releaseClose(); });
       const waitAt = async boundary => {
         if (boundary === stage) { reached(); await pending; }
       };
@@ -207,7 +209,11 @@ test('setup cancellation and disposal close real PCM capture across delayed brow
         }
         createMediaStreamSource() { return { connect() { connected++; }, disconnect() {} }; }
         async resume() { await waitAt('resume'); }
-        async close() { this.state = 'closed'; }
+        async close() {
+          this.closeCalls = (this.closeCalls || 0) + 1;
+          this.state = 'closed';
+          await closing;
+        }
       }
       class AudioWorkletNode {
         port = { close() {}, postMessage() {} };
@@ -219,7 +225,11 @@ test('setup cancellation and disposal close real PCM capture across delayed brow
       } });
       const started = h.controller.start();
       await ready;
-      await h.controller[action]();
+      let settled = false;
+      const stopped = h.controller[action]().then(() => { settled = true; });
+      await new Promise(setImmediate);
+      assert.equal(settled, true, `${action} cannot wait for the capture context close reply at ${stage}`);
+      await stopped;
       const state = { ...h.state.voiceTest };
       assert.equal(trackStops, stage === 'permission' ? 0 : 1, `${action} immediately closes a granted stream at ${stage}`);
       assert.equal(h.controller.busy, false);
@@ -230,6 +240,7 @@ test('setup cancellation and disposal close real PCM capture across delayed brow
       assert.equal(trackStops, 1, `${action} closes a late ${stage} grant exactly once`);
       assert.equal(connected, stage === 'resume' ? 1 : 0);
       assert(contexts.every(context => context.state === 'closed'));
+      assert(contexts.every(context => context.closeCalls === 1));
       assert.deepEqual(h.state.voiceTest, state);
       assert.equal(h.calls.some(([type]) => type === 'audio'), false);
       if (action === 'dispose') assert.equal(await h.controller.start(), false);

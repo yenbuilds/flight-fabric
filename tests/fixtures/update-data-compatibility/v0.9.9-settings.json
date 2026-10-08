@@ -1,0 +1,51 @@
+{
+  "_version": 4,
+  "_description": "Flight Fabric user settings. Edit values below and restart the app.",
+  "database": {
+    "maxSizeMB": 200,
+    "maxAgeDays": 90
+  },
+  "network": {
+    "wsPort": 8099,
+    "httpPort": 8100,
+    "remoteAccess": true,
+    "remoteAircraftControl": false,
+    "updateChecks": false,
+    "onlineMapTiles": false
+  },
+  "recording": {
+    "autoStart": false
+  },
+  "aircraft": {
+    "profile": "bundled/msfs/fbw-a32nx"
+  },
+  "debrief": {
+    "stabilityCriteria": {
+      "gateRaFt": 1000,
+      "speedMinusKts": 5,
+      "speedPlusKts": 7,
+      "vsMinFpm": -1000,
+      "vsMaxClimbFpm": 200,
+      "glidepathAngleDeg": 3,
+      "glidepathVsDeltaMaxFpm": 200,
+      "speedTrendMaxKtsPerSec": 2.5,
+      "thrustIdleMinPct": 15,
+      "thrustStableMaxPctPerSec": 10,
+      "pitchMinDeg": -5,
+      "pitchMaxDeg": 15,
+      "bankMaxDeg": 25,
+      "passPct": 80
+    }
+  },
+  "simulator": {
+    "protocol": "KittyHawk"
+  },
+  "cabinAnnouncements": {
+    "enabled": true,
+    "style": "custom-fixture-pack",
+    "startupGraceMs": 5000
+  },
+  "effects": {
+    "touchdownShake": false
+  }
+}

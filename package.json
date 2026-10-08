@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -60,6 +60,7 @@
     "test:http-server-simbrief": "npm run build:backend:runtime && node --test dist/backend/core/http-server.test.js",
     "test:user-identity": "node tests/scripts/test-user-identity.js",
     "test:electron": "node electron/test-electron.js",
+    "test:windows-runtime": "node --test electron/windows-runtime.test.js",
     "test:simconnect-sdk": "node --test tests/scripts/test-simconnect-sdk.js",
     "release:simconnect:check": "node scripts/verify-simconnect-sdk.js",
     "test:electron:window-state": "node tests/scripts/test-electron-window-state-runtime.js",
@@ -138,7 +139,12 @@
     "prepare": "husky",
     "test:approach-families-browser": "node tests/scripts/test-approach-families-browser.js",
     "test:aircraft-layout-browser": "npm run frontend:build && node tests/scripts/test-aircraft-layout-browser.js",
-    "test:voice:cloud": "node --test electron/voice-cloud.test.js"
+    "test:voice:cloud": "node --test electron/voice-cloud.test.js",
+    "test:updates": "node --test electron/update-manifest.test.js electron/update-service.test.js electron/update-backend.test.js scripts/desktop-update-release.test.js",
+    "release:updates": "node scripts/desktop-update-release.js",
+    "test:updates:browser": "node tests/scripts/test-desktop-updates-browser.js",
+    "test:updates:engine": "node tests/scripts/test-desktop-update-engine.js",
+    "test:updates:data": "node --test tests/scripts/test-update-data-compatibility.js"
   },
   "repository": {
     "type": "git",

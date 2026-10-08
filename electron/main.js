@@ -25,6 +25,13 @@ const { resolveAllowedExternalUrl } = require('./external-url-policy');
 const { isTrustedIpcSender } = require('./ipc-sender-policy');
 const { installSessionPermissionPolicy } = require('./session-permission-policy');
 const { createVoiceRuntime } = require('./voice-runtime');
+const { ensureWindowsRuntime } = require('./windows-runtime');
+const { createUpdateService } = require('./update-service');
+const { createSignedFeed } = require('./update-feed');
+const { createUpdateEngine } = require('./update-engine');
+const { prepareBackendForUpdate } = require('./update-backend');
+const { updateError } = require('./update-manifest');
+const updateTrust = require('./update-trust.json');
 const { canStopBackendPortOwner } = require('./backend-cleanup-policy');
 const { acquireRuntimeOwnerLock, getLifecycleRuntimeOwnerPipePath } = require('./runtime-owner-lock');
 const { isManagedProcessAlive } = require('./process-liveness');
@@ -583,6 +590,10 @@ let startupHealth = null;
 let lifecycleSmokeQuitScheduled = false;
 let lifecycleSmokeBeforeQuitRecorded = false;
 let voiceRuntime = null;
+const voiceIpcHandlers = new Set();
+let desktopUpdater = null;
+let updatePreparing = false;
+let updateFinalQuit = false;
 
 // Backend state for IPC
 let backendStatus = 'stopped';
@@ -1052,6 +1063,10 @@ function registerTrustedIpcHandler(channel, handler, options = {}) {
       debugLog('Rejected IPC request from an untrusted sender:', channel);
       if (listener) return undefined;
       throw new Error('Untrusted Electron IPC sender');
+    }
+    if (updatePreparing && !['desktop-update-state', 'backend-status'].includes(channel)) {
+      if (listener) return undefined;
+      throw new Error('FlightFabric is preparing an update. Wait for it to finish.');
     }
     return handler(event, ...args);
   };
@@ -1964,6 +1979,7 @@ function cancelBackendStartup(proc) {
  * Serialize backend starts so tray/IPC actions cannot launch duplicate children.
  */
 function startBackend() {
+  if (updatePreparing) return Promise.resolve(false);
   if (isQuitting) return Promise.resolve(false);
   if (backendStopPromise) {
     const stopping = backendStopPromise;
@@ -2901,6 +2917,11 @@ registerTrustedIpcHandler('app-restart', async () => {
   return { ok };
 });
 registerTrustedIpcHandler('backend-status', () => ({ status: backendStatus }));
+registerTrustedIpcHandler('desktop-update-state', () => desktopUpdater?.snapshot() || { supported: false, phase: 'unavailable' });
+registerTrustedIpcHandler('desktop-update-check', () => desktopUpdater?.check());
+registerTrustedIpcHandler('desktop-update-download', () => desktopUpdater?.download());
+registerTrustedIpcHandler('desktop-update-cancel', () => desktopUpdater?.cancel());
+registerTrustedIpcHandler('desktop-update-install', () => desktopUpdater?.install());
 registerTrustedIpcHandler('backend-logs', () => lastBackendOutput);
 registerTrustedIpcHandler('backend-ws-port', () => getBackendRuntimePorts().wsPort);
 registerTrustedIpcHandler('backend-http-port', () => getBackendRuntimePorts().httpPort);
@@ -3108,6 +3129,14 @@ registerTrustedIpcHandler('reveal-legal-folder', async () => {
 // App lifecycle
 void app.whenReady().then(async () => {
   if (!gotTheLock) return;
+  if (app.isPackaged && process.platform === 'win32' && process.arch === 'x64') {
+    const ready = await ensureWindowsRuntime({ dialog, resourcesPath: process.resourcesPath, interactive: !lifecycleSmokeConfig });
+    if (!ready) {
+      recordLifecycleSmokeEvent('startup-blocked', { reason: 'microsoft-runtime-unavailable' });
+      app.quit();
+      return;
+    }
+  }
   installDefaultSessionPermissionPolicy();
   installOpenStreetMapRequestIdentification();
   // The validated lifecycle probe has its own profile, ports and named pipe.
@@ -3156,20 +3185,14 @@ void app.whenReady().then(async () => {
     createWindow();
     createTray();
     createApplicationMenu();
-    voiceRuntime = createVoiceRuntime({
-      app,
-      appDir: __dirname,
-      debugLog,
-      getMainWindow: () => mainWindow,
-      ipcMain,
-      registerTrustedIpcHandler,
-    });
-    void voiceRuntime.initialize();
+    void initializeDesktopVoiceRuntime();
+    initializeDesktopUpdater();
   }
   recordLifecycleSmokeEvent('app-initialized');
   // Backend ownership must not depend on renderer navigation or
   // BrowserWindow ready-to-show, both of which can fail or hang.
   void startBackend().then((started) => {
+    void desktopUpdater?.completeStartup(started);
     if (!started && lifecycleSmokeConfig) {
       recordLifecycleSmokeEvent('startup-blocked', { reason: 'backend-start-failed' });
       app.quit();
@@ -3213,6 +3236,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  if (updateFinalQuit) return;
+  desktopUpdater?.dispose();
   event.preventDefault();
   if (!lifecycleSmokeBeforeQuitRecorded) {
     lifecycleSmokeBeforeQuitRecorded = true;
@@ -3221,6 +3246,99 @@ app.on('before-quit', (event) => {
   if (isQuitSequenceRunning) return;
   void shutdownApplication();
 });
+
+function initializeDesktopVoiceRuntime() {
+  voiceRuntime = createVoiceRuntime({
+    app, appDir: __dirname, debugLog, getMainWindow: () => mainWindow, ipcMain,
+    registerTrustedIpcHandler: (channel, handler, options) => {
+      registerTrustedIpcHandler(channel, handler, options);
+      if (!options?.listener) voiceIpcHandlers.add(channel);
+    },
+  });
+  return voiceRuntime.initialize();
+}
+
+function initializeDesktopUpdater() {
+  let backendStoppedForUpdate = false;
+  let voiceShutdownIncomplete = false;
+  const updateDataPath = path.join(app.getPath('userData'), 'Updates');
+  desktopUpdater = createUpdateService({
+    currentVersion: app.getVersion(),
+    supported: app.isPackaged && process.platform === 'win32' && process.arch === 'x64'
+      && !process.env.PORTABLE_EXECUTABLE_FILE
+      && fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall FlightFabric.exe')),
+    trust: updateTrust,
+    feed: createSignedFeed({ trust: updateTrust, ledgerPath: path.join(updateDataPath, 'accepted-feed.json') }),
+    cachePath: path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'flightfabric-updater'),
+    spacePaths: [app.getPath('temp'), path.dirname(process.execPath)],
+    receiptPath: path.join(updateDataPath, 'pending-install.json'),
+    createEngine: createUpdateEngine,
+    onState: (state) => {
+      if (!['preparing', 'installing'].includes(state.phase)) updatePreparing = false;
+      sendToRenderer('desktop-update-state', state);
+    },
+    prepare: async (signal) => {
+      if (isQuitting || applicationShutdownPromise || backendStartPromise || backendStopPromise) {
+        throw updateError('blocked', 'Wait for FlightFabric to finish starting or stopping before updating.');
+      }
+      updatePreparing = true;
+      await prepareBackendForUpdate(backendProcess, { signal });
+      if (signal.aborted || (backendProcess && isBackendProcessAlive(backendProcess))) {
+        throw updateError('blocked', 'The connection service has not stopped. The update was not started.');
+      }
+      backendStoppedForUpdate = true;
+      if (voiceRuntime) {
+        voiceShutdownIncomplete = true;
+        const stopped = await runBoundedShutdownTask('Update voice shutdown', () => voiceRuntime.shutdown());
+        if (!stopped) throw updateError('blocked', 'Voice controls did not stop cleanly. Restart FlightFabric before trying again.');
+        voiceShutdownIncomplete = false;
+        for (const channel of voiceIpcHandlers) ipcMain.removeHandler(channel);
+        voiceIpcHandlers.clear();
+        voiceRuntime = null;
+      }
+    },
+    recover: async () => {
+      if (isQuitting || applicationShutdownPromise || voiceShutdownIncomplete) return false;
+      if (!backendStoppedForUpdate) return true; // A readiness refusal leaves the services running.
+      if (!voiceRuntime) await initializeDesktopVoiceRuntime();
+      if (isQuitting || applicationShutdownPromise) return false;
+      // Only this owned start may run while the update operation is recovering.
+      updatePreparing = false;
+      const starting = startBackend();
+      updatePreparing = true;
+      const restored = await starting;
+      if (restored) backendStoppedForUpdate = false;
+      return restored;
+    },
+    handoff: async (install, signal) => {
+      if (signal.aborted || isQuitting) throw updateError('blocked', 'The update was not started because FlightFabric is closing.');
+      mainWindowState?.save();
+      // Static HTTP sockets and the named ownership pipe belong to this process.
+      // Keep them available if installer launch fails; Windows closes both on exit.
+      isQuitting = true;
+      try {
+        await install();
+        updateFinalQuit = true;
+        app.quit();
+      } catch (error) {
+        updateFinalQuit = false;
+        if (!applicationShutdownPromise) isQuitting = false;
+        updatePreparing = false;
+        throw error;
+      }
+    },
+  });
+  mainWindow?.on('query-session-end', () => desktopUpdater.sessionEnding());
+  mainWindow?.on('session-end', () => desktopUpdater.sessionEnding());
+  // Respect the existing update-check preference; manual checking remains available.
+  let automaticChecks = process.env.UPDATE_CHECKS_ENABLED !== '0';
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsStore.settingsFile, 'utf8'));
+    automaticChecks = automaticChecks && settings.network?.updateChecks !== false;
+  } catch {}
+  if (automaticChecks) desktopUpdater.start();
+  sendToRenderer('desktop-update-state', desktopUpdater.snapshot());
+}
 
 // Handle second instance (single instance lock)
 const gotTheLock = app.requestSingleInstanceLock();

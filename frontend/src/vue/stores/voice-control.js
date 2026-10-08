@@ -11,6 +11,8 @@ const DEFAULT_RUNTIME = Object.freeze({
   mode: 'offline',
   cloud: { enabled: false, keyConfigured: false, storageAvailable: false, providerId: 'openai', providerLabel: 'OpenAI', modelId: '', revision: 0, selectionValid: true, providers: [] },
   error: '',
+  engineState: 'new',
+  modelBundled: true,
   modelId: '',
   readbackError: '',
   shortcut: '',
@@ -45,6 +47,9 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     _runtimeActions: null,
   }),
   getters: {
+    restartHintVisible: (state) => state.bridgeAvailable && state.runtime.enabled
+      && state.runtime.mode === 'offline' && !state.runtime.available
+      && state.runtime.engineState === 'failed' && state.runtime.modelBundled,
     // Setup is local to the desktop runtime, not simulator connectivity. The
     // system-default microphone is valid; viewing settings does not complete
     // setup. Only runtime registration confirms a working push-to-talk binding.
@@ -119,6 +124,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
           })),
         },
         error: typeof info.error === 'string' ? info.error : '',
+        engineState: typeof engine.state === 'string' ? engine.state : 'new',
+        modelBundled: info.modelBundled !== false,
         modelId: typeof engine.modelId === 'string' ? engine.modelId : '',
         readbackError: typeof info.readback?.lastError === 'string' ? info.readback.lastError : '',
         shortcut: typeof ptt.accelerator === 'string'

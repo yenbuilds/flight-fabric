@@ -15,6 +15,7 @@ backend-build/
 backend/telemetry-provider/rust-simconnect-sidecar/target/
 electron/voice-native/ptt-hook/target/
 electron/resources/models/
+electron/resources/vc-runtime/
 
 # Downloaded binaries
 bin/
