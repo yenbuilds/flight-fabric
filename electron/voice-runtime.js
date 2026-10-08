@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { createVoiceSpeechEngine } = require('./voice-speech-engine');
 const { createVoiceCloudEngine } = require('./voice-cloud-engine');
 const { createVoiceCloudCredentials } = require('./voice-cloud-credentials');
@@ -20,6 +21,7 @@ const { normalizeControllerBinding, controllerSummary } = require('./voice-contr
 const { createControllerSetup } = require('./voice-controller-setup');
 
 const AUDIO_CHANNEL = 'voice:speech-audio';
+const PTT_ATTEMPT_ID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 // Source-only release gate. Keep the preview implementation and saved keys for
 // later qualification; neither preferences nor renderer IPC can enable it.
 const CLOUD_VOICE_ENABLED = false;
@@ -86,6 +88,42 @@ function createVoiceRuntime({
   let captureAuthorization = null;
   let runtimeTransition = Promise.resolve();
   let shuttingDown = false;
+  let pushToTalkRetry = null;
+  let inputAttempt = null;
+  let recognitionInputOwner = null;
+  let shortcutRecording = null;
+  let shortcutRecordingRevision = 0;
+  let shortcutRestore = null;
+
+  function requirePttAttemptId(value) {
+    if (typeof value !== 'string' || !PTT_ATTEMPT_ID_RE.test(value)) throw new TypeError('Invalid push-to-talk attempt identifier');
+    return value;
+  }
+
+  function findInputAttempt(pttAttemptId) {
+    return inputAttempt?.pttAttemptId === pttAttemptId ? inputAttempt
+      : recognitionInputOwner?.attempt.pttAttemptId === pttAttemptId ? recognitionInputOwner.attempt : null;
+  }
+
+  function retireInputAttempt(attempt, cancelRecognition = false) {
+    if (!attempt) return false;
+    const recognized = recognitionInputOwner?.attempt === attempt ? recognitionInputOwner : null;
+    if (inputAttempt === attempt) inputAttempt = null;
+    if (recognized) recognitionInputOwner = null;
+    attempt.hook.retireAttempt?.(attempt.inputId);
+    if (cancelRecognition && recognized && recognized.engine === speech
+      && speech.getInfo().activeSessionId === recognized.sessionId) {
+      revokeCaptureAuthorization(recognized.sessionId);
+      speech.cancel(recognized.sessionId);
+    }
+    return true;
+  }
+
+  function retireRecognitionInput(engine, sessionId) {
+    const owner = recognitionInputOwner;
+    if (!owner || owner.engine !== engine || owner.sessionId !== sessionId) return false;
+    return retireInputAttempt(owner.attempt);
+  }
 
   function webContentsId(webContents) {
     const value = Number(webContents?.id);
@@ -100,13 +138,17 @@ function createVoiceRuntime({
   }
 
   function isAudioCaptureAuthorized(webContents) {
-    if (!recognitionEnabled || controllerSetupActive) return false;
+    if (!recognitionEnabled || controllerSetupActive || shortcutRecording) return false;
     if (!captureAuthorization || webContentsId(webContents) !== captureAuthorization.webContentsId) return false;
     return speech.getInfo().activeSessionId === captureAuthorization.sessionId;
   }
 
   function cancelActiveSession() {
     const sessionId = captureAuthorization?.sessionId || speech.getInfo().activeSessionId;
+    // This is the application-wide cancellation path (disable, setup, mode,
+    // navigation or helper failure), including an attempt still starting.
+    retireInputAttempt(inputAttempt);
+    if (recognitionInputOwner) retireInputAttempt(recognitionInputOwner.attempt);
     revokeCaptureAuthorization();
     return typeof sessionId === 'string' && sessionId ? speech.cancel(sessionId) : false;
   }
@@ -169,6 +211,7 @@ function createVoiceRuntime({
   }
 
   function runtimeInfo() {
+    const input = hook?.getInfo();
     return Object.freeze({
       available: recognitionEnabled && speech.getInfo().ready,
       enabled: recognitionEnabled,
@@ -180,14 +223,19 @@ function createVoiceRuntime({
       // Electron run. Packaged builds always keep the normal aircraft gates.
       development: app.isPackaged !== true,
       controllerSetup: controllerEnabled ? { active: controllerSetupActive, ...controllerSetup?.getInfo() } : undefined,
+      shortcutRecording: { active: Boolean(shortcutRecording) },
       engine: speech.getInfo(),
       error: recognitionEnabled ? speechError : '',
       modelBundled: speech.getInfo().state !== 'failed' || !/model file/i.test(speechError),
       pushToTalk: Object.freeze({
-        ...(controllerEnabled ? { controllerEnabled: true, controller: hook?.getInfo().controller || controllerSummary(controllerBinding, controllerBinding ? 'inactive' : 'unbound') } : {}),
-        accelerator: hook?.getInfo().accelerator || shortcut,
+        ...(controllerEnabled ? { controllerEnabled: true, controller: input?.controller || controllerSummary(controllerBinding, controllerBinding ? 'inactive' : 'unbound') } : {}),
+        accelerator: input?.accelerator || shortcut,
         error: recognitionEnabled ? shortcutError : '',
-        registered: recognitionEnabled && hook?.getInfo().registered === true,
+        registered: recognitionEnabled && input?.registered === true,
+        helperState: shortcutRecording ? 'paused' : input?.helperState || 'idle',
+        failureReason: recognitionEnabled ? input?.failureReason || '' : '',
+        retryable: recognitionEnabled && !shuttingDown && !controllerSetupActive && !shortcutRecording && input?.retryable === true,
+        retrying: Boolean(pushToTalkRetry && !pushToTalkRetry.invalidated),
       }),
       readback: readback.getInfo(),
     });
@@ -202,22 +250,50 @@ function createVoiceRuntime({
   }
 
   function createHook() {
-    return pushToTalkHookFactory({
+    let ownedHook;
+    let suppressedHold = false;
+    ownedHook = pushToTalkHookFactory({
       helperPath: helperPath(),
       controllerEnabled,
-      onStateChange: () => send('voice:runtime-state', runtimeInfo()),
-      onCancel: (reason) => {
+      onStateChange: () => { if (hook === ownedHook) send('voice:runtime-state', runtimeInfo()); },
+      onCancel: (reason, inputId, source) => {
+        suppressedHold = false;
+        if (hook !== ownedHook) return;
+        if (source && inputId !== undefined && inputId !== null) {
+          const attempt = inputAttempt?.hook === ownedHook && inputAttempt.inputId === inputId ? inputAttempt
+            : recognitionInputOwner?.attempt.hook === ownedHook && recognitionInputOwner.attempt.inputId === inputId
+              ? recognitionInputOwner.attempt : null;
+          if (!attempt) return;
+          retireInputAttempt(attempt, true);
+          send('voice:push-to-talk', { type: 'cancel', reason, pttAttemptId: attempt.pttAttemptId });
+          return;
+        }
         cancelActiveSession();
         send('voice:push-to-talk', { type: 'cancel', reason });
       },
-      onDown: (accelerator) => send('voice:push-to-talk', { type: 'down', accelerator }),
-      onUp: (accelerator) => send('voice:push-to-talk', { type: 'up', accelerator }),
+      onDown: (accelerator, inputId) => {
+        if (hook !== ownedHook || shortcutRecording) { suppressedHold = true; return; }
+        if (!suppressedHold) {
+          inputAttempt = { hook: ownedHook, inputId, pttAttemptId: randomUUID(), claimed: false };
+          send('voice:push-to-talk', { type: 'down', accelerator, pttAttemptId: inputAttempt.pttAttemptId });
+        }
+      },
+      onUp: (accelerator, inputId) => {
+        // A press observed before promotion has no renderer owner. Its release
+        // cannot finish another attempt; require the next complete fresh hold.
+        if (suppressedHold) { suppressedHold = false; return; }
+        if (hook === ownedHook && inputAttempt?.hook === ownedHook && inputAttempt.inputId === inputId) {
+          send('voice:push-to-talk', { type: 'up', accelerator, pttAttemptId: inputAttempt.pttAttemptId });
+        }
+      },
       onError: (error) => {
+        if (hook !== ownedHook) return;
         cancelActiveSession();
         shortcutError = error?.message || 'Push-to-talk helper stopped.';
         send('voice:push-to-talk', { type: 'error', error: shortcutError });
       },
     });
+    return ownedHook;
   }
 
   async function startRecognitionRuntime() {
@@ -236,21 +312,24 @@ function createVoiceRuntime({
       await speech.shutdown();
       return;
     }
+    // A recorder may end while model initialization is still pending. Its
+    // queued restore owns the next helper, including after the lease clears.
+    // Starting another here could lose a new hold when that restore promotes.
+    if (controllerSetupActive || shortcutRecording || shortcutRestore) return;
     if (!hook) {
       try {
         hook = createHook();
       } catch (error) {
         shortcutError = error?.message || 'Push-to-talk is unavailable.';
-        debugLog('Push-to-talk unavailable:', shortcutError);
         return;
       }
     }
     if (!shortcut && !controllerBinding) return;
+    const startingHook = hook;
     try {
-      await hook.setBinding({ accelerator: shortcut, ...(controllerEnabled ? { controller: controllerBinding } : {}) });
+      await startingHook.setBinding({ accelerator: shortcut, ...(controllerEnabled ? { controller: controllerBinding } : {}) });
     } catch (error) {
-      shortcutError = error?.message || 'Push-to-talk is unavailable.';
-      debugLog('Push-to-talk unavailable:', shortcutError);
+      if (hook === startingHook && !shortcutRecording) shortcutError = error?.message || 'Push-to-talk is unavailable.';
     }
   }
 
@@ -269,9 +348,140 @@ function createVoiceRuntime({
     return next;
   }
 
+  function invalidatePushToTalkRetry() {
+    if (!pushToTalkRetry || pushToTalkRetry.invalidated) return;
+    pushToTalkRetry.invalidated = true;
+    pushToTalkRetry.candidate?.dispose();
+    send('voice:runtime-state', runtimeInfo());
+  }
+
+  function invalidateShortcutRecording() {
+    shortcutRecordingRevision++;
+    const previous = shortcutRecording;
+    shortcutRecording = null;
+    previous?.owner?.removeListener?.('destroyed', previous.abandon);
+    previous?.owner?.removeListener?.('did-start-navigation', previous.abandon);
+    shortcutRestore?.candidate?.dispose();
+    shortcutRestore = null;
+  }
+
+  function endShortcutRecording(recordingId, owner) {
+    if (!shortcutRecording || shortcutRecording.id !== recordingId || shortcutRecording.owner !== owner) return Promise.resolve(runtimeInfo());
+    invalidateShortcutRecording();
+    const request = { revision: shortcutRecordingRevision, candidate: null };
+    shortcutRestore = request;
+    const current = () => shortcutRestore === request && request.revision === shortcutRecordingRevision
+      && !shortcutRecording && !controllerSetupActive && recognitionEnabled && !shuttingDown;
+    return queueRuntimeTransition(async () => {
+      try {
+        if (current() && (shortcut || controllerBinding)) {
+          request.candidate = createHook();
+          await request.candidate.setBinding({ accelerator: shortcut,
+            ...(controllerEnabled ? { controller: controllerBinding } : {}) });
+          if (current()) {
+            const info = request.candidate.getInfo();
+            if (!info.registered && info.helperState !== 'paused') throw new Error('Push-to-talk could not restart. Try again.');
+            hook?.dispose(); hook = request.candidate; request.candidate = null;
+            shortcutError = '';
+          }
+        }
+      } catch (error) {
+        if (current()) {
+          if (request.candidate?.getInfo().helperState === 'failed') {
+            hook?.dispose(); hook = request.candidate; request.candidate = null;
+          }
+          shortcutError = error?.message || 'Push-to-talk could not restart. Try again.';
+        }
+      } finally {
+        request.candidate?.dispose();
+        if (shortcutRestore === request) {
+          shortcutRestore = null;
+          send('voice:runtime-state', runtimeInfo());
+        }
+      }
+      return runtimeInfo();
+    });
+  }
+
+  function beginShortcutRecording(owner) {
+    if (!recognitionEnabled || shuttingDown) throw new Error('Enable voice control before recording a shortcut.');
+    if (controllerSetupActive) throw new Error('Finish controller button setup first.');
+    if (!owner || owner.isDestroyed?.()) throw new Error('Shortcut recording sender is unavailable.');
+    invalidatePushToTalkRetry();
+    invalidateShortcutRecording();
+    controllerSetupRevision++;
+    const request = { id: randomUUID(), owner, abandon: null };
+    request.abandon = (_event, _url, _isInPlace, isMainFrame) => {
+      if (isMainFrame === false) return;
+      void endShortcutRecording(request.id, owner).catch(() => {});
+    };
+    shortcutRecording = request;
+    owner.once?.('destroyed', request.abandon);
+    owner.on?.('did-start-navigation', request.abandon);
+    cancelActiveSession();
+    // Retiring this exact helper also invalidates buffered native events. A
+    // fresh helper after setup observes startup-held keys without replaying them.
+    hook?.dispose(); hook = null;
+    send('voice:push-to-talk', { type: 'cancel', reason: 'shortcut-recording' });
+    send('voice:runtime-state', runtimeInfo());
+    return { recordingId: request.id, runtimeInfo: runtimeInfo() };
+  }
+
+  function retryPushToTalk() {
+    if (pushToTalkRetry && !pushToTalkRetry.invalidated) return pushToTalkRetry.promise;
+    if (!runtimeInfo().pushToTalk.retryable) return Promise.resolve(runtimeInfo());
+    const request = { previous: hook, candidate: null, invalidated: false, promise: null };
+    const current = () => pushToTalkRetry === request && !request.invalidated && hook === request.previous
+      && recognitionEnabled && !shuttingDown && !controllerSetupActive && !shortcutRecording;
+    pushToTalkRetry = request;
+    cancelActiveSession();
+    send('voice:push-to-talk', { type: 'cancel', reason: 'push-to-talk-retry' });
+    send('voice:runtime-state', runtimeInfo());
+    request.promise = queueRuntimeTransition(async () => {
+      try {
+        if (current()) {
+          request.candidate = createHook();
+          await request.candidate.setBinding({ accelerator: shortcut,
+            ...(controllerEnabled ? { controller: controllerBinding } : {}) });
+          if (current()) {
+            const info = request.candidate.getInfo();
+            if (!info.registered && info.helperState !== 'paused') {
+              throw new Error('Push-to-talk could not restart. Try again.');
+            }
+            request.previous.dispose();
+            hook = request.candidate;
+            request.candidate = null;
+            shortcutError = '';
+          }
+        }
+      } catch (error) {
+        if (current()) {
+          // Keep the latest bounded failure available for another explicit
+          // attempt. A failed candidate never receives input authority.
+          if (request.candidate?.getInfo().helperState === 'failed') {
+            request.previous.dispose();
+            hook = request.candidate;
+            request.candidate = null;
+          }
+          shortcutError = error?.message || 'Push-to-talk could not restart. Try again.';
+        }
+      } finally {
+        request.candidate?.dispose();
+        if (pushToTalkRetry === request) {
+          pushToTalkRetry = null;
+          send('voice:runtime-state', runtimeInfo());
+        }
+      }
+      return runtimeInfo();
+    });
+    return request.promise;
+  }
+
   function setRecognitionEnabled(value) {
     if (typeof value !== 'boolean') throw new TypeError('Voice recognition enabled state must be boolean');
     if (shuttingDown) throw new Error('Voice recognition is shutting down');
+    invalidatePushToTalkRetry();
+    invalidateShortcutRecording();
     let persistenceError = null;
     if (!value) {
       recognitionEnabled = false;
@@ -304,8 +514,10 @@ function createVoiceRuntime({
     const fatalError = event?.type === 'error' && event.fatal === true;
     if (fatalError) speechError = event.message || 'Local voice recognition stopped.';
     if (event?.sessionId && ['final', 'cancelled', 'error'].includes(event.type)) {
+      retireRecognitionInput(engine, event.sessionId);
       revokeCaptureAuthorization(event.sessionId);
     } else if (event?.type === 'error' && event.fatal === true) {
+      if (recognitionInputOwner?.engine === engine) retireInputAttempt(recognitionInputOwner.attempt);
       revokeCaptureAuthorization();
     }
     send('voice:speech-event', event);
@@ -340,6 +552,7 @@ function createVoiceRuntime({
   }
 
   async function savePushToTalkBinding({ accelerator = shortcut, controller = controllerBinding }) {
+    if (shortcutRecording) throw new Error('Finish shortcut recording first.');
     const previousShortcut = shortcut;
     const previousController = controllerBinding;
     cancelActiveSession();
@@ -381,6 +594,13 @@ function createVoiceRuntime({
 
   function installIpc() {
     registerTrustedIpcHandler('voice:get-runtime-info', () => runtimeInfo());
+    registerTrustedIpcHandler('voice:retry-push-to-talk', () => retryPushToTalk());
+    registerTrustedIpcHandler('voice:shortcut-recording-begin', event => beginShortcutRecording(event?.sender));
+    registerTrustedIpcHandler('voice:shortcut-recording-end', (event, recordingId) =>
+      endShortcutRecording(requirePttAttemptId(recordingId), event?.sender));
+    registerTrustedIpcHandler('voice:retire-push-to-talk-attempt', (_event, value) => ({
+      retired: retireInputAttempt(findInputAttempt(requirePttAttemptId(value)), true),
+    }));
     registerTrustedIpcHandler('voice:set-mode', (_event, value) => {
       if (!['offline', 'cloud'].includes(value)) throw new TypeError('Invalid voice mode.');
       if (value === 'cloud') requireCloudVoice();
@@ -405,6 +625,8 @@ function createVoiceRuntime({
     registerTrustedIpcHandler('voice:controller-setup-start', (event) => {
       requireControllerIntegration();
       if (!recognitionEnabled) throw new Error('Enable voice control before choosing a button.');
+      invalidatePushToTalkRetry();
+      invalidateShortcutRecording();
       const request = ++controllerSetupRevision;
       const owner = event?.sender;
       const invalidatePendingSetup = () => { if (request === controllerSetupRevision) controllerSetupRevision++; };
@@ -437,6 +659,7 @@ function createVoiceRuntime({
     });
     registerTrustedIpcHandler('voice:controller-setup-cancel', () => {
       requireControllerIntegration();
+      invalidatePushToTalkRetry();
       endControllerSetup();
       return queueRuntimeTransition(async () => {
         if (recognitionEnabled) await startRecognitionRuntime();
@@ -446,6 +669,7 @@ function createVoiceRuntime({
     });
     registerTrustedIpcHandler('voice:controller-setup-save', () => {
       requireControllerIntegration();
+      invalidatePushToTalkRetry();
       return queueRuntimeTransition(() => {
         if (!controllerSetupActive) throw new Error('Choose a controller button first.');
         return savePushToTalkBinding({ controller: controllerSetup.bindingToSave() });
@@ -453,6 +677,8 @@ function createVoiceRuntime({
     });
     registerTrustedIpcHandler('voice:controller-binding-clear', () => {
       requireControllerIntegration();
+      invalidatePushToTalkRetry();
+      invalidateShortcutRecording();
       return queueRuntimeTransition(() => savePushToTalkBinding({ controller: null }));
     });
     registerTrustedIpcHandler('voice:set-recognition-enabled', (_event, value) => (
@@ -469,9 +695,27 @@ function createVoiceRuntime({
       if (!recognitionEnabled) throw new Error('Voice recognition is disabled');
       if (mode === 'cloud' && cloudSelectionError) throw new Error(cloudSelectionError);
       if (controllerSetupActive) throw new Error('Voice input is paused during button setup.');
-      const recognition = speech.start(mode === 'cloud' ? options : undefined);
+      if (shortcutRecording) throw new Error('Voice input is paused during shortcut recording.');
+      const pttAttemptId = options?.pttAttemptId === undefined ? null : requirePttAttemptId(options.pttAttemptId);
+      const attempt = pttAttemptId ? inputAttempt : null;
+      if (pttAttemptId && (!attempt || attempt.pttAttemptId !== pttAttemptId || attempt.hook !== hook || attempt.claimed)) {
+        throw new Error('Push-to-talk press is no longer active.');
+      }
+      let recognition;
+      try {
+        if (attempt) attempt.claimed = true;
+        // PTT identity belongs to this runtime; providers receive only their
+        // existing context, never input tokens or controller identities.
+        recognition = speech.start(mode === 'cloud' ? { context: options?.context } : undefined);
+      } catch (error) {
+        if (attempt) retireInputAttempt(attempt);
+        throw error;
+      }
+      if (recognitionInputOwner) retireInputAttempt(recognitionInputOwner.attempt);
+      recognitionInputOwner = attempt ? { attempt, engine: speech, sessionId: recognition.sessionId } : null;
       const senderId = webContentsId(event?.sender);
       if (senderId === null) {
+        retireRecognitionInput(speech, recognition.sessionId);
         speech.cancel(recognition.sessionId);
         throw new Error('Voice capture sender is unavailable');
       }
@@ -487,16 +731,32 @@ function createVoiceRuntime({
       return { finishing };
     });
     registerTrustedIpcHandler('voice:speech-cancel', (_event, sessionId) => {
+      retireRecognitionInput(speech, sessionId);
       const cancelled = speech.cancel(sessionId);
       if (cancelled) revokeCaptureAuthorization(sessionId);
       return { cancelled };
     });
-    registerTrustedIpcHandler('voice:set-push-to-talk-shortcut', (_event, value) => queueRuntimeTransition(async () => {
-      if (controllerSetupActive) throw new Error('Finish controller button setup first.');
-      if (!hook) throw new Error('Push-to-talk is unavailable');
-      const info = await savePushToTalkBinding({ accelerator: normalizePushToTalkShortcut(value) });
-      return info.pushToTalk;
-    }));
+    registerTrustedIpcHandler('voice:set-push-to-talk-shortcut', (event, value) => {
+      const accelerator = normalizePushToTalkShortcut(value);
+      const recording = shortcutRecording;
+      invalidatePushToTalkRetry();
+      return queueRuntimeTransition(async () => {
+        if (controllerSetupActive) throw new Error('Finish controller button setup first.');
+        if (recording) {
+          if (shortcutRecording !== recording || recording.owner !== event?.sender) throw new Error('Shortcut recording was superseded.');
+          // Recording keeps both input sources paused through Save. Registration
+          // is restored from this validated saved binding only when its owner ends.
+          saveSettings({ accelerator });
+          shortcut = accelerator;
+          send('voice:runtime-state', runtimeInfo());
+          return runtimeInfo().pushToTalk;
+        }
+        if (shortcutRecording) throw new Error('Finish shortcut recording first.');
+        if (!hook) throw new Error('Push-to-talk is unavailable');
+        const info = await savePushToTalkBinding({ accelerator });
+        return info.pushToTalk;
+      });
+    });
     registerTrustedIpcHandler(AUDIO_CHANNEL, (event, payload) => {
       if (!isAudioCaptureAuthorized(event.sender)) return;
       try {
@@ -526,6 +786,8 @@ function createVoiceRuntime({
 
   function changeCloudSetting(operation) {
     if (shuttingDown) throw new Error('Voice recognition is shutting down.');
+    invalidatePushToTalkRetry();
+    invalidateShortcutRecording();
     cloudRevision++;
     cancelActiveSession();
     send('voice:push-to-talk', { type: 'cancel', reason: 'voice-settings-changed' });
@@ -548,6 +810,8 @@ function createVoiceRuntime({
   }
 
   async function shutdown() {
+    invalidatePushToTalkRetry();
+    invalidateShortcutRecording();
     shuttingDown = true;
     recognitionEnabled = false;
     endControllerSetup();

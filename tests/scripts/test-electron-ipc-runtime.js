@@ -136,6 +136,8 @@ async function runElectronProbe() {
     const controllerMethods = {
       startControllerSetup: 'voice:controller-setup-start', cancelControllerSetup: 'voice:controller-setup-cancel',
       saveControllerButton: 'voice:controller-setup-save', clearControllerButton: 'voice:controller-binding-clear',
+      retryPushToTalk: 'voice:retry-push-to-talk',
+      beginShortcutRecording: 'voice:shortcut-recording-begin',
     };
     const controllerCalls = [];
     for (const [method, channel] of Object.entries(controllerMethods)) {
@@ -147,6 +149,23 @@ async function runElectronProbe() {
         return { checked: true };
       });
     }
+    const attemptId = '00000000-0000-0000-0000-000000000001';
+    const retiredAttempts = [];
+    ipcMain.handle('voice:retire-push-to-talk-attempt', (event, ...args) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      retiredAttempts.push(args);
+      return { retired: false };
+    });
+    const endedRecordings = [];
+    ipcMain.handle('voice:shortcut-recording-end', (event, ...args) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      endedRecordings.push(args);
+      return { checked: true };
+    });
 
     const invokeSettings = (frame) => frame.executeJavaScript('window.electronAPI.getSettings()');
     const expectRejectedDecision = async (frame) => {
@@ -164,6 +183,12 @@ async function runElectronProbe() {
         await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.${method}()`));
       }
       assert.equal(controllerCalls.length, beforeControllers, 'untrusted pages cannot configure or monitor controllers');
+      const beforeRetirement = retiredAttempts.length;
+      await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.retirePushToTalkAttempt('${attemptId}')`));
+      assert.equal(retiredAttempts.length, beforeRetirement, 'untrusted pages cannot retire input attempts');
+      const beforeRecording = endedRecordings.length;
+      await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.endShortcutRecording('${attemptId}')`));
+      assert.equal(endedRecordings.length, beforeRecording, 'untrusted pages cannot end shortcut recording');
     };
     const queryPermission = (frame, name) => frame.executeJavaScript(
       `navigator.permissions.query({ name: ${JSON.stringify(name)} }).then((result) => result.state)`,
@@ -183,6 +208,17 @@ async function runElectronProbe() {
       assert.deepEqual(await trustedWindow.webContents.executeJavaScript(`window.electronAPI.voice.${method}({devicePath:'untrusted-path'})`), {checked:true});
       assert.deepEqual(controllerCalls.at(-1).args, [], 'controller identities never enter from renderer arguments');
     }
+    assert.deepEqual(await trustedWindow.webContents.executeJavaScript(
+      `window.electronAPI.voice.retirePushToTalkAttempt('${attemptId}', {devicePath:'untrusted-path'})`), { retired: false });
+    assert.deepEqual(retiredAttempts, [[attemptId]], 'only the bounded attempt identifier crosses the preload bridge');
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.retirePushToTalkAttempt('invalid')"));
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.startRecognition({pttAttemptId:'invalid'})"));
+    assert.equal(retiredAttempts.length, 1, 'malformed identifiers fail in preload');
+    assert.deepEqual(await trustedWindow.webContents.executeJavaScript(
+      `window.electronAPI.voice.endShortcutRecording('${attemptId}', {devicePath:'untrusted-path'})`), { checked: true });
+    assert.deepEqual(endedRecordings, [[attemptId]], 'only the bounded recording identifier crosses the preload bridge');
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.endShortcutRecording('invalid')"));
+    assert.equal(endedRecordings.length, 1);
     assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.getStatus('pmdg-737')"), { supported: true, files: [] });
     assert.equal((await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.revealFile('pmdg-777', 'unknown-id')")).success, false);
     assert.deepEqual(await trustedWindow.webContents.executeJavaScript("window.electronAPI.pmdgSdk.chooseFile('pmdg-737', 'pmdg-737')"), { canceled: true });

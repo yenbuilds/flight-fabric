@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 import { createVoiceControlController } from './voice-controller.js';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAircraftControlsStore } from '../vue/stores/aircraft-controls.js';
+import { useVoiceControlStore } from '../vue/stores/voice-control.js';
 import { createAircraftControlController } from '../aircraft/control-controller.js';
 import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
 import { initialVoiceTestState } from './voice-setup-test.js';
 import { flapResultText } from '../aircraft/flap-controls.js';
 import { gearResultText } from '../aircraft/gear-controls.js';
 import { createPcmCapture } from './pcm-capture.js';
+import { createPushToTalkTone } from './push-to-talk-tone.js';
+
+const GLOBAL_ATTEMPT = 'c55737ee-e4c3-452c-a994-51f938f878d9';
+const NEXT_GLOBAL_ATTEMPT = 'bd682ded-dc1d-4a35-8745-4d2f13de766a';
 
 function createHarness(options = {}) {
   const command = {
@@ -41,7 +46,7 @@ function createHarness(options = {}) {
     inputDevices: [], inputDevicesError: '', selectedInputDeviceId: '', spokenReadbacks: true,
     voiceTest: initialVoiceTestState(),
   };
-  const voiceStore = Object.assign(state, {
+  const voiceStore = options.voiceStore || Object.assign(state, {
     bindRuntime(actions) { this.actions = actions; },
     applyRuntimeInfo(info) {
       this.runtime = {
@@ -52,13 +57,22 @@ function createHarness(options = {}) {
         cloud: info.cloud || { keyConfigured: false, storageAvailable: false },
         error: info.error || '',
         modelId: info.engine?.modelId || '',
+        engineState: info.engine?.state || 'new',
+        modelBundled: info.modelBundled !== false,
         shortcut: typeof info.pushToTalk?.accelerator === 'string'
           ? info.pushToTalk.accelerator
           : '',
         shortcutError: info.pushToTalk?.error || '',
         shortcutRegistered: info.pushToTalk?.registered === true,
+        pttHelperState: info.pushToTalk?.helperState || 'idle',
+        pttRetryable: info.pushToTalk?.retryable === true,
+        pttFailureReason: info.pushToTalk?.failureReason || '',
+        pttRetrying: info.pushToTalk?.retrying === true,
         controllerEnabled: info.pushToTalk?.controllerEnabled === true,
+        controller: info.pushToTalk?.controller,
       };
+      this.controllerSetup = info.controllerSetup || { active: false };
+      this.shortcutRecording = { active: info.shortcutRecording?.active === true };
     },
     setState(status, text) { this.status = status; this.statusText = text; },
     setSession(value) { this.activeSessionId = value; },
@@ -77,6 +91,7 @@ function createHarness(options = {}) {
   let recognitionSessionIndex = 0;
   const audio = [];
   const cancellations = [];
+  const retirements = [];
   const captureCancellations = [];
   const captureStops = [];
   let runtimeInfo = options.runtimeInfo || ({
@@ -99,6 +114,7 @@ function createHarness(options = {}) {
       })),
     finishRecognition: async () => ({ finishing: true }),
     cancelRecognition: async (sessionId) => { cancellations.push(sessionId); },
+    retirePushToTalkAttempt: async (token) => { retirements.push(token); return { retired: true }; },
     speakReadback: async value => { spokenReadbacks.push(value); return { started: true }; },
     sendAudio(payload) { audio.push(payload); },
     setRecognitionEnabled: async (enabled) => {
@@ -163,7 +179,7 @@ function createHarness(options = {}) {
     emitRecognition: (event) => recognitionListener?.(event),
     emitPtt: (event) => pttListener?.(event),
     emitRuntime: (event) => runtimeListener?.(event),
-    readbackCancellations, sentCommands, spokenReadbacks, toneEvents, voiceStore,
+    readbackCancellations, retirements, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
 
@@ -372,7 +388,7 @@ test('Settings voice test works in a release without an aircraft and cannot disp
   assert.equal(h.voiceStore.status, 'blocked');
   assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
   assert.equal(await h.controller.begin(), false, 'normal PTT cannot overlap a test');
-  h.emitPtt({ type: 'up' });
+  h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
   assert.equal(h.voiceStore.voiceTest.phase, 'listening', 'a global key release cannot finish a Settings test');
   h.aircraftControlsStore.availability.enabled = true;
   h.controller.handleAircraftContextChange();
@@ -407,8 +423,8 @@ test('voice test cannot replace normal capture or a pending aircraft command', a
 
 test('controller disconnect cancels capture and ignores late commands', async () => {
   const h = createHarness(); await h.controller.initialize();
-  await h.controller.begin();
-  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  await h.controller.begin('global', GLOBAL_ATTEMPT);
+  h.emitPtt({ type: 'cancel', reason: 'device-removed', pttAttemptId: GLOBAL_ATTEMPT });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.captureCancellations.length, 1);
   assert.equal(h.captureStops.length, 0, 'cancellation must not finish or flush an utterance');
@@ -442,9 +458,9 @@ test('controller cancellation retires a pending recognition start before microph
   let acknowledge;
   const h = createHarness({ startRecognition: () => new Promise(resolve => { acknowledge = resolve; }) });
   await h.controller.initialize();
-  const start = h.controller.begin();
+  const start = h.controller.begin('global', GLOBAL_ATTEMPT);
   await new Promise(resolve => setImmediate(resolve));
-  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  h.emitPtt({ type: 'cancel', reason: 'device-removed', pttAttemptId: GLOBAL_ATTEMPT });
   acknowledge({ sessionId: 'session_12345678' }); await start;
   assert.equal(h.captures.length, 0);
   assert.deepEqual(h.cancellations, ['session_12345678']);
@@ -454,8 +470,8 @@ test('controller cancellation retires a pending recognition start before microph
 
 test('controller loss during the release tail cancels instead of flushing speech', async () => {
   const h = createHarness({ releaseTailMs: 30 }); await h.controller.initialize();
-  await h.controller.begin(); const finishing = h.controller.finish();
-  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  await h.controller.begin('global', GLOBAL_ATTEMPT); const finishing = h.controller.finish();
+  h.emitPtt({ type: 'cancel', reason: 'device-removed', pttAttemptId: GLOBAL_ATTEMPT });
   await finishing; await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.captureStops.length, 0); assert.equal(h.captureCancellations.length, 1);
   await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
@@ -465,12 +481,12 @@ test('controller loss during the release tail cancels instead of flushing speech
 
 test('controller cancellation during final-result cleanup prevents command dispatch', async t => {
   const h = createHarness(); t.after(() => h.controller.dispose());
-  await h.controller.initialize(); await h.controller.begin(); await h.controller.finish();
+  await h.controller.initialize(); await h.controller.begin('global', GLOBAL_ATTEMPT); await h.controller.finish();
   let releaseCleanup;
   const cleanup = new Promise(resolve => { releaseCleanup = resolve; });
   h.captures[0].cancel = () => cleanup;
   const final = h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
-  h.emitPtt({ type: 'cancel', reason: 'device-removed' });
+  h.emitPtt({ type: 'cancel', reason: 'device-removed', pttAttemptId: GLOBAL_ATTEMPT });
   releaseCleanup(); await final;
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(h.sentCommands, [], 'a cancelled final result must not execute after cleanup');
@@ -520,25 +536,236 @@ test('old cancellation cleanup cannot hide the next active microphone', async t 
 test('a global button tap cannot release an on-screen push-to-talk hold', async t => {
   const h = createHarness(); t.after(() => h.controller.dispose());
   await h.controller.initialize(); await h.voiceStore.actions.begin();
-  h.emitPtt({ type: 'down' }); h.emitPtt({ type: 'up' });
+  h.emitPtt({ type: 'down', pttAttemptId: GLOBAL_ATTEMPT });
+  h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.voiceStore.status, 'listening');
   assert.equal(h.captureStops.length, 0);
+  assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT], 'refused global input cannot keep a held source participating');
   await h.voiceStore.actions.finish();
   assert.equal(h.captureStops.length, 1, 'the owning on-screen release still completes its utterance');
 });
 
 test('stale on-screen release and blur cannot retire a global push-to-talk hold', async t => {
   const h = createHarness(); t.after(() => h.controller.dispose());
-  await h.controller.initialize(); h.emitPtt({ type: 'down' });
+  await h.controller.initialize(); h.emitPtt({ type: 'down', pttAttemptId: GLOBAL_ATTEMPT });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.voiceStore.status, 'listening');
   assert.equal(await h.voiceStore.actions.finish(), false);
   assert.equal(await h.voiceStore.actions.cancel(), false);
   assert.equal(h.voiceStore.status, 'listening');
   assert.equal(h.captureStops.length, 0);
-  h.emitPtt({ type: 'up' }); await new Promise(resolve => setImmediate(resolve));
+  h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT }); await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.captureStops.length, 1, 'the owning global release still completes its utterance');
+});
+
+test('only global recognition starts carry their input attempt, preserving cloud context', async t => {
+  for (const mode of ['offline', 'cloud']) {
+    const starts = [];
+    const h = createHarness({ runtimeInfo: mode === 'cloud' ? cloudRuntime : undefined,
+      startRecognition: async options => { starts.push(options); return { sessionId: `session_start_${starts.length}` }; },
+      globalRef: { navigator: { mediaDevices: {
+        getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+        enumerateDevices: async () => [],
+      } } },
+    });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    assert.equal(await h.controller.begin(), true);
+    await h.controller.cancel();
+    assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
+    await h.voiceStore.actions.cancelVoiceTest();
+    await h.controller.refreshInputDevices({ requestAccess: true });
+    assert.equal(starts.length, 3);
+    for (const options of starts) assert.equal(options?.pttAttemptId, undefined, mode);
+    assert.deepEqual(h.retirements, []);
+    assert.equal(await h.controller.begin('global', GLOBAL_ATTEMPT), true);
+    assert.equal(starts[3].pttAttemptId, GLOBAL_ATTEMPT);
+    if (mode === 'cloud') assert.equal(starts[3].context.commands[0].id, 'flightGuidance.heading.set');
+    else assert.deepEqual(starts[3], { pttAttemptId: GLOBAL_ATTEMPT });
+    assert.equal(await h.controller.begin('global', GLOBAL_ATTEMPT), true, 'replayed down cannot retire its own active owner');
+    assert.equal(starts.length, 4);
+    assert.deepEqual(h.retirements, []);
+    await h.controller.finish();
+    assert.deepEqual(h.retirements, [], 'normal release leaves finalization ownership with main');
+  }
+});
+
+test('refused global input retires without cancelling Settings tests or microphone discovery', async t => {
+  for (const owner of ['test', 'discovery', 'disabled', 'blocked']) {
+    let releaseAccess;
+    const access = new Promise(resolve => { releaseAccess = resolve; });
+    const h = createHarness({
+      runtimeInfo: owner === 'disabled' ? { available: false, enabled: false } : undefined,
+      availability: owner === 'blocked' ? { enabled: false, reason: 'Simulator disconnected.' } : undefined,
+      globalRef: { navigator: { mediaDevices: { getUserMedia: () => access, enumerateDevices: async () => [] } } },
+    });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    let discovery;
+    if (owner === 'test') await h.voiceStore.actions.startVoiceTest();
+    if (owner === 'discovery') { discovery = h.controller.refreshInputDevices({ requestAccess: true }); await Promise.resolve(); }
+    assert.equal(await h.controller.begin('global', GLOBAL_ATTEMPT), false, owner);
+    h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+    h.emitPtt({ type: 'cancel', pttAttemptId: GLOBAL_ATTEMPT, reason: 'device-removed' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT], owner);
+    assert.deepEqual(h.cancellations, [], 'scoped input events cannot cancel an unrelated session');
+    if (owner === 'test') assert.equal(h.voiceStore.voiceTest.phase, 'listening');
+    releaseAccess({ getTracks: () => [{ stop() {} }] });
+    await discovery;
+  }
+});
+
+test('global startup failures retire their input before allowing a healthy new attempt', async t => {
+  for (const failure of ['cue-throw', 'cue-reject', 'speech-start', 'capture-start']) {
+    let failed = false;
+    const failOnce = () => { if (failed) return false; failed = true; return true; };
+    const h = createHarness({
+      pushToTalkTone: { play() {
+        if (failure === 'cue-throw' && failOnce()) throw new Error('Cue failed.');
+        if (failure === 'cue-reject' && failOnce()) return Promise.reject(new Error('Cue failed.'));
+        return Promise.resolve(true);
+      }, dispose() {} },
+      startRecognition: async () => {
+        if (failure === 'speech-start' && failOnce()) throw new Error('Speech startup failed.');
+        return { sessionId: 'session_12345678' };
+      },
+      ...(failure === 'capture-start' ? { createCapture: () => ({
+        start: async () => { if (failOnce()) throw new Error('Microphone startup failed.'); return { deviceLabel: 'Headset' }; },
+        stop: async () => {}, cancel: async () => {},
+      }) } : {}),
+    });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    assert.equal(await h.controller.begin('global', GLOBAL_ATTEMPT), false, failure);
+    assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT]);
+    assert.equal(h.voiceStore.status, 'error');
+    assert.match(h.voiceStore.statusText, /failed/i);
+    assert.equal(await h.controller.begin('global', NEXT_GLOBAL_ATTEMPT), true, failure);
+    assert.equal(h.voiceStore.status, 'listening');
+    h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+    h.emitPtt({ type: 'cancel', pttAttemptId: GLOBAL_ATTEMPT });
+    assert.equal(h.voiceStore.status, 'listening');
+    assert.deepEqual(h.sentCommands, []);
+  }
+});
+
+test('global cancellation retires before slow browser cleanup and stale input cannot disturb its successor', async t => {
+  const retired = [];
+  let h, releaseCleanup;
+  const cleanup = new Promise(resolve => { releaseCleanup = resolve; });
+  h = createHarness({ controllerApi: { retirePushToTalkAttempt(token) {
+    retired.push(token);
+    if (token === GLOBAL_ATTEMPT) void h.emitRecognition({ type: 'cancelled', sessionId: 'session_12345678' });
+    return new Promise(() => {});
+  } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  await h.controller.begin('global', GLOBAL_ATTEMPT);
+  h.captures[0].cancel = () => cleanup;
+  const cancelling = h.controller.cancel('audio-error');
+  assert.deepEqual(retired, [GLOBAL_ATTEMPT], 'retirement must not wait for browser cleanup or its own IPC reply');
+  assert.equal(h.voiceStore.activeSessionId, '');
+  assert.equal(await h.controller.begin('global', NEXT_GLOBAL_ATTEMPT), true);
+  h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+  h.emitPtt({ type: 'cancel', pttAttemptId: GLOBAL_ATTEMPT, reason: 'device-removed' });
+  h.captures[0].callbacks.onChunk({ sampleRate: 48000, samples: new Float32Array([0.2]), sequence: 0 });
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  releaseCleanup(); await cancelling;
+  assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.deepEqual(h.audio, []);
+  assert.deepEqual(h.sentCommands, []);
+  assert.equal(h.captureStops.length, 0);
+  h.emitPtt({ type: 'up', pttAttemptId: NEXT_GLOBAL_ATTEMPT });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captureStops.length, 1);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_next_2', text: 'heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1, 'the fresh owning release still authorizes its command');
+});
+
+test('global abnormal terminals release ownership before browser cleanup and preserve successor feedback', async t => {
+  for (const type of ['final', 'error', 'cancelled', 'device-cancel', 'helper-error']) {
+    const h = createHarness();
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    await h.controller.begin('global', GLOBAL_ATTEMPT);
+    let releaseCleanup;
+    h.captures[0].cancel = () => new Promise(resolve => { releaseCleanup = resolve; });
+    const terminal = type === 'device-cancel'
+      ? h.emitPtt({ type: 'cancel', pttAttemptId: GLOBAL_ATTEMPT, reason: 'device-removed' })
+      : type === 'helper-error' ? h.emitPtt({ type: 'error', error: 'Push-to-talk helper stopped.' })
+        : h.emitRecognition({ type, sessionId: 'session_12345678', text: 'heading two seven zero',
+          message: 'Recognition capture ended.', code: 'CAPTURE_TIMEOUT' });
+    assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT], type);
+    assert.equal(h.voiceStore.activeSessionId, '');
+    if (type === 'final') assert.match(h.voiceStore.statusText, /before push-to-talk was released/);
+    if (type === 'error') assert.equal(h.voiceStore.statusText, 'Recognition capture ended.');
+    assert.equal(await h.controller.begin('global', NEXT_GLOBAL_ATTEMPT), true, type);
+    h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+    h.emitPtt({ type: 'cancel', pttAttemptId: GLOBAL_ATTEMPT });
+    assert.equal(h.voiceStore.status, 'listening');
+    assert.equal(h.captureStops.length, 0);
+    await h.emitRecognition({ type: 'error', sessionId: 'session_next_2', message: 'New microphone failed.' });
+    releaseCleanup(); await terminal; await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.voiceStore.status, 'error', 'retired cleanup cannot reset a successor error to ready');
+    assert.equal(h.voiceStore.statusText, 'New microphone failed.');
+    assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT, NEXT_GLOBAL_ATTEMPT]);
+    assert.deepEqual(h.sentCommands, []);
+    assert.equal(await h.controller.begin(), true, 'ordinary on-screen recovery remains available');
+  }
+});
+
+test('quick global release retires pending speech startup and ignores its late reply or rejection', async t => {
+  for (const outcome of ['reply', 'rejection']) {
+    let resolveStart, rejectStart, starts = 0;
+    const pending = new Promise((resolve, reject) => { resolveStart = resolve; rejectStart = reject; });
+    const h = createHarness({ startRecognition: () => ++starts === 1 ? pending : Promise.resolve({ sessionId: 'session_next_2' }) });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    const first = h.controller.begin('global', GLOBAL_ATTEMPT);
+    await Promise.resolve();
+    assert.equal(starts, 1);
+    h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT]);
+    assert.equal(h.voiceStore.status, 'ready');
+    assert.equal(await h.controller.begin('global', NEXT_GLOBAL_ATTEMPT), true);
+    if (outcome === 'reply') resolveStart({ sessionId: 'session_12345678' });
+    else rejectStart(new Error('Push-to-talk attempt has already ended.'));
+    assert.equal(await first, false);
+    assert.equal(h.captures.length, 1);
+    assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+    assert.equal(h.voiceStore.status, 'listening');
+    assert.deepEqual(h.cancellations, outcome === 'reply' ? ['session_12345678'] : []);
+    assert.deepEqual(h.sentCommands, []);
+  }
+});
+
+test('global release during microphone setup retires before stalled cleanup and keeps late setup quiet', async t => {
+  let resolveCapture, releaseCleanup, captures = 0;
+  const pendingCapture = new Promise(resolve => { resolveCapture = resolve; });
+  const cleanup = new Promise(resolve => { releaseCleanup = resolve; });
+  const h = createHarness({ createCapture: () => {
+    const first = ++captures === 1;
+    return { start: () => first ? pendingCapture : Promise.resolve({ deviceLabel: 'Headset' }),
+      stop: async () => {}, cancel: () => first ? cleanup : Promise.resolve() };
+  } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  const first = h.controller.begin('global', GLOBAL_ATTEMPT);
+  await new Promise(resolve => setImmediate(resolve));
+  const finishing = h.controller.finish();
+  assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT]);
+  assert.equal(await h.controller.begin('global', NEXT_GLOBAL_ATTEMPT), true);
+  resolveCapture({ deviceLabel: 'Old microphone' });
+  assert.equal(await first, false);
+  releaseCleanup(); await finishing;
+  assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+  assert.equal(h.voiceStore.deviceLabel, 'Headset');
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.deepEqual(h.cancellations, ['session_12345678']);
 });
 
 test('disabling voice cancels the Settings test and ignores its late transcript', async () => {
@@ -551,6 +778,235 @@ test('disabling voice cancels the Settings test and ignores its late transcript'
   assert.deepEqual(h.sentCommands, []);
   assert.equal(h.captureCancellations.length, 1);
   await h.controller.dispose();
+});
+
+const shortcutRecordingRuntime = active => ({ available: true, enabled: true, engine: { state: 'ready', modelId: 'zipformer' },
+  shortcutRecording: { active }, pushToTalk: { accelerator: 'Control+Alt+Space', registered: !active, helperState: active ? 'paused' : 'ready' } });
+
+test('shortcut recording owns setup through a saved draft and preserves the latest recognizer state', async t => {
+  const calls = [];
+  let h;
+  h = createHarness({ controllerApi: {
+    beginShortcutRecording: async () => {
+      calls.push('begin'); h.emitRuntime(shortcutRecordingRuntime(true));
+      return { recordingId: GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) };
+    },
+    setPushToTalkShortcut: async value => {
+      calls.push(['save', value]); assert.equal(h.voiceStore.shortcutRecording.active, true);
+      return { accelerator: value, registered: false, helperState: 'paused' };
+    },
+    endShortcutRecording: async id => { calls.push(['end', id]); return shortcutRecordingRuntime(false); },
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  const beginning = h.voiceStore.actions.beginShortcutRecording();
+  assert.equal(h.voiceStore.actions.beginShortcutRecording(), beginning, 'one caller owns pause setup');
+  assert.equal(await beginning, true);
+  assert.equal(h.voiceStore.status, 'blocked');
+  assert.match(h.voiceStore.statusText, /choosing a keyboard shortcut/);
+  assert.equal(await h.controller.begin(), false);
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), false);
+  h.emitPtt({ type: 'down', pttAttemptId: NEXT_GLOBAL_ATTEMPT });
+  assert.deepEqual(h.retirements, [NEXT_GLOBAL_ATTEMPT], 'queued global input cannot capture during recording');
+  assert.equal(h.captures.length, 0);
+  assert.equal(await h.controller.setShortcut('Control+Shift+F8'), true);
+  assert.equal(h.voiceStore.shortcutRecording.active, true, 'saving must not end the setup lease early');
+  h.emitRuntime({ ...shortcutRecordingRuntime(true), available: false, engine: { state: 'failed' }, error: 'Local recognizer stopped.' });
+  assert.equal(await h.voiceStore.actions.endShortcutRecording(), true);
+  assert.equal(h.voiceStore.runtime.available, false, 'an input-only end reply cannot restore a failed recognizer');
+  assert.equal(h.voiceStore.runtime.engineState, 'failed');
+  assert.equal(h.voiceStore.status, 'unavailable');
+  assert.deepEqual(calls, ['begin', ['save', 'Control+Shift+F8'], ['end', GLOBAL_ATTEMPT]]);
+});
+
+test('shortcut setup preserves completed command feedback and restores on-screen PTT after every exit', async t => {
+  for (const outcome of ['confirmed', 'failed']) {
+    for (const exit of ['cancel', 'save', 'pending-cancel', 'begin-failure']) {
+      await t.test(`${outcome} result followed by ${exit}`, async t => {
+        setActivePinia(createPinia());
+        const voiceStore = useVoiceControlStore();
+        let resolveBegin, rejectBegin, h, accelerator = 'Control+Alt+Space';
+        const reply = new Promise((resolve, reject) => { resolveBegin = resolve; rejectBegin = reject; });
+        const runtime = active => ({ ...shortcutRecordingRuntime(active),
+          pushToTalk: { ...shortcutRecordingRuntime(active).pushToTalk, accelerator } });
+        h = createHarness({ voiceStore, controllerApi: {
+          beginShortcutRecording: async () => {
+            const result = await reply;
+            h.emitRuntime(result.runtimeInfo);
+            return result;
+          },
+          setPushToTalkShortcut: async value => {
+            accelerator = value;
+            h.emitRuntime(runtime(true));
+            return runtime(true).pushToTalk;
+          },
+          endShortcutRecording: async () => {
+            const info = runtime(false);
+            h.emitRuntime(info);
+            return info;
+          },
+        } });
+        t.after(() => h.controller.dispose());
+        await h.controller.initialize();
+        await h.controller.begin();
+        await h.controller.finish();
+        await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading 270' });
+        h.completeLastCommand(outcome === 'confirmed'
+          ? { ok: true, confirmed: true }
+          : { ok: false, error: 'The heading change was not confirmed. Check the aircraft.' });
+        const feedback = { status: voiceStore.status, text: voiceStore.statusText };
+        const beginning = h.controller.beginShortcutRecording();
+        assert.deepEqual({ status: voiceStore.status, text: voiceStore.statusText }, feedback,
+          'pending setup must not replace the completed command or its warning');
+        assert.equal(await h.controller.begin(), false, 'pending setup still owns input');
+        await new Promise(resolve => setImmediate(resolve));
+        if (exit === 'pending-cancel') {
+          await h.controller.endShortcutRecording();
+          assert.equal(await beginning, false);
+          resolveBegin({ recordingId: GLOBAL_ATTEMPT, runtimeInfo: runtime(true) });
+        } else if (exit === 'begin-failure') {
+          rejectBegin(new Error('Shortcut setup could not start.'));
+          assert.equal(await beginning, false);
+        } else {
+          resolveBegin({ recordingId: GLOBAL_ATTEMPT, runtimeInfo: runtime(true) });
+          assert.equal(await beginning, true);
+          assert.equal(voiceStore.ready, false, 'the store setup gate disables on-screen PTT without hiding feedback');
+          if (exit === 'save') assert.equal(await h.controller.setShortcut('Control+Shift+F8'), true);
+          await h.controller.endShortcutRecording();
+        }
+        await new Promise(resolve => setImmediate(resolve));
+        h.controller.refreshReadyState();
+        assert.equal(voiceStore.shortcutRecording.active, false);
+        assert.deepEqual({ status: voiceStore.status, text: voiceStore.statusText }, feedback);
+        assert.equal(voiceStore.ready, true, 'ending setup restores usable on-screen PTT');
+        assert.equal(await h.controller.begin(), true, 'a new command explicitly replaces the prior feedback');
+      });
+    }
+  }
+});
+
+test('cancelling pending shortcut setup settles promptly and retires only its late recording ID', async t => {
+  let resolveFirst, begins = 0;
+  const first = new Promise(resolve => { resolveFirst = resolve; });
+  const ends = [];
+  const h = createHarness({ controllerApi: {
+    beginShortcutRecording: () => ++begins === 1 ? first : Promise.resolve({ recordingId: NEXT_GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) }),
+    endShortcutRecording: async id => { ends.push(id); return shortcutRecordingRuntime(false); },
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  const old = h.voiceStore.actions.beginShortcutRecording();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(await h.voiceStore.actions.endShortcutRecording(), true);
+  assert.equal(await old, false, 'Cancel cannot wait for the native setup reply');
+  assert.equal(await h.voiceStore.actions.beginShortcutRecording(), true);
+  resolveFirst({ recordingId: GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(ends, [GLOBAL_ATTEMPT]);
+  assert.equal(h.voiceStore.shortcutRecording.active, true, 'old ID cleanup cannot resume a newer recorder');
+  assert.equal(await h.controller.begin(), false);
+  await h.voiceStore.actions.endShortcutRecording();
+  assert.deepEqual(ends, [GLOBAL_ATTEMPT, NEXT_GLOBAL_ATTEMPT]);
+  assert.equal(await h.controller.begin(), true);
+});
+
+test('controller setup preserves an in-flight command and its later warning through setup updates', async t => {
+  setActivePinia(createPinia());
+  const voiceStore = useVoiceControlStore();
+  const h = createHarness({ voiceStore });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  await h.controller.begin(); await h.controller.finish();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading 270' });
+  const runtime = active => ({ ...shortcutRecordingRuntime(false), controllerSetup: { active },
+    pushToTalk: { ...shortcutRecordingRuntime(false).pushToTalk, controllerEnabled: true } });
+  h.emitRuntime(runtime(true));
+  assert.equal(voiceStore.status, 'sending');
+  assert.equal(voiceStore.ready, false);
+  h.completeLastCommand({ ok: false, error: 'The heading change was not confirmed. Check the aircraft.' });
+  const warning = voiceStore.statusText;
+  h.emitRuntime(runtime(true));
+  assert.equal(voiceStore.status, 'failed');
+  assert.equal(voiceStore.statusText, warning);
+  assert.equal(voiceStore.ready, false);
+  h.emitRuntime(runtime(false));
+  assert.equal(voiceStore.statusText, warning);
+  assert.equal(voiceStore.ready, true);
+});
+
+test('shortcut setup cancelled during old audio cleanup cannot start later', async t => {
+  let beginCalls = 0, releaseCleanup;
+  const h = createHarness({ controllerApi: { beginShortcutRecording: async () => {
+    beginCalls++; return { recordingId: GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) };
+  } } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize(); await h.controller.begin();
+  h.captures[0].cancel = () => new Promise(resolve => { releaseCleanup = resolve; });
+  const beginning = h.voiceStore.actions.beginShortcutRecording();
+  await h.voiceStore.actions.endShortcutRecording();
+  assert.equal(await beginning, false);
+  releaseCleanup(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(beginCalls, 0);
+  assert.equal(await h.controller.begin(), true);
+});
+
+test('late shortcut setup completion cannot overwrite a newer capture failure', async t => {
+  let resolveEnd;
+  const end = new Promise(resolve => { resolveEnd = resolve; });
+  const h = createHarness({ controllerApi: {
+    beginShortcutRecording: async () => ({ recordingId: GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) }),
+    endShortcutRecording: () => end,
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  await h.voiceStore.actions.beginShortcutRecording();
+  const ending = h.voiceStore.actions.endShortcutRecording();
+  h.emitRuntime(shortcutRecordingRuntime(false));
+  assert.equal(await h.controller.begin(), true);
+  await h.emitRecognition({ type: 'error', sessionId: 'session_12345678', message: 'New capture failed.' });
+  resolveEnd(shortcutRecordingRuntime(false)); await ending;
+  assert.equal(h.voiceStore.status, 'error');
+  assert.equal(h.voiceStore.statusText, 'New capture failed.');
+});
+
+test('late shortcut setup completion cannot overwrite a newer command result', async t => {
+  let resolveEnd;
+  const end = new Promise(resolve => { resolveEnd = resolve; });
+  const h = createHarness({ controllerApi: {
+    beginShortcutRecording: async () => ({ recordingId: GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) }),
+    endShortcutRecording: () => end,
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  await h.controller.beginShortcutRecording();
+  const ending = h.controller.endShortcutRecording();
+  h.emitRuntime(shortcutRecordingRuntime(false));
+  await h.controller.begin(); await h.controller.finish();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading 270' });
+  h.completeLastCommand({ ok: false, error: 'The heading change was not confirmed. Check the aircraft.' });
+  const warning = h.voiceStore.statusText;
+  resolveEnd(shortcutRecordingRuntime(false)); await ending;
+  assert.equal(h.voiceStore.status, 'failed');
+  assert.equal(h.voiceStore.statusText, warning);
+});
+
+test('failed or invalidated shortcut recording cannot capture or publish a late setup result', async t => {
+  for (const reason of ['begin-failure', 'disable', 'controller-setup', 'dispose']) {
+    let resolveBegin;
+    const pending = new Promise(resolve => { resolveBegin = resolve; });
+    const ended = [];
+    const h = createHarness({ controllerApi: {
+      beginShortcutRecording: () => reason === 'begin-failure' ? Promise.reject(new Error('Native setup failed')) : pending,
+      endShortcutRecording: async id => { ended.push(id); return shortcutRecordingRuntime(false); },
+    } });
+    t.after(() => h.controller.dispose()); await h.controller.initialize();
+    const beginning = h.voiceStore.actions.beginShortcutRecording();
+    await new Promise(resolve => setImmediate(resolve));
+    if (reason === 'disable') h.emitRuntime({ ...shortcutRecordingRuntime(false), enabled: false });
+    if (reason === 'controller-setup') h.emitRuntime({ ...shortcutRecordingRuntime(false), controllerSetup: { active: true }, pushToTalk: { controllerEnabled: true } });
+    if (reason === 'dispose') await h.controller.dispose();
+    assert.equal(await beginning, false, reason);
+    resolveBegin({ recordingId: GLOBAL_ATTEMPT, runtimeInfo: shortcutRecordingRuntime(true) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(ended, reason === 'begin-failure' ? [] : [GLOBAL_ATTEMPT]);
+    assert.equal(h.voiceStore.shortcutRecording.active, false);
+    assert.equal(h.captures.length, 0);
+    if (reason === 'begin-failure') assert.equal(await h.controller.begin(), true);
+  }
 });
 
 test('spoken-feedback diagnostics remain usable while recognition is off across runtime updates', async () => {
@@ -1242,6 +1698,139 @@ test('failed global shortcut registration keeps on-screen push-to-talk ready wit
   assert.equal(harness.voiceStore.runtime.shortcutError, 'Push-to-talk helper stopped');
   assert.equal(harness.voiceStore.status, 'ready', 'a stopped shortcut helper must not disable on-screen PTT');
   assert.match(harness.voiceStore.statusText, /on-screen button/i);
+});
+
+const failedHelperRuntime = {
+  available: true, enabled: true, engine: { state: 'ready', modelId: 'zipformer' }, modelBundled: true,
+  pushToTalk: { accelerator: 'Control+Alt+Space', registered: false, helperState: 'failed',
+    retryable: true, failureReason: 'watchdog-timeout', error: 'Push-to-talk stopped responding.', controllerEnabled: true },
+};
+const recoveredHelperRuntime = { ...failedHelperRuntime,
+  pushToTalk: { ...failedHelperRuntime.pushToTalk, registered: true, helperState: 'ready', retryable: false, failureReason: '', error: '' } };
+
+test('explicit helper retry coalesces, retires the old command and requires a fresh press', async t => {
+  let resolveRetry, calls = 0;
+  const h = createHarness({ runtimeInfo: failedHelperRuntime, controllerApi: { retryPushToTalk() {
+    calls++;
+    assert.equal(h.captures[0] && h.captureCancellations.includes(h.captures[0]), true);
+    assert.ok(h.cancellations.includes('session_12345678'));
+    return new Promise(resolve => { resolveRetry = resolve; });
+  } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  await h.controller.begin();
+  const first = h.voiceStore.actions.retryPushToTalk();
+  assert.equal(h.voiceStore.runtime.pttRetrying, true);
+  assert.equal(h.voiceStore.actions.retryPushToTalk(), first);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  resolveRetry(recoveredHelperRuntime);
+  assert.equal(await first, true);
+  assert.equal(h.voiceStore.runtime.pttRetrying, false);
+  assert.equal(h.voiceStore.runtime.shortcutRegistered, true);
+  assert.equal(h.sentCommands.length, 0);
+  assert.equal(h.captures.length, 1, 'retry does not open a microphone or perform discovery');
+  assert.equal(await h.controller.begin(), true);
+  assert.equal(h.captures.length, 2);
+});
+
+for (const interruption of ['disable', 'setup', 'shortcut', 'mode', 'dispose']) {
+  test(`helper retry settles and ignores late success after ${interruption}`, async t => {
+    let resolveRetry;
+    const h = createHarness({ runtimeInfo: failedHelperRuntime, controllerApi: {
+      retryPushToTalk: () => new Promise(resolve => { resolveRetry = resolve; }),
+      startControllerSetup: async () => ({ ...failedHelperRuntime, controllerSetup: { active: true } }),
+      setMode: async () => ({ ...failedHelperRuntime, mode: 'cloud' }),
+    } });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    const retry = h.voiceStore.actions.retryPushToTalk();
+    await new Promise(resolve => setImmediate(resolve));
+    if (interruption === 'disable') await h.controller.setRecognitionEnabled(false);
+    if (interruption === 'setup') await h.voiceStore.actions.startControllerSetup();
+    if (interruption === 'shortcut') await h.controller.setShortcut('Control+Shift+F8');
+    if (interruption === 'mode') await h.voiceStore.actions.setMode('cloud');
+    if (interruption === 'dispose') await h.controller.dispose();
+    assert.equal(await retry, false, 'caller settles before the old IPC reply');
+    const after = structuredClone(h.voiceStore.runtime);
+    resolveRetry(recoveredHelperRuntime);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.voiceStore.runtime, after);
+    assert.equal(h.captures.length, 0);
+    assert.equal(h.sentCommands.length, 0);
+  });
+}
+
+test('helper retry failure remains bounded and a later retry succeeds without resetting recognizer failure', async t => {
+  const failedSpeech = { ...failedHelperRuntime, available: false, error: 'Local voice worker stopped.',
+    engine: { state: 'failed', modelId: 'zipformer' }, modelBundled: false };
+  let attempts = 0;
+  const h = createHarness({ runtimeInfo: failedSpeech, controllerApi: {
+    retryPushToTalk: async () => {
+      if (++attempts === 1) throw new Error('Do not forward arbitrary IPC failure details');
+      return { ...failedSpeech, pushToTalk: recoveredHelperRuntime.pushToTalk };
+    },
+    setPushToTalkShortcut: async () => failedSpeech.pushToTalk,
+  } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  h.emitPtt({ type: 'error', error: 'Push-to-talk stopped responding.' });
+  await h.controller.setShortcut('Control+Alt+Space');
+  assert.equal(h.voiceStore.runtime.engineState, 'failed');
+  assert.equal(h.voiceStore.runtime.modelBundled, false);
+  assert.equal(await h.controller.retryPushToTalk(), false);
+  assert.equal(h.voiceStore.runtime.shortcutError, 'Push-to-talk could not restart. Try again.');
+  assert.equal(h.voiceStore.runtime.pttRetryable, true);
+  assert.equal(await h.controller.retryPushToTalk(), true);
+  assert.equal(h.voiceStore.runtime.available, false);
+  assert.equal(h.voiceStore.runtime.engineState, 'failed');
+  assert.equal(h.voiceStore.statusText, failedSpeech.error);
+  assert.equal(h.captures.length, 0);
+});
+
+test('a helper retry reply cannot overwrite a newer recognition failure', async t => {
+  let resolveRetry;
+  const h = createHarness({ runtimeInfo: failedHelperRuntime, controllerApi: {
+    retryPushToTalk: () => new Promise(resolve => { resolveRetry = resolve; }),
+  } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  const retry = h.controller.retryPushToTalk();
+  await new Promise(resolve => setImmediate(resolve));
+  h.emitRuntime({ ...failedHelperRuntime, available: false, engine: { state: 'failed', modelId: 'zipformer' },
+    error: 'Local voice worker stopped.', modelBundled: false });
+  resolveRetry(recoveredHelperRuntime);
+  assert.equal(await retry, true);
+  assert.equal(h.voiceStore.runtime.shortcutRegistered, true);
+  assert.equal(h.voiceStore.runtime.available, false);
+  assert.equal(h.voiceStore.runtime.engineState, 'failed');
+  assert.equal(h.voiceStore.runtime.modelBundled, false);
+  assert.equal(h.voiceStore.statusText, 'Local voice worker stopped.');
+});
+
+test('a retired retry cannot clear a newer retry or restore its shortcut', async t => {
+  const replies = [];
+  const h = createHarness({ runtimeInfo: failedHelperRuntime, controllerApi: {
+    retryPushToTalk: () => new Promise(resolve => replies.push(resolve)),
+  } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  const first = h.controller.retryPushToTalk();
+  await new Promise(resolve => setImmediate(resolve));
+  await h.controller.setShortcut('Control+Shift+F8');
+  assert.equal(await first, false);
+  h.emitRuntime({ ...failedHelperRuntime, pushToTalk: { ...failedHelperRuntime.pushToTalk, accelerator: 'Control+Shift+F8' } });
+  const second = h.controller.retryPushToTalk();
+  await new Promise(resolve => setImmediate(resolve));
+  replies[0](recoveredHelperRuntime);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.runtime.pttRetrying, true);
+  assert.equal(h.voiceStore.runtime.shortcut, 'Control+Shift+F8');
+  replies[1]({ ...recoveredHelperRuntime, pushToTalk: { ...recoveredHelperRuntime.pushToTalk, accelerator: 'Control+Shift+F8' } });
+  assert.equal(await second, true);
+  assert.equal(h.voiceStore.runtime.pttRetrying, false);
+  assert.equal(h.captures.length, 0);
 });
 
 test('unassigned global shortcut asks for setup while on-screen push-to-talk stays ready', async () => {
@@ -2230,6 +2819,133 @@ test('a quick push-to-talk release during the press cue does not open a micropho
   assert.equal(recognitionStarts, 0);
   assert.equal(harness.captures.length, 0);
   assert.equal(harness.voiceStore.status, 'ready');
+});
+
+function stalledPressTone() {
+  const contexts = [], timers = new Set();
+  let stalled = true;
+  class AudioContext {
+    constructor() {
+      this.state = stalled ? 'suspended' : 'running';
+      this.currentTime = 0;
+      this.destination = {};
+      this.oscillators = [];
+      this.closeCalls = 0;
+      this.resumePromise = new Promise(resolve => { this.resumeNow = () => { this.state = 'running'; resolve(); }; });
+      contexts.push(this);
+    }
+    resume() { return this.resumePromise; }
+    close() { this.closeCalls++; return new Promise(() => {}); }
+    createOscillator() {
+      const node = { frequency: { setValueAtTime() {} }, connect() {}, disconnect() {}, start() {},
+        stop() { queueMicrotask(() => this.onended?.()); } };
+      this.oscillators.push(node);
+      return node;
+    }
+    createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
+  }
+  const tone = createPushToTalkTone({ globalRef: { AudioContext },
+    setTimeoutRef(callback) { timers.add(callback); return callback; },
+    clearTimeoutRef(callback) { timers.delete(callback); },
+  });
+  return { tone, contexts, timers, recover() { stalled = false; },
+    expire() { for (const callback of [...timers]) { timers.delete(callback); callback(); } },
+  };
+}
+
+test('retiring a stalled press cue settles the attempt and allows recovery without a late microphone', async () => {
+  for (const terminal of ['release', 'cancel', 'disable', 'helper-failure', 'dispose']) {
+    const audio = stalledPressTone();
+    const h = createHarness({ pushToTalkTone: audio.tone });
+    await h.controller.initialize();
+    const beginning = h.controller.begin('global', GLOBAL_ATTEMPT);
+    assert.equal(h.voiceStore.status, 'starting', terminal);
+    assert.equal(audio.timers.size, 1);
+    if (terminal === 'release') await h.controller.finish();
+    if (terminal === 'cancel') await h.controller.cancel('user');
+    if (terminal === 'disable') await h.voiceStore.actions.setRecognitionEnabled(false);
+    if (terminal === 'helper-failure') h.emitPtt({ type: 'error', error: 'Push-to-talk helper stopped.' });
+    if (terminal === 'dispose') await h.controller.dispose();
+    assert.equal(await beginning, false, terminal);
+    assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT], terminal);
+    assert.equal(audio.timers.size, 0);
+    assert.equal(audio.contexts[0].closeCalls, 1);
+    assert.equal(h.captures.length, 0);
+    audio.contexts[0].resumeNow();
+    await Promise.resolve();
+    assert.equal(audio.contexts[0].oscillators.length, 0);
+    assert.equal(h.sentCommands.length, 0);
+    if (terminal !== 'dispose') {
+      audio.recover();
+      if (terminal === 'disable') h.emitRuntime({ available: true, enabled: true });
+      assert.equal(await h.controller.begin(), true, 'a fresh on-screen attempt remains usable');
+      assert.equal(h.captures.length, 1);
+    }
+    await h.controller.dispose();
+    assert.equal(audio.timers.size, 0);
+  }
+});
+
+test('starting the Settings microphone test retires a release cue still awaiting resume', async t => {
+  const audio = stalledPressTone();
+  audio.recover();
+  const h = createHarness({ pushToTalkTone: audio.tone });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  await h.controller.begin();
+  const context = audio.contexts[0];
+  context.state = 'suspended';
+  assert.equal(await h.controller.finish(), true);
+  assert.equal(audio.timers.size, 1);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: '' });
+  assert.equal(audio.timers.size, 1, 'normal final leaves the successful release cue alone');
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
+  assert.equal(audio.timers.size, 0, 'new microphone capture retires optional playback');
+  assert.equal(context.closeCalls, 1);
+  context.resumeNow();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(context.oscillators.length, 1, 'only the completed press cue created output');
+  assert.equal(h.captures.length, 2);
+  assert.equal(h.sentCommands.length, 0);
+});
+
+test('a cue deadline permits only the still-held attempt to capture and execute', async () => {
+  const audio = stalledPressTone();
+  const h = createHarness({ pushToTalkTone: audio.tone, chunkOnStop: true });
+  await h.controller.initialize();
+  const beginning = h.controller.begin();
+  audio.expire();
+  assert.equal(await beginning, true);
+  assert.equal(h.captures.length, 1);
+  audio.contexts[0].resumeNow();
+  await Promise.resolve();
+  assert.equal(audio.contexts[0].oscillators.length, 0, 'timed-out cue cannot enter microphone audio');
+  audio.recover();
+  assert.equal(await h.controller.finish(), true);
+  assert.equal(h.audio.length, 1, 'normal completion preserves the final capture flush');
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1);
+  await h.controller.dispose();
+  assert.equal(audio.timers.size, 0);
+});
+
+test('normal final recognition does not cancel or await the release cue', async () => {
+  let releaseSignal, resolveRelease;
+  const release = new Promise(resolve => { resolveRelease = resolve; });
+  const h = createHarness({ pushToTalkTone: {
+    play(phase, { signal }) {
+      if (phase === 'release') { releaseSignal = signal; return release; }
+      return Promise.resolve(true);
+    }, dispose() { resolveRelease(false); },
+  } });
+  await h.controller.initialize();
+  await h.controller.begin();
+  assert.equal(await h.controller.finish(), true);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1);
+  assert.equal(releaseSignal.aborted, false, 'successful completion must let the release cue finish');
+  resolveRelease(true);
+  await h.controller.dispose();
 });
 
 test('a quick push-to-talk release is retained while recognition startup is pending', async () => {

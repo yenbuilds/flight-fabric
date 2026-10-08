@@ -4075,6 +4075,8 @@ async function main() {
     assert.match(html, /Set shortcut/, 'an unassigned shortcut should expose a clear setup action');
     assert.match(html, /No global shortcut is active\./, 'the recorder should explain that no global shortcut is active');
     assert.match(html, /on-screen button on Aircraft/, 'settings explain the valid on-screen-only option');
+    assert.match(html, /aria-describedby="[^"]*voice-ptt-shortcut-foreground/, 'shortcut conflict guidance is attached to the recorder');
+    assert.match(html, /The shortcut also reaches the app in front\. Choose a key or combination that is unassigned in MSFS and other apps\./, 'keyboard setup explains that the foreground application still receives the shortcut');
     assert.doesNotMatch(html, /data-voice-joystick-binding|Set joystick button/, 'joystick setup is absent unless the desktop explicitly supports it');
     assert.doesNotMatch(html, /data-voice-joystick-remove/, 'nothing to remove while no joystick button is bound');
   });
@@ -4114,7 +4116,10 @@ async function main() {
     voice.setState('ready');
     const saves = [];
     let finishSave;
-    voice.bindRuntime({ setShortcut: value => {
+    voice.bindRuntime({
+      beginShortcutRecording: async () => { voice.shortcutRecording.active = true; return true; },
+      endShortcutRecording: async () => { voice.shortcutRecording.active = false; return true; },
+      setShortcut: value => {
       saves.push(value);
       return new Promise(resolve => {
         finishSave = ok => { if (ok) voice.runtime.shortcut = value; resolve(ok); };
@@ -4138,8 +4143,14 @@ async function main() {
         recorder.props.onKeydown({ key, preventDefault() {}, stopPropagation() {}, ...modifiers });
         await nextTick();
       };
-      await key('a');
-      assert.match(nodeText(nodes.find(node => node.props.id === 'voice-ptt-shortcut-error')), /Include Ctrl/);
+      const keyUp = async (key, modifiers = {}) => {
+        recorder.props.onKeyup({ key, preventDefault() {}, stopPropagation() {}, ...modifiers });
+        await nextTick();
+      };
+      await key('+');
+      assert.match(nodeText(nodes.find(node => node.props.id === 'voice-ptt-shortcut-error')), /That key cannot be used/);
+      await key('Control', { ctrlKey: true });
+      assert.equal(recorder.props['aria-label'], 'Press the new push-to-talk shortcut', 'a modifier alone keeps recording for a combination');
       await key('F8', { ctrlKey: true, shiftKey: true });
       assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8']);
       assert.equal(recorder.props['aria-label'], 'Unsaved push-to-talk shortcut: Control+Shift+F8. Save shortcut to use it.');
@@ -4200,7 +4211,134 @@ async function main() {
       await action('Cancel').props.onClick(); await nextTick();
       assert.deepEqual(keyLabels(recorder), ['Ctrl', 'Shift', 'F8'], 'Cancel restores the saved shortcut keycaps');
       assert.doesNotMatch(nodeText(help), /Not saved yet/);
+
+      await setup.props.onClick(); await key('CapsLock');
+      assert.deepEqual(keyLabels(recorder), ['Caps Lock']);
+      assert.equal(voice.runtime.shortcut, 'Control+Shift+F8', 'recording a single key preserves the saved combination until Save');
+      assert.equal(voice.shortcutRecording.active, true, 'single-key capture retains the setup lease until Save or Cancel');
+      assert.match(nodeText(nodes.find(node => node.props.id === 'voice-ptt-shortcut-foreground')), /Caps Lock also toggles capitalisation/);
+      const savingSingleKey = recorder.parent.parent.props.onSubmit({ preventDefault() {} });
+      assert.equal(saves.at(-1), 'CapsLock');
+      finishSave(true); await savingSingleKey; await nextTick();
+      assert.equal(voice.runtime.shortcut, 'CapsLock');
+      assert.equal(voice.shortcutRecording.active, false);
+      assert.equal(action('Save shortcut'), undefined);
+      await setup.props.onClick(); await key('a');
+      assert.deepEqual(keyLabels(recorder), ['A']);
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.deepEqual(keyLabels(recorder), ['Caps Lock'], 'Cancel restores the saved single key');
+
+      await setup.props.onClick(); await key('Alt', { code: 'AltLeft', altKey: true });
+      assert.equal(action('Save shortcut'), undefined, 'modifier-only selection waits for release');
+      tabs.activeTabId = 'autopilot'; await nextTick();
+      tabs.activeTabId = 'settings'; await nextTick();
+      await setup.props.onClick(); await keyUp('Alt', { code: 'AltLeft' });
+      assert.equal(recorder.props['aria-label'], 'Press the new push-to-talk shortcut', 'an abandoned modifier release cannot select a binding in a newer recorder');
+      await key('Alt', { code: 'AltLeft', altKey: true });
+      await keyUp('Alt', { code: 'AltLeft' });
+      assert.deepEqual(keyLabels(recorder), ['Left Alt']);
+      assert.equal(voice.runtime.shortcut, 'CapsLock');
+      assert.equal(voice.shortcutRecording.active, true);
+      const savingModifier = recorder.parent.parent.props.onSubmit({ preventDefault() {} });
+      assert.equal(saves.at(-1), 'LeftAlt');
+      finishSave(true); await savingModifier; await nextTick();
+      assert.equal(voice.runtime.shortcut, 'LeftAlt');
+      assert.equal(voice.shortcutRecording.active, false);
+      await setup.props.onClick(); await key('Alt', { code: 'AltLeft', altKey: true });
+      await key(' ', { code: 'Space', altKey: true });
+      await keyUp('Alt', { code: 'AltLeft' });
+      assert.deepEqual(keyLabels(recorder), ['Alt', 'Space'], 'the modifier release cannot overwrite a captured combination');
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.deepEqual(keyLabels(recorder), ['Left Alt']);
+      await setup.props.onClick(); await nextTick();
+      // The fake host retains retired nodes; use the selector currently in the form.
+      const findModifierPicker = node => node.props.id === 'voice-ptt-modifier' ? node
+        : node.children.map(findModifierPicker).find(Boolean);
+      const picker = findModifierPicker(recorder.parent.parent);
+      assert.ok(picker);
+      assert.deepEqual(picker.children.filter(node => node.kind === 'option').map(node => node.props.value).filter(Boolean),
+        ['LeftControl', 'RightControl', 'LeftAlt', 'RightAlt', 'LeftShift', 'RightShift', 'LeftSuper', 'RightSuper']);
+      picker.props.onChange({ currentTarget: { value: 'RightSuper' } }); await nextTick();
+      assert.deepEqual(keyLabels(recorder), ['Right Win'], 'Windows keys can be assigned without pressing an OS shortcut');
+      assert.equal(voice.shortcutRecording.active, true);
+      assert.equal(voice.runtime.shortcut, 'LeftAlt', 'the picker still requires Save');
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.deepEqual(keyLabels(recorder), ['Left Alt']);
     } finally { app.unmount(); }
+  });
+
+  await test('VoiceControlSettings owns shortcut setup until cancellation, blur or completed save', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'VoiceControlSettings.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const voice = useVoiceControlStore(), tabs = useTabsStore();
+    tabs.activeTabId = 'settings'; voice.runtime.enabled = true; voice.runtime.shortcut = 'Control+F8'; voice.setState('ready');
+    const events = [], blurListeners = new Set();
+    const oldAdd = globalThis.addEventListener, oldRemove = globalThis.removeEventListener;
+    globalThis.addEventListener = (type, fn) => { if (type === 'blur') blurListeners.add(fn); };
+    globalThis.removeEventListener = (type, fn) => { if (type === 'blur') blurListeners.delete(fn); };
+    let resolveFirst, resolveSave, begins = 0;
+    const first = new Promise(resolve => { resolveFirst = resolve; });
+    voice.bindRuntime({
+      beginShortcutRecording: async () => {
+        events.push('begin'); if (++begins === 1) return first;
+        voice.shortcutRecording.active = true; return true;
+      },
+      endShortcutRecording: async () => { events.push('end'); voice.shortcutRecording.active = false; return true; },
+      setShortcut: async value => {
+        events.push(['save', value]); assert.equal(voice.shortcutRecording.active, true);
+        await new Promise(resolve => { resolveSave = resolve; });
+        voice.runtime.shortcut = value; return true;
+      },
+    });
+    const app = renderer.createApp(component); app.use(pinia);
+    const nodeText = node => [node.text, ...node.children.map(nodeText)].join('').trim();
+    try {
+      app.mount(makeNode('root'));
+      const recorder = nodes.find(node => node.props.id === 'voice-ptt-shortcut');
+      const action = label => recorder.parent.children.find(node => node.kind === 'button' && nodeText(node) === label);
+      const key = async (value, modifiers = {}) => {
+        recorder.props.onKeydown({ key: value, preventDefault() {}, stopPropagation() {}, ...modifiers }); await nextTick();
+      };
+      const old = recorder.props.onClick(); await nextTick();
+      assert.equal(recorder.props['aria-busy'], 'true');
+      assert.equal(recorder.props.disabled, false, 'pending setup must not blur its own focused recorder');
+      await key('F9', { ctrlKey: true });
+      assert.equal(action('Save shortcut'), undefined, 'keys cannot be recorded before helper pause acknowledgement');
+      await action('Cancel').props.onClick(); await nextTick();
+      assert.equal(recorder.props['aria-busy'], undefined);
+      assert.deepEqual(events, ['begin', 'end']);
+      await recorder.props.onClick(); await nextTick();
+      resolveFirst(true); await old; await nextTick();
+      assert.equal(recorder.props['aria-label'], 'Press the new push-to-talk shortcut', 'a retired begin reply cannot end a new recorder');
+      await key('F8', { ctrlKey: true });
+      assert.equal(voice.shortcutRecording.active, true, 'recording the saved shortcut retains ownership after DOM keydown');
+      assert.ok(action('Cancel'), 'an unchanged recording still has an explicit way to resume input');
+      recorder.parent.parent.props.onFocusout({ currentTarget: { contains: () => true }, relatedTarget: recorder });
+      assert.equal(voice.shortcutRecording.active, true, 'focus within shortcut controls retains ownership');
+      recorder.parent.parent.props.onFocusout({ currentTarget: { contains: () => false }, relatedTarget: null });
+      await nextTick(); assert.equal(voice.shortcutRecording.active, false);
+      await recorder.props.onClick(); await key('F9', { ctrlKey: true });
+      const saving = recorder.parent.parent.props.onSubmit({ preventDefault() {} });
+      await nextTick(); const endCount = events.filter(value => value === 'end').length;
+      for (const listener of blurListeners) listener();
+      await nextTick();
+      assert.equal(events.filter(value => value === 'end').length, endCount, 'window blur cannot supersede an explicit save already in flight');
+      assert.equal(voice.shortcutRecording.active, true);
+      resolveSave(); await saving; await nextTick();
+      assert.equal(voice.runtime.shortcut, 'Control+F9');
+      assert.equal(voice.shortcutRecording.active, false);
+      assert.equal(events.filter(value => value === 'end').length, endCount + 1);
+      await recorder.props.onClick(); await nextTick();
+      tabs.activeTabId = 'autopilot'; await nextTick();
+      assert.equal(voice.shortcutRecording.active, false, 'leaving Settings releases setup ownership');
+    } finally {
+      app.unmount(); assert.equal(blurListeners.size, 0);
+      if (oldAdd === undefined) delete globalThis.addEventListener; else globalThis.addEventListener = oldAdd;
+      if (oldRemove === undefined) delete globalThis.removeEventListener; else globalThis.removeEventListener = oldRemove;
+    }
   });
 
   await test('VoiceControlSettings shows enablement failures and permits a successful retry', async () => {
@@ -4263,6 +4401,26 @@ async function main() {
       assert.match(html, /data-voice-shortcut-recorder/);
       assert.match(html, /Control\+Alt\+Space/);
     }
+  });
+
+  await test('shared voice recovery offers explicit helper retry and preserves failed recognizer guidance', async () => {
+    const render = (patch = {}) => renderComponent(path.join('src', 'vue', 'components', 'VoiceRestartHint.vue'),
+      ({ useVoiceControlStore }) => {
+        const voice = useVoiceControlStore();
+        voice.setBridgeAvailable(true);
+        voice.applyRuntimeInfo({ enabled: true, available: false, engine: { state: 'failed' }, modelBundled: true,
+          pushToTalk: { helperState: 'failed', retryable: true, error: 'Controller input stopped responding.', ...patch } });
+      });
+    const failed = await render();
+    assert.match(failed.html, /data-voice-ptt-retry[^>]*>Retry push-to-talk/);
+    assert.match(failed.html, /Controller input stopped responding/);
+    assert.match(failed.html, /Quit FlightFabric in the system tray/);
+    const busy = await render({ retrying: true });
+    assert.match(busy.html, /data-voice-ptt-retry[^>]*disabled[^>]*aria-busy="true"/);
+    assert.match(busy.html, /Reconnecting push-to-talk/);
+    const healthy = await render({ helperState: 'ready', retryable: false });
+    assert.doesNotMatch(healthy.html, /data-voice-ptt-retry/);
+    assert.match(healthy.html, /Quit FlightFabric in the system tray/, 'helper recovery cannot conceal failed recognition');
   });
 
   await test('VoiceControlSettings explains a failed spoken readback beside the feedback toggle', async () => {

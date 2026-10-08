@@ -152,6 +152,14 @@ test('invalid event fields fail closed without escaping into the main process', 
     event('cancel', { path: 42, reason: 'device-removed' }), event('release', { button: '400' }),
     event('device', { connected: 'false' }), event('baseline', { heldButtons: -1 }),
     event('device', { connected: true, name: 42 }), event('device', { connected: true, name: 'x'.repeat(201) }),
+    { type: 'device-error', message: 'Failed', scope: 'device' },
+    { type: 'device-error', message: 'Failed', scope: 'discovery', path: binding.devicePath },
+    { type: 'device-error', message: 'Failed', scope: 'unknown' },
+    { type: 'device-error', message: 'Failed', path: 42 },
+    { type: 'cancel', source: 'keyboard', reason: 'device-removed', path: binding.devicePath },
+    { type: 'cancel', source: 'keyboard', reason: 'suspend' },
+    { type: 'cancel', source: 'controller', reason: 'device-removed' },
+    { type: 'cancel', source: null, reason: 'input-reset' },
     { type: 'unexpected-transition' }]) {
     const process = child(), errors = [];
     const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
@@ -161,6 +169,7 @@ test('invalid event fields fail closed without escaping into the main process', 
     process.say(event('press'));
     assert.doesNotThrow(() => process.say(invalid), JSON.stringify(invalid));
     assert.equal(hook.getInfo().registered, false, JSON.stringify(invalid));
+    assert.equal(hook.getInfo().failureReason, 'protocol-error');
     assert.equal(errors.length, 1); assert.ok(process.kills);
   }
 });
@@ -229,6 +238,50 @@ test('all keyboard/controller hold orderings retain release ownership through re
     assert.equal(hook.getInfo().registered, false);
     assert.equal(delivered.at(-1), 'up');
   }
+});
+
+test('retired held input cannot block or release a fresh source and requires a real release before reuse', async t => {
+  const { helperPath } = fixture(t); const process = child(), delivered = [];
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+    onDown: (_key, attempt) => delivered.push(['down', attempt]), onUp: (_key, attempt) => delivered.push(['up', attempt]),
+    onCancel: (_reason, attempt) => delivered.push(['cancel', attempt]) });
+  t.after(() => hook.dispose());
+  const started = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  process.say({ type: 'ready' }); await started;
+  process.say(event('press'));
+  const first = delivered[0][1];
+  assert.equal(hook.retireAttempt(first), true);
+  assert.deepEqual(delivered, [['down', first]], 'retirement never synthesizes release or command completion');
+  process.say(event('press'), { type: 'down' });
+  const second = delivered.at(-1)[1];
+  assert.notEqual(second, first);
+  assert.equal(hook.retireAttempt(first), false, 'late old retirement cannot affect the replacement');
+  process.say(event('release'));
+  assert.deepEqual(delivered, [['down', first], ['down', second]], 'old controller up cannot release keyboard capture');
+  process.say(event('press'), { type: 'up' });
+  assert.equal(delivered.length, 2, 'fresh controller press joins the normal overlapping-source union');
+  process.say(event('release'));
+  assert.deepEqual(delivered.at(-1), ['up', second]);
+});
+
+test('retiring both held sources permits whichever actually releases and presses again first', async t => {
+  const { helperPath } = fixture(t); const process = child(), delivered = [];
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+    onDown: (_key, attempt) => delivered.push(['down', attempt]), onUp: (_key, attempt) => delivered.push(['up', attempt]) });
+  t.after(() => hook.dispose());
+  const started = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  process.say({ type: 'ready' }); await started;
+  process.say(event('press'), { type: 'down' });
+  hook.retireAttempt(delivered[0][1]);
+  process.say(event('press'), { type: 'down' });
+  assert.equal(delivered.length, 1, 'duplicate downs cannot rearm either retired hold');
+  process.say(event('release'), event('press'));
+  assert.equal(delivered.length, 2);
+  const replacement = delivered.at(-1)[1];
+  process.say({ type: 'up' });
+  assert.equal(delivered.length, 2, 'the retired keyboard no longer participates');
+  process.say(event('release'));
+  assert.deepEqual(delivered.at(-1), ['up', replacement]);
 });
 
 test('voice runtime loads using only JavaScript files declared in the packaged app', t => {
@@ -396,6 +449,264 @@ test('a stalled continuous helper is stopped and reported before it can hold cap
   time = 6000; t.mock.timers.tick(1000);
   assert.equal(errors.length, 1); assert.match(errors[0].message, /responding/);
   assert.ok(process.kills); assert.equal(hook.getInfo().registered, false);
+  assert.equal(hook.getInfo().helperState, 'failed');
+  assert.equal(hook.getInfo().retryable, true);
+  assert.equal(hook.getInfo().failureReason, 'watchdog-timeout');
+});
+
+test('validated controller input keeps its loop alive through alternating keyboard input without timer heartbeats', async t => {
+  const { helperPath } = fixture(t); const process = child(); let time = 0; const delivered = [], states = [];
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+    now: () => time, onDown: () => delivered.push('down'), onUp: () => delivered.push('up'),
+    onError: () => assert.fail('a progressing helper must remain active'), onStateChange: value => states.push(value) });
+  t.after(() => hook.dispose());
+  const ready = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  process.say({ type: 'ready' }); await ready;
+  for (let index = 0; index < 12; index++) {
+    time += 2000;
+    process.say(index % 2 ? event('press') : { type: 'down' });
+    t.mock.timers.tick(1000);
+    time += 1000;
+    process.say(index % 2 ? event('release') : { type: 'up' });
+    t.mock.timers.tick(1000);
+  }
+  assert.deepEqual(delivered, Array.from({ length: 12 }, () => ['down', 'up']).flat());
+  assert.equal(process.kills, 0);
+  const count = states.length;
+  for (let index = 0; index < 100; index++) process.say({ type: 'heartbeat' });
+  assert.equal(states.length, count, 'heartbeats must not publish status updates');
+});
+
+test('keyboard-thread activity cannot conceal a stalled controller input loop', async t => {
+  const { helperPath } = fixture(t); const process = child(); let time = 0; const errors = [];
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+    now: () => time, onDown() {}, onUp() {}, onError: error => errors.push(error) });
+  t.after(() => hook.dispose());
+  const started = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  process.say({ type: 'ready' }); await started;
+  for (let count = 0; count < 6; count++) {
+    time += 1000;
+    process.say({ type: 'down' }, { type: 'up' }, { type: 'cancel', source: 'keyboard', reason: 'input-reset' });
+    t.mock.timers.tick(1000);
+  }
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].reason, 'watchdog-timeout');
+  assert.equal(process.kills, 1);
+  assert.equal(hook.getInfo().registered, false);
+});
+
+test('keyboard loss cancels only participating input and preserves healthy controller capture', async t => {
+  const { helperPath } = fixture(t); const process = child(), delivered = [];
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+    onDown: (_key, attempt) => delivered.push(['down', attempt]), onUp: (_key, attempt) => delivered.push(['up', attempt]),
+    onCancel: (reason, attempt, source) => delivered.push(['cancel', attempt, source, reason]) });
+  t.after(() => hook.dispose());
+  const ready = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  process.say({ type: 'ready' }); await ready;
+  const lost = { type: 'cancel', source: 'keyboard', reason: 'device-removed' };
+  process.say(event('press'), lost, event('release'));
+  assert.deepEqual(delivered, [['down', 1], ['up', 1]], 'unrelated keyboard loss cannot cancel controller capture');
+  assert.equal(hook.getInfo().controller.state, 'ready');
+  process.say({ type: 'down' }, event('press'), lost, lost, { type: 'up' });
+  assert.deepEqual(delivered.slice(2), [['down', 2], ['cancel', 2, 'keyboard', 'device-removed']]);
+  process.say({ type: 'down' }, event('release'), { type: 'up' });
+  assert.deepEqual(delivered.slice(-2), [['down', 3], ['up', 3]], 'late controller release cannot finish the fresh keyboard attempt');
+  assert.equal(hook.getInfo().helperState, 'ready');
+  assert.equal(process.kills, 0);
+});
+
+test('keyboard-only Raw Input cancellation and suspend retire capture without submitting it', async t => {
+  const { helperPath } = fixture(t); const process = child(), delivered = [], states = [];
+  const hook = createPushToTalkHook({ helperPath, spawnProcess: () => process,
+    onDown: (_key, attempt) => delivered.push(['down', attempt]), onUp: (_key, attempt) => delivered.push(['up', attempt]),
+    onCancel: (reason, attempt, source) => delivered.push(['cancel', attempt, source, reason]),
+    onStateChange: state => states.push(state) });
+  t.after(() => hook.dispose());
+  const ready = hook.setBinding({ accelerator: 'Control+F1' }); process.say({ type: 'ready' }); await ready;
+  process.say({ type: 'down' }, { type: 'cancel', source: 'keyboard', reason: 'input-reset' }, { type: 'up' });
+  assert.deepEqual(delivered, [['down', 1], ['cancel', 1, 'keyboard', 'input-reset']]);
+  process.say({ type: 'down' }, { type: 'cancel', reason: 'suspend' }, { type: 'paused' }, { type: 'up' });
+  assert.deepEqual(delivered.slice(-2), [['down', 2], ['cancel', 2, null, 'suspend']]);
+  assert.equal(hook.getInfo().registered, false); assert.equal(hook.getInfo().helperState, 'paused');
+  assert.equal(hook.getInfo().retryable, false);
+  process.say({ type: 'resumed' });
+  assert.equal(hook.getInfo().registered, true); assert.equal(hook.getInfo().helperState, 'ready');
+  assert.equal(delivered.length, 4, 'resuming never starts an already-held input');
+  process.say({ type: 'down' }, { type: 'up' });
+  assert.deepEqual(delivered.slice(-2), [['down', 3], ['up', 3]]);
+  assert.equal(states.some(state => state.helperState === 'paused'), true);
+  assert.equal(process.kills, 0);
+});
+
+test('retired-child input and device errors cannot extend the current helper progress deadline', async t => {
+  const { helperPath } = fixture(t); const children = []; let time = 0; const errors = [];
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true,
+    spawnProcess: () => { const process = child(); children.push(process); return process; },
+    now: () => time, onDown() {}, onUp() {}, onError: error => errors.push(error) });
+  t.after(() => hook.dispose());
+  const first = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  children[0].say({ type: 'ready' }); await first;
+  const second = hook.setBinding({ accelerator: 'Control+F2', controller: binding });
+  children[1].say({ type: 'ready' }); await second;
+  time = 4500;
+  children[0].say({ type: 'heartbeat' }, { type: 'down' }, event('release'));
+  children[0].emit('exit', 12);
+  children[1].say({ type: 'device-error', scope: 'discovery', message: 'Unavailable unrelated controller' });
+  time = 6000; t.mock.timers.tick(1000);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].reason, 'watchdog-timeout');
+  assert.equal(hook.getInfo().failureReason, 'watchdog-timeout');
+  assert.equal(children[1].kills, 1);
+});
+
+test('unowned discovery errors preserve selected holds and never establish connection readiness', async t => {
+  const { helperPath } = fixture(t); const process = child(); const delivered = [];
+  const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+    onDown: () => delivered.push('down'), onUp: () => delivered.push('up'), onCancel: () => delivered.push('cancel') });
+  t.after(() => hook.dispose());
+  const ready = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+  const warning = { type: 'device-error', scope: 'discovery', message: 'Unowned inspection failed' };
+  process.say(warning, { type: 'ready' }); await ready;
+  assert.equal(hook.getInfo().controller.state, 'disconnected');
+  process.say(event('device', { connected: true }), warning);
+  assert.equal(hook.getInfo().controller.state, 'waiting');
+  process.say(event('baseline', { heldButtons: 0 }), event('press'), { type: 'down' }, warning,
+    { type: 'device-error', scope: 'device', path: 'another-controller', message: 'Other device failed' });
+  assert.equal(hook.getInfo().controller.state, 'ready');
+  assert.deepEqual(delivered, ['down']);
+  process.say(event('release'));
+  assert.deepEqual(delivered, ['down'], 'keyboard still owns the overlapping hold');
+  process.say({ type: 'up' });
+  assert.deepEqual(delivered, ['down', 'up']);
+  process.say(event('device', { connected: false }), warning);
+  assert.equal(hook.getInfo().controller.state, 'disconnected');
+  assert.equal(hook.getInfo().registered, true);
+  assert.equal(hook.getInfo().retryable, false);
+});
+
+test('selected or legacy device errors cancel capture and require release before another hold', async t => {
+  const { helperPath } = fixture(t);
+  for (const scoped of [true, false]) {
+    const process = child(), delivered = [];
+    const hook = createPushToTalkHook({ helperPath, controllerEnabled: true, spawnProcess: () => process,
+      onDown: () => delivered.push('down'), onUp: () => delivered.push('up'), onCancel: () => delivered.push('cancel') });
+    t.after(() => hook.dispose());
+    const ready = hook.setBinding({ accelerator: 'Control+F1', controller: binding });
+    process.say({ type: 'ready' }); await ready;
+    process.say({ type: 'down' }, event('press'), { type: 'device-error', message: 'Read failed',
+      ...(scoped ? { scope: 'device', path: binding.devicePath.toLowerCase() } : {}) });
+    assert.deepEqual(delivered, ['down', 'cancel']);
+    assert.equal(hook.getInfo().controller.state, 'error');
+    assert.equal(hook.getInfo().helperState, 'ready', 'device failure is not helper failure');
+    assert.equal(hook.getInfo().retryable, false);
+    process.say({ type: 'down' }, { type: 'up' });
+    assert.deepEqual(delivered, ['down', 'cancel']);
+    process.say(event('device', { connected: true }), event('baseline', { heldButtons: 0 }), event('press'), event('release'));
+    assert.deepEqual(delivered.slice(-2), ['down', 'up']);
+  }
+});
+
+test('terminal failure categories remain bounded, retain the first cause, and recover with a fresh helper', async t => {
+  const { helperPath } = fixture(t);
+  for (const [code, reason] of [[10, 'startup-failure'], [11, 'runtime-failure'], [12, 'output-queue-full'], [13, 'output-pipe-failure'], [1, 'helper-exited']]) {
+    const children = [], errors = [], states = [];
+    const hook = createPushToTalkHook({ helperPath, spawnProcess: () => { const process = child(); children.push(process); return process; },
+      onDown() {}, onUp() {}, onError: error => errors.push(error), onStateChange: value => states.push(value) });
+    t.after(() => hook.dispose());
+    const first = hook.setBinding({ accelerator: 'Control+F1' });
+    children[0].say({ type: 'ready' }); await first;
+    children[0].say({ type: 'down' }); children[0].emit('exit', code);
+    children[0].stdout.emit('end'); children[0].emit('error', new Error('Private native diagnostic'));
+    assert.equal(errors.length, 1); assert.equal(states.length, 1); assert.equal(children[0].kills, 1);
+    assert.equal(errors[0].reason, reason); assert.equal(hook.getInfo().failureReason, reason);
+    assert.equal(hook.getInfo().helperState, 'failed'); assert.equal(hook.getInfo().retryable, true);
+    assert.equal(JSON.stringify(hook.getInfo()).includes('Private native'), false);
+    const recovery = hook.setBinding({ accelerator: 'Control+F1' });
+    assert.equal(hook.getInfo().failureReason, reason, 'pending replacement does not erase the failure');
+    children[1].say({ type: 'ready' }); await recovery;
+    assert.equal(hook.getInfo().failureReason, ''); assert.equal(hook.getInfo().helperState, 'ready');
+    assert.equal(hook.getInfo().retryable, false);
+  }
+});
+
+test('structured terminal failure wins over later pipe closure and exit; failed startup is retryable', async t => {
+  const { helperPath } = fixture(t);
+  for (const beforeReady of [true, false]) {
+    const process = child(), errors = [];
+    const hook = createPushToTalkHook({ helperPath, spawnProcess: () => process,
+      onDown() {}, onUp() {}, onError: error => errors.push(error) });
+    t.after(() => hook.dispose());
+    const starting = hook.setBinding({ accelerator: 'Control+F1' });
+    if (!beforeReady) { process.say({ type: 'ready' }); await starting; }
+    const reason = beforeReady ? 'startup-failure' : 'runtime-failure';
+    process.say({ type: 'stopped', reason });
+    process.stdout.emit('close'); process.emit('exit', 12);
+    if (beforeReady) await assert.rejects(starting, error => error.reason === reason);
+    assert.equal(hook.getInfo().failureReason, reason);
+    assert.equal(hook.getInfo().retryable, true);
+    assert.equal(errors.length, beforeReady ? 0 : 1);
+  }
+});
+
+test('output EOF stops capture immediately even when an informative exit code arrives later', async t => {
+  const { helperPath } = fixture(t); const process = child(), errors = [];
+  const hook = createPushToTalkHook({ helperPath, spawnProcess: () => process,
+    onDown() {}, onUp: () => assert.fail('pipe failure must not submit a held command'), onError: error => errors.push(error) });
+  t.after(() => hook.dispose());
+  const started = hook.setBinding({ accelerator: 'Control+F1' });
+  process.say({ type: 'ready' }); await started; process.say({ type: 'down' });
+  process.stdout.emit('end');
+  assert.equal(process.kills, 1); assert.equal(errors.length, 1);
+  assert.equal(hook.getInfo().registered, false);
+  process.emit('exit', 12);
+  assert.equal(errors.length, 1);
+  // We cannot reliably recover a later queue-exhaustion exit after retiring an
+  // already broken event pipe. Keep the first useful cause without delaying cancellation.
+  assert.equal(hook.getInfo().failureReason, 'output-pipe-failure');
+});
+
+test('a failed replacement preserves the active binding and never publishes candidate errors', async t => {
+  const { helperPath } = fixture(t); const children = [], delivered = [];
+  const hook = createPushToTalkHook({ helperPath,
+    spawnProcess: () => { const process = child(); children.push(process); return process; },
+    onDown: () => delivered.push('down'), onUp: () => delivered.push('up'),
+    onError: () => assert.fail('a failed candidate must not cancel its healthy predecessor') });
+  t.after(() => hook.dispose());
+  const first = hook.setBinding({ accelerator: 'Control+F1' });
+  children[0].say({ type: 'ready' }); await first; children[0].say({ type: 'down' });
+  const replacement = hook.setBinding({ accelerator: 'Control+F2' });
+  children[1].emit('error', new Error('Private process path and OS details'));
+  await assert.rejects(replacement, error => error.reason === 'startup-failure'
+    && error.message === 'Push-to-talk helper could not start.');
+  assert.equal(hook.getInfo().accelerator, 'Control+F1');
+  assert.equal(hook.getInfo().helperState, 'ready');
+  assert.equal(hook.getInfo().failureReason, '');
+  assert.equal(children[0].kills, 0);
+  children[0].say({ type: 'up' });
+  assert.deepEqual(delivered, ['down', 'up']);
+});
+
+test('controller setup preserves a checked candidate on unrelated errors and revokes it on owned failure', async t => {
+  const { helperPath } = fixture(t);
+  for (const terminal of ['device', 'legacy', 'runtime']) {
+    const process = child();
+    const setup = createControllerSetup({ helperPath, spawnProcess: () => process });
+    t.after(() => setup.stop());
+    const started = setup.start();
+    process.say(event('device', { connected: true }), { type: 'ready' }); await started;
+    process.say(event('press'), { type: 'device-error', scope: 'discovery', message: 'Unowned inspection failed' });
+    assert.equal(setup.getInfo().phase, 'held');
+    process.say(event('release'), { type: 'device-error', scope: 'device', path: 'another-controller', message: 'Read failed' });
+    assert.equal(setup.bindingToSave().button, binding.button);
+    process.say(terminal === 'runtime' ? { type: 'stopped', reason: 'runtime-failure' }
+      : { type: 'device-error', message: 'Read failed', ...(terminal === 'device' ? { scope: 'device', path: binding.devicePath } : {}) });
+    assert.equal(setup.getInfo().phase, 'error');
+    assert.throws(() => setup.bindingToSave());
+    assert.equal(process.kills, 1);
+  }
 });
 
 test('suspend cancels both sources and resumption requires fresh input', async t => {

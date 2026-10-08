@@ -135,14 +135,12 @@ function requestCommittedScrubOffset(event) {
     <div
       id="timeline-scrubber-wrap"
       data-no-swipe
-      class="px-3 sm:px-4 py-2 sm:py-3 bg-surface-50 border-t border-surface-200"
+      class="timeline-scrubber bg-surface-50 border-t border-surface-200"
       :class="{ hidden: !timeline.scrubberVisible }"
     >
-      <div class="flex items-center justify-between text-[10px] sm:text-[11px] text-gray-500 mb-1 sm:mb-2">
-        <div>Timeline Scrubber</div>
-        <div id="timeline-time-current" class="font-mono text-gray-300">{{ timeline.scrubberCurrentLabel }}</div>
-      </div>
-      <div class="relative">
+      <span class="text-[11px] text-muted-fg">Replay</span>
+      <span id="timeline-time-current" class="text-[11px] font-mono text-fg">{{ timeline.scrubberCurrentLabel }}</span>
+      <div class="relative min-w-0 flex items-center">
         <input
           id="timeline-time-scrubber"
           type="range"
@@ -158,10 +156,29 @@ function requestCommittedScrubOffset(event) {
           @change="requestCommittedScrubOffset"
         />
       </div>
-      <div class="mt-1 flex items-center justify-between text-[11px] font-mono text-gray-500">
-        <div id="timeline-time-start">{{ timeline.scrubberStartLabel }}</div>
-        <div id="timeline-time-end">{{ timeline.scrubberEndLabel }}</div>
-      </div>
+      <span id="timeline-time-start" class="sr-only">{{ timeline.scrubberStartLabel }}</span>
+      <span id="timeline-time-end" class="text-[11px] font-mono text-muted-fg">{{ timeline.scrubberEndLabel }}</span>
     </div>
   </div>
 </template>
+
+<style scoped>
+.timeline-scrubber {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.15rem 0.85rem;
+}
+
+.timeline-scrubber.hidden { display: none; }
+
+#timeline-time-scrubber {
+  height: 2.25rem;
+  margin: 0;
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  #timeline-time-scrubber { min-height: 2.75rem; }
+}
+</style>

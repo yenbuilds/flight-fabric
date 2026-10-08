@@ -8,6 +8,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const VOICE_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$/;
+const PTT_ATTEMPT_ID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const MAX_VOICE_AUDIO_BYTES = 8192 * Float32Array.BYTES_PER_ELEMENT;
 const MAX_READBACK_CHARS = 240;
 
@@ -25,6 +26,11 @@ function requireReadbackText(value) {
       || /[\u0000-\u001f\u007f]/u.test(value)) {
     throw new TypeError('Invalid local readback text');
   }
+  return value;
+}
+
+function requirePttAttemptId(value) {
+  if (typeof value !== 'string' || !PTT_ATTEMPT_ID_RE.test(value)) throw new TypeError('Invalid push-to-talk attempt identifier');
   return value;
 }
 
@@ -170,6 +176,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     getReadbackInfo: () => ipcRenderer.invoke('voice:get-readback-info'),
     getRuntimeInfo: () => ipcRenderer.invoke('voice:get-runtime-info'),
+    retryPushToTalk: () => ipcRenderer.invoke('voice:retry-push-to-talk'),
+    beginShortcutRecording: () => ipcRenderer.invoke('voice:shortcut-recording-begin'),
+    endShortcutRecording: (recordingId) => ipcRenderer.invoke('voice:shortcut-recording-end', requirePttAttemptId(recordingId)),
+    retirePushToTalkAttempt: (pttAttemptId) => ipcRenderer.invoke('voice:retire-push-to-talk-attempt', requirePttAttemptId(pttAttemptId)),
     setMode: (mode) => ipcRenderer.invoke('voice:set-mode', mode),
     setCloudProvider: (selection) => ipcRenderer.invoke('voice:set-cloud-provider', selection),
     saveCloudKey: (providerId, key) => {
@@ -201,6 +211,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       if (options !== undefined && (!options || typeof options !== 'object' || JSON.stringify(options).length > 65000)) {
         throw new TypeError('Invalid voice context.');
       }
+      if (options?.pttAttemptId !== undefined) requirePttAttemptId(options.pttAttemptId);
       return ipcRenderer.invoke('voice:speech-start', options);
     },
   }),

@@ -11,7 +11,7 @@ const timeline = useTimelineStore();
   >
     <div class="timeline-summary-layout min-w-0">
       <div class="min-w-0 px-3 py-3 sm:px-4">
-        <dl class="timeline-summary-stats grid min-w-0 gap-2">
+        <dl class="timeline-summary-stats grid min-w-0 gap-2" :class="{ 'has-fuel-burn': timeline.fuelBurnText && timeline.fuelBurnText !== '--' }">
           <div class="min-w-0 rounded-md border border-surface-200/70 bg-surface-100/50 px-2.5 py-2">
             <dt class="text-[11px] uppercase tracking-wider text-gray-500">Events</dt>
             <dd class="mt-0.5 break-words text-sm font-semibold leading-5 text-gray-200">{{ timeline.eventCountText }}</dd>
@@ -35,7 +35,7 @@ const timeline = useTimelineStore();
           <div class="timeline-summary-alerts">
             <dt class="text-[11px] uppercase tracking-wider text-gray-500">Alerts</dt>
             <dd class="text-xs font-semibold leading-5">
-              <span class="text-amber-400">Cautions: {{ timeline.cautionCountText }}</span>
+              <span :class="timeline.cautionCountText === '0' ? 'text-gray-400' : 'text-amber-400'">Cautions: {{ timeline.cautionCountText }}</span>
               <span :class="timeline.violationCountText === '0' ? 'text-gray-400' : 'text-red-400'">Violations: {{ timeline.violationCountText }}</span>
             </dd>
           </div>
@@ -95,6 +95,32 @@ const timeline = useTimelineStore();
   display: flex;
   flex-wrap: wrap;
   gap: 0.15rem 1rem;
+}
+
+.timeline-summary-alerts dd span {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@container (min-width: 48rem) {
+  .timeline-summary-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(11rem, 1.8fr);
+  }
+
+  .timeline-summary-stats.has-fuel-burn {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(11rem, 1.8fr);
+  }
+
+  .timeline-summary-alerts {
+    grid-column: auto;
+    display: block;
+  }
+
+  .timeline-summary-alerts dd {
+    margin-top: 0.125rem;
+    gap: 0.15rem 0.65rem;
+  }
 }
 
 .timeline-summary-action {

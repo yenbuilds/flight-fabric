@@ -47,8 +47,18 @@ function createControllerSetup({ helperPath, onChange = () => {}, spawnProcess }
     } else if (event.type === 'cancel' && event.reason !== 'timeout') {
       if (event.path && event.path.toLowerCase() !== candidate?.devicePath.toLowerCase()) return;
       fail('Button setup was interrupted. Reconnect or unlock this PC, then try again.');
-    } else if (event.type === 'stopped') timeout();
-    else if (event.type === 'device-error') publish({ message: 'A controller could not be read. Try another controller or reconnect it.' });
+    } else if (event.type === 'stopped') {
+      if (event.reason === 'timeout') timeout();
+      else fail('Button setup stopped. Try again.');
+    } else if (event.type === 'device-error') {
+      if (event.scope === 'device') devices.delete(event.path.toLowerCase());
+      if (candidate && event.scope !== 'discovery'
+        && (event.scope === undefined || event.path.toLowerCase() === candidate.devicePath.toLowerCase())) {
+        fail('The selected controller could not be read. Reconnect it and try again.');
+      } else if (!candidate) {
+        publish({ message: 'A controller could not be read. Try another controller or reconnect it.' });
+      }
+    }
   }
   function stop() {
     revision++; stopProcess(); devices.clear(); candidate = null; released = false;

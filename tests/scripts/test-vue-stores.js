@@ -2637,6 +2637,40 @@ async function main() {
     voice.setBridgeAvailable(false);
     assert.equal(voice.restartHintVisible, false, 'browser views cannot restart the desktop voice engine');
   });
+  await test('push-to-talk retry uses explicit failure eligibility and keeps recognizer recovery independent', async () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore();
+    voice.setBridgeAvailable(true);
+    const failed = { enabled: true, available: false, engine: { state: 'failed' }, modelBundled: true,
+      pushToTalk: { helperState: 'failed', retryable: true, failureReason: 'watchdog-timeout',
+        accelerator: 'Control+Alt+Space', registered: false, error: 'Controller input stopped responding.' } };
+    voice.applyRuntimeInfo(failed);
+    assert.equal(voice.pushToTalkRetryVisible, true);
+    assert.equal(voice.restartHintVisible, true, 'both independent recovery paths remain visible');
+    assert.equal(voice.runtime.pttFailureReason, 'watchdog-timeout');
+    let calls = 0;
+    voice.bindRuntime({ retryPushToTalk: async () => { calls++; return true; } });
+    assert.equal(await voice.retryPushToTalk(), true);
+    assert.equal(calls, 1);
+    voice.applyRuntimeInfo({ ...failed, pushToTalk: { ...failed.pushToTalk, retrying: true } });
+    assert.equal(voice.runtime.pttRetrying, true);
+    for (const pushToTalk of [
+      { registered: false, error: 'Controller input stopped responding.' },
+      { helperState: 'idle', retryable: true }, { helperState: 'paused', retryable: true },
+      { helperState: 'ready', retryable: true }, { helperState: 'failed', retryable: false },
+    ]) {
+      voice.applyRuntimeInfo({ ...failed, pushToTalk });
+      assert.equal(voice.pushToTalkRetryVisible, false, 'unregistered, paused, unbound or arbitrary text does not authorize retry');
+    }
+    voice.applyRuntimeInfo({ ...failed, enabled: false });
+    assert.equal(voice.pushToTalkRetryVisible, false);
+    voice.applyRuntimeInfo({ ...failed, controllerSetup: { active: true }, pushToTalk: { ...failed.pushToTalk, controllerEnabled: true } });
+    assert.equal(voice.pushToTalkRetryVisible, false);
+    voice.applyRuntimeInfo(failed);
+    voice.setBridgeAvailable(false);
+    assert.equal(voice.pushToTalkRetryVisible, false);
+  });
+
   await test('voice setup reminder follows desktop registration, not simulator or microphone selection', () => {
     resetStoreTestContext();
     const voice = useVoiceControlStore();
@@ -2672,6 +2706,26 @@ async function main() {
     assert.equal(voice.setupTask.action, 'Check voice setup', 'local runtime failures remain actionable');
     voice.setBridgeAvailable(false);
     assert.equal(voice.setupTask, null, 'remote browsers never advertise desktop-only voice setup');
+  });
+
+  await test('shortcut recording is transient setup ownership and blocks capture and helper retry', async () => {
+    resetStoreTestContext();
+    const voice = useVoiceControlStore(); voice.setBridgeAvailable(true); voice.setState('ready');
+    const info = { available: true, enabled: true, engine: { state: 'ready' }, shortcutRecording: { active: true },
+      pushToTalk: { helperState: 'failed', retryable: true, accelerator: 'Control+F8' } };
+    voice.applyRuntimeInfo(info);
+    assert.equal(voice.ready, false); assert.equal(voice.pushToTalkRetryVisible, false);
+    assert.equal(voice.setupTask, null, 'intentional setup does not claim push-to-talk failed');
+    const calls = [];
+    voice.bindRuntime({ beginShortcutRecording: async () => { calls.push('begin'); return true; },
+      endShortcutRecording: async () => { calls.push('end'); return true; } });
+    assert.equal(await voice.beginShortcutRecording(), true);
+    assert.equal(await voice.endShortcutRecording(), true);
+    assert.deepEqual(calls, ['begin', 'end']);
+    voice.applyRuntimeInfo({ ...info, shortcutRecording: { active: false }, pushToTalk: { registered: true } });
+    assert.equal(voice.ready, true);
+    voice.applyRuntimeInfo({ available: true, enabled: true });
+    assert.equal(voice.shortcutRecording.active, false, 'ordinary runtime updates cannot retain stale setup ownership');
   });
 
   await test('a controller-only binding counts as configured voice setup', () => {

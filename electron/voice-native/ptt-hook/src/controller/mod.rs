@@ -9,7 +9,7 @@ pub struct Options {
     pub device_path: Option<String>,
     pub continuous: bool,
     pub button: Option<reports::Button>,
-    pub on_pause: fn(bool),
+    pub on_pause: Box<dyn FnMut(bool) -> Result<(), String>>,
 }
 
 pub trait Output {

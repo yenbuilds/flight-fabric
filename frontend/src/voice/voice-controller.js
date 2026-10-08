@@ -56,12 +56,15 @@ export function createVoiceControlController({
   let deviceDiscovery = null;
   let deviceRefreshRevision = 0;
   let controllerActionRevision = 0;
+  let pushToTalkRetry = null;
+  let shortcutRecording = null;
   const spokenReadback = readback || createLocalReadback({ globalRef });
   const acknowledgementTone = pushToTalkTone || createPushToTalkTone({ globalRef });
   const unsubscribers = [];
   const voiceTest = createVoiceSetupTest({ api, voiceStore, globalRef, createCapture,
-    cancelReadback: () => spokenReadback.cancel?.(),
-    canStart: () => !disposed && !active && !voiceStore.controllerSetup?.active && !deviceDiscovery && !pendingCommand,
+    cancelReadback: () => { spokenReadback.cancel?.(); acknowledgementTone.cancel?.(); },
+    canStart: () => !disposed && !active && !voiceStore.controllerSetup?.active && !shortcutRecording
+      && !voiceStore.shortcutRecording?.active && !deviceDiscovery && !pendingCommand,
   });
 
   function storageRef() {
@@ -113,7 +116,8 @@ export function createVoiceControlController({
       voiceStore.setInputDevicesError?.('');
       return [];
     }
-    if (requestAccess && !active && !voiceTest.busy && !voiceStore.controllerSetup?.active && !deviceDiscovery) {
+    if (requestAccess && !active && !voiceTest.busy && !voiceStore.controllerSetup?.active
+        && !shortcutRecording && !voiceStore.shortcutRecording?.active && !deviceDiscovery) {
       deviceRefreshRevision++;
       voiceStore.setInputDevicesError?.('');
       const discovery = { abort: new AbortController(), sessionId: '', promise: null };
@@ -256,7 +260,13 @@ export function createVoiceControlController({
       return;
     }
     if (voiceStore.controllerSetup?.active) {
-      voiceStore.setState('blocked', 'Voice input is paused while choosing a controller button.');
+      // Setup gates input separately. Keep command/result feedback visible
+      // throughout setup, including unconfirmed aircraft changes.
+      if (!pendingCommand && !resultHeld) voiceStore.setState('blocked', 'Voice input is paused while choosing a controller button.');
+      return;
+    }
+    if (shortcutRecording || voiceStore.shortcutRecording?.active) {
+      if (!pendingCommand && !resultHeld) voiceStore.setState('blocked', 'Voice input is paused while choosing a keyboard shortcut.');
       return;
     }
     if (!voiceStore.runtime.available) {
@@ -368,11 +378,21 @@ export function createVoiceControlController({
       : 'Command failed.');
   }
 
+  function retireGlobalAttempt(session) {
+    if (session.source !== 'global' || !session.pttAttemptId || session.pttRetired) return;
+    session.pttRetired = true;
+    // Input participation must end before browser cleanup can stall. Main
+    // correlates this token to the exact input and recognition owner.
+    try { Promise.resolve(api?.retirePushToTalkAttempt?.(session.pttAttemptId)).catch(() => {}); } catch {}
+  }
+
   async function cancel(reason = 'cancelled') {
     const session = active;
     if (!session) return false;
     active = null;
+    session.abort.abort();
     voiceStore.setSession('');
+    retireGlobalAttempt(session);
     try { await session.capture?.cancel(); } catch {}
     if (session.sessionId) {
       try { await api?.cancelRecognition?.(session.sessionId); } catch {}
@@ -393,8 +413,13 @@ export function createVoiceControlController({
     return true;
   }
 
-  async function begin(source = 'local') {
-    if (disposed || active || voiceStore.controllerSetup?.active || voiceTest.busy || deviceDiscovery || voiceStore.runtime.enabled !== true) return false;
+  async function begin(source = 'local', pttAttemptId = '') {
+    const input = { source, pttAttemptId: source === 'global' && typeof pttAttemptId === 'string' ? pttAttemptId : '' };
+    const refuse = () => { retireGlobalAttempt(input); return false; };
+    if (source === 'global' && !input.pttAttemptId) return false;
+    if (!disposed && source === 'global' && active?.source === 'global' && active.pttAttemptId === input.pttAttemptId) return true;
+    if (disposed || active || voiceStore.controllerSetup?.active || shortcutRecording || voiceStore.shortcutRecording?.active
+        || voiceTest.busy || deviceDiscovery || voiceStore.runtime.enabled !== true) return refuse();
     spokenReadback.cancel?.();
     // A confirmed result stays visible until the next command. Starting that
     // command explicitly releases the hold before readiness is recomputed. A
@@ -409,17 +434,18 @@ export function createVoiceControlController({
         || voiceCommandCount() === 0
       )
     ) {
-      return false;
+      return refuse();
     }
     resultHeld = false;
     refreshReadyState();
-    if (voiceStore.status !== 'ready') return false;
+    if (voiceStore.status !== 'ready') return refuse();
     // Retire completed test audio/readback ownership before ordinary PTT.
     // busy was excluded above, so this clears idle test state synchronously.
     void voiceTest.cancel();
     const session = {
       generation: ++captureGeneration,
       source,
+      pttAttemptId: input.pttAttemptId,
       sessionId: '',
       mode: voiceStore.runtime.mode === 'cloud' ? 'cloud' : 'offline',
       cloudSelection: cloudSelectionKey(voiceStore.runtime.cloud),
@@ -430,6 +456,8 @@ export function createVoiceControlController({
       profileRevision: activeCatalogue().profileRevision,
       configurationId: activeCatalogue().configurationId || '',
       releaseRequested: false,
+      abort: new AbortController(),
+      pressCuePending: true,
       captureReady: false,
       finishPromise: null,
       capture: null,
@@ -437,41 +465,49 @@ export function createVoiceControlController({
     if (session.mode === 'cloud' && !session.transcriptionOnly) {
       try { session.cloudContext = cloudContext(); } catch {
         voiceStore.setState('error', 'The aircraft voice catalogue is unavailable. Nothing was executed.');
-        return false;
+        return refuse();
       }
     }
     // Publish before the short press cue. This retains a very quick key-up
     // without opening a recognition or microphone session.
     active = session;
-    // Let the press cue finish before starting microphone capture, so it is
-    // never included in the PCM stream.
-    await acknowledgementTone.play?.('press');
-    if (disposed || active !== session || session.releaseRequested || voiceStore.runtime.enabled !== true) {
-      if (active === session) {
-        active = null;
-        voiceStore.setSession('');
-        refreshReadyState();
-      }
-      return false;
-    }
     voiceStore.setTranscript('');
     voiceStore.setLastCommand('');
     voiceStore.setCloudUsage?.(null);
     voiceStore.setState('starting', 'Opening microphone…');
     let recognition;
     try {
-      recognition = await api.startRecognition(session.cloudContext ? { context: session.cloudContext } : undefined);
+      // Let the press cue finish before starting microphone capture, so it is
+      // never included in the PCM stream.
+      try { await acknowledgementTone.play?.('press', { signal: session.abort.signal }); }
+      finally { session.pressCuePending = false; }
+      if (disposed || active !== session || session.releaseRequested || voiceStore.runtime.enabled !== true) {
+        if (active === session) {
+          active = null;
+          session.abort.abort();
+          voiceStore.setSession('');
+          retireGlobalAttempt(session);
+          refreshReadyState();
+        }
+        return false;
+      }
+      const options = {
+        ...(session.cloudContext ? { context: session.cloudContext } : {}),
+        ...(session.pttAttemptId ? { pttAttemptId: session.pttAttemptId } : {}),
+      };
+      recognition = await api.startRecognition(Object.keys(options).length ? options : undefined);
       session.sessionId = recognition.sessionId;
       if (active !== session) {
         try { await api.cancelRecognition(session.sessionId); } catch {}
         return false;
       }
       if (session.releaseRequested) {
-        try { await api.cancelRecognition(session.sessionId); } catch {}
-        if (active !== session) return false;
         active = null;
+        session.abort.abort();
         voiceStore.setSession('');
+        retireGlobalAttempt(session);
         refreshReadyState();
+        try { await api.cancelRecognition(session.sessionId); } catch {}
         return false;
       }
       const capture = createCapture({
@@ -512,13 +548,16 @@ export function createVoiceControlController({
       return true;
     } catch (error) {
       if (active !== session) return false;
+      active = null;
+      session.abort.abort();
+      voiceStore.setSession('');
+      retireGlobalAttempt(session);
       if (recognition?.sessionId) {
         try { await api.cancelRecognition(recognition.sessionId); } catch {}
       }
-      if (active !== session) return false;
-      active = null;
-      voiceStore.setSession('');
-      voiceStore.setState('error', error?.message || 'Voice control could not start.');
+      if (disposed || session.generation !== captureGeneration) return false;
+      if (session.releaseRequested) refreshReadyState();
+      else voiceStore.setState('error', error?.message || 'Voice control could not start.');
       return false;
     }
   }
@@ -528,26 +567,14 @@ export function createVoiceControlController({
     if (!session) return false;
     session.releaseRequested = true;
     if (session.finishPromise) return session.finishPromise;
+    // A browser resume/ended callback may never arrive. Retire the cue owner
+    // now; a late browser reply cannot start capture or retain this attempt.
+    if (session.pressCuePending) return cancel('released-before-capture');
 
-    // If key-up beats the recognition IPC response, begin() observes the
-    // release and cancels without ever opening the microphone.
-    if (!session.sessionId) return true;
-
-    // A release during getUserMedia/AudioWorklet setup cancels that setup. The
-    // begin() catch sees that the session was already cleared and stays quiet.
-    if (!session.captureReady) {
-      session.finishPromise = (async () => {
-        try { await session.capture?.cancel?.(); } catch {}
-        try { await api.cancelRecognition(session.sessionId); } catch {}
-        if (active === session) {
-          active = null;
-          voiceStore.setSession('');
-          refreshReadyState();
-        }
-        return true;
-      })();
-      return session.finishPromise;
-    }
+    // Key-up before recognition or browser capture is ready retires ownership
+    // immediately. Late speech-start replies remain responsible for cancelling
+    // their own session; they cannot open a microphone or disturb a new hold.
+    if (!session.captureReady) return cancel('released-before-capture');
 
     session.finishPromise = (async () => {
       voiceStore.setState('finishing', session.transcriptionOnly
@@ -567,7 +594,7 @@ export function createVoiceControlController({
         if (active !== session) return false;
         // stop() detaches capture input and stops the microphone tracks.
         // The release cue therefore cannot become microphone input.
-        void acknowledgementTone.play?.('release');
+        void acknowledgementTone.play?.('release', { signal: session.abort.signal });
         await api.finishRecognition(session.sessionId);
         return true;
       } catch (error) {
@@ -593,16 +620,20 @@ export function createVoiceControlController({
     }
     if (event.type === 'error') {
       active = null;
+      session.abort.abort();
       voiceStore.setSession('');
       voiceStore.setState(fatalError ? 'unavailable' : 'error', event.message || 'Voice recognition failed.');
+      retireGlobalAttempt(session);
       try { await session.capture?.cancel?.(); } catch {}
       return;
     }
     if (event.type === 'cancelled') {
       active = null;
+      session.abort.abort();
       voiceStore.setSession('');
+      retireGlobalAttempt(session);
       try { await session.capture.cancel(); } catch {}
-      refreshReadyState();
+      if (!disposed && session.generation === captureGeneration) refreshReadyState();
       return;
     }
     if (event.type !== 'final') return;
@@ -610,16 +641,21 @@ export function createVoiceControlController({
     if (session.finalReceived) return;
     session.finalReceived = true;
     const releasedBeforeFinal = session.releaseRequested;
+    if (!releasedBeforeFinal) {
+      active = null;
+      session.abort.abort();
+      voiceStore.setSession('');
+      voiceStore.setState('error', 'Recognition ended before push-to-talk was released. Nothing was executed.');
+      retireGlobalAttempt(session);
+      try { await session.capture?.cancel?.(); } catch {}
+      return;
+    }
     try { await session.capture.cancel(); } catch {}
     // Retain ownership until cleanup finishes so cancellation/disablement can
     // still retire this result before any aircraft command or readback.
     if (active !== session || disposed || voiceStore.runtime.enabled !== true) return;
     active = null;
     voiceStore.setSession('');
-    if (!releasedBeforeFinal) {
-      voiceStore.setState('error', 'Recognition ended before push-to-talk was released. Nothing was executed.');
-      return;
-    }
     const transcript = String(event.text || '').trim();
     voiceStore.setTranscript(transcript);
     if (session.mode === 'cloud') voiceStore.setCloudUsage?.(event.usage);
@@ -752,9 +788,62 @@ export function createVoiceControlController({
     }
   }
 
+  function invalidatePushToTalkRetry() {
+    controllerActionRevision++;
+    const retry = pushToTalkRetry;
+    pushToTalkRetry = null;
+    if (retry) {
+      voiceStore.runtime.pttRetrying = false;
+      retry.resolve(false);
+    }
+    return controllerActionRevision;
+  }
+
+  function retryPushToTalk() {
+    if (pushToTalkRetry) return pushToTalkRetry.promise;
+    if (disposed || !api?.retryPushToTalk || voiceStore.runtime.enabled !== true
+        || voiceStore.controllerSetup?.active || shortcutRecording || voiceStore.shortcutRecording?.active
+        || voiceStore.runtime.pttRetryable !== true) return Promise.resolve(false);
+    const retry = { revision: ++controllerActionRevision, resolve: null, promise: null };
+    retry.promise = new Promise(resolve => { retry.resolve = resolve; });
+    pushToTalkRetry = retry;
+    voiceStore.runtime.pttRetrying = true;
+    const isCurrent = () => !disposed && pushToTalkRetry === retry
+      && retry.revision === controllerActionRevision && voiceStore.runtime.enabled === true
+      && !voiceStore.controllerSetup?.active;
+    // Retire the interrupted attempt before recovery; nothing is replayed.
+    cancelDeviceDiscovery();
+    const cancellation = active ? cancel('ptt-retry') : Promise.resolve();
+    void (async () => {
+      try {
+        await Promise.all([cancellation, voiceTest.cancel()]);
+        if (!isCurrent()) return false;
+        const info = await api.retryPushToTalk();
+        if (!isCurrent()) return false;
+        // Retry owns only the helper. A newer recognizer failure or readback
+        // update may already have arrived while its IPC reply was in flight.
+        applyPushToTalkInfo(info.pushToTalk);
+        return info.pushToTalk?.helperState === 'ready';
+      } catch {
+        if (isCurrent()) {
+          voiceStore.runtime.shortcutError = 'Push-to-talk could not restart. Try again.';
+          refreshReadyState();
+        }
+        return false;
+      } finally {
+        if (pushToTalkRetry === retry) {
+          pushToTalkRetry = null;
+          voiceStore.runtime.pttRetrying = false;
+        }
+      }
+    })().then(retry.resolve);
+    return retry.promise;
+  }
+
   async function controllerAction(method) {
     if (disposed || !api?.[method] || !voiceStore.runtime.controllerEnabled) return false;
-    const request = ++controllerActionRevision;
+    void endShortcutRecording();
+    const request = invalidatePushToTalkRetry();
     if (method === 'startControllerSetup') {
       cancelDeviceDiscovery();
       await voiceTest.cancel();
@@ -770,18 +859,88 @@ export function createVoiceControlController({
   }
 
   async function setShortcut(value) {
-    if (!api) return false;
+    if (disposed || !api) return false;
+    const request = invalidatePushToTalkRetry();
     try {
-      applyPushToTalkInfo(await api.setPushToTalkShortcut(value));
+      const info = await api.setPushToTalkShortcut(value);
+      if (disposed || request !== controllerActionRevision) return false;
+      applyPushToTalkInfo(info);
       return true;
     } catch (error) {
+      if (disposed || request !== controllerActionRevision) return false;
       voiceStore.setState('error', error?.message || 'Push-to-talk shortcut could not be changed.');
+      return false;
+    }
+  }
+
+  function applyShortcutRecordingInfo(info) {
+    voiceStore.shortcutRecording = { active: info.shortcutRecording?.active === true };
+    // Setup owns input availability only, never a newer recognizer/readback result.
+    applyPushToTalkInfo(info.pushToTalk);
+  }
+
+  function beginShortcutRecording() {
+    if (shortcutRecording) return shortcutRecording.promise;
+    if (disposed || !api?.beginShortcutRecording || voiceStore.runtime.enabled !== true
+        || voiceStore.controllerSetup?.active || pendingCommand) return Promise.resolve(false);
+    const recording = { revision: invalidatePushToTalkRetry(), recordingId: '', resolve: null, promise: null };
+    recording.promise = new Promise(resolve => { recording.resolve = resolve; });
+    shortcutRecording = recording;
+    const current = () => !disposed && shortcutRecording === recording
+      && recording.revision === controllerActionRevision && voiceStore.runtime.enabled === true;
+    cancelDeviceDiscovery();
+    const cancellation = active ? cancel('shortcut-setup') : Promise.resolve();
+    refreshReadyState();
+    void (async () => {
+      try {
+        await Promise.all([cancellation, voiceTest.cancel()]);
+        if (!current()) return false;
+        const result = await api.beginShortcutRecording();
+        recording.recordingId = typeof result?.recordingId === 'string' ? result.recordingId : '';
+        if (!current()) {
+          if (recording.recordingId) void Promise.resolve(api.endShortcutRecording(recording.recordingId)).catch(() => {});
+          return false;
+        }
+        if (!recording.recordingId || result.runtimeInfo?.shortcutRecording?.active !== true) {
+          if (recording.recordingId) void Promise.resolve(api.endShortcutRecording(recording.recordingId)).catch(() => {});
+          shortcutRecording = null;
+          refreshReadyState();
+          return false;
+        }
+        applyShortcutRecordingInfo(result.runtimeInfo);
+        return true;
+      } catch {
+        if (shortcutRecording === recording) {
+          shortcutRecording = null;
+          refreshReadyState();
+        }
+        return false;
+      }
+    })().then(recording.resolve);
+    return recording.promise;
+  }
+
+  async function endShortcutRecording() {
+    const recording = shortcutRecording;
+    shortcutRecording = null;
+    if (!recording) return true;
+    recording.resolve(false);
+    const revision = controllerActionRevision;
+    const generation = captureGeneration;
+    if (!recording.recordingId) { refreshReadyState(); return true; }
+    try {
+      const info = await api.endShortcutRecording(recording.recordingId);
+      if (!disposed && !shortcutRecording && revision === controllerActionRevision && generation === captureGeneration) applyShortcutRecordingInfo(info);
+      return true;
+    } catch {
       return false;
     }
   }
 
   async function changeCloudSetting(method, ...args) {
     if (disposed || !api?.[method] || pendingCommand) return false;
+    void endShortcutRecording();
+    invalidatePushToTalkRetry();
     cancelDeviceDiscovery();
     await voiceTest.cancel();
     if (active) await cancel('voice-settings');
@@ -806,8 +965,10 @@ export function createVoiceControlController({
       development: voiceStore.runtime.development,
       enabled: voiceStore.runtime.enabled,
       error: voiceStore.runtime.error,
-      engine: { modelId: voiceStore.runtime.modelId },
+      engine: { modelId: voiceStore.runtime.modelId, state: voiceStore.runtime.engineState },
+      modelBundled: voiceStore.runtime.modelBundled,
       controllerSetup: voiceStore.controllerSetup,
+      shortcutRecording: voiceStore.shortcutRecording,
       pushToTalk: info,
       readback: { lastError: voiceStore.runtime.readbackError },
     });
@@ -817,8 +978,9 @@ export function createVoiceControlController({
   async function setRecognitionEnabled(value) {
     if (disposed || !api?.setRecognitionEnabled) return false;
     const nextEnabled = value === true;
+    if (!nextEnabled) void endShortcutRecording();
+    invalidatePushToTalkRetry();
     if (!nextEnabled) cancelDeviceDiscovery();
-    if (!nextEnabled) controllerActionRevision++;
     if (!nextEnabled) await voiceTest.cancel();
     if (!nextEnabled && active) await cancel('voice-disabled');
     try {
@@ -842,35 +1004,40 @@ export function createVoiceControlController({
   }
 
   function handlePushToTalk(event = {}) {
-    if (event.type === 'down') void begin('global');
+    const matchesAttempt = active?.source === 'global' && active.pttAttemptId === event.pttAttemptId;
+    if (event.type === 'down') void begin('global', event.pttAttemptId);
     else if (event.type === 'up') {
-      if (active?.source === 'global') void finish();
+      if (event.pttAttemptId && matchesAttempt) void finish();
     }
     else if (event.type === 'cancel') {
+      if (event.pttAttemptId && !matchesAttempt) return;
+      // Scoped device cancellation owns only its global utterance. Runtime-wide
+      // cancellation (disable, setup, helper failure) still retires all capture.
+      if (event.pttAttemptId) {
+        void cancel(event.reason || 'ptt-cancel');
+        return;
+      }
       void voiceTest.cancel();
-      if (active) void cancel(event.reason || 'ptt-cancel').finally(refreshReadyState);
+      if (active) void cancel(event.reason || 'ptt-cancel');
       else refreshReadyState();
     }
     else if (event.type === 'error') {
       const message = event.error || 'Global push-to-talk stopped.';
-      voiceStore.applyRuntimeInfo({
-        mode: voiceStore.runtime.mode,
-        cloud: voiceStore.runtime.cloud,
-        available: voiceStore.runtime.available,
-        development: voiceStore.runtime.development,
-        enabled: voiceStore.runtime.enabled,
-        error: voiceStore.runtime.error,
-        engine: { modelId: voiceStore.runtime.modelId },
-        readback: { lastError: voiceStore.runtime.readbackError },
-        pushToTalk: {
-          controllerEnabled: voiceStore.runtime.controllerEnabled,
-          controller: voiceStore.runtime.controller,
-          accelerator: event.accelerator || voiceStore.runtime.shortcut,
-          error: message,
-          registered: false,
-        },
+      applyPushToTalkInfo({
+        controllerEnabled: voiceStore.runtime.controllerEnabled,
+        controller: voiceStore.runtime.controller,
+        accelerator: event.accelerator || voiceStore.runtime.shortcut,
+        error: message,
+        registered: false,
+        helperState: voiceStore.runtime.pttHelperState,
+        retryable: voiceStore.runtime.pttRetryable,
+        failureReason: voiceStore.runtime.pttFailureReason,
+        retrying: voiceStore.runtime.pttRetrying,
       });
-      if (active) void cancel('ptt-error').finally(refreshReadyState);
+      if (active) {
+        const generation = captureGeneration;
+        void cancel('ptt-error').finally(() => { if (generation === captureGeneration) refreshReadyState(); });
+      }
       else refreshReadyState();
     }
   }
@@ -885,6 +1052,7 @@ export function createVoiceControlController({
       cancel: () => active?.source === 'local' ? cancel('user') : false,
       finish: () => active?.source === 'local' ? finish() : false,
       refreshInputDevices,
+      retryPushToTalk,
       setRecognitionEnabled,
       setMode: value => changeCloudSetting('setMode', value),
       setCloudProvider: value => changeCloudSetting('setCloudProvider', value),
@@ -893,6 +1061,8 @@ export function createVoiceControlController({
       setInputDevice,
       setSpokenReadbacks,
       setShortcut,
+      beginShortcutRecording,
+      endShortcutRecording,
       startControllerSetup: () => controllerAction('startControllerSetup'),
       cancelControllerSetup: () => controllerAction('cancelControllerSetup'),
       saveControllerButton: () => controllerAction('saveControllerButton'),
@@ -927,13 +1097,22 @@ export function createVoiceControlController({
       const wasMode = voiceStore.runtime.mode;
       const wasCloudSelection = cloudSelectionKey(voiceStore.runtime.cloud);
       voiceStore.applyRuntimeInfo(info);
+      if (shortcutRecording && (voiceStore.runtime.enabled !== true || voiceStore.controllerSetup?.active
+          || wasMode !== voiceStore.runtime.mode || wasCloudSelection !== cloudSelectionKey(voiceStore.runtime.cloud)
+          || (shortcutRecording.recordingId && !voiceStore.shortcutRecording?.active))) {
+        void endShortcutRecording();
+      }
+      if (voiceStore.runtime.enabled !== true || voiceStore.controllerSetup?.active
+          || wasMode !== voiceStore.runtime.mode || wasCloudSelection !== cloudSelectionKey(voiceStore.runtime.cloud)) {
+        invalidatePushToTalkRetry();
+      }
       if (wasMode !== voiceStore.runtime.mode || wasCloudSelection !== cloudSelectionKey(voiceStore.runtime.cloud)) {
         cancelDeviceDiscovery();
         voiceStore.setCloudUsage?.(null);
         void voiceTest.cancel();
         if (active) void cancel('voice-mode-changed');
       }
-      if (voiceStore.controllerSetup?.active) {
+      if (voiceStore.controllerSetup?.active || voiceStore.shortcutRecording?.active) {
         cancelDeviceDiscovery();
         void voiceTest.cancel();
         if (active) void cancel('button-setup');
@@ -995,8 +1174,9 @@ export function createVoiceControlController({
 
   async function dispose() {
     disposed = true;
+    void endShortcutRecording();
     cancelDeviceDiscovery();
-    controllerActionRevision++;
+    invalidatePushToTalkRetry();
     pendingCommand = null;
     resultHeld = false;
     await voiceTest.dispose();
@@ -1020,9 +1200,12 @@ export function createVoiceControlController({
     initialize,
     refreshReadyState,
     refreshInputDevices,
+    retryPushToTalk,
     setInputDevice,
     setRecognitionEnabled,
     setSpokenReadbacks,
     setShortcut,
+    beginShortcutRecording,
+    endShortcutRecording,
   });
 }

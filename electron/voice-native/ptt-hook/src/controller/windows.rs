@@ -22,6 +22,48 @@ const MAX_TOTAL_PREPARSED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TOTAL_BUTTONS: usize = 16 * 1024;
 const WM_PROBE_POWER: u32 = WM_APP + 1;
 const WM_PROBE_SESSION: u32 = WM_APP + 2;
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+
+struct Heartbeat {
+    last: Instant,
+}
+
+impl Heartbeat {
+    fn new(now: Instant) -> Self {
+        Self { last: now }
+    }
+
+    fn due(&mut self, now: Instant) -> bool {
+        if now.saturating_duration_since(self.last) < HEARTBEAT_INTERVAL {
+            return false;
+        }
+        // A delayed iteration emits once, never a burst for missed intervals.
+        self.last = now;
+        true
+    }
+}
+
+struct DeviceIdentity {
+    path: String,
+    vendor: u32,
+    product: u32,
+}
+
+struct DeviceLoadError {
+    path: Option<String>,
+    message: String,
+}
+
+fn device_error_fields(path: Option<&str>, message: &str) -> String {
+    let ownership = match path {
+        Some(path) => format!("\"scope\":\"device\",\"path\":{}", json_string(path)),
+        None => "\"scope\":\"discovery\"".into(),
+    };
+    format!(
+        "\"type\":\"device-error\",{ownership},\"message\":{}",
+        json_string(message)
+    )
+}
 
 fn os_error(operation: &str) -> String {
     format!("{operation}: {}", std::io::Error::last_os_error())
@@ -114,7 +156,22 @@ impl Device {
         )
     }
 
-    fn load(handle: HANDLE, selected: Option<&str>) -> Result<Option<Self>, String> {
+    fn load(handle: HANDLE, selected: Option<&str>) -> Result<Option<Self>, DeviceLoadError> {
+        let Some(identity) =
+            Self::identity(handle, selected).map_err(|message| DeviceLoadError {
+                path: None,
+                message,
+            })?
+        else {
+            return Ok(None);
+        };
+        Self::load_descriptor(handle, &identity).map_err(|message| DeviceLoadError {
+            path: Some(identity.path),
+            message,
+        })
+    }
+
+    fn identity(handle: HANDLE, selected: Option<&str>) -> Result<Option<DeviceIdentity>, String> {
         let mut info = RID_DEVICE_INFO {
             cbSize: size_of::<RID_DEVICE_INFO>() as u32,
             ..Default::default()
@@ -170,6 +227,14 @@ impl Device {
         if selected.is_some_and(|saved| !saved.eq_ignore_ascii_case(&path)) {
             return Ok(None);
         }
+        Ok(Some(DeviceIdentity {
+            path,
+            vendor: hid.dwVendorId,
+            product: hid.dwProductId,
+        }))
+    }
+
+    fn load_descriptor(handle: HANDLE, identity: &DeviceIdentity) -> Result<Option<Self>, String> {
         let mut bytes = 0;
         if unsafe {
             GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, ptr::null_mut(), &mut bytes)
@@ -224,10 +289,10 @@ impl Device {
             return Err("HID data list exceeds diagnostic limit".into());
         }
         Ok(Some(Self {
-            name: super::names::controller_name(&path).unwrap_or_default(),
-            path,
-            vendor: hid.dwVendorId,
-            product: hid.dwProductId,
+            name: super::names::controller_name(&identity.path).unwrap_or_default(),
+            path: identity.path.clone(),
+            vendor: identity.vendor,
+            product: identity.product,
             preparsed,
             report_length: usize::from(caps.InputReportByteLength),
             button_count: map.len(),
@@ -376,7 +441,10 @@ impl Controllers<'_> {
                     .button
                     .is_some_and(|button| !device.map.values().any(|value| *value == button))
                 {
-                    self.output.emit("\"type\":\"device-error\",\"message\":\"Saved controller button is unavailable; select it again\"")?;
+                    self.output.emit(&device_error_fields(
+                        Some(&device.path),
+                        "Saved controller button is unavailable; select it again",
+                    ))?;
                     return Ok(());
                 }
                 if let Some(selected) = self.button {
@@ -396,8 +464,7 @@ impl Controllers<'_> {
                     device.preparsed.len() * 8,
                     device.map.len(),
                 ) {
-                    self.output.emit("\"type\":\"device-error\",\"message\":\"Controller discovery memory limit reached\"")?;
-                    return Ok(());
+                    return Err("Controller discovery memory limit reached".into());
                 }
                 self.output.emit(&format!(
                     "\"type\":\"device\",\"connected\":true,{}",
@@ -406,10 +473,9 @@ impl Controllers<'_> {
                 self.devices.insert(handle as usize, device);
             }
             Ok(None) => {}
-            Err(error) => self.output.emit(&format!(
-                "\"type\":\"device-error\",\"message\":{}",
-                json_string(&error)
-            ))?,
+            Err(error) => self
+                .output
+                .emit(&device_error_fields(error.path.as_deref(), &error.message))?,
         }
         Ok(())
     }
@@ -430,6 +496,20 @@ impl Controllers<'_> {
             }
         }
         Ok(())
+    }
+
+    fn quarantine(&mut self, handle: HANDLE, message: &str) -> Result<(), String> {
+        // Capture ownership before removal drops the tracked device. An
+        // untracked handle cannot fail some other device's active capture.
+        let Some(path) = self
+            .devices
+            .get(&(handle as usize))
+            .map(|device| device.path.clone())
+        else {
+            return Ok(());
+        };
+        self.remove(handle, "invalid-report")?;
+        self.output.emit(&device_error_fields(Some(&path), message))
     }
 
     fn input(&mut self, input: HRAWINPUT) -> Result<(), String> {
@@ -524,11 +604,7 @@ impl Controllers<'_> {
                 Err(error) => {
                     // Quarantine until an explicit new arrival/run; never infer a
                     // release or retry a broken parser for every axis report.
-                    self.remove(header.hDevice, "invalid-report")?;
-                    self.output.emit(&format!(
-                        "\"type\":\"device-error\",\"message\":{}",
-                        json_string(&error)
-                    ))?;
+                    self.quarantine(header.hDevice, &error)?;
                     break;
                 }
             }
@@ -667,7 +743,7 @@ impl Drop for Window {
     }
 }
 
-pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
+pub fn run(mut options: Options, output: &mut dyn Output) -> Result<(), String> {
     let window = if options.continuous {
         Some(Window::create(1)?)
     } else {
@@ -690,6 +766,9 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
         json_string(if window.is_some() { "watch" } else { "list" }),
         controllers.devices.len()
     ))?;
+    // Readiness must reach the common output queue before the keyboard owner
+    // enables fresh presses. It has kept pumping while discovery ran here.
+    (options.on_pause)(false)?;
     let Some(window) = window else {
         controllers
             .output
@@ -701,6 +780,7 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
         .map(|seconds| Instant::now() + Duration::from_secs(u64::from(seconds)));
     let mut session_paused = false;
     let mut power_paused = false;
+    let mut heartbeat = Heartbeat::new(Instant::now());
     let result = (|| -> Result<&str, String> {
         loop {
             let mut message = MSG::default();
@@ -734,12 +814,12 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
                     controllers.remove(message.lParam as HANDLE, "device-removed")
                 }
                 WM_TIMER if message.hwnd == window.hwnd && message.wParam == 1 => {
-                    if options.continuous {
-                        controllers.output.emit("\"type\":\"heartbeat\"")?;
-                        Ok(())
-                    } else {
+                    if !options.continuous {
                         return Ok("timeout");
                     }
+                    // Idle wake-up only. Busy input must not rely on the low
+                    // priority WM_TIMER message to demonstrate loop progress.
+                    Ok(())
                 }
                 WM_PROBE_POWER
                     if matches!(message.wParam as u32, PBT_APMSUSPEND | PBT_APMSTANDBY) =>
@@ -748,7 +828,7 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
                         return Ok("suspend");
                     }
                     power_paused = true;
-                    (options.on_pause)(true);
+                    (options.on_pause)(true)?;
                     controllers.cancel_all("suspend")?;
                     controllers.devices.clear();
                     controllers.output.emit("\"type\":\"paused\"")
@@ -766,7 +846,7 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
                         return Ok("session-ended");
                     }
                     session_paused = true;
-                    (options.on_pause)(true);
+                    (options.on_pause)(true)?;
                     controllers.cancel_all("session-ended")?;
                     controllers.devices.clear();
                     controllers.output.emit("\"type\":\"paused\"")
@@ -806,14 +886,23 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
                         controllers.arrive(device.hDevice)?;
                     }
                 }
-                (options.on_pause)(false);
                 controllers.output.emit("\"type\":\"resumed\"")?;
+                (options.on_pause)(false)?;
+            }
+            if options.continuous && heartbeat.due(Instant::now()) {
+                controllers.output.emit("\"type\":\"heartbeat\"")?;
             }
         }
     })();
-    controllers.cancel_all(result.as_ref().map_or("error", |reason| *reason))?;
+    // Stop keyboard transitions before cancellation enters the shared queue.
+    // No callback can append a stale Down after this acknowledged boundary.
+    let paused = (options.on_pause)(true);
+    let cancelled = controllers.cancel_all(result.as_ref().map_or("error", |reason| *reason));
     drop(window); // Release registrations before announcing completion.
+    // Cleanup failure must not replace the original input-loop failure.
     let reason = result?;
+    paused?;
+    cancelled?;
     controllers.output.emit(&format!(
         "\"type\":\"stopped\",\"reason\":{}",
         json_string(reason)
@@ -823,6 +912,117 @@ pub fn run(options: Options, output: &mut dyn Output) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_input_progress_emits_rate_limited_heartbeats_without_timer_delivery() {
+        let start = Instant::now();
+        let mut heartbeat = Heartbeat::new(start);
+        let emitted: Vec<_> = (0..=6000)
+            .filter(|millis| heartbeat.due(start + Duration::from_millis(*millis)))
+            .collect();
+        assert_eq!(emitted, [1000, 2000, 3000, 4000, 5000, 6000]);
+        // After a delayed/suspended loop, the first completed iteration emits
+        // once. Subsequent busy iterations cannot flood the bounded output.
+        assert!(heartbeat.due(start + Duration::from_secs(60)));
+        assert!(!heartbeat.due(start + Duration::from_secs(60)));
+        assert!(!heartbeat.due(start + Duration::from_millis(60_999)));
+        assert!(heartbeat.due(start + Duration::from_secs(61)));
+    }
+
+    #[derive(Default)]
+    struct CapturedOutput(Vec<String>);
+
+    impl Output for CapturedOutput {
+        fn emit(&mut self, fields: &str) -> Result<(), String> {
+            self.0.push(fields.into());
+            Ok(())
+        }
+    }
+
+    fn held_device(path: &str) -> Device {
+        let button = Button {
+            report_id: 0,
+            collection: 0,
+            usage: 1,
+        };
+        let mut holds = Holds::default();
+        holds.observe(0, BTreeSet::new());
+        holds.observe(0, BTreeSet::from([button]));
+        Device {
+            path: path.into(),
+            name: String::new(),
+            vendor: 0,
+            product: 0,
+            preparsed: Vec::new(),
+            report_length: 1,
+            button_count: 1,
+            map: BTreeMap::from([(0, button)]),
+            data: Vec::new(),
+            holds,
+        }
+    }
+
+    #[test]
+    fn unknown_handle_discovery_failure_preserves_the_owned_held_device() {
+        let mut output = CapturedOutput::default();
+        let mut controllers = Controllers {
+            devices: HashMap::from([(1, held_device("selected-controller"))]),
+            packet: Vec::new(),
+            selected: Some("selected-controller".into()),
+            button: None,
+            output: &mut output,
+        };
+        // An invalid/new handle models a device disappearing during discovery;
+        // it has no trusted identity and cannot own the tracked held button.
+        controllers.arrive(ptr::null_mut()).unwrap();
+        assert_eq!(controllers.devices.len(), 1);
+        assert!(controllers.devices[&1].holds.is_pressed(Button {
+            report_id: 0,
+            collection: 0,
+            usage: 1,
+        }));
+        drop(controllers);
+        assert_eq!(output.0.len(), 1);
+        assert!(output.0[0].contains("\"scope\":\"discovery\""));
+        assert!(!output.0[0].contains("\"path\""));
+        assert!(!output.0[0].contains("\"type\":\"cancel\""));
+    }
+
+    #[test]
+    fn report_failure_cancels_and_quarantines_only_its_tracked_owner() {
+        let mut output = CapturedOutput::default();
+        let mut controllers = Controllers {
+            devices: HashMap::from([
+                (1, held_device("selected-controller")),
+                (2, held_device("other-controller")),
+            ]),
+            packet: Vec::new(),
+            selected: None,
+            button: None,
+            output: &mut output,
+        };
+        controllers
+            .quarantine(1_usize as HANDLE, "Invalid report")
+            .unwrap();
+        assert!(!controllers.devices.contains_key(&1));
+        assert!(controllers.devices[&2].holds.is_pressed(Button {
+            report_id: 0,
+            collection: 0,
+            usage: 1,
+        }));
+        // Repeated input on the retired handle cannot emit another cancellation.
+        controllers
+            .quarantine(1_usize as HANDLE, "Invalid report")
+            .unwrap();
+        drop(controllers);
+        assert_eq!(
+            output.0,
+            [
+                "\"type\":\"cancel\",\"reason\":\"invalid-report\",\"path\":\"selected-controller\"",
+                "\"type\":\"device-error\",\"scope\":\"device\",\"path\":\"selected-controller\",\"message\":\"Invalid report\"",
+            ]
+        );
+    }
 
     #[test]
     fn discovery_budget_bounds_combined_devices_and_rejects_overflow() {

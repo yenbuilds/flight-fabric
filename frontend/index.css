@@ -4221,7 +4221,7 @@ body.ff-app-shell.timeline-viewer-modal-open {
   }
 
   .timeline-mobile-viewer-open #timeline-scrubber-wrap {
-    padding: 0.45rem 0.75rem 0.5rem !important;
+    padding: 0.15rem 0.75rem !important;
   }
 
   .timeline-mobile-viewer-open > #timeline-card {

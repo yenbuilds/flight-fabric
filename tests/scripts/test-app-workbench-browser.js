@@ -205,6 +205,116 @@ async function browser() {
       await evaluate(`workbenchTest.voice.applyRuntimeInfo({ enabled:true, available:true, engine:{state:'ready'} });
         workbenchTest.voice.setState('unmatched','Command not recognized. Nothing was executed.'); await workbenchTest.nextTick();`);
       assert.equal(await evaluate("return document.querySelectorAll('[data-voice-restart-hint]').length;"), 0, 'recovered engine and unrecognized speech do not show restart guidance');
+      await evaluate(`window.pttRetryCalls=0;
+        window.pttRetryInfo={enabled:true,available:true,engine:{state:'ready'},modelBundled:true,
+          pushToTalk:{accelerator:'Control+Alt+Space',registered:false,helperState:'failed',retryable:true,
+            failureReason:'watchdog-timeout',error:'Controller input stopped responding.'}};
+        workbenchTest.voice.applyRuntimeInfo(window.pttRetryInfo);
+        workbenchTest.voice.setState('ready','Global push-to-talk stopped. The on-screen button is available.');
+        workbenchTest.voice.bindRuntime({retryPushToTalk:async()=>{
+          window.pttRetryCalls++; workbenchTest.voice.runtime.pttRetrying=true;
+          await new Promise(resolve=>{window.resolvePttRetry=resolve;});
+          workbenchTest.voice.applyRuntimeInfo({...window.pttRetryInfo,pushToTalk:{...window.pttRetryInfo.pushToTalk,
+            helperState:'ready',retryable:false,registered:true,error:''}}); return true;
+        }});
+        workbenchTest.voice.panelOpen=false;
+        await workbenchTest.open('flight'); workbenchTest.shell.sidebarCollapsed=false;
+        ${width === 320 ? "document.getElementById('mobile-more-btn').click();" : ''}
+        await workbenchTest.nextTick();`);
+      await wait(100);
+      assert.equal(await evaluate(`const button=document.querySelector('${navigation} [data-voice-ptt-retry]');
+        const r=button.getBoundingClientRect(); return !!button.getClientRects().length && !button.closest('[inert]')
+          && r.height>=44 && r.left>=0 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1;`), true,
+      `helper recovery is visible in navigation at ${width}`);
+      await capture(`voice-ptt-retry-navigation-${width}`);
+      if (width === 320) await evaluate('workbenchTest.tabs.closeMoreSheet(); await workbenchTest.nextTick();');
+      for (const tab of ['settings', 'autopilot']) {
+        await evaluate(`await workbenchTest.open('${tab}'); workbenchTest.voice.panelOpen=${tab === 'autopilot'}; await workbenchTest.nextTick();`);
+        const selector = tab === 'settings' ? '#settings-voice-control' : '[data-voice-control-panel]';
+        await evaluate(`document.querySelector('${selector} [data-voice-ptt-retry]').scrollIntoView({block:'center'});`);
+        await wait(100);
+        assert.equal(await evaluate(`const button=document.querySelector('${selector} [data-voice-ptt-retry]'); const r=button.getBoundingClientRect();
+          return !button.disabled && r.left>=0 && r.right<=innerWidth+1 && r.top>=0 && r.bottom<=innerHeight+1
+            && Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)<=innerWidth+1;`), true,
+        `${tab}/${width}: retry action fits and is enabled`);
+        await capture(`voice-ptt-retry-${tab}-${width}`);
+      }
+      await evaluate("document.querySelector('[data-voice-control-panel] [data-voice-ptt-retry]').click(); await workbenchTest.nextTick();");
+      assert.equal(await evaluate("return window.pttRetryCalls===1 && [...document.querySelectorAll('[data-voice-ptt-retry]')].every(button=>button.disabled && button.getAttribute('aria-busy')==='true');"), true,
+        'one shared pending action disables retry on every surface');
+      await evaluate("document.querySelector('[data-voice-control-panel] [data-voice-ptt-retry]').click(); await workbenchTest.nextTick();");
+      assert.equal(await evaluate('return window.pttRetryCalls;'), 1, 'busy retry cannot be clicked again');
+      await capture(`voice-ptt-retry-busy-${width}`);
+      await evaluate('window.resolvePttRetry(); await workbenchTest.nextTick();');
+      await wait(30);
+      assert.equal(await evaluate("return document.querySelectorAll('[data-voice-ptt-retry]').length;"), 0, 'successful recovery hides retry');
+      await evaluate(`workbenchTest.voice.applyRuntimeInfo({...window.pttRetryInfo,available:false,engine:{state:'failed'},error:'Local voice recognition stopped.'}); await workbenchTest.nextTick();`);
+      assert.equal(await evaluate("return !!document.querySelector('[data-voice-control-panel] [data-voice-ptt-retry]') && !!document.querySelector('[data-voice-control-panel] [data-voice-restart-hint]');"), true,
+        'simultaneous helper and recognition failures retain both distinct recovery actions');
+      for (const helperState of ['idle', 'paused', 'ready']) {
+        await evaluate(`workbenchTest.voice.applyRuntimeInfo({...window.pttRetryInfo,pushToTalk:{...window.pttRetryInfo.pushToTalk,helperState:'${helperState}',retryable:false}}); await workbenchTest.nextTick();`);
+        assert.equal(await evaluate("return document.querySelectorAll('[data-voice-ptt-retry]').length;"), 0, `${helperState} does not offer helper retry`);
+      }
+      await evaluate(`workbenchTest.voice.panelOpen=false; await workbenchTest.open('settings'); await workbenchTest.nextTick();
+        document.getElementById('voice-ptt-shortcut-foreground').scrollIntoView({block:'center'});`);
+      const shortcutNote = await evaluate(`const note=document.getElementById('voice-ptt-shortcut-foreground'); const r=note.getBoundingClientRect();
+        return {text:note.textContent, described:!note.closest('[inert]') && document.getElementById('voice-ptt-shortcut').getAttribute('aria-describedby').includes(note.id),
+          fits:r.left>=0 && r.right<=innerWidth+1 && r.top>=0 && r.bottom<=innerHeight+1 && document.documentElement.scrollWidth<=innerWidth+1};`);
+      assert.equal(shortcutNote.fits && shortcutNote.described, true, `${width}: shortcut conflict guidance fits and is attached to the recorder`);
+      assert.match(shortcutNote.text, /also reaches the app in front.*unassigned in MSFS and other apps/);
+      await capture(`voice-shortcut-foreground-${width}`);
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      await evaluate(`const voice=workbenchTest.voice;
+        window.shortcutFixture={enabled:true,available:true,engine:{state:'ready'},pushToTalk:{accelerator:'Control+Alt+Space',registered:true,helperState:'ready'}};
+        voice.applyRuntimeInfo(shortcutFixture); voice.setState('ready');
+        voice.bindRuntime({
+          beginShortcutRecording:async()=>{voice.applyRuntimeInfo({...shortcutFixture,shortcutRecording:{active:true},pushToTalk:{...shortcutFixture.pushToTalk,registered:false,helperState:'paused'}});return true;},
+          endShortcutRecording:async()=>{voice.applyRuntimeInfo(shortcutFixture);return true;},
+          setShortcut:async value=>{if(!voice.shortcutRecording.active)throw new Error('Save lost recording ownership');
+            await new Promise(resolve=>{window.finishShortcutSave=resolve;}); shortcutFixture.pushToTalk.accelerator=value;
+            voice.applyRuntimeInfo({...shortcutFixture,shortcutRecording:{active:true},pushToTalk:{...shortcutFixture.pushToTalk,registered:false,helperState:'paused'}});return true;}
+        });
+        const recorder=document.getElementById('voice-ptt-shortcut'); recorder.focus(); recorder.click(); await workbenchTest.nextTick();`);
+      await wait(30);
+      await evaluate(`const recorder=document.getElementById('voice-ptt-shortcut'); recorder.focus();
+        recorder.dispatchEvent(new KeyboardEvent('keydown',{key:' ',ctrlKey:true,altKey:true,bubbles:true,cancelable:true})); await workbenchTest.nextTick();`);
+      assert(await evaluate(`return workbenchTest.voice.shortcutRecording.active
+        && document.getElementById('voice-ptt-shortcut-help').textContent.includes('paused; click Cancel to finish')
+        && !document.getElementById('settings-voice-control').textContent.includes('Saved shortcut unavailable:')
+        && document.querySelector('[data-voice-test-start]').disabled;`), 'recording the saved shortcut keeps PTT paused without reporting a failure');
+      await evaluate(`document.getElementById('voice-ptt-shortcut-help').scrollIntoView({block:'center'});`);
+      await capture(`voice-shortcut-recording-${width}`);
+      await evaluate(`document.getElementById('settings-voice-control').focus(); await workbenchTest.nextTick();`);
+      assert.equal(await evaluate('return workbenchTest.voice.shortcutRecording.active;'), false, 'leaving shortcut controls resumes input');
+      await evaluate(`const recorder=document.getElementById('voice-ptt-shortcut'); recorder.focus(); recorder.click(); await workbenchTest.nextTick();`);
+      await wait(30);
+      await evaluate(`const recorder=document.getElementById('voice-ptt-shortcut');
+        recorder.dispatchEvent(new KeyboardEvent('keydown',{key:'F8',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true})); await workbenchTest.nextTick();
+        document.querySelector('[data-voice-shortcut-save]').click(); await workbenchTest.nextTick(); window.dispatchEvent(new Event('blur'));`);
+      assert.equal(await evaluate('return workbenchTest.voice.shortcutRecording.active;'), true, 'window blur cannot resume input before an in-flight save completes');
+      await evaluate('window.finishShortcutSave(); await workbenchTest.nextTick();'); await wait(30);
+      assert(await evaluate("return !workbenchTest.voice.shortcutRecording.active && workbenchTest.voice.runtime.shortcut==='Control+Shift+F8';"), 'completed save ends setup with the chosen binding');
+      await evaluate(`const recorder=document.getElementById('voice-ptt-shortcut'); recorder.focus(); recorder.click(); await workbenchTest.nextTick();`);
+      await wait(30);
+      await evaluate(`const recorder=document.getElementById('voice-ptt-shortcut');
+        recorder.dispatchEvent(new KeyboardEvent('keydown',{key:'Alt',code:'AltLeft',altKey:true,bubbles:true,cancelable:true})); await workbenchTest.nextTick();`);
+      assert.equal(await evaluate("return !!document.querySelector('[data-voice-shortcut-save]');"), false, 'modifier down waits for another key or release');
+      await evaluate(`document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keyup',{key:'Alt',code:'AltLeft',bubbles:true,cancelable:true})); await workbenchTest.nextTick();`);
+      assert(await evaluate("return document.getElementById('voice-ptt-shortcut').textContent.includes('Left Alt') && workbenchTest.voice.shortcutRecording.active;"), 'Left Alt alone is an unsaved hold binding');
+      await evaluate(`document.querySelector('[data-voice-shortcut-save]').click(); await workbenchTest.nextTick(); window.finishShortcutSave();`);
+      await wait(30);
+      assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), 'LeftAlt');
+      await evaluate(`const recorder=document.getElementById('voice-ptt-shortcut'); recorder.focus(); recorder.click(); await workbenchTest.nextTick();`);
+      await wait(30);
+      await evaluate(`document.getElementById('voice-ptt-modifier').focus(); document.getElementById('voice-ptt-modifier').scrollIntoView({block:'center'});`);
+      assert(await evaluate(`const picker=document.getElementById('voice-ptt-modifier'); const r=picker.getBoundingClientRect();
+        return picker.options.length===9 && r.left>=0 && r.right<=innerWidth+1 && r.width>0 && document.documentElement.scrollWidth<=innerWidth+1;`), `${width}: all eight modifier choices fit the settings form`);
+      await capture(`voice-shortcut-modifier-${width}`);
+      await evaluate(`const picker=document.getElementById('voice-ptt-modifier'); picker.value='RightSuper'; picker.dispatchEvent(new Event('change',{bubbles:true})); await workbenchTest.nextTick();`);
+      assert(await evaluate("return workbenchTest.voice.shortcutRecording.active && workbenchTest.voice.runtime.shortcut==='LeftAlt' && document.getElementById('voice-ptt-shortcut').textContent.includes('Right Win');"), 'the selector prepares a Windows binding without firing the OS key');
+      await evaluate(`document.querySelector('[data-voice-shortcut-cancel]').click(); await workbenchTest.nextTick();`);
+      assert(await evaluate("return !workbenchTest.voice.shortcutRecording.active && workbenchTest.voice.runtime.shortcut==='LeftAlt';"), 'cancel preserves the saved modifier binding');
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
     }
   }
   const checkSettingsNavigation = () => require('./settings-navigation-checks')({ win, evaluate, capture, wait });
@@ -294,13 +404,18 @@ async function browser() {
         document.getElementById('vue-timeline-map-shell-root').scrollTop=0;`);
       await capture(`${name}-replay-3d`);
       const replay = await evaluate(`const map=document.querySelector('.timeline-map-wrap').getBoundingClientRect();
-        const alerts=document.querySelector('.timeline-summary-alerts dd').getBoundingClientRect();
+        const alertList=document.querySelector('.timeline-summary-alerts dd');
+        const alerts=alertList.getBoundingClientRect();
         const summary=document.querySelector('.timeline-summary-container').getBoundingClientRect();
-        return {map:map.toJSON(), alertWidth:alerts.width, summaryWidth:summary.width,
+        const alertTextFits=[...alertList.querySelectorAll('span')].every(span=>{
+          const range=document.createRange(); range.selectNodeContents(span);
+          return [...range.getClientRects()].every(r=>r.left>=alerts.left-1 && r.right<=alerts.right+1 && r.top>=alerts.top-1 && r.bottom<=alerts.bottom+1);
+        });
+        return {map:map.toJSON(), alertTextFits, alertsWithinSummary:alerts.left>=summary.left && alerts.right<=summary.right,
           overflow:document.documentElement.scrollWidth>innerWidth+1,
           selected:workbenchTest.timeline.loadedTimelineFlightId};`);
       assert(replay.map.height >= (width > 1100 ? 320 : 256), `${name}: replay keeps a useful map height: ${JSON.stringify(replay)}`);
-      assert(replay.alertWidth >= Math.min(260, replay.summaryWidth - 32), `${name}: alerts have room for readable descriptions`);
+      assert(replay.alertTextFits && replay.alertsWithinSummary, `${name}: complete alert descriptions stay within the summary: ${JSON.stringify(replay)}`);
       assert.equal(replay.overflow, false, `${name}: 3D replay does not overflow horizontally`);
       await evaluate(`window.replaySurface=document.getElementById('timeline-map-3d');
         document.getElementById('timeline-map-3d-settings-toggle').click(); await workbenchTest.nextTick();
@@ -811,7 +926,9 @@ async function browser() {
       voice.bindRuntime({
         begin:()=>{voiceSetupCalls.push(['begin']);return false;},
         setRecognitionEnabled:async enabled=>{voiceSetupCalls.push(['enabled',enabled]);voice.applyRuntimeInfo({available:true,enabled,pushToTalk:{accelerator:'',registered:false}});voice.setState(enabled?'ready':'disabled');return true;},
-        setShortcut:async shortcut=>{voiceSetupCalls.push(['shortcut',shortcut]);if(window.voiceSaveGate)await window.voiceSaveGate;voice.applyRuntimeInfo({available:true,enabled:true,pushToTalk:{accelerator:shortcut,registered:true}});return true;},
+        beginShortcutRecording:async()=>{voice.shortcutRecording.active=true;return true;},
+        endShortcutRecording:async()=>{voice.shortcutRecording.active=false;return true;},
+        setShortcut:async shortcut=>{voiceSetupCalls.push(['shortcut',shortcut]);if(window.voiceSaveGate)await window.voiceSaveGate;voice.applyRuntimeInfo({available:true,enabled:true,shortcutRecording:voice.shortcutRecording,pushToTalk:{accelerator:shortcut,registered:true}});return true;},
         refreshInputDevices:async options=>{voiceSetupCalls.push(['microphones',options.requestAccess]);voice.setInputDevices([{deviceId:'test-mic',label:'Test microphone'}]);},
         setInputDevice:id=>{voiceSetupCalls.push(['microphone',id]);voice.selectedInputDeviceId=id;return true;},
         setSpokenReadbacks:enabled=>{voiceSetupCalls.push(['readbacks',enabled]);voice.spokenReadbacks=enabled;return true;},
@@ -885,9 +1002,10 @@ async function browser() {
     await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F9',ctrlKey:true,bubbles:true,cancelable:true}));window.voiceSaveGate=new Promise(resolve=>{window.finishVoiceSave=resolve;});await workbenchTest.nextTick();document.querySelector('[data-voice-shortcut-save]').focus();");
     await key('Return');
     assert.equal(await evaluate("return document.querySelector('[data-voice-shortcut-cancel]').disabled;"), true, 'pending shortcut save cannot be cancelled');
-    await evaluate("document.getElementById('voice-input-device').focus();finishVoiceSave();await voiceSaveGate;delete window.voiceSaveGate;delete window.finishVoiceSave;await workbenchTest.nextTick();");
+    assert.equal(await evaluate("return document.getElementById('voice-input-device').disabled;"), true, 'shortcut setup keeps microphone selection locked through Save');
+    await evaluate("document.querySelector('[data-voice-test-feedback]').focus();finishVoiceSave();await voiceSaveGate;delete window.voiceSaveGate;delete window.finishVoiceSave;await workbenchTest.nextTick();");
     assert.equal(await evaluate('return workbenchTest.voice.runtime.shortcut;'), 'Control+F9');
-    assert.equal(await evaluate('return document.activeElement.id;'), 'voice-input-device', 'asynchronous shortcut save does not steal focus from another control');
+    assert(await evaluate("return document.activeElement.matches('[data-voice-test-feedback]');"), 'asynchronous shortcut save does not steal focus from another available control');
     await capture('voice-settings-desktop');
     // Opening setup while already editing app preferences must not discard them.
     await evaluate(`window.voiceOriginalRecordingAutoStart=workbenchTest.settingsEditor.recordingAutoStart;
@@ -933,8 +1051,10 @@ async function browser() {
       assert.equal(await evaluate("return Boolean(document.getElementById('voice-first-command-card'));"), false, 'first-command guidance does not cover configuration');
       await capture(`voice-settings-${width}`);
       await recordSavedShortcut(true);
-      assert(await evaluate("return document.getElementById('settings-voice-control').textContent.includes('Saved shortcut unavailable: Already in use');"), 'unchanged feedback preserves the existing registration error');
+      assert(await evaluate("return workbenchTest.voice.shortcutRecording.active && !document.getElementById('settings-voice-control').textContent.includes('Saved shortcut unavailable:');"), 'an intentionally paused shortcut is not reported as an input failure');
       await capture(`voice-shortcut-unchanged-${width}`);
+      await pointerActivate('[data-voice-shortcut-cancel]', true);
+      assert(await evaluate("return !workbenchTest.voice.shortcutRecording.active && document.getElementById('settings-voice-control').textContent.includes('Saved shortcut unavailable: Already in use');"), 'leaving setup exposes any registration error that remains');
       await evaluate("document.getElementById('voice-input-device').scrollIntoView({block:'center'});");
       assert(await evaluate("const mic=document.getElementById('voice-input-device'),r=mic.getBoundingClientRect();return r.width>=200 && r.top>=0 && r.bottom<=innerHeight && document.documentElement.scrollWidth<=innerWidth;"), 'microphone controls fit and remain reachable');
       await capture(`voice-settings-microphone-${width}`);

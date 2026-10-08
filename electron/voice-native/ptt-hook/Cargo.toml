@@ -10,8 +10,8 @@ default-run = "flight-fabric-ptt-hook"
 [features]
 default = ["controller-ptt"]
 # Explicit developer diagnostic only; normal builds do not compile this binary.
-raw-input-probe = ["dep:windows-sys"]
-controller-ptt = ["dep:windows-sys"]
+raw-input-probe = []
+controller-ptt = []
 
 [[bin]]
 name = "flight-fabric-ptt-hook"
@@ -23,4 +23,4 @@ path = "src/probe/main.rs"
 required-features = ["raw-input-probe"]
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties", "Win32_Foundation", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties", "Win32_Foundation", "Win32_UI_Input", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_Graphics_Gdi"] }

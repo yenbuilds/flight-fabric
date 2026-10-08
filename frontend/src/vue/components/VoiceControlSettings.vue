@@ -1,6 +1,6 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { shortcutFromKeyboardEvent } from '../../voice/shortcut-recorder.js';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { createShortcutRecorder, SINGLE_MODIFIER_SHORTCUTS } from '../../voice/shortcut-recorder.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
 import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
@@ -14,6 +14,10 @@ const voice = useVoiceControlStore();
 const tabs = useTabsStore();
 const shortcutDraft = ref(voice.runtime.shortcut);
 const shortcutRecording = ref(false);
+const shortcutRecorder = createShortcutRecorder();
+const shortcutPreparing = ref(false);
+const shortcutLease = ref(false);
+let shortcutEditRevision = 0;
 const shortcutUnchanged = ref(false);
 const shortcutSaving = ref(false);
 const shortcutError = ref('');
@@ -43,6 +47,7 @@ async function openTest() {
 }
 
 const captureLocked = computed(() => voice.listening || voice.finishing || voice.voiceTestBusy || voice.controllerSetup.active);
+const shortcutSetupBusy = computed(() => shortcutPreparing.value || shortcutLease.value || voice.shortcutRecording.active);
 const recognitionOff = computed(() => voice.runtime.enabled !== true);
 const shortcutDirty = computed(() => Boolean(shortcutDraft.value)
   && shortcutDraft.value !== voice.runtime.shortcut);
@@ -55,6 +60,7 @@ const unassignedShortcutHelp = computed(() => {
 });
 
 watch(() => voice.runtime.shortcut, (value) => {
+  shortcutRecorder.reset();
   shortcutDraft.value = value;
   shortcutRecording.value = false;
   shortcutUnchanged.value = false;
@@ -62,11 +68,21 @@ watch(() => voice.runtime.shortcut, (value) => {
 });
 watch(() => voice.runtime.enabled, () => { recognitionError.value = ''; });
 
-function beginShortcutRecording() {
-  if (recognitionOff.value || captureLocked.value || shortcutSaving.value) return;
-  shortcutRecording.value = true;
+async function beginShortcutRecording() {
+  if (recognitionOff.value || captureLocked.value || shortcutSaving.value || shortcutPreparing.value) return;
+  shortcutRecorder.reset();
+  const revision = ++shortcutEditRevision;
   shortcutUnchanged.value = false;
   shortcutError.value = '';
+  if (shortcutLease.value) { shortcutRecording.value = true; return; }
+  shortcutPreparing.value = true;
+  let started = false;
+  try { started = await voice.beginShortcutRecording(); } catch {}
+  if (revision !== shortcutEditRevision) return;
+  shortcutPreparing.value = false;
+  shortcutLease.value = started === true;
+  shortcutRecording.value = started === true;
+  if (!started) shortcutError.value = 'Push-to-talk could not pause for shortcut setup. Try again.';
 }
 
 async function restoreShortcutFocus(origin) {
@@ -85,13 +101,14 @@ async function restoreShortcutFocus(origin) {
 function cancelShortcutEdit(event) {
   if (shortcutSaving.value) return;
   shortcutDraft.value = voice.runtime.shortcut;
-  shortcutRecording.value = false;
-  shortcutUnchanged.value = false;
+  void stopLearning();
   shortcutError.value = '';
   void restoreShortcutFocus(event?.currentTarget);
 }
 function captureShortcut(event) {
-  if (!shortcutRecording.value || event.repeat || event.isComposing) return;
+  if (!shortcutRecording.value) return;
+  if (event.isComposing) { shortcutRecorder.reset(); return; }
+  if (event.repeat) return;
   event.preventDefault();
   event.stopPropagation();
   if (event.key === 'Escape'
@@ -100,42 +117,71 @@ function captureShortcut(event) {
     return;
   }
 
-  const captured = shortcutFromKeyboardEvent(event);
+  applyCapturedShortcut(shortcutRecorder.keyDown(event));
+}
+function captureShortcutRelease(event) {
+  if (!shortcutRecording.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  applyCapturedShortcut(shortcutRecorder.keyUp(event));
+}
+function applyCapturedShortcut(captured) {
   if (captured.reason === 'waiting-for-key') return;
-  if (captured.reason === 'modifier-required') {
-    shortcutError.value = 'Include Ctrl, Alt, Shift, or Windows with another key.';
-    return;
-  }
   if (captured.reason === 'unsupported-key') {
-    shortcutError.value = 'That key cannot be used for push-to-talk. Try a letter, number, F-key, or navigation key.';
+    shortcutError.value = 'That key cannot be used for push-to-talk. Try Caps Lock, a letter, number, F-key, or navigation key.';
     return;
   }
 
   shortcutDraft.value = captured.accelerator;
+  shortcutRecorder.reset();
   shortcutRecording.value = false;
   shortcutUnchanged.value = captured.accelerator === voice.runtime.shortcut;
   shortcutError.value = '';
+}
+function selectModifierShortcut(event) {
+  if (!shortcutLease.value || shortcutSaving.value || recognitionOff.value || captureLocked.value) return;
+  const accelerator = event.currentTarget?.value;
+  if (!SINGLE_MODIFIER_SHORTCUTS.includes(accelerator)) return;
+  event.currentTarget.value = '';
+  applyCapturedShortcut({ accelerator, reason: '' });
 }
 async function saveShortcut(event) {
   if (recognitionOff.value || captureLocked.value || !shortcutDirty.value || shortcutRecording.value || shortcutSaving.value) return;
   shortcutSaving.value = true;
   shortcutError.value = '';
-  const saved = await voice.setShortcut(shortcutDraft.value);
-  if (!saved) shortcutError.value = 'That shortcut could not be registered. Choose another combination.';
-  shortcutSaving.value = false;
+  try {
+    if (!await voice.setShortcut(shortcutDraft.value)) shortcutError.value = 'That shortcut could not be registered. Choose another key or combination.';
+  } catch {
+    shortcutError.value = 'That shortcut could not be registered. Choose another key or combination.';
+  } finally {
+    await stopLearning();
+    shortcutSaving.value = false;
+  }
   await restoreShortcutFocus(event?.submitter);
 }
 
 // Settings stays mounted so an unsaved shortcut survives changing pages.
 // Stop active input learning when its controls are no longer visible.
 function stopLearning() {
+  shortcutRecorder.reset();
+  shortcutEditRevision++;
   shortcutRecording.value = false;
+  shortcutPreparing.value = false;
+  shortcutLease.value = false;
   shortcutUnchanged.value = false;
+  return voice.endShortcutRecording();
 }
+function shortcutFocusOut(event) {
+  if (shortcutSaving.value || event.currentTarget?.contains(event.relatedTarget)) return;
+  void stopLearning();
+}
+function shortcutWindowBlur() { if (!shortcutSaving.value) void stopLearning(); }
 watch(() => [tabs.activeTabId, voice.runtime.enabled], ([tab, enabled]) => {
   if (tab !== 'settings' || !enabled) stopLearning();
 });
-onBeforeUnmount(stopLearning);
+watch(() => voice.shortcutRecording.active, (active) => { if (!active && shortcutLease.value) void stopLearning(); });
+onMounted(() => globalThis.addEventListener?.('blur', shortcutWindowBlur));
+onBeforeUnmount(() => { globalThis.removeEventListener?.('blur', shortcutWindowBlur); void stopLearning(); });
 async function backToAircraft() {
   if (!tabs.requestTabChange('autopilot')) return;
   voice.settingsReturnToAircraft = false;
@@ -206,7 +252,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
         <div class="settings-summary-actions">
           <button type="button" class="ff-button-secondary text-sm" data-voice-configuration-toggle
             :aria-expanded="configurationOpen" aria-controls="voice-settings-configuration"
-            :disabled="captureLocked || shortcutRecording || shortcutDirty || shortcutSaving || recognitionSaving || microphonesBusy"
+            :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving || recognitionSaving || microphonesBusy"
             @click="configurationOpen = !configurationOpen">{{ configurationOpen ? 'Hide setup' : voice.runtime.enabled ? 'Change settings' : 'Set up voice' }}</button>
           <button type="button" class="ff-button-secondary text-sm" data-voice-open-test @click="openTest">Test voice</button>
         </div>
@@ -218,8 +264,8 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
       <div id="voice-settings-configuration" v-show="configurationOpen">
         <p class="mt-3 text-xs text-muted-fg">{{ voice.runtime.controllerEnabled
           ? 'Voice preferences apply immediately on this PC. Use Save shortcut or Save button to confirm a new way to talk.'
-          : 'Voice changes apply immediately on this PC. Use Save shortcut to activate a new key combination.' }}</p>
-        <CloudVoiceSettings :disabled="captureLocked || recognitionSaving || voice.status === 'sending'" />
+          : 'Voice changes apply immediately on this PC. Use Save shortcut to activate a new key or combination.' }}</p>
+        <CloudVoiceSettings :disabled="captureLocked || shortcutSetupBusy || recognitionSaving || voice.status === 'sending'" />
         <div class="mt-5 grid gap-5">
           <div class="min-w-0">
             <label for="voice-input-device" class="mb-1.5 block text-muted-fg">Microphone</label>
@@ -229,7 +275,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                 class="min-h-10 min-w-0 flex-1 rounded-lg border border-border bg-panel-subtle px-3 py-2 text-fg disabled:opacity-50"
                 :value="voice.selectedInputDeviceId"
                 :aria-describedby="voice.inputDevicesError ? 'voice-microphone-error' : undefined"
-                :disabled="recognitionOff || captureLocked"
+                :disabled="recognitionOff || captureLocked || shortcutSetupBusy"
                 @change="selectMicrophone"
               >
                 <option value="">Windows default input</option>
@@ -242,7 +288,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                 type="button"
                 data-voice-detect-microphones
                 class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
-                :disabled="recognitionOff || captureLocked || microphonesBusy"
+                :disabled="recognitionOff || captureLocked || shortcutSetupBusy || microphonesBusy"
                 @click="detectMicrophones"
               >
                 Detect microphones
@@ -254,7 +300,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
             <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">Push-to-talk</h4>
             <div class="grid min-w-0 gap-3" :class="voice.runtime.controllerEnabled ? 'lg:grid-cols-2' : ''">
-              <form class="settings-panel--illustrated flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-panel-subtle p-4" aria-labelledby="voice-keyboard-title" @submit.prevent="saveShortcut">
+              <form class="settings-panel--illustrated flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-panel-subtle p-4" aria-labelledby="voice-keyboard-title" @submit.prevent="saveShortcut" @focusout="shortcutFocusOut">
                 <SettingsSectionWatermark kind="keyboard" />
                 <h5 id="voice-keyboard-title" class="text-sm font-semibold text-fg"><label for="voice-ptt-shortcut">Keyboard shortcut</label></h5>
                 <div class="flex flex-wrap items-center gap-2">
@@ -265,31 +311,35 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                     class="min-h-10 min-w-40 max-w-full rounded-lg border px-3 py-2 text-left font-mono transition-colors disabled:opacity-50"
                     :class="shortcutRecording ? 'border-accent/70 bg-accent/10 text-fg' : 'border-border bg-panel-subtle text-fg hover:bg-muted'"
                     :disabled="recognitionOff || captureLocked || shortcutSaving"
-                    :aria-label="shortcutRecording
+                    :aria-busy="shortcutPreparing ? 'true' : undefined"
+                    :aria-label="shortcutPreparing
+                      ? 'Pausing push-to-talk before shortcut setup'
+                      : shortcutRecording
                       ? 'Press the new push-to-talk shortcut'
                       : shortcutDirty
                         ? `Unsaved push-to-talk shortcut: ${shortcutDraft}. Save shortcut to use it.`
                       : shortcutDraft
                         ? `Current push-to-talk shortcut: ${shortcutDraft}. Click to change.`
                         : 'No global push-to-talk shortcut is set. Click to record one.'"
-                    aria-describedby="voice-ptt-shortcut-help voice-ptt-shortcut-error"
+                    aria-describedby="voice-ptt-shortcut-help voice-ptt-shortcut-foreground voice-ptt-shortcut-error"
                     @click="beginShortcutRecording"
                     @keydown="captureShortcut"
+                    @keyup="captureShortcutRelease"
                   >
-                    <KeyboardShortcutKeys v-if="!shortcutRecording && shortcutDraft" :shortcut="shortcutDraft" aria-hidden="true" />
-                    <span v-else>{{ shortcutRecording ? 'Press shortcut…' : 'Set shortcut' }}</span>
+                    <KeyboardShortcutKeys v-if="!shortcutRecording && !shortcutPreparing && shortcutDraft" :shortcut="shortcutDraft" aria-hidden="true" />
+                    <span v-else>{{ shortcutPreparing ? 'Pausing push-to-talk…' : shortcutRecording ? 'Press shortcut…' : 'Set shortcut' }}</span>
                   </button>
                   <button
                     v-if="shortcutDirty"
                     type="submit"
                     data-voice-shortcut-save
                     class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
-                    :disabled="recognitionOff || shortcutRecording || shortcutSaving || captureLocked"
+                    :disabled="recognitionOff || shortcutRecording || shortcutPreparing || shortcutSaving || captureLocked"
                   >
                     {{ shortcutSaving ? 'Saving…' : 'Save shortcut' }}
                   </button>
                   <button
-                    v-if="shortcutRecording || shortcutDirty"
+                    v-if="shortcutRecording || shortcutPreparing || shortcutLease || shortcutDirty"
                     type="button"
                     class="min-h-10 rounded-lg px-3 py-2 text-muted-fg transition-colors hover:bg-muted hover:text-fg disabled:opacity-50"
                     :disabled="shortcutSaving"
@@ -299,30 +349,53 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                     Cancel
                   </button>
                 </div>
+                <div v-if="shortcutLease" class="min-w-0">
+                  <label for="voice-ptt-modifier" class="mb-1.5 block text-muted-fg">Or choose a single modifier key</label>
+                  <select id="voice-ptt-modifier" value=""
+                    class="min-h-10 w-full min-w-0 rounded-lg border border-border bg-panel-subtle px-3 py-2 text-fg disabled:opacity-50"
+                    :disabled="shortcutSaving || recognitionOff || captureLocked"
+                    aria-describedby="voice-ptt-shortcut-help voice-ptt-shortcut-foreground"
+                    @change="selectModifierShortcut">
+                    <option value="" disabled>Choose a modifier key</option>
+                    <option v-for="modifier in SINGLE_MODIFIER_SHORTCUTS" :key="modifier" :value="modifier">
+                      {{ modifier.replace('Control', 'Ctrl').replace('Super', 'Win').replace(/^(Left|Right)/, '$1 ') }}
+                    </option>
+                  </select>
+                </div>
                 <p id="voice-ptt-shortcut-help" class="text-[11px] text-muted-fg" role="status">
                   {{ recognitionOff
                     ? 'Enable voice control before setting a global shortcut.'
+                    : shortcutPreparing
+                      ? 'Pausing push-to-talk before recording. You can cancel.'
                     : shortcutRecording
-                    ? 'Hold one or more modifiers, then press a key. Escape cancels.'
+                    ? 'Push-to-talk is paused. Press a key or combination. For a modifier alone, press and release it. Escape cancels.'
                     : shortcutSaving
                       ? 'Saving shortcut…'
                     : shortcutDirty
-                      ? 'Not saved yet. Click Save shortcut to use it.'
+                      ? shortcutLease
+                        ? 'Not saved yet. Push-to-talk is paused until you Save shortcut or Cancel.'
+                        : 'Not saved yet. Click Save shortcut to use it.'
                     : shortcutUnchanged
-                      ? 'This is already your saved shortcut. No changes to save.'
+                      ? shortcutLease
+                        ? 'This is already your saved shortcut. No changes to save. Push-to-talk is paused; click Cancel to finish.'
+                        : 'This is already your saved shortcut. No changes to save.'
                     : shortcutDraft
-                      ? 'Click the shortcut to record a new key combination.'
+                      ? 'Click the shortcut to record a new key or combination.'
                       : unassignedShortcutHelp }}
+                </p>
+                <p id="voice-ptt-shortcut-foreground" class="text-[11px] text-muted-fg">
+                  The shortcut also reaches the app in front. Choose a key or combination that is unassigned in MSFS and other apps.
+                  {{ shortcutDraft.split('+').includes('CapsLock') ? 'Caps Lock also toggles capitalisation.' : '' }}
                 </p>
                 <p v-if="shortcutError" id="voice-ptt-shortcut-error" class="text-[11px] text-warning" role="alert">
                   {{ shortcutError }}
                 </p>
-                <p v-if="voice.runtime.enabled && !voice.controllerSetup.active && voice.runtime.shortcut && !voice.runtime.shortcutRegistered" class="text-xs text-warning" role="status">
-                  Saved shortcut unavailable: {{ voice.runtime.shortcutError || 'Choose another key combination.' }}
+                <p v-if="voice.runtime.enabled && !voice.controllerSetup.active && !shortcutSetupBusy && voice.runtime.shortcut && !voice.runtime.shortcutRegistered" class="text-xs text-warning" role="status">
+                  Saved shortcut unavailable: {{ voice.runtime.shortcutError || 'Choose another key or combination.' }}
                 </p>
               </form>
 
-              <ControllerButtonSettings v-if="voice.runtime.controllerEnabled" :disabled="recognitionSaving || shortcutRecording || shortcutSaving || voice.listening || voice.finishing || voice.voiceTestBusy" />
+              <ControllerButtonSettings v-if="voice.runtime.controllerEnabled" :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.listening || voice.finishing || voice.voiceTestBusy" />
             </div>
 
             <p class="mt-3 text-[11px] text-muted-fg">
@@ -330,7 +403,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             </p>
           </section>
 
-          <VoiceSetupTest :disabled="recognitionSaving || shortcutRecording || shortcutSaving || voice.controllerSetup.active" />
+          <VoiceSetupTest :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.controllerSetup.active" />
 
           <div>
             <div class="flex flex-wrap items-center gap-x-4 gap-y-2">

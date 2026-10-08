@@ -127,7 +127,7 @@ fn main() {
             device_path: options.device_path,
             continuous: false,
             button: None,
-            on_pause: |_| {},
+            on_pause: Box::new(|_| Ok(())),
         },
         &mut output,
     );

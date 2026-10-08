@@ -887,9 +887,9 @@ function trendStabilityText(row) {
 </script>
 
 <template>
-  <div class="logbook-panel overflow-hidden">
-    <div class="p-3 sm:p-4 border-b border-surface-200 flex items-center justify-between gap-3 flex-wrap">
-      <div>
+  <div class="logbook-panel overflow-hidden" :class="{ 'is-collapsed': !logbookPanelExpanded }">
+    <div class="logbook-history-header p-3 sm:p-4 border-b border-surface-200 flex items-center justify-between gap-3 flex-wrap">
+      <div class="logbook-history-heading">
         <h2 class="text-sm font-semibold text-gray-200">Scored landings</h2>
         <div class="text-xs text-gray-500 mt-0.5">{{ subtitle }}</div>
       </div>

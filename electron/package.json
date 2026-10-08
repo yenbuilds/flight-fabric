@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-electron",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "FlightFabric - airline flying telemetry and debrief app",
   "main": "main.js",
   "author": "FlightFabric",

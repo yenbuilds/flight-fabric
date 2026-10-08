@@ -18,6 +18,10 @@ const DEFAULT_RUNTIME = Object.freeze({
   shortcut: '',
   shortcutError: '',
   shortcutRegistered: false,
+  pttHelperState: 'idle',
+  pttRetryable: false,
+  pttFailureReason: '',
+  pttRetrying: false,
   controllerEnabled: false,
   controller: { binding: null, state: 'unbound', error: '' },
 });
@@ -26,6 +30,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
   state: () => ({
     runtime: { ...DEFAULT_RUNTIME },
     controllerSetup: { active: false, phase: 'idle', held: false, selection: null, message: '' },
+    shortcutRecording: { active: false },
     // True only in the desktop app, where the Electron voice bridge exists.
     // Recognition can still be off or failing; this says voice is possible.
     bridgeAvailable: false,
@@ -47,6 +52,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     _runtimeActions: null,
   }),
   getters: {
+    pushToTalkRetryVisible: (state) => state.bridgeAvailable && state.runtime.enabled
+      && !state.controllerSetup.active && !state.shortcutRecording.active && (state.runtime.pttRetryable || state.runtime.pttRetrying),
     restartHintVisible: (state) => state.bridgeAvailable && state.runtime.enabled
       && state.runtime.mode === 'offline' && !state.runtime.available
       && state.runtime.engineState === 'failed' && state.runtime.modelBundled,
@@ -54,7 +61,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     // system-default microphone is valid; viewing settings does not complete
     // setup. Only runtime registration confirms a working push-to-talk binding.
     setupTask: (state) => {
-      if (!state.bridgeAvailable || state.status === 'initializing') return null;
+      if (!state.bridgeAvailable || state.status === 'initializing' || state.shortcutRecording.active) return null;
       const hasBinding = Boolean(state.runtime.shortcut
         || (state.runtime.controllerEnabled && state.runtime.controller.binding));
       if (!state.runtime.enabled) {
@@ -83,7 +90,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     // Recognition/capture failures and unmatched speech are terminal for only
     // the current attempt. Keep the button usable so begin() can re-check the
     // live runtime/aircraft gates and start an immediate retry.
-    ready() { return !this.controllerSetup.active && !this.voiceTestBusy && ['ready', 'sent', 'failed', 'error', 'unmatched', 'transcribed'].includes(this.status); },
+    ready() { return !this.controllerSetup.active && !this.shortcutRecording.active && !this.voiceTestBusy && ['ready', 'sent', 'failed', 'error', 'unmatched', 'transcribed'].includes(this.status); },
   },
   actions: {
     dismissSetup() {
@@ -100,6 +107,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
       const engine = info?.engine || {};
       const ptt = info?.pushToTalk || {};
       const controllerEnabled = ptt.controllerEnabled === true;
+      this.shortcutRecording = { active: info.shortcutRecording?.active === true };
       this.controllerSetup = controllerEnabled && info.controllerSetup ? {
         active: info.controllerSetup.active === true, phase: info.controllerSetup.phase || 'idle',
         held: info.controllerSetup.held === true, selection: info.controllerSetup.selection || null,
@@ -133,6 +141,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
           : DEFAULT_RUNTIME.shortcut,
         shortcutError: typeof ptt.error === 'string' ? ptt.error : '',
         shortcutRegistered: ptt.registered === true,
+        pttHelperState: ['idle', 'ready', 'paused', 'failed'].includes(ptt.helperState) ? ptt.helperState : 'idle',
+        pttRetryable: ptt.retryable === true && ptt.helperState === 'failed',
+        pttFailureReason: typeof ptt.failureReason === 'string' ? ptt.failureReason.slice(0, 64) : '',
+        pttRetrying: ptt.retrying === true,
         controllerEnabled,
         controller: controllerEnabled && ptt.controller ? ptt.controller : DEFAULT_RUNTIME.controller,
       };
@@ -173,6 +185,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     pressToTalk() { return this._runtimeActions?.begin?.() || false; },
     releaseToTalk() { return this._runtimeActions?.finish?.() || false; },
     cancel() { return this._runtimeActions?.cancel?.('user') || false; },
+    retryPushToTalk() { return this._runtimeActions?.retryPushToTalk?.() || false; },
     setRecognitionEnabled(value) { return this._runtimeActions?.setRecognitionEnabled?.(value) || false; },
     setMode(value) { return this._runtimeActions?.setMode?.(value) || false; },
     setCloudProvider(value) { return this._runtimeActions?.setCloudProvider?.(value) || false; },
@@ -183,6 +196,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     saveControllerButton() { return this._runtimeActions?.saveControllerButton?.() || false; },
     clearControllerButton() { return this._runtimeActions?.clearControllerButton?.() || false; },
     setShortcut(value) { return this._runtimeActions?.setShortcut?.(value) || false; },
+    beginShortcutRecording() { return this._runtimeActions?.beginShortcutRecording?.() || false; },
+    endShortcutRecording() { return this._runtimeActions?.endShortcutRecording?.() || false; },
     refreshInputDevices(options) { return this._runtimeActions?.refreshInputDevices?.(options) || []; },
     selectInputDevice(value) { return this._runtimeActions?.setInputDevice?.(value) || false; },
     toggleSpokenReadbacks(value) { return this._runtimeActions?.setSpokenReadbacks?.(value) || false; },

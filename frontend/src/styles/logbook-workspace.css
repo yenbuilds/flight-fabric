@@ -6,13 +6,18 @@
   min-width: 0;
 }
 
+.logbook-page .is-collapsed .logbook-history-header { padding: 0.3rem 0.75rem; gap: 0.35rem 0.75rem; border-bottom: 0; }
+.logbook-page .is-collapsed .logbook-history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.75rem; }
+.logbook-page .is-collapsed .logbook-history-heading > div { margin-top: 0; }
+.logbook-page .is-collapsed .logbook-history-header button { min-height: 2.25rem; padding: 0.35rem 0.65rem; }
+
 .logbook-workspace {
   display: grid;
   grid-template-columns: clamp(15rem, 24%, 18rem) minmax(0, 1fr);
   min-width: 0;
   min-height: 34rem;
   /* Reserve space for the scored-landing summary above the flight workspace. */
-  height: max(34rem, calc(100dvh - 15rem));
+  height: max(34rem, calc(100dvh - 13rem));
   overflow: hidden;
   border: 1px solid var(--logbook-pane-border);
   border-radius: var(--ff-radius-lg, 0.75rem);
@@ -172,16 +177,12 @@
    review with one of them hidden reads as if the other does not exist. The
    events column gives way first; the Events/Replay map switch is for phones. */
 @media (min-width: 1101px) {
-  .logbook-review-body { grid-template-columns: minmax(15rem, 0.7fr) minmax(0, 1.3fr); }
+  .logbook-review-body { grid-template-columns: clamp(15rem, 28%, 22rem) minmax(0, 1fr); }
   .logbook-page .logbook-review-toolbar { display: none; }
   .logbook-review-body > #timeline-card { grid-column: 1; border-right: 1px solid var(--logbook-pane-border); }
   .logbook-review-body > #vue-timeline-map-shell-root { grid-column: 2; }
   .logbook-page [data-review-view='events'] #vue-timeline-map-shell-root { display: flex; }
   .logbook-page [data-review-view='map'] #timeline-card { display: flex; }
-}
-
-@media (min-width: 1720px) {
-  .logbook-review-body { grid-template-columns: minmax(16rem, 0.75fr) minmax(0, 1.25fr); }
 }
 
 @media (max-width: 1100px) {
@@ -227,6 +228,7 @@
 
 @media (max-width: 760px) {
   .logbook-page { gap: 0.75rem; }
+  .logbook-page .is-collapsed .logbook-history-header button { min-height: 2.75rem; }
   .logbook-page .timeline-filters-grid { grid-template-columns: minmax(0, 1fr); }
   .logbook-page .timeline-flight-route,
   .logbook-page .timeline-flight-aircraft { padding-right: 2.75rem; }

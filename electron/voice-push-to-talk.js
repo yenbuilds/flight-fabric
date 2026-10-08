@@ -7,14 +7,16 @@ const MODIFIER_ALIASES = Object.freeze({
 });
 const MODIFIER_ORDER = Object.freeze(['CommandOrControl', 'Control', 'Alt', 'Shift', 'Super']);
 const KEY_ALIASES = Object.freeze({
-  backspace: 'Backspace', del: 'Delete', delete: 'Delete', down: 'Down', end: 'End', enter: 'Enter',
+  backspace: 'Backspace', capslock: 'CapsLock', del: 'Delete', delete: 'Delete', down: 'Down', end: 'End', enter: 'Enter',
   esc: 'Escape', escape: 'Escape', home: 'Home', insert: 'Insert', left: 'Left', pagedown: 'PageDown',
   pageup: 'PageUp', right: 'Right', space: 'Space', spacebar: 'Space', tab: 'Tab', up: 'Up',
+  leftcontrol: 'LeftControl', rightcontrol: 'RightControl', leftalt: 'LeftAlt', rightalt: 'RightAlt',
+  leftshift: 'LeftShift', rightshift: 'RightShift', leftsuper: 'LeftSuper', rightsuper: 'RightSuper',
 });
 function normalizePushToTalkShortcut(value) {
   if (typeof value !== 'string') throw new TypeError('Shortcut must be text.');
   const parts = value.trim().split('+').map((part) => part.trim()).filter(Boolean);
-  if (parts.length < 2 || parts.length > 5) throw new TypeError('Use one or more modifiers and one key.');
+  if (parts.length < 1 || parts.length > 5) throw new TypeError('Use one key, optionally with modifiers.');
   const modifiers = new Set();
   let key = null;
   for (const part of parts) {
@@ -25,14 +27,14 @@ function normalizePushToTalkShortcut(value) {
       modifiers.add(modifier);
       continue;
     }
-    if (key !== null) throw new TypeError('Shortcut must contain exactly one non-modifier key.');
+    if (key !== null) throw new TypeError('Shortcut must contain exactly one trigger key.');
     key = KEY_ALIASES[token]
       || (/^[a-z]$/i.test(part) ? part.toUpperCase() : null)
       || (/^[0-9]$/.test(part) ? part : null)
       || (/^f(?:[1-9]|1[0-2])$/i.test(part) ? part.toUpperCase() : null);
     if (!key) throw new TypeError('Shortcut key is not supported.');
   }
-  if (modifiers.size === 0 || !key) throw new TypeError('Shortcut needs a modifier and one key.');
+  if (!key) throw new TypeError('Shortcut needs one trigger key.');
   if (modifiers.has('CommandOrControl') && modifiers.has('Control')) {
     throw new TypeError('Use either Control or CommandOrControl, not both.');
   }

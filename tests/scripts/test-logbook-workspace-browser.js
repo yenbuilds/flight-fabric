@@ -34,8 +34,9 @@ async function browser() {
         const toggle=document.getElementById('logbook-panel-toggle'), r=toggle.getBoundingClientRect();
         const summary=document.getElementById('vue-logbook-root').getBoundingClientRect();
         const workspace=document.querySelector('.logbook-workspace').getBoundingClientRect();
-        return { visible:r.top>=0 && r.bottom<=innerHeight, above:summary.bottom<=workspace.top, collapsed:toggle.getAttribute('aria-expanded')==='false', count:document.querySelectorAll('#logbook-panel-toggle').length };`);
+        return { visible:r.top>=0 && r.bottom<=innerHeight, above:summary.bottom<=workspace.top, height:summary.height, collapsed:toggle.getAttribute('aria-expanded')==='false', count:document.querySelectorAll('#logbook-panel-toggle').length };`);
       assert(history.visible && history.above && history.collapsed && history.count===1, `${width}x${height}: scored landings are discoverable before scrolling: ${JSON.stringify(history)}`);
+      if (width>1100) assert(history.height<=52, `${width}: collapsed history stays a compact row`);
       fs.writeFileSync(path.join(OUTPUT, `history-visible-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
     for (const [width, fontSize] of [[1920,16], [1255,16], [1101,16], [800,16], [390,16], [320,16], [320,20]]) {
@@ -125,6 +126,8 @@ async function browser() {
     await evaluate('logbookTest.loadFlight(); await logbookTest.settle();');
     win.webContents.debugger.detach();
     assert.match(await evaluate("return document.getElementById('timeline-mobile-viewer-flight-times').textContent;"), /Sim start local[\s\S]*Sim start UTC[\s\S]*Recording start \(real-world local\)/, 'header distinguishes the simulator clock from the viewer clock');
+    assert.equal(await evaluate("return getComputedStyle(document.getElementById('timeline-scrubber-wrap')).display;"), 'none', 'scrubber stays hidden until replay points are available');
+    await evaluate("logbookTest.timeline.setScrubberState({visible:true, disabled:false, min:0, max:5400000, step:1000, value:240000, currentLabel:'4:00', endLabel:'1:30:00'}); await logbookTest.settle();");
     await evaluate("window.retainedReplay=document.querySelector('#timeline-map'); document.getElementById('logbook-panel-toggle').focus();");
     win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Return' });
     win.webContents.sendInputEvent({ type:'char', keyCode:'Return' });
@@ -157,6 +160,13 @@ async function browser() {
       if (width > 1100) {
         assert.equal(state.modal, null, `${width}: review is not a desktop modal`);
         assert(state.reviewLeft >= state.listRight - 1, `${width}: review stays beside list`);
+        const panes = await evaluate("return { events:document.querySelector('#timeline-card').getBoundingClientRect().width, map:document.querySelector('#vue-timeline-map-shell-root').getBoundingClientRect().width }; ");
+        assert(panes.map >= panes.events * 1.7 && panes.events <= 352, `${width}: replay map gets the majority of the review: ${JSON.stringify(panes)}`);
+        for (const fuelBurnText of ['--', '198 gal']) {
+          await evaluate(`logbookTest.timeline.fuelBurnText=${JSON.stringify(fuelBurnText)}; await logbookTest.settle();`);
+          const summary = await evaluate("const stats=document.querySelector('.timeline-summary-stats'), alerts=stats.querySelector('.timeline-summary-alerts'), first=stats.firstElementChild; return { width:document.querySelector('#vue-timeline-summary-root').clientWidth, height:document.querySelector('.timeline-summary-container').clientHeight, aligned:Math.abs(alerts.getBoundingClientRect().top-first.getBoundingClientRect().top)<1 }; ");
+          if (summary.width>=768) assert(summary.aligned && summary.height<=64, `${width}/${fuelBurnText}: alerts share the metrics row: ${JSON.stringify(summary)}`);
+        }
       } else {
         assert.equal(state.modal, 'true', `${width}: compact review has modal semantics`);
         assert.equal(state.mapDisplay, 'none', `${width}: map does not crowd events`);
@@ -183,6 +193,10 @@ async function browser() {
       assert.equal(await evaluate("return document.activeElement.dataset.rowKey;"), 'event-0', 'collapsing details restores event focus');
       await evaluate("[...document.querySelectorAll('.logbook-review-views button')].find(e => e.textContent === 'Replay map').click(); await logbookTest.settle();");
       assert.equal(await evaluate("return getComputedStyle(document.querySelector('#vue-timeline-map-shell-root')).display;"), 'flex');
+      const scrubber = await evaluate("const wrap=document.getElementById('timeline-scrubber-wrap'), range=document.getElementById('timeline-time-scrubber'); return { height:wrap.getBoundingClientRect().height, target:range.getBoundingClientRect().height, fits:range.getBoundingClientRect().right<=wrap.getBoundingClientRect().right }; ");
+      assert(scrubber.height<=52 && scrubber.fits, `${width}: replay scrubber stays a single compact row: ${JSON.stringify(scrubber)}`);
+      if (width<=760) assert(scrubber.target>=44, `${width}: compact scrubber retains a phone touch target`);
+      assert.equal(await evaluate("return document.getElementById('timeline-time-scrubber').getAttribute('aria-valuetext');"), '4:00 of 1:30:00', 'compact replay retains accessible elapsed and total time');
       assert.equal(await evaluate("return localStorage.getItem('flightFabric.logbookReviewView.v1');"), 'map', 'preferred review surface is remembered on this device');
       await evaluate("document.querySelector('.logbook-review-views button').click(); await logbookTest.settle();");
       await win.webContents.capturePage(); await wait(80);
