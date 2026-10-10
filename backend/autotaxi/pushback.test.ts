@@ -9,6 +9,8 @@ import type { PushbackCommand } from './pushback-session.js';
 import { createAircraftPushback, tugHeading, writeSimulatorTug } from '../telemetry-provider/aircraft-pushback.js';
 import { createAutotaxi } from '../telemetry-provider/aircraft-autotaxi.js';
 
+const { createMsfsFacilitiesGeometryProvider } = require('../landing/msfs-facilities-geometry-provider.js');
+
 const dim = { wheelbaseM: 15, lengthM: 40 };
 function airport(east = true, rotation = 0): TaxiAirport {
   const turn = (p: Point) => ({ x: p.x * Math.cos(rotation * Math.PI / 180) + p.z * Math.sin(rotation * Math.PI / 180),
@@ -135,6 +137,44 @@ test('starting the shown plan does not reload scenery; read-only progress cannot
     assert.equal(f.writes.at(-1)!.speed, 0);
     f.step({ speedKts: 0 }); await f.session.tick();
     assert.equal(f.session.isActive(), false);
+  } finally { await f.session.dispose(); }
+});
+
+test('a prepared pushback and its active session retain airport geometry after cache eviction', async () => {
+  const f = fixture(), requests: string[] = [];
+  const geometry = createMsfsFacilitiesGeometryProvider({
+    getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: async (icao: string) => {
+      requests.push(icao);
+      const data = airport(false), latitude = icao === 'TEST' ? 0 : 1;
+      return { ok: true, icao, airport: { lat: latitude, lon: 0, name: icao, elevationFt: 100 }, taxiways: data.graph, runways: [{
+        runway: '09', reciprocalRunway: '27', headingTrueDeg: 90, lengthFt: 2400 * 3.280839895, widthFt: 30 * 3.280839895,
+        threshold: { lat: data.threshold!.lat + latitude, lon: data.threshold!.lon },
+      }] };
+    },
+  }, { logger: null, cacheMaxEntries: 1 });
+  // Reduce capacity only for this ownership check; airport and aircraft
+  // dimensions use the same metre-scale fixture as the other pushback tests.
+  f.deps.airport = () => geometry.loadTaxiAirport('TEST', '09');
+  const previews = createPushbackPreviews(f.deps);
+  try {
+    const shown = await previews.request({ ...f.request, operation: 'preview' }, f.owner, () => true);
+    const start = { ...f.request, previewId: shown.pushbackPreview!.id };
+    const prepared = previews.prepared(start, f.owner);
+    const saved = JSON.stringify(prepared.airport);
+    await geometry.probeAirport('TST2');
+    assert.equal(geometry._cache.has('TEST'), false);
+    assert.equal(geometry.getDiagnosticSnapshot().cacheEntryCount, 1);
+    assert.equal(JSON.stringify(prepared.airport), saved, 'eviction must not clear an object held by a shown preview');
+    f.deps.airport = async () => { throw new Error('Prepared pushback must keep the shown airport snapshot'); };
+    await f.session.request(start, f.owner, () => true, previews.prepared(start, f.owner));
+    f.step({ speedKts: 2 });
+    await f.session.request({ operation: 'status' }, f.owner);
+    await f.session.tick();
+    assert.equal(f.session.isActive(), true);
+    assert.equal(f.session.state().error, null);
+    assert.deepEqual(previews.view(prepared, true, 'pushing').scene, shown.scene);
+    assert.deepEqual(requests, ['TEST', 'TST2'], 'starting and ticking the shown plan do not reload its cache entry');
   } finally { await f.session.dispose(); }
 });
 

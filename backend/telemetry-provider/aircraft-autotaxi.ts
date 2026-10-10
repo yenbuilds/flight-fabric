@@ -186,9 +186,8 @@ export function createAutotaxi(provider: RecordValue, profiles: RecordValue, now
   }
   async function loadAirport(icao: string, runway: string | null) {
     const geometry = provider._msfsFacilitiesGeometryProvider;
-    const outcome = await geometry?.probeAirport?.(icao);
-    if (outcome?.ok !== true) throw new Error('Could not load live simulator taxiways. ' + (outcome?.error || 'Facilities unavailable.'));
-    const data = geometry.getTaxiAirport(icao, runway);
+    if (typeof geometry?.loadTaxiAirport !== 'function') throw new Error('Could not load live simulator taxiways. Facilities unavailable.');
+    const data = await geometry.loadTaxiAirport(icao, runway);
     if (!data) throw new Error(`Simulator taxiway data for ${icao}${runway ? ` runway ${runway}` : ''} are unavailable.`);
     return data;
   }

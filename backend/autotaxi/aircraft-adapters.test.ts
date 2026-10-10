@@ -7,6 +7,8 @@ import type { TaxiAircraftConfigResult } from './aircraft-config.js';
 import type { TaxiGraph } from './route.js';
 import { createAutotaxi } from '../telemetry-provider/aircraft-autotaxi.js';
 
+const { createMsfsFacilitiesGeometryProvider } = require('../landing/msfs-facilities-geometry-provider.js');
+
 const standard = (engineCount = 2): TaxiAxisConfig => ({ family: 'generic', engineCount, maxThrottle: 0.18 });
 const fenix: TaxiAxisConfig = { family: 'fenix-a32x', engineCount: 2, maxThrottle: 0.18 };
 
@@ -94,6 +96,14 @@ function graph(): TaxiGraph {
   };
 }
 
+function facilityAirport(icao: string) {
+  const origin = { lat: icao === 'TEST' ? 0 : 1, lon: 0 };
+  return { ok: true, icao, airport: { ...origin, name: icao, elevationFt: 100 }, taxiways: graph(), runways: [{
+    runway: '09', reciprocalRunway: '27', headingTrueDeg: 90, lengthFt: 1000 * 3.280839895, widthFt: 45 * 3.280839895,
+    threshold: { lat: origin.lat + 260 / 6371000 * 180 / Math.PI, lon: origin.lon },
+  }] };
+}
+
 function fixture(family: TaxiFamily = 'generic', engineCount = 2) {
   let now = 10000;
   let profileKey = `bundled/msfs/${family === 'fenix-a32x' ? 'fenix-a320' : family}`;
@@ -129,7 +139,7 @@ function fixture(family: TaxiFamily = 'generic', engineCount = 2) {
       ...Object.fromEntries(Object.keys(values).map(key => [key, new Date(now).toISOString()])), ...nativeTimes,
     } }) },
     _sdkBridge: { isDataConnected: () => true, getSnapshot: () => sdk }, _lvarBridge: bridge,
-    _msfsFacilitiesGeometryProvider: { probeAirport: async () => ({ ok: true }), getTaxiAirport: () => ({ origin: { lat: 0, lon: 0 }, graph: graph(),
+    _msfsFacilitiesGeometryProvider: { loadTaxiAirport: async () => ({ origin: { lat: 0, lon: 0 }, graph: graph(),
       threshold: { lat: 260 / 6371000 * 180 / Math.PI, lon: 0 }, reciprocal: '27' }) },
     _executeAircraftIntegrationAction: async (_bridge: any, target: any, _source: any, request: any) => {
       actions.push({ target, request }); values.parkingBrake = true; lvarValues.fenixParking = 1; sdk.normalized.brakes.parking = true;
@@ -144,6 +154,82 @@ function fixture(family: TaxiFamily = 'generic', engineCount = 2) {
     advance: (ms = 250) => { now += ms; }, setModel: (next: TaxiAircraftConfigResult) => { model = next; },
     setProfile: (next: string) => { profileKey = next; }, now: () => now };
 }
+
+test('taxi planning and active geometry survive eviction by another completed facilities request', async () => {
+  for (const operation of ['preview', 'start']) {
+    const f = fixture(), owner = {}, requests: string[] = [];
+    // A one-entry cache exercises eviction with two normal airport responses;
+    // this is an ownership regression, not a simulated memory-pressure flight.
+    const geometry = createMsfsFacilitiesGeometryProvider({
+      getSnapshot: () => ({ status: 'running' }),
+      requestFacilityAirport: async (icao: string) => {
+        requests.push(icao);
+        return facilityAirport(icao);
+      },
+    }, { logger: null, cacheMaxEntries: 1 });
+    f.provider._msfsFacilitiesGeometryProvider = geometry;
+    try {
+      const loading = f.session.request(f.request(operation), owner);
+      // Both replies arrive before the awaiting consumer resumes. The returned
+      // airport must belong to its request even if its cache key is gone.
+      const [result] = await Promise.all([loading, geometry.probeAirport('TST2')]);
+      assert.equal(geometry._cache.has('TEST'), false, 'the requested airport really was evicted');
+      assert.equal(geometry.getDiagnosticSnapshot().cacheEntryCount, 1);
+      assert.ok(result.sceneKey);
+      const before: any = await f.session.request({ operation: 'status', scene: true }, owner);
+      f.advance();
+      if (operation === 'start') {
+        await f.session.tick();
+        assert.equal(f.session.isActive(), true, 'the active controller owns its airport geometry');
+        assert.notEqual(f.session.state().status, 'fault');
+      }
+      const after: any = await f.session.request({ operation: 'status', scene: true }, owner);
+      assert.equal(after.sceneKey, before.sceneKey);
+      assert.deepEqual(after.scene, before.scene, 'the displayed route remains intact after cache eviction');
+      assert.deepEqual(requests, ['TEST', 'TST2'], 'status and active ticks do not reload evicted scenery');
+    } finally { await f.session.dispose(); }
+  }
+});
+
+test('cancelled real facilities loads cannot publish a route or start motion, and a fresh request recovers', async () => {
+  for (const operation of ['preview', 'start']) {
+    const f = fixture(), owner = {}, requests: string[] = [];
+    let finish!: () => void;
+    const geometry = createMsfsFacilitiesGeometryProvider({
+      getSnapshot: () => ({ status: 'running' }),
+      requestFacilityAirport: (icao: string) => {
+        requests.push(icao);
+        if (requests.length === 1) return new Promise(resolve => { finish = () => resolve(facilityAirport(icao)); });
+        return Promise.resolve(facilityAirport(icao));
+      },
+    }, { logger: null, cacheMaxEntries: 1 });
+    f.provider._msfsFacilitiesGeometryProvider = geometry;
+    try {
+      const loading = f.session.request(f.request(operation), owner);
+      const rejected = assert.rejects(loading, /Taxi request cancelled/);
+      assert.deepEqual(geometry.getDiagnosticSnapshot().pendingIcaos, ['TEST']);
+      await f.session.request({ operation: 'stop' }, owner);
+      // The native request cannot be cancelled. Deliver its successful reply
+      // after retirement, then evict it before the route consumer resumes.
+      finish();
+      await Promise.all([rejected, geometry.probeAirport('TST2')]);
+      assert.equal(geometry._cache.has('TEST'), false);
+      assert.deepEqual(geometry.getDiagnosticSnapshot().pendingIcaos, []);
+      const retired = f.session.state(true);
+      assert.equal(f.session.isActive(), false);
+      assert.equal(retired.sceneKey, null, 'a retired request must not publish its scene');
+      assert.equal(retired.route, null);
+      assert.deepEqual([f.events, f.variables, f.actions], [[], [], []], 'late facilities must not authorize controls');
+
+      const recovered = await f.session.request(f.request(operation), owner);
+      assert.ok(recovered.sceneKey, 'a fresh request can plan again after cancellation and eviction');
+      assert.equal(f.session.isActive(), operation === 'start');
+      assert.equal(f.events.length > 0, operation === 'start');
+      assert.deepEqual(requests, ['TEST', 'TST2', 'TEST']);
+      assert.deepEqual(geometry.getDiagnosticSnapshot().pendingIcaos, []);
+    } finally { await f.session.dispose(); }
+  }
+});
 
 test('dedicated manual sessions reject every control operation and cannot disturb an active controller', async () => {
   const f = fixture();
@@ -235,7 +321,8 @@ test('manual route loading rechecks guidance data and aircraft identity before p
     const f = fixture();
     f.values.parkingBrake = true;
     let finish!: () => void;
-    f.provider._msfsFacilitiesGeometryProvider.probeAirport = () => new Promise(resolve => { finish = () => resolve({ ok: true }); });
+    const loadAirport = f.provider._msfsFacilitiesGeometryProvider.loadTaxiAirport;
+    f.provider._msfsFacilitiesGeometryProvider.loadTaxiAirport = () => new Promise(resolve => { finish = () => resolve(loadAirport()); });
     try {
       const loading = f.session.request(f.request('preview'), {});
       const rejected = assert.rejects(loading, /changed|cancelled/);

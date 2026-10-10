@@ -396,7 +396,7 @@ test('enabled autotaxi handler preserves correlated real-provider readiness deni
     const provider = Object.create(SimConnectTelemetryProvider.prototype);
     Object.assign(provider, {
       _rustSimvarBridge: { getSnapshot: () => ({ status: 'disconnected', values: {}, valueUpdatedAt: {} }) },
-      _msfsFacilitiesGeometryProvider: { probeAirport: () => assert.fail('readiness precedes taxi facilities') },
+      _msfsFacilitiesGeometryProvider: { loadTaxiAirport: () => assert.fail('readiness precedes taxi facilities') },
       _lvarBridge: { sendEvent: () => assert.fail('unready aircraft must not receive control writes') },
     });
     try {

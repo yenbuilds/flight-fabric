@@ -910,8 +910,10 @@ for (const injectLogOptions of [false, true]) test(`YMML-coordinate dry run and 
     _rustSimvarBridge: { getSnapshot: () => ({ status: 'running', values: d,
       valueUpdatedAt: Object.fromEntries(Object.keys(d).map(k => [k, new Date(now).toISOString()])) }) },
     _sdkBridge: { isDataConnected: () => true, getSnapshot: () => sdk },
-    _msfsFacilitiesGeometryProvider: { probeAirport: async (icao: string) => { assert.equal(icao, 'YMML'); return { ok: true }; },
-      getTaxiAirport: () => ({ origin, graph: graph(), threshold: { lat: origin.lat + 260 / 6371000 * 180 / Math.PI, lon: origin.lon }, reciprocal: '27' }) },
+    _msfsFacilitiesGeometryProvider: { loadTaxiAirport: async (icao: string) => {
+      assert.equal(icao, 'YMML');
+      return { origin, graph: graph(), threshold: { lat: origin.lat + 260 / 6371000 * 180 / Math.PI, lon: origin.lon }, reciprocal: '27' };
+    } },
     _lvarBridge: { sendEvent: async (name: string, value: number) => { events.push([name, value]); return { ok: true }; } },
   };
   const profileKey = 'bundled/msfs/pmdg-737';

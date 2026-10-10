@@ -42,6 +42,8 @@ type ProviderOptions = {
   now?: () => number;
   logger?: Logger | null;
   logThrottleMs?: number;
+  cacheMaxEntries?: number;
+  logThrottleMaxEntries?: number;
 };
 
 type AirportRequestOptions = {
@@ -53,8 +55,14 @@ const DEFAULT_CACHE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_ERROR_RETRY_MS = 30 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 4000;
 const DEFAULT_LOG_THROTTLE_MS = 2 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 32;
+const MAX_LOG_THROTTLE_ENTRIES = 256;
 const FT_PER_DEG_LAT = 364567;
 const HEADING_TOLERANCE_DEG = 30;
+
+function boundedEntryLimit(value: number | undefined, maximum: number): number {
+  return Number.isFinite(value) ? Math.max(1, Math.min(maximum, Math.floor(value!))) : maximum;
+}
 
 function finiteNumber(value: unknown): number | null {
   if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) return null;
@@ -204,9 +212,51 @@ function createMsfsFacilitiesGeometryProvider(
   const logger = options.logger === null ? null : (options.logger || console);
   const logThrottleMs = Math.max(0, Number(options.logThrottleMs ?? DEFAULT_LOG_THROTTLE_MS));
   const lastLogAtByKey = new Map<string, number>();
+  // Aliases consume lookup slots too, so one airport cannot retain unlimited keys.
+  const cacheMaxEntries = boundedEntryLimit(options.cacheMaxEntries, MAX_CACHE_ENTRIES);
+  const logThrottleMaxEntries = boundedEntryLimit(options.logThrottleMaxEntries, MAX_LOG_THROTTLE_ENTRIES);
   let lastRequestIcao: string | null = null;
   let lastRequestAtMs: number | null = null;
   let lastOutcome: AnyRecord | null = null;
+
+  function cachedEntry(icao: string): CachedAirport | undefined {
+    const airport = cache.get(icao);
+    if (!airport) return undefined;
+    // Touch the whole alias group; diagnostic scans must not change recency.
+    for (const [key, entry] of [...cache]) {
+      if (entry !== airport) continue;
+      cache.delete(key);
+      cache.set(key, entry);
+    }
+    return airport;
+  }
+
+  function storeAirport(airport: CachedAirport, requestedIcao: string): void {
+    const keys = new Set<string>();
+    for (const [key, entry] of [...cache]) {
+      if (entry.icao !== airport.icao) continue;
+      keys.add(key);
+      cache.delete(key);
+    }
+    // Refresh every retained alias together, keeping the canonical/requested pair
+    // newest. Trim excess aliases before admission rather than evicting this result.
+    for (const key of [airport.icao, requestedIcao]) {
+      keys.delete(key);
+      keys.add(key);
+    }
+    for (const key of [...keys].slice(-cacheMaxEntries)) {
+      cache.delete(key);
+      cache.set(key, airport);
+    }
+    while (cache.size > cacheMaxEntries) {
+      const oldest = cache.values().next().value;
+      for (const [key, entry] of cache) {
+        if (entry === oldest) cache.delete(key);
+      }
+    }
+    // Only Map references are removed. Active routes and landing snapshots keep
+    // their own geometry references, which eviction must never mutate.
+  }
 
   function logThrottled(level: 'log' | 'warn', key: string, message: string): void {
     if (!logger) return;
@@ -215,6 +265,11 @@ function createMsfsFacilitiesGeometryProvider(
 
     const atMs = now();
     const lastAtMs = lastLogAtByKey.get(key);
+    lastLogAtByKey.delete(key);
+    lastLogAtByKey.set(key, lastAtMs ?? atMs);
+    while (lastLogAtByKey.size > logThrottleMaxEntries) {
+      lastLogAtByKey.delete(lastLogAtByKey.keys().next().value!);
+    }
     if (lastAtMs != null && atMs - lastAtMs < logThrottleMs) return;
     lastLogAtByKey.set(key, atMs);
 
@@ -251,12 +306,20 @@ function createMsfsFacilitiesGeometryProvider(
     return true;
   }
 
-  function ingestAirport(message: AnyRecord, requestedIcao: string): AnyRecord {
+  function airportForFailedRequest(requestedIcao: string, previous?: CachedAirport): CachedAirport {
+    // An evicted alias can still have a pending request while its canonical
+    // airport reloads. Preserve that newer geometry before the held snapshot.
+    return cache.get(requestedIcao)
+      || (previous && [...cache.values()].find((airport) => airport.icao === previous.icao))
+      || previous || createEmptyAirport(requestedIcao);
+  }
+
+  function ingestAirport(message: AnyRecord, requestedIcao: string, previous?: CachedAirport,
+    receiveAirport?: (airport: CachedAirport) => void): AnyRecord {
     if (!message || message.ok !== true) {
-      const failed = cache.get(requestedIcao) || createEmptyAirport(requestedIcao);
-      failed.error = typeof message?.error === 'string' ? message.error : 'facility_request_failed';
-      failed.fetchedAtMs = now();
-      cache.set(requestedIcao, failed);
+      const failed = { ...airportForFailedRequest(requestedIcao, previous),
+        error: typeof message?.error === 'string' ? message.error : 'facility_request_failed', fetchedAtMs: now() };
+      storeAirport(failed, requestedIcao);
       lastOutcome = {
         ok: false,
         icao: requestedIcao,
@@ -272,10 +335,9 @@ function createMsfsFacilitiesGeometryProvider(
     }
 
     if (!Array.isArray(message.runways) || message.runways.length === 0) {
-      const failed = cache.get(requestedIcao) || createEmptyAirport(requestedIcao);
-      failed.error = 'empty_facility_response';
-      failed.fetchedAtMs = now();
-      cache.set(requestedIcao, failed);
+      const failed = { ...airportForFailedRequest(requestedIcao, previous),
+        error: 'empty_facility_response', fetchedAtMs: now() };
+      storeAirport(failed, requestedIcao);
       lastOutcome = {
         ok: false,
         icao: requestedIcao,
@@ -322,10 +384,9 @@ function createMsfsFacilitiesGeometryProvider(
     if (runwayCount === 0) {
       // A nonempty response can still contain no usable records. Preserve any
       // last good cache and use the failure retry interval for a cold airport.
-      return ingestAirport({ ok: false, error: 'invalid_facility_response' }, requestedIcao);
+      return ingestAirport({ ok: false, error: 'invalid_facility_response' }, requestedIcao, previous);
     }
-    cache.set(icao, airport);
-    if (icao !== requestedIcao) cache.set(requestedIcao, airport);
+    storeAirport(airport, requestedIcao);
     const unvalidatedThresholdCount = runways
       .filter((runway) => runway.thresholdMappingValidated === false)
       .length;
@@ -346,17 +407,22 @@ function createMsfsFacilitiesGeometryProvider(
       `cache:${icao}`,
       `[MSFS Facilities] cached airport geometry ICAO=${icao}${requestedSuffix} runways=${runwayCount}${thresholdSuffix}; fallback remains available`,
     );
+    receiveAirport?.(airport);
     return lastOutcome;
   }
 
   function requestAirport(
     icaoValue: unknown,
     options: AirportRequestOptions = {},
+    receiveAirport?: (airport: CachedAirport) => void,
   ): Promise<AnyRecord> {
     const icao = normalizeIcao(icaoValue);
     if (!icao) {
       return Promise.resolve({ ok: false, icao: null, error: 'invalid_icao' });
     }
+    // Keep the last good geometry through a pending refresh even if LRU eviction
+    // removes its cache entry. It is released with this request's promise chain.
+    const previous = cachedEntry(icao);
     if (pending.has(icao)) {
       return Promise.resolve({ ok: false, icao, error: 'pending' });
     }
@@ -364,7 +430,7 @@ function createMsfsFacilitiesGeometryProvider(
       return Promise.resolve({ ok: false, icao, error: 'bridge_unavailable' });
     }
     if (options.force !== true) {
-      const cached = cache.get(icao);
+      const cached = previous;
       if (cached) {
         const ttl = cached.error && Object.keys(cached.runways).length === 0 ? errorRetryMs : cacheTtlMs;
         if (now() - cached.fetchedAtMs < ttl) {
@@ -389,20 +455,20 @@ function createMsfsFacilitiesGeometryProvider(
       airportRequest = bridge.requestFacilityAirport!(icao, { timeoutMs });
     } catch (err) {
       const message = { ok: false, icao, error: err?.message || String(err) };
-      const outcome = ingestAirport(message, icao);
+      const outcome = ingestAirport(message, icao, previous);
       pending.delete(icao);
       return Promise.resolve(outcome);
     }
     return airportRequest
       .then((message) => {
         if (!message) {
-          return ingestAirport({ ok: false, icao, error: 'empty_response' }, icao);
+          return ingestAirport({ ok: false, icao, error: 'empty_response' }, icao, previous);
         }
-        return ingestAirport(message, icao);
+        return ingestAirport(message, icao, previous, receiveAirport);
       })
       .catch((err) => {
         const message = { ok: false, icao, error: err?.message || String(err) };
-        ingestAirport(message, icao);
+        ingestAirport(message, icao, previous);
         return message;
       })
       .finally(() => pending.delete(icao));
@@ -430,6 +496,9 @@ function createMsfsFacilitiesGeometryProvider(
       bridgeStatus: typeof snapshot?.status === 'string' ? snapshot.status : null,
       bridgeError: typeof snapshot?.error === 'string' ? snapshot.error : null,
       cacheEntryCount: cache.size,
+      cacheEntryLimit: cacheMaxEntries,
+      logThrottleKeyCount: lastLogAtByKey.size,
+      logThrottleKeyLimit: logThrottleMaxEntries,
       cacheAirportCount: uniqueAirports.length,
       cacheRunwayCount: uniqueAirports.reduce(
         (count, airport) => count + allUniqueRunwaysForAirport(airport).length,
@@ -475,6 +544,33 @@ function createMsfsFacilitiesGeometryProvider(
     return runways;
   }
 
+  function taxiAirport(airport: CachedAirport | null | undefined, icao: string, runwayId: string | null): AnyRecord {
+    if (!airport || airport.error) throw new Error(`Live airport data for ${icao} are unavailable. Check the simulator connection and try Check route again.`);
+    if (runwayId == null) {
+      // Stand destinations need the graph and runway slabs only.
+      if (!airport.origin) throw new Error(`Simulator geometry for ${airport.icao} is incomplete.`);
+      if (airport.taxiways?.complete !== true) throw new Error(`Simulator taxiway data for ${airport.icao} are missing or incomplete. Autotaxi needs a complete taxiway network.`);
+      const runways = allUniqueRunwaysForAirport(airport).map((item) => ({
+        id: item.runway, reciprocal: item.reciprocalRunway, threshold: item.physicalThreshold || item.threshold,
+        headingDeg: item.headingTrueDeg, lengthM: (item.physicalLengthFt ?? item.lengthFt) / 3.280839895, widthM: item.widthFt / 3.280839895,
+      }));
+      return { origin: airport.origin, graph: airport.taxiways, runways, threshold: null, reciprocal: null };
+    }
+    const runway = runwayLookupKeys(runwayId).map(key => airport.runways[key]).find(Boolean);
+    if (!runway) {
+      const available = allUniqueRunwaysForAirport(airport).map(item => item.runway).sort();
+      throw new Error(`Runway ${runwayId} was not found at ${airport.icao}. Available runways: ${available.join(', ')}.`);
+    }
+    if (!airport.origin || !runway.reciprocalRunway) throw new Error(`Simulator runway geometry for ${airport.icao} runway ${runway.runway} is incomplete.`);
+    if (airport.taxiways?.complete !== true) throw new Error(`Simulator taxiway data for ${airport.icao} are missing or incomplete. Autotaxi needs a complete taxiway network.`);
+    const runways = allUniqueRunwaysForAirport(airport).map((item) => ({
+      id: item.runway, reciprocal: item.reciprocalRunway, threshold: item.physicalThreshold || item.threshold,
+      headingDeg: item.headingTrueDeg, lengthM: (item.physicalLengthFt ?? item.lengthFt) / 3.280839895, widthM: item.widthFt / 3.280839895,
+    }));
+    return { origin: airport.origin, graph: airport.taxiways, runways,
+      threshold: runway.physicalThreshold || runway.threshold, reciprocal: runway.reciprocalRunway };
+  }
+
   return {
     id: 'msfs-facilities',
     simulator: 'msfs',
@@ -483,33 +579,17 @@ function createMsfsFacilitiesGeometryProvider(
     probeAirport(icao: unknown, options: AirportRequestOptions = {}): Promise<AnyRecord> {
       return requestAirport(icao, { force: true, timeoutMs: options.timeoutMs });
     },
+    async loadTaxiAirport(icao: string, runwayId: string | null): Promise<AnyRecord> {
+      let airport: CachedAirport | undefined;
+      const outcome = await requestAirport(icao, { force: true }, (loaded) => { airport = loaded; });
+      if (outcome?.ok !== true) throw new Error('Could not load live simulator taxiways. ' + (outcome?.error || 'Facilities unavailable.'));
+      // Transfer this request's geometry directly. Other completed requests may
+      // evict its cache slot before the awaiting route planner resumes.
+      return taxiAirport(airport, icao, runwayId);
+    },
     getDiagnosticSnapshot: diagnosticSnapshot,
     getTaxiAirport(icao: string, runwayId: string | null): AnyRecord {
-      const airport = cache.get(normalizeIcao(icao) || '');
-      if (!airport || airport.error) throw new Error(`Live airport data for ${icao} are unavailable. Check the simulator connection and try Check route again.`);
-      if (runwayId == null) {
-        // Stand destinations need the graph and runway slabs only.
-        if (!airport.origin) throw new Error(`Simulator geometry for ${airport.icao} is incomplete.`);
-        if (airport.taxiways?.complete !== true) throw new Error(`Simulator taxiway data for ${airport.icao} are missing or incomplete. Autotaxi needs a complete taxiway network.`);
-        const runways = allUniqueRunwaysForAirport(airport).map((item) => ({
-          id: item.runway, reciprocal: item.reciprocalRunway, threshold: item.physicalThreshold || item.threshold,
-          headingDeg: item.headingTrueDeg, lengthM: (item.physicalLengthFt ?? item.lengthFt) / 3.280839895, widthM: item.widthFt / 3.280839895,
-        }));
-        return { origin: airport.origin, graph: airport.taxiways, runways, threshold: null, reciprocal: null };
-      }
-      const runway = runwayLookupKeys(runwayId).map(key => airport.runways[key]).find(Boolean);
-      if (!runway) {
-        const available = allUniqueRunwaysForAirport(airport).map(item => item.runway).sort();
-        throw new Error(`Runway ${runwayId} was not found at ${airport.icao}. Available runways: ${available.join(', ')}.`);
-      }
-      if (!airport.origin || !runway.reciprocalRunway) throw new Error(`Simulator runway geometry for ${airport.icao} runway ${runway.runway} is incomplete.`);
-      if (airport.taxiways?.complete !== true) throw new Error(`Simulator taxiway data for ${airport.icao} are missing or incomplete. Autotaxi needs a complete taxiway network.`);
-      const runways = allUniqueRunwaysForAirport(airport).map((item) => ({
-        id: item.runway, reciprocal: item.reciprocalRunway, threshold: item.physicalThreshold || item.threshold,
-        headingDeg: item.headingTrueDeg, lengthM: (item.physicalLengthFt ?? item.lengthFt) / 3.280839895, widthM: item.widthFt / 3.280839895,
-      }));
-      return { origin: airport.origin, graph: airport.taxiways, runways,
-        threshold: runway.physicalThreshold || runway.threshold, reciprocal: runway.reciprocalRunway };
+      return taxiAirport(cachedEntry(normalizeIcao(icao) || ''), icao, runwayId);
     },
     getAirport(icao: string): AnyRecord | null {
       const airport = cachedAirport(icao);
@@ -589,7 +669,10 @@ function createMsfsFacilitiesGeometryProvider(
           ? crossTrackDelta
           : (a.score ?? Infinity) - (b.score ?? Infinity);
       });
-      if (candidates.length > 0) return candidates[0];
+      if (candidates.length > 0) {
+        cachedEntry(candidates[0].icao);
+        return candidates[0];
+      }
 
       let bestMatch: AnyRecord | null = null;
       let bestDistanceNm = Infinity;
@@ -613,7 +696,11 @@ function createMsfsFacilitiesGeometryProvider(
         }
       }
 
-      return bestDistanceNm <= maxDistanceNm ? bestMatch : null;
+      if (bestMatch && bestDistanceNm <= maxDistanceNm) {
+        cachedEntry(bestMatch.icao);
+        return bestMatch;
+      }
+      return null;
     },
     findNearbyAirport(lat: number, lon: number, radiusNm = 5): AnyRecord | null {
       const runway = this.findRunwayByPosition(lat, lon, radiusNm);

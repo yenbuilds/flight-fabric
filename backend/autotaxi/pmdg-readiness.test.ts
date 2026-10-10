@@ -43,7 +43,7 @@ function enableTaxiTransport(h: ReturnType<typeof harness>) {
   const events: [string, number][] = [];
   Object.assign(h.provider, {
     _lvarBridge: { sendEvent: async (name: string, value: number) => { events.push([name, value]); return { ok: true }; } },
-    _msfsFacilitiesGeometryProvider: { probeAirport: async () => ({ ok: true }), getTaxiAirport: () => ({
+    _msfsFacilitiesGeometryProvider: { loadTaxiAirport: async () => ({
       origin: { lat: 0, lon: 0 }, threshold: { lat: 260 / 6371000 * 180 / Math.PI, lon: 0 }, reciprocal: '27',
       graph: { complete: true,
         points: [[0, 0, 0, 1], [1, 0, 100, 1], [2, 0, 200, 2], [3, 0, 260, 1], [4, 1000, 260, 1]]
@@ -154,7 +154,7 @@ test('enabled Autotaxi creates a session but preserves readiness checks and sour
   const provider = new SimConnectTelemetryProvider();
   Object.assign(provider, {
     _rustSimvarBridge: { getSnapshot: () => ({ status: 'disconnected', values: {}, valueUpdatedAt: {} }) },
-    _msfsFacilitiesGeometryProvider: { probeAirport: () => assert.fail('readiness precedes facility lookup') },
+    _msfsFacilitiesGeometryProvider: { loadTaxiAirport: () => assert.fail('readiness precedes facility lookup') },
     _lvarBridge: { sendEvent: () => assert.fail('unready aircraft must not receive control writes') },
   });
   try {

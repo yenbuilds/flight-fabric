@@ -537,6 +537,112 @@ test('taxi lookup distinguishes an unknown runway from missing taxiways using si
   assertEqual(errorFor('16L'), 'Runway 16L was not found at YMML. Available runways: 09, 16, 27, 34.');
 });
 
+// Synthetic capacity fixtures, not a flown route or memory-growth benchmark.
+function cacheAirportMessage(icao: string, offset = 0): Record<string, any> {
+  const message = facilityAirportMessage();
+  message.icao = icao;
+  message.airportName = `Cache fixture ${icao}`;
+  message.airport.icao = icao;
+  message.airport.lat = -35.3 + offset;
+  message.airport.lon = 149.2;
+  message.runways[0] = { ...message.runways[0], icao, reciprocalRunway: '17',
+    threshold: { lat: -35.307 + offset, lon: 149.194 },
+    physicalThreshold: { lat: -35.312 + offset, lon: 149.194 } };
+  message.taxiways = { complete: true, points: [{ id: 0, x: 10, z: 20 }], paths: [] };
+  return message;
+}
+
+test('default cache bounds retention and reloads the least recently used airport', () => {
+  let requests = 0;
+  const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: (icao: string) => {
+      requests += 1;
+      return immediateResponse(cacheAirportMessage(icao));
+    } }, { logger: null });
+  for (let index = 0; index < 32; index += 1) provider.prefetchAirport(`T${String(index).padStart(2, '0')}`);
+  assertEqual(provider.getDiagnosticSnapshot().cacheEntryCount, 32);
+  assertTrue(provider.getRunway('T00', '35'), 'a direct lookup keeps an airport recent');
+  provider.getDatabaseStats();
+  provider.getDiagnosticSnapshot();
+  provider.prefetchAirport('T32');
+  assertEqual(requests, 33, 'fresh cache hits must not refetch');
+  assertEqual(provider.getDiagnosticSnapshot().cacheEntryCount, 32);
+  assertTrue(provider._cache.has('T00'), 'the recently used airport must remain');
+  assertEqual(provider._cache.has('T01'), false, 'diagnostics must not keep old airports recent');
+  assertTrue(provider.getRunway('T01', '35'), 'an evicted airport can be fetched again');
+  assertEqual(requests, 34);
+  assertEqual(provider.getDiagnosticSnapshot().cacheEntryCount, 32);
+});
+
+test('warmup, taxi and selected position lookups keep the used airport recent', () => {
+  for (const access of ['warmup', 'taxi', 'position']) {
+    const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'running' }),
+      requestFacilityAirport: (icao: string) => immediateResponse(cacheAirportMessage(icao, icao === 'T01' ? 0 : 0.5)) },
+    { logger: null, cacheMaxEntries: 2 });
+    provider.prefetchAirport('T01');
+    provider.prefetchAirport('T02');
+    if (access === 'warmup') provider.prefetchAirport('T01');
+    if (access === 'taxi') assertTrue(provider.getTaxiAirport('T01', '35'));
+    if (access === 'position') assertEqual(provider.findRunwayByPosition(-35.302, 149.194, 2, 360)?.icao, 'T01');
+    provider.prefetchAirport('T03');
+    assertTrue(provider._cache.has('T01'), `${access} should keep the selected airport recent`);
+    assertEqual(provider._cache.has('T02'), false, `${access} should leave unrelated airports eligible for eviction`);
+  }
+});
+
+test('TTL still refreshes geometry instead of deleting an idle airport', () => {
+  let nowMs = 0;
+  let requests = 0;
+  const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: (icao: string) => { requests += 1; return immediateResponse(cacheAirportMessage(icao)); } },
+  { logger: null, now: () => nowMs });
+  provider.prefetchAirport('T01');
+  const previous = provider._cache.get('T01');
+  nowMs += 2 * 60 * 60 * 1000;
+  assertEqual(provider.getDiagnosticSnapshot().cacheEntryCount, 1, 'time alone must not remove usable fallback geometry');
+  provider.prefetchAirport('T01');
+  assertEqual(requests, 2);
+  assertTrue(provider._cache.get('T01') !== previous, 'the normal TTL refresh remains active');
+});
+
+test('airport aliases refresh together, stay bounded and are evicted together', () => {
+  const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'running' }),
+    requestFacilityAirport: (icao: string) => immediateResponse(cacheAirportMessage(icao === 'T02' ? 'T02' : 'T01')) },
+  { logger: null, cacheMaxEntries: 2 });
+  provider.prefetchAirport('OLD1');
+  const previous = provider._cache.get('T01');
+  provider.probeAirport('OLD1');
+  assertTrue(provider._cache.get('T01') !== previous, 'a refresh should replace old geometry');
+  assertTrue(provider._cache.get('T01') === provider._cache.get('OLD1'), 'retained aliases must agree');
+  for (let index = 0; index < 5; index += 1) {
+    provider.prefetchAirport(`ALT${index}`);
+    assertEqual(provider.getDiagnosticSnapshot().cacheEntryCount, 2, 'aliases count toward the same hard limit');
+    assertTrue(provider._cache.get('T01') === provider._cache.get(`ALT${index}`));
+  }
+  provider.prefetchAirport('T02');
+  assertEqual(provider.getDiagnosticSnapshot().cacheEntryCount, 1, 'eviction must release every alias to old geometry');
+  assertEqual(provider._cache.has('T01'), false);
+  assertTrue(previous.runways['35'], 'eviction must not mutate an airport already held by a consumer');
+});
+
+test('diagnostic throttle keys are bounded while recent warnings remain throttled', () => {
+  let nowMs = 0;
+  let error = '';
+  const { logger, warnings } = createLogCollector();
+  const provider = createMsfsFacilitiesGeometryProvider({ getSnapshot: () => ({ status: 'disconnected', error }),
+    requestFacilityAirport: () => { throw new Error('disconnected requests must not run'); } },
+  { logger, now: () => nowMs, logThrottleMaxEntries: 4 });
+  for (let index = 0; index < 6; index += 1) { error = `failure ${index}`; provider.isAvailable(); }
+  assertEqual(warnings.length, 6);
+  assertEqual(provider.getDiagnosticSnapshot().logThrottleKeyCount, 4);
+  provider.isAvailable();
+  assertEqual(warnings.length, 6, 'a recent repeated warning must stay throttled');
+  nowMs += 120_000;
+  provider.isAvailable();
+  assertEqual(warnings.length, 7, 'a warning may recur after the normal throttle interval');
+  assertEqual(provider.getDiagnosticSnapshot().logThrottleKeyCount, 4);
+});
+
 summary('msfs-facilities-geometry-provider tests');
 
 export {};
