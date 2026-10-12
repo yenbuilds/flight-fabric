@@ -2125,7 +2125,6 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
     'checkHistoryIndex',
     'rebuildHistoryIndex',
     'lvarDebugWatch',
-    'testShake',
     'requestDevicePairingRequests',
     'approveDevicePairingRequest',
     'futureCommandNotYetClassified',
@@ -2154,7 +2153,7 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
   assert.equal(isClientMessageAuthorized(unpaired, 'executeAircraftCommand'), false);
   assert.equal(isClientMessageAuthorized(aircraftControl, 'executeAircraftCommand'), true);
   assert.equal(isClientMessageAuthorized(privileged, 'executeAircraftCommand'), true);
-  for (const retiredType of ['importProfile', 'copyProfileToLocal', 'deleteUserProfile']) {
+  for (const retiredType of ['importProfile', 'copyProfileToLocal', 'deleteUserProfile', 'testShake']) {
     assert.equal(isClientMessageAuthorized(privileged, retiredType), false, `${retiredType}: retired`);
   }
   assert.equal(isClientMessageAuthorized(privileged, null), false);
@@ -2239,7 +2238,7 @@ test('simbridge special client-message handlers remain behind the shared authori
 
   assert.ok(dispatchStart >= 0);
   assert.ok(authorizationGate > dispatchStart);
-  for (const specialType of ['lvarDebugWatch', 'testShake']) {
+  for (const specialType of ['lvarDebugWatch']) {
     const specialHandler = source.indexOf(`if (msg.type === '${specialType}')`, dispatchStart);
     assert.ok(
       specialHandler > authorizationGate,

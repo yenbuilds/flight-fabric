@@ -8,8 +8,6 @@ import {
   normalizeFirstCommandRecord,
 } from '../../voice/first-command.js';
 
-export { VOICE_FIRST_COMMAND_PROMPT_ID };
-
 // Shown until one voice command has been sent, on the desktop app, for an
 // aircraft that has voice commands. "Not now" hides it for the session,
 // "Don't show again" for good, and a sent command retires it everywhere.

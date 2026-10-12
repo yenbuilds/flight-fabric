@@ -1,5 +1,5 @@
 import type { AircraftIntegrationAction, AircraftIntegrationField } from '../types.js';
-import { BARO_INPUTS, baroSides, type BaroTarget, type BaroOperation } from '../fbw-a32nx/baro.js';
+import { BARO_INPUTS, baroSides, type BaroTarget, type BaroOperation } from '../../barometer-contract.js';
 
 export const fenixBaroUnitField = (side: string) => `flightGuidance.baroUnit${side === 'captain' ? 'Captain' : 'FirstOfficer'}`;
 const fenixBaroNumber = (side: string) => side === 'captain' ? 1 : 2;

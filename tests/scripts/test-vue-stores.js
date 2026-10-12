@@ -1363,12 +1363,17 @@ async function main() {
     assert.deepEqual([...SUPPORT_MILESTONES], [10, 50, 100, 250, 500], 'five milestones, so five asks at most, ever');
 
     const fresh = createSupportRecord(start);
+    assert.equal(fresh.version, 1, 'new support records retain the v1 storage format');
     assert.equal(supportPromptBlockReason(fresh, { total: 10, now: start + 6 * DAY }), 'too-soon-after-first-seen', 'no ask in the first week');
+    assert.equal(supportPromptBlockReason(fresh, { total: 10, now: start + 7 * DAY - 1 }), 'too-soon-after-first-seen', 'the first-week quiet period lasts until its exact boundary');
+    assert.equal(supportPromptBlockReason(fresh, { total: 10, now: start + 7 * DAY }), null, 'a reached milestone becomes eligible exactly seven days after first seen');
     assert.equal(supportPromptBlockReason(fresh, { total: 9, now: start + 8 * DAY }), 'no-milestone', 'no ask below the first milestone');
     assert.equal(supportPromptBlockReason(fresh, { total: 10, now: start + 8 * DAY }), null, 'the tenth flight after a week may ask');
 
     const asked = { ...fresh, lastPromptAt: start + 8 * DAY, milestonesShown: [10] };
     assert.equal(supportPromptBlockReason(asked, { total: 50, now: start + 20 * DAY }), 'too-soon-after-last-prompt', 'a new milestone still waits 30 days after the last ask');
+    assert.equal(supportPromptBlockReason(asked, { total: 50, now: asked.lastPromptAt + 30 * DAY - 1 }), 'too-soon-after-last-prompt', 'the next ask remains blocked until the full thirty days have elapsed');
+    assert.equal(supportPromptBlockReason(asked, { total: 50, now: asked.lastPromptAt + 30 * DAY }), null, 'a new milestone becomes eligible exactly thirty days after the last ask');
     assert.equal(supportPromptBlockReason(asked, { total: 50, now: start + 40 * DAY }), null, 'after 30 days the next milestone may ask');
     assert.equal(supportPromptBlockReason(asked, { total: 30, now: start + 40 * DAY }), 'no-milestone', 'a milestone already asked about never asks again');
     assert.equal(supportPromptBlockReason({ ...asked, supported: true }, { total: 500, now: start + 400 * DAY }), 'supported', 'a supporter is never asked');
@@ -1380,6 +1385,7 @@ async function main() {
     assert.equal(nextSupportMilestone(250, [10, 50, 100]), 250);
 
     const normalized = normalizeSupportRecord({ firstSeenAt: 'bad', milestonesShown: [10, 7, '50'], supported: 'yes', muted: true }, start);
+    assert.equal(normalized.version, 1, 'normalizing a saved support record retains the v1 storage format');
     assert.equal(normalized.firstSeenAt, start, 'a corrupt first-seen falls back to now');
     assert.deepEqual(normalized.milestonesShown, [10, 50], 'only real milestones survive normalization');
     assert.equal(normalized.supported, false, 'supported must be a literal true');
@@ -3376,7 +3382,7 @@ async function main() {
     assert.equal(debug.modalClass.split(/\s+/).includes('hidden'), true, 'setModalOpen(false) should close the modal');
   });
 
-  await test('debug store groups live variables, applies filters, and tracks shake-test state', () => {
+  await test('debug store groups live variables, applies filters, and respects pause state', () => {
     resetStoreTestContext();
     const debug = useDebugStore();
     const now = Date.now();
@@ -3432,21 +3438,6 @@ async function main() {
 
     debug.setPaused(true);
     assert.equal(debug.ingestFrame({ type: 'debug-frame', ias: 999 }, 1200), false, 'paused debug state should ignore incoming frames');
-
-    debug.setTestShakeVs('-700');
-    debug.requestTestShake();
-    assert.equal(debug.testShakeVs, '-700', 'shake-test selector value should be store-backed');
-    assert.equal(debug.testShakeMethod, 'eyepoint', 'shake-test transport should default to the additive eyepoint overlay');
-    debug.setTestShakeMethod('camera6dof');
-    assert.equal(debug.testShakeMethod, 'camera6dof', 'shake-test transport should be store-backed');
-    debug.setTestShakeMethod('nonsense');
-    assert.equal(debug.testShakeMethod, 'eyepoint', 'unknown shake-test transports should fall back to eyepoint');
-    assert.equal(debug.testShakeRequestNonce, 1, 'shake-test requests should increment a nonce for runtime side effects');
-
-    debug.setTestShakeStatus('Sent (-700 fpm)');
-    assert.equal(debug.testShakeStatus, 'Sent (-700 fpm)', 'shake-test status text should be store-backed');
-    debug.clearTestShakeStatus();
-    assert.equal(debug.testShakeStatus, '', 'shake-test status should clear through the store');
   });
 
   await test('debug store bounds retained diagnostic data', () => {

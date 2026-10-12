@@ -11,7 +11,7 @@ import {
   supportPromptBlockReason,
 } from '../../support/milestones.js';
 
-export const SUPPORT_PROMPT_ID = 'support';
+const SUPPORT_PROMPT_ID = 'support';
 
 export const useSupportStore = defineStore('support', () => {
   const prompts = usePromptsStore();

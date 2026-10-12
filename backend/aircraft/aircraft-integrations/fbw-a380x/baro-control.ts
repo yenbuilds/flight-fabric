@@ -1,4 +1,5 @@
-import { baroLetter, baroSides, type BaroTarget } from '../aircraft/aircraft-integrations/fbw-a32nx/baro.js';
+import { baroSides, type BaroTarget } from '../../barometer-contract.js';
+import { baroLetter } from '../fbw-a32nx/baro.js';
 
 type Sample = { observed: unknown; updatedAtMs: number; fresh: boolean };
 type Reading = { active: boolean; std: boolean; updatedAt: number };

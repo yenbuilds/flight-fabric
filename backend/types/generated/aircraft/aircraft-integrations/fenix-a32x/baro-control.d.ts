@@ -1,4 +1,4 @@
-import { type BaroTarget, type BaroOperation } from '../aircraft/aircraft-integrations/fbw-a32nx/baro.js';
+import { type BaroTarget, type BaroOperation } from '../../barometer-contract.js';
 type Side = 'captain' | 'firstOfficer';
 type Reading = {
     qnh: boolean;

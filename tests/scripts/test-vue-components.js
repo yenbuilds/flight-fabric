@@ -3313,9 +3313,6 @@ async function main() {
     for (const id of ids) {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render for the debug runtime`);
     }
-    for (const id of ['debug-shake-vs', 'debug-shake-method', 'debug-test-shake', 'debug-shake-status']) {
-      assert.doesNotMatch(html, new RegExp(`id="${id}"`), `${id} must stay out of the debug modal while the touchdown shake is disabled`);
-    }
 
     assert.equal(modalClass.split(/\s+/).includes('hidden'), true, 'debug modal should start hidden');
     assert.match(html, /Telemetry Debug/, 'debug modal title should render');
@@ -3330,7 +3327,6 @@ async function main() {
     assert.match(html, /Rate:/, 'debug message-rate label should render');
     assert.match(html, /msg\/s/, 'debug rate should identify websocket message units');
     assert.match(html, /Messages:/, 'debug count should identify websocket messages rather than telemetry frames');
-    assert.doesNotMatch(html, /-400 fpm \(normal\)/, 'the test-shake selector must stay out of the modal while the touchdown shake is disabled');
     assert.match(html, /Waiting for data\.\.\./, 'debug content empty state should render');
   });
 
@@ -3378,8 +3374,6 @@ async function main() {
         debug.setModalOpen(true);
         debug.setConnectionStatus(true);
         debug.setShowNull(true);
-        debug.setTestShakeVs('-700');
-        debug.setTestShakeStatus('Sent (-700 fpm)');
         debug.ingestFrame({
           type: 'debug-frame',
           phase: 'APPROACH',
@@ -3406,7 +3400,6 @@ async function main() {
     assert.match(html, /id="debug-active-vars"[^>]*>5</, 'active variable count should render from the store');
     assert.match(html, /id="debug-phase"[^>]*>APPROACH</, 'phase should render from the store');
     assert.match(html, /id="debug-frame-count"[^>]*>2</, 'frame count should render from the store');
-    assert.doesNotMatch(html, /id="debug-shake-status"/, 'no shake-test status is rendered while the touchdown shake is disabled');
     assert.match(html, /data-source="simconnect"/, 'simconnect section should render');
     assert.match(html, /data-source="lvar"/, 'LVAR section should render');
     assert.match(html, /data-source="derived"/, 'derived section should render');
@@ -5288,17 +5281,28 @@ async function main() {
     }
   });
 
-  await test('Takeoff lights stay disabled until the aircraft advertises the preset', async () => {
-    const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'aircraft-specific', 'TakeoffLightsPreset.vue'),
-      ({ useAircraftControlsStore }) => {
-        useAircraftControlsStore().setAvailability({ enabled: true });
-      },
-      { props: { sourceStatus: 'connected' } },
-    );
-    assert.match(html, /Takeoff lights are unavailable/, 'the missing command should be explained');
-    const button = html.match(/<button\b[^>]*>/)?.[0] || '';
-    assert.match(button, /\sdisabled(?:\s|=|>)/, 'a missing command catalogue must disable the preset');
+  await test('Aircraft presets omit takeoff lights until the aircraft advertises them', async () => {
+    for (const hasAfterLandingPreset of [false, true]) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'AircraftPresets.vue'),
+        ({ useAircraftControlsStore }) => {
+          const controls = useAircraftControlsStore();
+          controls.setAvailability({ enabled: true });
+          if (hasAfterLandingPreset) {
+            controls.applyControlCapabilities({ aircraftCommands: {
+              profileKey: 'bundled/msfs/pmdg-737', profileRevision: 1, configurationId: 'pmdg-737',
+              commands: [{ id: 'configuration.lights.afterLanding', label: 'After landing lights', kind: 'preset', input: { kind: 'none' } }],
+            } });
+          }
+        },
+      );
+      assert.doesNotMatch(html, /data-aircraft-preset="configuration\.lights\.takeoff"/, 'an unadvertised takeoff preset must not be offered');
+      if (hasAfterLandingPreset) {
+        assert.match(html, /data-aircraft-preset="configuration\.lights\.afterLanding"/, 'other advertised presets should remain available');
+      } else {
+        assert.doesNotMatch(html, /data-aircraft-presets-section/, 'a missing command catalogue should hide the presets section');
+      }
+    }
   });
 
   await test('PMDG takeoff lights require live SDK data even when other telemetry is connected', async () => {

@@ -49,7 +49,6 @@ pub(crate) struct SimConnectApi {
     pub(crate) set_input_event: Option<SimConnectSetInputEvent>,
     pub(crate) get_last_sent_packet_id: SimConnectGetLastSentPacketId,
     pub(crate) set_data_on_sim_object: SimConnectSetDataOnSimObject,
-    pub(crate) camera_set_relative_6dof: SimConnectCameraSetRelative6Dof,
     pub(crate) map_client_data_name_to_id: SimConnectMapClientDataNameToId,
     pub(crate) create_client_data: SimConnectCreateClientData,
     pub(crate) add_to_client_data_definition: SimConnectAddToClientDataDefinition,
@@ -151,11 +150,6 @@ impl SimConnectApi {
             b"SimConnect_SetDataOnSimObject\0",
             "SimConnect_SetDataOnSimObject",
         )?;
-        let camera_set_relative_6dof = load_symbol::<SimConnectCameraSetRelative6Dof>(
-            &lib,
-            b"SimConnect_CameraSetRelative6DOF\0",
-            "SimConnect_CameraSetRelative6DOF",
-        )?;
         let map_client_data_name_to_id = load_symbol::<SimConnectMapClientDataNameToId>(
             &lib,
             b"SimConnect_MapClientDataNameToID\0",
@@ -222,7 +216,6 @@ impl SimConnectApi {
             set_input_event,
             get_last_sent_packet_id,
             set_data_on_sim_object,
-            camera_set_relative_6dof,
             map_client_data_name_to_id,
             create_client_data,
             add_to_client_data_definition,

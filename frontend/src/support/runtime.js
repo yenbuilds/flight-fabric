@@ -6,12 +6,12 @@ import { readStorageJson, withBrowserLock, writeStorageJson } from '../app/brows
 import { isRemoteViewPath } from '../app/remote-view.js';
 
 export const SUPPORT_STORAGE_KEY = 'ff_support_v1';
-export const SUPPORT_LANDING_SETTLE_MS = 4000;
+const SUPPORT_LANDING_SETTLE_MS = 4000;
 // The card fades on its own so ignoring it is a valid answer. Showing has
 // already counted as the ask, so a faded card never comes back for that
 // milestone.
 export const SUPPORT_PROMPT_LINGER_MS = 90 * 1000;
-export const SUPPORT_THANKS_LINGER_MS = 60 * 1000;
+const SUPPORT_THANKS_LINGER_MS = 60 * 1000;
 const LANDING_ARMED_MS = 60 * 1000;
 const MODAL_SELECTOR = '[role="dialog"][aria-modal="true"]';
 

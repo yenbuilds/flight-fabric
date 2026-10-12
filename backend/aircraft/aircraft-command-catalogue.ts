@@ -3,7 +3,7 @@
 import { normalizeComFrequencyMhz } from '../utils/radio-frequency.js';
 import { encodeSquawkBco16 } from '../utils/transponder-code.js';
 import { MINIMUMS_INPUTS } from './aircraft-integrations/fbw-a32nx/minimums.js';
-import { BARO_INPUTS } from './aircraft-integrations/fbw-a32nx/baro.js';
+import { BARO_INPUTS } from './barometer-contract.js';
 import { cockpitLightingGroups } from './aircraft-integrations/cockpit-lighting.js';
 import { aircraftParityBindings, PARITY_COMMAND_DEFINITIONS } from './aircraft-command-parity.js';
 

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { captureBaroState, executeBaroTransaction } = require('../telemetry-provider/baro-control');
+const { captureBaroState, executeBaroTransaction } = require('./aircraft-integrations/fbw-a32nx/baro-control');
 const { baroField, BARO_HPA_PER_INHG } = require('./aircraft-integrations/fbw-a32nx/baro');
 const { defaultAircraftIntegrationRegistry, createAircraftIntegrationRegistry } = require('./aircraft-integrations');
 const { buildAircraftControlCapabilities } = require('./aircraft-control-service');

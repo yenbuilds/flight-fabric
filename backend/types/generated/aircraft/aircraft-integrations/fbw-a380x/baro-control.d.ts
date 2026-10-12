@@ -1,4 +1,4 @@
-import { type BaroTarget } from '../aircraft/aircraft-integrations/fbw-a32nx/baro.js';
+import { type BaroTarget } from '../../barometer-contract.js';
 type Sample = {
     observed: unknown;
     updatedAtMs: number;

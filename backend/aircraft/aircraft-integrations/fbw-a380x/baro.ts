@@ -1,5 +1,6 @@
 import type { AircraftIntegrationAction, AircraftIntegrationField } from '../types.js';
-import { baroLetter, baroSides } from '../fbw-a32nx/baro.js';
+import { baroSides } from '../../barometer-contract.js';
+import { baroLetter } from '../fbw-a32nx/baro.js';
 
 // A380X Flight Deck API and vendor FlyByWireInterface::updateEfisSync:
 // PUSH selects STD; PULL returns to local pressure. The A320 is the reverse.

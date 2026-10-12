@@ -68,7 +68,10 @@ const INITIAL_DELAY_MS = 30 * 1000; // first check 30 s after startup
 const REQUEST_TIMEOUT_MS = 10 * 1000;
 const MAX_MANIFEST_BYTES = 128 * 1024;
 const RELEASE_DOWNLOAD_HOST = 'github.com';
-const RELEASE_DOWNLOAD_PATH_PREFIX = '/yenbuilds/flight-fabric/releases';
+const RELEASE_DOWNLOAD_PATH_PREFIXES = [
+  '/yenbuilds/flight-fabric/releases',
+  '/yenbuilds/flightfabric-desktop/releases',
+];
 
 // Cached results - replayed to newly-connected clients on requestState.
 let lastUpdateMsg: UpdateAvailableMessage | null = null;
@@ -151,10 +154,7 @@ export function sanitizeUpdateDownloadUrl(value: unknown): string | null {
     if (parsed.search || parsed.hash) return null;
 
     const pathname = parsed.pathname.toLowerCase();
-    if (
-      pathname !== RELEASE_DOWNLOAD_PATH_PREFIX
-      && !pathname.startsWith(`${RELEASE_DOWNLOAD_PATH_PREFIX}/`)
-    ) return null;
+    if (!RELEASE_DOWNLOAD_PATH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return null;
 
     return parsed.href;
   } catch {

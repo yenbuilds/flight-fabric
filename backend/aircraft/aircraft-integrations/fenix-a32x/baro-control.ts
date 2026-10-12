@@ -1,5 +1,5 @@
-import { BARO_INPUTS, baroSides, type BaroTarget, type BaroOperation } from '../aircraft/aircraft-integrations/fbw-a32nx/baro.js';
-import { fenixBaroCounter, fenixBaroUnits, fenixBaroUnitField } from '../aircraft/aircraft-integrations/fenix-a32x/baro.js';
+import { BARO_INPUTS, baroSides, type BaroTarget, type BaroOperation } from '../../barometer-contract.js';
+import { fenixBaroCounter, fenixBaroUnits, fenixBaroUnitField } from './baro.js';
 
 type Side = 'captain' | 'firstOfficer';
 type Reading = { qnh: boolean; units: string; pressure: number | null; times: Record<string, number> };

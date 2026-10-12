@@ -104,9 +104,6 @@ type ConfigModule = {
   simconnect?: {
     provider?: string;
   };
-  touchdownShake?: {
-    enable?: boolean;
-  };
 };
 
 type BridgeStatus = 'disabled' | 'error' | 'starting' | 'stopped' | 'ready' | 'connecting' | 'disconnected' | 'running' | string;
@@ -220,32 +217,11 @@ type AckType =
   | 'sendViewEventAck'
   | 'setNamedVarAck'
   | 'sendInputEventAck'
-  | 'executeMobiFlightCodeAck'
-  | 'eyepointOffsetAck'
-  | 'eyepointAngleAck'
-  | 'cameraShakeAck';
+  | 'executeMobiFlightCodeAck';
 
 type AckMessage = PendingAckMessage & {
   type: AckType;
 };
-
-const CAMERA_WRITE_ACK_TYPES: ReadonlySet<string> = new Set([
-  'eyepointOffsetAck',
-  'eyepointAngleAck',
-  'cameraShakeAck',
-]);
-
-export type CameraWriteStats = {
-  ok: number;
-  failed: number;
-  lastAckType: string | null;
-  lastError: string | null;
-  lastAckAtMs: number | null;
-};
-
-function createCameraWriteStats(): CameraWriteStats {
-  return { ok: 0, failed: 0, lastAckType: null, lastError: null, lastAckAtMs: null };
-}
 
 type SidecarMessage = ReadyMessage | StatusMessage | MobiFlightStatusMessage | SnapshotMessage | ErrorMessage | AckMessage | Record<string, unknown>;
 
@@ -256,36 +232,12 @@ type NamedVarOptions = {
   dataType?: string;
 };
 
-type CameraShakeOptions = {
-  pitch?: number;
-  bank?: number;
-  heading?: number;
-  dx?: number;
-  dy?: number;
-  dz?: number;
-};
-
-type EyepointAngleOptions = {
-  pitch?: number;
-  bank?: number;
-  heading?: number;
-};
-
-type EyepointOffsetOptions = {
-  x?: number;
-  y?: number;
-  z?: number;
-  units?: string;
-};
-
 const SIDECAR_NAME_RE = /^[A-Za-z0-9 _./:#+%()-]+$/;
 const SIDECAR_UNIT_RE = /^[A-Za-z0-9 _./:+%()-]+$/;
 const MAX_SIDECAR_NAME_LENGTH = 160;
 const MAX_SIDECAR_UNIT_LENGTH = 48;
 const MAX_SIDECAR_NUMERIC_ABS = 1_000_000;
 const MAX_SIDECAR_EVENT_DATA_ABS = 1_000_000;
-const MAX_CAMERA_OFFSET_METERS = 2;
-const MAX_CAMERA_ANGLE_DEGREES = 15;
 const MIN_OWNER_LIFELINE_VERSION = 1;
 const ALLOWED_SIDECAR_DATA_TYPES = new Set(['float64', 'float32', 'int32', 'bool']);
 
@@ -318,10 +270,6 @@ function normalizeSubscriptionGeneration(value: unknown): number | null {
     : null;
 }
 
-function isSafeCameraNumber(value: unknown, maxAbs: number): boolean {
-  return normalizeFiniteSidecarNumber(value, maxAbs) != null;
-}
-
 function supportsRequiredOwnerLifeline(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false;
   const version = (payload as Record<string, unknown>).ownerLifelineVersion;
@@ -350,12 +298,10 @@ class LvarSidecarBridge {
   _consecutiveAllNullSnapshots: number;
   _awaitingSubscriptionRefresh: boolean;
   _subscriptionGeneration: number;
-  _cameraWriteStats: CameraWriteStats;
 
   constructor() {
     this._proc = null;
     this._started = false;
-    this._cameraWriteStats = createCameraWriteStats();
     this._startPromise = null;
     this._stopPromise = null;
     this._lineBuffer = '';
@@ -1191,96 +1137,6 @@ class LvarSidecarBridge {
     }, 'executeMobiFlightCodeAck');
   }
 
-  /**
-   * Call SimConnect_CameraSetRelative6DOF through the Rust sidecar.
-   * @param {number} pitch  degrees (positive = nose down)
-   * @param {number} bank   degrees
-   * @param {number} heading degrees
-   * @param {number} dx     positional delta X (metres)
-   * @param {number} dy     positional delta Y (metres)
-   * @param {number} dz     positional delta Z (metres)
-   */
-  sendCameraShake({ pitch = 0, bank = 0, heading = 0, dx = 0, dy = 0, dz = 0 }: CameraShakeOptions = {}): void {
-    if (!this._proc || !this._started || !this._proc.stdin || this._proc.killed) return;
-    if (
-      !isSafeCameraNumber(pitch, MAX_CAMERA_ANGLE_DEGREES)
-      || !isSafeCameraNumber(bank, MAX_CAMERA_ANGLE_DEGREES)
-      || !isSafeCameraNumber(heading, MAX_CAMERA_ANGLE_DEGREES)
-      || !isSafeCameraNumber(dx, MAX_CAMERA_OFFSET_METERS)
-      || !isSafeCameraNumber(dy, MAX_CAMERA_OFFSET_METERS)
-      || !isSafeCameraNumber(dz, MAX_CAMERA_OFFSET_METERS)
-    ) {
-      return;
-    }
-    this._send({ type: 'cameraShake', pitch, bank, heading, dx, dy, dz });
-  }
-
-  /**
-   * Set STRUCT EYEPOINT DYNAMIC OFFSET via SetDataOnSimObject.
-   * Additive overlay on the default eyepoint (G-effects / shake).
-   * Units: Meters. (0,0,0) resets to default. Y = vertical (positive up).
-   */
-  sendEyepointOffset({ x = 0, y = 0, z = 0, units = 'Meters' }: EyepointOffsetOptions = {}): void {
-    if (!this._proc || !this._started || !this._proc.stdin || this._proc.killed) return;
-    const unitName = typeof units === 'string' && units.trim() ? units.trim() : 'Meters';
-    if (
-      !isSafeCameraNumber(x, MAX_CAMERA_OFFSET_METERS)
-      || !isSafeCameraNumber(y, MAX_CAMERA_OFFSET_METERS)
-      || !isSafeCameraNumber(z, MAX_CAMERA_OFFSET_METERS)
-      || !isSafeSidecarToken(unitName, MAX_SIDECAR_UNIT_LENGTH, SIDECAR_UNIT_RE)
-    ) {
-      return;
-    }
-    this._send({ type: 'eyepointOffset', x, y, z, units: unitName });
-  }
-
-  /**
-   * Set STRUCT EYEPOINT DYNAMIC ANGLE via SetDataOnSimObject.
-   * Additive rotation overlay on the default eyepoint. Degrees here; the
-   * sidecar converts to radians. (0,0,0) resets to default.
-   * @param {number} pitch   degrees (positive = nose down)
-   * @param {number} bank    degrees
-   * @param {number} heading degrees
-   */
-  sendEyepointAngle({ pitch = 0, bank = 0, heading = 0 }: EyepointAngleOptions = {}): void {
-    if (!this._proc || !this._started || !this._proc.stdin || this._proc.killed) return;
-    if (
-      !isSafeCameraNumber(pitch, MAX_CAMERA_ANGLE_DEGREES)
-      || !isSafeCameraNumber(bank, MAX_CAMERA_ANGLE_DEGREES)
-      || !isSafeCameraNumber(heading, MAX_CAMERA_ANGLE_DEGREES)
-    ) {
-      return;
-    }
-    this._send({ type: 'eyepointAngle', pitch, bank, heading });
-  }
-
-  /** Acknowledgement counters for camera/eyepoint writes since the last reset. */
-  getCameraWriteStats(): CameraWriteStats {
-    return { ...this._cameraWriteStats };
-  }
-
-  resetCameraWriteStats(): void {
-    this._cameraWriteStats = createCameraWriteStats();
-  }
-
-  _recordCameraWriteAck(msg: Record<string, unknown>): void {
-    const stats = this._cameraWriteStats;
-    const ackError = typeof msg.error === 'string' && msg.error.trim() ? msg.error : null;
-    const ok = msg.ok === true;
-    stats.lastAckType = String(msg.type);
-    stats.lastAckAtMs = Date.now();
-    if (ok) {
-      stats.ok += 1;
-    } else {
-      stats.failed += 1;
-      stats.lastError = ackError || 'rejected';
-      // Only failures are logged: a shake produces ~100 acks per second.
-      if (stats.failed <= 3) {
-        console.warn(`[lvar-sidecar] ${msg.type} ok=false${ackError ? ' err=' + ackError : ''}`);
-      }
-    }
-  }
-
   getSnapshot(): SnapshotState {
     return {
       ...this._snapshot,
@@ -1488,8 +1344,6 @@ class LvarSidecarBridge {
         }
       } else if (msg.type === 'sendEventAck' || msg.type === 'sendSdkEventAck' || msg.type === 'sendViewEventAck' || msg.type === 'setNamedVarAck' || msg.type === 'sendInputEventAck' || msg.type === 'executeMobiFlightCodeAck') {
         this._settlePendingRequest(msg as PendingAckMessage);
-      } else if (typeof msg.type === 'string' && CAMERA_WRITE_ACK_TYPES.has(msg.type)) {
-        this._recordCameraWriteAck(msg as Record<string, unknown>);
       } else if (msg.type === 'error') {
         const errorMessage = typeof msg.message === 'string' && msg.message.trim()
           ? msg.message

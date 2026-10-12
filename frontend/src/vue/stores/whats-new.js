@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { usePromptsStore } from './prompts.js';
 
-export const WHATS_NEW_PROMPT_ID = 'whats-new';
+const WHATS_NEW_PROMPT_ID = 'whats-new';
 const MAX_HIGHLIGHTS = 4;
 
 // Shown once per version, only after an update, never on a fresh install.

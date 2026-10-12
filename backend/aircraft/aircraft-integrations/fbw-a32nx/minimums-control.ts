@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-import { MINIMUMS_INPUTS } from '../aircraft/aircraft-integrations/fbw-a32nx/minimums.js';
+import { MINIMUMS_INPUTS } from './minimums.js';
 
 const A32NX_MCDU_URL = 'ws://127.0.0.1:8380/interfaces/v1/mcdu';
 

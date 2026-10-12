@@ -29,6 +29,9 @@ test('release CLI creates encrypted disposable keys, signs exact bytes, verifies
   assert(!JSON.stringify(trust).includes(env.FF_UPDATE_SIGNING_PASSPHRASE));
   invoke(['sign', '--private-key', privateFile, '--version', '0.13.0', '--installer', installer, '--sequence', '1', '--out', manifest]);
   const verified = verifyManifest(fs.readFileSync(manifest, 'utf8'), trust.keys);
+  assert.equal(new URL(verified.payload.release.url).pathname,
+    `/yenbuilds/flight-fabric/releases/download/v0.13.0/${publishedInstallerAssetName('0.13.0')}`,
+    'compatibility preparation must keep newly signed releases on the existing repository');
   await verifyInstaller(installer, verified.payload.release);
   assert.match(invoke(['verify', '--manifest', manifest, '--public-config', publicFile]), /Verified update sequence 1/);
   assert.throws(() => invoke(['keygen', '--private-key', privateFile, '--public-config', publicFile]), 'existing identities must never be overwritten');

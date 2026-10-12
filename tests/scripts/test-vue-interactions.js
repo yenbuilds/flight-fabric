@@ -3774,7 +3774,7 @@ async function main() {
   });
 
   console.log('\n--- debug runtime ---\n');
-  await test('debug runtime feeds the Vue store and sends shake-test requests', async () => {
+  await test('debug runtime captures telemetry only while open and releases its resources', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
     resetGlobals(windowRef, documentRef, createStorage());
@@ -3782,19 +3782,8 @@ async function main() {
 
     documentRef.register(new FakeElement('debug-modal'));
 
-    const sent = [];
-    const timeouts = [];
     const intervals = [];
     const clearedIntervals = [];
-    windowRef.setTimeout = (fn) => {
-      timeouts.push(fn);
-      return timeouts.length;
-    };
-    windowRef.clearTimeout = (id) => {
-      if (id > 0 && id <= timeouts.length) {
-        timeouts[id - 1] = null;
-      }
-    };
     windowRef.setInterval = (fn) => {
       intervals.push(fn);
       return intervals.length;
@@ -3802,8 +3791,6 @@ async function main() {
     windowRef.clearInterval = (id) => {
       clearedIntervals.push(id);
     };
-    globalThis.setTimeout = windowRef.setTimeout;
-    globalThis.clearTimeout = windowRef.clearTimeout;
     globalThis.setInterval = windowRef.setInterval;
     globalThis.clearInterval = windowRef.clearInterval;
 
@@ -3815,16 +3802,11 @@ async function main() {
     };
     const runtime = initDebugRuntime({
       $: (id) => documentRef.getElementById(id),
-      sendWs(payload) {
-        sent.push(payload);
-        return true;
-      },
       debugStore,
       getCurrentDebugState: () => currentDebugState,
       subscribeDebugFrameSignal: subscribeDebugFrame,
       subscribeTelemetryResetSignal: subscribeTelemetryReset,
       subscribeWsCloseSignal: subscribeWsClose,
-      subscribeWsMessageSignal: subscribeWsMessage,
       windowRef,
       documentRef,
       consoleRef: { log() {} },
@@ -3892,57 +3874,6 @@ async function main() {
     assert.equal(debugStore.frameCount, 0, 'telemetry reset should clear the captured message count');
     assert.equal(debugStore.modalOpen, true, 'telemetry reset should leave the debug modal open');
 
-    debugStore.setTestShakeVs('-700');
-    debugStore.setTestShakeMethod('camera6dof');
-    debugStore.requestTestShake();
-    await nextTick();
-    assert.deepEqual(
-      sent.shift(),
-      { type: 'testShake', vs_fpm: -700, method: 'camera6dof' },
-      'shake-test requests should flow through the websocket bridge with the chosen transport',
-    );
-    assert.equal(debugStore.testShakeStatus, 'Sent (-700 fpm, camera6dof)', 'successful shake-test sends should update status text');
-
-    emitWsMessage({
-      type: 'testShakeAck',
-      vs_fpm: -700,
-      diag: {
-        isMock: false,
-        lvarBridge: true,
-        lvarStarted: true,
-        lvarProcAlive: true,
-        connected: true,
-        handle: 7,
-      },
-    });
-    assert.match(debugStore.testShakeStatus, /ack -700fpm/, 'shake-test acknowledgements should update the status text');
-
-    emitWsMessage({
-      type: 'testShakeAck',
-      vs_fpm: -700,
-      phase: 'started',
-      diag: { shake: { ok: true, method: 'eyepoint', durationMs: 1500, severity: 0.75, peakDropMeters: 0.055 } },
-    });
-    assert.match(debugStore.testShakeStatus, /eyepoint 1\.5s sev=0\.75 drop=5\.5cm \| playing/, 'a started ack should describe the shake profile');
-
-    emitWsMessage({
-      type: 'testShakeAck',
-      vs_fpm: -700,
-      phase: 'done',
-      diag: {
-        shake: { ok: true, method: 'eyepoint', durationMs: 1500, severity: 0.75, peakDropMeters: 0.055 },
-        writes: { ok: 180, failed: 2, lastError: 'not_connected' },
-      },
-    });
-    assert.match(debugStore.testShakeStatus, /writes ok=180 fail=2 \(not_connected\)/, 'a done ack should surface sidecar write results');
-
-    emitWsMessage({
-      type: 'testShakeAck',
-      vs_fpm: -700,
-      phase: 'started',
-      diag: { shake: { ok: false, reason: 'sidecar_unavailable' } },
-    });
-    assert.match(debugStore.testShakeStatus, /skipped: sidecar_unavailable/, 'a refused shake should say why');
     runtime.cleanup();
     assert.ok(clearedIntervals.includes(2), 'debug cleanup should stop the active periodic timer');
   });

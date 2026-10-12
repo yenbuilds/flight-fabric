@@ -120,14 +120,14 @@ const ROTATION_PITCH_DELTA_DEG = 1.0;
 const ROTATION_MAX_LOOKBACK_MS = 15_000;
 const MIN_ROTATION_DURATION_S = 0.4;
 
-export const TRANSPORT_SCREEN_HEIGHT_FT = 35;
-export const LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT = 50;
+const TRANSPORT_SCREEN_HEIGHT_FT = 35;
+const LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT = 50;
 
 // Schema version describes the JSON shape; this contract identifies the
 // measurement and assessment rules that produced a newly recorded result.
 // Increment its version when those rules change. Never stamp it onto an old
 // result while reading history.
-export const TAKEOFF_ASSESSMENT_CONTRACT = Object.freeze({
+const TAKEOFF_ASSESSMENT_CONTRACT = Object.freeze({
   id: 'takeoff-assessment',
   version: 1,
 });
@@ -793,7 +793,4 @@ module.exports = {
   findTakeoffRollStart,
   resolveScreenHeightFt,
   scoreTakeoffRunwayUse,
-  TRANSPORT_SCREEN_HEIGHT_FT,
-  LIGHT_AIRCRAFT_SCREEN_HEIGHT_FT,
-  TAKEOFF_ASSESSMENT_CONTRACT,
 };

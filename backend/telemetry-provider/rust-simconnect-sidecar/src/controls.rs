@@ -6,10 +6,6 @@
 //! character sets, numeric limits, and SimConnect-specific conversions here
 //! gives every control path in `main.rs` the same fail-closed policy.
 
-// Camera movement has deliberately tighter limits than general numeric controls.
-pub(crate) const MAX_CAMERA_OFFSET_METERS: f64 = 2.0;
-pub(crate) const MAX_CAMERA_ANGLE_DEGREES: f64 = 15.0;
-
 // These limits bound both memory use and the values passed across the FFI boundary.
 const MAX_CONTROL_NAME_LEN: usize = 160;
 const MAX_CONTROL_UNIT_LEN: usize = 48;
@@ -108,10 +104,6 @@ pub(crate) fn is_safe_sdk_event_name(value: &str) -> bool {
     bytes.len() == 6 && bytes[0] == b'#' && bytes[1..].iter().all(u8::is_ascii_digit)
 }
 
-pub(crate) fn is_bounded_camera_number(value: f64, max_abs: f64) -> bool {
-    value.is_finite() && value.abs() <= max_abs
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,7 +190,5 @@ mod tests {
         assert!(bounded_sdk_event_data(1.5).is_none());
         assert!(is_safe_sdk_event_name("#70361"));
         assert!(!is_safe_sdk_event_name("AP_MASTER"));
-        assert!(!is_bounded_camera_number(30.0, MAX_CAMERA_ANGLE_DEGREES));
-        assert!(is_bounded_camera_number(1.5, MAX_CAMERA_OFFSET_METERS));
     }
 }

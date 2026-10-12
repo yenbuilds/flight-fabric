@@ -652,19 +652,6 @@
  */
 
 /**
- * Distance/bearing result for a specific destination airport query.
- * @typedef {Object} AirportDistanceResult
- * @property {string} icao - ICAO code or airport ident fallback
- * @property {string} name - Airport name
- * @property {number} lat - Latitude in degrees
- * @property {number} lon - Longitude in degrees
- * @property {number} distanceNm - Great-circle distance in nautical miles
- * @property {number} bearingDeg - Initial bearing from the origin point
- * @property {number} maxRunwayLengthFt - Longest usable runway length in feet
- * @property {number} elevation_ft - Airport elevation in feet
- */
-
-/**
  * Flight-time estimate returned by airport-search.js.
  * @typedef {Object} FlightTimeEstimate
  * @property {number} cruiseSpeedKts - Assumed cruise speed in knots

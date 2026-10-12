@@ -166,7 +166,6 @@ export const MSG = {
   APP_SETTINGS_SAVED: 'appSettingsSaved',
 
   LVAR_DEBUG_WATCH_ACK: 'lvarDebugWatchAck',
-  TEST_SHAKE_ACK: 'testShakeAck',
 
   // Safety data (historical accidents and reports for approach airport)
   SAFETY_DATA: 'safetyData',

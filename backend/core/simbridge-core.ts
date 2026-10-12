@@ -116,9 +116,6 @@ const { isoFromMs, createEventId } = require('./time-id');
 const { createTickFrameFactory } = require('../lifecycle/tick-frame');
 const flightLogbook = require('../landing/flight-logbook');
 const { getDataSourceInfo } = require('../telemetry-provider');
-const { TOUCHDOWN_SHAKE_DISABLED } = require('../telemetry-provider/touchdown-shake.js') as {
-  TOUCHDOWN_SHAKE_DISABLED: boolean;
-};
 const {
   createSourceOverlayContext,
   overlayParkingBrakeSources,
@@ -851,7 +848,7 @@ async function runSimbridgeCore({
         return;
       }
       if (msg.type === 'requestState' && inSimReplay) ws.send(JSON.stringify(inSimReplay.snapshot()));
-      if (inSimReplay?.isBlocking() && ['startRecording', 'testShake', 'lvarDebugWatch', 'sendCduKey', 'pushback', 'autotaxi', 'executeAircraftCommand', 'executeAircraftControl'].includes(msg.type)) {
+      if (inSimReplay?.isBlocking() && ['startRecording', 'lvarDebugWatch', 'sendCduKey', 'pushback', 'autotaxi', 'executeAircraftCommand', 'executeAircraftControl'].includes(msg.type)) {
         const resultType = { startRecording: 'startFlightResult', sendCduKey: 'cduState', pushback: 'pushbackState', autotaxi: 'autotaxiState',
           executeAircraftCommand: 'aircraftCommandResult', executeAircraftControl: 'aircraftControlResult' }[msg.type] || 'inSimReplayState';
         ws.send(JSON.stringify({ ...(resultType === 'inSimReplayState' ? inSimReplay.snapshot() : {}),
@@ -941,67 +938,6 @@ async function runSimbridgeCore({
           ok: true,
           count: Array.isArray(applied) ? applied.length : 0,
         }));
-        return;
-      }
-      // Handle test shake command (requires provider, not in standard context)
-      if (msg.type === 'testShake') {
-        if (TOUCHDOWN_SHAKE_DISABLED) {
-          // The button is gone from the debug modal; a hand-crafted message
-          // gets an honest refusal rather than silence.
-          ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: null, phase: 'started', diag: { shake: { ok: false, reason: 'disabled' } } }));
-          return;
-        }
-        const vsFpm = (typeof msg.vs_fpm === 'number' && Number.isFinite(msg.vs_fpm)) ? msg.vs_fpm : -400;
-        const method = typeof msg.method === 'string' ? msg.method : undefined;
-        const intensity = typeof msg.intensity === 'number' ? msg.intensity : undefined;
-        console.log(`[TouchdownShake] testShake received: vs_fpm=${vsFpm} method=${method || 'configured'} isMock=${capabilities.isMock} hasFn=${typeof provider.triggerTouchdownShake === 'function'}`);
-
-        const lvarBridge = provider._lvarBridge;
-        const diagInfo = {
-          isMock: capabilities.isMock,
-          hasTriggerFn: typeof provider.triggerTouchdownShake === 'function',
-          lvarBridge: !!lvarBridge,
-          lvarStarted: lvarBridge?._started,
-          lvarProcAlive: lvarBridge?._proc && !lvarBridge._proc.killed,
-          sdkBridge: !!provider._sdkBridge,
-          sdkStarted: provider._sdkBridge?._started,
-          sdkProcAlive: provider._sdkBridge?._proc && !provider._sdkBridge._proc.killed,
-          connected: provider._connected,
-          handle: !!provider._handle,
-          autoShakeEnabled: config.touchdownShake.enable,
-        };
-        console.log('[TouchdownShake] diag:', JSON.stringify(diagInfo));
-
-        // The Test Shake button bypasses effects.touchdownShake on purpose: it is
-        // how the feel gets tuned before the automatic landing trigger is enabled.
-        let shake = null;
-        if (!capabilities.isMock && typeof provider.triggerTouchdownShake === 'function') {
-          try {
-            lvarBridge?.resetCameraWriteStats?.();
-            shake = provider.triggerTouchdownShake(vsFpm, { method, intensity });
-          } catch (e) {
-            console.warn('[TouchdownShake] testShake failed:', e.message);
-            shake = { ok: false, reason: 'exception' };
-          }
-        } else {
-          console.warn('[TouchdownShake] testShake: provider not available or is mock');
-          shake = { ok: false, reason: capabilities.isMock ? 'mock_provider' : 'no_trigger' };
-        }
-        ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: vsFpm, phase: 'started', diag: { ...diagInfo, shake } }));
-
-        // Follow up once the shake has played so the debug modal can show
-        // whether the sidecar accepted the camera writes.
-        if (shake?.ok && typeof shake.durationMs === 'number') {
-          const followUp = setTimeout(() => {
-            if (ws.readyState !== 1) return;
-            const writes = lvarBridge?.getCameraWriteStats?.() || null;
-            console.log('[TouchdownShake] testShake done:', JSON.stringify(writes));
-            try {
-              ws.send(JSON.stringify({ type: MSG.TEST_SHAKE_ACK, vs_fpm: vsFpm, phase: 'done', diag: { ...diagInfo, shake, writes } }));
-            } catch {}
-          }, shake.durationMs + 300);
-          try { followUp.unref?.(); } catch {}
-        }
         return;
       }
       await handleClientMessageImpl(ws, msg, context);
@@ -1382,26 +1318,6 @@ async function runSimbridgeCore({
     console.log('[simbridge:init] Flight events: using a synchronized CSV + two-JSONL recording bundle');
   } else {
     console.log('[simbridge:init] Flight events: DISABLED (mock mode)');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Touchdown camera shake — fires at the moment of wheel contact.
-  // Plays a V/S-scaled landing profile through the Rust SimConnect sidecar
-  // (see telemetry-provider/touchdown-shake.ts). Gated by effects.touchdownShake;
-  // the debug modal's Test Shake button bypasses the gate for tuning.
-  // ═══════════════════════════════════════════════════════════════════════════
-  if (!TOUCHDOWN_SHAKE_DISABLED && !capabilities.isMock && config.touchdownShake.enable && typeof provider.triggerTouchdownShake === 'function') {
-    eventBus.on('landing:early', (payload) => {
-      if (!payload) return;
-      console.log(`[TouchdownShake] landing:early received, vs_fpm=${payload.vs_fpm}`);
-      try {
-        provider.triggerTouchdownShake(payload.vs_fpm);
-      } catch (e) {
-        console.warn('[TouchdownShake] shake trigger failed:', e.message);
-      }
-    });
-  } else {
-    console.log(`[TouchdownShake] Not subscribing: disabled=${TOUCHDOWN_SHAKE_DISABLED}, isMock=${capabilities.isMock}, enabled=${config.touchdownShake.enable}, hasTriggerFn=${typeof provider.triggerTouchdownShake === 'function'}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

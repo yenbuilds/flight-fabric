@@ -1,18 +1,13 @@
 'use strict';
 
-const path = require('path') as typeof import('path');
 const {
   createHistorySourceId,
-  sourceIdentityMatches,
 } = require('./source-identity.js') as {
   createHistorySourceId: (_filePath: unknown, _recordingSessionId?: unknown) => string;
-  sourceIdentityMatches: (_current: AnyRecord, _indexed: AnyRecord | null | undefined) => boolean;
 };
 const {
-  getFlightRecordsFromCsvFile,
   logbookOutcomeGrade,
 } = require('../landing/flight-logbook.js') as {
-  getFlightRecordsFromCsvFile: (_filePath: string, _options?: { bypassCache?: boolean; mtimeMs?: number }) => Promise<{ landings: AnyRecord[]; takeoffs: AnyRecord[] }>;
   logbookOutcomeGrade: (_entry: AnyRecord) => string | null;
 };
 
@@ -25,55 +20,6 @@ type CsvFileIdentity = {
   bundleSizeBytes?: number;
   recordingSessionId?: string;
 };
-type RefreshOptions = {
-  bypassCachePaths?: string[];
-  pruneMissing?: boolean;
-};
-type RefreshResult = {
-  indexed: number;
-  landingsIndexed: number;
-  skipped: number;
-  sourcesPruned: number;
-  landingsPruned: number;
-  totalInput: number;
-};
-
-function normalizePath(filePath: unknown): string | null {
-  if (typeof filePath !== 'string' || !filePath.trim()) return null;
-  const resolved = path.resolve(filePath);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-function normalizeCsvIdentity(input: unknown): CsvFileIdentity | null {
-  if (!input || typeof input !== 'object') return null;
-  const row = input as AnyRecord;
-  if (typeof row.filePath !== 'string' || !row.filePath.trim()) return null;
-  const mtimeMs = Number(row.mtimeMs);
-  const sizeBytes = Number(row.sizeBytes);
-  if (!Number.isFinite(mtimeMs) || !Number.isFinite(sizeBytes)) return null;
-  return {
-    filePath: row.filePath,
-    mtimeMs,
-    sizeBytes,
-    ...(Number.isSafeInteger(Number(row.bundleCatalogRevision))
-      ? { bundleCatalogRevision: Number(row.bundleCatalogRevision) }
-      : {}),
-    ...(Number.isSafeInteger(Number(row.bundleSizeBytes))
-      ? { bundleSizeBytes: Number(row.bundleSizeBytes) }
-      : {}),
-    ...(typeof row.recordingSessionId === 'string' && row.recordingSessionId.trim()
-      ? { recordingSessionId: row.recordingSessionId.trim() }
-      : {}),
-  };
-}
-
-function indexSourceIdentity(source: CsvFileIdentity): CsvFileIdentity {
-  return {
-    ...source,
-    mtimeMs: source.bundleCatalogRevision ?? source.mtimeMs,
-    sizeBytes: source.bundleSizeBytes ?? source.sizeBytes,
-  };
-}
 
 function landingToIndexInput(landing: AnyRecord, source: CsvFileIdentity): AnyRecord {
   const sourceId = createHistorySourceId(source.filePath, source.recordingSessionId);
@@ -128,87 +74,8 @@ function landingToIndexInput(landing: AnyRecord, source: CsvFileIdentity): AnyRe
   };
 }
 
-async function refreshLogbookLandingIndex(
-  store: AnyRecord,
-  csvFiles: unknown[],
-  options: RefreshOptions = {},
-): Promise<RefreshResult> {
-  const rows = (Array.isArray(csvFiles) ? csvFiles : [])
-    .map(normalizeCsvIdentity)
-    .filter((row): row is CsvFileIdentity => Boolean(row));
-  const bypassCachePaths = new Set(
-    (Array.isArray(options.bypassCachePaths) ? options.bypassCachePaths : [])
-      .map(normalizePath)
-      .filter((row): row is string => Boolean(row)),
-  );
-
-  const indexedPaths: string[] = [];
-  const changedSources: AnyRecord[] = [];
-  let indexed = 0;
-  let skipped = 0;
-  let landingsIndexed = 0;
-
-  for (const source of rows) {
-    indexedPaths.push(source.filePath);
-    const indexedIdentity = indexSourceIdentity(source);
-    const shouldBypassCache = bypassCachePaths.has(normalizePath(source.filePath) || '');
-    const indexedSource = typeof store.getLandingsSourceByPath === 'function'
-      ? store.getLandingsSourceByPath(source.filePath)
-      : store.getSourceByPath?.(source.filePath);
-    if (!shouldBypassCache && sourceIdentityMatches(indexedIdentity, indexedSource)) {
-      skipped += 1;
-      continue;
-    }
-
-    const { landings, takeoffs } = await getFlightRecordsFromCsvFile(source.filePath, {
-      bypassCache: shouldBypassCache,
-      mtimeMs: source.mtimeMs,
-    });
-    changedSources.push({
-      source: indexedIdentity,
-      landings: landings.map((landing) => landingToIndexInput(landing, source)),
-      takeoffs,
-    });
-    indexed += 1;
-    landingsIndexed += landings.length;
-  }
-
-  let sourcesPruned = 0;
-  let landingsPruned = 0;
-  if (options.pruneMissing !== false && typeof store.refreshSourcesLandingsIndex === 'function') {
-    const refresh = store.refreshSourcesLandingsIndex(changedSources, indexedPaths);
-    sourcesPruned = Number(refresh?.sourcesPruned) || 0;
-    landingsPruned = Number(refresh?.landingsPruned) || 0;
-  } else {
-    if (changedSources.length > 0) {
-      if (typeof store.replaceSourcesLandingsIndex === 'function') {
-        store.replaceSourcesLandingsIndex(changedSources);
-      } else {
-        for (const source of changedSources) {
-          store.replaceSourceIndex(source);
-        }
-      }
-    }
-    const pruned = options.pruneMissing === false || typeof store.pruneMissingLandingSources !== 'function'
-      ? 0
-      : store.pruneMissingLandingSources(indexedPaths);
-    sourcesPruned = Number(pruned?.sourcesPruned) || 0;
-    landingsPruned = Number(pruned?.landingsPruned) || 0;
-  }
-
-  return {
-    indexed,
-    landingsIndexed,
-    skipped,
-    sourcesPruned,
-    landingsPruned,
-    totalInput: rows.length,
-  };
-}
-
 module.exports = {
   landingToIndexInput,
-  refreshLogbookLandingIndex,
 };
 
 export {};

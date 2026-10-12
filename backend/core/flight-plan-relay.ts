@@ -52,7 +52,7 @@ function weightUnit(value: unknown): 'kg' | 'lbs' | null {
 type FieldSanitizer = (value: unknown) => unknown;
 
 // Field name -> sanitizer. Each nested group lists its own scalar fields.
-export const FLIGHT_PLAN_SCALAR_FIELDS: Readonly<Record<string, FieldSanitizer>> = Object.freeze({
+const FLIGHT_PLAN_SCALAR_FIELDS: Readonly<Record<string, FieldSanitizer>> = Object.freeze({
   origin: icaoCode,
   originName: (value) => boundedString(value, 80),
   departureRunway: runwayIdent,
@@ -89,7 +89,7 @@ export const FLIGHT_PLAN_SCALAR_FIELDS: Readonly<Record<string, FieldSanitizer>>
   icaoFlightPlan: (value) => boundedString(value, 4000),
 });
 
-export const FLIGHT_PLAN_GROUP_FIELDS: Readonly<Record<string, Readonly<Record<string, FieldSanitizer>>>> = Object.freeze({
+const FLIGHT_PLAN_GROUP_FIELDS: Readonly<Record<string, Readonly<Record<string, FieldSanitizer>>>> = Object.freeze({
   procedures: Object.freeze({
     sid: procedureIdent,
     sidTransition: procedureIdent,
@@ -191,5 +191,3 @@ export function sanitizeFlightPlanFields(source: unknown): AnyRecord {
   if (hasOwn(record, 'navlog')) plan.navlog = sanitizeNavlog(record.navlog);
   return plan;
 }
-
-export { boundedString as boundedFlightPlanString, finiteNumber as finiteFlightPlanNumber };

@@ -10,8 +10,6 @@
  * filesystem access, no Electron.
  */
 
-const path = require('node:path');
-
 // Community folder directory name. Also the MSFS package name.
 const PACKAGE_DIRECTORY_NAME = 'flightfabric-toolbar';
 
@@ -216,10 +214,6 @@ function isOwnedManifest(manifest) {
     && manifest.creator === PACKAGE_IDENTITY.creator;
 }
 
-function toPosixPath(value) {
-  return String(value).split(path.sep).join('/');
-}
-
 module.exports = {
   CONFIG_FILE,
   CONFIG_GLOBAL,
@@ -249,5 +243,4 @@ module.exports = {
   serializeManifest,
   substituteConfigPorts,
   toFileTime,
-  toPosixPath,
 };

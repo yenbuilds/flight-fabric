@@ -1,5 +1,7 @@
 'use strict';
 
+const { getInstallerDownloadUrls } = require('./update-manifest');
+
 function isAllowedDownloadResponse(details, size) {
   if ([301, 302, 303, 307, 308].includes(details.statusCode)) return true;
   if (details.statusCode !== 200) return false;
@@ -57,12 +59,13 @@ function createUpdateEngine({ release, currentVersion, onProgress, signal }) {
   updater.disableWebInstaller = true;
   updater.disableDifferentialDownload = true;
   // Restrict Electron's download redirects as well as the signed origin URL.
+  const downloadUrls = getInstallerDownloadUrls(release);
   updater.netSession.webRequest.onBeforeRequest((details, callback) => {
     let allowed = false;
     try {
       const url = new URL(details.url);
       allowed = url.protocol === 'https:' && !url.username && !url.password && !url.port
-        && (url.href === release.url || ['release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(url.hostname));
+        && (downloadUrls.includes(url.href) || ['release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(url.hostname));
     } catch {}
     callback({ cancel: !allowed });
   });

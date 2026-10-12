@@ -171,7 +171,6 @@ const MSG = Object.freeze({
   APP_SETTINGS_SAVED: 'appSettingsSaved',
 
   LVAR_DEBUG_WATCH_ACK: 'lvarDebugWatchAck',
-  TEST_SHAKE_ACK: 'testShakeAck',
 });
 
 /**

@@ -91,17 +91,6 @@ type SuitableAirportResult = {
   bearingDeg: number;
 };
 
-type AirportDistanceResult = {
-  icao: string;
-  name: string;
-  lat: number;
-  lon: number;
-  distanceNm: number;
-  bearingDeg: number;
-  maxRunwayLengthFt: number;
-  elevation_ft: number;
-};
-
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
@@ -383,24 +372,6 @@ function findSuitableAirports(lat: number, lon: number, options: SearchOptions =
 }
 
 /**
- * Find the nearest suitable airport
- * 
- * @param {number} lat - Current latitude
- * @param {number} lon - Current longitude
- * @param {number} [minRunwayLengthFt=5000] - Minimum runway length required
- * @returns {Object|null} Nearest suitable airport or null
- */
-function findNearestSuitable(lat: number, lon: number, minRunwayLengthFt = 5000): SuitableAirportResult | null {
-  const results = findSuitableAirports(lat, lon, {
-    radiusNm: 200,  // Search wider for "nearest"
-    minRunwayLengthFt,
-    limit: 1,
-  });
-  
-  return results[0] || null;
-}
-
-/**
  * Get a caller-supplied minimum runway length.
  *
  * ICAO approach category and wake-turbulence category do not encode landing
@@ -428,14 +399,6 @@ function isDataLoaded(): boolean {
 }
 
 /**
- * Get load error if any
- * @returns {string|null}
- */
-function getLoadError(): string | null {
-  return loadError;
-}
-
-/**
  * Get statistics about loaded data
  * @returns {Object}
  */
@@ -452,12 +415,6 @@ function getStats(): { loaded: boolean; airportCount: number; indexedCount: numb
   };
 }
 
-/**
- * Find airport by ICAO/IATA code or name
- * 
- * @param {string} query - ICAO code, IATA code, or partial name
- * @returns {Object|null} Airport or null
- */
 function normalizeIsoCountry(value: unknown): string | null {
   const code = String(value || '').trim().toUpperCase();
   return /^[A-Z]{2}$/.test(code) ? code : null;
@@ -472,80 +429,6 @@ function findAirportByIcao(icao: string | null | undefined): AirportRecord | nul
   const code = String(icao || '').trim().toUpperCase();
   if (!code) return null;
   return airports.get(code) || airportsByIcao.get(code) || null;
-}
-
-function findAirportByQuery(query: string | null | undefined): AirportRecord | null {
-  if (!loadData()) return null;
-  if (!query || query.length < 2) return null;
-  
-  const upperQuery = query.toUpperCase().trim();
-  const lowerQuery = query.toLowerCase().trim();
-  
-  // Try exact ICAO match first
-  const exactMatch = airports.get(upperQuery);
-  if (exactMatch) return exactMatch;
-  
-  // Try searching all airports
-  for (const apt of airports.values()) {
-    // ICAO match
-    if (apt.icao && apt.icao.toUpperCase() === upperQuery) return apt;
-    if (apt.ident && apt.ident.toUpperCase() === upperQuery) return apt;
-  }
-  
-  // Try name search (partial match)
-  const nameMatches: AirportRecord[] = [];
-  for (const apt of airports.values()) {
-    if (apt.name && apt.name.toLowerCase().includes(lowerQuery)) {
-      nameMatches.push(apt);
-    }
-  }
-  
-  // Return best name match (prefer large airports, then by name length)
-  if (nameMatches.length > 0) {
-    nameMatches.sort((a, b) => {
-      // Prefer large airports
-      const typeOrder: Record<string, number> = { large_airport: 0, medium_airport: 1, small_airport: 2 };
-      const aType = typeOrder[a.type] ?? 3;
-      const bType = typeOrder[b.type] ?? 3;
-      if (aType !== bType) return aType - bType;
-      // Then by runway length
-      return (b.maxRunwayLengthFt || 0) - (a.maxRunwayLengthFt || 0);
-    });
-    return nameMatches[0];
-  }
-  
-  return null;
-}
-
-/**
- * Calculate distance and bearing from current position to a destination airport
- * 
- * @param {number} lat - Current latitude
- * @param {number} lon - Current longitude
- * @param {string} destination - ICAO code or airport name
- * @returns {Object|null} Distance/bearing info or null
- */
-function getDistanceToAirport(
-  lat: number,
-  lon: number,
-  destination: string,
-): AirportDistanceResult | null {
-  const apt = findAirportByQuery(destination);
-  if (!apt) return null;
-  
-  const distanceNm = haversineDistanceNm(lat, lon, apt.lat, apt.lon);
-  const bearing = bearingDeg(lat, lon, apt.lat, apt.lon);
-  
-  return {
-    icao: apt.icao || apt.ident,
-    name: apt.name,
-    lat: apt.lat,
-    lon: apt.lon,
-    distanceNm: distanceNm,
-    bearingDeg: bearing,
-    maxRunwayLengthFt: apt.maxRunwayLengthFt,
-    elevation_ft: apt.elevation_ft,
-  };
 }
 
 /**
@@ -587,15 +470,11 @@ module.exports = {
   // Data loading
   loadData,
   isDataLoaded,
-  getLoadError,
   getStats,
   
   // Search
   findSuitableAirports,
-  findNearestSuitable,
   findAirportByIcao,
-  findAirportByQuery,
-  getDistanceToAirport,
   
   // Helpers
   getMinRunwayForAircraft,

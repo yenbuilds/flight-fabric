@@ -1,0 +1,212 @@
+{
+  "backend/autotaxi/adapters.ts": {
+    "reason": "Legacy Autotaxi family definitions and profile allowlist; relocate through integrations when Autotaxi ownership is refactored.",
+    "accepted": [
+      "aircraft-source-placement:0522d4030f89a410ef663128b9b29aab7e364218010d2125b16c6e4b4a13da86",
+      "aircraft-source-placement:9c1aea1feea26ba00b8393a6be0dd7bbf81d6ae66417421be9ee4d0b5996b893",
+      "aircraft-source-placement:aeaaf13d373f7fbe52dbb453cbe8a47f349f25e65e909b745ecc81d28136219a"
+    ]
+  },
+  "backend/autotaxi/axes.ts": {
+    "reason": "Legacy Fenix throttle recipe and PMDG fixture wrapper; existing declarations only, including their bodies.",
+    "accepted": [
+      "aircraft-source-placement:0fd16073a22a494025aa4378b8307530b06232adcd4ed38d708f61a0da82fe0f",
+      "aircraft-raw-variable-placement:0fd16073a22a494025aa4378b8307530b06232adcd4ed38d708f61a0da82fe0f",
+      "aircraft-source-placement:01e775206d3e4aa54b29d6309b082b5ce88a111d50c09757eff1a27f86ff971b"
+    ]
+  },
+  "backend/autotaxi/handling.ts": {
+    "reason": "Legacy PMDG default handling fixture; no additional aircraft defaults here.",
+    "accepted": [
+      "aircraft-source-placement:a03ca5434797f3c49d82120c0841e1b143c9cb0c86151144618638f32a278cd4"
+    ]
+  },
+  "backend/replay/landing-clip.ts": {
+    "reason": "Existing two-aircraft replay qualification restriction; keep its accepted scope until replay ownership is reviewed.",
+    "accepted": [
+      "aircraft-source-placement:eef1d056882389ebcb3d72ecc178123108dc1df076e94213971eba1f03251cb6"
+    ]
+  },
+  "backend/telemetry-provider/aircraft-autotaxi.ts": {
+    "reason": "Legacy Autotaxi factory contains SDK and Fenix readiness/parking/throttle knowledge; pending separate behavior-preserving extraction.",
+    "accepted": [
+      "aircraft-source-placement:fa6354b3bef489055d6fcb8b2ec43a2402b1e9b6136e9e83ce1a28e01a97d165"
+    ]
+  },
+  "backend/telemetry-provider/source-overlays.ts": {
+    "reason": "Existing frame normalization delegates MD-11 light decoding; no new concrete aircraft dependencies in this general overlay module.",
+    "accepted": [
+      "aircraft-source-placement:5aa384328203809955251e55b8146b47a92d0124df0f3f7448f9a2859779c7bd",
+      "aircraft-concrete-dependency:5aa384328203809955251e55b8146b47a92d0124df0f3f7448f9a2859779c7bd",
+      "aircraft-source-placement:d108ba07994f5be694b25724b0babba6f802974b767e0937767409fd5f2cd6eb"
+    ]
+  },
+  "electron/main.js": {
+    "reason": "Existing PMDG setup IPC wiring only; aircraft command mappings belong in backend integrations.",
+    "accepted": [
+      "aircraft-source-placement:5a0d3e9593e42a0981c4f34e78321a18678298d95c149a5bcbde003131e7fb01",
+      "aircraft-source-placement:6e015e16e8920425f43857d8cb68fc2ba387d38d6562ebd8000769970a32a38b",
+      "aircraft-source-placement:c8375420f83f074caf1cfcf53afc8edd4adad86588224ebb0a8347c945ba2992",
+      "aircraft-source-placement:2361d6feae250810d52ba8b72ef5ef8ec491bebe474bfe19d64bc14a0e3b8cd4",
+      "aircraft-source-placement:1117193e4e90f8561bd2195edf77361f53d8d672fa760388acb5087867dbac16"
+    ]
+  },
+  "electron/pmdg-sdk-setup.js": {
+    "reason": "Existing desktop-specific SDK options file discovery and setup, not aircraft control execution.",
+    "accepted": [
+      "aircraft-file-placement:path",
+      "aircraft-source-placement:ffaae08b0a66ad1739794ad8bce4c72e266837c5f59bdeab236d560699bfe8c8",
+      "aircraft-source-placement:a4dacd54cfda4ff50d12d5127b94970a8281a9311dfbc919f2814b71017ea7ba",
+      "aircraft-source-placement:e2abd6da54ddd959d1e0f900f5d24621cce0822365e7021fc9e5f1787bc12e58",
+      "aircraft-source-placement:d2d67aea63e18789408f9997b01fb7d3f236b7d18b69f8348cee95675138dd20",
+      "aircraft-source-placement:b9d88c7094aa05be8cdf40ddce29c08add6a679b332924971e267dd4814abd98",
+      "aircraft-source-placement:9cfddc629d904b95da527e8dfa73ebe8b8e2b58735c161ee6d4864b3bb05f4b5",
+      "aircraft-source-placement:b71c5668a3df4657aa421b84e6f71d0860128a18e97a63bf7a2899c419d1b77c"
+    ]
+  },
+  "electron/preload.js": {
+    "reason": "Existing validated PMDG setup IPC bridge; freeze these declarations against additional aircraft logic.",
+    "accepted": [
+      "aircraft-source-placement:766dc257e621ddba3915b558b8bfec7583e9da0f54896d02dd8e84d8d9e0ec1c",
+      "aircraft-source-placement:5192d576064c9b0f55a25b40bb67e1ecd4cad5c0ae2b26bcadb380816f00bfdd"
+    ]
+  },
+  "frontend/src/aircraft/cdu-controller.js": {
+    "reason": "Existing Fenix external MCDU URL construction; this is display connectivity.",
+    "accepted": [
+      "aircraft-source-placement:fc5893c150d30d4cc36361281960c85142e05abbcc476e6a913c3da6c6e4ab2f"
+    ]
+  },
+  "frontend/src/aircraft/control-ui.js": {
+    "reason": "Existing display formatter renders raw route descriptions for developer inspection.",
+    "accepted": [
+      "aircraft-raw-variable-placement:fce56db4afc8b37758f136e96178feb36fbf001bae016cfac448216625fef323"
+    ]
+  },
+  "frontend/src/aircraft/preset-observation.js": {
+    "reason": "Existing aircraft-specific preset freshness and pending-state rules; preserve current safeguards pending ownership consolidation.",
+    "accepted": [
+      "aircraft-source-placement:2b7c69599c3653cbbea1e32621ad7935298dbc34bda2ff1682c4df8dbdb949ce",
+      "aircraft-source-placement:cfe3623c81924aade05a1bf69a8c4a2f1b7909188209a3552e909376eb4d03bd"
+    ]
+  },
+  "frontend/src/aircraft/visual-manifest.js": {
+    "reason": "Existing artwork and profile-to-visual presentation registry; no control recipes.",
+    "accepted": [
+      "aircraft-source-placement:ca39f82d08146e3254bb375d181b47f2cbd772288c0a05892d4e0b488a2a26fe",
+      "aircraft-source-placement:b8bb46c05524c1d6434e61a555c280b83436c782689b089feca9a92486f00eb0",
+      "aircraft-source-placement:5891e98a6d60e84ced70ab78609b4820094295ae95f7b593150b3b0205d450f4"
+    ]
+  },
+  "frontend/src/cues/aircraft-cue-observations.js": {
+    "reason": "Existing cue profile-to-field observation table and selector; retained pending shared aircraft capability work.",
+    "accepted": [
+      "aircraft-source-placement:133bef11fae601f4c7361565236701138c26791aa3961334fd2f9fef599ab0cd",
+      "aircraft-source-placement:f7ecea1deb980165596775c8ee4e66a3ee7195b96c6c9cc6a1dd33ede001dded"
+    ]
+  },
+  "frontend/src/cues/aircraft-cue-policies.js": {
+    "reason": "Existing qualified aircraft cue policy registry; additions need explicit ownership review.",
+    "accepted": [
+      "aircraft-source-placement:9e2577db5951ecf4aee45d364c07424e5a72982220678ab9fafee75eadcc4452",
+      "aircraft-source-placement:b88aae78ce16a36ce20a81dcfd7a704da34240014d5bbbf703265dd3d6736904"
+    ]
+  },
+  "frontend/src/voice/baro-state-queries.js": {
+    "reason": "Existing barometer query family selection and display observations; retained while preserving voice behavior.",
+    "accepted": [
+      "aircraft-source-placement:26b14f99bd5c1bd5cc9d479156591bb1321f09c820278e37f4e946a24d4bd715",
+      "aircraft-source-placement:cd52ac947e0a75a50637294eabdcbfd556b3c5951eb01bd59e356da2ff06496c"
+    ]
+  },
+  "frontend/src/voice/state-queries.js": {
+    "reason": "Existing voice profile/field registry and query selectors; retained while preserving voice behavior.",
+    "accepted": [
+      "aircraft-source-placement:f6677653a2d184f58a4e7ed1faf699d641f84d47ecc2d81adca596830ec7d307",
+      "aircraft-source-placement:8889aefb21bcb3b93a865598a4c895235ef8e05fea91a9d1188f8347e73ca3e8",
+      "aircraft-source-placement:cd4f8b70458f1853a4771b9df4cd5e510a761e892cdbe28e83cf269450a46d81",
+      "aircraft-source-placement:755f7ea6125eb8a185ea8a3c2c14d4f5571b19a633f3007826d3f880f6038d46",
+      "aircraft-source-placement:801309e8d52ecc9e01d48cdff5a00f0505a5d2c2c82346f7b2148def572584be",
+      "aircraft-source-placement:d6f159c5a1240f26a1ce2e5cac6cf26539776497c9e3ffce74728569563a1210",
+      "aircraft-source-placement:7073351127276344acb967a15298f25c990655a8be7da0c065db29a7ea13ca7e"
+    ]
+  },
+  "frontend/src/vue/components/AircraftCduModal.vue": {
+    "reason": "Existing external Fenix MCDU display connection wiring.",
+    "accepted": [
+      "aircraft-source-placement:84877a0c7138e8b737738d5837b61fe8a683cbdc152955b94733a20d35628d07",
+      "aircraft-source-placement:e4d6bc640aaa8c5f5c3b8793fd8ac1724a9326d80a9c0012cbadbf6206f6f9a6"
+    ]
+  },
+  "frontend/src/vue/components/AircraftPageSearch.vue": {
+    "reason": "Existing aircraft component selectors and search-label extraction; presentation only.",
+    "accepted": [
+      "aircraft-source-placement:5c8c716ab0b713172c501f9e7fb313a358251c8ce4d36bc4774ff58e123b31e2",
+      "aircraft-source-placement:b66e038966a70ff330c89584b7a787e09b522be7ba9777f0ef546a24161a2b91"
+    ]
+  },
+  "frontend/src/vue/components/AircraftTabShell.vue": {
+    "reason": "Existing aircraft page layout, CDU availability and SDK setup component selection.",
+    "accepted": [
+      "aircraft-source-placement:98c0c146be6f73231fdfe0363118308da553c2ab30a2d86a77e6d09ead614943",
+      "aircraft-source-placement:15fde644713dbd9e34b67a20db29de47068c30ffd179bdd33ad50f797d91b116",
+      "aircraft-source-placement:959731cc5b61303bd8b66f445dbce59a7056997b563cdbfbe8135d360eaff494",
+      "aircraft-source-placement:95db7c4a110f97e72a21e713352c4ec1de1be6a2be793e44bade402eb56538b1"
+    ]
+  },
+  "frontend/src/vue/components/BaroControls.vue": {
+    "reason": "Existing aircraft barometer availability and state presentation; preserve pending migration to shared capabilities.",
+    "accepted": [
+      "aircraft-source-placement:afbfe24f55fd7df4580125d9d769bb7c4516cdf6890ad9cb7a33a24b82e449ee",
+      "aircraft-source-placement:58eed7b80eed22a323d7b8350e42389da83786cfdd2878d3c7fc4ce23ca818c1",
+      "aircraft-source-placement:a97be0b241740b4437e274946c2bb853c55e41e55aa07e9250628ee5be3c9ea8",
+      "aircraft-source-placement:66c77230d842d70d71214f41941c640ec090c0bf3593edf038a2981d1b65a3b4"
+    ]
+  },
+  "frontend/src/vue/components/EfisControls.vue": {
+    "reason": "Existing qualified EFIS availability checks; preserve pending shared capability work.",
+    "accepted": [
+      "aircraft-source-placement:b036f82dfa19a54377c6cc584e21a13c6fede0ae725bcc3e53c2e8d730a189bd",
+      "aircraft-source-placement:f37af3e6baf7b9d7fb2be6fe7a256d63a6b528b3671504171c78e2da40617470"
+    ]
+  },
+  "frontend/src/vue/components/LvarInspectorTab.vue": {
+    "reason": "Existing developer-only watch placeholder examples, not aircraft write recipes.",
+    "accepted": [
+      "aircraft-raw-variable-placement:8ab16049e25dc69b577d127d354c816800e3768044817edc5461020860f50d70"
+    ]
+  },
+  "frontend/src/vue/components/PmdgSdkSetup.vue": {
+    "reason": "Existing desktop SDK setup UI, not aircraft control execution.",
+    "accepted": [
+      "aircraft-file-placement:path",
+      "aircraft-source-placement:1d27c0f0d1f6caf6b40ffd6d5e0923b8297fe7ed58881f1faa73243267a8b763",
+      "aircraft-source-placement:a048ba75b9ea05da29ce52d6f89b040dac0eebba663875dc70c8255af848d0f7"
+    ]
+  },
+  "frontend/src/vue/components/TransponderControls.vue": {
+    "reason": "Existing qualified IDENT readback check; preserve pending shared capability work.",
+    "accepted": [
+      "aircraft-source-placement:6e864d985c0a672248fcaa26f8abe53c3b79467475bce018a6e5c7f2adcd23ec",
+      "aircraft-source-placement:a1e6faaad55ac8aeacbaca59e1e9803917d408e0d49d1cc74a7b51e66adf571d"
+    ]
+  },
+  "frontend/toolbar/presets.js": {
+    "reason": "Checked-in generated toolbar bundle of existing preset observation rules; source changes need the same ownership review.",
+    "accepted": [
+      "aircraft-source-placement:efc77a843bedf37a5f465acbe60d1ccef617a759538dea7fe09ee07901292511"
+    ]
+  },
+  "frontend/toolbar/replay.js": {
+    "reason": "Existing replay eligibility message names the two qualified aircraft.",
+    "accepted": [
+      "aircraft-source-placement:5c572003d861d0d52c4c73ec2d1cd1eb202119f0adcceeb3f52b9ca03c920118"
+    ]
+  },
+  "packages/telemetry-types/src/messages.ts": {
+    "reason": "Existing public Autotaxi message contract includes aircraft families; extending the wire contract needs review.",
+    "accepted": [
+      "aircraft-source-placement:74c70c5e5d1c574141f4efcb7c88ab22273413b7aff7a61f9a3686cb7d9024cc"
+    ]
+  }
+}

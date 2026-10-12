@@ -58,7 +58,6 @@ pub(crate) const SIMCONNECT_DATATYPE_INT32: Dword = 1;
 pub(crate) const SIMCONNECT_DATATYPE_FLOAT32: Dword = 3;
 pub(crate) const SIMCONNECT_DATATYPE_FLOAT64: Dword = 4;
 pub(crate) const SIMCONNECT_DATATYPE_STRING256: Dword = 9;
-pub(crate) const SIMCONNECT_DATATYPE_XYZ: Dword = 16;
 
 pub(crate) const fn hresult_succeeded(hr: Hresult) -> bool {
     // Equivalent to the Windows SUCCEEDED macro.
@@ -110,8 +109,6 @@ pub(crate) type SimConnectGetLastSentPacketId =
     unsafe extern "system" fn(Handle, *mut Dword) -> Hresult;
 pub(crate) type SimConnectSetDataOnSimObject =
     unsafe extern "system" fn(Handle, Dword, Dword, Dword, Dword, Dword, *const c_void) -> Hresult;
-pub(crate) type SimConnectCameraSetRelative6Dof =
-    unsafe extern "system" fn(Handle, f32, f32, f32, f32, f32, f32) -> Hresult;
 pub(crate) type SimConnectMapClientDataNameToId =
     unsafe extern "system" fn(Handle, *const c_char, Dword) -> Hresult;
 pub(crate) type SimConnectCreateClientData =
@@ -232,13 +229,6 @@ pub(crate) struct SimConnectRecvFacilityDataEnd {
     pub(crate) request_id: Dword,
 }
 
-#[repr(C)]
-pub(crate) struct SimConnectDataXyz {
-    pub(crate) x: f64,
-    pub(crate) y: f64,
-    pub(crate) z: f64,
-}
-
 // SimConnect reports the callback byte count separately. These helpers prevent
 // callers from reading a fixed header or trailing payload that was not supplied.
 pub(crate) fn callback_has_size<T>(cb_data: Dword) -> bool {
@@ -356,15 +346,6 @@ mod tests {
     }
 
     #[test]
-    fn xyz_data_layout_matches_the_simconnect_sdk() {
-        assert_eq!(size_of::<SimConnectDataXyz>(), 24);
-        assert_eq!(align_of::<SimConnectDataXyz>(), 8);
-        assert_eq!(offset_of!(SimConnectDataXyz, x), 0);
-        assert_eq!(offset_of!(SimConnectDataXyz, y), 8);
-        assert_eq!(offset_of!(SimConnectDataXyz, z), 16);
-    }
-
-    #[test]
     fn receive_struct_alignment_difference_from_the_packed_sdk_is_explicit() {
         // SimConnect.h declares the receive hierarchy inside `#pragma pack(push, 1)`.
         // The Rust declarations currently reproduce its byte sizes and offsets, but
@@ -420,7 +401,6 @@ mod tests {
         assert_eq!(SIMCONNECT_DATATYPE_FLOAT32, 3);
         assert_eq!(SIMCONNECT_DATATYPE_FLOAT64, 4);
         assert_eq!(SIMCONNECT_DATATYPE_STRING256, 9);
-        assert_eq!(SIMCONNECT_DATATYPE_XYZ, 16);
     }
 
     #[test]

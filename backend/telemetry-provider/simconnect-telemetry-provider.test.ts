@@ -1201,6 +1201,156 @@ test('TriStar AFCS pulses serialize physical controls and enforce a profile-scop
   assertEqual(events.length, 4, 'both non-TriStar calls reach SimConnect');
 });
 
+test('TriStar AFCS policy guards every documented pulse and preserves the exact 600 ms boundary', async (t) => {
+  let now = 10000;
+  t.mock.method(Date, 'now', () => now);
+  const provider = new SimConnectTelemetryProvider();
+  const options = { profileKey: 'bundled/msfs/inibuilds-tristar' };
+  const events = [];
+  const bridge = { async sendEvent(name, value, parameters) {
+    events.push({ name, value, parameters }); return { ok: true };
+  } };
+  // These are independent physical buttons; AP DISC is checked separately
+  // because it shares AP A's group rather than acquiring a thirteenth lock.
+  const buttons = ['AP_AIRSPEED_HOLD', 'AP_VS_HOLD', 'AP_ALT_HOLD', 'AP_MACH_HOLD',
+    'AP_HDG_HOLD', 'TOGGLE_FLIGHT_DIRECTOR', 'AP_MASTER', 'AP_APR_HOLD',
+    'AP_LOC_HOLD', 'AP_NAV1_HOLD', 'TOGGLE_WATER_RUDDER', 'AP_BC_HOLD'];
+  const run = name => provider._executeKeyEventAction(bridge, { name }, 'policy-fixture', options);
+  for (const name of buttons) {
+    assertEqual((await run(name)).ok, true, `${name} keeps a distinct physical button guard`);
+    assertDeepEqual(await run(name), { ok: false, code: 'action_cooldown',
+      error: 'Wait briefly before sending the TriStar AFCS control again.', retryAfterMs: 600,
+      backendSource: 'policy-fixture' }, `${name} has the existing complete cooldown result`);
+  }
+  assertEqual((await run('AUTOPILOT_OFF')).code, 'action_cooldown', 'AP DISC shares AP A cooldown');
+  assertDeepEqual(events, buttons.map(name => ({ name, value: 0, parameters: [] })),
+    'only the first pulse of each independent physical button reaches the bridge');
+  now += 599;
+  assertEqual((await run('AUTOPILOT_OFF')).retryAfterMs, 1, 'the final millisecond is still guarded');
+  now++;
+  assertEqual((await run('AUTOPILOT_OFF')).ok, true, 'a new physical pulse is accepted exactly at 600 ms');
+  assertEqual(events.length, buttons.length + 1, 'boundary retry dispatches only once');
+});
+
+test('TriStar pulse policy excludes other profiles, unmapped keys and the generic diagnostics path', async () => {
+  for (const profileKey of ['bundled/msfs/generic', 'bundled/msfs/fenix-a320',
+    'local/msfs/inibuilds-tristar', 'bundled/msfs/inibuilds-tristar-extra']) {
+    const provider = new SimConnectTelemetryProvider();
+    let writes = 0;
+    const bridge = { async sendEvent() { writes++; return { ok: true }; } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      assertEqual((await provider._executeKeyEventAction(bridge, { name: 'AP_MASTER' }, 'policy-fixture', { profileKey })).ok,
+        true, `${profileKey} keeps ordinary key-event dispatch`);
+    }
+    assertEqual(writes, 2, 'non-matching profiles are not throttled');
+    assertEqual(provider._profileKeyEventLastAttemptAt.size, 0, 'non-matching profiles do not acquire pulse policy state');
+  }
+  const provider = new SimConnectTelemetryProvider();
+  const options = { profileKey: 'bundled/msfs/inibuilds-tristar' };
+  let writes = 0, genericCalls = 0;
+  const bridge = { async sendEvent() { writes++; return { ok: true }; } };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assertEqual((await provider._executeKeyEventAction(bridge, { name: 'HEADING_BUG_SET', value: 270 }, 'policy-fixture', options)).ok,
+      true, 'unmapped keys retain ordinary dispatch');
+  }
+  const genericResult = { ok: true, code: 'generic-observed' };
+  provider._executeGenericKeyEvent = async (receivedBridge, name, value, parameters, backendSource, receivedOptions) => {
+    assertEqual(receivedBridge, bridge, 'generic transport is preserved');
+    assertDeepEqual([name, value, parameters, backendSource, receivedOptions.resolvedBy],
+      ['AP_MASTER', 0, [], 'policy-fixture', 'generic'], 'generic diagnostics receives the normalized request');
+    genericCalls++; return genericResult;
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assertEqual(await provider._executeKeyEventAction(bridge, { name: 'AP_MASTER' }, 'policy-fixture',
+      { ...options, resolvedBy: 'generic' }), genericResult, 'generic diagnostics owns its result');
+  }
+  assertEqual(writes, 2, 'generic requests are delegated rather than sent by the pulse path');
+  assertEqual(genericCalls, 2, 'generic requests are not intercepted by the TriStar cooldown');
+  assertEqual(provider._profileKeyEventLastAttemptAt.size, 0, 'excluded paths leave pulse guards untouched');
+});
+
+test('TriStar failed and thrown writes release the in-flight lock while retaining the cooldown', async (t) => {
+  let now = 10000;
+  t.mock.method(Date, 'now', () => now);
+  for (const failure of ['rejected', 'throws']) {
+    const provider = new SimConnectTelemetryProvider();
+    let writes = 0;
+    const bridge = { async sendEvent() {
+      writes++;
+      if (writes > 1) return { ok: true };
+      if (failure === 'throws') throw new Error('sidecar disconnected');
+      return { ok: false, error: 'sidecar rejected input' };
+    } };
+    const run = () => provider._executeKeyEventAction(bridge, { name: 'AP_MASTER' }, 'policy-fixture',
+      { profileKey: 'bundled/msfs/inibuilds-tristar' });
+    if (failure === 'throws') await require('node:assert/strict').rejects(run(), /sidecar disconnected/);
+    else assertDeepEqual(await run(), { ok: false, code: 'action_failed', error: 'sidecar rejected input',
+      backendSource: 'policy-fixture', executionStarted: true }, 'transport rejection retains the existing result');
+    assertEqual(provider._profileKeyEventsInFlight.size, 0, 'failure releases the physical button lock');
+    assertEqual((await run()).code, 'action_cooldown', 'failure does not invite an immediate repeated pulse');
+    now += 600;
+    assertEqual((await run()).ok, true, 'a new request recovers after the existing cooldown');
+    assertEqual(writes, 2, 'failed writes are not automatically retried');
+  }
+});
+
+test('PMDG 777 parking-brake readback failures retain their exact scoped operational hint', async () => {
+  const profileLoader = require('../aircraft/aircraft-profile-loader');
+  const previousProfile = profileLoader.getActiveProfileId();
+  const hint = ' PMDG Realistic parking-brake mode can require both toe brakes to be held before the lever accepts SET; releasing may be controlled by pedal input.';
+  try {
+    for (const [adapterId, actionId, fieldId, expectedValue, hasHint] of [
+      ['pmdg-777', 'controls.parkingBrake.on', 'controls.parkingBrake', true, true],
+      ['pmdg-777', 'controls.parkingBrake.off', 'controls.parkingBrake', false, true],
+      ['pmdg-777', 'lights.beacon.on', 'lights.beacon', true, false],
+      ['pmdg-737', 'gear.parkingBrake.set', 'gear.parkingBrake', true, false],
+    ]) for (const rejected of [false, true]) {
+      profileLoader.setActiveProfile(adapterId);
+      const config = profileLoader.getAircraftSpecificConfig();
+      const provider = new SimConnectTelemetryProvider();
+      const observed = !expectedValue;
+      const snapshot = { adapterId: 'clientdata-manifest', status: 'running', snapshotSequence: 1,
+        updatedAt: new Date().toISOString(), normalized: { brakes: { parking: observed }, lights: { beacon: observed } } };
+      provider._sdkBridge = { getSnapshot: () => snapshot, isDataConnected: () => true };
+      // Preserve real profile/SDK decoding and dispatch. Only the elapsed wait
+      // is replaced: the simulated lever or switch remains at its initial value.
+      provider._waitForAircraftIntegrationReadback = async (_bridge, readback, context) => ({
+        ...provider._captureAircraftIntegrationReadback(_bridge, readback, context),
+        confirmed: false, sequenceAdvanced: false,
+      });
+      const events = [], exception = rejected ? { exception: 1, sendId: 41 } : null;
+      const bridge = {
+        getSnapshot: () => ({ source: 'policy-fixture' }),
+        async sendEvent(name, value) { events.push({ name, value }); return { ok: true, sendId: 40 + events.length }; },
+        findRecentSimConnectException(ids) {
+          assertEqual(ids.includes(41), true, 'the native rejection is correlated with dispatched send IDs');
+          return exception;
+        },
+      };
+      const result = await provider._executeAircraftIntegrationAction(bridge, { name: adapterId }, 'policy-fixture', {
+        profileKey: config.profileKey, profileRevision: config.profileRevision, request: { actionId },
+      });
+      const action = aircraftIntegrationCatalog.defaultAircraftIntegrationRegistry.resolveAction({
+        adapterId, profileKey: config.profileKey, actionId,
+      });
+      const route = action.routes[0];
+      const detail = `The aircraft published no newer control state; ${fieldId} remained ${observed} instead of ${expectedValue}.`;
+      const prefix = rejected
+        ? `SimConnect rejected command ${route.command} after its initial acknowledgement (exception 1, packet 41). `
+        : `The transport accepted the command, but readback did not confirm it within ${route.readback.timeoutMs} ms. `;
+      assertEqual(result.error, prefix + detail + (hasHint ? hint : ''), `${adapterId} ${actionId} preserves exact failure text`);
+      assertEqual(result.code, rejected ? 'aircraft_integration_simconnect_exception' : 'aircraft_integration_readback_timeout',
+        'timeout and native rejection remain distinguishable');
+      assertDeepEqual([result.integrationId, result.actionId, result.routeId, result.transportMode,
+        result.expectedValue, result.baselineValue, result.observedValue, result.readbackAdvanced, result.executionStarted],
+      [adapterId, actionId, route.id, 'sdk', expectedValue, observed, observed, false, true], 'structured failure provenance is unchanged');
+      assertDeepEqual(result.simConnectException, exception || undefined, 'native exception details are preserved');
+      assertEqual(events.length > 0, true, 'the failure follows actual SDK event dispatch');
+      assertEqual(provider._aircraftIntegrationActionsInFlight.size, 0, 'failed confirmation releases the action lock');
+    }
+  } finally { if (previousProfile) profileLoader.setActiveProfile(previousProfile); }
+});
+
 const FBW_A32NX_PROFILE_KEY = 'bundled/msfs/fbw-a32nx';
 const FBW_A32NX_PROFILE_REVISION = 19;
 const FBW_A32NX_ADAPTER_ID = 'fbw-a32nx';

@@ -183,56 +183,7 @@ function resolveExistingDirectory(targetPath: unknown): string | null {
   }
 }
 
-async function checkCsvDiskSpace(
-  options: { minFreeGb?: number; targetDir?: string } = {}
-): Promise<{ allowed: boolean; freeDiskGb: number; minFreeGb: number; reason?: string }> {
-  const minFreeGb = options.minFreeGb ?? 1;
-  const requestedDir = options.targetDir || (
-    require('./flight-logs-dir.js') as {
-      resolveFlightLogsDir: (options?: { createIfMissing?: boolean }) => string;
-    }
-  ).resolveFlightLogsDir({ createIfMissing: false });
-  const checkDir = resolveExistingDirectory(requestedDir);
-
-  if (!checkDir) {
-    return { allowed: true, freeDiskGb: -1, minFreeGb, reason: 'Could not resolve flight logs disk' };
-  }
-
-  try {
-    if (typeof fs.statfs === 'function') {
-      return new Promise((resolve) => {
-        fs.statfs(checkDir, (error, stats) => {
-          if (error) {
-            resolve({ allowed: true, freeDiskGb: -1, minFreeGb, reason: 'Could not check disk space' });
-            return;
-          }
-          const availableBlocks = Number.isFinite(stats.bavail) ? stats.bavail : stats.bfree;
-          const freeBytes = availableBlocks * stats.bsize;
-          const freeDiskGb = Math.round((freeBytes / (1024 * 1024 * 1024)) * 100) / 100;
-
-          if (freeDiskGb < minFreeGb) {
-            resolve({
-              allowed: false,
-              freeDiskGb,
-              minFreeGb,
-              reason: `Low disk space: ${freeDiskGb.toFixed(1)} GB free (minimum ${minFreeGb} GB required)`,
-            });
-          } else {
-            resolve({ allowed: true, freeDiskGb, minFreeGb });
-          }
-        });
-      });
-    }
-
-    return { allowed: true, freeDiskGb: -1, minFreeGb, reason: 'fs.statfs not available' };
-  } catch (error) {
-    const err = error as { message?: string };
-    return { allowed: true, freeDiskGb: -1, minFreeGb, reason: err.message };
-  }
-}
-
 const helpersApi = {
-  checkCsvDiskSpace,
   computeCrosswind,
   decodeGearState,
   decodeLights,

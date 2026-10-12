@@ -1,6 +1,6 @@
 import assert = require('node:assert/strict');
 import test = require('node:test');
-import { createPmdgAutotaxi } from '../telemetry-provider/pmdg-autotaxi.js';
+import { createAutotaxi as createPmdgAutotaxi } from '../telemetry-provider/aircraft-autotaxi.js';
 const { SdkBridge } = require('../telemetry-provider/sdk-bridge.js');
 const { getSdkAdapterById } = require('../telemetry-provider/sdk-registry.js');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider.js');

@@ -411,21 +411,6 @@ const config = Object.freeze({
   // ---------------------------------------------------------------------------
   controlProfile: str('CONTROL_PROFILE', null),
 
-  // ---------------------------------------------------------------------------
-  // Touchdown camera shake
-  // Automatic shake on landing is disabled by default; the Test Shake button in
-  // the telemetry debug modal works regardless. Requires the Rust SimConnect
-  // sidecar (LVAR_SIDECAR_AUTO_ENABLE or LVAR_SIDECAR_ENABLE).
-  //   method    'eyepoint' (additive eyepoint overlay, default) or 'camera6dof'
-  //             (legacy CameraSetRelative6DOF; snaps and holds the camera).
-  //   intensity amplitude multiplier, 0.1..3 (default 1).
-  // ---------------------------------------------------------------------------
-  touchdownShake: Object.freeze({
-    enable: bool('TOUCHDOWN_SHAKE_ENABLE', getSetting(userSettings, 'effects.touchdownShake', 'TOUCHDOWN_SHAKE_ENABLE', false)),
-    method: str('TOUCHDOWN_SHAKE_METHOD', getSetting(userSettings, 'effects.touchdownShakeMethod', 'TOUCHDOWN_SHAKE_METHOD', 'eyepoint')),
-    intensity: float('TOUCHDOWN_SHAKE_INTENSITY', getSetting(userSettings, 'effects.touchdownShakeIntensity', 'TOUCHDOWN_SHAKE_INTENSITY', 1)),
-  }),
-
   // LVAR sidecar runtime.
   // Disabled by default. When enabled, SimConnect provider can enrich frame.lvars
   // with values from the Rust sidecar bridge.

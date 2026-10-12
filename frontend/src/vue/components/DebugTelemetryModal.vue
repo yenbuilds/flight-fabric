@@ -1,12 +1,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted } from 'vue';
-import { sendWs } from '../../../app-shared.js';
 import { initDebugRuntime } from '../../debug/runtime.js';
 import {
   subscribeDebugFrame,
   subscribeTelemetryReset,
   subscribeWsClose,
-  subscribeWsMessage,
 } from '../../app/runtime-signals.js';
 import AppTooltip from './AppTooltip.vue';
 import { useBodyClass } from '../composables/useBodyClass.js';
@@ -61,7 +59,6 @@ useBodyClass(() => debug.modalOpen, 'debug-modal-open');
 onMounted(() => {
   debugRuntime = initDebugRuntime({
     $: (id) => document.getElementById(id),
-    sendWs,
     debugStore: debug,
     getCurrentDebugState: () => ({
       phase: status.phase,
@@ -71,7 +68,6 @@ onMounted(() => {
     subscribeDebugFrameSignal: subscribeDebugFrame,
     subscribeTelemetryResetSignal: subscribeTelemetryReset,
     subscribeWsCloseSignal: subscribeWsClose,
-    subscribeWsMessageSignal: subscribeWsMessage,
     windowRef: window,
     documentRef: document,
     consoleRef: console,
@@ -162,8 +158,6 @@ onUnmounted(() => {
         >
           IN MENU
         </span>
-        <!-- The Test Shake controls were removed on 2026-09-18 while the
-             touchdown shake is disabled; see touchdown-shake.ts. -->
       </div>
 
       <div class="flex-none flex items-center gap-4 px-4 py-2 border-b border-gray-800 bg-gray-950 text-xs">

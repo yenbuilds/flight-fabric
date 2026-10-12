@@ -25,10 +25,6 @@ function createDefaultConnectionState() {
     pollRateHz: null,
     frameCount: 0,
     phase: '--',
-    testShakeVs: '-400',
-    testShakeMethod: 'eyepoint',
-    testShakeStatus: '',
-    testShakeRequestNonce: 0,
     lastFrameTime: 0,
     renderTick: 0,
     collapsedSources: {
@@ -305,28 +301,6 @@ export const useDebugStore = defineStore('debug', {
       if (typeof phaseValue === 'string' && phaseValue.trim()) {
         this.phase = phaseValue;
       }
-    },
-
-    setTestShakeVs(value) {
-      this.testShakeVs = String(value || '-400');
-    },
-
-    setTestShakeMethod(value) {
-      this.testShakeMethod = value === 'camera6dof' ? 'camera6dof' : 'eyepoint';
-    },
-
-    requestTestShake() {
-      this.testShakeRequestNonce += 1;
-    },
-
-    setTestShakeStatus(value) {
-      this.testShakeStatus = String(value || '');
-      this.renderTick += 1;
-    },
-
-    clearTestShakeStatus() {
-      this.testShakeStatus = '';
-      this.renderTick += 1;
     },
 
     toggleSourceCollapsed(sourceKey) {

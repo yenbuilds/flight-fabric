@@ -1,16 +1,9 @@
 import type { AircraftIntegrationAction, AircraftIntegrationField, SimConnectSequenceOperation } from '../types.js';
+import { BARO_INPUTS, baroSides, type BaroTarget, type BaroOperation } from '../../barometer-contract.js';
 
-export type BaroTarget = 'captain' | 'firstOfficer' | 'both';
-export type BaroOperation = 'qnhHpa' | 'qnhInHg' | 'std';
-const BARO_SIDES = ['captain', 'firstOfficer'] as const;
-export const baroSides = (target: BaroTarget) => target === 'both' ? [...BARO_SIDES] : [target];
 export const baroField = (side: string, property: string) => property === 'unitInHg'
   ? `flightGuidance.baroUnit${side === 'captain' ? 'Captain' : 'FirstOfficer'}` : `baro.${side}.${property}`;
 export const baroLetter = (side: string) => side === 'captain' ? 'L' : 'R';
-export const BARO_INPUTS = {
-  qnhHpa: { type: 'number', min: 948, max: 1084, step: 1 },
-  qnhInHg: { type: 'number', min: 27.99, max: 32.01, step: 0.01 },
-} as const;
 export const BARO_HPA_PER_INHG = 33.863886666667;
 
 export function baroFields(): Record<string, AircraftIntegrationField> {
@@ -18,7 +11,7 @@ export function baroFields(): Record<string, AircraftIntegrationField> {
     id, sources: [{ route: { type: 'lvar', name: `L:${name}`, unit: 'Number' }, decode: boolean
       ? { type: 'boolean', trueValues: [1], falseValues: [0] } : { type: 'number', precision: 2 } }],
   }];
-  return Object.fromEntries([field('baro.healthy', 'A32NX_FCU_HEALTHY', true), ...BARO_SIDES.flatMap((side) => [
+  return Object.fromEntries([field('baro.healthy', 'A32NX_FCU_HEALTHY', true), ...baroSides('both').flatMap((side) => [
     field(baroField(side, 'mode'), `A32NX_FCU_EFIS_${baroLetter(side)}_DISPLAY_BARO_MODE`),
     field(baroField(side, 'valueMode'), `A32NX_FCU_EFIS_${baroLetter(side)}_DISPLAY_BARO_VALUE_MODE`),
     field(baroField(side, 'value'), `A32NX_FCU_EFIS_${baroLetter(side)}_DISPLAY_BARO_VALUE`),

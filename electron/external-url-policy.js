@@ -2,7 +2,10 @@
 
 const MAX_EXTERNAL_URL_LENGTH = 2048;
 const RELEASE_HOSTNAME = 'github.com';
-const RELEASE_PATH_PREFIX = '/yenbuilds/flight-fabric/releases';
+const RELEASE_PATH_PREFIXES = [
+  '/yenbuilds/flight-fabric/releases',
+  '/yenbuilds/flightfabric-desktop/releases',
+];
 // Allow the fixed first-party entry point, not arbitrary website paths or targets.
 const SUPPORT_URL = 'https://www.flightfabric.com/support/';
 
@@ -16,8 +19,7 @@ const FIXED_EXTERNAL_URLS = new Set([
 
 function isReleasePath(pathname) {
   const normalizedPath = pathname.toLowerCase();
-  return normalizedPath === RELEASE_PATH_PREFIX
-    || normalizedPath.startsWith(`${RELEASE_PATH_PREFIX}/`);
+  return RELEASE_PATH_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
 }
 
 function resolveAllowedExternalUrl(rawUrl) {

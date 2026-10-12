@@ -10,6 +10,7 @@ const MAX_MANIFEST_BYTES = 64 * 1024;
 const MAX_INSTALLER_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_VALIDITY_MS = 30 * 24 * 60 * 60 * 1000;
 const VERSION = /^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
+const RELEASE_REPOSITORIES = ['flight-fabric', 'flightfabric-desktop'];
 
 function updateError(code, message) {
   return Object.assign(new Error(message), { code });
@@ -51,6 +52,22 @@ function validateKeys(keys) {
   });
 }
 
+function getInstallerDownloadUrls(release) {
+  if (typeof release?.version !== 'string' || !VERSION.test(release.version)
+      || typeof release.url !== 'string') return [];
+  let url;
+  try { url = new URL(release.url); } catch { return []; }
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password
+      || url.port || url.search || url.hash) return [];
+  const prefixes = RELEASE_REPOSITORIES.map(repository => `/yenbuilds/${repository}/releases/download/v${release.version}/`);
+  const prefix = prefixes.find(candidate => url.pathname.startsWith(candidate));
+  if (!prefix) return [];
+  const filename = url.pathname.slice(prefix.length);
+  if (!/^[A-Za-z0-9._-]+\.exe$/.test(filename)) return [];
+  // A repository rename may redirect only this signed version and asset to its alias.
+  return prefixes.map(candidate => `https://github.com${candidate}${filename}`);
+}
+
 function validatePayload(payload, now = Date.now()) {
   if (!payload || payload.schema !== 1 || payload.channel !== 'public' || payload.platform !== 'win32-x64'
       || !Number.isSafeInteger(payload.sequence) || payload.sequence < 1) throw updateError('trust', 'Invalid update metadata.');
@@ -66,12 +83,7 @@ function validatePayload(payload, now = Date.now()) {
       || !Number.isSafeInteger(release.size) || release.size < 1 || release.size > MAX_INSTALLER_BYTES
       || typeof release.notes !== 'string' || release.notes.length > 2000
       || decodeBase64(release.sha512, 64).length !== 64) throw updateError('trust', 'Invalid update release.');
-  let url;
-  try { url = new URL(release.url); } catch { throw updateError('trust', 'Invalid update location.'); }
-  const prefix = `/yenbuilds/flight-fabric/releases/download/v${release.version}/`;
-  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password
-      || url.port || url.search || url.hash || !url.pathname.startsWith(prefix)
-      || !/^[A-Za-z0-9._-]+\.exe$/.test(url.pathname.slice(prefix.length))) {
+  if (getInstallerDownloadUrls(release).length === 0) {
     throw updateError('trust', 'Invalid update location.');
   }
   return payload;
@@ -118,4 +130,4 @@ async function verifyInstaller(file, release, signal) {
   }
 }
 
-module.exports = { DOMAIN, MAX_MANIFEST_BYTES, MAX_INSTALLER_BYTES, VERSION, keyId, validateKeys, validatePayload, verifyManifest, verifyInstaller, versionGreater, updateError };
+module.exports = { DOMAIN, MAX_MANIFEST_BYTES, MAX_INSTALLER_BYTES, VERSION, keyId, validateKeys, getInstallerDownloadUrls, validatePayload, verifyManifest, verifyInstaller, versionGreater, updateError };

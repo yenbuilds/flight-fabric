@@ -61,7 +61,6 @@ export const PRIVILEGED_CLIENT_MESSAGE_TYPES = Object.freeze([
   'checkHistoryIndex',
   'rebuildHistoryIndex',
   'lvarDebugWatch',
-  'testShake',
   'requestDevicePairingRequests',
   'approveDevicePairingRequest',
 ] as const);

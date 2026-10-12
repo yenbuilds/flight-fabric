@@ -381,8 +381,6 @@ function decodeInGamePanelsDocument(buffer) {
 
 module.exports = {
   PANEL_ATTRIBUTE_ORDER,
-  PROPERTY_GUIDS,
-  RESIZE_DIRECTIONS,
   decodeInGamePanelsDocument,
   decodeString,
   encodeInGamePanelsDocument,

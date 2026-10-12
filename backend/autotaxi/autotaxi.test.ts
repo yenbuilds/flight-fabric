@@ -8,10 +8,10 @@ import { createTaxiController, STOP_INPUT, type TaxiInput } from './controller.j
 import { createTaxiSession, type TaxiAirport, type TaxiObservation, type TaxiRecord } from './session.js';
 import { createTaxiRecorder } from './recorder.js';
 import { buildTaxiScene } from './scene.js';
-import { brakeAxis, writeTaxiAxes, createPmdgAutotaxi } from '../telemetry-provider/pmdg-autotaxi.js';
+import { createAutotaxi as createPmdgAutotaxi } from '../telemetry-provider/aircraft-autotaxi.js';
 import { isClientMessageAuthorized } from '../core/client-message-authorization.js';
 import { DEFAULT_TAXI_HANDLING, taxiHandlingKey, validateTaxiHandling, type TaxiHandling } from './handling.js';
-import { TaxiControlWriteError } from './axes.js';
+import { brakeAxis, writeTaxiAxes, TaxiControlWriteError } from './axes.js';
 import { recoverTaxiControlBridge } from './control-recovery.js';
 
 function graph(): TaxiGraph {

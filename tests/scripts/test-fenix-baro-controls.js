@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
-const { captureFenixBaroState, executeFenixBaroTransaction } = require(runtime('telemetry-provider/fenix-baro-control.js'));
+const { captureFenixBaroState, executeFenixBaroTransaction } = require(runtime('aircraft/aircraft-integrations/fenix-a32x/baro-control.js'));
 const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(runtime('aircraft/aircraft-control-service.js'));
 const capabilities = { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };

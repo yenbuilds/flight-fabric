@@ -843,16 +843,6 @@ mod sidecar {
                 unit: None,
                 value: None,
                 parameters: Vec::new(),
-                x: None,
-                y: None,
-                z: None,
-                units: None,
-                pitch: None,
-                bank: None,
-                heading: None,
-                dx: None,
-                dy: None,
-                dz: None,
                 data_type: None,
                 poll_interval_ms: None,
                 chunk_size: None,
@@ -3116,89 +3106,6 @@ mod sidecar {
             Ok(ok)
         }
 
-        /// STRUCT EYEPOINT DYNAMIC OFFSET: additive head-position overlay on the
-        /// cockpit eyepoint. Y is up. Native unit is feet.
-        fn eyepoint_offset(&mut self, x: f64, y: f64, z: f64, units: &str) -> bool {
-            self.set_eyepoint_xyz("STRUCT EYEPOINT DYNAMIC OFFSET", units, x, y, z)
-        }
-
-        /// STRUCT EYEPOINT DYNAMIC ANGLE: additive head-rotation overlay on the
-        /// cockpit eyepoint. The struct is body-axis ordered (x = pitch,
-        /// y = heading, z = bank) and native to radians; callers pass degrees.
-        fn eyepoint_angle(&mut self, pitch_deg: f64, bank_deg: f64, heading_deg: f64) -> bool {
-            self.set_eyepoint_xyz(
-                "STRUCT EYEPOINT DYNAMIC ANGLE",
-                "Radians",
-                pitch_deg.to_radians(),
-                heading_deg.to_radians(),
-                bank_deg.to_radians(),
-            )
-        }
-
-        fn set_eyepoint_xyz(&mut self, datum_name: &str, units: &str, x: f64, y: f64, z: f64) -> bool {
-            let definition_id = self.next_definition_id;
-            self.next_definition_id += 1;
-            let datum = match cstring(datum_name) {
-                Ok(value) => value,
-                Err(_) => return false,
-            };
-            let units = match cstring(units) {
-                Ok(value) => value,
-                Err(_) => return false,
-            };
-            let add_hr = unsafe {
-                (self.api.add_to_data_definition)(
-                    self.handle,
-                    definition_id,
-                    datum.as_ptr(),
-                    units.as_ptr(),
-                    SIMCONNECT_DATATYPE_XYZ,
-                    0.0,
-                    SIMCONNECT_UNUSED,
-                )
-            };
-            if !hresult_ok(add_hr) {
-                let _ = unsafe { (self.api.clear_data_definition)(self.handle, definition_id) };
-                return false;
-            }
-            let xyz = SimConnectDataXyz { x, y, z };
-            let set_hr = unsafe {
-                (self.api.set_data_on_sim_object)(
-                    self.handle,
-                    definition_id,
-                    SIMCONNECT_OBJECT_ID_USER_AIRCRAFT,
-                    0,
-                    0,
-                    size_of::<SimConnectDataXyz>() as Dword,
-                    &xyz as *const SimConnectDataXyz as *const c_void,
-                )
-            };
-            let _ = unsafe { (self.api.clear_data_definition)(self.handle, definition_id) };
-            hresult_ok(set_hr)
-        }
-
-        fn camera_shake(
-            &mut self,
-            dx: f64,
-            dy: f64,
-            dz: f64,
-            pitch: f64,
-            bank: f64,
-            heading: f64,
-        ) -> bool {
-            let hr = unsafe {
-                (self.api.camera_set_relative_6dof)(
-                    self.handle,
-                    dx as f32,
-                    dy as f32,
-                    dz as f32,
-                    pitch as f32,
-                    bank as f32,
-                    heading as f32,
-                )
-            };
-            hresult_ok(hr)
-        }
     }
 
     impl Drop for SimSession {
@@ -3816,83 +3723,6 @@ mod sidecar {
                 } else {
                     emit_value(
                         json!({ "type": "setNamedVarAck", "name": name, "ok": false, "error": "not_connected", "requestId": command.request_id }),
-                    );
-                }
-                true
-            }
-            "eyepointOffset" => {
-                let x = command.x.unwrap_or(0.0);
-                let y = command.y.unwrap_or(0.0);
-                let z = command.z.unwrap_or(0.0);
-                let units = command.units.as_deref().unwrap_or("Meters");
-                if !is_bounded_camera_number(x, MAX_CAMERA_OFFSET_METERS)
-                    || !is_bounded_camera_number(y, MAX_CAMERA_OFFSET_METERS)
-                    || !is_bounded_camera_number(z, MAX_CAMERA_OFFSET_METERS)
-                    || !is_safe_control_unit(units)
-                {
-                    emit_value(
-                        json!({ "type": "eyepointOffsetAck", "ok": false, "error": "invalid_payload" }),
-                    );
-                    return true;
-                }
-                if let Some(session) = session {
-                    let ok = session.eyepoint_offset(x, y, z, units);
-                    emit_value(json!({ "type": "eyepointOffsetAck", "ok": ok }));
-                } else {
-                    emit_value(
-                        json!({ "type": "eyepointOffsetAck", "ok": false, "error": "not_connected" }),
-                    );
-                }
-                true
-            }
-            "eyepointAngle" => {
-                let pitch = command.pitch.unwrap_or(0.0);
-                let bank = command.bank.unwrap_or(0.0);
-                let heading = command.heading.unwrap_or(0.0);
-                if !is_bounded_camera_number(pitch, MAX_CAMERA_ANGLE_DEGREES)
-                    || !is_bounded_camera_number(bank, MAX_CAMERA_ANGLE_DEGREES)
-                    || !is_bounded_camera_number(heading, MAX_CAMERA_ANGLE_DEGREES)
-                {
-                    emit_value(
-                        json!({ "type": "eyepointAngleAck", "ok": false, "error": "invalid_payload" }),
-                    );
-                    return true;
-                }
-                if let Some(session) = session {
-                    let ok = session.eyepoint_angle(pitch, bank, heading);
-                    emit_value(json!({ "type": "eyepointAngleAck", "ok": ok }));
-                } else {
-                    emit_value(
-                        json!({ "type": "eyepointAngleAck", "ok": false, "error": "not_connected" }),
-                    );
-                }
-                true
-            }
-            "cameraShake" => {
-                let dx = command.dx.unwrap_or(0.0);
-                let dy = command.dy.unwrap_or(0.0);
-                let dz = command.dz.unwrap_or(0.0);
-                let pitch = command.pitch.unwrap_or(0.0);
-                let bank = command.bank.unwrap_or(0.0);
-                let heading = command.heading.unwrap_or(0.0);
-                if !is_bounded_camera_number(dx, MAX_CAMERA_OFFSET_METERS)
-                    || !is_bounded_camera_number(dy, MAX_CAMERA_OFFSET_METERS)
-                    || !is_bounded_camera_number(dz, MAX_CAMERA_OFFSET_METERS)
-                    || !is_bounded_camera_number(pitch, MAX_CAMERA_ANGLE_DEGREES)
-                    || !is_bounded_camera_number(bank, MAX_CAMERA_ANGLE_DEGREES)
-                    || !is_bounded_camera_number(heading, MAX_CAMERA_ANGLE_DEGREES)
-                {
-                    emit_value(
-                        json!({ "type": "cameraShakeAck", "ok": false, "error": "invalid_payload" }),
-                    );
-                    return true;
-                }
-                if let Some(session) = session {
-                    let ok = session.camera_shake(dx, dy, dz, pitch, bank, heading);
-                    emit_value(json!({ "type": "cameraShakeAck", "ok": ok }));
-                } else {
-                    emit_value(
-                        json!({ "type": "cameraShakeAck", "ok": false, "error": "not_connected" }),
                     );
                 }
                 true

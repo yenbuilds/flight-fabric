@@ -72,26 +72,6 @@ pub(crate) struct Command {
     pub(crate) value: Option<f64>,
     #[serde(default)]
     pub(crate) parameters: Vec<f64>,
-    #[serde(default)]
-    pub(crate) x: Option<f64>,
-    #[serde(default)]
-    pub(crate) y: Option<f64>,
-    #[serde(default)]
-    pub(crate) z: Option<f64>,
-    #[serde(default)]
-    pub(crate) units: Option<String>,
-    #[serde(default)]
-    pub(crate) pitch: Option<f64>,
-    #[serde(default)]
-    pub(crate) bank: Option<f64>,
-    #[serde(default)]
-    pub(crate) heading: Option<f64>,
-    #[serde(default)]
-    pub(crate) dx: Option<f64>,
-    #[serde(default)]
-    pub(crate) dy: Option<f64>,
-    #[serde(default)]
-    pub(crate) dz: Option<f64>,
     #[serde(default, rename = "dataType")]
     pub(crate) data_type: Option<String>,
     #[serde(default, rename = "pollIntervalMs")]
@@ -115,16 +95,6 @@ impl Command {
             unit: None,
             value: None,
             parameters: Vec::new(),
-            x: None,
-            y: None,
-            z: None,
-            units: None,
-            pitch: None,
-            bank: None,
-            heading: None,
-            dx: None,
-            dy: None,
-            dz: None,
             data_type: None,
             poll_interval_ms: None,
             chunk_size: None,

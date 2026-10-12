@@ -813,18 +813,6 @@ test('AirportSearchStats fields exactly match airport-search getStats() return o
   assert(extra.length === 0, `AirportSearchStats typedef fields not in airport-search getStats return: ${extra.join(', ')}`);
 });
 
-test('AirportDistanceResult fields exactly match airport-search getDistanceToAirport() return object (bidirectional)', () => {
-  const src = stripComments(read('backend/landing/airport-search.js'));
-  const fnIdx = findFunctionStart(src, 'getDistanceToAirport');
-  const afterFn = src.slice(fnIdx);
-  const runtimeFields = extractObjectFields(afterFn, 'return {');
-  const documented = getTypedefProperties('AirportDistanceResult');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `getDistanceToAirport fields not in AirportDistanceResult typedef: ${missing.join(', ')}`);
-  assert(extra.length === 0, `AirportDistanceResult typedef fields not in getDistanceToAirport return: ${extra.join(', ')}`);
-});
-
 test('FlightTimeEstimate fields exactly match airport-search estimateFlightTime() return object (bidirectional)', () => {
   const src = stripComments(read('backend/landing/airport-search.js'));
   const fnIdx = findFunctionStart(src, 'estimateFlightTime');

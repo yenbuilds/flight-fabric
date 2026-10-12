@@ -34,6 +34,7 @@ const { createSettingsStore } = require('./settings-store');
 const { getMainWindowBounds } = require('./main-window-bounds');
 const { getLocalIPv4AddressesFromInterfaces } = require('./network-info');
 const { resolveAllowedExternalUrl } = require('./external-url-policy');
+const { publishedInstallerUrl } = require('../scripts/release-names');
 const { isManagedProcessAlive } = require('./process-liveness');
 const { isExactLauncherUrl, isTrustedIpcSender } = require('./ipc-sender-policy');
 const {
@@ -43,6 +44,8 @@ const {
   isTrustedRendererPermission,
 } = require('./session-permission-policy');
 const { resolveBackendEntry } = require('../scripts/backend-runtime-paths');
+const { resolveProfile, validateProfile } = require('../scripts/release-profile-loader');
+const { getFileMatchers } = require('app-builder-lib/out/fileMatcher');
 const { ZIPFORMER_MODEL } = require('./voice-model-manifest');
 const {
   copySharedRuntimeAssets,
@@ -238,6 +241,12 @@ for (const [label, url] of [
   ['FlightFabric latest release', 'https://github.com/yenbuilds/flight-fabric/releases/latest'],
   ['FlightFabric tagged release', 'https://github.com/yenbuilds/flight-fabric/releases/tag/v0.2.1'],
   ['FlightFabric release asset', 'https://github.com/yenbuilds/flight-fabric/releases/download/v0.2.1/Flight.Fabric.exe'],
+  ['case-insensitive release path', 'https://github.com/YENBUILDS/FLIGHT-FABRIC/RELEASES/latest'],
+  ['future desktop corresponding source', 'https://github.com/yenbuilds/flightfabric-desktop/releases'],
+  ['future desktop latest release', 'https://github.com/yenbuilds/flightfabric-desktop/releases/latest'],
+  ['future desktop tagged release', 'https://github.com/yenbuilds/flightfabric-desktop/releases/tag/v0.12.5'],
+  ['future desktop release asset', publishedInstallerUrl('0.12.5').replace('/flight-fabric/', '/flightfabric-desktop/')],
+  ['case-insensitive future desktop path', 'https://github.com/YENBUILDS/FLIGHTFABRIC-DESKTOP/RELEASES/latest'],
   ['MobiFlight install guide', 'https://docs.mobiflight.com/guides/wasm-module/wasm-reinstall/'],
   ['MobiFlight enable guide', 'https://docs.mobiflight.com/guides/wasm-module/enable-in-msfs2024/'],
   ['OpenStreetMap copyright', 'https://www.openstreetmap.org/copyright'],
@@ -286,8 +295,11 @@ for (const [label, url] of [
   ['lookalike GitHub host', 'https://github.com.attacker.example/yenbuilds/flight-fabric/releases/latest'],
   ['credential-confused GitHub URL', 'https://github.com@attacker.example/yenbuilds/flight-fabric/releases/latest'],
   ['other GitHub repository', 'https://github.com/attacker/flight-fabric/releases/latest'],
+  ['lookalike GitHub repository', 'https://github.com/yenbuilds/flight-fabric-extra/releases/latest'],
+  ['lookalike release path', 'https://github.com/yenbuilds/flight-fabric/releases-extra/latest'],
   ['non-release repository path', 'https://github.com/yenbuilds/flight-fabric/issues'],
   ['release path traversal', 'https://github.com/yenbuilds/flight-fabric/releases/../issues'],
+  ['encoded release path traversal', 'https://github.com/yenbuilds/flight-fabric/releases/%2e%2e/issues'],
   ['non-default port', 'https://github.com:8443/yenbuilds/flight-fabric/releases/latest'],
   ['query string', 'https://github.com/yenbuilds/flight-fabric/releases/latest?source=renderer'],
   ['fragment', 'https://github.com/yenbuilds/flight-fabric/releases/latest#download'],
@@ -299,6 +311,30 @@ for (const [label, url] of [
 ]) {
   test(`external URL policy rejects ${label}`, resolveAllowedExternalUrl(url) === null);
 }
+
+for (const repository of ['flight-fabric', 'flightfabric-desktop']) {
+  const base = `https://github.com/yenbuilds/${repository}`;
+  for (const [label, url] of [
+    ['HTTP', `http://github.com/yenbuilds/${repository}/releases/latest`],
+    ['lookalike host', `https://github.com.attacker.invalid/yenbuilds/${repository}/releases/latest`],
+    ['other owner', `https://github.com/attacker/${repository}/releases/latest`],
+    ['lookalike repository', `${base}-extra/releases/latest`],
+    ['lookalike release path', `${base}/releases-extra/latest`],
+    ['URL credentials', `https://user:pass@github.com/yenbuilds/${repository}/releases/latest`],
+    ['custom port', `https://github.com:444/yenbuilds/${repository}/releases/latest`],
+    ['non-release path', `${base}/issues`],
+    ['path traversal', `${base}/releases/../issues`],
+    ['encoded traversal', `${base}/releases/%2e%2e/issues`],
+    ['query', `${base}/releases/latest?target=other`],
+    ['fragment', `${base}/releases/latest#download`],
+    ['leading whitespace', ` ${base}/releases/latest`],
+    ['trailing whitespace', `${base}/releases/latest `],
+  ]) {
+    test(`external URL policy rejects ${repository} ${label}`, resolveAllowedExternalUrl(url) === null);
+  }
+}
+test('external URL policy rejects the alternative client repository name',
+  resolveAllowedExternalUrl('https://github.com/yenbuilds/flightfabric-client/releases/latest') === null);
 
 section('Session Permission Policy');
 
@@ -1837,6 +1873,199 @@ try {
   );
 } finally {
   fs.rmSync(backendStagingFixture, { recursive: true, force: true });
+}
+
+// Load the aircraft execution dependency graph from the actual release and
+// electron-builder selections, outside the repo and without global resolution.
+const aircraftExecutionPackagingFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-packaged-aircraft-execution-'));
+try {
+  // The build validates source paths before selecting compiled runtime files.
+  // A loadable fixture alone must not hide a profile that fails that first step.
+  for (const profileName of ['user', 'developer', 'maintainer']) {
+    const validation = validateProfile(profileName);
+    if (!validation.valid) console.error(validation.missing);
+    test(`${profileName} source profile validates before aircraft execution packaging`, validation.valid);
+  }
+  resolveBackendEntry();
+  const runtimeRoot = path.join(projectRoot, 'dist', 'backend');
+  const stagedRoot = path.join(aircraftExecutionPackagingFixture, 'backend-build');
+  const resourcesRoot = path.join(aircraftExecutionPackagingFixture, 'resources');
+  const packagedRoot = path.join(resourcesRoot, 'backend');
+  const inventory = snapshotBackendRuntimeProfile(runtimeRoot, resolveProfile('user'));
+  for (const [relativePath, record] of inventory) {
+    const destination = path.join(stagedRoot, relativePath);
+    if (record === 'directory') {
+      fs.mkdirSync(destination, { recursive: true });
+    } else {
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(path.join(runtimeRoot, relativePath), destination);
+    }
+  }
+  const stagedManifestPath = path.join(stagedRoot, 'package.json');
+  fs.copyFileSync(path.join(runtimeRoot, 'package.json'), stagedManifestPath);
+  const stagedModules = path.join(stagedRoot, 'node_modules');
+  copyLockedBackendNodeModules(stagedModules, { stagedPackageJsonPath: stagedManifestPath });
+  const resourceMatchers = getFileMatchers(electronPkg.build, 'extraResources', resourcesRoot, {
+    defaultSrc: path.join(aircraftExecutionPackagingFixture, 'electron'),
+    customBuildOptions: electronPkg.build.win || {},
+    globalOutDir: path.join(aircraftExecutionPackagingFixture, 'dist', 'electron'),
+    macroExpander: (value) => value,
+  });
+  const backendMatcher = resourceMatchers?.find((matcher) => (
+    matcher.from === stagedRoot && matcher.to === packagedRoot
+  ));
+  if (!backendMatcher) throw new Error('Missing backend extraResources mapping.');
+  const resourceFilter = backendMatcher.createFilter();
+  fs.cpSync(stagedRoot, packagedRoot, {
+    recursive: true,
+    filter: (sourcePath) => resourceFilter(sourcePath, fs.lstatSync(sourcePath)),
+  });
+  // The actual afterPack hook copies the locked modules with this policy after
+  // electron-builder excludes the root node_modules directory.
+  fs.cpSync(stagedModules, path.join(packagedRoot, 'node_modules'), {
+    recursive: true,
+    filter(sourcePath) {
+      const stat = fs.lstatSync(sourcePath);
+      return !shouldExcludeRuntimeModuleEntry({
+        name: path.basename(sourcePath),
+        isDirectory: () => stat.isDirectory(),
+        isFile: () => stat.isFile(),
+      }, path.relative(stagedModules, sourcePath));
+    },
+  });
+  const runtimeModules = [
+    ['aircraft/barometer-contract.js', ['baroSides']],
+    ['aircraft/barometer-execution.js', ['resolveBarometerExecution']],
+    ['aircraft/aircraft-integrations/fbw-a32nx/baro-control.js', ['captureBaroState', 'executeBaroTransaction']],
+    ['aircraft/aircraft-integrations/fenix-a32x/baro-control.js', ['captureFenixBaroState', 'executeFenixBaroTransaction']],
+    ['aircraft/aircraft-integrations/fbw-a380x/baro-control.js', ['captureA380BaroState', 'executeA380BaroTransaction']],
+    ['aircraft/minimums-execution.js', ['resolveMinimumsExecution']],
+    ['aircraft/aircraft-integrations/fbw-a32nx/minimums-control.js', ['readMinimumsPage', 'executeA32nxMinimums']],
+    ['aircraft/aircraft-control-policy.js', ['resolveProfileKeyEventPolicy', 'getAircraftReadbackFailureHint']],
+    ['aircraft/aircraft-integrations/inibuilds-tristar/key-event-policy.js', ['getTriStarKeyEventPolicy']],
+    ['aircraft/aircraft-integrations/pmdg-777/control-feedback.js', ['getPmdg777ReadbackFailureHint']],
+  ];
+  for (const [relativePath] of runtimeModules) {
+    test(
+      `packaging retains current ${relativePath} through both release filters`,
+      fs.readFileSync(path.join(packagedRoot, relativePath)).equals(
+        fs.readFileSync(path.join(runtimeRoot, relativePath)),
+      ),
+    );
+  }
+  const retiredModules = [
+    'baro-control.js', 'fenix-baro-control.js', 'a380-baro-control.js',
+    'a32nx-minimums-control.js', 'pmdg-autotaxi.js',
+  ];
+  for (const retired of retiredModules) {
+    test(
+      `packaging omits retired telemetry-provider/${retired}`,
+      !fs.existsSync(path.join(packagedRoot, 'telemetry-provider', retired)),
+    );
+  }
+  const lockedWebSocketVersion = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, 'backend', 'package-lock.json'), 'utf8'),
+  ).packages['node_modules/ws'].version;
+  const startupProbe = `
+    const assert = require('node:assert/strict');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    for (const retired of ${JSON.stringify(retiredModules)}) {
+      assert(!fs.existsSync(path.join('telemetry-provider', retired)));
+    }
+    for (const [relativePath, exports] of ${JSON.stringify(runtimeModules)}) {
+      const loaded = require('./' + relativePath);
+      for (const name of exports) assert.equal(typeof loaded[name], 'function', relativePath + ': ' + name);
+    }
+    const { defaultAircraftIntegrationRegistry } = require('./aircraft/aircraft-integrations');
+    const { resolveBarometerExecution } = require('./aircraft/barometer-execution');
+    for (const [profile, adapterId, calculator] of [
+      ['fbw-a32nx', 'fbw-a32nx', false],
+      ['fbw-a380x', 'fbw-a380x', false],
+      ['fenix-a319', 'fenix-a32x', true],
+      ['fenix-a320', 'fenix-a32x', true],
+      ['fenix-a321', 'fenix-a32x', true],
+    ]) {
+      const adapter = defaultAircraftIntegrationRegistry.resolveForProfile('bundled/msfs/' + profile);
+      assert.equal(adapter.id, adapterId);
+      const action = adapter.actions['baro.both.std'];
+      assert(action, profile + ' STD action is missing');
+      const execution = resolveBarometerExecution(adapterId, action.routes[0]);
+      assert(execution, profile + ' STD executor is missing');
+      assert.equal(execution.requiresCalculatorTransport, calculator);
+      assert.equal(typeof execution.execute, 'function');
+    }
+    const { resolveMinimumsExecution } = require('./aircraft/minimums-execution');
+    const a32nx = defaultAircraftIntegrationRegistry.resolveForProfile('bundled/msfs/fbw-a32nx');
+    for (const target of ['baro', 'radio']) {
+      const action = a32nx.actions['approach.minimums.' + target];
+      assert(action, target + ' minimums action is missing');
+      const execution = resolveMinimumsExecution(a32nx.id, action.routes[0]);
+      assert(execution, target + ' minimums executor is missing');
+      assert.equal(typeof execution.execute, 'function');
+    }
+    assert.equal(require('ws/package.json').version, ${JSON.stringify(lockedWebSocketVersion)});
+    const { resolveProfileKeyEventPolicy, getAircraftReadbackFailureHint } = require('./aircraft/aircraft-control-policy');
+    const tristarProfile = 'bundled/msfs/inibuilds-tristar';
+    const apMasterPolicy = resolveProfileKeyEventPolicy(tristarProfile, 'AP_MASTER');
+    assert(apMasterPolicy);
+    assert.equal(apMasterPolicy.cooldownMs, 600);
+    assert.equal(resolveProfileKeyEventPolicy(tristarProfile, 'AUTOPILOT_OFF').groupId, apMasterPolicy.groupId);
+    assert.equal(resolveProfileKeyEventPolicy('local/msfs/inibuilds-tristar', 'AP_MASTER'), null);
+    assert.equal(resolveProfileKeyEventPolicy('bundled/msfs/fbw-a32nx', 'AP_MASTER'), null);
+    assert.equal(resolveProfileKeyEventPolicy(tristarProfile, 'GEAR_UP'), null);
+    assert(getAircraftReadbackFailureHint('pmdg-777', 'controls.parkingBrake.on').includes('both toe brakes'));
+    assert.equal(getAircraftReadbackFailureHint('pmdg-777', 'lights.taxi.on'), '');
+    assert.equal(getAircraftReadbackFailureHint('pmdg-737', 'controls.parkingBrake.on'), '');
+    for (const loadedPath of Object.keys(require.cache)) {
+      const relative = path.relative(process.cwd(), loadedPath);
+      assert(relative && !relative.startsWith('..') && !path.isAbsolute(relative),
+        'Runtime dependency escaped the packaged backend: ' + loadedPath);
+    }
+  `;
+  const runStartupProbe = () => spawnSync(process.execPath, [
+    '--no-global-search-paths', '-e', startupProbe,
+  ], {
+    cwd: packagedRoot,
+    env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
+    encoding: 'utf8',
+    timeout: 15_000,
+    windowsHide: true,
+  });
+  const startupResult = runStartupProbe();
+  if (startupResult.status !== 0) {
+    console.error(startupResult.error || startupResult.stderr || startupResult.stdout);
+  }
+  test('packaged aircraft executors and locked WebSocket dependency load without repository fallback', startupResult.status === 0);
+  for (const [relativePath] of runtimeModules) {
+    const packagedPath = path.join(packagedRoot, relativePath);
+    fs.unlinkSync(packagedPath);
+    try {
+      const result = runStartupProbe();
+      const expectedFailure = result.status !== 0 && /Cannot find module/.test(result.stderr || '')
+        && (result.stderr || '').includes(path.basename(relativePath));
+      if (!expectedFailure) console.error(result.error || result.stderr || result.stdout);
+      test(`packaged aircraft execution startup fails when ${relativePath} is missing`, expectedFailure);
+    } finally {
+      fs.copyFileSync(path.join(stagedRoot, relativePath), packagedPath);
+    }
+  }
+  const packagedWebSocket = path.join(packagedRoot, 'node_modules', 'ws');
+  const withheldWebSocket = path.join(aircraftExecutionPackagingFixture, 'withheld-ws');
+  fs.renameSync(packagedWebSocket, withheldWebSocket);
+  try {
+    const result = runStartupProbe();
+    const expectedFailure = result.status !== 0 && /Cannot find module 'ws'/.test(result.stderr || '');
+    if (!expectedFailure) console.error(result.error || result.stderr || result.stdout);
+    test('packaged minimums executor cannot fall back to repository WebSocket dependency', expectedFailure);
+  } finally {
+    fs.renameSync(withheldWebSocket, packagedWebSocket);
+  }
+} catch (err) {
+  console.error(err);
+  test('packaged aircraft execution fixture completes', false);
+} finally {
+  fs.rmSync(aircraftExecutionPackagingFixture, { recursive: true, force: true });
 }
 test(
   'build rejects links, reparse points, and non-regular backend dependency entries',

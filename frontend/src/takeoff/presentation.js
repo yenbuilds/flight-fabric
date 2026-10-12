@@ -10,7 +10,7 @@ const ORANGE_COLOR = '#fb923c';
 const DANGER_COLOR = '#ef4444';
 
 // Historical runway-use grades stay readable; new records have no quality score.
-export const TAKEOFF_GRADE_SEVERITY = Object.freeze({
+const TAKEOFF_GRADE_SEVERITY = Object.freeze({
   Outstanding: 0,
   Good: 0,
   Acceptable: 1,

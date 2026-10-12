@@ -678,25 +678,6 @@ test('fixed navigation is resolved centrally with no retired workspace entry poi
   }
 });
 
-test('the touchdown shake switch, the debug-modal button and the internal changelog move together', () => {
-  const shakeSource = readRepoFile('backend/telemetry-provider/touchdown-shake.ts');
-  const providerSource = readRepoFile('backend/telemetry-provider/simconnect-telemetry-provider.ts');
-  const coreSource = readRepoFile('backend/core/simbridge-core.ts');
-  const modalSource = readRepoFile('frontend/src/vue/components/DebugTelemetryModal.vue');
-  const internalChangelog = readRepoFile('docs/INTERNAL-CHANGELOG.md');
-  const disabled = /export const TOUCHDOWN_SHAKE_DISABLED = (true|false);/.exec(shakeSource);
-  assert(disabled, 'touchdown-shake.ts must declare TOUCHDOWN_SHAKE_DISABLED as a literal');
-  assert(providerSource.includes('if (TOUCHDOWN_SHAKE_DISABLED) {') && coreSource.includes('if (TOUCHDOWN_SHAKE_DISABLED) {') && coreSource.includes('!TOUCHDOWN_SHAKE_DISABLED && '), 'the provider trigger, the testShake handler and the landing subscription must all check the switch');
-  const buttonPresent = modalSource.includes('id="debug-test-shake"');
-  if (disabled[1] === 'true') {
-    assert(!buttonPresent, 'while the touchdown shake is disabled the debug modal must not offer Test Shake');
-    assert(internalChangelog.includes('Touchdown camera shake disabled'), 'docs/INTERNAL-CHANGELOG.md must record why the shake is disabled');
-  } else {
-    assert(buttonPresent, 're-enabling the touchdown shake must restore the Test Shake button');
-    assert(/re-enabled|brought back|restored/i.test(internalChangelog.split('## ')[1] || ''), 'docs/INTERNAL-CHANGELOG.md must get a new entry when the shake comes back');
-  }
-});
-
 test('support asks use one untagged destination, one rule module and one prompt slot', () => {
   const linksSource = readRepoFile('frontend/src/support/links.js');
   const rulesSource = readRepoFile('frontend/src/support/milestones.js');
@@ -1286,7 +1267,6 @@ test('debug modal chrome is Vue state driven', () => {
   assert(debugModalSource.includes('debug.statusText'), 'DebugTelemetryModal should render status text from the debug store');
   assert(debugModalSource.includes('initDebugRuntime({'), 'DebugTelemetryModal should own debug runtime lifecycle');
   assert(debugModalSource.includes('subscribeDebugFrameSignal: subscribeDebugFrame'), 'DebugTelemetryModal should own debug-frame signal wiring');
-  assert(debugModalSource.includes('subscribeWsMessageSignal: subscribeWsMessage'), 'DebugTelemetryModal should own websocket-message signal wiring');
   assert(debugRuntimeSource.includes('debugStore.toggleModal()'), 'debug runtime should toggle the modal through the debug store');
   assert(debugRuntimeSource.includes('debugStore.setConnectionStatus(isActuallyConnected);'), 'debug runtime should publish connection state through the debug store');
   assert(messageHandlersSource.includes('emitDebugFrame(message);'), 'app message handlers should emit debug-frame runtime signals');

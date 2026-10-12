@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { DOMAIN, keyId, verifyManifest, verifyInstaller, versionGreater } = require('./update-manifest');
+const { DOMAIN, keyId, getInstallerDownloadUrls, verifyManifest, verifyInstaller, versionGreater } = require('./update-manifest');
 const { createSignedFeed } = require('./update-feed');
 const { publishedInstallerUrl } = require('../scripts/release-names');
 
@@ -46,6 +46,72 @@ test('rejects expired, future, wrong-platform, oversized and unexpected-origin m
     { release: { ...f.payload.release, size: 3 * 1024 ** 3 } },
   ]) assert.throws(() => verifyManifest(f.sign({ ...f.payload, ...edit }), f.keys));
   assert.throws(() => verifyManifest(' '.repeat(65537), f.keys), /large/);
+});
+
+function invalidInstallerLocations(repository) {
+  const path = `/yenbuilds/${repository}/releases/download/v0.13.0/FlightFabric-Setup-0.13.0.exe`;
+  return [
+    `http://github.com${path}`,
+    `https://github.com.evil.example${path}`,
+    `https://github.com:8443${path}`,
+    `https://user:password@github.com${path}`,
+    `https://github.com${path}?download=1`,
+    `https://github.com${path}#installer`,
+    `https://github.com${path.replace('/yenbuilds/', '/other-owner/')}`,
+    `https://github.com${path.replace(repository, `${repository}-other`)}`,
+    `https://github.com${path.replace('/v0.13.0/', '/v0.13.1/')}`,
+    `https://github.com${path.replace('/FlightFabric-', '/nested/FlightFabric-')}`,
+    `https://github.com${path.replace('/FlightFabric-', '/nested%2FFlightFabric-')}`,
+    `https://github.com${path.replace('.exe', '.zip')}`,
+    `https://github.com${path}/`,
+    `https://github.com/yenbuilds/${repository}/releases/latest`,
+  ];
+}
+
+test('signed legacy installer locations retain their exact release boundary', () => {
+  const f = fixture();
+  assert.match(f.payload.release.url, /^https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases\/download\/v0\.13\.0\//);
+  assert.deepEqual(verifyManifest(f.sign(), f.keys).payload.release, f.payload.release);
+  for (const url of invalidInstallerLocations('flight-fabric')) {
+    assert.throws(() => verifyManifest(f.sign({ ...f.payload, release: { ...f.payload.release, url } }), f.keys),
+      { code: 'trust', message: 'Invalid update location.' }, url);
+  }
+});
+
+test('signed desktop repository installer locations preserve authentication and URL restrictions', () => {
+  const f = fixture();
+  const release = { ...f.payload.release, url: f.payload.release.url.replace('/flight-fabric/', '/flightfabric-desktop/') };
+  assert.deepEqual(verifyManifest(f.sign({ ...f.payload, release }), f.keys).payload.release, release);
+  for (const url of invalidInstallerLocations('flightfabric-desktop')) {
+    assert.throws(() => verifyManifest(f.sign({ ...f.payload, release: { ...release, url } }), f.keys),
+      { code: 'trust', message: 'Invalid update location.' }, url);
+  }
+  const changed = JSON.parse(f.sign());
+  changed.payload = Buffer.from(JSON.stringify({ ...f.payload, release })).toString('base64');
+  assert.throws(() => verifyManifest(JSON.stringify(changed), f.keys), /signature/,
+    'repository aliases do not permit editing an already signed offer');
+});
+
+test('installer redirect aliases identify exactly the same signed version and filename', () => {
+  const f = fixture();
+  const oldUrl = f.payload.release.url;
+  const newUrl = oldUrl.replace('/flight-fabric/', '/flightfabric-desktop/');
+  for (const url of [oldUrl, newUrl]) {
+    assert.deepEqual(getInstallerDownloadUrls({ ...f.payload.release, url }), [oldUrl, newUrl]);
+  }
+  const alternateFilename = oldUrl.slice(0, oldUrl.lastIndexOf('/') + 1) + 'FlightFabric-Test-Installer.exe';
+  assert.deepEqual(getInstallerDownloadUrls({ ...f.payload.release, url: alternateFilename }), [
+    alternateFilename, alternateFilename.replace('/flight-fabric/', '/flightfabric-desktop/'),
+  ], 'the signed basename is preserved without guessing another asset name');
+  for (const repository of ['flight-fabric', 'flightfabric-desktop']) {
+    for (const url of invalidInstallerLocations(repository)) {
+      assert.deepEqual(getInstallerDownloadUrls({ ...f.payload.release, url }), [], url);
+    }
+  }
+  for (const release of [null, {}, { version: '0.13.0' }, { ...f.payload.release, version: '0.13.1' },
+    { ...f.payload.release, url: oldUrl.replace('/flight-fabric/', '/flightfabric-client/') }]) {
+    assert.deepEqual(getInstallerDownloadUrls(release), []);
+  }
 });
 
 test('sequence rollback and conflicting reuse fail; signed withdrawal works', () => {

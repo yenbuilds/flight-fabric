@@ -479,18 +479,6 @@ source as third-party code.
   `iso_country` field (see OurAirports Data above). Files are served from the
   bundled frontend; no network calls.
 
-## Splide (vendored static-site carousel)
-
-- Source: https://splidejs.com and https://github.com/Splidejs/splide
-- Version: 4.1.4
-- Vendored into: `site/flightfabric/vendor/splide/` as minified JavaScript and
-  core CSS, with its upstream `LICENSE` file.
-- Licence: MIT (Copyright (c) 2022 Naotoshi Fujita)
-- Used by earlier versions of the product-site screenshot carousel. The vendored
-  files remain in the private/static site source, but the current landing pages
-  do not load Splide. It is not included in Electron desktop packages or the
-  sanitized public desktop source mirror.
-
 ## Google Fonts (externally hosted product-site resources)
 
 - Families: Barlow Semi Condensed, IBM Plex Sans and IBM Plex Mono.
@@ -628,7 +616,6 @@ notices:
 - lazy-val: Vladimir Krivosheev (MIT)
 - Tailwind CSS: Copyright (c) Tailwind Labs, Inc.
 - QRCode for JavaScript: Copyright (c) 2009 Kazuhiko Arase
-- Splide: Copyright (c) 2022 Naotoshi Fujita
 - Rust `chrono`: Copyright (c) 2014-2026 Kang Seonghoon and contributors
 - Rust `num-traits`: Copyright (c) 2014 The Rust Project Developers
 - Rust `windows-sys` and `windows-link`: Copyright (c) Microsoft Corporation

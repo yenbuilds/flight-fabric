@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { captureA380BaroState, executeA380BaroTransaction } from '../telemetry-provider/a380-baro-control.js';
+import { captureA380BaroState, executeA380BaroTransaction } from './aircraft-integrations/fbw-a380x/baro-control.js';
 const { defaultAircraftIntegrationRegistry, createAircraftIntegrationRegistry } = require('./aircraft-integrations');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
 const loader = require('./aircraft-profile-loader');

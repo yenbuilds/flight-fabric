@@ -13,6 +13,9 @@
 'use strict';
 
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
+const { publishedInstallerUrl } = require('../../scripts/release-names');
+const oldInstallerUrl = publishedInstallerUrl('0.12.5');
+const desktopInstallerUrl = oldInstallerUrl.replace('/flight-fabric/', '/flightfabric-desktop/');
 
 // Independent comparator used to describe expected version ordering.
 function semverGt(a, b) {
@@ -185,6 +188,46 @@ test('accepts official tag and release asset URLs', () => {
   );
 });
 
+test('preserves release-root, case-insensitive path and trimmed URL behavior', () => {
+  for (const url of [
+    'https://github.com/yenbuilds/flight-fabric/releases',
+    'https://github.com/YENBUILDS/FLIGHT-FABRIC/RELEASES/latest',
+  ]) assertEqual(sanitizeUpdateDownloadUrl(` ${url} `), url);
+});
+
+test('accepts the future desktop repository alongside the original release host', () => {
+  for (const suffix of ['', '/latest', '/tag/v0.12.5']) {
+    const url = `https://github.com/yenbuilds/flightfabric-desktop/releases${suffix}`;
+    assertEqual(sanitizeUpdateDownloadUrl(url), url);
+  }
+  assertEqual(sanitizeUpdateDownloadUrl(desktopInstallerUrl), desktopInstallerUrl);
+  const mixedCaseUrl = 'https://github.com/YENBUILDS/FLIGHTFABRIC-DESKTOP/RELEASES/latest';
+  assertEqual(sanitizeUpdateDownloadUrl(` ${mixedCaseUrl} `), mixedCaseUrl);
+});
+
+for (const repository of ['flight-fabric', 'flightfabric-desktop']) {
+  const base = `https://github.com/yenbuilds/${repository}`;
+  for (const [label, value] of [
+    ['HTTP', `http://github.com/yenbuilds/${repository}/releases/latest`],
+    ['lookalike host', `https://github.com.attacker.invalid/yenbuilds/${repository}/releases/latest`],
+    ['other owner', `https://github.com/attacker/${repository}/releases/latest`],
+    ['lookalike repository', `${base}-extra/releases/latest`],
+    ['lookalike release path', `${base}/releases-extra/latest`],
+    ['URL credentials', `https://user:pass@github.com/yenbuilds/${repository}/releases/latest`],
+    ['custom port', `https://github.com:444/yenbuilds/${repository}/releases/latest`],
+    ['non-release path', `${base}/issues`],
+    ['path traversal', `${base}/releases/../issues`],
+    ['encoded traversal', `${base}/releases/%2e%2e/issues`],
+    ['query', `${base}/releases/latest?target=other`],
+    ['fragment', `${base}/releases/latest#download`],
+  ]) {
+    test(`${repository} rejects ${label}`, () => assertEqual(sanitizeUpdateDownloadUrl(value), null));
+  }
+}
+test('does not authorize the alternative client repository name', () => {
+  assertEqual(sanitizeUpdateDownloadUrl('https://github.com/yenbuilds/flightfabric-client/releases/latest'), null);
+});
+
 for (const [label, value] of [
   ['non-HTTPS URL', 'http://github.com/yenbuilds/flight-fabric/releases/latest'],
   ['lookalike host', 'https://github.com.example.invalid/yenbuilds/flight-fabric/releases/latest'],
@@ -194,6 +237,10 @@ for (const [label, value] of [
   ['non-release repository path', 'https://github.com/yenbuilds/flight-fabric/issues'],
   ['query string', 'https://github.com/yenbuilds/flight-fabric/releases/latest?source=manifest'],
   ['fragment', 'https://github.com/yenbuilds/flight-fabric/releases/latest#download'],
+  ['lookalike repository', 'https://github.com/yenbuilds/flight-fabric-extra/releases/latest'],
+  ['lookalike release path', 'https://github.com/yenbuilds/flight-fabric/releases-extra/latest'],
+  ['release path traversal', 'https://github.com/yenbuilds/flight-fabric/releases/../issues'],
+  ['encoded release path traversal', 'https://github.com/yenbuilds/flight-fabric/releases/%2e%2e/issues'],
   ['JavaScript URL', 'javascript:alert(1)'],
   ['malformed URL', 'not a URL'],
 ]) {
@@ -201,6 +248,65 @@ for (const [label, value] of [
     assertEqual(sanitizeUpdateDownloadUrl(value), null);
   });
 }
+
+test('official download URLs are broadcast and cached; unsafe URLs are suppressed', async () => {
+  const assert = require('node:assert/strict');
+  const { EventEmitter } = require('node:events');
+  const { readFileSync } = require('node:fs');
+  const { createRequire } = require('node:module');
+  const { runInNewContext } = require('node:vm');
+  const runtimeFile = resolveBackendRuntimeFile('core', 'update-checker.js');
+  const localRequire = createRequire(runtimeFile);
+  const exports = {};
+  let check;
+  let manifest;
+  runInNewContext(readFileSync(runtimeFile, 'utf8'), {
+    exports, Buffer, URL, console,
+    require: (id) => id !== 'https' ? localRequire(id) : {
+      get(url, options, callback) {
+        assert.equal(url, 'https://raw.githubusercontent.com/yenbuilds/ff-releases/main/update-manifest.json');
+        const request = new EventEmitter();
+        queueMicrotask(() => {
+          const response = new EventEmitter();
+          response.statusCode = 200;
+          callback(response);
+          response.emit('data', JSON.stringify(manifest));
+          response.emit('end');
+        });
+        return request;
+      },
+    },
+    setTimeout: (fn) => { check = fn; return { unref() {} }; },
+    setInterval: () => ({ unref() {} }), clearTimeout() {}, clearInterval() {},
+  }, { filename: runtimeFile });
+  const messages = [];
+  const handle = exports.startUpdateChecker({ currentVersion: '0.12.4', broadcast: (message) => messages.push(message) });
+  try {
+    for (const [downloadUrl, expected] of [
+      ['https://github.com/yenbuilds/flight-fabric/releases/latest', 'https://github.com/yenbuilds/flight-fabric/releases/latest'],
+      [oldInstallerUrl, oldInstallerUrl],
+      ['https://github.com/yenbuilds/flightfabric-desktop/releases/latest', 'https://github.com/yenbuilds/flightfabric-desktop/releases/latest'],
+      [desktopInstallerUrl, desktopInstallerUrl],
+      ['https://github.com/attacker/flight-fabric/releases/latest', null],
+      ['https://github.com/attacker/flightfabric-desktop/releases/latest', null],
+    ]) {
+      manifest = { version: '0.12.5', downloadUrl, message: 'An update is available.', urgent: true };
+      const before = messages.length;
+      await check();
+      assert.equal(messages.length, before + 1);
+      const update = messages.at(-1);
+      assert.equal(update.type, 'updateAvailable');
+      assert.equal(update.currentVersion, '0.12.4');
+      assert.equal(update.latestVersion, '0.12.5');
+      assert.equal(update.downloadUrl, expected);
+      assert.equal(update.message, manifest.message);
+      assert.equal(update.urgent, true);
+      assert.equal(exports.getLastUpdateMsg(), update, 'requestState replays the sanitized broadcast');
+    }
+  } finally {
+    handle.stop();
+  }
+});
 
 console.log('\n=== sanitizeSupportGoal Tests ===\n');
 

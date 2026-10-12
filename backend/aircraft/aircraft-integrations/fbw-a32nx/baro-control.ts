@@ -1,4 +1,5 @@
-import { BARO_INPUTS, BARO_HPA_PER_INHG, baroField, baroLetter, baroSides, type BaroTarget, type BaroOperation } from '../aircraft/aircraft-integrations/fbw-a32nx/baro.js';
+import { BARO_INPUTS, baroSides, type BaroTarget, type BaroOperation } from '../../barometer-contract.js';
+import { BARO_HPA_PER_INHG, baroField, baroLetter } from './baro.js';
 
 type Side = 'captain' | 'firstOfficer';
 type Reading = { mode: number; valueMode: number; value: number; unitInHg: boolean; updatedAt: Record<string, number> };

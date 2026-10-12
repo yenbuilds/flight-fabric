@@ -1,43 +1,10 @@
-/**
- * One-line status for a testShakeAck. The backend sends one ack when the shake
- * starts and a second one (phase 'done', with sidecar write counters) after it
- * has played, so the last thing on screen says whether the sim accepted it.
- */
-export function formatTestShakeAck(message) {
-  const diag = message?.diag || {};
-  const shake = diag.shake;
-  const writes = diag.writes;
-  const parts = [];
-  if (shake && typeof shake === 'object') {
-    if (shake.ok) {
-      const seconds = typeof shake.durationMs === 'number' ? (shake.durationMs / 1000).toFixed(1) : '?';
-      const severity = typeof shake.severity === 'number' ? shake.severity.toFixed(2) : '?';
-      const drop = typeof shake.peakDropMeters === 'number' ? `${(shake.peakDropMeters * 100).toFixed(1)}cm` : '';
-      parts.push(`${shake.method || 'shake'} ${seconds}s sev=${severity}${drop ? ` drop=${drop}` : ''}`);
-    } else {
-      parts.push(`skipped: ${shake.reason || 'unknown'}`);
-    }
-  } else {
-    parts.push(`mock=${diag.isMock} bridge=${diag.lvarBridge} started=${diag.lvarStarted} proc=${diag.lvarProcAlive} conn=${diag.connected} hdl=${diag.handle}`);
-  }
-  if (writes && typeof writes === 'object') {
-    const failures = Number(writes.failed) || 0;
-    parts.push(`writes ok=${Number(writes.ok) || 0} fail=${failures}${failures && writes.lastError ? ` (${writes.lastError})` : ''}`);
-  } else if (message?.phase === 'started' && shake?.ok) {
-    parts.push('playing...');
-  }
-  return `ack ${message?.vs_fpm}fpm | ${parts.join(' | ')}`;
-}
-
 export function initDebugRuntime({
   $,
-  sendWs,
   debugStore = null,
   getCurrentDebugState = null,
   subscribeDebugFrameSignal = null,
   subscribeTelemetryResetSignal = null,
   subscribeWsCloseSignal = null,
-  subscribeWsMessageSignal = null,
   windowRef = window,
   documentRef = document,
   consoleRef = console,
@@ -56,27 +23,8 @@ export function initDebugRuntime({
 
   let debugConnected = false;
   let captureActive = false;
-  let shakeStatusTimer = null;
   let clearChangedFlagsTimer = null;
   let lastModalOpen = debugStore.modalOpen === true;
-  let lastShakeRequestNonce = debugStore.testShakeRequestNonce;
-
-  function clearShakeStatusTimer() {
-    if (shakeStatusTimer == null) return;
-    windowRef.clearTimeout(shakeStatusTimer);
-    shakeStatusTimer = null;
-  }
-
-  function setShakeStatus(text, timeoutMs = 0) {
-    debugStore.setTestShakeStatus(text);
-    clearShakeStatusTimer();
-    if (timeoutMs > 0) {
-      shakeStatusTimer = windowRef.setTimeout(() => {
-        debugStore.clearTestShakeStatus();
-        shakeStatusTimer = null;
-      }, timeoutMs);
-    }
-  }
 
   function processDebugFrame(message) {
     debugStore.ingestFrame(message);
@@ -120,9 +68,7 @@ export function initDebugRuntime({
       windowRef.clearInterval?.(clearChangedFlagsTimer);
       clearChangedFlagsTimer = null;
     }
-    clearShakeStatusTimer();
     debugConnected = false;
-    debugStore.clearTestShakeStatus();
     debugStore.clearCapturedData();
     debugStore.setConnectionUnknown();
   }
@@ -141,14 +87,6 @@ export function initDebugRuntime({
     } else if (typeof currentState.simConnected === 'boolean') {
       debugConnected = currentState.simConnected;
       debugStore.setConnectionStatus(currentState.simConnected);
-    }
-
-    if (typeof subscribeWsMessageSignal === 'function') {
-      addCaptureCleanup(subscribeWsMessageSignal((message) => {
-        if (message?.type === 'testShakeAck') {
-          setShakeStatus(formatTestShakeAck(message), 8000);
-        }
-      }));
     }
 
     if (typeof subscribeWsCloseSignal === 'function') {
@@ -196,18 +134,6 @@ export function initDebugRuntime({
       if (lastModalOpen) startCapture();
       else stopCapture();
     }
-
-    if (state.testShakeRequestNonce === lastShakeRequestNonce) return;
-    lastShakeRequestNonce = state.testShakeRequestNonce;
-
-    const vsFpm = Number(state.testShakeVs || -400);
-    const method = state.testShakeMethod === 'camera6dof' ? 'camera6dof' : 'eyepoint';
-    if (sendWs({ type: 'testShake', vs_fpm: vsFpm, method })) {
-      setShakeStatus(`Sent (${vsFpm} fpm, ${method})`, 2000);
-      return;
-    }
-
-    setShakeStatus('WS not ready', 2000);
   }, { detached: true, flush: 'sync' });
   cleanupFns.push(unsubscribeStore);
 

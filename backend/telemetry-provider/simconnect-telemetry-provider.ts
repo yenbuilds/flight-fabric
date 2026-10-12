@@ -1,6 +1,7 @@
 import { encodeSquawkBco16 } from '../utils/transponder-code.js';
 import { StallWarningFilter } from './stall-warning-filter';
-import { executeA32nxMinimums } from './a32nx-minimums-control.js';
+import { resolveMinimumsExecution } from '../aircraft/minimums-execution.js';
+import { getAircraftReadbackFailureHint, resolveProfileKeyEventPolicy } from '../aircraft/aircraft-control-policy.js';
 import { createProviderCdu } from './cdu/provider.js';
 import { createAutotaxi } from './aircraft-autotaxi.js';
 import { createAircraftPushback } from './aircraft-pushback.js';
@@ -67,14 +68,6 @@ const { getProfileEngineCount } = require('../core/simbridge-core-utils') as {
   getProfileEngineCount: (profile: any) => number | null;
 };
 const { LvarSidecarBridge } = require('./lvar-sidecar-bridge');
-const {
-  MIN_TOUCHDOWN_SHAKE_VS_FPM,
-  TOUCHDOWN_SHAKE_DISABLED,
-  buildTouchdownShakeProfile,
-  normalizeTouchdownShakeIntensity,
-  normalizeTouchdownShakeMethod,
-  runTouchdownShake,
-} = require('./touchdown-shake.js') as typeof import('./touchdown-shake.js');
 const { RustSimvarBridge } = require('./rust-simvar-bridge.js') as {
   RustSimvarBridge: new (options?: any) => any;
 };
@@ -108,9 +101,7 @@ const { decodeLights } = require('../utils/helpers');
 const { encodeFrequencyBcd16Mhz } = require('../utils/radio-frequency');
 const { NAV_RADIO_FIELDS, captureNavRadios } = require('./nav-radio-state');
 const { COM_RADIO_DEFINITIONS, COM_RADIO_FIELDS, captureComRadio, executeComRadioTransaction } = require('./com-radio-control');
-const { captureBaroState, executeBaroTransaction } = require('./baro-control');
-const { captureFenixBaroState, executeFenixBaroTransaction } = require('./fenix-baro-control');
-const { captureA380BaroState, executeA380BaroTransaction } = require('./a380-baro-control');
+const { resolveBarometerExecution } = require('../aircraft/barometer-execution');
 const {
   captureLightMaskSample,
   captureGenericLightReadback,
@@ -170,23 +161,6 @@ const MAX_AIRCRAFT_INTEGRATION_CALCULATOR_TARGET_STEPS = 500;
 const AIRCRAFT_INTEGRATION_BATCH_STEP_MS = 40;
 // How long a primed encoder is watched for movement before the target is re-read.
 const AIRCRAFT_INTEGRATION_PRIME_SETTLE_MS = 300;
-const INIBUILDS_TRISTAR_PROFILE_KEY = 'bundled/msfs/inibuilds-tristar';
-const INIBUILDS_TRISTAR_AFCS_PULSE_COOLDOWN_MS = 600;
-const INIBUILDS_TRISTAR_AFCS_PULSE_GROUPS: Readonly<Record<string, string>> = Object.freeze({
-  AP_AIRSPEED_HOLD: 'autothrottle',
-  AP_VS_HOLD: 'verticalSpeedHold',
-  AP_ALT_HOLD: 'altitudeHold',
-  AP_MACH_HOLD: 'machHold',
-  AP_HDG_HOLD: 'headingHold',
-  TOGGLE_FLIGHT_DIRECTOR: 'flightDirector',
-  AP_MASTER: 'apMaster',
-  AUTOPILOT_OFF: 'apMaster',
-  AP_APR_HOLD: 'app',
-  AP_LOC_HOLD: 'loc',
-  AP_NAV1_HOLD: 'nav1',
-  TOGGLE_WATER_RUDDER: 'ins',
-  AP_BC_HOLD: 'backcourse',
-});
 const AIRCRAFT_INTEGRATION_DERIVED_LIGHT_SIMVARS: Readonly<Record<string, string>> = Object.freeze({
   'LIGHT BEACON': 'beacon',
   'LIGHT LANDING': 'landing',
@@ -197,7 +171,6 @@ const AIRCRAFT_INTEGRATION_DERIVED_LIGHT_SIMVARS: Readonly<Record<string, string
   'LIGHT TAXI:2': 'turnoff',
   'LIGHT WING': 'wing',
 });
-const PMDG_777_INTEGRATION_ID = 'pmdg-777';
 
 function finiteTelemetryNumber(value: unknown): number | null {
   if (value == null || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) return null;
@@ -805,7 +778,6 @@ class SimConnectTelemetryProvider {
 
     // Optional LVAR sidecar bridge (disabled by default via config)
     this._lvarBridge = null;
-    this._activeShake = null; // TouchdownShakeRunner while a landing shake is playing
     this._lvarConfig = { enabled: false, profileId: 'generic', subscriptions: [] };
     this._debugLvarSubscriptions = [];
     this._lvarAircraftListener = null;
@@ -1258,11 +1230,6 @@ class SimConnectTelemetryProvider {
     if (!wasStarted) {
       this._reloadLvarSubscriptions('provider-start');
     }
-
-    // NOTE: Never send camera writes outside a shake. For CameraSetRelative6DOF
-    // even a pitch=0 "keep-alive" holds MSFS in camera override mode, which locks
-    // the user's camera until the SimConnect session ends. Every shake ends with
-    // explicit zero writes (see touchdown-shake.ts) and then goes quiet.
 
     if (!this._lvarAircraftListener) {
       this._lvarAircraftListener = () => {
@@ -3208,7 +3175,8 @@ class SimConnectTelemetryProvider {
       };
     }
 
-    if (route.transport === 'simbridge-mcdu') {
+    const minimums = resolveMinimumsExecution(adapterId, route);
+    if (minimums) {
       const guardKey = `${profileKey}:${adapterId}:${integrationAction.guard.groupId}`;
       if (this._aircraftIntegrationActionsInFlight.has(guardKey)) {
         return { ok: false, code: 'action_in_progress', error: 'A minimums command is already pending.', backendSource };
@@ -3219,7 +3187,7 @@ class SimConnectTelemetryProvider {
       this._aircraftIntegrationActionsInFlight.add(guardKey);
       this._aircraftIntegrationActionLastAttemptAt.set(guardKey, Date.now());
       try {
-        const result = await executeA32nxMinimums({ target: route.target, value: inputResult.value,
+        const result = await minimums.execute({ value: inputResult.value,
           isCurrent: () => !this._stopping && this._connected && this._simRunning !== false
             && this._systemState?.sim !== 0 && this._data?.userInput !== false
             && Boolean(this._getActiveAircraftIntegrationConfig(profileKey, adapterId, options.profileRevision)),
@@ -3229,7 +3197,8 @@ class SimConnectTelemetryProvider {
       } finally { this._aircraftIntegrationActionsInFlight.delete(guardKey); }
     }
 
-    if ((route.transport === 'simconnect-sequence' || (route.transport === 'mobiflight-calculator' && route.mode === 'fenix-baro')) && route.baro) {
+    const barometer = resolveBarometerExecution(adapterId, route);
+    if (barometer) {
       const guardKey = `${profileKey}:${adapterId}:${integrationAction.guard.groupId}`;
       if (this._aircraftIntegrationActionsInFlight.has(guardKey)) {
         return { ok: false, code: 'action_in_progress', error: 'An altimeter command is already pending.', backendSource };
@@ -3240,34 +3209,26 @@ class SimConnectTelemetryProvider {
       this._aircraftIntegrationActionsInFlight.add(guardKey);
       this._aircraftIntegrationActionLastAttemptAt.set(guardKey, Date.now());
       try {
-        const isFenix = route.transport === 'mobiflight-calculator';
-        const isA380 = adapterId === 'fbw-a380x';
-        const executor = isFenix ? executeFenixBaroTransaction : isA380 ? executeA380BaroTransaction : executeBaroTransaction;
-        const result = await executor({ ...route.baro, value: inputResult.value,
+        const result = await barometer.execute({ value: inputResult.value,
           isCurrent: () => !this._stopping && this._connected && this._simRunning !== false
             && this._systemState?.sim !== 0 && this._data?.userInput !== false
             && Boolean(this._getActiveAircraftIntegrationConfig(profileKey, adapterId, options.profileRevision))
-            && (!isFenix || this._getMobiFlightHealth(bridge).connected === true),
+            && (!barometer.requiresCalculatorTransport || this._getMobiFlightHealth(bridge).connected === true),
           capture: () => {
             const snapshot = bridge.getSnapshot?.();
             if (!snapshot || snapshot.profileId !== profileKey || !['running', 'connected'].includes(snapshot.status)) return null;
-            if (isA380) return captureA380BaroState(route.baro.target, (fieldId) =>
-              this._captureAircraftIntegrationReadback(bridge, { fieldId, freshness: 'field' },
-                { profileKey, adapterId, profileRevision: options.profileRevision }));
-            if (isFenix) return captureFenixBaroState(route.baro.target, route.baro.operation, (fieldId) =>
-              this._captureAircraftIntegrationReadback(bridge, { fieldId, freshness: 'field' },
-                { profileKey, adapterId, profileRevision: options.profileRevision }));
-            return captureBaroState(route.baro.target, (id) => {
-              const field = this._getAircraftIntegrationFieldConfig(profileKey, adapterId, id, options.profileRevision);
-              const key = field?.source?.type === 'lvar' ? field.source.key : null;
-              return { value: key ? snapshot.values?.[key] : undefined, updatedAt: key ? snapshot.valueUpdatedAt?.[key] : null };
-            });
+            return {
+              decoded: (fieldId) => this._captureAircraftIntegrationReadback(bridge, { fieldId, freshness: 'field' },
+                { profileKey, adapterId, profileRevision: options.profileRevision }),
+              raw: (id) => {
+                const field = this._getAircraftIntegrationFieldConfig(profileKey, adapterId, id, options.profileRevision);
+                const key = field?.source?.type === 'lvar' ? field.source.key : null;
+                return { value: key ? snapshot.values?.[key] : undefined, updatedAt: key ? snapshot.valueUpdatedAt?.[key] : null };
+              },
+            };
           },
           sendEvent: (name, value) => bridge.sendEvent(name, value), setNamedVar: (input) => bridge.setNamedVar(input),
-          executeCode: (code) => {
-            if (!isFenix || !route.codes.includes(code)) throw new Error('Unreviewed barometer input.');
-            return bridge.executeMobiFlightCode(code);
-          },
+          executeCode: (code) => bridge.executeMobiFlightCode(code),
           findException: (ids, since) => bridge.findRecentSimConnectException?.(ids, since),
         });
         return { ...result, backendSource, integrationId: integration.id, actionId, routeId: route.id, transportMode: route.transport };
@@ -3779,12 +3740,7 @@ class SimConnectTelemetryProvider {
                 ? `A newer aircraft state arrived, but ${failedReadback.fieldId} was ${formatAircraftControlReadbackValue(confirmation.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
                 : `The aircraft published no newer control state; ${failedReadback.fieldId} remained ${formatAircraftControlReadbackValue(failedBaseline.observed)} instead of ${formatAircraftControlReadbackValue(expectedValue)}.`
             );
-        const operationalHint = (
-          integration.id === PMDG_777_INTEGRATION_ID
-          && integrationAction.id.startsWith('controls.parkingBrake.')
-        )
-          ? ' PMDG Realistic parking-brake mode can require both toe brakes to be held before the lever accepts SET; releasing may be controlled by pedal input.'
-          : '';
+        const operationalHint = getAircraftReadbackFailureHint(integration.id, integrationAction.id);
         return {
           ok: false,
           code: simConnectException
@@ -3979,35 +3935,31 @@ class SimConnectTelemetryProvider {
       }
       return this._executeGenericKeyEvent(bridge, eventName, eventValue, eventParameters, backendSource, options);
     }
-    const pulseGroup = profileKey === INIBUILDS_TRISTAR_PROFILE_KEY
-      ? INIBUILDS_TRISTAR_AFCS_PULSE_GROUPS[eventName]
-      : null;
-    if (!pulseGroup) {
+    const pulsePolicy = resolveProfileKeyEventPolicy(profileKey, eventName);
+    if (!pulsePolicy) {
       const ack = await bridge.sendEvent(eventName, eventValue, eventParameters);
       return this._buildSidecarResult(ack, backendSource, `Failed to send key event ${eventName}.`);
     }
 
-    // iniBuilds documents these AFCS inputs as momentary buttons without a
-    // reliable mode-state readback. Keep their short physical-button guard at
-    // the provider boundary so rapid websocket/API requests cannot double-fire
-    // a toggle. AP A and AP DISC intentionally share the same physical group.
-    const guardKey = `${profileKey}:${pulseGroup}`;
+    // The aircraft layer owns button grouping and timing; the provider owns
+    // the shared lock so overlapping requests cannot double-fire a toggle.
+    const guardKey = `${profileKey}:${pulsePolicy.groupId}`;
     if (this._profileKeyEventsInFlight.has(guardKey)) {
       return {
         ok: false,
         code: 'action_in_flight',
-        error: 'The TriStar AFCS control is already being sent.',
+        error: pulsePolicy.inFlightError,
         backendSource,
       };
     }
     const now = Date.now();
     const lastAttemptAt = Number(this._profileKeyEventLastAttemptAt.get(guardKey) || 0);
-    if (lastAttemptAt > 0 && now - lastAttemptAt < INIBUILDS_TRISTAR_AFCS_PULSE_COOLDOWN_MS) {
+    if (lastAttemptAt > 0 && now - lastAttemptAt < pulsePolicy.cooldownMs) {
       return {
         ok: false,
         code: 'action_cooldown',
-        error: 'Wait briefly before sending the TriStar AFCS control again.',
-        retryAfterMs: INIBUILDS_TRISTAR_AFCS_PULSE_COOLDOWN_MS - (now - lastAttemptAt),
+        error: pulsePolicy.cooldownError,
+        retryAfterMs: pulsePolicy.cooldownMs - (now - lastAttemptAt),
         backendSource,
       };
     }
@@ -5193,7 +5145,6 @@ class SimConnectTelemetryProvider {
     this._stopSdkBridgeWatchdog();
     this._msfsFacilitiesGeometryProvider = null;
 
-    this._cancelActiveShake();
     if (this._rustAircraftChangedTimer) { clearTimeout(this._rustAircraftChangedTimer); this._rustAircraftChangedTimer = null; }
     this._rustIgnoredAircraftLoadedDisplayName = null;
     this._clearRustTitleFallbackTimer();
@@ -5303,112 +5254,7 @@ class SimConnectTelemetryProvider {
     return this._connected;
   }
 
-  // ─── Touchdown camera shake ───────────────────────────────────────────────
-  // Plays a V/S-scaled landing profile (strut compression, rumble, roll wobble;
-  // see touchdown-shake.ts) through the SimConnect DLL path (lvar-sidecar).
-  //
-  // Transports:
-  //   'eyepoint'   STRUCT EYEPOINT DYNAMIC OFFSET/ANGLE. Additive on top of the
-  //                user's own camera, never takes camera ownership. Default.
-  //   'camera6dof' SimConnect_CameraSetRelative6DOF. Positions relative to the
-  //                DEFAULT eyepoint, so it snaps user camera adjustments and holds
-  //                an override until MSFS releases it. Fallback only.
-  //
-  // @param {number} vsFpm  Vertical speed at touchdown in fpm (negative = descent)
-  // @param {object} [options]  { method?: 'eyepoint'|'camera6dof', intensity?: number, seed?: number }
-  // @returns {object} { ok, reason?, method, durationMs, severity, peakDropMeters, peakPitchDegrees }
-  triggerTouchdownShake(vsFpm: unknown, options: { method?: unknown; intensity?: unknown; seed?: unknown } = {}) {
-    if (TOUCHDOWN_SHAKE_DISABLED) {
-      console.warn('[TouchdownShake] Skipped: feature disabled (see touchdown-shake.ts)');
-      return { ok: false, reason: 'disabled', method: normalizeTouchdownShakeMethod(options?.method, 'eyepoint') };
-    }
-    const bridge = this._lvarBridge;
-    const lvarBridgeAvailable = Boolean(
-      bridge
-      && typeof bridge.sendEyepointOffset === 'function'
-      && typeof bridge.sendCameraShake === 'function'
-      && bridge._started
-      && bridge._proc
-      && !bridge._proc.killed,
-    );
-    const shakeConfig = config.touchdownShake || {};
-    const method = normalizeTouchdownShakeMethod(options?.method, normalizeTouchdownShakeMethod(shakeConfig.method));
-    const intensity = normalizeTouchdownShakeIntensity(options?.intensity, normalizeTouchdownShakeIntensity(shakeConfig.intensity));
 
-    if (!lvarBridgeAvailable) {
-      console.warn('[TouchdownShake] Skipped: LVAR sidecar path unavailable');
-      return { ok: false, reason: 'sidecar_unavailable', method };
-    }
-    if (typeof vsFpm !== 'number' || !Number.isFinite(vsFpm) || vsFpm > -MIN_TOUCHDOWN_SHAKE_VS_FPM) {
-      console.warn(`[TouchdownShake] Skipped: vsFpm=${vsFpm} (needs a number <= -${MIN_TOUCHDOWN_SHAKE_VS_FPM})`);
-      return { ok: false, reason: 'vs_guard', method };
-    }
-
-    const profile = buildTouchdownShakeProfile(vsFpm, {
-      intensity,
-      seed: Number.isFinite(options?.seed) ? Number(options.seed) : undefined,
-    });
-
-    // One shake at a time: a bounce re-triggers, and the old one must leave
-    // the camera neutral before the new profile starts.
-    this._cancelActiveShake();
-
-    const isAlive = () => bridge._started && bridge._proc && !bridge._proc.killed;
-    const send = method === 'camera6dof'
-      ? (sample) => {
-        if (!isAlive()) return;
-        bridge.sendCameraShake(sample);
-      }
-      : (sample) => {
-        if (!isAlive()) return;
-        bridge.sendEyepointOffset({
-          x: metersToFeet(sample.dx),
-          y: metersToFeet(sample.dy),
-          z: metersToFeet(sample.dz),
-          units: 'Feet',
-        });
-        bridge.sendEyepointAngle({ pitch: sample.pitch, bank: sample.bank, heading: sample.heading });
-      };
-
-    let runner = null;
-    runner = runTouchdownShake(profile, { send }, {
-      onComplete: () => {
-        if (this._activeShake === runner) this._activeShake = null;
-      },
-    });
-    this._activeShake = runner;
-
-    console.log(
-      `[TouchdownShake] ${method} vsFpm=${vsFpm} severity=${profile.severity.toFixed(2)} `
-      + `intensity=${intensity} drop=${(profile.peakDropMeters * 100).toFixed(1)}cm `
-      + `nod=${profile.peakPitchDegrees.toFixed(2)}deg duration=${profile.durationMs}ms`,
-    );
-
-    return {
-      ok: true,
-      method,
-      intensity,
-      durationMs: profile.durationMs,
-      severity: profile.severity,
-      peakDropMeters: profile.peakDropMeters,
-      peakPitchDegrees: profile.peakPitchDegrees,
-      seed: profile.seed,
-    };
-  }
-
-  _cancelActiveShake() {
-    const runner = this._activeShake;
-    this._activeShake = null;
-    // cancel() is safe in every state: it stops a playing shake, drops a
-    // finished shake's pending settle write, and is a no-op once settled.
-    if (runner) {
-      try { runner.cancel(); } catch {}
-    }
-  }
-}
-
-function metersToFeet(meters) {
-  return meters / 0.3048;
 }
 
 /**

@@ -125,7 +125,6 @@ export const UNPAIRED_SUPPRESSED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = O
   MSG.DEVICE_PAIRING_REQUESTS,
   MSG.DEVICE_PAIRING_APPROVAL_RESULT,
   MSG.LVAR_DEBUG_WATCH_ACK,
-  MSG.TEST_SHAKE_ACK,
   // Reserved or currently unproduced types stay closed until a producer shape
   // is reviewed and covered by a projection test.
   MSG.ENVELOPE_STATUS,

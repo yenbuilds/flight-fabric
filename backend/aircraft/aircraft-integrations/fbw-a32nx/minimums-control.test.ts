@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { executeA32nxMinimums, readMinimumsPage } = require('./a32nx-minimums-control');
+const { executeA32nxMinimums, readMinimumsPage } = require('./minimums-control');
 
 function harness(options: any = {}) {
   const lines = Array.from({ length: 12 }, () => ['', '']);
@@ -111,6 +111,31 @@ test('interference, disconnect, profile change and missing digit updates stop wi
   }
   const rejected = harness({ rejected: true });
   assert.equal((await rejected.run()).ok, false); assert.equal(rejected.keys.length, 4);
+});
+
+test('minimums closes never-opened, errored and malformed sockets without sending cockpit keys', async () => {
+  for (const fault of ['never-opens', 'error', 'malformed']) {
+    const socket: any = new EventEmitter();
+    socket.readyState = fault === 'never-opens' ? 0 : 1;
+    const messages: string[] = [];
+    let terminated = 0;
+    socket.terminate = () => { terminated++; };
+    socket.send = (message) => {
+      messages.push(message);
+      if (fault === 'malformed') socket.emit('message', 'update:{invalid-json');
+    };
+    const result = await executeA32nxMinimums({ target: 'baro', value: 420, isCurrent: () => true,
+      createSocket: () => {
+        if (fault === 'error') queueMicrotask(() => socket.emit('error', new Error('connection refused')));
+        return socket;
+      }, timeoutMs: 200, stepTimeoutMs: 75,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'minimums_unconfirmed');
+    assert.equal(result.executionStarted, false);
+    assert.equal(terminated, 1);
+    assert.ok(messages.every(message => message === 'requestUpdate'));
+  }
 });
 
 export {};

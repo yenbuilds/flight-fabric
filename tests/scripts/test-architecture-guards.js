@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const { ROOT, listRepoSourceFiles } = require('./backend-source-paths');
+const { checkOwnership } = require('./aircraft-ownership-guard');
+const aircraftOwnershipBaseline = require('./aircraft-ownership-baseline.json');
 
 const CORE_DIR = path.join(ROOT, 'backend', 'core');
 const AIRCRAFT_AGNOSTIC_TIMELINE_FILES = [
@@ -330,8 +332,48 @@ function main() {
     }),
     ...listRepoSourceFiles('scripts', { extensions: ['.js', '.ts'] }),
   ];
-  const failures = [];
+  const failures = checkOwnership(ROOT, aircraftOwnershipBaseline);
   checkSharedRegistryParity(failures);
+
+  // Barometer procedures belong to their aircraft integrations. The provider
+  // supplies current-session observations and transport callbacks through one
+  // aircraft-owned resolver; it must not regain individual aircraft dispatch.
+  const controlProvider = path.join(ROOT, 'backend', 'telemetry-provider', 'simconnect-telemetry-provider.ts');
+  for (const hit of findViolations(controlProvider,
+    /(?:fenix-baro|fbw-a380x|(?:capture|execute)(?:Fenix|A380)?Baro(?:State|Transaction)|["'][^"']*baro-control(?:\.js)?["']|A32NX[._]FCU_EFIS|[SE]_FCU_EFIS)/)) {
+    failures.push({ rule: 'barometer-adapter-ownership', file: normalizeRel(controlProvider), ...hit,
+      message: 'Barometer aircraft selection, decoding and write recipes belong behind aircraft/barometer-execution.ts.',
+    });
+  }
+  for (const hit of findViolations(controlProvider, /(?:executeA32nxMinimums|a32nx-minimums-control|fbw-a32nx[\\/]minimums-control)/)) {
+    failures.push({ rule: 'minimums-adapter-ownership', file: normalizeRel(controlProvider), ...hit,
+      message: 'Minimums aircraft selection and procedures belong behind aircraft/minimums-execution.ts.',
+    });
+  }
+  const aircraftControlOwners = [
+    'backend/aircraft/aircraft-control-policy.ts',
+    'backend/aircraft/aircraft-integrations/inibuilds-tristar/key-event-policy.ts',
+    'backend/aircraft/aircraft-integrations/pmdg-777/control-feedback.ts',
+    'backend/aircraft/barometer-contract.ts', 'backend/aircraft/barometer-execution.ts',
+    ...['fbw-a32nx', 'fenix-a32x', 'fbw-a380x'].flatMap(aircraft =>
+      ['baro.ts', 'baro-control.ts'].map(file => `backend/aircraft/aircraft-integrations/${aircraft}/${file}`)),
+    'backend/aircraft/minimums-execution.ts',
+    'backend/aircraft/aircraft-integrations/fbw-a32nx/minimums-control.ts',
+    'backend/aircraft/aircraft-integrations/fbw-a32nx/minimums.ts',
+  ];
+  for (const hit of findViolations(controlProvider,
+    /(?:INIBUILDS_TRISTAR|PMDG_777_INTEGRATION_ID|inibuilds-tristar|["']pmdg-777["']|TriStar AFCS|PMDG Realistic|aircraft-integrations[\\/])/)) {
+    failures.push({ rule: 'aircraft-control-policy-ownership', file: normalizeRel(controlProvider), ...hit,
+      message: 'Aircraft control policy and feedback belong behind aircraft/aircraft-control-policy.ts.',
+    });
+  }
+  for (const owner of aircraftControlOwners) {
+    for (const hit of findViolations(path.join(ROOT, owner), /["'][^"']*telemetry-provider[\\/][^"']*["']/)) {
+      failures.push({ rule: 'aircraft-control-transport-inversion', file: owner, ...hit,
+        message: 'Aircraft control procedures must not import a concrete telemetry provider or bridge.',
+      });
+    }
+  }
 
   for (const file of AIRCRAFT_AGNOSTIC_TIMELINE_FILES) {
     const rel = normalizeRel(file);
@@ -461,7 +503,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('Architecture guard: PASS (backend/core and shared-domain ownership)');
+  console.log('Architecture guard: PASS (backend/core, shared-domain and aircraft control ownership)');
 }
 
 main();

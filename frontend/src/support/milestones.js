@@ -11,9 +11,9 @@
 //   - The card fades by itself; ignoring it costs nothing.
 
 export const SUPPORT_MILESTONES = Object.freeze([10, 50, 100, 250, 500]);
-export const SUPPORT_MIN_DAYS_SINCE_FIRST_SEEN = 7;
-export const SUPPORT_MIN_DAYS_BETWEEN_PROMPTS = 30;
-export const SUPPORT_RECORD_VERSION = 1;
+const SUPPORT_MIN_DAYS_SINCE_FIRST_SEEN = 7;
+const SUPPORT_MIN_DAYS_BETWEEN_PROMPTS = 30;
+const SUPPORT_RECORD_VERSION = 1;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_GOAL_COUNT = 100000;

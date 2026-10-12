@@ -192,25 +192,6 @@ const DEFAULT_SETTINGS: SettingsObject = {
     startupGraceMs: 5000,
   },
 
-  // ---------------------------------------------------------------------------
-  // Effects
-  // ---------------------------------------------------------------------------
-  effects: {
-    // Camera shake on touchdown, scaled to landing V/S (default: false).
-    // DISABLED in this release regardless of this value: neither transport
-    // produced a visible effect in the sim. See TOUCHDOWN_SHAKE_DISABLED in
-    // telemetry-provider/touchdown-shake.ts. The settings are kept so a
-    // future release can honour them again without a migration.
-    touchdownShake: false,
-    // 'eyepoint' writes the sim's own eyepoint dynamic offset/angle: additive on
-    // top of the user's camera and never takes camera ownership. 'camera6dof'
-    // is the legacy CameraSetRelative6DOF path, which snaps the camera to the
-    // default eyepoint and holds it until MSFS releases the override.
-    touchdownShakeMethod: 'eyepoint',
-    // Amplitude multiplier for the shake, 0.1 to 3.
-    touchdownShakeIntensity: 1,
-  },
-
 };
 
 /**

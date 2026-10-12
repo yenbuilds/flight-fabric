@@ -5,13 +5,15 @@
       "entry": [
         "tests/scripts/test*.js",
         "tests/fixtures/*-browser.js",
+        "tests/fixtures/runtime-owner-test-identity.js",
         "tests/backend/**/*.test.ts",
         "tests/support/**/*.ts",
         "msfs-toolbar-panel/tools/build-package.js",
         "scripts/build-toolbar-voice-reference.mjs",
         "scripts/dev/pmdg-737-preview-client.js",
         "scripts/migrate-flat-flight-logs.js",
-        "scripts/prepare-start-runtime.js"
+        "scripts/prepare-start-runtime.js",
+        "scripts/report-approach-assessment.js"
       ],
       "project": [
         "*.js",
@@ -48,6 +50,7 @@
     "electron": {
       "entry": [
         "preload.js",
+        "before-pack.js",
         "**/*.test.js",
         "voice-speech-worker.js",
         "launcher/electron-integration.js",
@@ -72,6 +75,10 @@
         "flight-phases.js",
         "telemetry-ui.js",
         "toolbar/toolbar.js",
+        "toolbar/presets.js",
+        "toolbar/taxi.js",
+        "src/aircraft/toolbar-presets.js",
+        "src/aircraft/toolbar-taxi.js",
         "widgets-compact/widget-theme-bootstrap.js"
       ],
       "project": [
